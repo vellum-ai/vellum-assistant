@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T22:40:25.000Z"
+      "updatedAt": "2026-08-20T22:55:26.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -536,6 +536,9 @@
         "vellum": {
           "category": "system",
           "display-name": "macOS Automation",
+          "platforms": [
+            "macos"
+          ],
           "activation-hints": [
             "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
           ],
@@ -545,7 +548,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -759,7 +762,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T18:51:19.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "public-ingress",
@@ -780,7 +783,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-08-21T02:35:04.000Z"
     },
     {
       "id": "resend-setup",
@@ -821,12 +824,15 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "content",
           "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "self-upgrade",
@@ -1149,7 +1155,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T06:03:32.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1209,12 +1215,15 @@
       "metadata": {
         "emoji": "🔊",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "content",
           "display-name": "Sounds"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -1241,7 +1250,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-08-07T13:48:02.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "vellum-workspace-theme",
@@ -1283,6 +1292,9 @@
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
@@ -1299,7 +1311,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T16:33:06.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "watch-together",
@@ -1310,10 +1322,14 @@
         "vellum": {
           "category": "content",
           "display-name": "Watch Together",
-          "emoji": "📺"
+          "emoji": "📺",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
         }
       },
-      "updatedAt": "2026-07-15T00:42:43.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "watcher",

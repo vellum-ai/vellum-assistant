@@ -1,3 +1,4 @@
+import { isSkillCompatibleWithPlatform } from "../skills/platform-compatibility.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import type { AssistantConfig, SkillEntryConfig } from "./schema.js";
 import type { SkillSummary } from "./skills.js";
@@ -23,6 +24,7 @@ export function skillFlagKey(
 export function resolveSkillStates(
   catalog: SkillSummary[],
   config: AssistantConfig,
+  platform: NodeJS.Platform = process.platform,
 ): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
   const { entries, allowBundled } = config.skills ?? {
@@ -31,6 +33,10 @@ export function resolveSkillStates(
   };
 
   for (const skill of catalog) {
+    if (!isSkillCompatibleWithPlatform(skill, platform)) {
+      continue;
+    }
+
     // Assistant feature flag gate: if the skill declares a flag and it's disabled, skip it
     const flagKey = skillFlagKey(skill);
     if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {

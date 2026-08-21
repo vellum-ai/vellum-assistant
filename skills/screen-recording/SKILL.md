@@ -5,6 +5,8 @@ compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎬"
   vellum:
+    platforms:
+      - macos
     category: "content"
     display-name: "Screen Recording"
 ---

@@ -29,7 +29,7 @@ assistant oauth mode google --json | jq -r '.mode'
 
 Only proceed with Path A or Path B below if the user has explicitly chosen `your-own` mode.
 
-## Path A: macOS Desktop App
+## Path A: Desktop App
 
 > Path A and Path B apply only if the user has opted into your-own mode (see "Check Managed Mode First" above).
 
@@ -56,6 +56,8 @@ host_bash:
 ```
 
 Replace `TARGET_URL` with the actual URL for that step. The point of Path A is to keep the flow in the user's real Chrome profile and avoid automated-browser rejections.
+
+On the Windows desktop app, give the user each `Open:` URL and wait for them to open it in their signed-in browser. Do not run `osascript`, `pbcopy`, or other macOS commands, and do not switch to browser automation for Google Cloud Console or Google OAuth pages.
 
 ## Google-Specific Flow
 
@@ -169,7 +171,7 @@ Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 
 Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
 
-On macOS desktop, before proceeding, copy the comma-separated scope string below to the user's clipboard using `pbcopy`.
+On macOS desktop, before proceeding, copy the comma-separated scope string below to the user's clipboard using `pbcopy`. On Windows, present the scope string for the user to copy instead of invoking a macOS clipboard command.
 
 > I've opened **Data Access**.
 >
@@ -218,13 +220,13 @@ A modal should appear with the **Client ID** and **Client Secret**. Tell the use
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, and verify the connection.
 
-Google-specific override for macOS desktop app:
+Google-specific override for desktop apps:
 
 1. Before app registration, check the provider mode and set it to `your-own` if needed with `assistant oauth mode google --set your-own`.
 2. Register the OAuth app normally via `assistant oauth apps upsert`.
 3. For authorization, do **not** use the default browser behavior.
 4. Instead, run `assistant oauth connect google --no-browser` so the command returns the authorization URL.
-5. Open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill.
+5. On macOS, open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill. On Windows, give the URL to the user to open in their signed-in browser.
 6. Never use browser automation or computer-use for the Google consent screen.
 
 > I'll start the Google authorization flow now.

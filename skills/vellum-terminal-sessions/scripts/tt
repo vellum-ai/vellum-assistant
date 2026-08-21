@@ -18,6 +18,7 @@ if ! command -v tmux &>/dev/null; then
   echo "Error: tmux is not installed."
   echo "  macOS:  brew install tmux"
   echo "  Linux:  sudo apt install tmux"
+  echo "  Windows host: use WSL for tmux, or use this skill in sandbox mode"
   exit 1
 fi
 
