@@ -312,7 +312,7 @@ describe("AcpConnectAffordance", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     // The error text appears...
-    await screen.findByText(/Couldn't complete Connect Claude/i);
+    await screen.findByText(/Check the pasted key and try again/i);
     // ...and the paste field + Save remain for a retry, with the value intact.
     const retryInput = screen.getByPlaceholderText(
       "Paste your key",

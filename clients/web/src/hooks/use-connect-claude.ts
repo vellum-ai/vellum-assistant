@@ -181,9 +181,7 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
         if (isStale(flowId)) {
           return;
         }
-        setError(
-          "Couldn't complete Connect Claude. Check the pasted code and try again.",
-        );
+        setError("Check the pasted key and try again.");
         setPhase("awaiting_paste");
         return;
       }

@@ -128,8 +128,7 @@ export const TwoStepPasteError: Story = {
       connection={stubConnection({
         phase: "awaiting_paste",
         mode: "manual",
-        error:
-          "Couldn't complete Connect Claude. Check the pasted code and try again.",
+        error: "Check the pasted key and try again.",
       })}
       initialPastedCode="bad-code#state"
     />
