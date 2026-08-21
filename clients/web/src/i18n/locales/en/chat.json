@@ -123,6 +123,14 @@
     "syntheticYield": "Yield · compaction couldn't fit next step",
     "unrecognizedCall": "Unrecognized call"
   },
+  "cameraDeepLink": {
+    "captureFailed": "Could not take that photo. Please try again.",
+    "close": "Close camera",
+    "flip": "Switch camera",
+    "openFailed": "Could not open the camera.",
+    "shutter": "Take photo",
+    "title": "Take a photo"
+  },
   "chatComposer": {
     "addToChat": "Add to chat",
     "askAssistantPlaceholder": "Ask {assistantName}"
