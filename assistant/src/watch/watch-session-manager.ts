@@ -158,6 +158,31 @@ export interface WatchSessionStartOptions {
    * client and returns an ambiguity error otherwise.
    */
   readonly clientId?: string;
+  /**
+   * Called once for each screen read that landed on the timeline, so whoever
+   * started the session can tell the user their screen was just read.
+   *
+   * **It fires on the observation landing, never on the request going out.**
+   * A dispatch is a promise, and this session has three ways of breaking one.
+   * The host answers `ok: false`, which is every failure it has including a
+   * read that outran {@link OBSERVE_TIMEOUT_MS}. The request throws. Or the
+   * session ends underneath a read still in flight and the `stopped` guard
+   * drops what comes back. An indicator driven from dispatch would draw a
+   * capture in all three, which is the one thing a capture indicator may not
+   * do. Fired from the single point past every one of those checks, so a
+   * failure mode added later is silent here by default rather than loud and
+   * wrong.
+   *
+   * Landing rather than merely returning, for the same reason. A read the
+   * store refused (its conversation is gone, or the payload carried nothing)
+   * left no record of the screen behind, and there is nothing to confirm.
+   *
+   * Scoped to the session it was passed with: the manager drops it along with
+   * the session on {@link WatchSessionManager.stop}, so a listener cannot
+   * outlive what it is reporting on. It owns its own failures; a throw is
+   * logged and the session carries on watching.
+   */
+  readonly onObservation?: () => void;
 }
 
 export type WatchSessionStartResult =
@@ -186,6 +211,7 @@ interface ActiveWatchSession {
   readonly conversationId: string;
   readonly sourceActorPrincipalId: string;
   readonly clientId: string | undefined;
+  readonly onObservation: (() => void) | undefined;
   readonly startedAtMs: number;
   entryCount: number;
   /**
@@ -264,6 +290,7 @@ export class WatchSessionManager {
       conversationId,
       sourceActorPrincipalId: options.sourceActorPrincipalId,
       clientId: options.clientId,
+      onObservation: options.onObservation,
       startedAtMs: this.now(),
       entryCount: 0,
       lastObserveAtMs: Number.NEGATIVE_INFINITY,
@@ -433,15 +460,16 @@ export class WatchSessionManager {
         );
         return;
       }
-      this.recordAppend(
-        session,
-        appendObservation(session.sessionId, {
-          conversationId: session.conversationId,
-          observation,
-          atMs,
-          attachScreenshot: shouldAttachScreenshot(observation),
-        }),
-      );
+      const appended = appendObservation(session.sessionId, {
+        conversationId: session.conversationId,
+        observation,
+        atMs,
+        attachScreenshot: shouldAttachScreenshot(observation),
+      });
+      this.recordAppend(session, appended);
+      if (appended.ok) {
+        this.announceObservation(session);
+      }
     } catch (err) {
       // Nothing on this path is meant to throw, and the idle timer has no
       // caller to hand a rejection to, so an unexpected one ends the
@@ -490,6 +518,28 @@ export class WatchSessionManager {
     if (session.idleTimer !== null) {
       clearTimeout(session.idleTimer);
       session.idleTimer = null;
+    }
+  }
+
+  /**
+   * Tell the session's listener that a screen read landed.
+   *
+   * The listener is somebody else's code, so its throw is caught here rather
+   * than left to {@link WatchSessionManager.observeNow}'s own catch, which
+   * would log it as the observation having failed when the observation is the
+   * one thing that provably worked.
+   */
+  private announceObservation(session: ActiveWatchSession): void {
+    if (session.onObservation === undefined) {
+      return;
+    }
+    try {
+      session.onObservation();
+    } catch (err) {
+      log.warn(
+        { err, sessionId: session.sessionId },
+        "Watch observation listener threw",
+      );
     }
   }
 

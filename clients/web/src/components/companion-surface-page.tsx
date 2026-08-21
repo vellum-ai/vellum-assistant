@@ -105,6 +105,10 @@ export function CompanionSurfacePage() {
   const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
     undefined,
   );
+  // How many times the running session has read the screen. Held with the flag
+  // rather than derived from it, because the flag is a state that lasts for
+  // minutes and this is the only account of the discrete moments inside it.
+  const [captureCount, setCaptureCount] = useState(0);
   // Whether Watch is offered at all, from the only side of this surface that
   // can know. This window never hydrates a flag store: it has no auth and no
   // `RootLayout`, so it would sit on registry defaults forever. Main reads the
@@ -164,6 +168,10 @@ export function CompanionSurfacePage() {
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
       setWatchRetro(state.watchRetro);
+      // Absence is no reads, for the same reason absence is no session: a
+      // state that cannot say how much of the screen was taken has not
+      // established that any of it was.
+      setCaptureCount(state.captureCount ?? 0);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -472,6 +480,10 @@ export function CompanionSurfacePage() {
           // router, and the answer has to reach the side holding the question
           // or the prompt comes back on the next push.
           onWatchRetro={answerCompanionWatchRetro}
+          // The reads that session has taken, which is what turns a running
+          // session into something the user can see happening rather than
+          // something they are told is on.
+          captureCount={captureCount}
           // The flag, from main. It hides the way into a session and leaves
           // everything a running one draws alone, so a session already going
           // when the flag turns off can still be seen and still be stopped.

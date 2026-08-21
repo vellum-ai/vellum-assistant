@@ -47,6 +47,15 @@
  * `ready` is a failed start rather than a session that stopped: it tears down
  * and the flag never moves.
  *
+ * **A capture is the runtime's word, never a local guess.** The runtime
+ * decides when to read the screen and reports each read that landed as an
+ * `observation` frame; this module counts those frames and nothing else. The
+ * cadence is deliberately irregular (it follows the user's narration, between
+ * a five second floor and a fifteen second ceiling), so a timer here would
+ * claim captures in the gaps and miss the ones that matter, and a count driven
+ * from anything the client can see for itself would be a client telling the
+ * user what the machine is doing to their screen.
+ *
  * **The session belongs to one assistant.** It is started against the active
  * assistant, gated on that assistant being new enough to serve the route, and
  * ended the moment it stops being the active one. The alternative is narration
@@ -97,7 +106,8 @@ import {
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
- * Whether a watch session is running, for anything that draws it.
+ * What a watch session looks like from outside: whether one is running, and
+ * how much of the user's screen it has read so far.
  *
  * A store rather than a plain flag because the companion mirror publishes this
  * to the macOS surface and has to be told when it moves, and because the
@@ -106,9 +116,28 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  */
 interface WatchState {
   watching: boolean;
+  /**
+   * Screen reads this session has taken, one per `observation` frame.
+   *
+   * The runtime sends that frame only for a read that came back and was kept
+   * (`assistant/src/runtime/routes/watch-routes.ts`), so every step of this
+   * number is a capture that demonstrably happened. Nothing here counts a
+   * dispatch, and nothing here runs on a timer: the runtime's cadence is three
+   * or four reads a minute and it moves with what the user does, so a local
+   * approximation of it would be a capture indicator that is wrong most of the
+   * time in both directions.
+   *
+   * Zeroed when a session is accepted rather than left to accumulate, so a
+   * surface can read "greater than zero" as this session having captured
+   * something and never inherit a step from the session before it.
+   */
+  captureCount: number;
 }
 
-export const useWatchStore = create<WatchState>(() => ({ watching: false }));
+export const useWatchStore = create<WatchState>(() => ({
+  watching: false,
+  captureCount: 0,
+}));
 
 /**
  * How long a session may sit pending before it is given up on.
@@ -703,7 +732,10 @@ function openSession(
     accepted = true;
     runtimeSession = session;
     readyTimer = cancel(readyTimer);
-    useWatchStore.setState({ watching: true });
+    // The capture count belongs to this session and starts at none, in the
+    // same write as the flag: a surface that read a leftover count beside a
+    // freshly true flag would mark a capture this session has not taken.
+    useWatchStore.setState({ watching: true, captureCount: 0 });
     void capture.start().then((result) => {
       // Mic denied, or a device another app is holding. There is nothing to
       // narrate over, so the session ends rather than sitting open on silence.
@@ -752,6 +784,18 @@ function openSession(
               }
             : null,
         );
+      }
+      return;
+    }
+    if (message.type === "observation") {
+      // The runtime read the screen and kept what it saw. Counted only on a
+      // live session: past the stop edge the flag is already down and the
+      // surface has stopped drawing a capture, so a late read from the flush
+      // has nothing left to mark.
+      if (phase === "live") {
+        useWatchStore.setState((state) => ({
+          captureCount: state.captureCount + 1,
+        }));
       }
       return;
     }

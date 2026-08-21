@@ -37,33 +37,43 @@ const resetState = () => {
   STATE.working = false;
   STATE.call = null;
   delete STATE.watching;
+  delete STATE.captureCount;
   STATE.watchEnabled = true;
   STATE.intro = null;
 };
 
 /**
- * The live subscriber, so a case can push a state change the way main does.
- * Held rather than ignored because some of what this page decides is about
- * moving between states, not about being in one.
+ * The page's subscribers, so a case can push a second state the way main does.
+ *
+ * The state main hands back on mount is what this window inherits, and some of
+ * what the page draws is a difference between that and what arrives after, so
+ * a bridge that only ever answers once cannot express it.
  */
-let subscriber: ((state: CompanionSurfaceState) => void) | null = null;
+const listeners = new Set<(state: CompanionSurfaceState) => void>();
 
-/** Publish the current `STATE`, as main's push would. */
-const pushState = () => {
+/**
+ * Push a state to the mounted page, inside `act` so React settles.
+ *
+ * With no argument it publishes the current `STATE`, which is how the cases
+ * that mutate that object drive a change; with one it pushes exactly what it
+ * was handed, which is how the cases about the difference between two states
+ * drive theirs.
+ */
+const pushState = (state: CompanionSurfaceState = { ...STATE }) => {
   act(() => {
-    subscriber?.({ ...STATE });
+    for (const listener of listeners) {
+      listener(state);
+    }
   });
 };
 
 mock.module("@/runtime/companion-surface", () => ({
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
-    callback: (state: CompanionSurfaceState) => void,
+    listener: (state: CompanionSurfaceState) => void,
   ) => {
-    subscriber = callback;
-    return () => {
-      subscriber = null;
-    };
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   },
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
@@ -333,6 +343,55 @@ describe("the watch session on the companion surface", () => {
     await waitFor(() => {
       expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
     });
+  });
+
+  /**
+   * The session's screen reads reach this window the same way the flag does,
+   * and they are the half nothing else can stand in for: the flag says a
+   * session is open and only the count says the screen has actually been read.
+   */
+  test("draws a capture the session reported", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    pushState({ ...STATE, captureCount: 4 });
+
+    expect(container.querySelector(".companion-capture-pulse")).not.toBeNull();
+  });
+
+  /**
+   * This window is recreated on every reload, and main answers the new one
+   * with the total it has been keeping. That number stands for reads taken
+   * before this window existed, so drawing it would present the last of them
+   * as one happening now.
+   */
+  test("does not draw a capture it only inherited from main", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
+  });
+
+  /**
+   * A state that cannot say how many reads a session has taken has not
+   * established that it took any, the same bargain the flag itself is given.
+   */
+  test("reads a state that says nothing about captures as none", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
   });
 
   /**

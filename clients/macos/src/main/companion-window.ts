@@ -309,6 +309,7 @@ let context: CompanionContext = {
   turns: [],
   working: false,
   watching: false,
+  captureCount: 0,
 };
 
 /**
@@ -340,6 +341,10 @@ const currentState = (): CompanionSurfaceState => {
     // has no resting value to settle to, since every value it can hold is a
     // claim that something is happening.
     watchRetro: context.watchRetro,
+    // Settled the same way, and to zero rather than to anything carried over:
+    // a publisher that reports no count has taken no reads this surface can
+    // vouch for.
+    captureCount: context.captureCount ?? 0,
     // Read on every rebuild rather than captured once, because the evaluation
     // lands after launch: the app's window has to sign in and fetch it first,
     // and a targeting change can move it again while the app runs.

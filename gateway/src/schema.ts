@@ -1044,7 +1044,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Watch stream WebSocket",
           description:
-            "Accepts a WebSocket upgrade for a watch session's narration audio. Authenticates the client using an edge JWT (actor principal) and proxies frames bidirectionally to the assistant runtime's /v1/watch/stream endpoint using a gateway service token. Requires the mimeType query parameter. Client frames are audio; runtime frames are session lifecycle only (ready, entry, error, closed), never transcript text.",
+            "Accepts a WebSocket upgrade for a watch session's narration audio. Authenticates the client using an edge JWT (actor principal) and proxies frames bidirectionally to the assistant runtime's /v1/watch/stream endpoint using a gateway service token. Requires the mimeType query parameter. Client frames are audio; runtime frames are session lifecycle and acknowledgements only (ready, entry, observation, error, closed), never transcript text. An observation frame acknowledges that the runtime read the screen and kept what it saw, and like entry it carries nothing beyond the fact that it happened.",
           operationId: "watchStreamWebsocket",
           security: [{ BearerAuth: [] }],
           parameters: [

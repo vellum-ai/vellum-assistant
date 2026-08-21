@@ -117,6 +117,11 @@ export const companionContextSchema = z.object({
   // happening, and absence is the only way to say nothing is. See
   // `CompanionWatchRetro`.
   watchRetro: z.enum(["pending", "ready"]).optional(),
+  // The running session's screen reads, counted. Bounded to a non-negative
+  // integer at the boundary because the surface reads a step in it as a
+  // capture having happened, and the only shape that can say that is a whole
+  // number that goes up.
+  captureCount: z.number().int().nonnegative().default(0),
 });
 
 // ---------------------------------------------------------------------------

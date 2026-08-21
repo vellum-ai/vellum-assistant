@@ -138,16 +138,20 @@ function currentContext(): CompanionContext {
     // announces the retrospective on this window's event stream, which the
     // surface's own renderer is not subscribed to.
     watchRetro: useWatchRetroStore.getState().retro?.phase,
+    // The session's screen reads, counted. A step in this is the surface's
+    // only evidence that a capture happened, so it is published with the flag
+    // rather than beside it: the two are one fact about one session, and a
+    // count that arrived a push apart from the flag it belongs to would mark a
+    // capture against a session the surface has already stopped drawing.
+    captureCount: useWatchStore.getState().captureCount,
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
-      .map(
-        (message): CompanionTurn => ({
-          role:
-            message.role === "user" ? ("user" as const) : ("assistant" as const),
-          text: messagePlainText(message),
-        }),
-      ),
+      .map((message): CompanionTurn => ({
+        role:
+          message.role === "user" ? ("user" as const) : ("assistant" as const),
+        text: messagePlainText(message),
+      })),
   };
 }
 
@@ -158,10 +162,12 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.working === b.working &&
     a.watching === b.watching &&
     a.watchRetro === b.watchRetro &&
+    a.captureCount === b.captureCount &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
-        turn.role === b.turns[index]?.role && turn.text === b.turns[index]?.text,
+        turn.role === b.turns[index]?.role &&
+        turn.text === b.turns[index]?.text,
     )
   );
 }
@@ -225,8 +231,9 @@ export function useCompanionMirror(): void {
     // on its own when the socket drops. Only its own store reports either.
     //
     // Straight to `sync` rather than through a flip gate like the one above,
-    // because this store is written on the session's two edges and nothing
-    // else, where the conversation store moves for plenty the card never draws.
+    // because this store is written on the session's two edges and once per
+    // screen read, all three of which the surface draws, where the
+    // conversation store moves for plenty the card never draws.
     const unsubscribeWatch = useWatchStore.subscribe(sync);
     // The summary's own store, for the same reason and on the same terms: it
     // moves on the stop edge, on the runtime's announcement, and on the user

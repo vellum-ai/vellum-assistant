@@ -856,6 +856,22 @@ export interface CompanionContext {
    * See {@link CompanionWatchRetro}. Omitted means there is nothing to say.
    */
   watchRetro?: CompanionWatchRetro;
+
+  /**
+   * How many times the running session has read the screen, counted from the
+   * moment it started.
+   *
+   * A count rather than a timestamp: it crosses a process boundary, and two
+   * sides comparing "when" would be two clocks, where comparing "how many"
+   * only ever asks whether the number moved. Reset to zero by the session that
+   * owns it, so a fresh session never inherits the last one's total and its
+   * first read is unambiguously its first.
+   *
+   * Optional and defaulted for the same reason {@link CompanionContext.watching}
+   * is: a publisher with no session to report says nothing, and zero reads is
+   * the truthful reading of silence.
+   */
+  captureCount?: number;
 }
 
 /**
@@ -986,6 +1002,21 @@ export interface CompanionSurfaceState {
    * Optional, and absence means there is nothing to draw.
    */
   watchRetro?: CompanionWatchRetro;
+
+  /**
+   * How many screen reads the running session has taken, from the window that
+   * owns it. See {@link CompanionContext.captureCount}.
+   *
+   * {@link CompanionSurfaceState.watching} says a session is open, which is a
+   * state that holds for minutes; this is what lets the surface mark the
+   * discrete moments inside it. Each increment is one read that reached the
+   * runtime's timeline, so a surface may treat a step in this number as proof
+   * the screen was read and the flat stretches between as proof it was not.
+   *
+   * Optional, and absence reads as no reads yet, the same bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  captureCount?: number;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the

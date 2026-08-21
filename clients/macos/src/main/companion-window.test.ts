@@ -710,6 +710,28 @@ describe("the watch session main relays", () => {
   });
 
   /**
+   * The session's screen reads, which the surface draws one flare per. Main
+   * holds them for the same reason it holds the flag: the surface's renderer
+   * reloads, and it has no other way of knowing what a session has taken.
+   */
+  test("carries the capture count into pushed state", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ watching: true, captureCount: 3 }),
+    );
+    expect(state().captureCount).toBe(3);
+  });
+
+  /**
+   * A publisher that reports no count has taken no reads this surface can
+   * vouch for, the same bargain absence is given everywhere else here.
+   */
+  test("reads a context with no capture count as no captures", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state().captureCount).toBe(0);
+  });
+
+  /**
    * One channel carries the whole snapshot, so a context that flips watching is
    * a single push. Pushing the fact separately from the context it arrived with
    * would send the surface two states for one publish, the first of them stale.
