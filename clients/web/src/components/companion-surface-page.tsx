@@ -11,6 +11,7 @@ import {
 } from "@/components/companion-surface";
 import {
   activateCompanionApp,
+  answerCompanionWatchRetro,
   advanceCompanionIntro,
   getCompanionState,
   moveCompanionBy,
@@ -20,6 +21,7 @@ import {
   startCompanionVoice,
   submitCompanionMessage,
   subscribeCompanionState,
+  toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
 import type {
@@ -29,6 +31,7 @@ import type {
   CompanionIntroBeat,
   CompanionSurfaceState,
   CompanionTurn,
+  CompanionWatchRetro,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -92,6 +95,25 @@ export function CompanionSurfacePage() {
   // draws as its working ring, so the assistant being busy is legible without
   // opening the card or reading a word of it.
   const [working, setWorking] = useState(false);
+  // Whether a session is reading the screen, from the window that owns it.
+  // Held by main and pushed here with everything else, so this window can
+  // reload mid-session without the indicator that says so going dark.
+  const [watching, setWatching] = useState(false);
+  // Where the last session's summary has got to, from the window that ran it.
+  // Undefined is the resting answer and the only one that draws nothing: both
+  // of the others are claims that something is happening.
+  const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
+    undefined,
+  );
+  // How many times the running session has read the screen. Held with the flag
+  // rather than derived from it, because the flag is a state that lasts for
+  // minutes and this is the only account of the discrete moments inside it.
+  const [captureCount, setCaptureCount] = useState(0);
+  // Whether Watch is offered at all, from the only side of this surface that
+  // can know. This window never hydrates a flag store: it has no auth and no
+  // `RootLayout`, so it would sit on registry defaults forever. Main reads the
+  // evaluation the app's window wrote into settings and pushes it here.
+  const [watchEnabled, setWatchEnabled] = useState(false);
   const [hovered, setHovered] = useState(false);
   // Which beat of the one-time introduction is on screen, or null when none is.
   // Main's, like the session: this window can reload mid-run, and a beat held
@@ -141,6 +163,20 @@ export function CompanionSurfacePage() {
       setTurns(state.turns);
       setAssistantName(state.assistantName);
       setWorking(state.working);
+      // Absence is not a session: every state that is not a positive answer
+      // reads as nothing running, because the alternative is a capture
+      // indicator over a machine nobody is reading.
+      setWatching(state.watching === true);
+      setWatchRetro(state.watchRetro);
+      // Absence is no reads, for the same reason absence is no session: a
+      // state that cannot say how much of the screen was taken has not
+      // established that any of it was.
+      setCaptureCount(state.captureCount ?? 0);
+      // Off unless the answer is positively yes, which covers a shell that
+      // predates the field and a window whose flags have not synced yet. The
+      // control this decides starts reading the user's screen, so a state of
+      // not knowing has to read as not offering it.
+      setWatchEnabled(state.watchEnabled === true);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -327,6 +363,17 @@ export function CompanionSurfacePage() {
   // The composer sits above even that, because it is the one state holding
   // something of the user's. A call starting from the app while a sentence is
   // half-typed must not collapse the card and take the sentence with it.
+  //
+  // A watch session holds the pill open for the same reason the call does, and
+  // ranks below both: they are things the user is in the middle of, where this
+  // one runs beside whatever they are doing. Being outranked costs the session
+  // nothing, since the phase is only what the pill is drawing and the indicator
+  // reads `watching` instead.
+  //
+  // The summary of a finished session sits between the two: it outranks hover
+  // because it is a wait the user is owed an answer to and then a question
+  // waiting on one, and it is outranked by a session still recording, which is
+  // the one thing on this surface a user must always be able to see and stop.
   // The introduction sits above the pointer and below everything the user is in
   // the middle of. A beat that names a control has to have that control on
   // screen to name, so it holds the pill open the way a call does; but a run
@@ -337,7 +384,11 @@ export function CompanionSurfacePage() {
     ? "typing"
     : call !== null
       ? "call"
-      : (introHeld ?? (hovered ? "hover" : "resting"));
+      : watching
+        ? "watching"
+        : watchRetro !== undefined
+          ? "summary"
+          : (introHeld ?? (hovered ? "hover" : "resting"));
 
   // The avatar's own colour, which arrives with the session. It is `""` until
   // the avatar resolves and the contract makes no promise it parses, so
@@ -413,6 +464,30 @@ export function CompanionSurfacePage() {
           // assistant is busy, and it is busy on someone else's conversation just
           // as much as on this one.
           working={working}
+          // Its own prop rather than something the surface derives from the
+          // phase. The phase above is outranked by `typing` and `call`, and the
+          // indicator and the control that ends the session are not: they
+          // belong to the session, not to whatever the pill is drawing over it.
+          watching={watching}
+          // Its own prop rather than something derived from the phase, for the
+          // reason `watching` is: a call or an open composer outranks the
+          // phase, and a question the user has been asked must not lose its
+          // answer because they picked up the phone.
+          watchRetro={watchRetro}
+          // Out through main and into the window that ran the retrospective. A
+          // yes raises the app on the report; a no leaves the window where it
+          // is. Neither is handled here: this page has no conversation and no
+          // router, and the answer has to reach the side holding the question
+          // or the prompt comes back on the next push.
+          onWatchRetro={answerCompanionWatchRetro}
+          // The reads that session has taken, which is what turns a running
+          // session into something the user can see happening rather than
+          // something they are told is on.
+          captureCount={captureCount}
+          // The flag, from main. It hides the way into a session and leaves
+          // everything a running one draws alone, so a session already going
+          // when the flag turns off can still be seen and still be stopped.
+          watchEnabled={watchEnabled}
           // Draws the control the beat is about as though the pointer were on
           // it. The pill is open on those beats but the pointer is wherever the
           // user's hand happens to be, so without this the beat names a control
@@ -490,6 +565,10 @@ export function CompanionSurfacePage() {
           // What comes back is `call`, once that renderer has a session to
           // report.
           onTalk={startCompanionVoice}
+          // One press for both edges, and it leaves this window the way Talk
+          // does: the session lives in the renderer holding the chat layout,
+          // and this page only asks for it. What comes back is `watching`.
+          onWatch={toggleCompanionWatch}
           // Type opens the composer here rather than leaving this window, since
           // the field it opens is on this surface. What leaves is the message.
           onType={() => {

@@ -14995,6 +14995,38 @@ paths:
           description: Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile
         "404":
           description: Profile not found
+  /v1/inference/profiles/{name}/validate:
+    post:
+      operationId: inference_profiles_by_name_validate_post
+      summary: Probe a saved profile with one minimal request
+      description:
+        "Dispatch one minimal test request through the named profile's resolved model and connection, and classify
+        any failure by which object the user should fix (the profile vs its provider connection). Advisory: the probe
+        never mutates the profile. Returns a null check when there is no verdict to give (missing, disabled, managed, or
+        routing-identity profiles, or a probe timeout). The probe spends one tiny request on the profile's own key."
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  check:
+                    anyOf:
+                      - $ref: "#/components/schemas/InferenceProfileCheck"
+                      - type: "null"
+                required:
+                  - check
+                additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
@@ -35697,6 +35729,29 @@ components:
         - name
         - entry
         - availability
+      additionalProperties: false
+    InferenceProfileCheck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        blame:
+          type: string
+          enum:
+            - profile
+            - provider
+            - transient
+            - unknown
+        reason:
+          type: string
+        detail:
+          type: string
+        connection:
+          type: string
+        message:
+          type: string
+      required:
+        - ok
       additionalProperties: false
     ProviderConnection:
       type: object

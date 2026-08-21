@@ -1445,6 +1445,13 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosity"
   },
+  "profileCheck": {
+    "profileError": "Saved, but a test request through this profile failed: {detail} Check the profile's model and parameters.",
+    "providerError": "Saved, but a test request through this profile failed: {detail} Check the provider connection \"{connection}\".",
+    "providerErrorUnnamed": "Saved, but a test request through this profile failed: {detail} Check the profile's provider connection.",
+    "transient": "Saved, but a test request through this profile could not complete: {detail} This may be temporary.",
+    "unknown": "Saved, but a test request through this profile failed: {detail}"
+  },
   "profileDetailPanel": {
     "createProfile": "Create Profile",
     "defaultTitle": "Profile",
@@ -1458,6 +1465,8 @@
     "saving": "Saving…"
   },
   "profileEditor": {
+    "maxTokensNoInputRoom": "Max tokens ({maxTokens}) reserves the entire {window}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).",
+    "maxTokensOverCap": "Max tokens ({maxTokens}) exceeds the model's maximum output of {cap} tokens. Reduce it to {cap} or less.",
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
   },
   "profileEditorFields": {

@@ -74,6 +74,8 @@ function makeStreamingSession(events: AssistantEvent[]): Conversation {
       }
     },
     handleConfirmationResponse: () => {},
+    // The image-bearing profile pin reads the leg's history.
+    getMessages: () => [],
     abort: () => {},
   } as unknown as Conversation;
 }
@@ -133,6 +135,8 @@ function makePersistingStreamingSession(
     },
     handleConfirmationResponse: () => {},
     abort: () => {},
+    // The image-bearing profile pin reads the leg's history.
+    getMessages: () => [],
   } as unknown as Conversation &
     PersistUserMessageContext & {
       callSessionId?: string;
@@ -263,6 +267,8 @@ describe("voice-session-bridge", () => {
       abort: () => {
         abortCalled = true;
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -302,6 +308,8 @@ describe("voice-session-bridge", () => {
           onEvent(event);
         }
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -348,6 +356,8 @@ describe("voice-session-bridge", () => {
           onEvent(event);
         }
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -393,6 +403,8 @@ describe("voice-session-bridge", () => {
       abort: () => {
         abortCalled = true;
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -430,6 +442,8 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: (ctx: unknown) => {
         capturedTurnChannelContext = ctx;
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -586,6 +600,8 @@ describe("voice-session-bridge", () => {
           capturedTrustContext = ctx;
         }
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -629,6 +645,8 @@ describe("voice-session-bridge", () => {
           capturedPrompt = prompt;
         }
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -690,6 +708,8 @@ describe("voice-session-bridge", () => {
           capturedPrompt = prompt;
         }
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -782,6 +802,8 @@ describe("voice-session-bridge", () => {
         });
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -870,6 +892,8 @@ describe("voice-session-bridge", () => {
         });
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -946,6 +970,8 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision });
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -1014,6 +1040,8 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision });
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -1080,6 +1108,8 @@ describe("voice-session-bridge", () => {
         handleConfirmationCalls.push({ requestId, decision });
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -1164,6 +1194,8 @@ describe("voice-session-bridge", () => {
         } as AssistantEvent);
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
   }
 
@@ -1303,6 +1335,8 @@ describe("voice-session-bridge", () => {
         handleSecretCalls.push({ requestId, value, delivery });
       },
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);
@@ -1354,6 +1388,8 @@ describe("voice-session-bridge", () => {
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation & { forcePromptSideEffects: boolean };
 
     injectDeps(() => session);
@@ -1413,6 +1449,8 @@ describe("voice-session-bridge", () => {
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation & {
       forcePromptSideEffects: boolean;
       callSessionId?: string;
@@ -1479,6 +1517,8 @@ describe("voice-session-bridge", () => {
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
       abort: () => {},
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation & {
       forcePromptSideEffects: boolean;
       callSessionId?: string;
@@ -1540,6 +1580,8 @@ describe("voice-session-bridge", () => {
       abort: () => {
         abortCalled = true;
       },
+      // The image-bearing profile pin reads the leg's history.
+      getMessages: () => [],
     } as unknown as Conversation;
 
     injectDeps(() => session);

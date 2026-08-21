@@ -67,6 +67,37 @@ export type VellumCommand =
    */
   | { kind: "startVoice" }
   /**
+   * Turn a watch session on or off, the way the companion surface's Watch
+   * option asks.
+   *
+   * One command for both edges rather than a start and a stop: the surface
+   * draws a single toggle, and the window that owns the session is the only
+   * side that knows which edge a press is. A press that lands while a session
+   * is running ends that session.
+   *
+   * Like `startVoice`, this does not raise the app. The user reached for a
+   * floating surface precisely because they are working somewhere else, and
+   * here that work is the subject: raising the app would cover the very thing
+   * the session exists to observe.
+   */
+  | { kind: "toggleWatch" }
+  /**
+   * Answer the question the surface asks once a watch session's summary is
+   * written: open it now, or not.
+   *
+   * `open: true` is the one press on this surface that deliberately raises the
+   * app, and it is the exception `toggleWatch` above explains: the session is
+   * over, so there is no longer any work of the user's for Vellum to cover, and
+   * a "show me" that left the report where it was would be a promise the
+   * surface cannot keep.
+   *
+   * `open: false` still travels rather than being handled where it was pressed.
+   * The window that holds the session holds the question too, and a dismissal
+   * the surface kept to itself would leave that window waiting on an answer
+   * that already happened, ready to redraw the prompt on the next push.
+   */
+  | { kind: "answerWatchRetro"; open: boolean }
+  /**
    * Start a live-voice session, or end the one that is running.
    *
    * The keyboard's version of Talk. It differs from `startVoice` in the one
@@ -766,6 +797,25 @@ export interface CompanionTurn {
 }
 
 /**
+ * Where a finished watch session's summary has got to.
+ *
+ * A session ends the moment the user presses stop, and the account of it does
+ * not: the runtime spends a full turn reading the timeline back before there is
+ * anything to show. Those are the two states worth a surface, and neither is
+ * `watching`, which is over by the time either is true.
+ *
+ * - `pending`: the turn is running. The surface says so, because a session that
+ *   ends into silence reads as one that was thrown away.
+ * - `ready`: there is a report to read, and the surface asks whether to open
+ *   it.
+ *
+ * Absent is the resting answer, and covers both ends of the life: no session
+ * has finished, or the last one that did was answered, dismissed, or produced
+ * nothing to read.
+ */
+export type CompanionWatchRetro = "pending" | "ready";
+
+/**
  * What the app's own window knows that the surface cannot.
  *
  * The surface is a renderer with no assistant and no conversation in it, so
@@ -797,7 +847,64 @@ export interface CompanionContext {
    * on screen is no proof the turn behind it has ended.
    */
   working: boolean;
+  /**
+   * Whether a watch session is running, when the publisher knows.
+   *
+   * Optional here, and defaulted in `companionContextSchema`, because a
+   * publisher that runs no watch session has nothing to report, and an omitted
+   * value reads as no session of its running. Publishers that do run sessions
+   * always send it.
+   */
+  watching?: boolean;
+  /**
+   * Where the last session's summary has got to, when the publisher knows.
+   *
+   * Optional for the same reason `watching` is, and answered by the same
+   * window: the runtime reports the retrospective on the assistant's event
+   * stream, which the app's window is subscribed to and the surface's is not.
+   *
+   * See {@link CompanionWatchRetro}. Omitted means there is nothing to say.
+   */
+  watchRetro?: CompanionWatchRetro;
+
+  /**
+   * How many times the running session has read the screen, counted from the
+   * moment it started.
+   *
+   * A count rather than a timestamp: it crosses a process boundary, and two
+   * sides comparing "when" would be two clocks, where comparing "how many"
+   * only ever asks whether the number moved. Reset to zero by the session that
+   * owns it, so a fresh session never inherits the last one's total and its
+   * first read is unambiguously its first.
+   *
+   * Optional and defaulted for the same reason {@link CompanionContext.watching}
+   * is: a publisher with no session to report says nothing, and zero reads is
+   * the truthful reading of silence.
+   */
+  captureCount?: number;
 }
+
+/**
+ * The feature flag key Teach is behind, as the app's window wrote it into
+ * settings (`useElectronFeatureFlagBridge`).
+ *
+ * The constant's name and the key it holds spell the feature differently: the
+ * symbols around it say Watch, everything a person reads says Teach. A flag key
+ * is one of the things a person reads, in the LaunchDarkly dashboard.
+ *
+ * Here rather than in either client, because two clients read the same
+ * evaluation for two halves of one gate: Electron main reads it to decide
+ * whether the companion surface draws the Teach control at all, and the web
+ * app's `toggleWatch` command reads it to decide whether a press may start a
+ * session. A second copy of the string is a gate that can disagree with
+ * itself, and both ways it can disagree are bad: a visible control that
+ * nothing will start, or a command open with no control that says so.
+ *
+ * The evaluated value travels to the surface on
+ * {@link CompanionSurfaceState.watchEnabled}; this is only the key it is
+ * evaluated under.
+ */
+export const WATCH_FLAG = "teach";
 
 /**
  * The beats of the surface's one-time introduction, in order.
@@ -878,6 +985,73 @@ export interface CompanionSurfaceState {
    * {@link CompanionContext.working}.
    */
   working: boolean;
+  /**
+   * Whether a watch session is running, from the toggle until it ends.
+   *
+   * Pushed by the window that owns the session for the same reason
+   * {@link CompanionSurfaceState.working} is: the session lives in the app's
+   * window and the surface is only where it was asked for. Held here rather
+   * than kept in the surface's own renderer for the same reason the turns are,
+   * and with more riding on it: the surface can reload mid-session, and a
+   * screen being read with nothing on screen saying so is a capture the user
+   * has no way to stop.
+   *
+   * Optional, and absence means not watching. Read it as `watching === true`
+   * rather than for truthiness: every state that is not a positive answer is
+   * the answer "no session", including a state pushed by a main process that
+   * tracks no watch sessions. The same bargain `companion-window.ts` makes for
+   * the surface flag, and for the same reason: not knowing has to read as not
+   * running, because the alternative is drawing a capture indicator over a
+   * machine that is not being captured.
+   */
+  watching?: boolean;
+  /**
+   * Where the last session's summary has got to, as the window that ran it
+   * last reported. See {@link CompanionWatchRetro}.
+   *
+   * Held here rather than in the surface's own renderer for the reason the
+   * turns are: the retrospective runs long enough that the surface can reload
+   * inside it, and a prompt that came back empty would be a question the user
+   * was asked and then never got to answer.
+   *
+   * Optional, and absence means there is nothing to draw.
+   */
+  watchRetro?: CompanionWatchRetro;
+
+  /**
+   * How many screen reads the running session has taken, from the window that
+   * owns it. See {@link CompanionContext.captureCount}.
+   *
+   * {@link CompanionSurfaceState.watching} says a session is open, which is a
+   * state that holds for minutes; this is what lets the surface mark the
+   * discrete moments inside it. Each increment is one read that reached the
+   * runtime's timeline, so a surface may treat a step in this number as proof
+   * the screen was read and the flat stretches between as proof it was not.
+   *
+   * Optional, and absence reads as no reads yet, the same bargain
+   * {@link CompanionSurfaceState.watching} makes with absence.
+   */
+  captureCount?: number;
+
+  /**
+   * Whether Watch is offered at all, as the flag was last evaluated for the
+   * signed-in user.
+   *
+   * Carried on the state rather than read where it is drawn, because the
+   * surface is a floating route: it has no session, no auth, and no flag store
+   * that ever hydrates, so a value it read for itself would be the registry
+   * default forever. Main reads the evaluation the app's window wrote into
+   * settings and pushes it here with everything else, which is the same path
+   * `companion-window.ts` already takes for the surface's own flag.
+   *
+   * Optional, and absence means not offered. Read it as `watchEnabled === true`
+   * for the reason {@link CompanionSurfaceState.watching} is read that way: a
+   * shell that predates the field, a window whose flags have not synced yet,
+   * and an environment where the flag was never provisioned are all states of
+   * not knowing, and a control that reads a user's screen is not something to
+   * offer while the answer is unknown.
+   */
+  watchEnabled?: boolean;
   /**
    * The character to render live, or `undefined` when there is none to
    * compose. See {@link CompanionCharacter}; `avatarBase64` is the fallback.

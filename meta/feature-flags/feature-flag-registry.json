@@ -93,6 +93,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "teach",
+      "scope": "client",
+      "key": "teach",
+      "label": "Teach",
+      "description": "Offer Teach, the session that reads the user's screen while they narrate what they are doing. Gates the companion surface's Teach control and the toggleWatch command that starts a session; evaluated in the app's window and read again in the Electron main process, which pushes it to the floating surface",
+      "defaultEnabled": false
+    },
+    {
       "id": "expand-completed-steps",
       "scope": "client",
       "key": "expand-completed-steps",

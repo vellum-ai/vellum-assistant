@@ -95,7 +95,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "call", "typing"],
+      options: ["resting", "hover", "watching", "call", "typing"],
     },
     backdrop: {
       control: "inline-radio",
@@ -111,6 +111,8 @@ const meta: Meta<StoryArgs> = {
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
+    watching: { control: "boolean" },
+    watchEnabled: { control: "boolean" },
     introBeat: {
       control: "inline-radio",
       options: COMPANION_INTRO_BEATS,
@@ -119,6 +121,11 @@ const meta: Meta<StoryArgs> = {
   args: {
     phase: "resting",
     glow: true,
+    // On here, off everywhere a real user meets it until the flag says
+    // otherwise. Design stories are for looking at what the surface can draw,
+    // and a control the stories hid would be one nobody could review. Turn it
+    // off to see the two-control row a user without the flag gets.
+    watchEnabled: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
     character: EXAMPLE_CHARACTER,
@@ -197,6 +204,101 @@ export const TypingWhileWorking: Story = {
  */
 export const Hover: Story = {
   args: { phase: "hover", hovered: true },
+};
+
+/**
+ * A session reading the screen, with the pointer nowhere near the surface.
+ *
+ * `hovered` is off on purpose: this is the state the phase exists for. The pill
+ * stays open with no hand on it, Watch is held down, and the ring burns amber
+ * rather than the assistant's own colour, so the running session is legible
+ * from across the desk.
+ *
+ * The phase and the flag are both set because they answer different questions.
+ * Turn `watching` off and the pill stays open on a row nothing is running
+ * behind, which is what the phase alone means.
+ *
+ * Watch is the one control on this surface that is genuinely on or off, so it
+ * is the one that reports a pressed state. Everything else the surface says
+ * about a running session is a colour, and a colour reaches nobody who is
+ * reading the page rather than looking at it.
+ */
+export const Watching: Story = {
+  args: { phase: "watching", watching: true, hovered: false },
+};
+
+/**
+ * The session is over and its summary is being written.
+ *
+ * A session ends twice. The socket closes on the stop press, and the account of
+ * what was narrated is written afterwards by a turn that runs for the better
+ * part of a minute. Collapsing to rest across that gap reads as the recording
+ * having been thrown away, so the pill stays open and says what is happening.
+ *
+ * The ring is the session's amber rather than the assistant's accent, because
+ * this is the same session finishing rather than an unrelated turn.
+ */
+export const SummaryPending: Story = {
+  args: { phase: "summary", watchRetro: "pending", hovered: false },
+};
+
+/**
+ * The summary is written, and the surface asks whether to open it.
+ *
+ * Two answers, both drawn. This surface floats over whatever the user does
+ * next, so the way out of a question has to be as reachable as the way in: a
+ * prompt whose only dismissal is going somewhere else is one that follows them
+ * around. Not now is a deferral rather than a discard, since the report is
+ * already in the assistant's conversation list under the session's own title.
+ *
+ * **Clear `watchRetro` to see what the phase alone means.** The row falls back
+ * to the ordinary controls, which is right: nothing here should draw a question
+ * with no answer behind it.
+ */
+export const SummaryReady: Story = {
+  args: { phase: "summary", watchRetro: "ready", hovered: false },
+};
+
+/**
+ * The same session, with the user mid-sentence in the composer.
+ *
+ * The phase the pill draws is `typing`, which outranks `watching`, and the
+ * indicator survives it: the ring is the session's, not the phase's. This is
+ * also the hardest geometry it has to hold, since the card is the one state
+ * that is not a pill.
+ *
+ * The way out survives with it, in the composer's own trailing controls: the
+ * idle row that carries Watch is not drawn here, and a ring the user can see
+ * and cannot act on is a worse bargain than no ring at all. It sits on this row
+ * rather than a row of its own because the card is already within ten points of
+ * the height main sized the canvas for.
+ *
+ * **Turn `watching` off to see what an indicator drawn from the phase would
+ * do.** The card goes dark, and the control goes with it, while the screen is
+ * still being read.
+ */
+export const TypingWhileWatching: Story = {
+  args: {
+    phase: "typing",
+    watching: true,
+    assistantName: "Ziggy",
+    turns: [{ role: "user", text: "what changed in this file?" }],
+  },
+};
+
+/**
+ * The same session again, with a call running over it.
+ *
+ * Two things are live and the surface has one edge to say so with, so the
+ * capture takes it: the creature already carries the turn in its own pose,
+ * and a call is a thing the user started and can hear.
+ *
+ * The widest row the surface draws outside the card: the activity line and five
+ * controls, with the stop beside what the session is doing rather than beside
+ * End, since two stops in a row is a misclick that ends the wrong one.
+ */
+export const InCallWhileWatching: Story = {
+  args: { phase: "call", watching: true, call: DEMO_CALL },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */

@@ -1,4 +1,17 @@
 {
+  "acpConnectAffordance": {
+    "title": "Connect Claude Code",
+    "subtitleIdle": "Use your Claude Code subscription",
+    "subtitleStarting": "Starting sign-in...",
+    "subtitleWaiting": "Waiting for Claude sign-in...",
+    "subtitleExchanging": "Completing sign-in...",
+    "subtitleConnected": "Claude Code connected, continuing...",
+    "subtitlePaste": "Paste the key from the tab that opened",
+    "errorFallback": "Connecting Claude failed. Please try again.",
+    "connectButton": "Connect",
+    "saveButton": "Save",
+    "pastePlaceholder": "Paste your key"
+  },
   "activityStepsPanel": {
     "backAria": "Back to all steps",
     "backTooltip": "All steps"

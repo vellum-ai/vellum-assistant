@@ -42,6 +42,15 @@
   "sectionActionsButton": {
     "ariaLabel": "{name} actions"
   },
+  "useConnectClaude": {
+    "failed": "Connecting Claude failed. Please try again.",
+    "timedOut": "Timed out waiting for Claude to connect. Please try again.",
+    "startFailed": "Couldn't start Connect Claude. Please try again.",
+    "popupBlocked": "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
+    "pasteEmpty": "Paste the code shown on the Claude page.",
+    "notStarted": "Start the Connect Claude flow first.",
+    "exchangeFailed": "Check the pasted key and try again."
+  },
   "windowsMenuBar": {
     "file": "File",
     "view": "View",

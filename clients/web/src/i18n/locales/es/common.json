@@ -42,6 +42,15 @@
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
   },
+  "useConnectClaude": {
+    "failed": "No se pudo conectar Claude. Inténtalo de nuevo.",
+    "timedOut": "Se agotó el tiempo de espera para conectar Claude. Inténtalo de nuevo.",
+    "startFailed": "No se pudo iniciar Connect Claude. Inténtalo de nuevo.",
+    "popupBlocked": "Tu navegador bloqueó la pestaña de inicio de sesión. Permite las ventanas emergentes para este sitio y vuelve a hacer clic en Conectar.",
+    "pasteEmpty": "Pega el código que se muestra en la página de Claude.",
+    "notStarted": "Primero inicia el flujo de Connect Claude.",
+    "exchangeFailed": "Comprueba la clave pegada e inténtalo de nuevo."
+  },
   "windowsMenuBar": {
     "file": "Archivo",
     "view": "Ver",

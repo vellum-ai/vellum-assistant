@@ -30,7 +30,7 @@ export function runSleep(
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, "sleep", assistantId, "--force"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     );
 
     let stdout = "";

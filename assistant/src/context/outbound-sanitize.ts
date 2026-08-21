@@ -26,6 +26,12 @@ const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
  * prematurely when the user happens to be viewing XML/HTML source that
  * contains the closing tag.  The escaped content does not need to be
  * unescaped because compaction replaces the entire block with a placeholder.
+ *
+ * Deliberately narrower than `escapeTagBoundaries` in
+ * `security/untrusted-content.ts`, which is the general defense for fencing
+ * untrusted text: this one leaves the opening tag intact because
+ * {@link AX_TREE_PATTERN} needs it to find whole blocks. Do not fold the two
+ * together.
  */
 export function escapeAxTreeContent(content: string): string {
   return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");

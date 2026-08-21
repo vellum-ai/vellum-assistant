@@ -18,6 +18,7 @@
 
 import { z } from "zod";
 
+import { validateInferenceProfileConfig } from "../../api/constants/profile-config-validation.js";
 import {
   getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
@@ -34,6 +35,7 @@ import {
 } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
+  catalogProviderForProfile,
   resolveEntryProviderKind,
   writableProfileProviderIssue,
 } from "../../providers/connection-resolution.js";
@@ -45,7 +47,10 @@ import {
   isUnavailable,
 } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
+import { probeInferenceProfile } from "../../providers/inference/profile-probe.js";
 import {
+  catalogContextWindowTokens,
+  catalogMaxOutputTokens,
   getModelDisplayName,
   isModelInCatalog,
 } from "../../providers/model-catalog.js";
@@ -118,6 +123,17 @@ const profileWriteResultSchema = z
     verify: z.string(),
   })
   .meta({ id: "InferenceProfileWriteResult" });
+
+const profileCheckSchema = z
+  .object({
+    ok: z.boolean(),
+    blame: z.enum(["profile", "provider", "transient", "unknown"]).optional(),
+    reason: z.string().optional(),
+    detail: z.string().optional(),
+    connection: z.string().optional(),
+    message: z.string().optional(),
+  })
+  .meta({ id: "InferenceProfileCheck" });
 
 const createRequestSchema = z.object({
   name: z.string().min(1),
@@ -373,6 +389,38 @@ function validateProfileEntry(entry: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Reject an explicit `maxTokens` the catalog can prove impossible for the
+ * model (over its output cap, or reserving the whole context window so no
+ * input fits). Judged against the same catalog-provider translation
+ * `validateModel` uses; models the catalog does not know are left to the
+ * live probe.
+ */
+function assertSaneMaxTokens(
+  provider: string,
+  model: string,
+  maxTokens: number | undefined,
+): void {
+  if (maxTokens === undefined) {
+    return;
+  }
+  const catalogProvider = catalogProviderForProfile(provider, model);
+  if (catalogProvider === null) {
+    return;
+  }
+  const issue = validateInferenceProfileConfig({
+    maxTokens,
+    modelMaxOutputTokens: catalogMaxOutputTokens(catalogProvider, model),
+    modelContextWindowTokens: catalogContextWindowTokens(
+      catalogProvider,
+      model,
+    ),
+  });
+  if (issue) {
+    throw new BadRequestError(issue.message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -456,6 +504,7 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
     input.allowUnlisted ?? false,
     input.connection,
   );
+  assertSaneMaxTokens(input.provider, input.model, input.maxTokens);
 
   const entry: Record<string, unknown> = {
     ...fragmentFromBody(body as Record<string, unknown>),
@@ -585,6 +634,24 @@ async function handleUpdateProfile({
       nextConnection,
     );
   }
+  // Gated on the fields that feed the judgment, mirroring the availability
+  // guard: metadata-only edits must not start rejecting a stored budget.
+  if (
+    (input.maxTokens !== undefined ||
+      input.model !== undefined ||
+      input.provider !== undefined) &&
+    typeof nextProvider === "string" &&
+    typeof nextModel === "string"
+  ) {
+    assertSaneMaxTokens(
+      nextProvider,
+      nextModel,
+      input.maxTokens ??
+        (typeof existing.maxTokens === "number"
+          ? existing.maxTokens
+          : undefined),
+    );
+  }
 
   const merged: Record<string, unknown> = {
     ...existing,
@@ -630,6 +697,14 @@ async function handleUpdateProfile({
     warnings,
     verify: verifyProfileCommand(name),
   };
+}
+
+async function handleValidateProfile({ pathParams = {} }: RouteHandlerArgs) {
+  const name = (pathParams.name ?? "").trim();
+  if (!name) {
+    throw new BadRequestError("Profile name must be a non-empty string");
+  }
+  return { check: await probeInferenceProfile(name) };
 }
 
 async function handleDeleteProfile({ pathParams = {} }: RouteHandlerArgs) {
@@ -857,5 +932,23 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleSetActiveProfile,
+  },
+  {
+    operationId: "inference_profiles_validate",
+    endpoint: "inference/profiles/:name/validate",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Probe a saved profile with one minimal request",
+    description:
+      "Dispatch one minimal test request through the named profile's resolved model and connection, and classify any failure by which object the user should fix (the profile vs its provider connection). Advisory: the probe never mutates the profile. Returns a null check when there is no verdict to give (missing, disabled, managed, or routing-identity profiles, or a probe timeout). The probe spends one tiny request on the profile's own key.",
+    tags: ["inference"],
+    pathParams: [{ name: "name", description: "Profile name" }],
+    responseBody: z.object({
+      check: profileCheckSchema.nullable(),
+    }),
+    handler: handleValidateProfile,
   },
 ];
