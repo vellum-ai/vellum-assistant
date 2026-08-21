@@ -16,12 +16,22 @@ export type TunnelStatusView =
   | { kind: "unavailable" }
   | { kind: "stopped"; provider: string; publicBaseUrl: string }
   | { kind: "healthy"; publicBaseUrl: string; checkedAt: string }
-  | { kind: "unreachable"; publicBaseUrl: string; checkedAt: string }
+  | {
+      kind: "unreachable";
+      publicBaseUrl: string;
+      checkedAt: string;
+      /** Short, already-redacted diagnostic from the daemon. Not localized. */
+      detail?: string;
+      /** Provider of the tunnel on record, when the daemon remembers one. */
+      provider?: string;
+    }
   | {
       kind: "foreign";
       publicBaseUrl: string;
       checkedAt: string;
       servingAssistantName?: string;
+      /** Provider of the tunnel on record, when the daemon remembers one. */
+      provider?: string;
     };
 
 /** Every state the row actually draws; the card covers the other two itself. */
@@ -30,9 +40,40 @@ type RenderedTunnelStatus = Exclude<
   { kind: "unconfigured" | "unavailable" }
 >;
 
-/** The public address a status reports, or `null` in the states carrying none. */
+/**
+ * The public address a status reports, or `null` in the states carrying none.
+ * An empty address is none: the wire marks the field optional across every
+ * state, so a probed verdict without one must not read as an address.
+ */
 export function statusPublicBaseUrl(status: TunnelStatusView): string | null {
-  return "publicBaseUrl" in status ? status.publicBaseUrl : null;
+  return "publicBaseUrl" in status && status.publicBaseUrl
+    ? status.publicBaseUrl
+    : null;
+}
+
+/** When the probe last answered, or `null` in the states carrying no check. */
+export function statusCheckedAt(status: TunnelStatusView): string | null {
+  return "checkedAt" in status && status.checkedAt ? status.checkedAt : null;
+}
+
+/**
+ * The command that starts this assistant's tunnel. Names the assistant where
+ * one is known: on a computer running several, an unnamed `vellum tunnel`
+ * may start a different assistant's tunnel than the card is reporting on.
+ */
+export function tunnelStartCommand(
+  provider: string,
+  assistantName: string | null,
+): string {
+  const name = assistantName?.trim();
+  return name
+    ? `vellum tunnel ${shellArg(name)} --provider ${provider}`
+    : `vellum tunnel --provider ${provider}`;
+}
+
+/** Keeps a name with whitespace in it a single shell argument. */
+function shellArg(value: string): string {
+  return /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
 }
 
 interface TunnelStatusRowProps {
@@ -40,6 +81,8 @@ interface TunnelStatusRowProps {
   /** Re-runs the daemon-side probe. The row owns no fetching of its own. */
   onRefresh: () => void;
   isRefreshing: boolean;
+  /** Assistant the restart command should name, when the card knows one. */
+  assistantName?: string | null;
 }
 
 const DOT_COLOR: Record<RenderedTunnelStatus["kind"], string> = {
@@ -50,18 +93,22 @@ const DOT_COLOR: Record<RenderedTunnelStatus["kind"], string> = {
   foreign: "var(--system-negative-strong)",
 };
 
-/** The command that restarts the tunnel the stopped record came from. */
-function restartCommand(provider: string): string {
-  return `vellum tunnel --provider ${provider}`;
-}
+const SUBDUED_CLASS = "text-body-small-default text-[var(--content-tertiary)]";
+const SUBDUED_TRUNCATE_CLASS = `truncate ${SUBDUED_CLASS}`;
+
+const CODE_CLASS =
+  "rounded-md bg-[var(--surface-active)] px-1.5 py-0.5 text-[color:var(--content-primary)]";
 
 /**
  * One compact line reporting whether this assistant's public address is
  * actually serving it: a tone dot, a sentence, the address, when it was last
- * checked, and a manual re-check.
+ * checked, and a manual re-check. Every state the daemon has a tunnel on
+ * record for also prints the command that starts it again, since a dead
+ * address and a stopped tunnel have the same fix.
  *
  * Pure by design: props in, markup out. Fetching, the `app.resume` re-check
- * and any polling belong to the card above it, per `docs/EVENT_BUS.md`.
+ * and the tick that keeps the check age current all belong to the card above
+ * it, per `docs/EVENT_BUS.md`.
  * Renders nothing for `unconfigured` or `unavailable`: with no tunnel and
  * with no verdict there is nothing to report, and the card speaks instead.
  */
@@ -69,6 +116,7 @@ export function TunnelStatusRow({
   status,
   onRefresh,
   isRefreshing,
+  assistantName = null,
 }: TunnelStatusRowProps) {
   const { t } = useTranslation("settings");
 
@@ -76,9 +124,10 @@ export function TunnelStatusRow({
     return null;
   }
 
-  const busy = status.kind === "checking" || isRefreshing;
-  const checkedAt = "checkedAt" in status ? status.checkedAt : null;
+  const checkedAt = statusCheckedAt(status);
   const publicBaseUrl = statusPublicBaseUrl(status);
+  const provider = "provider" in status ? status.provider : undefined;
+  const detail = status.kind === "unreachable" ? status.detail : undefined;
 
   return (
     <div className="flex items-start gap-2.5 rounded-lg border border-[var(--border-element)] px-3 py-2.5">
@@ -91,33 +140,40 @@ export function TunnelStatusRow({
         <p className="text-body-small-default text-[var(--content-default)]">
           {statusSentence(status, t)}
         </p>
-        {status.kind === "stopped" && (
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
+        {/* The daemon's own words for the failure: already redacted, and not
+            translated, so it sits beside the sentence rather than inside it. */}
+        {detail && (
+          <p className={SUBDUED_TRUNCATE_CLASS} title={detail}>
+            {detail}
+          </p>
+        )}
+        {provider && (
+          <p className={SUBDUED_CLASS}>
             <Trans
-              i18nKey="tunnelStatusRow.stoppedRestart"
+              i18nKey={
+                status.kind === "stopped"
+                  ? "tunnelStatusRow.stoppedRestart"
+                  : "tunnelStatusRow.restartHint"
+              }
               ns="settings"
-              values={{ command: restartCommand(status.provider) }}
-              components={{
-                code: (
-                  <code className="rounded-md bg-[var(--surface-active)] px-1.5 py-0.5 text-[color:var(--content-primary)]" />
-                ),
-              }}
+              values={{ command: tunnelStartCommand(provider, assistantName) }}
+              components={{ code: <code className={CODE_CLASS} /> }}
             />
           </p>
         )}
         {publicBaseUrl && (
-          <p
-            className="truncate text-body-small-default text-[var(--content-tertiary)]"
-            title={publicBaseUrl}
-          >
+          <p className={SUBDUED_TRUNCATE_CLASS} title={publicBaseUrl}>
             {publicBaseUrl}
           </p>
         )}
         {checkedAt && (
-          <p className="text-body-small-default text-[var(--content-tertiary)]">
+          <p className={SUBDUED_CLASS}>
             {t("tunnelStatusRow.checkedAt", {
               when: formatRelativeTime(new Date(checkedAt).getTime(), {
                 locale: currentLocale(),
+                // The card re-renders this label on a slow tick, so minute
+                // phrasing is what it can keep honest.
+                minimumUnit: "minute",
               }),
             })}
           </p>
@@ -126,9 +182,11 @@ export function TunnelStatusRow({
       <Button
         variant="ghost"
         size="compact"
-        iconOnly={<RefreshCw className={busy ? "animate-spin" : undefined} />}
+        iconOnly={
+          <RefreshCw className={isRefreshing ? "animate-spin" : undefined} />
+        }
         aria-label={t("tunnelStatusRow.refreshLabel")}
-        disabled={busy}
+        disabled={isRefreshing}
         onClick={onRefresh}
       />
     </div>

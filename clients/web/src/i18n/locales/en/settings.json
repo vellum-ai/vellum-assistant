@@ -947,6 +947,7 @@
     "foreignStatusNamed": "This address is serving {name} right now, not this assistant.",
     "healthyStatus": "The tunnel is running and reachable.",
     "refreshLabel": "Check the tunnel again",
+    "restartHint": "Start this assistant's tunnel again with <code>{command}</code> in a terminal on this computer.",
     "stoppedRestart": "Run <code>{command}</code> in a terminal on this computer to start it again.",
     "stoppedStatus": "The tunnel is stopped, so other devices cannot reach this assistant.",
     "unreachableStatus": "This address is not answering right now."

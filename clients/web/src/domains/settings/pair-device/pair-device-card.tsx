@@ -8,12 +8,10 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { cn } from "@vellumai/design-library/utils/cn";
 
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Trans, useTranslation } from "@/i18n";
-import { useSupportsIngressStatus } from "@/lib/backwards-compat/ingress-status-gate";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
@@ -21,12 +19,18 @@ import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
 import { PairedDevicesSection } from "./paired-devices-section";
 import { PendingPairingRequests } from "./pending-pairing-requests";
-import { statusPublicBaseUrl, TunnelStatusRow } from "./tunnel-status-row";
+import {
+  statusCheckedAt,
+  statusPublicBaseUrl,
+  TunnelStatusRow,
+  tunnelStartCommand,
+} from "./tunnel-status-row";
 import { usePairDevice } from "./use-pair-device";
+import { useRelativeAgeTick } from "./use-relative-age-tick";
 import { useTunnelStatus } from "./use-tunnel-status";
 
-/** Names a provider explicitly: the CLI's `vellum` default is not implemented. */
-const TUNNEL_COMMAND = "vellum tunnel --provider tailscale";
+/** Named explicitly: the CLI's `vellum` default is not implemented. */
+const TUNNEL_PROVIDER = "tailscale";
 const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
 
 /** The URL field's disclosure holds a single section. */
@@ -49,9 +53,9 @@ const CODE_CLASS =
  * notice, the URL field's prefill and whether it hides behind its disclosure,
  * and how much the Generate button insists. The probe re-runs on the
  * `app.resume` foreground edge. Where that probe has no verdict, because the
- * assistant sits below {@link useSupportsIngressStatus}'s floor or because the
- * query gave up, the card falls back to the assistant's recorded ingress URL
- * and infers the empty state from the field.
+ * assistant sits below the ingress-status version floor or because the query
+ * gave up, the card falls back to the assistant's recorded ingress URL and
+ * infers the empty state from the field.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
@@ -67,23 +71,29 @@ export function PairDeviceCard() {
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pairedDevicesUIOn = useClientFeatureFlagStore.use.pairedDevicesUI();
-  const assistantId = useActiveAssistantId();
-  const probesTunnel = useSupportsIngressStatus(assistantId);
   const surfaceEnabled = supported && webRemoteIngressOn;
   const tunnel = useTunnelStatus(surfaceEnabled && target !== null);
-  // Whether the daemon's verdict is the card's source of truth right now. An
-  // assistant that cannot be asked, and a probe that came back with nothing,
-  // both leave the card on its pre-probe behavior below.
-  const probeAnswered = probesTunnel && tunnel.status.kind !== "unavailable";
+  // Whether the daemon's verdict is the card's source of truth right now. The
+  // hook already folds every way the probe can fail to answer into
+  // `unavailable`, the version gate included, so this is the whole condition;
+  // re-deriving the gate here would only give it a second place to drift.
+  const probeAnswered = tunnel.status.kind !== "unavailable";
   // The user starts the tunnel in a terminal and tabs back, so the foreground
   // edge is the re-check that matters most.
   useBusSubscription("app.resume", () => {
     tunnel.refresh();
   });
+  // The card owns the tick behind the row's check age; the row stays
+  // timer-free, per its own docstring.
+  useRelativeAgeTick(statusCheckedAt(tunnel.status) !== null);
   // The address the daemon's current answer carries, if any. `null` while the
   // probe is still checking, so nothing downstream mistakes a fallback for a
-  // reported address.
-  const statusAddress = statusPublicBaseUrl(tunnel.status);
+  // reported address, and `null` for a stopped tunnel: its recorded address
+  // serves nothing, so it is a command to re-run rather than one to advertise.
+  const statusAddress =
+    tunnel.status.kind === "stopped"
+      ? null
+      : statusPublicBaseUrl(tunnel.status);
   const pair = usePairDevice(
     target?.base ?? null,
     probeAnswered ? statusAddress : (target?.ingressUrl ?? null),
@@ -130,10 +140,8 @@ export function PairDeviceCard() {
         : t("pairDeviceCard.generateButton");
   // The URL field only hides behind its disclosure once the address it would
   // advertise is the one the daemon just reported. Until then it leads, so a
-  // click can never mint a stale stored address the user never saw. A stopped
-  // tunnel's recorded address serves nothing, so its field leads too.
-  const daemonHasAddress =
-    probeAnswered && statusAddress !== null && tunnel.status.kind !== "stopped";
+  // click can never mint a stale stored address the user never saw.
+  const daemonHasAddress = probeAnswered && statusAddress !== null;
   // A rejected address opens the field too, or its error would report from
   // inside a closed disclosure.
   const urlFieldOpen = urlFieldOpened || pair.inputError !== null;
@@ -193,7 +201,7 @@ export function PairDeviceCard() {
                   "w-fit max-w-full overflow-x-auto px-2.5 py-1.5",
                 )}
               >
-                {TUNNEL_COMMAND}
+                {tunnelStartCommand(TUNNEL_PROVIDER, target.assistantName)}
               </code>
               <p>{t("pairDeviceCard.noTunnelNext")}</p>
               <p>
@@ -213,6 +221,7 @@ export function PairDeviceCard() {
           status={tunnel.status}
           onRefresh={tunnel.refresh}
           isRefreshing={tunnel.isRefreshing}
+          assistantName={target.assistantName}
         />
         {/* With a reported address in hand the action leads and the field
             hides behind its disclosure. Without one the field leads and the

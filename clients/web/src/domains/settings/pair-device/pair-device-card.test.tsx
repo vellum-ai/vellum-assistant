@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -10,9 +9,22 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-import type { IntegrationsIngressStatusGetResponse } from "@/generated/daemon/types.gen";
 import { publish, __resetForTesting as resetEventBus } from "@/lib/event-bus";
 import type { LocalListDevicesResult } from "@/runtime/local-mode-host";
+
+import {
+  createQueryClientWrapper,
+  createTimerHarness,
+  fetchLog,
+  installFetch as installRecordingFetch,
+  installIngressProbe,
+  jsonResponse,
+  pendingRequest,
+  requestBody,
+  resetFetchLog,
+  restoreFetch,
+  VERSION_BELOW_INGRESS_STATUS,
+} from "./pair-device-test-helpers";
 
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
@@ -55,36 +67,13 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
 }));
 
-let probeResponse: IntegrationsIngressStatusGetResponse = {
-  state: "unconfigured",
-};
-/** Set by a test to make the probe fail the way a dead daemon would. */
-let probeFailure: Error | null = null;
-/** Set by a test to leave the probe in flight the way a slow daemon would. */
-let probeStalls = false;
-const probeMock = mock(async () => {
-  if (probeStalls) {
-    await new Promise(() => {});
-  }
-  if (probeFailure) {
-    throw probeFailure;
-  }
-  return {
-    data: probeResponse,
-    error: undefined,
-    response: new Response(null, { status: 200 }),
-  };
-});
-
-/* Spread over the real module rather than replacing it: the generated SDK is a
-   single barrel that the query-options barrel also pulls from, and a bare
-   object drops every export this file does not name. */
-const realDaemonSdk = await import("@/generated/daemon/sdk.gen");
-
-mock.module("@/generated/daemon/sdk.gen", () => ({
-  ...realDaemonSdk,
-  integrationsIngressStatusGet: probeMock,
-}));
+const {
+  probe: probeMock,
+  respondWith: probeAnswers,
+  failWith: probeFails,
+  stall: probeStalls,
+  reset: resetProbe,
+} = await installIngressProbe({ state: "unconfigured" });
 
 let listDevicesResult: LocalListDevicesResult = {
   ok: false,
@@ -113,22 +102,9 @@ const { useAssistantIdentityStore } = await import(
 const { useResolvedAssistantsStore } = await import(
   "@/stores/resolved-assistants-store"
 );
-const {
-  createTimerHarness,
-  fetchLog,
-  installFetch: installRecordingFetch,
-  jsonResponse,
-  pendingRequest,
-  requestBody,
-  resetFetchLog,
-  restoreFetch,
-} = await import("./pair-device-test-helpers");
-
 const PUBLIC_URL = "https://foo.ts.net";
 const PAIR_URL = "https://foo.ts.net/assistant/pair#device_code=DEV-123";
 const ASSISTANT_ID = "self";
-/** Below the ingress-status floor, so the probe stays out of reach. */
-const VERSION_WITHOUT_INGRESS_STATUS = "0.11.5";
 const TUNNEL_URL = "https://tunnel.example.ts.net";
 const RECORDED_INGRESS_URL = "https://recorded.example.ts.net";
 /** Where `usePairDevice` remembers the last URL that minted a code. */
@@ -152,13 +128,11 @@ function healthyStatus(publicBaseUrl = TUNNEL_URL) {
 
 /** Render inside a fresh query client, which the tunnel-status probe needs. */
 function renderCard() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const { wrapper: QueryWrapper } = createQueryClientWrapper();
   return render(
-    <QueryClientProvider client={client}>
+    <QueryWrapper>
       <PairDeviceCard />
-    </QueryClientProvider>,
+    </QueryWrapper>,
   );
 }
 
@@ -280,15 +254,12 @@ beforeEach(() => {
   listDevicesCalls = 0;
   resetFetchLog();
   localStorage.clear();
-  probeResponse = { state: "unconfigured" };
-  probeFailure = null;
-  probeStalls = false;
-  probeMock.mockClear();
+  resetProbe();
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   // Tests that exercise the status row opt into a version that serves it.
   useAssistantIdentityStore
     .getState()
-    .setIdentity("Test", VERSION_WITHOUT_INGRESS_STATUS, ASSISTANT_ID);
+    .setIdentity("Test", VERSION_BELOW_INGRESS_STATUS, ASSISTANT_ID);
   // A rendered card polls the pending-request list on mount, so every test
   // needs the route answered; minting stays unexpected unless overridden.
   installFetch(unexpectedMint);
@@ -732,7 +703,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("shows the status row for a healthy tunnel, without the first-run notice", async () => {
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     expect(
@@ -743,7 +714,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("shows the first-run notice only once the daemon reports no tunnel", async () => {
-    probeResponse = { state: "unconfigured" };
+    probeAnswers({ state: "unconfigured" });
     renderCard();
 
     // The in-flight probe is not an empty state, so the row speaks first.
@@ -760,7 +731,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("re-checks the tunnel when the app resumes", async () => {
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
     await screen.findByText("The tunnel is running and reachable.");
     expect(probeMock).toHaveBeenCalledTimes(1);
@@ -776,7 +747,7 @@ describe("PairDeviceCard: tunnel status", () => {
       cloud: "local",
       ingressUrl: RECORDED_INGRESS_URL,
     };
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     await screen.findByText("The tunnel is running and reachable.");
@@ -794,7 +765,7 @@ describe("PairDeviceCard: tunnel status", () => {
       cloud: "local",
       ingressUrl: RECORDED_INGRESS_URL,
     };
-    probeResponse = { state: "unconfigured" };
+    probeAnswers({ state: "unconfigured" });
     renderCard();
 
     expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
@@ -802,7 +773,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("keeps a typed URL, and the field open, when the probe answers again", async () => {
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
     await screen.findByText("The tunnel is running and reachable.");
     openUrlField();
@@ -814,7 +785,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("offers a primary Generate button when the tunnel is healthy", async () => {
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     await screen.findByText("The tunnel is running and reachable.");
@@ -826,11 +797,11 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("an unreachable tunnel demotes Generate without disabling it", async () => {
-    probeResponse = {
+    probeAnswers({
       state: "unreachable",
       publicBaseUrl: TUNNEL_URL,
       checkedAt: new Date().toISOString(),
-    };
+    });
     renderCard();
 
     const button = (await screen.findByRole("button", {
@@ -846,11 +817,11 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("a foreign tunnel gets the same Generate anyway treatment", async () => {
-    probeResponse = {
+    probeAnswers({
       state: "foreign",
       publicBaseUrl: TUNNEL_URL,
       checkedAt: new Date().toISOString(),
-    };
+    });
     renderCard();
 
     const button = (await screen.findByRole("button", {
@@ -860,7 +831,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("hides the URL field behind a disclosure once an address is known", async () => {
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     await screen.findByText("The tunnel is running and reachable.");
@@ -874,7 +845,7 @@ describe("PairDeviceCard: tunnel status", () => {
     // The stale-address hazard: without a verdict yet, the field is prefilled
     // from the last URL that worked, and Generate would mint against it.
     localStorage.setItem(STORED_URL_KEY, STORED_URL);
-    probeStalls = true;
+    probeStalls();
     renderCard();
 
     expect(
@@ -893,7 +864,7 @@ describe("PairDeviceCard: tunnel status", () => {
 
   test("collapses the field only once the verdict carries the daemon's address", async () => {
     localStorage.setItem(STORED_URL_KEY, STORED_URL);
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     // First render is the in-flight probe: the stored address still leads.
@@ -907,7 +878,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("a verdict arriving mid-typing cannot collapse the field", async () => {
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     // Typed into the pre-verdict layout, before the disclosure exists.
@@ -918,7 +889,7 @@ describe("PairDeviceCard: tunnel status", () => {
   });
 
   test("keeps the URL field in the open when the daemon reports no tunnel", async () => {
-    probeResponse = { state: "unconfigured" };
+    probeAnswers({ state: "unconfigured" });
     renderCard();
 
     expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
@@ -926,23 +897,121 @@ describe("PairDeviceCard: tunnel status", () => {
     expect(urlDisclosure()).toBeNull();
   });
 
-  test("keeps the URL field in the open for a stopped tunnel, prefilled from its record", async () => {
-    probeResponse = {
+  test("leaves a stopped tunnel's Generate disabled behind an empty field", async () => {
+    probeAnswers({
       state: "stopped",
       lastTunnel: { provider: "tailscale", publicBaseUrl: TUNNEL_URL },
-    };
+    });
     renderCard();
 
     await screen.findByText(
       "The tunnel is stopped, so other devices cannot reach this assistant.",
     );
-    expect(urlField().value).toBe(TUNNEL_URL);
+    // The recorded address serves nothing, so the row prints it as part of the
+    // restart hint and the field stays empty rather than advertising it.
+    expect(screen.getByText(TUNNEL_URL)).toBeTruthy();
+    expect(urlField().value).toBe("");
     expect(urlDisclosure()).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Generate pairing QR",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  test("keeps the URL field leading when the verdict carries no address", async () => {
+    // `publicBaseUrl` is optional on every state of the flat wire response, so
+    // an empty one must not read as an address the card can lead with.
+    probeAnswers({ state: "healthy", checkedAt: new Date().toISOString() });
+    renderCard();
+
+    expect(
+      await screen.findByText("The tunnel is running and reachable."),
+    ).toBeTruthy();
+    expect(urlDisclosure()).toBeNull();
+    expect(urlField().value).toBe("");
+  });
+
+  test("tells an unreachable tunnel how to start again, naming the assistant", async () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      name: "My Assistant",
+    };
+    probeAnswers({
+      state: "unreachable",
+      publicBaseUrl: TUNNEL_URL,
+      checkedAt: new Date().toISOString(),
+      detail: "connection refused",
+      lastTunnel: { provider: "tailscale", publicBaseUrl: TUNNEL_URL },
+    });
+    renderCard();
+
+    expect(
+      await screen.findByText("This address is not answering right now."),
+    ).toBeTruthy();
+    expect(screen.getByText("connection refused")).toBeTruthy();
+    expect(
+      screen.getByText('vellum tunnel "My Assistant" --provider tailscale'),
+    ).toBeTruthy();
+  });
+
+  test("names the assistant in the first-run tunnel command", async () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      name: "My Assistant",
+    };
+    probeAnswers({ state: "unconfigured" });
+    renderCard();
+
+    expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
+    expect(
+      screen.getByText('vellum tunnel "My Assistant" --provider tailscale'),
+    ).toBeTruthy();
+  });
+
+  test("the check age advances while the card sits open", async () => {
+    probeAnswers({
+      state: "healthy",
+      publicBaseUrl: TUNNEL_URL,
+      checkedAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    // Timer harness instead of fake timers (bun has none): the card's age tick
+    // is fired by hand, and the harness is restored in `finally`.
+    const timerHarness = createTimerHarness();
+    const realDateNow = Date.now;
+    timerHarness.install();
+    try {
+      renderCard();
+      // `waitFor` needs the real `setInterval` the harness replaced, so the
+      // probe's verdict is waited out by hand instead.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      expect(screen.getByText("Checked 1 minute ago")).toBeTruthy();
+
+      // Advance the clock 4 minutes and fire the age-refresh tick.
+      const now = realDateNow();
+      Date.now = () => now + 4 * 60_000;
+      const ageTick = timerHarness.timers.find(
+        (timer) => timer.delay === 30_000,
+      );
+      expect(ageTick).toBeTruthy();
+      act(() => ageTick?.handler());
+
+      expect(screen.getByText("Checked 5 minutes ago")).toBeTruthy();
+    } finally {
+      timerHarness.restore();
+      Date.now = realDateNow;
+    }
   });
 
   test("mints against the address typed into the disclosed field", async () => {
     installFetch(() => jsonResponse(challengeBody()));
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
     await screen.findByText("The tunnel is running and reachable.");
 
@@ -965,7 +1034,7 @@ describe("PairDeviceCard: tunnel status", () => {
 describe("PairDeviceCard: when the tunnel probe gives up", () => {
   beforeEach(() => {
     enableTunnelStatus();
-    probeFailure = new Error("connection refused");
+    probeFails(new Error("connection refused"));
   });
 
   test("falls back to the recorded ingress URL, notice and all", async () => {
@@ -1013,7 +1082,7 @@ describe("PairDeviceCard: without the ingress-status route", () => {
       cloud: "local",
       ingressUrl: RECORDED_INGRESS_URL,
     };
-    probeResponse = healthyStatus();
+    probeAnswers(healthyStatus());
     renderCard();
 
     expect(urlField().value).toBe(RECORDED_INGRESS_URL);

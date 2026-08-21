@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Loader2 } from "lucide-react";
@@ -7,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { currentLocale, useTranslation } from "@/i18n";
 import { formatRelativeTime } from "@/lib/relative-time";
 
+import { useRelativeAgeTick } from "./use-relative-age-tick";
 import { usePendingPairingRequests } from "./use-pending-pairing-requests";
 
 interface PendingPairingRequestsProps {
@@ -15,9 +14,6 @@ interface PendingPairingRequestsProps {
   /** Fired when an action pairs a device, so siblings can revalidate. */
   onApproved?: () => void;
 }
-
-/** How often visible relative ages re-render; 30s suits minute phrasing. */
-const AGE_REFRESH_INTERVAL_MS = 30_000;
 
 /**
  * Relative label for a request's timestamp in the active i18n locale.
@@ -48,20 +44,8 @@ export function PendingPairingRequests({
     usePendingPairingRequests(base, onApproved);
 
   // The hook keeps a stable list reference while the pending set is unchanged,
-  // so nothing re-renders on its own and relative ages would freeze. Tick a
-  // render while any request is visible so `formatRequestedAt` stays current.
-  const hasRequests = requests.length > 0;
-  const [, setAgeTick] = useState(0);
-  useEffect(() => {
-    if (!hasRequests) {
-      return;
-    }
-    const intervalId = setInterval(
-      () => setAgeTick((tick) => tick + 1),
-      AGE_REFRESH_INTERVAL_MS,
-    );
-    return () => clearInterval(intervalId);
-  }, [hasRequests]);
+  // so nothing here re-renders on its own and the ages below would freeze.
+  useRelativeAgeTick(requests.length > 0);
 
   // An empty list with no error is the quiet normal state; a poll error must
   // still surface so an outage isn't mistaken for an empty queue.

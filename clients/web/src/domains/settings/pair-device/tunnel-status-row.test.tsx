@@ -2,14 +2,21 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { TunnelStatusRow, type TunnelStatusView } from "./tunnel-status-row";
+import {
+  statusPublicBaseUrl,
+  TunnelStatusRow,
+  type TunnelStatusView,
+} from "./tunnel-status-row";
 
 const PUBLIC_URL = "https://foo.ts.net";
 const REFRESH_LABEL = "Check the tunnel again";
 
 function renderRow(
   status: TunnelStatusView,
-  { isRefreshing = false }: { isRefreshing?: boolean } = {},
+  {
+    isRefreshing = false,
+    assistantName = null,
+  }: { isRefreshing?: boolean; assistantName?: string | null } = {},
 ) {
   const calls: number[] = [];
   const result = render(
@@ -17,6 +24,7 @@ function renderRow(
       status={status}
       onRefresh={() => calls.push(1)}
       isRefreshing={isRefreshing}
+      assistantName={assistantName}
     />,
   );
   return { calls, result };
@@ -40,7 +48,7 @@ describe("TunnelStatusRow", () => {
   });
 
   test("names the probe in flight and disables the refresh", () => {
-    renderRow({ kind: "checking" });
+    renderRow({ kind: "checking" }, { isRefreshing: true });
 
     expect(
       screen.getByText("Checking whether the tunnel is reachable…"),
@@ -52,14 +60,26 @@ describe("TunnelStatusRow", () => {
     renderRow({
       kind: "healthy",
       publicBaseUrl: PUBLIC_URL,
-      checkedAt: new Date(Date.now() - 5_000).toISOString(),
+      checkedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
     });
 
     expect(
       screen.getByText("The tunnel is running and reachable."),
     ).toBeDefined();
     expect(screen.getByText(PUBLIC_URL)).toBeDefined();
-    expect(screen.getByText("Checked 5 seconds ago")).toBeDefined();
+    expect(screen.getByText("Checked 2 minutes ago")).toBeDefined();
+  });
+
+  // The card re-renders the age on a 30s tick, so the label is phrased in
+  // minutes; anything fresher reads as "now" rather than a stale second count.
+  test("phrases a just-finished check as now", () => {
+    renderRow({
+      kind: "healthy",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: new Date(Date.now() - 5_000).toISOString(),
+    });
+
+    expect(screen.getByText("Checked now")).toBeDefined();
   });
 
   test("reports an unreachable address", () => {
@@ -73,6 +93,40 @@ describe("TunnelStatusRow", () => {
       screen.getByText("This address is not answering right now."),
     ).toBeDefined();
     expect(screen.getByText(PUBLIC_URL)).toBeDefined();
+  });
+
+  test("shows the daemon's reason beside the unreachable sentence", () => {
+    renderRow({
+      kind: "unreachable",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: new Date().toISOString(),
+      detail: "connection refused",
+    });
+
+    expect(screen.getByText("connection refused")).toBeDefined();
+  });
+
+  test("tells an unreachable tunnel how to start again", () => {
+    renderRow({
+      kind: "unreachable",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: new Date().toISOString(),
+      provider: "tailscale",
+    });
+
+    expect(screen.getByText(/Start this assistant's tunnel again/)).toBeDefined();
+    expect(screen.getByText("vellum tunnel --provider tailscale")).toBeDefined();
+  });
+
+  test("tells a foreign edge how to start this assistant's tunnel again", () => {
+    renderRow({
+      kind: "foreign",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: new Date().toISOString(),
+      provider: "ngrok",
+    });
+
+    expect(screen.getByText("vellum tunnel --provider ngrok")).toBeDefined();
   });
 
   test("names the assistant a foreign edge is serving", () => {
@@ -122,6 +176,30 @@ describe("TunnelStatusRow", () => {
     expect(screen.getByText(PUBLIC_URL)).toBeDefined();
   });
 
+  // A computer running several assistants would otherwise be told to run a
+  // command that starts a tunnel for whichever one is active.
+  test("names the assistant in the restart command", () => {
+    renderRow(
+      { kind: "stopped", provider: "tailscale", publicBaseUrl: PUBLIC_URL },
+      { assistantName: "jarvis" },
+    );
+
+    expect(
+      screen.getByText("vellum tunnel jarvis --provider tailscale"),
+    ).toBeDefined();
+  });
+
+  test("quotes an assistant name with whitespace in it", () => {
+    renderRow(
+      { kind: "stopped", provider: "tailscale", publicBaseUrl: PUBLIC_URL },
+      { assistantName: "My Assistant" },
+    );
+
+    expect(
+      screen.getByText('vellum tunnel "My Assistant" --provider tailscale'),
+    ).toBeDefined();
+  });
+
   test("refreshing calls back to the owner", () => {
     const { calls } = renderRow({
       kind: "healthy",
@@ -145,5 +223,34 @@ describe("TunnelStatusRow", () => {
     );
 
     expect(refreshButton().disabled).toBe(true);
+  });
+});
+
+describe("statusPublicBaseUrl", () => {
+  test("reports the address a probed state carries", () => {
+    expect(
+      statusPublicBaseUrl({
+        kind: "healthy",
+        publicBaseUrl: PUBLIC_URL,
+        checkedAt: "",
+      }),
+    ).toBe(PUBLIC_URL);
+  });
+
+  // The wire marks the field optional across every state, so a probed verdict
+  // without one must read as "no address" rather than as an empty one: the
+  // card decides whether to lead with the URL field on this answer.
+  test("reports no address when the daemon reported an empty one", () => {
+    expect(
+      statusPublicBaseUrl({
+        kind: "healthy",
+        publicBaseUrl: "",
+        checkedAt: "",
+      }),
+    ).toBeNull();
+  });
+
+  test("reports no address for the states carrying none", () => {
+    expect(statusPublicBaseUrl({ kind: "unconfigured" })).toBeNull();
   });
 });

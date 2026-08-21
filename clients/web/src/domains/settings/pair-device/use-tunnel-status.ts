@@ -72,6 +72,10 @@ export function useTunnelStatus(enabled: boolean): TunnelStatusController {
  * state) while the view is a union, so this narrows on `state` and drops the
  * fields that state does not populate.
  *
+ * `lastTunnel` is carried onto the unhealthy states too, not just `stopped`:
+ * a killed tunnel answers as `unreachable`, and the provider on record is
+ * what lets the row print the command that starts it again.
+ *
  * Only the daemon's own verdict becomes `unconfigured`. Everything the probe
  * cannot answer degrades to `unavailable` instead: no response with nothing
  * in flight (the probe is gated off, or the query exhausted its retries), or
@@ -91,6 +95,11 @@ export function toStatusView(
   // optional because the response is one flat object across all five.
   const publicBaseUrl = response.publicBaseUrl ?? "";
   const checkedAt = response.checkedAt ?? "";
+  // Spread onto the states that take it optionally, so an absent record stays
+  // an absent key rather than an explicit `undefined`.
+  const recordedProvider = response.lastTunnel
+    ? { provider: response.lastTunnel.provider }
+    : {};
 
   switch (response.state) {
     case "unconfigured":
@@ -106,7 +115,13 @@ export function toStatusView(
     case "healthy":
       return { kind: "healthy", publicBaseUrl, checkedAt };
     case "unreachable":
-      return { kind: "unreachable", publicBaseUrl, checkedAt };
+      return {
+        kind: "unreachable",
+        publicBaseUrl,
+        checkedAt,
+        ...(response.detail ? { detail: response.detail } : {}),
+        ...recordedProvider,
+      };
     case "foreign":
       return {
         kind: "foreign",
@@ -115,6 +130,7 @@ export function toStatusView(
         ...(response.servingAssistantName
           ? { servingAssistantName: response.servingAssistantName }
           : {}),
+        ...recordedProvider,
       };
   }
 }
