@@ -26,6 +26,7 @@ import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.
 import { audienceForReader } from "../channels/message-audience.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { findConversation } from "../daemon/conversation-registry.js";
+import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { parseQuestionAnswerActionId } from "../notifications/guardian-question-mode.js";
 import {
@@ -1304,7 +1305,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered &&
         ctx.actor.channel === "slack" &&
         guardianUserId &&
-        !guardianInBandContext.guardianChatId.startsWith("D")
+        !isSlackDmConversation(guardianInBandContext.guardianChatId)
       ) {
         const dmCallbackUrl = stripTurnDestination(
           guardianInBandContext.replyCallbackUrl,

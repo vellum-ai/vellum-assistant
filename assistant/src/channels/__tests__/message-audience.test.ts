@@ -16,6 +16,15 @@ describe("audienceForReader", () => {
     expect(audienceForReader("slack", "D0DIRECT", "U0READER")).toBeUndefined();
   });
 
+  test("restricts a private group, which several readers share", () => {
+    // A `G` id is a shared room like a `C` one. Testing for a DM rather than
+    // for a channel id is what keeps this from leaking into the group.
+    expect(audienceForReader("slack", "G0PRIVATE", "U0READER")).toEqual({
+      kind: "oneReader",
+      userId: "U0READER",
+    });
+  });
+
   test("leaves every other channel unrestricted", () => {
     for (const channel of ["telegram", "discord", "whatsapp", "email"]) {
       expect(
