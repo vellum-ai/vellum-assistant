@@ -34,6 +34,11 @@ describe("TunnelStatusRow", () => {
     expect(result.container.innerHTML).toBe("");
   });
 
+  test("renders nothing when the probe has no verdict to report", () => {
+    const { result } = renderRow({ kind: "unavailable" });
+    expect(result.container.innerHTML).toBe("");
+  });
+
   test("names the probe in flight and disables the refresh", () => {
     renderRow({ kind: "checking" });
 

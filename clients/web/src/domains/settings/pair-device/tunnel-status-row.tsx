@@ -12,6 +12,8 @@ import { formatRelativeTime } from "@/lib/relative-time";
 export type TunnelStatusView =
   | { kind: "checking" }
   | { kind: "unconfigured" }
+  /** No verdict to report: the probe never ran, or it gave up. */
+  | { kind: "unavailable" }
   | { kind: "stopped"; provider: string; publicBaseUrl: string }
   | { kind: "healthy"; publicBaseUrl: string; checkedAt: string }
   | { kind: "unreachable"; publicBaseUrl: string; checkedAt: string }
@@ -22,8 +24,16 @@ export type TunnelStatusView =
       servingAssistantName?: string;
     };
 
-/** Every state the row actually draws; `unconfigured` renders nothing. */
-type RenderedTunnelStatus = Exclude<TunnelStatusView, { kind: "unconfigured" }>;
+/** Every state the row actually draws; the card covers the other two itself. */
+type RenderedTunnelStatus = Exclude<
+  TunnelStatusView,
+  { kind: "unconfigured" | "unavailable" }
+>;
+
+/** The public address a status reports, or `null` in the states carrying none. */
+export function statusPublicBaseUrl(status: TunnelStatusView): string | null {
+  return "publicBaseUrl" in status ? status.publicBaseUrl : null;
+}
 
 interface TunnelStatusRowProps {
   status: TunnelStatusView;
@@ -52,8 +62,8 @@ function restartCommand(provider: string): string {
  *
  * Pure by design: props in, markup out. Fetching, the `app.resume` re-check
  * and any polling belong to the card above it, per `docs/EVENT_BUS.md`.
- * Renders nothing for `unconfigured`, which the card covers with its
- * first-run notice.
+ * Renders nothing for `unconfigured` or `unavailable`: with no tunnel and
+ * with no verdict there is nothing to report, and the card speaks instead.
  */
 export function TunnelStatusRow({
   status,
@@ -62,13 +72,13 @@ export function TunnelStatusRow({
 }: TunnelStatusRowProps) {
   const { t } = useTranslation("settings");
 
-  if (status.kind === "unconfigured") {
+  if (status.kind === "unconfigured" || status.kind === "unavailable") {
     return null;
   }
 
   const busy = status.kind === "checking" || isRefreshing;
   const checkedAt = "checkedAt" in status ? status.checkedAt : null;
-  const publicBaseUrl = "publicBaseUrl" in status ? status.publicBaseUrl : null;
+  const publicBaseUrl = statusPublicBaseUrl(status);
 
   return (
     <div className="flex items-start gap-2.5 rounded-lg border border-[var(--border-element)] px-3 py-2.5">

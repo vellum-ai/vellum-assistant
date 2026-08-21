@@ -28,11 +28,23 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
-const probeMock = mock(async () => ({
-  data: { state: "healthy", publicBaseUrl: PUBLIC_URL, checkedAt: CHECKED_AT },
-  error: undefined,
-  response: new Response(null, { status: 200 }),
-}));
+/** Set by a test to make the probe fail the way a dead daemon would. */
+let probeFailure: Error | null = null;
+
+const probeMock = mock(async () => {
+  if (probeFailure) {
+    throw probeFailure;
+  }
+  return {
+    data: {
+      state: "healthy",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: CHECKED_AT,
+    },
+    error: undefined,
+    response: new Response(null, { status: 200 }),
+  };
+});
 
 /* Spread over the real module rather than replacing it: the generated SDK is a
    single barrel that the query-options barrel also pulls from, and a bare
@@ -73,6 +85,7 @@ async function settle() {
 
 beforeEach(() => {
   orgReady = true;
+  probeFailure = null;
   probeMock.mockClear();
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   useAssistantIdentityStore
@@ -91,8 +104,10 @@ describe("toStatusView", () => {
     expect(toStatusView(undefined, true)).toEqual({ kind: "checking" });
   });
 
-  test("reports unconfigured with no answer and nothing in flight", () => {
-    expect(toStatusView(undefined, false)).toEqual({ kind: "unconfigured" });
+  // Only the daemon says "no tunnel"; an answer the card never got is a
+  // different thing, and the card restores its pre-probe fallbacks for it.
+  test("reports unavailable with no answer and nothing in flight", () => {
+    expect(toStatusView(undefined, false)).toEqual({ kind: "unavailable" });
   });
 
   test("maps unconfigured", () => {
@@ -117,11 +132,12 @@ describe("toStatusView", () => {
     });
   });
 
-  test("degrades a stopped verdict with no record to unconfigured", () => {
+  test("degrades a stopped verdict with no record to unavailable", () => {
     // A stopped row exists to name the command that restarts the tunnel; with
-    // no provider there is nothing to tell the user, so draw nothing.
+    // no provider there is nothing to tell the user, and nothing usable came
+    // back either, so the card keeps its own fallbacks.
     expect(toStatusView({ state: "stopped" }, false)).toEqual({
-      kind: "unconfigured",
+      kind: "unavailable",
     });
   });
 
@@ -205,7 +221,7 @@ describe("useTunnelStatus", () => {
     const { result, client } = renderStatus();
 
     expect(probeFetchStatus(client)).toBe("idle");
-    expect(result.current.status).toEqual({ kind: "unconfigured" });
+    expect(result.current.status).toEqual({ kind: "unavailable" });
     expect(result.current.isRefreshing).toBe(false);
   });
 
@@ -241,6 +257,16 @@ describe("useTunnelStatus", () => {
     expect(probeFetchStatus(client)).toBe("fetching");
     expect(result.current.status).toEqual({ kind: "checking" });
     expect(result.current.isRefreshing).toBe(true);
+  });
+
+  test("reports unavailable once the probe gives up", async () => {
+    probeFailure = new Error("connection refused");
+    const { result } = renderStatus();
+
+    await waitFor(() =>
+      expect(result.current.status).toEqual({ kind: "unavailable" }),
+    );
+    expect(result.current.isRefreshing).toBe(false);
   });
 });
 
