@@ -55,9 +55,10 @@ import type {
 
 /**
  * Options for `localMode.wake`. `repairGuardian` re-provisions a
- * missing/expired guardian token via the CLI's `--repair-guardian` — it
- * revokes the assistant's other device-bound tokens, so callers must gate it
- * behind explicit user confirmation, never silent auto-repair.
+ * rejected or missing guardian token via the CLI's `--repair-guardian`.
+ * That remint revokes the assistant's other device-bound tokens, so
+ * callers pass it only for a mint `401` or a user-confirmed recovery,
+ * never on every wake.
  */
 export interface LocalWakeOptions {
   repairGuardian?: boolean;

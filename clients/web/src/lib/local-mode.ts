@@ -16,6 +16,7 @@ import {
   GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
+  isRepairableGatewayTokenError,
 } from "@/lib/auth/gateway-session";
 import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import {
@@ -1024,15 +1025,19 @@ function isGatewayStillStarting(error: unknown): boolean {
 /**
  * A `wake`-restarted gateway that hasn't finished coming back up: it refuses
  * connections (a thrown transport error), answers `503`/`5xx`, or rejects the
- * mint with a repairable `401` while it re-provisions its guardian binding.
- * A guardian refresh `5xx` is the same window: the host shells out to
+ * mint with a repairable `401` after a guardian remint, while the new binding
+ * lands. A guardian refresh `5xx` is the same window: the host shells out to
  * `vellum gateway token refresh`, which cannot reach a gateway that is still
- * binding its port. A `403` loopback-boundary refusal is terminal, and a
- * missing (`404`) or rejected (`401`) guardian token will not heal by
- * waiting (the just-run `wake` already re-seeded the token and recorded the
- * port), so those fall through.
+ * binding its port. A `403` loopback-boundary refusal is terminal. A missing
+ * (`404`) or rejected (`401`) on-disk guardian will not heal by waiting (the
+ * just-run `wake` already re-seeded the token and recorded the port). A mint
+ * `401` after a plain wake is a rejected guardian, not a starting-up mint:
+ * waiting will not remint it, so it falls through to a remint wake.
  */
-function isGatewayRestartTransient(error: unknown): boolean {
+function isGatewayRestartTransient(
+  error: unknown,
+  remintedGuardian = false,
+): boolean {
   if (error instanceof GuardianTokenError) {
     return error.status >= 500;
   }
@@ -1040,7 +1045,13 @@ function isGatewayRestartTransient(error: unknown): boolean {
     return false;
   }
   if (error instanceof GatewayTokenError) {
-    return error.status !== 403;
+    if (error.status === 403) {
+      return false;
+    }
+    if (error.status === 401 && !remintedGuardian) {
+      return false;
+    }
+    return true;
   }
   // A thrown fetch/transport error — the gateway isn't accepting connections
   // yet as it restarts.
@@ -1091,6 +1102,38 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
 }
 
 /**
+ * Wake the local assistant, reload any newly recorded gateway port, then
+ * prime again while the gateway comes back up. `repairGuardian` remints the
+ * on-disk guardian against the running gateway (and revokes other
+ * device-bound tokens). After a remint the retry force-mints the renderer
+ * token so a cached actor bearer from the previous guardian cannot succeed
+ * the prime and then 401 every request.
+ */
+async function wakeLocalAssistantAndRetryPrime(
+  assistant: LockfileAssistant,
+  options: PrimeLocalGatewayConnectionOptions,
+  repairGuardian: boolean,
+): Promise<"woke" | "wake-failed"> {
+  const assistantId = assistant.assistantId;
+  const repair = repairGuardian
+    ? await wakeLocalAssistantHost(assistantId, { repairGuardian: true })
+    : await wakeLocalAssistantHost(assistantId);
+  if (!repair.ok) {
+    return "wake-failed";
+  }
+  const lockfile = await loadLockfile();
+  const refreshed = lockfile.assistants.find(
+    (a) => a.assistantId === assistantId,
+  );
+  await primeLocalGatewayWithStartupRideout(
+    refreshed ?? assistant,
+    (error) => isGatewayRestartTransient(error, repairGuardian),
+    repairGuardian ? { ...options, forceMint: true } : options,
+  );
+  return "woke";
+}
+
+/**
  * Prime the local gateway connection, transparently repairing the assistant in
  * place when the first attempt fails for a repairable reason.
  *
@@ -1098,9 +1141,12 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
  * expired, or mis-seeded local assistant before the failure ever reaches the
  * user: on a repairable failure it runs `wake` (re-seeds the guardian token
  * and restarts the daemon + gateway, leaving the assistant's data and identity
- * untouched), then primes the connection once more. A non-repairable failure,
- * a wake that itself fails, or a still-failing retry propagate the original
- * error so the existing connect-error UI surfaces it unchanged.
+ * untouched), then primes the connection once more. A mint `401`
+ * ({@link isRepairableGatewayTokenError}) is a rejected on-disk guardian, so
+ * that wake remints via `--repair-guardian`. A plain wake that still 401s at
+ * the mint gets one remint follow-up. A non-repairable failure, a wake that
+ * itself fails, or a still-failing retry propagate so the existing
+ * connect-error UI surfaces it unchanged.
  */
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,
@@ -1121,25 +1167,33 @@ export async function primeLocalGatewayConnectionWithRepair(
     if (!isRepairableConnectError(error)) {
       throw error;
     }
-    const assistantId = assistant.assistantId;
-    const repair = await wakeLocalAssistantHost(assistantId);
-    if (!repair.ok) {
-      throw error;
+    const remintFirst = isRepairableGatewayTokenError(error);
+    try {
+      const result = await wakeLocalAssistantAndRetryPrime(
+        assistant,
+        options,
+        remintFirst,
+      );
+      if (result === "wake-failed") {
+        throw error;
+      }
+    } catch (retryError) {
+      if (retryError === error) {
+        throw error;
+      }
+      // A plain wake left a mint that still rejects the guardian. Remint
+      // once; a remint that itself 401s falls through to the recovery UI.
+      if (remintFirst || !isRepairableGatewayTokenError(retryError)) {
+        throw retryError;
+      }
+      const remint = await wakeLocalAssistantAndRetryPrime(
+        assistant,
+        options,
+        true,
+      );
+      if (remint === "wake-failed") {
+        throw retryError;
+      }
     }
-    // Wake may have established resources the renderer hadn't recorded (a legacy
-    // entry's gateway port) — reload so the retry resolves the fresh gateway.
-    const lockfile = await loadLockfile();
-    const refreshed = lockfile.assistants.find(
-      (a) => a.assistantId === assistantId,
-    );
-    // Wake restarts the daemon + gateway, so the retry races the gateway coming
-    // back up — a single prime here fails while it is still starting and the
-    // connect dead-ends to the recovery controls. Ride out that restart window
-    // instead, so a persisted local assistant reconnects on its own.
-    await primeLocalGatewayWithStartupRideout(
-      refreshed ?? assistant,
-      isGatewayRestartTransient,
-      options,
-    );
   }
 }

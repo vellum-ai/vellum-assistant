@@ -15,7 +15,7 @@ export type WakeResult =
   | { ok: false; status: number; error: string };
 
 export interface WakeOptions {
-  /** Pass --repair-guardian to re-provision a missing/expired guardian token. Revokes the assistant's other device-bound tokens, so callers must gate this behind explicit user confirmation. */
+  /** Pass --repair-guardian to re-provision a rejected or missing guardian token. Revokes the assistant's other device-bound tokens, so callers pass this only for a mint 401 or a user-confirmed recovery. */
   repairGuardian?: boolean;
 }
 

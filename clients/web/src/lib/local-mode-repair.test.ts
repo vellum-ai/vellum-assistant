@@ -12,12 +12,19 @@ const host = await import("@/runtime/local-mode-host");
 
 let primeShouldSucceed: () => boolean;
 let fetchGuardianTokenHost = mock(async (_id: string) => "tok");
-let wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));
+let wakeLocalAssistantHost = mock(
+  async (_id: string, _options?: { repairGuardian?: boolean }) => ({
+    ok: true,
+  }),
+);
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...host,
   fetchGuardianTokenHost: (id: string) => fetchGuardianTokenHost(id),
-  wakeLocalAssistantHost: (id: string) => wakeLocalAssistantHost(id),
+  wakeLocalAssistantHost: (
+    id: string,
+    options?: { repairGuardian?: boolean },
+  ) => wakeLocalAssistantHost(id, options),
   // The post-wake reload reads back the lockfile; serve the in-store copy so the
   // retry resolves the selected assistant rather than hitting the real host.
   loadLockfileHost: async () =>
@@ -296,8 +303,77 @@ describe("primeLocalGatewayConnectionWithRepair", () => {
     expect(err).toBeInstanceOf(GuardianTokenError);
     expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(401);
     expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
     // One pre-wake fetch plus one terminal post-wake fetch.
     expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(2);
+  });
+
+  test("a mint 401 remints the guardian, then retries and succeeds", async () => {
+    let mintAttempts = 0;
+    ensureGatewayTokenImpl = async () => {
+      if (mintAttempts++ === 0) {
+        throw new GatewayTokenError(401, "Gateway token request failed: 401");
+      }
+    };
+
+    await primeLocalGatewayConnectionWithRepair();
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a", {
+      repairGuardian: true,
+    });
+    expect(mintAttempts).toBe(2);
+  });
+
+  test("a persistent mint 401 after a plain wake remints the guardian once", async () => {
+    let fetches = 0;
+    fetchGuardianTokenHost = mock(async (_id: string) => {
+      fetches++;
+      if (fetches === 1) {
+        throw new GuardianTokenError(503, "Assistant gateway is unreachable");
+      }
+      return "tok";
+    });
+    let reminted = false;
+    wakeLocalAssistantHost = mock(
+      async (_id: string, options?: { repairGuardian?: boolean }) => {
+        if (options?.repairGuardian === true) {
+          reminted = true;
+        }
+        return { ok: true };
+      },
+    );
+    ensureGatewayTokenImpl = async () => {
+      if (!reminted) {
+        throw new GatewayTokenError(401, "Gateway token request failed: 401");
+      }
+    };
+
+    await primeLocalGatewayConnectionWithRepair();
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(2);
+    expect(wakeLocalAssistantHost.mock.calls[0]).toEqual(["local-a"]);
+    expect(wakeLocalAssistantHost.mock.calls[1]).toEqual([
+      "local-a",
+      { repairGuardian: true },
+    ]);
+  });
+
+  test("a mint 401 that persists after remint does not remint again", async () => {
+    ensureGatewayTokenImpl = async () => {
+      throw new GatewayTokenError(401, "Gateway token request failed: 401");
+    };
+
+    const err = await primeLocalGatewayConnectionWithRepair().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(GatewayTokenError);
+    expect((err as InstanceType<typeof GatewayTokenError>).status).toBe(401);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a", {
+      repairGuardian: true,
+    });
   });
 });
 

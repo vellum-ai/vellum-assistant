@@ -62,10 +62,9 @@ export async function wake(): Promise<void> {
   const foreground = args.includes("--foreground");
   // Re-leasing the guardian token calls guardian/init, which revokes every
   // other device-bound token (other tabs, other local clients on this machine).
-  // Gate it behind an explicit flag so the automatic connect-repair path
-  // (`runWake` spawns `wake <id>` with no flags) can never revoke a live session
-  // — it only ever restarts + sibling-seeds. A genuine spent-bootstrap brick is
-  // recovered deliberately via `vellum wake <id> --repair-guardian`.
+  // Gate it behind an explicit flag so a default `wake <id>` (no flags) only
+  // restarts and sibling-seeds. Callers that have a mint 401 (the on-disk
+  // guardian is rejected by the running gateway) pass `--repair-guardian`.
   const repairGuardian = args.includes("--repair-guardian");
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
@@ -365,18 +364,17 @@ export async function wake(): Promise<void> {
   }
 
   // Last-resort recovery (explicit `--repair-guardian` only): force a
-  // re-provision. Token health can't be judged locally — a connect can 401
+  // re-provision. Token health can't be judged locally: a connect can 401
   // off a token whose local expiry looks fine (revoked, mis-seeded, wrong
-  // principal) — and the user explicitly confirmed the destructive repair,
-  // so guessing "looks healthy, skip" just recreates the no-op loop. The
-  // single-use bootstrap secret may already be spent — a prior connect can
-  // lease a token that's then lost, or the gateway marks the secret consumed
-  // before the client persists it — which otherwise bricks connect into a
-  // 401 → auth-rate-limit → 429 cascade with no path back short of retire+hatch.
-  // Reset the gateway's bootstrap lock+consumed state (loopback-only, authorized
-  // by the lockfile secret — mirrors the macOS client's forceReBootstrap), then
-  // re-lease. Gated behind the flag because the re-lease revokes other
-  // device-bound tokens; it must never run from the automatic repair path.
+  // principal), so guessing "looks healthy, skip" recreates the no-op loop.
+  // The single-use bootstrap secret may already be spent (a prior connect
+  // leased a token that's then lost, or the gateway marked the secret
+  // consumed before the client persisted it), which otherwise bricks
+  // connect into a 401 → auth-rate-limit → 429 cascade with no path back
+  // short of retire+hatch. Reset the gateway's bootstrap lock+consumed
+  // state (loopback-only, authorized by the lockfile secret; mirrors the
+  // macOS client's forceReBootstrap), then re-lease. Gated behind the
+  // flag because the re-lease revokes other device-bound tokens.
   if (repairGuardian) {
     const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
     const maxAttempts = 3;

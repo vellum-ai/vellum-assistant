@@ -491,8 +491,8 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * token), re-establishes the session **in place**. Local and paired
  * assistants re-run {@link primeLocalGatewayConnectionWithRepair} with
  * `forceMint`, which mints a fresh renderer token over the rejected one,
- * wakes and re-seeds a stopped or mis-seeded local assistant when the
- * mint is repairably rejected, and re-primes the self-hosted connection
+ * wakes a stopped or mis-seeded local assistant, remints a guardian the
+ * gateway has rejected at `/auth/token`, and re-primes the self-hosted connection
  * slot the request interceptor reads. Remote-gateway (paired browser)
  * sessions run {@link refreshRemoteGatewaySession} with `force`, which
  * exchanges the refresh cookie for a new access token. Neither path

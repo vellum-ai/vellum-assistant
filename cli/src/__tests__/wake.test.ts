@@ -352,9 +352,9 @@ describe("vellum wake", () => {
   });
 
   test("does NOT re-provision without --repair-guardian, even when the token is missing", async () => {
-    // The automatic connect-repair path spawns `wake <id>` with no flags. A
+    // A default `wake <id>` (no flags) only restarts and sibling-seeds. A
     // re-lease here would revoke other device-bound tokens (other tabs / local
-    // clients), so it must never run from auto-repair.
+    // clients), so it stays behind `--repair-guardian`.
     process.argv = ["bun", "vellum", "wake", "local-assistant"];
     loadGuardianTokenMock.mockReturnValue(null);
 

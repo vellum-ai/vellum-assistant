@@ -485,10 +485,11 @@ export async function sleepLocalAssistantHost(
  * This is the non-destructive repair primitive: it revives a stopped or
  * mis-seeded assistant in place without touching its data or identity, the
  * counterpart to {@link retireLocalAssistantHost}'s destructive removal.
- * A plain wake (no options) is the safe auto-repair primitive. Passing
- * `repairGuardian: true` re-provisions the guardian token and revokes the
- * assistant's other device-bound tokens, so it must only be passed from
- * explicitly user-confirmed flows — never from silent auto-repair paths.
+ * A plain wake (no options) restarts the assistant and sibling-seeds the
+ * guardian token. Passing `repairGuardian: true` re-provisions the guardian
+ * token and revokes the assistant's other device-bound tokens, so callers
+ * pass it only when the gateway has rejected the on-disk guardian at
+ * `/auth/token` (a mint `401`) or the user confirmed recovery.
  * Older Electron hosts that predate this IPC channel resolve `wake` as
  * `undefined`; callers treat that as a no-op repair and fall through to the
  * underlying connect error. Older preloads whose `wake` takes one parameter
