@@ -13,6 +13,7 @@ import type { SubscriptionResponse } from "@/generated/api/types.gen";
 let nativeAndroid = false;
 
 mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () => null,
   isNativeAndroid: () => nativeAndroid,
   useIsNativeAndroid: () => nativeAndroid,
 }));
