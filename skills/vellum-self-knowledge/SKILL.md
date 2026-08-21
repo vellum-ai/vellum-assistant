@@ -12,6 +12,7 @@ metadata:
       - "how Vellum works or its architecture"
       - "its current configuration or settings"
       - "what it can do, or what skills/tools are available"
+      - "asked to use the user's current location, GPS, or a device sensor or permission"
       - "whether a service is connected, and in which sense"
       - "how to self-host a Vellum assistant"
       - "how to configure your own model API key"
@@ -77,39 +78,40 @@ whether something is connected.
 For "what is", "how does", and "why" questions, fetch the relevant page from the docs site.
 Base URL: `https://www.vellum.ai/docs`
 
-| Topic                    | Path                                      |
-| ------------------------ | ----------------------------------------- |
-| What is Vellum           | `/getting-started/what-is-vellum`         |
-| Installation             | `/getting-started/installation`           |
-| Quick start              | `/getting-started/quick-start`            |
-| Your first skill         | `/getting-started/your-first-skill`       |
-| How it all fits together | `/key-concepts/how-it-all-fits-together`  |
-| The workspace            | `/key-concepts/the-workspace`             |
-| Skills & tools           | `/key-concepts/skills-and-tools`          |
-| Memory & context         | `/key-concepts/memory-and-context`        |
-| Channels                 | `/key-concepts/channels`                  |
-| Identity                 | `/key-concepts/identity`                  |
-| Scheduling               | `/key-concepts/scheduling`                |
-| Glossary                 | `/key-concepts/glossary`                  |
-| Privacy & data           | `/trust-security/privacy-and-data`        |
-| The permissions model    | `/trust-security/the-permissions-model`   |
-| Security best practices  | `/trust-security/security-best-practices` |
-| Architecture             | `/developer-guide/architecture`           |
-| Security (developer)     | `/developer-guide/security`               |
-| Features & capabilities  | `/developer-guide/features`               |
-| API & communication      | `/developer-guide/api`                    |
-| Development workflow     | `/developer-guide/development-workflow`   |
-| Contributing             | `/developer-guide/contributing`           |
-| Local hosting            | `/hosting-options/local-hosting`          |
-| Advanced hosting         | `/hosting-options/advanced-options`       |
-| Environments             | `/environments`                           |
-| Pricing                  | `/pricing`                                |
-| Roadmap                  | `/roadmap`                                |
-| FAQ                      | `/help/faq`                               |
-| Common issues            | `/help/common-issues`                     |
-| Getting help             | `/help/getting-help`                      |
-| Skills reference index   | `/skills-reference`                       |
-| Specific skill reference | `/skills-reference/<skill-name>`          |
+| Topic                                       | Path                                      |
+| ------------------------------------------- | ----------------------------------------- |
+| What is Vellum                              | `/getting-started/what-is-vellum`         |
+| Installation                                | `/getting-started/installation`           |
+| Quick start                                 | `/getting-started/quick-start`            |
+| Your first skill                            | `/getting-started/your-first-skill`       |
+| How it all fits together                    | `/key-concepts/how-it-all-fits-together`  |
+| The workspace                               | `/key-concepts/the-workspace`             |
+| Skills & tools                              | `/key-concepts/skills-and-tools`          |
+| Memory & context                            | `/key-concepts/memory-and-context`        |
+| Channels                                    | `/key-concepts/channels`                  |
+| Identity                                    | `/key-concepts/identity`                  |
+| Scheduling                                  | `/key-concepts/scheduling`                |
+| Glossary                                    | `/key-concepts/glossary`                  |
+| Privacy & data                              | `/trust-security/privacy-and-data`        |
+| The permissions model                       | `/trust-security/the-permissions-model`   |
+| Security best practices                     | `/trust-security/security-best-practices` |
+| Architecture                                | `/developer-guide/architecture`           |
+| Security (developer)                        | `/developer-guide/security`               |
+| Features & capabilities                     | `/developer-guide/features`               |
+| Device access (location, mic, camera, host) | `/developer-guide/features#device-access` |
+| API & communication                         | `/developer-guide/api`                    |
+| Development workflow                        | `/developer-guide/development-workflow`   |
+| Contributing                                | `/developer-guide/contributing`           |
+| Local hosting                               | `/hosting-options/local-hosting`          |
+| Advanced hosting                            | `/hosting-options/advanced-options`       |
+| Environments                                | `/environments`                           |
+| Pricing                                     | `/pricing`                                |
+| Roadmap                                     | `/roadmap`                                |
+| FAQ                                         | `/help/faq`                               |
+| Common issues                               | `/help/common-issues`                     |
+| Getting help                                | `/help/getting-help`                      |
+| Skills reference index                      | `/skills-reference`                       |
+| Specific skill reference                    | `/skills-reference/<skill-name>`          |
 
 Use `web_fetch` to pull the page content. If a URL 404s, try fetching the docs homepage and navigating from the sidebar.
 
