@@ -27,7 +27,7 @@ const { useClientFeatureFlagStore } =
 
 /** The evaluation the client flag store is holding when a press lands. */
 const setWatchFlag = (value: boolean | undefined): void => {
-  useClientFeatureFlagStore.setState({ watch: value } as never);
+  useClientFeatureFlagStore.setState({ teach: value } as never);
 };
 
 afterEach(() => {

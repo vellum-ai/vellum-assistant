@@ -271,6 +271,33 @@ describe("runStorageMigrations", () => {
     expect(localStorage.getItem("ff:client:my-flag")).toBeNull();
   });
 
+  test("carries the watch flag override onto the teach key", () => {
+    localStorage.setItem("vellum:ff:watch", "true");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("vellum:ff:teach")).toBe("true");
+    expect(localStorage.getItem("vellum:ff:watch")).toBeNull();
+  });
+
+  test("carries an off override too, rather than dropping it", () => {
+    localStorage.setItem("vellum:ff:watch", "false");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("vellum:ff:teach")).toBe("false");
+  });
+
+  test("leaves an existing teach override alone", () => {
+    localStorage.setItem("vellum:ff:watch", "false");
+    localStorage.setItem("vellum:ff:teach", "true");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("vellum:ff:teach")).toBe("true");
+    expect(localStorage.getItem("vellum:ff:watch")).toBeNull();
+  });
+
   test("migrates gw: and local: keys", () => {
     // eslint-disable-next-line no-restricted-syntax -- test: verifying migration of gateway token keys
     localStorage.setItem("gw:token", "jwt-abc");

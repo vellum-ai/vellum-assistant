@@ -1253,7 +1253,7 @@ function Avatar({
  *
  * Verbs throughout. "Talk" and "Type" rather than "Talk" and "Ask", because
  * they are two halves of one choice about how to say something, and a verb pair
- * reads as that where a verb and a question word do not. "Watch" is the third,
+ * reads as that where a verb and a question word do not. "Teach" is the third,
  * and the one where the assistant does the looking rather than the user the
  * saying. It is also the one that comes and goes: it is behind a flag of its
  * own, so the row is Talk and Type alone for anyone who does not have it.
@@ -1311,7 +1311,7 @@ function IdleBody({
       {watchEnabled ? (
         <PillButton
           icon={<Eye className="size-4" />}
-          label="Watch"
+          label="Teach"
           showLabel
           pressed={watching}
           onClick={onWatch}
@@ -1561,7 +1561,7 @@ function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
   return (
     <PillButton
       icon={<EyeOff className="size-4" />}
-      label="Stop watching"
+      label="Stop teaching"
       onClick={onWatch}
     />
   );

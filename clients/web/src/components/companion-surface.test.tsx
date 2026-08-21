@@ -458,7 +458,7 @@ describe("the companion surface's anchor in the canvas", () => {
 describe("the companion surface's Watch action", () => {
   const watchOf = (container: HTMLElement): HTMLButtonElement => {
     const found = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Watch"]',
+      'button[aria-label="Teach"]',
     );
     if (!found) {
       throw new Error("Expected Watch to render");
@@ -470,7 +470,7 @@ describe("the companion surface's Watch action", () => {
     const { container } = render(
       <CompanionSurface phase="hover" watchEnabled />,
     );
-    expect(watchOf(container).textContent).toBe("Watch");
+    expect(watchOf(container).textContent).toBe("Teach");
   });
 
   test("reports the press", () => {
@@ -553,7 +553,7 @@ describe("the companion surface's Watch action", () => {
  */
 describe("the companion surface's Watch flag", () => {
   const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
-    container.querySelector<HTMLButtonElement>('button[aria-label="Watch"]');
+    container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
   test("draws no way in when the answer has not arrived", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
@@ -587,7 +587,7 @@ describe("the companion surface's Watch flag", () => {
   test("still draws the stop control on the card", () => {
     const { container } = render(<CompanionSurface phase="typing" watching />);
     expect(
-      container.querySelector('button[aria-label="Stop watching"]'),
+      container.querySelector('button[aria-label="Stop teaching"]'),
     ).not.toBeNull();
   });
 
@@ -601,7 +601,7 @@ describe("the companion surface's Watch flag", () => {
       <CompanionSurface phase="watching" watching />,
     );
     expect(
-      container.querySelector('button[aria-label="Stop watching"]'),
+      container.querySelector('button[aria-label="Stop teaching"]'),
     ).not.toBeNull();
   });
 
@@ -617,7 +617,7 @@ describe("the companion surface's Watch flag", () => {
       />,
     );
     const stop = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Stop watching"]',
+      'button[aria-label="Stop teaching"]',
     );
     if (!stop) {
       throw new Error("Expected the stop control to render");
@@ -629,7 +629,7 @@ describe("the companion surface's Watch flag", () => {
   test("draws no stop while nothing is running", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
     expect(
-      container.querySelector('button[aria-label="Stop watching"]'),
+      container.querySelector('button[aria-label="Stop teaching"]'),
     ).toBeNull();
   });
 });
@@ -669,7 +669,7 @@ describe("the pill a watch session holds open", () => {
 describe("the companion surface's stop control", () => {
   const stopOf = (container: HTMLElement): HTMLButtonElement | null =>
     container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Stop watching"]',
+      'button[aria-label="Stop teaching"]',
     );
 
   const required = (container: HTMLElement): HTMLButtonElement => {
@@ -1052,7 +1052,7 @@ describe("the companion surface's pressed states", () => {
    */
   test("leaves the stop control an action rather than a toggle", () => {
     const { container } = render(<CompanionSurface phase="typing" watching />);
-    const stop = named(container, "Stop watching");
+    const stop = named(container, "Stop teaching");
     expect(stop.getAttribute("aria-pressed")).toBeNull();
   });
 });
