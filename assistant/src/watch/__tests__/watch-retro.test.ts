@@ -32,7 +32,7 @@ await initializeDb();
  */
 function recordSession(narrations: string[]): WatchSessionSummary {
   const conversationId = createConversation({
-    title: "Watch session",
+    title: "Teach session",
     conversationType: "background",
     source: "watch",
     origin: "vellum",
@@ -64,7 +64,7 @@ function recordObservation(axTree: string): {
   conversationId: string;
 } {
   const conversationId = createConversation({
-    title: "Watch session",
+    title: "Teach session",
     conversationType: "background",
     source: "watch",
     origin: "vellum",

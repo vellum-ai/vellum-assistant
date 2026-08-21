@@ -101,8 +101,18 @@ const OBSERVE_TIMEOUT_MS = 10_000;
  */
 const WHOLE_WINDOW_REPLACEMENT_MARKER = "Page navigated";
 
-/** Title carried by a conversation a session mints for itself. */
-const WATCH_CONVERSATION_TITLE = "Watch session";
+/**
+ * Title carried by a conversation a session mints for itself.
+ *
+ * Persisted, and read by a person: a session that produces a retrospective
+ * surfaces its conversation into the ordinary list, so this is the name of a
+ * thread the user goes looking for. It follows the control they pressed.
+ *
+ * Unlike {@link WATCH_CONVERSATION_SOURCE} below, which is a discriminator
+ * nothing displays, so it keeps the word it was frozen with. Existing threads
+ * keep the title they were minted with; nothing rewrites them.
+ */
+const TEACH_CONVERSATION_TITLE = "Teach session";
 
 // FROZEN: persisted `conversations.source` value. Never rename it.
 const WATCH_CONVERSATION_SOURCE = "watch";
@@ -411,7 +421,7 @@ export class WatchSessionManager {
       return getConversation(conversationId) === null ? null : conversationId;
     }
     return createConversation({
-      title: WATCH_CONVERSATION_TITLE,
+      title: TEACH_CONVERSATION_TITLE,
       conversationType: "background",
       source: WATCH_CONVERSATION_SOURCE,
       origin: "vellum",
