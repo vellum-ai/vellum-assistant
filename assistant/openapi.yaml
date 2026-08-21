@@ -19115,6 +19115,7 @@ paths:
                                           - tavily
                                           - keenable
                                           - firecrawl
+                                          - fastcrw
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -19167,6 +19168,7 @@ paths:
                                         enum:
                                           - default
                                           - firecrawl
+                                          - fastcrw
                                       status:
                                         type: number
                                       contentType:
@@ -19624,6 +19626,7 @@ paths:
                                                   - tavily
                                                   - keenable
                                                   - firecrawl
+                                                  - fastcrw
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -19676,6 +19679,7 @@ paths:
                                                 enum:
                                                   - default
                                                   - firecrawl
+                                                  - fastcrw
                                               status:
                                                 type: number
                                               contentType:

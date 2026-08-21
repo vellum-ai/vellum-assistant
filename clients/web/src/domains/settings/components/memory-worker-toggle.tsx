@@ -7,6 +7,7 @@ import {
   useMemoryWorkerStartPostMutation,
   useMemoryWorkerStopPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -32,6 +33,7 @@ export interface MemoryWorkerToggleProps {
  * than offering a toggle the daemon can't honor.
  */
 export function MemoryWorkerToggle({ memoryEnabled }: MemoryWorkerToggleProps) {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
 
@@ -64,16 +66,16 @@ export function MemoryWorkerToggle({ memoryEnabled }: MemoryWorkerToggleProps) {
         await startMutation.mutateAsync({
           path: { assistant_id: assistantId },
         });
-        toast.success("Background worker started.");
+        toast.success(t("memoryWorkerToggle.toastStarted"));
       } else {
         await stopMutation.mutateAsync({
           path: { assistant_id: assistantId },
         });
-        toast.success("Background worker stopped.");
+        toast.success(t("memoryWorkerToggle.toastStopped"));
       }
     } catch (error) {
       captureError(error, { context: "settings-memory-worker-toggle" });
-      toast.error("Failed to update background worker.");
+      toast.error(t("memoryWorkerToggle.toastFailed"));
     }
   };
 
@@ -87,18 +89,16 @@ export function MemoryWorkerToggle({ memoryEnabled }: MemoryWorkerToggleProps) {
     <div className="flex flex-row items-start justify-between gap-4 border-t border-[var(--border-subtle)] pt-4">
       <div className="flex min-w-0 flex-col gap-2">
         <h3 className="text-body-medium-default text-[var(--content-emphasised)]">
-          Background worker
+          {t("memoryWorkerToggle.title")}
         </h3>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Run memory consolidation in a dedicated background process. It starts
-          automatically; stop it to pause background memory processing until the
-          next restart.
+          {t("memoryWorkerToggle.description")}
         </p>
       </div>
       <Toggle
         checked={status.status === "running"}
         onChange={(enabled) => void handleWorkerToggle(enabled)}
-        aria-label="Enable background memory worker"
+        aria-label={t("memoryWorkerToggle.ariaLabel")}
         disabled={!memoryEnabled || isPending}
       />
     </div>

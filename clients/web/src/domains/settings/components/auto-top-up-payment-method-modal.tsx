@@ -11,6 +11,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -102,6 +103,7 @@ export function AutoTopUpPaymentMethodModal({
   onClose,
   onSavedOptimistic,
 }: AutoTopUpPaymentMethodModalProps) {
+  const { t } = useTranslation("settings");
   const setupIntentMutation = useMutation(
     organizationsBillingAutoTopUpSetupIntentCreateMutation(),
   );
@@ -145,7 +147,9 @@ export function AutoTopUpPaymentMethodModal({
     >
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Save Payment Method</Modal.Title>
+          <Modal.Title>
+            {t("autoTopUpPaymentMethodModal.title")}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body className="min-h-[260px]">
           {!STRIPE_PK ? (
@@ -165,11 +169,11 @@ export function AutoTopUpPaymentMethodModal({
           ) : setupIntentMutation.isError ? (
             <div className="space-y-3" data-testid="auto-top-up-pm-modal-error">
               <Notice tone="error">
-                Failed to start card setup. Please try again.
+                {t("autoTopUpPaymentMethodModal.setupError")}
               </Notice>
               <div className="flex justify-end">
                 <Button variant="primary" onClick={() => createSetupIntent({})}>
-                  Try again
+                  {t("autoTopUpPaymentMethodModal.tryAgain")}
                 </Button>
               </div>
             </div>
@@ -190,7 +194,7 @@ export function AutoTopUpPaymentMethodModal({
                   await onSavedOptimistic({
                     setupIntentId: setupIntentIdFromClientSecret(clientSecret),
                   });
-                  toast.success("Payment method saved.");
+                  toast.success(t("autoTopUpPaymentMethodModal.savedToast"));
                   onClose();
                 }}
                 onCancel={onClose}
@@ -208,6 +212,7 @@ export function AutoTopUpPaymentMethodModal({
 // Fallback when VITE_STRIPE_PUBLISHABLE_KEY is not set at build time.
 
 function MissingStripeKeyNotice() {
+  const { t } = useTranslation("settings");
   useEffect(() => {
     console.warn(
       "[AutoTopUpPaymentMethodModal] VITE_STRIPE_PUBLISHABLE_KEY is not set; the payment-method modal cannot mount Stripe Elements.",
@@ -215,7 +220,7 @@ function MissingStripeKeyNotice() {
   }, []);
   return (
     <Notice tone="error">
-      Payment method setup is currently unavailable. Please try again later.
+      {t("autoTopUpPaymentMethodModal.unavailable")}
     </Notice>
   );
 }
@@ -233,6 +238,7 @@ function SetupCardForm({
   onSuccess: () => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("settings");
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
@@ -260,7 +266,10 @@ function SetupCardForm({
       });
 
       if (result.error) {
-        setError(result.error.message ?? "Failed to save payment method.");
+        setError(
+          result.error.message ??
+            t("autoTopUpPaymentMethodModal.confirmFailed"),
+        );
         return;
       }
       // Await `onSuccess` so the parent's cache invalidation completes
@@ -278,9 +287,7 @@ function SetupCardForm({
       <PaymentElement
         onReady={() => setElementReady(true)}
         onLoadError={() =>
-          setError(
-            "Failed to load the payment form. Please close and reopen this dialog.",
-          )
+          setError(t("autoTopUpPaymentMethodModal.paymentFormLoadError"))
         }
         options={{
           layout: { type: "tabs", defaultCollapsed: false },
@@ -304,9 +311,7 @@ function SetupCardForm({
       <AddressElement
         onReady={() => setAddressElementReady(true)}
         onLoadError={() =>
-          setError(
-            "Failed to load the billing address form. Please close and reopen this dialog.",
-          )
+          setError(t("autoTopUpPaymentMethodModal.addressFormLoadError"))
         }
         options={{
           mode: "billing",
@@ -329,7 +334,7 @@ function SetupCardForm({
           onClick={onCancel}
           disabled={submitting}
         >
-          Cancel
+          {t("autoTopUpPaymentMethodModal.cancel")}
         </Button>
         <Button
           variant="primary"
@@ -340,7 +345,7 @@ function SetupCardForm({
             submitting ? <Loader2 className="animate-spin" /> : undefined
           }
         >
-          Save
+          {t("autoTopUpPaymentMethodModal.save")}
         </Button>
       </div>
     </form>

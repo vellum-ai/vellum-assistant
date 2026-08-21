@@ -5,6 +5,7 @@ import {
   configGetSetQueryData,
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -33,6 +34,7 @@ export function MemoryRetrospectiveToggle({
   memoryEnabled,
   retrospectiveEnabled,
 }: MemoryRetrospectiveToggleProps) {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
 
@@ -54,12 +56,12 @@ export function MemoryRetrospectiveToggle({
       });
       toast.success(
         enabled
-          ? "Memory retrospectives enabled."
-          : "Memory retrospectives paused.",
+          ? t("memoryRetrospectiveToggle.toastEnabled")
+          : t("memoryRetrospectiveToggle.toastPaused"),
       );
     } catch (error) {
       captureError(error, { context: "settings-memory-retrospective-toggle" });
-      toast.error("Failed to update memory retrospectives.");
+      toast.error(t("memoryRetrospectiveToggle.toastFailed"));
     }
   };
 
@@ -67,18 +69,16 @@ export function MemoryRetrospectiveToggle({
     <div className="flex flex-row items-start justify-between gap-4 border-t border-[var(--border-subtle)] pt-4">
       <div className="flex min-w-0 flex-col gap-2">
         <h3 className="text-body-medium-default text-[var(--content-emphasised)]">
-          Retrospectives
+          {t("memoryRetrospectiveToggle.title")}
         </h3>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Let your assistant re-read recent conversations in the background and
-          save what it missed in the moment. Pausing this keeps the rest of
-          memory working.
+          {t("memoryRetrospectiveToggle.description")}
         </p>
       </div>
       <Toggle
         checked={retrospectiveEnabled}
         onChange={(enabled) => void handleToggle(enabled)}
-        aria-label="Enable memory retrospectives"
+        aria-label={t("memoryRetrospectiveToggle.ariaLabel")}
         disabled={!memoryEnabled || configMutation.isPending}
       />
     </div>

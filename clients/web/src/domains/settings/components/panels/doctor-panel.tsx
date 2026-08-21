@@ -67,6 +67,7 @@ import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
+import { useTranslation } from "@/i18n";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 
@@ -75,6 +76,7 @@ import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 // ---------------------------------------------------------------------------
 
 function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
+  const { t } = useTranslation("settings");
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -89,7 +91,7 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
   const handleCopy = useCallback(() => {
     const text = serializeSessionToText(entries);
     copyToClipboard(text, {
-      errorMessage: "Couldn't copy the session.",
+      errorMessage: t("doctorPanel.copyFailed"),
       onCopied: () => {
         setCopied(true);
         if (timerRef.current) {
@@ -101,7 +103,7 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
         }, 1500);
       },
     });
-  }, [entries]);
+  }, [entries, t]);
 
   return (
     <Button
@@ -115,10 +117,18 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
         )
       }
       onClick={handleCopy}
-      tooltip={copied ? "Copied!" : "Copy session to clipboard"}
-      aria-label={copied ? "Copied" : "Copy session to clipboard"}
+      tooltip={
+        copied
+          ? t("doctorPanel.copiedTooltip")
+          : t("doctorPanel.copySessionTooltip")
+      }
+      aria-label={
+        copied
+          ? t("doctorPanel.copiedAria")
+          : t("doctorPanel.copySessionAria")
+      }
     >
-      {copied ? "Copied!" : "Copy Session"}
+      {copied ? t("doctorPanel.copied") : t("doctorPanel.copySession")}
     </Button>
   );
 }
@@ -150,6 +160,7 @@ function UserOutcomePromptEntry({
 // ---------------------------------------------------------------------------
 
 export function DoctorPanel() {
+  const { t } = useTranslation("settings");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId() ?? "";
 
   // Store state — client-owned values only
@@ -720,13 +731,13 @@ export function DoctorPanel() {
         <div className="flex items-center gap-3">
           <DoctorAvatar className="h-10 w-10 shrink-0" />
           <h2 className="text-title-small text-[var(--content-default)]">
-            Doctor
+            {t("doctorPanel.title")}
           </h2>
           <Tag
             tone="neutral"
-            title="Doctor is in beta — use the Settings menu to submit feedback"
+            title={t("doctorPanel.betaTitle")}
           >
-            Beta
+            {t("doctorPanel.beta")}
           </Tag>
           {platformGate === "full" && (
             <button
@@ -734,7 +745,7 @@ export function DoctorPanel() {
               onClick={() => handleOpenFeedback()}
               className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
             >
-              Share Feedback
+              {t("doctorPanel.shareFeedback")}
             </button>
           )}
         </div>
@@ -748,7 +759,7 @@ export function DoctorPanel() {
               className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Square className="h-3 w-3" />
-              End Session
+              {t("doctorPanel.endSession")}
             </button>
           )}
         </div>
@@ -757,14 +768,14 @@ export function DoctorPanel() {
       {isLoadingHistory ? (
         <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-element)] border-t-[var(--content-secondary)]" />
-          Loading...
+          {t("doctorPanel.loading")}
         </div>
       ) : !assistantId ? (
         <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-3 text-body-medium-lighter text-[var(--content-tertiary)]">
           <div className="flex items-center gap-2">
             <DoctorAvatar className="h-6 w-6 shrink-0" />
             <span>
-              No assistant found. Hatch an assistant to use the Doctor.
+              {t("doctorPanel.noAssistant")}
             </span>
           </div>
         </div>
@@ -773,12 +784,10 @@ export function DoctorPanel() {
           <DoctorAvatar className="h-24 w-24 shrink-0" />
           <div className="text-center">
             <h3 className="text-title-medium text-[var(--content-default)]">
-              Assistant Doctor
+              {t("doctorPanel.idleTitle")}
             </h3>
             <p className="mt-1 max-w-md text-body-medium-lighter text-[var(--content-tertiary)]">
-              Start a diagnostic session to have the Doctor analyze your
-              assistant, identify issues, and suggest or apply fixes. The Doctor
-              is free to use. Doctor logs may be temporarily stored.
+              {t("doctorPanel.idleDescription")}
             </p>
           </div>
           <button
@@ -794,7 +803,7 @@ export function DoctorPanel() {
             ) : (
               <Play className="h-4 w-4" />
             )}
-            Start Doctor Session
+            {t("doctorPanel.startSession")}
           </button>
         </div>
       ) : (
@@ -899,7 +908,7 @@ export function DoctorPanel() {
                           }}
                         />
                       ))}
-                      <span className="sr-only">Thinking&hellip;</span>
+                      <span className="sr-only">{t("doctorPanel.thinking")}</span>
                     </div>
                   </div>
                 )}
@@ -916,7 +925,7 @@ export function DoctorPanel() {
                 {isSessionActive && !entries.length && (
                   <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-disabled)]">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Connecting...
+                    {t("doctorPanel.connecting")}
                   </div>
                 )}
               </div>
@@ -925,10 +934,10 @@ export function DoctorPanel() {
               <button
                 type="button"
                 onClick={scrollToLatest}
-                aria-label="Go to newest message"
+                aria-label={t("doctorPanel.goToNewestAria")}
                 className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-emphasised)] shadow-md transition-colors hover:text-[var(--content-default)]"
               >
-                Go to Newest
+                {t("doctorPanel.goToNewest")}
                 <ChevronDown className="h-3 w-3" />
               </button>
             )}
@@ -976,8 +985,8 @@ export function DoctorPanel() {
                 }}
                 placeholder={
                   pendingApproval
-                    ? 'Type "approve" or "deny", or send a message...'
-                    : "Type a message..."
+                    ? t("doctorPanel.placeholderApproval")
+                    : t("doctorPanel.placeholderMessage")
                 }
                 disabled={sending}
                 rows={1}
@@ -989,7 +998,7 @@ export function DoctorPanel() {
                   iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
                   type="submit"
                   disabled={!inputValue.trim() || sending}
-                  aria-label="Send message"
+                  aria-label={t("doctorPanel.sendMessageAria")}
                 />
               </div>
             </form>
@@ -1007,7 +1016,7 @@ export function DoctorPanel() {
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
               >
                 <Play className="h-4 w-4" />
-                New Session
+                {t("doctorPanel.newSession")}
               </button>
             </div>
           )}

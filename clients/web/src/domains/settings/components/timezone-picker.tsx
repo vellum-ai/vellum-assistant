@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { SettingsDivider } from "@/domains/settings/components/settings-divider";
+import { useTranslation } from "@/i18n";
 import { cn } from "@vellumai/design-library";
 import { Combobox } from "@vellumai/design-library/components/combobox";
 
@@ -130,9 +131,9 @@ function formatCurrentTime(identifier: string): string {
   }
 }
 
-function getDisplayName(identifier: string): string {
+function getDisplayName(identifier: string, notSetLabel: string): string {
   if (!identifier) {
-    return "Not set";
+    return notSetLabel;
   }
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -161,6 +162,7 @@ export interface TimezonePickerProps {
 const MAX_VISIBLE = 200;
 
 export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
+  const { t } = useTranslation("settings");
   const [searchText, setSearchText] = useState("");
 
   const allEntries = useMemo(() => {
@@ -208,7 +210,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
     <div className="space-y-3">
       <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between md:gap-4">
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Closest city
+          {t("timezonePicker.closestCity")}
         </span>
         <Combobox.Root
           className="w-full md:max-w-[280px]"
@@ -226,18 +228,20 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
         >
           <Combobox.Input
             type="text"
-            aria-label="Closest city"
+            aria-label={t("timezonePicker.closestCity")}
             value={searchText}
-            placeholder={selectedCity || "Search city or country..."}
+            placeholder={
+              selectedCity || t("timezonePicker.searchPlaceholder")
+            }
             onChange={(event) => setSearchText(event.target.value)}
             fullWidth
           />
           <Combobox.List
-            aria-label="Cities"
+            aria-label={t("timezonePicker.citiesAriaLabel")}
             className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-lg"
             emptyState={
               <p className="px-3 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-                No matching cities
+                {t("timezonePicker.noMatchingCities")}
               </p>
             }
           >
@@ -276,10 +280,10 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
 
       <div className="flex items-center justify-between gap-4">
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Time zone
+          {t("timezonePicker.timeZone")}
         </span>
         <span className="text-body-medium-lighter text-[var(--content-default)]">
-          {getDisplayName(value)}
+          {getDisplayName(value, t("timezonePicker.notSet"))}
         </span>
       </div>
     </div>

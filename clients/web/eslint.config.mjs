@@ -225,6 +225,8 @@ const i18nEnforcedPaths = [
   "src/domains/settings/keyboard-shortcuts/**/*.{ts,tsx}",
   "src/domains/settings/pair-device/**/*.{ts,tsx}",
   "src/domains/settings/teleport/**/*.{ts,tsx}",
+  "src/domains/settings/components/**/*.{ts,tsx}",
+  "src/domains/settings/hooks/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

@@ -59,13 +59,14 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 - `assistant/sse-service.ts` for SSE-derived signals (`sse.*`).
 - `use-event-stream.ts`'s burst-limited reachability retry for `reachability.retry-requested`.
 - `hooks/use-notification-tap-navigation.ts` and `runtime/push-registration.ts` for notification-tap `deeplink.openThread`.
-- `lib/api-interceptors.ts`'s local-gateway 401 recovery for `gateway.guardian-repair-required`.
+- `lib/api-interceptors.ts`'s daemon response interceptor for `assistant.unreachable`, and its local-gateway 401 recovery for `gateway.guardian-repair-required`.
 
 | Event | Payload | Produced when |
 |---|---|---|
 | `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
 | `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" \| "debug" \| "anchor" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a reconnect. `"debug"` is a manual `_vellumDebug.events.reconnectClient()` trigger; `"anchor"` is a cold-start anchored-replay reopen. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
+| `assistant.unreachable` | `{}` | A daemon SDK request came back 502/503/504: it reached the platform but not the assistant's runtime. `daemonUnreachableInterceptor` publishes it so the connecting overlay appears even when the failure lands on an incidental request rather than on the SSE stream; `lifecycle-service.ts` subscribes and kicks its retry probe. |
 | `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. At most one per physical foreground edge: iOS reports the same edge twice (`visibilitychange` and Capacitor `appStateChange`, milliseconds apart) and `runtime/event-sources/lifecycle-edge.ts` collapses the pair, keeping the label of whichever source arrived first. `signal: "online"` is outside that dedup and always fires. |
 | `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. Deduped per physical edge exactly like `app.resume`. Only repeats of the same edge collapse, so a hide landing between two foregrounds is always delivered. |
 | `app.online` | `{}` | `window.online` fired. Always accompanies a paired `app.resume{signal:"online"}`. |
@@ -123,11 +124,11 @@ Publishing is reserved for the bus's owner files (`sseService`,
 the bus to do something — today `reachability.retry-requested` and
 the notification-tap `deeplink.openThread` publishers
 (`hooks/use-notification-tap-navigation.ts`,
-`runtime/push-registration.ts`), and
-`gateway.guardian-repair-required` from `lib/api-interceptors.ts`,
-whose response interceptor reaches a verdict only the UI can act on and
-has no other route to it. Don't add new producers without a documented
-reason.
+`runtime/push-registration.ts`), and both
+`assistant.unreachable` and `gateway.guardian-repair-required` from
+`lib/api-interceptors.ts`, whose response interceptors observe transport
+and auth conditions only the UI can act on and have no other route to
+it. Don't add new producers without a documented reason.
 
 ```ts
 import { publish } from "@/lib/event-bus";

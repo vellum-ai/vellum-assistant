@@ -169,6 +169,8 @@ describe("WebSearchCard — provider-only configuration", () => {
       "Brave",
       "Tavily",
       "Firecrawl",
+      "Keenable",
+      "fastCRW",
     ]);
   });
 
@@ -248,6 +250,41 @@ describe("WebSearchCard — provider-only configuration", () => {
     expect(configPatchCalls[0]!.body).toMatchObject({
       services: {
         "web-search": { provider: "firecrawl", mode: "your-own" },
+      },
+    });
+  });
+
+  test("fastCRW shows API Base and allows save without a key when base is custom", async () => {
+    renderCard();
+
+    fireEvent.click(providerTrigger());
+    selectOption("fastCRW");
+
+    expect(screen.getByText("API Base")).toBeTruthy();
+    const saveButton = screen.getByRole("button", {
+      name: "Save",
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+
+    const apiBaseInput = screen.getByPlaceholderText(
+      "https://api.fastcrw.com",
+    );
+    fireEvent.change(apiBaseInput, {
+      target: { value: "http://localhost:3000" },
+    });
+    expect(saveButton.disabled).toBe(false);
+
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(provisionedKeys).toHaveLength(0);
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: {
+        "web-search": {
+          provider: "fastcrw",
+          mode: "your-own",
+          apiBase: "http://localhost:3000",
+        },
       },
     });
   });

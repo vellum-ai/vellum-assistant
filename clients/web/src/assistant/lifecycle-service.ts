@@ -30,7 +30,6 @@ import {
   getAssistantHealthz,
   type GetAssistantResult,
 } from "@/assistant/api";
-import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus";
 import {
   buildInitializingTimeoutError,
   errorRetryDelayMs,
@@ -143,7 +142,7 @@ class AssistantLifecycleService {
   /**
    * Tracks the assistant being actively probed. Non-null when a probe
    * loop is running (timer pending OR tick in-flight). Prevents
-   * re-entry: the probe's own 502 response fires the unreachable-bus
+   * re-entry: the probe's own 502 response publishes `assistant.unreachable`
    * which calls `triggerReachabilityProbe` again — without this guard
    * each re-entry creates an orphaned timer that can never be
    * cancelled, doubling probe traffic on every cycle and consuming CPU.
@@ -163,7 +162,7 @@ class AssistantLifecycleService {
   private errorRetryAttempt = 0;
 
   constructor() {
-    subscribeAssistantUnreachable(() => this.onUnreachable());
+    subscribe("assistant.unreachable", () => this.onUnreachable());
     // Network-back signal: retry a transient error immediately (no
     // point waiting out the backoff once the browser says we're
     // online) and re-check a degraded-active session so the
@@ -534,7 +533,7 @@ class AssistantLifecycleService {
    * self-hosted connection (runtime calls belong on the platform
    * now, and we don't want a leftover token attached), sets the
    * id BEFORE the kind flips so the conversation list query and
-   * the unreachable-bus interceptor have a target on first
+   * `daemonUnreachableInterceptor` have a target on first
    * `kind === "active"` render, then transitions.
    */
   private projectActive(result: GetAssistantResult & { ok: true }): void {
@@ -878,7 +877,7 @@ class AssistantLifecycleService {
    * Kick off a reachability probe. Marks `reachable: false` and
    * starts the background probe loop so the lifecycle store's
    * `reachable` field updates when the daemon responds. Called
-   * internally by the unreachable-bus subscriber and externally
+   * internally by the `assistant.unreachable` subscriber and externally
    * by the reachability hook on SSE drops / user retry.
    *
    * `health` is deliberately NOT flipped here — it only ever reflects

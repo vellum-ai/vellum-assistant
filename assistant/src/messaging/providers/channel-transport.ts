@@ -1,4 +1,3 @@
-import type { KnownBlock } from "@slack/types";
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
@@ -42,7 +41,7 @@ export interface ThreadStatus {
  * An existing message to replace in place, and what to replace it with.
  *
  * `messageId` is the target in the channel's own id space, the same way
- * `chatId` is. `blocks` and `renderRichly` are the rendering inputs the edit
+ * `chatId` is. `renderRichly` and `emphasis` are the rendering inputs the edit
  * carries, so a replacement renders the way the original did rather than
  * degrading to plain text.
  */
@@ -50,8 +49,14 @@ export interface EditTarget {
   readonly chatId: string;
   readonly messageId: string;
   readonly text: string;
-  readonly blocks?: readonly KnownBlock[];
   readonly renderRichly?: boolean;
+  /**
+   * How prominent the replacement should read. Surface-agnostic, the way
+   * `ApprovalActionOption.emphasis` is: each channel translates it to its own
+   * token, and one with no equivalent renders plain text. `muted` marks a
+   * message as settled rather than current.
+   */
+  readonly emphasis?: "muted";
 }
 
 /**

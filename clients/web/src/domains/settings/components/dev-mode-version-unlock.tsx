@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { t, useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const TAP_THRESHOLD = 7;
@@ -34,7 +35,9 @@ export function useDevModeVersionTap(assistantId: string | null): {
       const nowEnabled = !store.settingsDeveloperNav;
       store.setFlag("settingsDeveloperNav", nowEnabled, assistantId);
       setMessage(
-        nowEnabled ? "Developer mode enabled" : "Developer mode disabled",
+        nowEnabled
+          ? t("settings:devModeVersionUnlock.enabled")
+          : t("settings:devModeVersionUnlock.disabled"),
       );
       if (dismissTimerRef.current !== null) {
         clearTimeout(dismissTimerRef.current);
@@ -80,13 +83,14 @@ export function DevModeVersionUnlock({
   loading,
   assistantId,
 }: DevModeVersionUnlockProps) {
+  const { t } = useTranslation("settings");
   const { onTap, message } = useDevModeVersionTap(assistantId);
 
   if (loading) {
     return (
       <span className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading version...
+        {t("devModeVersionUnlock.loading")}
       </span>
     );
   }

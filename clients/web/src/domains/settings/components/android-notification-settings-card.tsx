@@ -2,6 +2,7 @@ import { BellRing, ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useTranslation } from "@/i18n";
 import {
   isAndroidNotificationSettingsAvailable,
   openAndroidNotificationSettings,
@@ -22,46 +23,8 @@ interface PermissionDetails {
   tone: TagTone;
 }
 
-function getPermissionDetails(
-  permission: PermissionState | null,
-): PermissionDetails {
-  switch (permission) {
-    case "granted":
-      return {
-        description: "Notifications are allowed on this device.",
-        label: "On",
-        tone: "positive",
-      };
-    case "denied":
-      return {
-        description: "Notifications are turned off in Android settings.",
-        label: "Off",
-        tone: "negative",
-      };
-    case "prompt":
-      return {
-        description:
-          "Turn on notifications in Android settings to receive alerts.",
-        label: "Not enabled",
-        tone: "warning",
-      };
-    case "unsupported":
-      return {
-        description:
-          "Notification settings are unavailable in this app version.",
-        label: "Unavailable",
-        tone: "neutral",
-      };
-    default:
-      return {
-        description: "Checking notification access for this device.",
-        label: "Checking",
-        tone: "neutral",
-      };
-  }
-}
-
 export function AndroidNotificationSettingsCard() {
+  const { t } = useTranslation("settings");
   const canOpenSystemSettings = isAndroidNotificationSettingsAvailable();
   const [permission, setPermission] = useState<PermissionState | null>(null);
 
@@ -75,7 +38,46 @@ export function AndroidNotificationSettingsCard() {
     }
   });
 
-  const details = getPermissionDetails(permission);
+  let details: PermissionDetails;
+  switch (permission) {
+    case "granted":
+      details = {
+        description: t("androidNotificationSettingsCard.grantedDescription"),
+        label: t("androidNotificationSettingsCard.grantedLabel"),
+        tone: "positive",
+      };
+      break;
+    case "denied":
+      details = {
+        description: t("androidNotificationSettingsCard.deniedDescription"),
+        label: t("androidNotificationSettingsCard.deniedLabel"),
+        tone: "negative",
+      };
+      break;
+    case "prompt":
+      details = {
+        description: t("androidNotificationSettingsCard.promptDescription"),
+        label: t("androidNotificationSettingsCard.promptLabel"),
+        tone: "warning",
+      };
+      break;
+    case "unsupported":
+      details = {
+        description: t(
+          "androidNotificationSettingsCard.unsupportedDescription",
+        ),
+        label: t("androidNotificationSettingsCard.unsupportedLabel"),
+        tone: "neutral",
+      };
+      break;
+    default:
+      details = {
+        description: t("androidNotificationSettingsCard.checkingDescription"),
+        label: t("androidNotificationSettingsCard.checkingLabel"),
+        tone: "neutral",
+      };
+      break;
+  }
 
   return (
     <Card padding="lg">
@@ -87,7 +89,7 @@ export function AndroidNotificationSettingsCard() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-title-small text-[var(--content-default)]">
-                Push notifications
+                {t("androidNotificationSettingsCard.title")}
               </h2>
               <Tag tone={details.tone}>{details.label}</Tag>
             </div>
@@ -105,7 +107,7 @@ export function AndroidNotificationSettingsCard() {
             rightIcon={<ExternalLink aria-hidden />}
             className="self-start sm:self-auto"
           >
-            Open settings
+            {t("androidNotificationSettingsCard.openSettings")}
           </Button>
         )}
       </div>
