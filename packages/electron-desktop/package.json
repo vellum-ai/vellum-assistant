@@ -27,6 +27,7 @@
     "./device-id": "./src/device-id.ts",
     "./devtools": "./src/devtools.ts",
     "./diagnostics": "./src/diagnostics.ts",
+    "./dictation-escape-monitor": "./src/dictation-escape-monitor.ts",
     "./dictation-overlay-window": "./src/dictation-overlay-window.ts",
     "./dictation-routing": "./src/dictation-routing.ts",
     "./feature-flags": "./src/feature-flags.ts",

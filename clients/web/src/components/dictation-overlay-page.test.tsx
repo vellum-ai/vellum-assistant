@@ -107,7 +107,7 @@ describe("DictationOverlayPage", () => {
     const { getByLabelText, unmount } = render(<DictationOverlayPage />);
     await waitFor(() => getByLabelText("Stop recording"));
 
-    expect(setHitRegionMock).toHaveBeenCalled();
+    await waitFor(() => expect(setHitRegionMock).toHaveBeenCalled());
     expect(setHitRegionMock.mock.calls.at(-1)?.[0]).not.toBeNull();
 
     unmount();

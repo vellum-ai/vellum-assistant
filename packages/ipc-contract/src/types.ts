@@ -307,6 +307,11 @@ export interface DictationPartialEvent {
   text: string;
 }
 
+export interface DictationTranscribeResult {
+  ok: boolean;
+  reason?: string;
+}
+
 /**
  * States the system-wide dictation overlay can display.
  * `dismiss` is a control message, not a display state.
