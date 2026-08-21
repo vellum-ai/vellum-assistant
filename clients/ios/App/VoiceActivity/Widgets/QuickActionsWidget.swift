@@ -29,7 +29,7 @@ struct QuickActionsWidget: Widget {
                 .containerBackground(entry.appearance.cardSurface, for: .widget)
         }
         .configurationDisplayName("Quick Actions")
-        .description("Take a photo, start a voice conversation, or open a new chat.")
+        .description("Take a photo or start a voice conversation. The Light appearance adds a Chat button.")
         .supportedFamilies([.systemSmall])
     }
 }
@@ -170,8 +170,9 @@ struct QuickActionsWidgetView: View {
     }
 
     /// The pair both cards lead with, written once so the two appearances
-    /// cannot drift into offering different actions or different VoiceOver
-    /// labels. Only the colors differ, and those come from the appearance.
+    /// cannot drift into offering different camera and voice actions or
+    /// different VoiceOver labels. Only the colors differ, and those come from
+    /// the appearance.
     private var cameraAndVoice: some View {
         HStack(spacing: 12) {
             CircleActionButton(
