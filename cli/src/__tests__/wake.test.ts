@@ -176,11 +176,15 @@ const probeDaemonReadinessWithRetryMock = mock<
 const waitForDaemonMigrationsReadyMock = mock<
   typeof httpClient.waitForDaemonMigrationsReady
 >(async () => "ready");
+const waitForDaemonReadyMock = mock<typeof httpClient.waitForDaemonReady>(
+  async () => true,
+);
 
 mock.module("../lib/http-client.js", () => ({
   ...realHttpClient,
   probeDaemonReadinessWithRetry: probeDaemonReadinessWithRetryMock,
   waitForDaemonMigrationsReady: waitForDaemonMigrationsReadyMock,
+  waitForDaemonReady: waitForDaemonReadyMock,
 }));
 
 const { wake } = await import("../commands/wake.js");
@@ -252,6 +256,9 @@ beforeEach(() => {
   probeDaemonReadinessWithRetryMock.mockReset();
   probeDaemonReadinessWithRetryMock.mockResolvedValue("ready");
   waitForDaemonMigrationsReadyMock.mockReset();
+  waitForDaemonMigrationsReadyMock.mockImplementation(async () => "ready");
+  waitForDaemonReadyMock.mockReset();
+  waitForDaemonReadyMock.mockImplementation(async () => true);
   waitForDaemonMigrationsReadyMock.mockResolvedValue("ready");
   seedGuardianTokenFromSiblingEnvMock.mockReset();
   seedGuardianTokenFromSiblingEnvMock.mockReturnValue(false);
@@ -631,6 +638,7 @@ describe("vellum wake — tunnel edge restore", () => {
       assistantId: "docker-1",
       runtimeUrl: "http://localhost:7930",
       cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
     } as AssistantEntry);
     loadRawConfigMock.mockReturnValue(enabledConfig);
     process.argv = ["bun", "vellum", "wake", "docker-1"];
@@ -667,6 +675,7 @@ describe("vellum wake — tunnel edge restore", () => {
       assistantId: "docker-1",
       runtimeUrl: "http://localhost:7930",
       cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
     } as AssistantEntry);
     loadRawConfigMock.mockReturnValue(enabledConfig);
     isIngressRunningMock.mockReturnValue(true);
@@ -702,6 +711,7 @@ describe("vellum wake — tunnel edge restore", () => {
       assistantId: "docker-1",
       runtimeUrl: "http://localhost:7930",
       cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
     } as AssistantEntry);
     loadRawConfigMock.mockReturnValue(enabledConfig);
     isIngressRunningMock.mockReturnValue(true);
@@ -739,6 +749,7 @@ describe("vellum wake — tunnel edge restore", () => {
       assistantId: "docker-1",
       runtimeUrl: "http://localhost:7930",
       cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
     } as AssistantEntry);
     loadRawConfigMock.mockReturnValue(enabledConfig);
     ensureTunnelEdgeMock.mockRejectedValue(
@@ -765,6 +776,131 @@ describe("vellum wake — tunnel edge restore", () => {
     }
   });
 
+  test("a docker wake leaves a saved ingress owned by another container alone", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    // The edge is stopped, so its gatewayPort record is gone; only the saved
+    // publicBaseUrl and its owner's `ingressUrl` say whose endpoint this is.
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+      ingressUrl: "https://other.example.com",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    isIngressRunningMock.mockReturnValue(false);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a docker wake waits for the gateway before restoring the edge", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(waitForDaemonReadyMock).toHaveBeenCalledWith(7930, 5 * 60_000);
+      expect(ensureTunnelEdgeMock).toHaveBeenCalled();
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a docker wake skips the edge when the gateway never comes up", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
+    } as AssistantEntry);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    waitForDaemonReadyMock.mockImplementation(async () => false);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("did not come up"),
+      );
+      expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a docker wake with no ingress config never waits for the gateway", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(waitForDaemonReadyMock).not.toHaveBeenCalled();
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
   test("a docker wake without an ingress config leaves the edge alone", async () => {
     const defaultWorkspace = mkdtempSync(
       join(tmpdir(), "vellum-wake-default-"),
@@ -775,6 +911,7 @@ describe("vellum wake — tunnel edge restore", () => {
       assistantId: "docker-1",
       runtimeUrl: "http://localhost:7930",
       cloud: "docker",
+      ingressUrl: "https://assistant.example.com",
     } as AssistantEntry);
     process.argv = ["bun", "vellum", "wake", "docker-1"];
 

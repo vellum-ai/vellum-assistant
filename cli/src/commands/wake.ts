@@ -30,6 +30,7 @@ import {
   startGateway,
 } from "../lib/local";
 import {
+  DOCKER_GATEWAY_READY_TIMEOUT_MS,
   restoreContainerTunnelEdge,
   restoreTunnelEdgeAndAutoTunnel,
 } from "../lib/tunnel-edge.js";
@@ -85,7 +86,7 @@ export async function wake(): Promise<void> {
     const res = dockerResourceNames(entry.assistantId);
     await wakeContainers(res);
     console.log("Docker containers started.");
-    await restoreContainerTunnelEdge(entry);
+    await restoreContainerTunnelEdge(entry, DOCKER_GATEWAY_READY_TIMEOUT_MS);
     console.log("Wake complete.");
     return;
   }

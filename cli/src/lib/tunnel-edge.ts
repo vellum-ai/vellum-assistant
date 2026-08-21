@@ -15,7 +15,11 @@ import {
   readIngressState,
   type TunnelEdge,
 } from "./nginx-ingress.js";
+import { waitForDaemonReady } from "./http-client.js";
 import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
+
+/** Matches the Docker hatch path's service-readiness allowance. */
+export const DOCKER_GATEWAY_READY_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Whether the workspace ingress config wants the remote-web edge: explicitly
@@ -120,6 +124,44 @@ export async function restoreTunnelEdge(
 }
 
 /**
+ * Whether a container entry may restore the shared default-workspace edge.
+ *
+ * Waking one container must not repoint another's public endpoint at its own
+ * gateway, and `ensureTunnelEdge` cannot make that call: it restarts an edge
+ * whose recorded gateway port drifts, which is the hijack itself. Two records
+ * establish ownership, and both have to hold because neither survives every
+ * teardown: a running edge records its `gatewayPort`, while the saved
+ * `ingress.publicBaseUrl` outlives the edge and is mirrored onto its owner's
+ * entry as `ingressUrl`.
+ */
+function ownsSharedIngress(
+  entry: AssistantEntry,
+  gatewayPort: number,
+  workspaceDir: string,
+): boolean {
+  if (
+    isIngressRunning(workspaceDir) &&
+    readIngressState(workspaceDir)?.gatewayPort !== gatewayPort
+  ) {
+    return false;
+  }
+  let publicBaseUrl: unknown;
+  try {
+    publicBaseUrl = (
+      loadRawConfig(workspaceDir).ingress as
+        | { publicBaseUrl?: unknown }
+        | undefined
+    )?.publicBaseUrl;
+  } catch {
+    return true;
+  }
+  if (typeof publicBaseUrl !== "string" || !publicBaseUrl.trim()) {
+    return true;
+  }
+  return entry.ingressUrl === publicBaseUrl;
+}
+
+/**
  * Wake counterpart to `stopContainerTunnelEdge`: bring the shared
  * default-workspace edge back for a container assistant, so a tunnel that
  * survived across sleep (a tailnet serve, a reserved ngrok domain) reaches the
@@ -130,6 +172,7 @@ export async function restoreTunnelEdge(
  */
 export async function restoreContainerTunnelEdge(
   entry: AssistantEntry,
+  gatewayReadyTimeoutMs = 0,
 ): Promise<void> {
   if (!isLocalContainerEntry(entry)) {
     return;
@@ -139,14 +182,25 @@ export async function restoreContainerTunnelEdge(
     return;
   }
   const workspaceDir = getDefaultWorkspaceDir();
-  // A running edge that fronts a different container is left alone: waking this
-  // assistant must not restart the shared edge against its own gateway and
-  // redirect the other one's public endpoint. `ensureTunnelEdge` would do
-  // exactly that, so the check cannot be delegated to it.
+  if (!ownsSharedIngress(entry, gatewayPort, workspaceDir)) {
+    return;
+  }
+  // Gate before waiting: a container that was never tunneled wants no edge, and
+  // must not pay the gateway-readiness wait to find that out.
+  if (!wantsTunnelEdge(workspaceDir)) {
+    return;
+  }
+  // `wakeContainers` returns once `docker start` is issued, so on a cold or
+  // migration-heavy start the gateway is not listening yet. The edge only waits
+  // `INGRESS_READY_TIMEOUT_MS` for /healthz before rolling itself back, so
+  // without this the restore would fail on exactly the wakes that need it.
   if (
-    isIngressRunning(workspaceDir) &&
-    readIngressState(workspaceDir)?.gatewayPort !== gatewayPort
+    gatewayReadyTimeoutMs > 0 &&
+    !(await waitForDaemonReady(gatewayPort, gatewayReadyTimeoutMs))
   ) {
+    console.warn(
+      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`vellum tunnel\` once it is running.`,
+    );
     return;
   }
   await restoreTunnelEdge(entry.assistantId, gatewayPort, workspaceDir, false);
