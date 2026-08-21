@@ -76,8 +76,10 @@ beforeEach(() => {
   enqueueCalls.length = 0;
   enqueueThrows = false;
   // Reset to a stable tmp path so the sandbox tests (which don't use pkb/)
-  // deterministically land outside any configured PKB root.
-  process.env.VELLUM_WORKSPACE_DIR = tmpdir();
+  // deterministically land outside any configured PKB root. A subdirectory
+  // rather than tmpdir() itself, so vellumRoot() (the parent) also stays
+  // inside the temp directory for the live-workspace guard.
+  process.env.VELLUM_WORKSPACE_DIR = join(tmpdir(), "file-write-tool-ws");
 });
 
 afterEach(() => {

@@ -8,6 +8,7 @@
  * focused on orchestration.
  */
 import type { AssistantEvent } from "../../../api/index.js";
+import { resolveGuardianPromptDelivery } from "../../../approvals/guardian-channel-delivery.js";
 import {
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
@@ -189,6 +190,7 @@ export function processChannelMessageInBackground(
           externalChatId,
           trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
+          guardianChatId: trustCtx.guardianChatId,
           requesterExternalUserId: trustCtx.requesterExternalUserId,
           replyCallbackUrl,
           assistantId,
@@ -748,6 +750,7 @@ function startPendingApprovalPromptWatcher(params: {
   externalChatId: string;
   trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
+  guardianChatId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
   assistantId?: string;
@@ -759,6 +762,7 @@ function startPendingApprovalPromptWatcher(params: {
     externalChatId,
     trustClass,
     guardianExternalUserId,
+    guardianChatId,
     requesterExternalUserId,
     replyCallbackUrl,
     assistantId,
@@ -790,9 +794,17 @@ function startPendingApprovalPromptWatcher(params: {
         const info = pending[0];
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
+          // Addressed to the guardian's own chat, not the chat the turn is
+          // running in, which can be a room that reads the tool and its
+          // command preview.
+          const promptDelivery = resolveGuardianPromptDelivery({
+            turnChatId: externalChatId,
+            turnCallbackUrl: replyCallbackUrl,
+            guardianChatId,
+          });
           const delivered = await deliverGeneratedApprovalPrompt({
-            replyCallbackUrl,
-            chatId: externalChatId,
+            replyCallbackUrl: promptDelivery.callbackUrl,
+            chatId: promptDelivery.chatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             prompt,

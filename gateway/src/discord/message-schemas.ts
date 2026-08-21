@@ -137,6 +137,18 @@ export const DiscordMessageCreateSchema = z.object({
     .array(z.object({ id: idString() }))
     .optional()
     .catch(undefined),
+  attachments: z
+    .array(
+      z.object({
+        id: idString(),
+        filename: optionalString(),
+        size: optionalNumber(),
+        content_type: optionalString(),
+        url: optionalString(),
+      }),
+    )
+    .optional()
+    .catch(undefined),
 });
 export type DiscordMessageCreate = z.infer<typeof DiscordMessageCreateSchema>;
 
@@ -157,6 +169,9 @@ export type DiscordMessageCreate = z.infer<typeof DiscordMessageCreateSchema>;
 type DiscordMessageAuthor = NonNullable<
   z.infer<typeof DiscordMessageCreateSchema>["author"]
 >;
+type DiscordMessageAttachment = NonNullable<
+  z.infer<typeof DiscordMessageCreateSchema>["attachments"]
+>[number];
 
 type _DiscordApiCrossChecks = [
   Expect<
@@ -196,6 +211,12 @@ type _DiscordApiCrossChecks = [
     ModeledKeysAreOfficial<
       DiscordMessageAuthor,
       GatewayMessageCreateDispatchData["author"]
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      DiscordMessageAttachment,
+      GatewayMessageCreateDispatchData["attachments"][number]
     >
   >,
 ];

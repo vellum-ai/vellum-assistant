@@ -22,6 +22,7 @@ import type {
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -455,6 +456,9 @@ const bridge: VellumBridge = {
     },
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
+    },
+    setHitRegion: (region: DictationOverlayHitRegion | null): void => {
+      ipcRenderer.send("vellum:dictationOverlay:setHitRegion", region);
     },
   },
   voiceActivity: {

@@ -87,6 +87,7 @@ import {
   type ConversationCreateType,
   type ConversationOrigin,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -421,13 +422,15 @@ export {
 } from "./conversation-types.js";
 
 /**
- * `messageKind` value marking a daemon-authored system card — a pre-composed
- * status reply (the /compact, /clean, and summarize-up-to result cards) that
- * bypasses the agent loop. Cards render as standalone system notices, never
- * as the assistant persona speaking, and never merge into adjacent assistant
- * display turns.
+ * The system-card `messageKind` marker and its predicate live in the
+ * `conversation-types` leaf so a caller that only stamps or classifies the
+ * marker does not pull in this module's DB graph, and are re-exported here
+ * alongside the schema that carries them.
  */
-export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+export {
+  isSystemCardMetadata,
+  SYSTEM_CARD_MESSAGE_KIND,
+} from "./conversation-types.js";
 
 /**
  * `messageKind` value marking the synthetic assistant row the agent loop
@@ -438,18 +441,6 @@ export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
  * clients render the row as a themed notice instead of persona speech.
  */
 export const PROVIDER_ERROR_MESSAGE_KIND = "provider_error";
-
-/**
- * Shared predicate for the system-card marker on assistant-message metadata
- * (see the `messageKind` field on {@link messageMetadataSchema}). One
- * definition so display merging, transcript rendering, and turn grouping
- * cannot drift.
- */
-export function isSystemCardMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
-}
 
 /**
  * Shared predicate for the provider-error marker on assistant-message

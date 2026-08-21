@@ -16,13 +16,23 @@ import {
   eventMatchesVoiceModeActivator,
   isFnVoiceModeActivator,
   readVoiceModeActivator,
+  supportsBareModifierVoiceMode,
+  type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
+import { type PTTModifier } from "@/utils/ptt-activator";
 import {
   type HotkeyEvent,
   subscribeToHotkeyEvents,
   supportsFnPushToTalk,
 } from "@/runtime/hotkey";
 import { watchSetting } from "@/utils/local-settings";
+
+const MODIFIER_BY_KEY: Partial<Record<string, PTTModifier>> = {
+  Alt: "option",
+  Control: "control",
+  Meta: "command",
+  Shift: "shift",
+};
 
 /**
  * Binds the configured voice mode shortcut (Settings, Voice) to starting and
@@ -107,6 +117,23 @@ export function useVoiceModeHotkey({
       activator = readVoiceModeActivator(fnAvailable);
     });
 
+    // A bare-modifier binding (Windows desktop) toggles on a clean tap:
+    // press-and-release of exactly the bound modifiers, with nothing else in
+    // between. Arming on keydown and firing on keyup is what keeps ordinary
+    // chords (Ctrl+C) from toggling a session on their way through.
+    const bindsBareModifier = supportsBareModifierVoiceMode();
+    let bareTapArmed = false;
+
+    // On the desktop app the chord is an Electron `globalShortcut` that main
+    // owns; binding it here as well would fire the same press twice whenever
+    // the app happens to be focused.
+    const bindsChord = !isElectron();
+
+    const isBareModifierActivator = (a: VoiceModeActivator): boolean =>
+      bindsBareModifier &&
+      a.kind === "modifierOnly" &&
+      !isFnVoiceModeActivator(a);
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || activator.kind === "off") {
         return;
@@ -116,6 +143,21 @@ export function useVoiceModeHotkey({
       // sits on `window`, so it sees the event after they do; acting anyway
       // would fire both.
       if (event.defaultPrevented) {
+        return;
+      }
+      if (isBareModifierActivator(activator)) {
+        if (eventMatchesVoiceModeActivator(event, activator)) {
+          bareTapArmed = true;
+          // Keep Alt from shifting focus to the menu bar mid-tap.
+          event.preventDefault();
+        } else {
+          bareTapArmed = false;
+        }
+        return;
+      }
+      // Desktop chords are the main process's `globalShortcut`; only the
+      // bare-modifier path above belongs to the DOM there.
+      if (!bindsChord) {
         return;
       }
       // Fn arrives over the host bridge below, never as a DOM key event.
@@ -140,6 +182,30 @@ export function useVoiceModeHotkey({
       toggleVoiceMode();
     };
 
+    const onKeyUp = (event: KeyboardEvent) => {
+      const bound = activator;
+      if (
+        !bareTapArmed ||
+        bound.kind !== "modifierOnly" ||
+        !isBareModifierActivator(bound)
+      ) {
+        return;
+      }
+      const released = MODIFIER_BY_KEY[event.key];
+      if (released === undefined || !bound.modifiers.includes(released)) {
+        return;
+      }
+      bareTapArmed = false;
+      event.preventDefault();
+      toggleVoiceMode();
+    };
+
+    // A keyup can be lost when focus leaves the window; a stale armed tap
+    // would then fire on an unrelated later release.
+    const onBlur = () => {
+      bareTapArmed = false;
+    };
+
     const onNativeHotkey = (event: HotkeyEvent) => {
       // The release edge ends a push-to-talk hold. For a toggle it means
       // nothing: the user has already lifted the key that started the session.
@@ -149,19 +215,25 @@ export function useVoiceModeHotkey({
       toggleVoiceMode();
     };
 
-    // On the desktop app the chord is an Electron `globalShortcut` that main
-    // owns; binding it here as well would fire the same press twice whenever
-    // the app happens to be focused.
-    const bindsChord = !isElectron();
-    if (bindsChord) {
+    // Bare modifiers are the exception to the globalShortcut rule above: a
+    // `globalShortcut` cannot express one, so they live on the DOM even there.
+    if (bindsChord || bindsBareModifier) {
       window.addEventListener("keydown", onKeyDown);
+    }
+    if (bindsBareModifier) {
+      window.addEventListener("keyup", onKeyUp);
+      window.addEventListener("blur", onBlur);
     }
     const unsubscribeHotkeys = subscribeToHotkeyEvents(onNativeHotkey);
 
     return () => {
       unwatchSetting();
-      if (bindsChord) {
+      if (bindsChord || bindsBareModifier) {
         window.removeEventListener("keydown", onKeyDown);
+      }
+      if (bindsBareModifier) {
+        window.removeEventListener("keyup", onKeyUp);
+        window.removeEventListener("blur", onBlur);
       }
       unsubscribeHotkeys();
     };

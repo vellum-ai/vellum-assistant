@@ -8,6 +8,7 @@ import {
   sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
+  updateSlackMessage,
 } from "./send.js";
 
 const log = getLogger("slack-transport");
@@ -28,7 +29,6 @@ export const slackTransport: ChannelTransport = {
         useBlocks: payload.useBlocks,
         ephemeral: payload.ephemeral,
         user: payload.user,
-        messageTs: payload.messageTs,
       });
       sentTs = result.ts;
     } else if (payload.approval) {
@@ -52,6 +52,16 @@ export const slackTransport: ChannelTransport = {
 
     log.info({ chatId, hasText: !!text }, "Slack reply delivered (direct)");
     return { ok: true, ts: sentTs };
+  },
+
+  async edit(_ctx, target) {
+    const result = await updateSlackMessage(
+      target.chatId,
+      target.messageId,
+      target.text,
+      { blocks: target.blocks, useBlocks: target.useBlocks },
+    );
+    return { ok: true, ts: result.ts };
   },
 
   async react(_ctx, target) {

@@ -1,6 +1,7 @@
 import { stripVellumLinks } from "../daemon/assistant-attachments.js";
 import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import { editChannelMessage } from "../messaging/providers/index.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
@@ -169,7 +170,6 @@ export async function deliverRenderedReplyViaCallback(
           assistantId,
           ephemeral,
           user,
-          messageTs,
         },
       );
       if (result.ts) {
@@ -189,7 +189,6 @@ export async function deliverRenderedReplyViaCallback(
           assistantId,
           ephemeral,
           user,
-          messageTs,
         },
       );
       const deliveredTs = result.ts ?? messageTs;
@@ -210,21 +209,53 @@ export async function deliverRenderedReplyViaCallback(
     const isLastSegment = i === deliverableSegments.length - 1;
     const isFirstSegment = i === startFromSegment;
     const segmentText = deliverableSegments[i];
-    const result: ChannelDeliveryResult = await deliverChannelReply(
-      callbackUrl,
-      {
+    // Ask the channel to render richly; each channel's adapter decides how
+    // (Slack to Block Kit). Channels without rich rendering send plain text.
+    const segmentAttachments = isLastSegment ? replyAttachments : undefined;
+    const editTarget = isFirstSegment ? currentMessageTs : undefined;
+
+    let result: ChannelDeliveryResult;
+    if (editTarget) {
+      result = await editChannelMessage(callbackUrl, {
+        chatId,
+        messageId: editTarget,
+        text: segmentText,
+        useBlocks: true,
+      });
+      // An edit replaces the text of one message. Attachments are always new
+      // messages, so they still have to be posted alongside it.
+      //
+      // Failures here are not the reply failing. A transport rejects a total
+      // attachment failure only when there is no text to fall back on, and the
+      // edit above already delivered the text. Rethrowing would mark a reply
+      // undelivered that the reader can see, and have the sweep repost it.
+      if (segmentAttachments) {
+        try {
+          await deliverChannelReply(callbackUrl, {
+            chatId,
+            attachments: segmentAttachments,
+            assistantId,
+            ephemeral,
+            user,
+          });
+        } catch (err) {
+          log.warn(
+            { err, chatId },
+            "Attachments failed after an in-place edit; the edited text stands",
+          );
+        }
+      }
+    } else {
+      result = await deliverChannelReply(callbackUrl, {
         chatId,
         text: segmentText,
-        // Ask the channel to render richly; each channel's adapter decides how
-        // (Slack → Block Kit). Channels without rich rendering send plain text.
         useBlocks: true,
-        attachments: isLastSegment ? replyAttachments : undefined,
+        attachments: segmentAttachments,
         assistantId,
         ephemeral,
         user,
-        messageTs: isFirstSegment ? currentMessageTs : undefined,
-      },
-    );
+      });
+    }
 
     if (result.ts) {
       currentMessageTs = result.ts;

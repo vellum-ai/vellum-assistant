@@ -20,6 +20,7 @@ import { channelForCallback } from "./callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
+  EditTarget,
   ReactionTarget,
   ThreadStatus,
 } from "./channel-transport.js";
@@ -86,6 +87,24 @@ export async function sendChannelTyping(
  * reaction is an acknowledgement, and a channel that cannot show one is not a
  * failed delivery.
  */
+/**
+ * Replace a message the assistant already sent.
+ *
+ * Returns `ok` without acting when the channel cannot revise a sent message,
+ * matching the other capability entry points: an absent method is an absent
+ * capability, not an error.
+ */
+export async function editChannelMessage(
+  callbackUrl: string,
+  target: EditTarget,
+): Promise<ChannelDeliveryResult> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.edit) {
+    return { ok: true };
+  }
+  return transport.edit(callbackContext(callbackUrl), target);
+}
+
 export async function sendChannelReaction(
   callbackUrl: string,
   target: ReactionTarget,
@@ -161,9 +180,8 @@ export function isDirectDelivery(callbackUrl: string): boolean {
  * Deliver a channel reply directly to the provider API, bypassing the gateway
  * HTTP proxy. Callers MUST check `isDirectDelivery()` first.
  *
- * Sub-operations (reaction, thread status) route to the transport's optional
- * method when both the payload field and the method are present; otherwise
- * the reply is delivered as text / approval / attachments.
+ * Delivers the reply itself: text, approval card, attachments. Every other
+ * operation a transport supports is reached through its own entry point.
  */
 export async function deliverDirect(
   callbackUrl: string,

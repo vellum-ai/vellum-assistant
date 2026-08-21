@@ -135,7 +135,6 @@ export interface SlackSendOptions {
   useBlocks?: boolean;
   ephemeral?: boolean;
   user?: string;
-  messageTs?: string;
 }
 
 export interface SlackSendResult {
@@ -210,15 +209,40 @@ function buildApprovalFallbackText(
 }
 
 /**
- * Send a Slack text message with optional Block Kit formatting.
+ * Post a Slack text message with optional Block Kit formatting.
  *
- * When `messageTs` is set this is strictly an in-place edit (`chat.update`),
- * mirroring `editMessage()` in ./withdraw.ts: a failed edit throws and is
- * never converted into a fresh `chat.postMessage`. Posting on failure would
- * leave the original message beside a duplicate ("ghost") reply; re-delivery
- * after a transient failure is the delivery layer's responsibility, not this
- * function's.
+ * Always posts. Replacing an existing message is {@link updateSlackMessage}.
  */
+/**
+ * Replace a Slack message in place via `chat.update`.
+ *
+ * A failed update throws rather than posting a fresh message, mirroring
+ * `editMessage()` in ./withdraw.ts: posting on failure leaves the original
+ * beside a duplicate reply. Re-delivery after a transient failure belongs to
+ * the delivery layer, not here.
+ */
+export async function updateSlackMessage(
+  chatId: string,
+  messageId: string,
+  text: string,
+  options?: { blocks?: readonly KnownBlock[]; useBlocks?: boolean },
+): Promise<SlackSendResult> {
+  const blocks = resolveBlocks(
+    text,
+    options?.blocks as KnownBlock[] | undefined,
+    undefined,
+    options?.useBlocks,
+  );
+  const result = await sendWithBlockFallback(
+    "chat.update",
+    { channel: chatId, text, ts: messageId },
+    blocks,
+    { fallbackWithoutBlocks: true },
+  );
+  log.info({ chatId, messageId }, "Slack message updated");
+  return result;
+}
+
 export async function sendSlackReply(
   chatId: string,
   text: string,
@@ -230,18 +254,6 @@ export async function sendSlackReply(
     options?.approval,
     options?.useBlocks,
   );
-
-  const messageTs = options?.messageTs;
-  if (typeof messageTs === "string" && messageTs.length > 0) {
-    const result = await sendWithBlockFallback(
-      "chat.update",
-      { channel: chatId, text, ts: messageTs },
-      blocks,
-      { fallbackWithoutBlocks: true },
-    );
-    log.info({ chatId, messageTs }, "Slack message updated");
-    return result;
-  }
 
   const postBase: Record<string, unknown> = { channel: chatId, text };
   if (options?.threadTs) {

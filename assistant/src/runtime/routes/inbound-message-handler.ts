@@ -42,6 +42,7 @@ import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
+import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
   resolveSlackBotUserId,
   withSlackBotToken,
@@ -1190,15 +1191,16 @@ export async function handleChannelInbound({
         }
       }
 
-      // On Slack, edit the original approval message to remove stale buttons
+      // Edit the original approval message to remove stale buttons
       // and deliver an ephemeral error so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
-      if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
-        deliverChannelReply(replyCallbackUrl, {
+      // No channel check: a transport without `edit` declines the call, so a
+      // channel gains this the moment it can revise a sent message.
+      if (replyCallbackUrl && approvalMessageTs) {
+        editChannelMessage(replyCallbackUrl, {
           chatId: conversationExternalId,
+          messageId: approvalMessageTs,
           text: "This approval request has been resolved.",
-          messageTs: approvalMessageTs,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },

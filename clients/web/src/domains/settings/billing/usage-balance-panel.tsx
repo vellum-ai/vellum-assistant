@@ -26,10 +26,9 @@ export interface UsageBalancePanelProps {
 }
 
 /**
- * The current-plan tile's footer while `obscure-credits` is on: how much of a
- * Pro package's included usage this cycle has spent, in place of the price
- * row, or how much of a free plan's granted usage credit it has used, above
- * one.
+ * The current-plan tile's footer while `obscure-credits` is on, in place of the
+ * price row: how much of a Pro package's included usage this cycle has spent,
+ * or how much of a free plan's granted usage credit it has used.
  */
 export function UsageBalancePanel({
   ratio,

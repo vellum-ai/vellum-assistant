@@ -147,6 +147,20 @@ export const CurrentFree: Story = {
 };
 
 /**
+ * The same free tile with the `obscure-credits` flag on and a usage grant to
+ * chart: the Usage Balance bar takes the footer over from "Free Forever", so
+ * the tile never states its allowance twice. A free account that was never
+ * granted any usage has no bar, and keeps the price row above.
+ */
+export const CurrentFreeObscuredCredits: Story = {
+  args: {
+    ...CurrentFree.args,
+    specsWrap: true,
+    footer: <UsageBalancePanel ratio={0.68} resetsAt={null} />,
+  },
+};
+
+/**
  * A subscriber's current-plan tile, on the catalog's Mighty package. The
  * footer price is the fixture's own `total_price_cents` run through the shared
  * `priceLabelFromCents` formatter, so it stays honest if the package is
@@ -166,9 +180,10 @@ export const CurrentPaid: Story = {
 
 /**
  * The same tile with the `obscure-credits` flag on: the credits chip names the
- * package's usage allowance instead of a dollar bundle, the chips wrap into a
- * row, and the price footer gives way to the Usage Balance bar. Props only, so
- * the ratio here is a fixture rather than a live usage read.
+ * package's usage allowance instead of a dollar bundle, the machine and storage
+ * chips wrap into a row with that longer chip on its own beneath them, and the
+ * price footer gives way to the Usage Balance bar. Props only, so the ratio here
+ * is a fixture rather than a live usage read.
  */
 export const CurrentObscuredCredits: Story = {
   args: {

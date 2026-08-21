@@ -1614,6 +1614,10 @@ describe("background channel processing approval prompts", () => {
       | { requestId?: string }
       | undefined;
     expect(approvalMeta?.requestId).toBe("req-bg-1");
+    // Telegram's chat is already one-to-one, so the prompt stays where the
+    // turn is. Slack, where it does not, is covered in
+    // guardian-prompt-notice-privacy.test.ts.
+    expect(deliverPromptSpy.mock.calls[0]?.[1]).toBe("chat-123");
 
     deliverPromptSpy.mockRestore();
   });

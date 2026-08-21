@@ -1176,20 +1176,28 @@ describe("PlanCard with obscure-credits on", () => {
     expect(next.queryByText("$45 in credits included")).toBeNull();
   });
 
-  test("both tiles wrap their chips into a row", () => {
+  test("both tiles wrap their short chips into a row, usage below", () => {
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
     );
 
-    // Child 0 is the header row; child 1 is the chip container.
-    expect(
-      (currentTile(container).children[1] as HTMLElement).className,
-    ).toContain("flex-wrap");
-    expect(
-      (nextTile(container).children[1] as HTMLElement).className,
-    ).toContain("flex-wrap");
+    for (const [tile, usageLabel] of [
+      [currentTile(container), "Mighty usage, reset monthly"],
+      [nextTile(container), "Super usage, reset monthly"],
+    ] as const) {
+      // Child 0 is the header row; child 1 is the chip container.
+      const chips = tile.children[1] as HTMLElement;
+      const wrapRow = chips.firstElementChild as HTMLElement;
+      expect(wrapRow.className).toContain("flex-wrap");
+      expect(wrapRow.textContent).toContain("Machine");
+      expect(wrapRow.textContent).toContain("Storage");
+      expect(wrapRow.textContent).not.toContain(usageLabel);
+      // The usage chip is the first full-width row underneath (Super's email
+      // extra takes another below it).
+      expect(chips.children[1]?.textContent).toBe(usageLabel);
+    }
   });
 
   test("shows neither the bar nor the price when the usage read fails", async () => {
@@ -1354,10 +1362,10 @@ describe("PlanCard with obscure-credits on", () => {
     ).toBeNull();
   });
 
-  test("a free plan keeps its Free Forever footer and its own chips", () => {
+  test("a free plan with no grant falls back to Free Forever and its own chips", () => {
     // Nothing has reported a usage grant, so there is no denominator for the
-    // free tile's bar and no dollar figure to obscure either. Suppressing the
-    // footer here would leave the tile with an empty bottom slot.
+    // free tile's bar. Suppressing the footer here would leave the tile with an
+    // empty bottom slot, so the price row stays as the fallback.
     const { container } = renderCardInteractive(
       baseSubscription(),
       basePlansResponse(),
@@ -1375,9 +1383,9 @@ describe("PlanCard with obscure-credits on", () => {
     expect(usageTotalsCalls).toBe(0);
   });
 
-  test("a free plan stacks its usage-grant bar above Free Forever", async () => {
+  test("a free plan hides Free Forever once its usage-grant bar renders", async () => {
     // $3.40 of the $5.00 this account was granted, so the bar reads 68% and
-    // the price row it sits above is untouched.
+    // takes the footer over from the price row.
     totalUsageBalance = "5.00";
     availableUsageBalance = "1.60";
     const { container, findByTestId } = renderCardInteractive(
@@ -1392,9 +1400,8 @@ describe("PlanCard with obscure-credits on", () => {
     // A grant is not a cycle, so nothing resets.
     expect(panel.textContent).not.toContain("Resets");
     const current = within(currentTile(container));
-    expect(current.getByTestId("plan-card-price").textContent).toBe(
-      "Free Forever",
-    );
+    expect(current.queryByTestId("plan-card-price")).toBeNull();
+    expect(current.queryByText("Free Forever")).toBeNull();
     // The whole reading comes off the summary, so no usage window is read.
     expect(usageTotalsCalls).toBe(0);
   });

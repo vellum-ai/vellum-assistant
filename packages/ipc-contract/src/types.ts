@@ -289,6 +289,19 @@ export type DictationOverlayState =
 export type DictationOverlayMessage =
   DictationOverlayState | { kind: "dismiss" };
 
+/**
+ * Where the overlay's Stop control sits, in window-relative CSS pixels.
+ * The overlay renderer reports it so main can hit-test the cursor against
+ * it on platforms where forwarded mouse moves never reach a click-through
+ * window.
+ */
+export type DictationOverlayHitRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 // ---------------------------------------------------------------------------
 // Voice activity (the floating live-voice session surface)
 // ---------------------------------------------------------------------------

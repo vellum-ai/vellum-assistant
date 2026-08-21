@@ -1,11 +1,12 @@
 /**
- * Shared addressing helpers for guardian requester-facing channel notices.
+ * Shared addressing helpers for guardian-flow channel notices.
  *
- * Requester notices (approval, denial, expiry) are delivered straight to the
- * requester's chat via `deliverChannelReply` — independent of the
- * guardian-facing notification pipeline. Centralizing the addressing rules here
- * keeps the decision resolvers and the timer-driven expiry sweep from drifting
- * apart on how a requester is reached.
+ * Requester notices (approval, denial, expiry) and the guardian's own approval
+ * prompt are delivered straight to a chat via `deliverChannelReply` -
+ * independent of the guardian-facing notification pipeline. Centralizing the
+ * addressing rules here keeps the decision resolvers, the timer-driven expiry
+ * sweep and the in-turn approval prompt from drifting apart on who a message
+ * is put in front of.
  */
 
 /**
@@ -110,4 +111,67 @@ export function resolveRequesterDeliveryTarget(params: {
     return requesterExternalUserId;
   }
   return requesterChatId;
+}
+
+/**
+ * Reduce a reply callback to its channel route, dropping every query param.
+ *
+ * A callback addresses the turn it came from. The gateway hangs the turn's
+ * coordinates on it as params, and each transport reads a different one:
+ * Slack a `threadTs`, Telegram a forum topic `threadId`, Discord a `threadId`
+ * that replaces the destination outright rather than narrowing it. Carried
+ * onto a delivery aimed elsewhere they either fail the send or quietly win
+ * over the new address, and a redirect that leaves one behind is
+ * indistinguishable from no redirect at all.
+ *
+ * Everything is dropped rather than a named set, so a channel added later, or
+ * a param a transport starts reading later, cannot silently escape this. The
+ * channel itself survives because it is the path, which is also what
+ * `isDirectDelivery` resolves a transport from, and nothing the gateway hangs
+ * on a deliver callback is needed to authorize or route the send.
+ *
+ * Relative or malformed URLs are returned as-is; they carry no params.
+ */
+export function stripTurnDestination(replyCallbackUrl: string): string {
+  try {
+    const url = new URL(replyCallbackUrl);
+    url.search = "";
+    return url.toString();
+  } catch {
+    return replyCallbackUrl;
+  }
+}
+
+/**
+ * Resolve where a guardian's own approval prompt is delivered.
+ *
+ * The prompt is raised by a turn the guardian is having, and that turn can be
+ * running in a room: a shared Slack channel, a Telegram group. The card
+ * carries the tool name and a preview of the command, so delivering it where
+ * the turn is shows both to everyone there.
+ *
+ * It goes to the guardian's own bound chat instead, the address they
+ * nominated when they verified and the one the notification pipeline already
+ * sends guardian cards to. No channel is named in this rule and none can be
+ * forgotten by it: a bound chat is the guardian's by definition, on any
+ * channel, including ones not built yet.
+ *
+ * A bound chat equal to the turn's chat means the turn is already there, so
+ * nothing moves. That also covers a turn where no binding resolved, since the
+ * trust context falls back to the turn's own chat, leaving delivery exactly as
+ * it is rather than dropping it.
+ */
+export function resolveGuardianPromptDelivery(params: {
+  turnChatId: string;
+  turnCallbackUrl: string;
+  guardianChatId: string | undefined;
+}): { chatId: string; callbackUrl: string } {
+  const { turnChatId, turnCallbackUrl, guardianChatId } = params;
+  if (!guardianChatId || guardianChatId === turnChatId) {
+    return { chatId: turnChatId, callbackUrl: turnCallbackUrl };
+  }
+  return {
+    chatId: guardianChatId,
+    callbackUrl: stripTurnDestination(turnCallbackUrl),
+  };
 }

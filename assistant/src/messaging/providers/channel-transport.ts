@@ -1,3 +1,4 @@
+import type { KnownBlock } from "@slack/types";
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
@@ -38,6 +39,22 @@ export interface ThreadStatus {
 }
 
 /**
+ * An existing message to replace in place, and what to replace it with.
+ *
+ * `messageId` is the target in the channel's own id space, the same way
+ * `chatId` is. `blocks` and `useBlocks` are the rendering inputs the edit
+ * carries, so a replacement renders the way the original did rather than
+ * degrading to plain text.
+ */
+export interface EditTarget {
+  readonly chatId: string;
+  readonly messageId: string;
+  readonly text: string;
+  readonly blocks?: readonly KnownBlock[];
+  readonly useBlocks?: boolean;
+}
+
+/**
  * Direct outbound delivery for one channel, wrapping the channel's provider-API
  * send functions behind a uniform surface. Transports are registered statically
  * (delivery runs in non-daemon contexts) and dispatched by channel, resolved
@@ -55,6 +72,22 @@ export interface ChannelTransport {
   deliver(
     ctx: CallbackContext,
     payload: ChannelReplyPayload,
+  ): Promise<ChannelDeliveryResult>;
+
+  /**
+   * Replace a message the assistant already sent.
+   *
+   * Distinct from `deliver`, which always posts something new. A channel that
+   * cannot revise a sent message omits this, and a caller that needs the
+   * revision to be visible has to post instead of silently doing nothing.
+   *
+   * An implementation must not fall back to posting when the edit fails. The
+   * original would remain beside the replacement, which reads as the assistant
+   * answering twice.
+   */
+  edit?(
+    ctx: CallbackContext,
+    target: EditTarget,
   ): Promise<ChannelDeliveryResult>;
 
   /**
