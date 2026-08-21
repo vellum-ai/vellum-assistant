@@ -99,9 +99,11 @@ export function ProfileRow({
     configIssue != null
       ? t("profileRow.providerUnavailableFixable", {
           message: t(
-            configIssue.code === "max_tokens_invalid"
-              ? "profileRow.configIssueMaxTokens"
-              : "profileRow.configIssueModelUnknown",
+            configIssue.code === "over_output_cap"
+              ? "profileRow.configIssueOverOutputCap"
+              : configIssue.code === "no_input_room"
+                ? "profileRow.configIssueNoInputRoom"
+                : "profileRow.configIssueModelUnknown",
           ),
         })
       : availability != null && availability.status !== "ok"

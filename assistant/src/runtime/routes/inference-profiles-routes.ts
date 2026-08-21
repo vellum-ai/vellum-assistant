@@ -94,7 +94,7 @@ const availabilitySchema = z
  */
 const profileConfigIssueSchema = z
   .object({
-    code: z.enum(["model_unknown", "max_tokens_invalid"]),
+    code: z.enum(["model_unknown", "over_output_cap", "no_input_room"]),
     message: z.string(),
   })
   .meta({ id: "InferenceProfileConfigIssue" });
@@ -190,11 +190,6 @@ function assertValidProvider(provider: string): void {
 }
 
 /**
- * Validate a (provider, model) pair against the catalog. Returns warnings
- * (never throws) when `allowUnlisted`; throws otherwise for an uncataloged
- * model. An uncataloged model always warns, whether or not it is allowed.
- */
-/**
  * Why a (provider, model, connection) triple cannot be vouched for, or null.
  * The same reach checks dispatch applies: routing identities against their
  * routing table, entry names against their row's dispatchable kind, vendor
@@ -233,6 +228,11 @@ function modelReachIssue(
   };
 }
 
+/**
+ * Validate a (provider, model) pair against the catalog. Returns warnings
+ * (never throws) when `allowUnlisted`; throws otherwise for an uncataloged
+ * model. An uncataloged model always warns, whether or not it is allowed.
+ */
 function validateModel(
   provider: string,
   model: string,
@@ -271,9 +271,10 @@ function validateModel(
  * and offline; the live probe covers what only a request can prove. Mix
  * arms are judged on their own rows, and managed bodies are code-owned.
  */
-function profileConfigIssue(
-  record: Record<string, unknown>,
-): { code: "model_unknown" | "max_tokens_invalid"; message: string } | null {
+function profileConfigIssue(record: Record<string, unknown>): {
+  code: "model_unknown" | "over_output_cap" | "no_input_room";
+  message: string;
+} | null {
   if (record.mix != null || record.source === "managed") {
     return null;
   }
@@ -284,20 +285,24 @@ function profileConfigIssue(
     // A missing provider/model is availability's `incomplete` verdict.
     return null;
   }
-  const reach = modelReachIssue(
-    provider,
-    model,
-    typeof record.provider_connection === "string"
-      ? record.provider_connection
-      : undefined,
-  );
-  if (reach) {
-    return { code: "model_unknown", message: reach.message };
+  // A stored allowUnlisted marker records that catalog absence was accepted
+  // deliberately at write time; the live probe is the check for those.
+  if (record.allowUnlisted !== true) {
+    const reach = modelReachIssue(
+      provider,
+      model,
+      typeof record.provider_connection === "string"
+        ? record.provider_connection
+        : undefined,
+    );
+    if (reach) {
+      return { code: "model_unknown", message: reach.message };
+    }
   }
   if (typeof record.maxTokens === "number") {
     const budget = maxTokensBudgetIssue(provider, model, record.maxTokens);
     if (budget) {
-      return { code: "max_tokens_invalid", message: budget.message };
+      return { code: budget.code, message: budget.message };
     }
   }
   return null;
@@ -597,6 +602,12 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
     provider: input.provider,
     model: input.model,
     source: "user",
+    // `warnings` here can only be validateModel's unlisted verdict (the
+    // availability warning pushes later), so its presence is exactly the
+    // deliberate allowUnlisted acceptance the listing verdict must honor.
+    ...(input.allowUnlisted && warnings.length > 0
+      ? { allowUnlisted: true }
+      : {}),
   };
   // Pickers render the label, so a label-less profile shows its raw config
   // key (e.g. "gemini-latest"). Default it to the model's human-readable
@@ -747,6 +758,17 @@ async function handleUpdateProfile({
     source:
       existing.source === "managed" ? "user" : (existing.source ?? "user"),
   };
+  // Keep the allowUnlisted marker faithful to the pair being stored: stamp
+  // it on a deliberate unlisted acceptance (warnings can only be the
+  // unlisted verdict here), and drop a stale one when the pair is now
+  // vouched for. Untouched pairs keep their stored marker.
+  if (input.provider !== undefined || input.model !== undefined) {
+    if (input.allowUnlisted && warnings.length > 0) {
+      merged.allowUnlisted = true;
+    } else if (warnings.length === 0) {
+      delete merged.allowUnlisted;
+    }
+  }
   validateProfileEntry(merged);
 
   // The availability guard runs only when the write touches the fields that

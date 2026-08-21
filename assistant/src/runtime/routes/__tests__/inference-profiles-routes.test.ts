@@ -804,7 +804,32 @@ describe("GET inference/profiles config_issue verdict", () => {
     const detail = (await call("inference_profiles_get", {
       pathParams: { name: "overweight" },
     })) as { config_issue?: { code: string } };
-    expect(detail.config_issue?.code).toBe("max_tokens_invalid");
+    expect(detail.config_issue?.code).toBe("over_output_cap");
+  });
+
+  test("does not flag a deliberately allowUnlisted profile", async () => {
+    seedConnection("anthropic-personal", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+    await call("inference_profiles_create", {
+      body: {
+        name: "early-adopter",
+        provider: "anthropic",
+        model: "claude-6-preview",
+        connection: "anthropic-personal",
+        allowUnlisted: true,
+        allowUnavailable: true,
+      },
+    });
+    const result = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{
+        name: string;
+        config_issue?: { code: string };
+      }>;
+    };
+    const row = result.profiles.find((p) => p.name === "early-adopter");
+    expect(row?.config_issue).toBeUndefined();
   });
 });
 

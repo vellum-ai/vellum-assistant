@@ -5133,6 +5133,8 @@ paths:
                 provider_connection:
                   type: string
                   minLength: 1
+                allowUnlisted:
+                  type: boolean
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -34609,6 +34611,10 @@ components:
             - type: string
               minLength: 1
             - type: "null"
+        allowUnlisted:
+          anyOf:
+            - type: boolean
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -35381,6 +35387,8 @@ components:
         provider_connection:
           type: string
           minLength: 1
+        allowUnlisted:
+          type: boolean
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -35694,7 +35702,8 @@ components:
           type: string
           enum:
             - model_unknown
-            - max_tokens_invalid
+            - over_output_cap
+            - no_input_room
         message:
           type: string
       required:
