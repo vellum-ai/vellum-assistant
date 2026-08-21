@@ -79,22 +79,26 @@ describe("isConnectionCompatibleWithModel", () => {
 describe("pickAutoResolvedConnection", () => {
   const row = (name: string, auth: Auth = apiKeyAuth) => ({ name, auth });
 
-  test("a row named exactly the vendor id wins over every other candidate", () => {
+  test("the conventional -personal row wins over every other candidate", () => {
+    // One canonical order across surfaces: the picker prefers the row
+    // `resolveDefaultConnectionName` reports, so dispatch, the
+    // default-provider status route, and the deletion guard all name the
+    // same row even when a vendor-named sibling exists.
     const picked = pickAutoResolvedConnection(
-      [row("aaa-anthropic"), row("anthropic-personal"), row("anthropic")],
-      "anthropic",
-      "claude-opus-4-8",
-    );
-    expect(picked?.name).toBe("anthropic");
-  });
-
-  test("the conventional -personal row wins over non-conventional siblings", () => {
-    const picked = pickAutoResolvedConnection(
-      [row("aaa-anthropic"), row("anthropic-personal")],
+      [row("aaa-anthropic"), row("anthropic"), row("anthropic-personal")],
       "anthropic",
       "claude-opus-4-8",
     );
     expect(picked?.name).toBe("anthropic-personal");
+  });
+
+  test("a row named exactly the vendor id wins over non-conventional siblings", () => {
+    const picked = pickAutoResolvedConnection(
+      [row("aaa-anthropic"), row("anthropic")],
+      "anthropic",
+      "claude-opus-4-8",
+    );
+    expect(picked?.name).toBe("anthropic");
   });
 
   test("falls back to the first model-compatible candidate", () => {

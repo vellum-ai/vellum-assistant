@@ -907,12 +907,53 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 
-  test("a legacy provider_connection in the body is stripped, never persisted", async () => {
+  test("a legacy provider_connection folds into provider as the entry name", async () => {
+    getDb().delete(providerConnections).run();
+    createConnection(getDb(), {
+      name: "personal-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    });
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
         provider: "openai",
         provider_connection: "personal-openai",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      loadRawConfig().llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("personal-openai");
+    expect(savedProfile).not.toHaveProperty("provider_connection");
+  });
+
+  test("a dangling legacy provider_connection is rejected loudly", async () => {
+    getDb().delete(providerConnections).run();
+    await expect(
+      replaceProfileRoute.handler({
+        pathParams: { name: "custom" },
+        body: {
+          provider: "openai",
+          provider_connection: "deleted-row",
+          model: "gpt-5.5",
+        },
+      }),
+    ).rejects.toThrow(/Connection "deleted-row" does not exist/);
+  });
+
+  test("a null legacy provider_connection (cleared binding) is a no-op", async () => {
+    const result = await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openai",
+        provider_connection: null,
         model: "gpt-5.5",
       },
     });
@@ -1331,6 +1372,80 @@ describe("custom profile write normalization (complete overrides)", () => {
       body: first as Record<string, unknown>,
     });
     expect(savedProfiles().mine).toEqual(first);
+  });
+});
+
+describe("PATCH profile entries fold the legacy provider_connection", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedProfiles = () =>
+    (
+      loadRawConfig().llm as {
+        profiles?: Record<string, Record<string, unknown>>;
+      }
+    ).profiles ?? {};
+
+  beforeEach(() => {
+    getDb().delete(providerConnections).run();
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          mine: {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.5",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("a verified binding folds into provider as the entry name", async () => {
+    createConnection(getDb(), {
+      name: "personal-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    });
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          profiles: { mine: { provider_connection: "personal-openai" } },
+        },
+      },
+    });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("personal-openai");
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+
+  test("a dangling binding is rejected loudly, leaving config untouched", async () => {
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            profiles: { mine: { provider_connection: "deleted-row" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Connection "deleted-row" does not exist/);
+    expect(savedProfiles().mine!.provider).toBe("openai");
+  });
+
+  test("a null binding (cleared) is a no-op and never lands in raw config", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          profiles: { mine: { provider_connection: null, maxTokens: 4096 } },
+        },
+      },
+    });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("openai");
+    expect(saved.maxTokens).toBe(4096);
+    expect(saved).not.toHaveProperty("provider_connection");
   });
 });
 

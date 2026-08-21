@@ -49,13 +49,13 @@ import {
   getModelDisplayName,
   isModelInCatalog,
 } from "../../providers/model-catalog.js";
-import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
   normalizeManagedProfileWrites,
   rejectManagedProfileDeletion,
 } from "./conversation-query-routes.js";
+import { translateDeprecatedConnection } from "./deprecated-connection-shim.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import {
   describeUnavailableProfile,
@@ -129,8 +129,9 @@ const profileWriteResultSchema = z
  * Deprecated wire shim: older generated clients and CLIs still send
  * `connection` alongside `provider`. The handlers translate it with the
  * same verified-fold semantics as workspace migration 148 (see
- * `translateDeprecatedConnection`); it is never persisted as its own
- * field. Delete with the fleet-telemetry-gated legacy shims.
+ * `translateDeprecatedConnection` in deprecated-connection-shim.ts); it is
+ * never persisted as its own field. Delete with the fleet-telemetry-gated
+ * legacy shims.
  */
 const DEPRECATED_CONNECTION_REQUEST_SHIM = {
   connection: z.string().min(1).optional(),
@@ -174,51 +175,6 @@ function assertValidProvider(provider: string): void {
   if (issue) {
     throw new BadRequestError(issue);
   }
-}
-
-/**
- * Translate the deprecated `connection` request field into the entries
- * model with the same verified-fold semantics as workspace migration 148:
- * a row that exists and whose kind agrees with the sent provider becomes
- * the profile's `provider` (the entry name); anything unverifiable is
- * rejected loudly rather than silently persisting a bare vendor whose
- * routing differs from what the caller pinned. Kind agreement mirrors
- * dispatch: same provider, a "chatgpt" row for a declared "openai", or a
- * "vellum" row for a declared managed-routable provider.
- */
-function translateDeprecatedConnection(
-  provider: string | undefined,
-  connectionName: string,
-): string | undefined {
-  if (provider !== undefined && ROUTING_IDENTITY_PROVIDERS.has(provider)) {
-    // Identity profiles carry no binding by definition; a stray one is
-    // ignored (migration 148's identity rule).
-    return provider;
-  }
-  if (connectionName === provider) {
-    // The bare vendor value already means the default entry of that kind.
-    return provider;
-  }
-  const row = getConnection(getDb(), connectionName);
-  if (!row) {
-    throw new BadRequestError(
-      `Connection "${connectionName}" does not exist. Omit the deprecated ` +
-        `"connection" field, or set "provider" to the name of an existing connection.`,
-    );
-  }
-  const kindAgrees =
-    provider === undefined ||
-    row.provider === provider ||
-    (row.provider === "chatgpt" && provider === "openai") ||
-    (row.provider === "vellum" && MANAGED_ROUTABLE_PROVIDERS.has(provider));
-  if (!kindAgrees) {
-    throw new BadRequestError(
-      `Connection "${connectionName}" has provider "${row.provider}" and ` +
-        `cannot serve provider "${provider}". Omit the deprecated "connection" ` +
-        `field, or point it at a connection matching the profile's provider.`,
-    );
-  }
-  return connectionName;
 }
 
 /**

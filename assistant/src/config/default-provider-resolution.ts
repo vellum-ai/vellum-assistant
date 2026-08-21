@@ -20,10 +20,14 @@ export function getDefaultProviderFromConfig(
 /**
  * Pure by design — no connection-existence check. A dangling conventional
  * name is allowed; see `DefaultProviderSchema`.
+ *
+ * The single home of the conventional-row naming: identities resolve to
+ * their canonical rows, catalog vendors to `<provider>-personal`. Accepts
+ * any provider value (not just `DefaultProviderConfig`'s enum) so
+ * connection auto-resolution can prefer the same row the default-provider
+ * status route and the deletion guard report.
  */
-export function resolveDefaultConnectionName(
-  dp: DefaultProviderConfig,
-): string {
+export function resolveDefaultConnectionName(dp: { provider: string }): string {
   if (dp.provider === "vellum") {
     return VELLUM_MANAGED_CONNECTION_NAME;
   }

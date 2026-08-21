@@ -8,6 +8,7 @@
  * connection when the requested model is not Codex-compatible.
  */
 
+import { resolveDefaultConnectionName } from "../config/default-provider-resolution.js";
 import type { ProviderConnection } from "./inference/auth.js";
 import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 
@@ -44,16 +45,17 @@ export function isConnectionCompatibleWithModel(
  * Deterministic pick among a vendor's rows during auto-resolution (a
  * bare-vendor provider with no entry name of its own). Preference order:
  *
- *   1. a row named exactly the vendor id;
- *   2. the conventional default row (`<provider>-personal`, the shape
- *      `resolveDefaultConnectionName` reports for the default-provider
- *      status route and the deletion guard);
+ *   1. the conventional default row (`resolveDefaultConnectionName`'s
+ *      shape: `<provider>-personal` for catalog vendors, the canonical
+ *      names for identities), the same row the default-provider status
+ *      route and the deletion guard reason about;
+ *   2. a row named exactly the vendor id;
  *   3. the first model-compatible candidate.
  *
- * The first two rungs keep dispatch aligned with the surfaces that reason
- * about the conventional row, so a bare vendor resolves to the same row
- * the status route and delete guard report ("bare catalog id = the default
- * entry of that kind") instead of whichever row happens to list first.
+ * The convention rung comes first so every surface gives one answer: a
+ * bare vendor dispatches on the row the status route reports and the
+ * delete guard protects ("bare catalog id = the default entry of that
+ * kind"), never on whichever row happens to list first.
  */
 export function pickAutoResolvedConnection<
   T extends Pick<ProviderConnection, "name" | "auth">,
@@ -65,9 +67,10 @@ export function pickAutoResolvedConnection<
   const compatible = candidates.filter((c) =>
     isConnectionCompatibleWithModel(c, model),
   );
+  const conventional = resolveDefaultConnectionName({ provider });
   return (
+    compatible.find((c) => c.name === conventional) ??
     compatible.find((c) => c.name === provider) ??
-    compatible.find((c) => c.name === `${provider}-personal`) ??
     compatible[0]
   );
 }

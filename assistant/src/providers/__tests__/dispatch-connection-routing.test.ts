@@ -277,17 +277,18 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
   });
 
   test("bare-vendor auto-resolve prefers the conventional row over list order", async () => {
-    // Two active same-vendor rows; the non-conventional one sorts first.
-    // Dispatch must land on the conventional `<provider>-personal` row so
-    // it agrees with the default-provider status route and the deletion
-    // guard, which reason via `resolveDefaultConnectionName`.
+    // Active same-vendor rows, the conventional one listed last, including
+    // a row named exactly like the vendor. Dispatch must land on the
+    // conventional `<provider>-personal` row so it agrees with the
+    // default-provider status route and the deletion guard, which reason
+    // via `resolveDefaultConnectionName`.
     registerConnection(
       {
-        name: "aaa-anthropic",
+        name: "anthropic",
         provider: "anthropic",
         auth: { type: "api_key", credential: "credential/anthropic/work" },
       },
-      { name: "anthropic", tag: "work-stub" },
+      { name: "anthropic", tag: "vendor-named-stub" },
     );
     registerConnection(
       {

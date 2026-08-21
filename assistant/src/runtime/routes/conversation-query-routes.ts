@@ -121,6 +121,10 @@ import {
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { publishConfigChanged } from "../sync/resource-sync-events.js";
 import {
+  foldDeprecatedProfileBindings,
+  translateDeprecatedConnection,
+} from "./deprecated-connection-shim.js";
+import {
   BadRequestError,
   ForbiddenError,
   InternalError,
@@ -645,12 +649,14 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
 /**
  * Deprecated wire shim: pre-0.11.4 web clients still send/read
  * `provider_connection` from their fleet-telemetry-gated legacy paths.
- * The field is accepted and ignored on writes (the stored `ProfileEntry`
- * schema strips it at parse; the write variant is nullable because edit
- * mode sends `null` for a cleared binding) and never populated in
- * responses; it exists on WIRE schemas only so client typegen stays
- * stable. Delete together with the fleet-telemetry-gated legacy shims in
- * clients/web.
+ * A present string binding is translated with migration 148's
+ * verified-fold semantics (`foldDeprecatedProfileBindings` /
+ * `translateDeprecatedConnection` in deprecated-connection-shim.ts) so a
+ * pinned credential is never silently dropped; `null` (edit mode's
+ * cleared-binding sentinel) and absent are no-ops. The field is never
+ * persisted and never populated in responses; it exists on WIRE schemas
+ * only so client typegen stays stable. Delete together with the
+ * fleet-telemetry-gated legacy shims in clients/web.
  */
 const DEPRECATED_PROVIDER_CONNECTION_WRITE_SHIM = {
   provider_connection: z.string().nullable().optional(),
@@ -1696,6 +1702,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
+  foldDeprecatedProfileBindings(patch, raw);
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
   seedSttProviderForSparseBlock(raw);
@@ -1972,6 +1979,26 @@ async function handleReplaceInferenceProfile({
   }
 
   const fragment = parsed.data as Record<string, unknown>;
+
+  // Deprecated `provider_connection` wire shim (see
+  // DEPRECATED_PROVIDER_CONNECTION_WRITE_SHIM): a present string binding
+  // folds into the fragment's provider with verified-row semantics or
+  // rejects loudly; null/absent are no-ops. Managed bodies are exempt (the
+  // status-re-enable gate above already admits nothing else).
+  const legacyBinding = (body as Record<string, unknown>).provider_connection;
+  if (
+    !isManaged &&
+    typeof legacyBinding === "string" &&
+    legacyBinding.length > 0
+  ) {
+    const translated = translateDeprecatedConnection(
+      typeof fragment.provider === "string" ? fragment.provider : undefined,
+      legacyBinding,
+    );
+    if (translated !== undefined) {
+      fragment.provider = translated;
+    }
+  }
 
   const raw = loadRawConfig();
   if (isManaged) {
