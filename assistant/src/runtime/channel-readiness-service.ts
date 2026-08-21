@@ -534,13 +534,12 @@ export class ChannelReadinessService {
       // progress reports an untouched workspace as `incomplete`, which is what
       // sends the Channels UI down the "finish setup" path instead of the
       // normal setup flow.
-      // Two axes, not one ladder. Setup progress asks whether the channel is
-      // configured; health asks whether it is working. They were the same
-      // question only while readiness meant "are the credentials present", and
-      // stopped being the same the moment a check started reporting delivery:
-      // a fully configured channel whose socket just died is not half set up,
-      // and telling its owner to finish setup sends them to fix the one thing
-      // that is not broken.
+      // Two axes, not one ladder. Setup progress derives from configuration
+      // checks and health from operational ones, because "is this configured"
+      // and "is it working" have different answers and different remedies. A
+      // fully configured channel whose delivery is failing is not half set
+      // up, and reporting it as incomplete sends its owner to fix the one
+      // thing that is not broken.
       const configurationChecks = consideredChecks.filter(
         (c) => (c.kind ?? "configuration") === "configuration",
       );
