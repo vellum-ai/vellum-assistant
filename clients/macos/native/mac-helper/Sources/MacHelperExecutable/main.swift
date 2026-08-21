@@ -170,18 +170,15 @@ final class MacHelper: @unchecked Sendable {
             guard
                 let object = params as? [String: Any],
                 let base64 = object["audio"] as? String,
-                let data = Data(base64Encoded: base64),
-                let requestId = object["requestId"] as? String,
-                !requestId.isEmpty
+                let data = Data(base64Encoded: base64)
             else {
                 throw JsonRpcDispatchError.invalidParams(
-                    "dictation.transcribe requires base64 audio and request id"
+                    "dictation.transcribe requires base64 audio"
                 )
             }
             return self.transcribeOnce(
                 pcm: data,
-                sampleRate: object["sampleRate"] as? Double ?? 16000,
-                requestId: requestId
+                sampleRate: object["sampleRate"] as? Double ?? 16000
             )
         }
         return router
@@ -508,7 +505,7 @@ final class MacHelper: @unchecked Sendable {
     /// buffer, end the audio, and emit the final transcript as a
     /// `dictation.transcribed` notification (empty text on failure).
     private func transcribeOnce(
-        pcm data: Data, sampleRate: Double, requestId: String
+        pcm data: Data, sampleRate: Double
     ) -> [String: Any] {
         guard
             DictationPartialsSession.fakeRecognition
@@ -524,7 +521,7 @@ final class MacHelper: @unchecked Sendable {
                 guard let self else { return }
                 self.writeNotification(
                     method: "dictation.transcribed",
-                    params: ["requestId": requestId, "text": text]
+                    params: ["text": text]
                 )
                 self.transcribeSession = nil
             }

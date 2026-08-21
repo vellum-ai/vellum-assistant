@@ -271,7 +271,7 @@ test("one-shot transcription routes independently from streaming", async () => {
   );
 });
 
-test("one-shot transcription rejects empty audio and stale failures", async () => {
+test("one-shot transcription settles replacements and drops stale completions", async () => {
   const replaced = makeSender();
   const active = makeSender();
   expect(
@@ -297,6 +297,10 @@ test("one-shot transcription rejects empty audio and stale failures", async () =
   await handlers["vellum:helper:dictation:transcribe"]!(
     [new Uint8Array([2]).buffer],
     { sender: active },
+  );
+  expect(replaced.send).toHaveBeenCalledWith(
+    "vellum:helper:dictation:transcribed",
+    { text: "" },
   );
   const transcriptionCalls = fakeClient.calls.filter(
     (call) => call.method === "dictation.transcribe",
@@ -324,5 +328,5 @@ test("one-shot transcription rejects empty audio and stale failures", async () =
     "vellum:helper:dictation:transcribed",
     { text: "active" },
   );
-  expect(replaced.send).not.toHaveBeenCalled();
+  expect(replaced.send).toHaveBeenCalledTimes(1);
 });

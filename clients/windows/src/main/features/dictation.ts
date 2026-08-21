@@ -52,6 +52,7 @@ const getClient = (): NativeSidecarClient => (client ??= clientFactory());
 let installed = false;
 const dictationOwners = new DictationOwnerRouter();
 let dictationPartialsQueue: Promise<void> = Promise.resolve();
+let transcriptionRequestSequence = 0;
 
 const applyDictationPartials = async (
   sender: WebContents,
@@ -197,13 +198,19 @@ export const installDictation = (): void => {
   handle(
     HELPER_DICTATION_TRANSCRIBE,
     z.tuple([z.unknown()]),
-    ([audio], event) =>
-      requestDictationTranscription({
+    ([audio], event) => {
+      const requestId = String(++transcriptionRequestSequence);
+      return requestDictationTranscription({
         audio,
         sender: event.sender,
         owners: dictationOwners,
         client: getClient(),
-      }),
+        requestId,
+        onOwnerReplaced: (owner) => {
+          owner.send(HELPER_DICTATION_TRANSCRIBED_EVENT, { text: "" });
+        },
+      });
+    },
   );
   // Fire-and-forget PCM from the partials owner (no per-chunk round-trip).
   on(
@@ -246,6 +253,7 @@ export const __resetForTesting = (
   installed = false;
   dictationOwners.clear();
   dictationPartialsQueue = Promise.resolve();
+  transcriptionRequestSequence = 0;
   client = null;
   clientFactory = factory ?? getWindowsHelperClient;
 };
