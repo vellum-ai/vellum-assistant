@@ -239,6 +239,15 @@ export interface BusEventMap {
    *
    * Off Electron this never fires.
    */
+  /**
+   * A daemon SDK request came back with a gateway-class status (502/503/504):
+   * it reached the platform but could not reach the assistant's runtime, which
+   * is restarting or not yet ready. Published by `daemonUnreachableInterceptor`
+   * so the connecting overlay appears even when the failure lands on an
+   * incidental request (a page load, a background refetch) rather than on the
+   * SSE stream. The lifecycle service subscribes and kicks its retry probe.
+   */
+  "assistant.unreachable": Record<string, never>;
   "connectivity.state": {
     state: "online" | "device-offline" | "backend-unreachable";
   };
