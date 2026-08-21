@@ -1,6 +1,8 @@
 import { Clock } from "lucide-react";
 import { useEffect } from "react";
 
+import { useTranslation } from "@/i18n";
+
 interface CompactionCircuitOpenBannerProps {
   openUntil: Date;
   onExpired: () => void;
@@ -10,6 +12,7 @@ export function CompactionCircuitOpenBanner({
   openUntil,
   onExpired,
 }: CompactionCircuitOpenBannerProps) {
+  const { t } = useTranslation("chat");
   useEffect(() => {
     // Check immediately in case already expired
     if (Date.now() >= openUntil.getTime()) {
@@ -37,13 +40,12 @@ export function CompactionCircuitOpenBanner({
         borderRadius: "10px 10px 0 0",
       }}
       role="status"
-      aria-label="Auto-compaction paused"
+      aria-label={t("compactionCircuitOpenBanner.ariaLabel")}
       data-testid="compaction-circuit-open-banner"
     >
       <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="text-body-medium-default">
-        Auto-compaction paused &mdash; long conversation may overflow. Use
-        /compact to compact manually.
+        {t("compactionCircuitOpenBanner.message")}
       </span>
     </div>
   );

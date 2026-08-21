@@ -1,4 +1,5 @@
 import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";
+import { useTranslation } from "@/i18n";
 
 const SETUP_HINTS = [
   "Preparing your workspace\u2026",
@@ -8,6 +9,7 @@ const SETUP_HINTS = [
 const HINT_INTERVAL_MS = 4000;
 
 export function SetupScreen() {
+  const { t } = useTranslation("chat");
   const hint = useHintRotation(SETUP_HINTS, HINT_INTERVAL_MS);
 
   return (
@@ -22,7 +24,7 @@ export function SetupScreen() {
         </span>
       </div>
       <h2 className="mt-8 text-title-medium text-[var(--content-default)]">
-        Setting up your assistant&hellip;
+        {t("setupScreen.settingUp")}
       </h2>
       <p className="mt-3 text-center text-body-medium-lighter text-[var(--content-tertiary)] transition-opacity duration-500">
         {hint}

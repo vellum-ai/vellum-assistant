@@ -16,6 +16,8 @@
 
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
+import { useTranslation } from "@/i18n";
+
 /**
  * Row widths, as Tailwind fraction utilities. Enough rows to fill the
  * scrollport on a short viewport without implying a specific list length.
@@ -31,6 +33,7 @@ const ROW_WIDTHS = [
 ] as const;
 
 export function SidebarConversationSkeleton() {
+  const { t } = useTranslation("chat");
   return (
     /* `gap-1` + the 30px row height restate the real list's row rhythm, so
        rows don't shift vertically when the real ones replace these. */
@@ -42,7 +45,7 @@ export function SidebarConversationSkeleton() {
       className="flex flex-col gap-1"
       data-slot="sidebar-conversation-skeleton"
       role="status"
-      aria-label="Loading conversations"
+      aria-label={t("sidebarConversationSkeleton.loadingAria")}
     >
       {ROW_WIDTHS.map((width, index) => (
         <div
