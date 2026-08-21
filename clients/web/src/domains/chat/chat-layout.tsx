@@ -41,6 +41,7 @@ import {
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
+import { useNativeWidgetSnapshotSync } from "@/domains/chat/hooks/use-native-widget-snapshot-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import {
@@ -276,6 +277,19 @@ export function ChatLayout({
   // through its whole retry budget into a terminal error (#40621).
   useNativeRecentChatsSync(
     conversations,
+    !isConversationListPending && !conversationsFailed,
+  );
+
+  // And into the iOS shell's widget snapshot, which backs the Home Screen
+  // widgets (unread and in-progress counts, the three most recent chats).
+  // No-op off Capacitor iOS, and resolved carries the same meaning it does
+  // for the recent-chats sync above: an unresolved `[]` would blank the
+  // widgets for as long as the list failed to load.
+  useNativeWidgetSnapshotSync(
+    assistantId,
+    conversations,
+    conversationGroups,
+    isAssistantActive,
     !isConversationListPending && !conversationsFailed,
   );
 

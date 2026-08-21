@@ -34,6 +34,7 @@ import {
   readUserSnapshot,
 } from "@/lib/auth/user-snapshot";
 import { getElectronSessionToken } from "@/runtime/session-token";
+import { clearWidgetSnapshot } from "@/runtime/widget-snapshot";
 import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
@@ -1186,6 +1187,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   },
 
   logout: async () => {
+    // Drop the iOS widget snapshot first, ahead of both branches below: a
+    // Home Screen widget is readable without unlocking the device, so the
+    // previous account's conversation titles must not outlive the session.
+    // Awaited rather than fired and forgotten because a logout that ends in
+    // a hard navigation can tear the page down before a detached bridge call
+    // reaches the shell. No-op off Capacitor iOS.
+    await clearWidgetSnapshot();
     if (isGatewayAuthMode()) {
       // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
       // so the assistant sync hooks don't observe a stale assistant id in
