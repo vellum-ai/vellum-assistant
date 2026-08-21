@@ -56,6 +56,13 @@ const DOUBTED_KINDS = new Set<TunnelStatusView["kind"]>([
   "foreign",
 ]);
 
+/** Names a provider explicitly: the CLI's `vellum` default is not implemented. */
+const TUNNEL_COMMAND = "vellum tunnel --provider tailscale";
+const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
+
+const CODE_CLASS =
+  "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-primary)]";
+
 /**
  * Settings card that pairs another device to this assistant without shell
  * commands, the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
