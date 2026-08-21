@@ -480,6 +480,25 @@ describe("parseOpenCameraDeepLink / parseNewChatDeepLink", () => {
     }
   });
 
+  test("accepts a trailing slash, which is the same bare command", () => {
+    for (const [host, parse] of hosts) {
+      expect(parse(`vellum-assistant://${host}/`)).toEqual({
+        provenance: null,
+      });
+      expect(parse(`vellum-assistant://${host}/?src=intent`)).toEqual({
+        provenance: null,
+      });
+    }
+  });
+
+  test("rejects a path, since the host is the whole request", () => {
+    for (const [host, parse] of hosts) {
+      expect(parse(`vellum-assistant://${host}/unrelated`)).toBeNull();
+      expect(parse(`vellum-assistant://${host}/unrelated?x=1`)).toBeNull();
+      expect(parse(`vellum-assistant://${host}//`)).toBeNull();
+    }
+  });
+
   test("ignores extra params, so a producer that grows one degrades to the plain command", () => {
     for (const [host, parse] of hosts) {
       expect(parse(`vellum-assistant://${host}?mode=new&x=1#frag`)).toEqual({

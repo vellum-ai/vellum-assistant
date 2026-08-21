@@ -123,6 +123,14 @@
     "syntheticYield": "Rendimiento · la compactación no cupo en el siguiente paso",
     "unrecognizedCall": "Llamada no reconocida"
   },
+  "cameraDeepLink": {
+    "captureFailed": "No se pudo tomar esa foto. Inténtalo de nuevo.",
+    "close": "Cerrar cámara",
+    "flip": "Cambiar de cámara",
+    "openFailed": "No se pudo abrir la cámara.",
+    "shutter": "Tomar foto",
+    "title": "Tomar una foto"
+  },
   "chatComposer": {
     "addToChat": "Añadir al chat",
     "askAssistantPlaceholder": "Pregunta a {assistantName}"

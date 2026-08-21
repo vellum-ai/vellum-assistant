@@ -1,7 +1,4 @@
 import Foundation
-#if !VOICE_ACTIVITY_EXTENSION
-import UIKit
-#endif
 
 /// The `<scheme>://new-chat` command a Home Screen widget hands to the web
 /// layer: open a fresh draft conversation with the composer focused.
@@ -11,38 +8,26 @@ import UIKit
 /// the host constant sits next to the one parser it is shared with
 /// (`NEW_CHAT_DEEP_LINK_HOST` in
 /// `clients/web/src/runtime/native-deep-link.ts`). It carries no parameters:
-/// the host is the whole request.
+/// the host is the whole request, and the parser rejects a URL that carries a
+/// path.
+///
+/// A thin identity over ``CommandDeepLink``, which owns everything this command
+/// shares with ``CameraDeepLink``.
 ///
 /// Lives in `Shared/` because `OpenNewChatIntent` is written in terms of it
-/// and a widget button is code in the appex. ``route()`` is the one app-only
-/// piece; see `CameraDeepLink.route()` for why the body is compiled out.
+/// and a widget button is code in the appex.
 enum NewChatDeepLink {
     /// Host segment shared with `NEW_CHAT_DEEP_LINK_HOST` on the web side.
     private static let host = "new-chat"
 
-    /// The command URL for the *running build*, or `nil` when the bundle
-    /// declares no usable scheme. No fallback, same as voice: a Dev build must
-    /// not open a conversation in the production app.
+    /// The command URL for the running build; see ``CommandDeepLink/url(host:)``.
     static func url() -> URL? {
-        guard let scheme = BundleURLScheme.current else { return nil }
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = host
-        return components.url
+        CommandDeepLink.url(host: host)
     }
 
-    /// Hand this command to the shell. Returns immediately, for the execution
-    /// budget reason documented on `CameraDeepLink.route()`.
+    /// Hand this command to the shell; see ``CommandDeepLink/route(host:)``.
     @MainActor
     static func route() {
-        #if VOICE_ACTIVITY_EXTENSION
-        assertionFailure("Widget intents are performed in the app process, not the appex")
-        #else
-        guard let url = url() else {
-            NSLog("[new-chat] No bundle URL scheme; dropping new-chat command")
-            return
-        }
-        (UIApplication.shared.delegate as? AppDelegate)?.deliverCommandURL(url)
-        #endif
+        CommandDeepLink.route(host: host)
     }
 }

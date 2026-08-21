@@ -401,11 +401,17 @@ interface CommandDeepLinkPayload {
 
 /**
  * The shared body of the parameterless command parsers: exact scheme
- * allowlist, exact host, provenance. Strict like the sibling parsers, and for
- * the same reason: a `startsWith` scheme check would let
- * `vellum-assistant-evil://camera` through. Query parameters are ignored
- * rather than rejected, so a producer that grows one later degrades to the
- * plain command on an older bundle instead of being dropped.
+ * allowlist, exact host, empty path, provenance. Strict like the sibling
+ * parsers, and for the same reason: a `startsWith` scheme check would let
+ * `vellum-assistant-evil://camera` through.
+ *
+ * The host is the whole request, so a path makes the URL a different link that
+ * merely shares the host: `<scheme>://camera/unrelated` must reach
+ * `deeplink.unknown` rather than open the camera, which is also what leaves the
+ * path free for a future path-bearing contract on the same host. Query
+ * parameters stay ignored rather than rejected, so a producer that grows one
+ * later degrades to the plain command on an older bundle instead of being
+ * dropped.
  */
 function parseCommandDeepLink(
   rawUrl: string,
@@ -423,6 +429,11 @@ function parseCommandDeepLink(
     return null;
   }
   if (url.host !== host) {
+    return null;
+  }
+  // A bare `<scheme>://camera` parses with an empty pathname and a trailing
+  // slash parses as "/"; both are the plain command. Anything else is a path.
+  if (url.pathname !== "" && url.pathname !== "/") {
     return null;
   }
 

@@ -1,7 +1,7 @@
-import type { ReactElement } from "react";
-import { useEffect } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
+import { CameraCaptureOverlay } from "@/domains/chat/components/chat-attachments/camera-capture-overlay";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 
 /**
@@ -19,7 +19,7 @@ export const PENDING_CAMERA_TTL_MS = 60_000;
 
 interface UseCameraDeepLinkOptions {
   /** Receives the photo. Not called when the camera closes empty. */
-  onFiles: (files: FileList) => void;
+  onFiles: (files: File[]) => void;
   /**
    * Whether this composer is the one that answers the command. Only the main
    * composer is: the app-editing panel and the onboarding tour render their
@@ -30,22 +30,22 @@ interface UseCameraDeepLinkOptions {
 }
 
 interface UseCameraDeepLinkResult {
-  /** Hidden camera `<input type="file">` the caller must render. */
-  inputNode: ReactElement;
-  /** True while the camera is up; see `useAttachmentFilePicker`. */
-  pickerOpen: boolean;
+  /** The capture surface while one is up, and nothing the rest of the time. */
+  overlayNode: ReactNode;
+  /** True while the capture surface is up. */
+  captureOpen: boolean;
 }
 
 /**
  * The composer's half of the camera deep link (`<scheme>://camera`, a Home
  * Screen widget's camera button). The global consumer parks the request and
- * navigates; this drains it and opens the camera.
+ * navigates; this drains it and raises the viewfinder.
  *
- * A camera input of its own rather than the add-to-chat sheet's: that sheet
- * mounts only where the composer offers one (a native shell or Android, on a
- * phone), and its rows close it before launching a picker precisely because an
- * unmounting input loses the selection. Nothing is open on this path, so the
- * hidden input is triggered directly and there is no close to sequence.
+ * The camera is {@link CameraCaptureOverlay}, a surface of this app's own
+ * rather than the system camera a hidden `<input capture>` would raise. That is
+ * not a preference: the request arrives from outside the web view and so
+ * carries no DOM user activation, which iOS WKWebView requires before it will
+ * present a file input's picker at all. See that module for the whole of it.
  *
  * Subscribed to the park rather than read once on mount, so a tap arriving
  * while the composer is already on screen (the app was in the foreground) is
@@ -55,13 +55,7 @@ export function useCameraDeepLink({
   onFiles,
   enabled,
 }: UseCameraDeepLinkOptions): UseCameraDeepLinkResult {
-  const { openPicker, inputNode, pickerOpen } = useAttachmentFilePicker({
-    onFiles,
-    accept: "image/*",
-    // What makes this the camera rather than the OS's own chooser.
-    capture: "environment",
-  });
-
+  const [captureOpen, setCaptureOpen] = useState(false);
   const pendingCameraAt = usePendingDeepLinkStore.use.pendingCameraAt();
 
   useEffect(() => {
@@ -77,8 +71,15 @@ export function useCameraDeepLink({
     ) {
       return;
     }
-    openPicker();
-  }, [enabled, openPicker, pendingCameraAt]);
+    setCaptureOpen(true);
+  }, [enabled, pendingCameraAt]);
 
-  return { inputNode, pickerOpen };
+  const closeCapture = useCallback(() => setCaptureOpen(false), []);
+
+  return {
+    overlayNode: captureOpen ? (
+      <CameraCaptureOverlay onCapture={onFiles} onClose={closeCapture} />
+    ) : null,
+    captureOpen,
+  };
 }

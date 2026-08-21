@@ -1,44 +1,54 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 
-// The picker itself is covered by `use-attachment-file-picker.test.tsx`; this
-// suite is about the park-and-drain on top of it, so the hook is stubbed to a
-// spy. The options it was handed are captured so the "this is the camera, not
-// the OS chooser" contract can be asserted without a DOM.
-const openPickerMock = mock(() => {});
-let pickerOptions: Record<string, unknown> | null = null;
+// The viewfinder itself is covered by `camera-capture-overlay.test.tsx`; this
+// suite is about the park-and-drain that raises it, so the surface is stubbed
+// to a marker that also hands its two callbacks back for the delivery tests.
+let overlayProps: {
+  onCapture: (files: File[]) => void;
+  onClose: () => void;
+} | null = null;
 mock.module(
-  "@/domains/chat/components/chat-attachments/use-attachment-file-picker",
+  "@/domains/chat/components/chat-attachments/camera-capture-overlay",
   () => ({
-    useAttachmentFilePicker: (options: Record<string, unknown>) => {
-      pickerOptions = options;
-      return {
-        openPicker: openPickerMock,
-        inputNode: createElement("input"),
-        pickerOpen: false,
-      };
+    CameraCaptureOverlay: (props: {
+      onCapture: (files: File[]) => void;
+      onClose: () => void;
+    }) => {
+      overlayProps = props;
+      return createElement("div", { "data-testid": "camera-surface" });
     },
   }),
 );
 
-const { PENDING_CAMERA_TTL_MS, useCameraDeepLink } =
-  await import("@/domains/chat/components/chat-attachments/use-camera-deep-link");
+const { PENDING_CAMERA_TTL_MS, useCameraDeepLink } = await import(
+  "@/domains/chat/components/chat-attachments/use-camera-deep-link"
+);
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
 
-const onFiles = () => {};
-const renderCameraDeepLink = (enabled = true) =>
-  renderHook(
-    ({ on }: { on: boolean }) => useCameraDeepLink({ onFiles, enabled: on }),
-    {
-      initialProps: { on: enabled },
-    },
+const onFiles = mock((_files: File[]) => {});
+
+function Host({ enabled }: { enabled: boolean }) {
+  const { overlayNode, captureOpen } = useCameraDeepLink({ onFiles, enabled });
+  return createElement(
+    "div",
+    { "data-testid": "host", "data-capture-open": String(captureOpen) },
+    overlayNode,
   );
+}
+
+const renderCameraDeepLink = (enabled = true) =>
+  render(createElement(Host, { enabled }));
+
+const surface = () => screen.queryByTestId("camera-surface");
+const captureOpen = () =>
+  screen.getByTestId("host").getAttribute("data-capture-open");
 
 beforeEach(() => {
-  openPickerMock.mockClear();
-  pickerOptions = null;
+  onFiles.mockClear();
+  overlayProps = null;
   __resetPendingDeepLinkForTesting();
 });
 
@@ -48,13 +58,11 @@ afterEach(() => {
 });
 
 describe("useCameraDeepLink", () => {
-  test("asks for the rear camera rather than the OS chooser", () => {
+  test("raises no camera until a request is parked", () => {
     renderCameraDeepLink();
 
-    expect(pickerOptions).toMatchObject({
-      accept: "image/*",
-      capture: "environment",
-    });
+    expect(surface()).toBeNull();
+    expect(captureOpen()).toBe("false");
   });
 
   test("drains a park made before the composer mounted, the cold-launch case", () => {
@@ -62,28 +70,62 @@ describe("useCameraDeepLink", () => {
 
     renderCameraDeepLink();
 
-    expect(openPickerMock).toHaveBeenCalledTimes(1);
+    expect(surface()).not.toBeNull();
+    expect(captureOpen()).toBe("true");
     expect(usePendingDeepLinkStore.getState().pendingCameraAt).toBeNull();
   });
 
   test("drains a park that arrives while already mounted, the warm case", () => {
     renderCameraDeepLink();
-    expect(openPickerMock).not.toHaveBeenCalled();
+    expect(surface()).toBeNull();
 
     act(() => {
       usePendingDeepLinkStore.getState().setPendingCamera();
     });
 
-    expect(openPickerMock).toHaveBeenCalledTimes(1);
+    expect(surface()).not.toBeNull();
   });
 
-  test("delivers exactly once: a re-render does not reopen the camera", () => {
+  test("hands the photo to the composer's attachment pipeline as files", () => {
     usePendingDeepLinkStore.getState().setPendingCamera();
+    renderCameraDeepLink();
 
+    const photo = new File([new Uint8Array([1, 2, 3])], "photo-1.jpg", {
+      type: "image/jpeg",
+    });
+    act(() => {
+      overlayProps?.onCapture([photo]);
+      overlayProps?.onClose();
+    });
+
+    expect(onFiles).toHaveBeenCalledTimes(1);
+    expect(onFiles.mock.calls[0]?.[0]).toEqual([photo]);
+    expect(surface()).toBeNull();
+  });
+
+  test("closing without a photo takes the surface down and attaches nothing", () => {
+    usePendingDeepLinkStore.getState().setPendingCamera();
+    renderCameraDeepLink();
+
+    act(() => {
+      overlayProps?.onClose();
+    });
+
+    expect(onFiles).not.toHaveBeenCalled();
+    expect(surface()).toBeNull();
+    expect(captureOpen()).toBe("false");
+  });
+
+  test("delivers exactly once: a closed surface does not come back on re-render", () => {
+    usePendingDeepLinkStore.getState().setPendingCamera();
     const { rerender } = renderCameraDeepLink();
-    rerender({ on: true });
 
-    expect(openPickerMock).toHaveBeenCalledTimes(1);
+    act(() => {
+      overlayProps?.onClose();
+    });
+    rerender(createElement(Host, { enabled: true }));
+
+    expect(surface()).toBeNull();
   });
 
   test("a park older than the TTL is spent, not acted on: no camera minutes later", () => {
@@ -93,7 +135,7 @@ describe("useCameraDeepLink", () => {
 
     renderCameraDeepLink();
 
-    expect(openPickerMock).not.toHaveBeenCalled();
+    expect(surface()).toBeNull();
     expect(usePendingDeepLinkStore.getState().pendingCameraAt).toBeNull();
   });
 
@@ -104,7 +146,7 @@ describe("useCameraDeepLink", () => {
 
     renderCameraDeepLink();
 
-    expect(openPickerMock).toHaveBeenCalledTimes(1);
+    expect(surface()).not.toBeNull();
   });
 
   test("a disabled composer leaves the park alone for the one that answers it", () => {
@@ -112,11 +154,11 @@ describe("useCameraDeepLink", () => {
 
     const { rerender } = renderCameraDeepLink(false);
 
-    expect(openPickerMock).not.toHaveBeenCalled();
+    expect(surface()).toBeNull();
     expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
 
-    rerender({ on: true });
+    rerender(createElement(Host, { enabled: true }));
 
-    expect(openPickerMock).toHaveBeenCalledTimes(1);
+    expect(surface()).not.toBeNull();
   });
 });

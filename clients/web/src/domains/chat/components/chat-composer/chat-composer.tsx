@@ -845,8 +845,8 @@ export function ChatComposer({
   // reason as the picker above, and gated to the main composer so a one-shot
   // park is never spent by the app-editing panel or the onboarding tour.
   const {
-    inputNode: cameraDeepLinkInput,
-    pickerOpen: cameraDeepLinkPickerOpen,
+    overlayNode: cameraDeepLinkOverlay,
+    captureOpen: cameraDeepLinkCaptureOpen,
   } = useCameraDeepLink({
     onFiles: onAddAttachmentFiles,
     enabled: isMainComposer,
@@ -864,7 +864,7 @@ export function ChatComposer({
     addSheetOpen ||
     addSheetPickerOpen ||
     attachPickerOpen ||
-    cameraDeepLinkPickerOpen;
+    cameraDeepLinkCaptureOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
@@ -1675,11 +1675,11 @@ export function ChatComposer({
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
           <div className="relative">{attachPickerInput}</div>
-          {/* The camera behind `deeplink.openCamera`, in a positioned box of
-              its own for the same layout reason. Mounted whether or not this
-              composer offers a camera control: the command comes from outside
-              the app. */}
-          <div className="relative">{cameraDeepLinkInput}</div>
+          {/* The camera behind `deeplink.openCamera`. A `fixed inset-0`
+              surface of its own rather than a hidden input, so it needs no box
+              here, and rendered whether or not this composer offers a camera
+              control: the command comes from outside the app. */}
+          {cameraDeepLinkOverlay}
           {(usesAddSheet || addSheetEverPresented) && (
             // The sheet's own three inputs, beside the form for the same
             // reason. The latch keeps a sheet that has ever been presented
