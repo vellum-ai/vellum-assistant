@@ -359,12 +359,18 @@ describe("setAppIcon call sites", () => {
       if (/\.(test|stories)\.tsx?$/.test(relative)) {
         continue;
       }
-      // The wrapper that defines it.
+      // The wrapper that defines it, which naturally names it once.
       if (relative === join("runtime", "app-icon.ts")) {
         continue;
       }
       const source = readFileSync(join(srcRoot, relative), "utf8");
-      const calls = source.split("setAppIcon(").length - 1;
+      // Doc comments discuss the wrapper by name, so only call expressions in
+      // real code count toward the budget.
+      const code = source
+        .split("\n")
+        .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+        .join("\n");
+      const calls = code.split(/\bsetAppIcon\s*\(/).length - 1;
       if (calls > 0) {
         counts.push(`${relative}:${calls}`);
       }

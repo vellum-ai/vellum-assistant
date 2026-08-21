@@ -20,11 +20,8 @@
  *
  * Each entry is a classic `.appiconset` holding a single opaque 1024x1024 PNG:
  * a background rect tinted from the trait color, with the composed character
- * centered on top. App icons may not be transparent, which is why the
- * background is baked into the pixels rather than left to the catalog, and why
- * the icons are written as color type 2 (RGB) PNGs with no alpha channel at
- * all. App Store validation rejects an app icon that carries one
- * (ITMS-90717), a failure that would otherwise only surface at upload time.
+ * centered on top. The PNGs carry no alpha channel at all; `encodeOpaqueRgbPng`
+ * below documents why.
  */
 
 import {
@@ -318,9 +315,8 @@ function rasterize(body: string, width: number, height: number): Buffer {
 }
 
 /**
- * Rasterizes to a PNG with no alpha channel at all. `asPng()` always writes
- * RGBA, and App Store validation rejects app icons carrying an alpha channel
- * (ITMS-90717), a failure that only surfaces at TestFlight upload.
+ * Rasterizes to a PNG with no alpha channel at all, which `asPng()` cannot do:
+ * it always writes RGBA. See `encodeOpaqueRgbPng` for why the alpha has to go.
  */
 function rasterizeOpaqueRgb(
   body: string,
@@ -373,9 +369,16 @@ function pngChunk(type: string, payload: Buffer): Buffer {
 
 /**
  * Encodes an RGBA pixel buffer as a color type 2 PNG, dropping the alpha byte
- * per pixel. Throws on any translucent pixel rather than flattening it: the
- * icons are drawn on an opaque background rect, so a translucent pixel means
- * the composition regressed and the dropped alpha would change what ships.
+ * per pixel.
+ *
+ * This is the authoritative statement of why the icons carry no alpha channel:
+ * App Store validation rejects an app icon that has one (ITMS-90717), a failure
+ * that would otherwise only surface at TestFlight upload. That is also why the
+ * tinted background is baked into the pixels rather than left to the catalog.
+ *
+ * Throws on any translucent pixel rather than flattening it: the icons are
+ * drawn on an opaque background rect, so a translucent pixel means the
+ * composition regressed and the dropped alpha would change what ships.
  */
 function encodeOpaqueRgbPng(
   rgba: Buffer,

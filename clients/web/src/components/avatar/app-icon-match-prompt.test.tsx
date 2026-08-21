@@ -1,10 +1,13 @@
 /**
  * The prompt is the only surface that asks, so the tests here are about when
- * it must stay quiet: a non-character avatar, a build without the bundle, the
- * flag off, onboarding on screen, a name already declined, and a name already
- * asked about this session. An offer already on screen has to go quiet on the
- * same terms, so the tests below also take the question away mid-display, and
- * a swap iOS refuses has to leave the question exactly where it was.
+ * it must stay quiet: the flag off, onboarding on screen, a name already
+ * declined, and a name already asked about this session. The rest of the gate
+ * matrix (off native iOS, a non-character avatar, a name the build does not
+ * bundle) is pinned once in `use-app-icon-sync.test.tsx`, so only the flag case
+ * stands here as the representative. An offer already on screen has to go quiet
+ * on the same terms, so the tests below also take the question away
+ * mid-display, and a swap iOS refuses has to leave the question exactly where
+ * it was.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -278,15 +281,6 @@ describe("AppIconMatchPrompt", () => {
     await expectPrompt();
   });
 
-  test("never offers for an uploaded image, even with stale traits", async () => {
-    avatarState = IMAGE_WITH_STALE_TRAITS;
-
-    renderPrompt();
-
-    await expectNoPrompt();
-    expect(setAppIcon).not.toHaveBeenCalled();
-  });
-
   test("never offers with the flag off", async () => {
     useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
 
@@ -297,26 +291,6 @@ describe("AppIconMatchPrompt", () => {
     });
     expect(dialogTitle()).toBeNull();
     expect(getAppIconState).not.toHaveBeenCalled();
-  });
-
-  test("never offers off native iOS", async () => {
-    nativeIOS = false;
-
-    renderPrompt();
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(dialogTitle()).toBeNull();
-    expect(getAppIconState).not.toHaveBeenCalled();
-  });
-
-  test("never offers a name this build does not bundle", async () => {
-    iconState = { supported: true, current: null, available: [OTHER_ICON] };
-
-    renderPrompt();
-
-    await expectNoPrompt();
   });
 
   test("never offers on an onboarding route", async () => {
