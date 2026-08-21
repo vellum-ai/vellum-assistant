@@ -386,24 +386,23 @@ describe("Slack Socket Mode liveness", () => {
     );
     expect(sockets[0].closeCalls).toHaveLength(1);
 
-    clock.advance(MAX_BACKOFF_MS);
+    // Run past the abandoned generation's whole probe cycle, interval and
+    // deadline both, while its replacement is still being dialled. An
+    // orphaned watchdog gets every chance to fire here.
+    clock.advance(DEFAULT_PROBE_INTERVAL_MS + DEFAULT_PONG_DEADLINE_MS + 1);
     await flush();
-    expect(sockets).toHaveLength(2);
 
+    // The decisive assertion: the rotated-away socket is never probed again.
+    expect(sockets[0].pings).toBe(0);
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1].closeCalls).toHaveLength(0);
+
+    // The replacement then opens and is probed on its own schedule.
     sockets[1].emitOpen();
     await flush();
-
-    // Past the abandoned generation's probe interval and its deadline.
     clock.advance(DEFAULT_PROBE_INTERVAL_MS);
-    sockets[1].emitPong();
-    clock.advance(DEFAULT_PONG_DEADLINE_MS + 1);
-
-    // The rotated-away socket was never probed, and the replacement is alive
-    // and being probed on its own schedule.
-    expect(sockets[0].pings).toBe(0);
     expect(sockets[1].pings).toBe(1);
     expect(sockets[1].closeCalls).toHaveLength(0);
-    expect(sockets).toHaveLength(2);
 
     client.stop();
   });
