@@ -269,20 +269,22 @@ describe("buildIngressNginxConfig", () => {
     expect(remoteConf).toContain(
       'return 200 "{\\"mode\\":\\"remote-gateway\\",\\"apiBaseUrl\\":\\"/v1\\",\\"platformDisabled\\":true,\\"disablePlatform\\":true}";',
     );
+    expect(remoteConf).not.toContain("assistantId");
   });
 
-  test("stamps assistantName and hubUrl into the served config when provided", () => {
+  test("stamps assistantName, assistantId and hubUrl into the served config when provided", () => {
     const named = buildIngressNginxConfig({
       gatewayPort: 7830,
       listenPort: 7840,
       remoteWebIngress: {
         webDistDir: "/tmp/vellum web/dist",
         assistantName: "Homelab",
+        assistantId: "assistant-1",
         hubUrl: "https://www.vellum.ai/assistant",
       },
     });
     expect(named).toContain(
-      'return 200 "{\\"mode\\":\\"remote-gateway\\",\\"apiBaseUrl\\":\\"/v1\\",\\"platformDisabled\\":true,\\"disablePlatform\\":true,\\"assistantName\\":\\"Homelab\\",\\"hubUrl\\":\\"https://www.vellum.ai/assistant\\"}";',
+      'return 200 "{\\"mode\\":\\"remote-gateway\\",\\"apiBaseUrl\\":\\"/v1\\",\\"platformDisabled\\":true,\\"disablePlatform\\":true,\\"assistantName\\":\\"Homelab\\",\\"assistantId\\":\\"assistant-1\\",\\"hubUrl\\":\\"https://www.vellum.ai/assistant\\"}";',
     );
   });
 
@@ -723,17 +725,20 @@ const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
  * both the injected config shape and the hash format; assumes the
  * production-pinned environment. `template` tracks `EDGE_TEMPLATE_VERSION`.
  */
-function spaConfigHash(assistantName?: string): string {
+function spaConfigHash(
+  opts: { assistantName?: string; assistantId?: string } = {},
+): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
-        template: 3,
+        template: 4,
         config: {
           mode: "remote-gateway",
           apiBaseUrl: "/v1",
           platformDisabled: true,
           disablePlatform: true,
-          ...(assistantName ? { assistantName } : {}),
+          ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+          ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
           hubUrl: PRODUCTION_HUB_URL,
         },
       }),
@@ -1109,7 +1114,7 @@ describe("startRemoteWebIngress", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash("My Homelab"),
+      remoteWebConfigHash: spaConfigHash({ assistantName: "My Homelab" }),
     });
     const edge = mockKillableNginx(pid);
 
@@ -1139,7 +1144,7 @@ describe("startRemoteWebIngress", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash("Old Name"),
+      remoteWebConfigHash: spaConfigHash({ assistantName: "Old Name" }),
     });
     const edge = mockKillableNginx(pid);
 
@@ -1162,7 +1167,7 @@ describe("startRemoteWebIngress", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash("New Name"),
+      remoteWebConfigHash: spaConfigHash({ assistantName: "New Name" }),
     });
   });
 
@@ -1248,7 +1253,7 @@ describe("startRemoteWebIngress", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash("Old Name"),
+      remoteWebConfigHash: spaConfigHash({ assistantName: "Old Name" }),
     });
     mockUnkillableNginx(pid);
 
@@ -1573,7 +1578,7 @@ describe("ensureTunnelEdge", () => {
     }
   });
 
-  test("threads the lockfile display name into the served SPA config", async () => {
+  test("threads the lockfile display name and assistant id into the served SPA config", async () => {
     const ws = makeWorkspace();
     mockNginxInstalled();
     mockNginxSpawn();
@@ -1606,6 +1611,7 @@ describe("ensureTunnelEdge", () => {
       "utf-8",
     );
     expect(indexHtml).toContain('"assistantName":"Homelab"');
+    expect(indexHtml).toContain(`"assistantId":"${ASSISTANT_ID}"`);
     expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
   });
 
@@ -1627,6 +1633,7 @@ describe("ensureTunnelEdge", () => {
       "utf-8",
     );
     expect(indexHtml).not.toContain("assistantName");
+    expect(indexHtml).toContain(`"assistantId":"${ASSISTANT_ID}"`);
     expect(indexHtml).toContain(`"hubUrl":"${PRODUCTION_HUB_URL}"`);
   });
 
@@ -1638,7 +1645,7 @@ describe("ensureTunnelEdge", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash(),
+      remoteWebConfigHash: spaConfigHash({ assistantId: ASSISTANT_ID }),
     });
     const edge = mockKillableNginx(pid);
 
@@ -1715,7 +1722,10 @@ describe("ensureTunnelEdge", () => {
       listenPort: REQUESTED_PORT,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash("Stale Name"),
+      remoteWebConfigHash: spaConfigHash({
+        assistantName: "Stale Name",
+        assistantId: ASSISTANT_ID,
+      }),
     });
     mockUnkillableNginx(pid);
 
@@ -1762,7 +1772,7 @@ describe("ensureTunnelEdge", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7900,
-      remoteWebConfigHash: spaConfigHash(),
+      remoteWebConfigHash: spaConfigHash({ assistantId: ASSISTANT_ID }),
     });
     mockUnkillableNginx(pid);
 
@@ -1788,7 +1798,7 @@ describe("ensureTunnelEdge", () => {
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7900,
-      remoteWebConfigHash: spaConfigHash(),
+      remoteWebConfigHash: spaConfigHash({ assistantId: ASSISTANT_ID }),
     });
     const edge = mockKillableNginx(pid);
 
@@ -1856,7 +1866,7 @@ describe("ensureTunnelEdge", () => {
       listenPort: REQUESTED_PORT,
       includeWebApp: true,
       gatewayPort: 7830,
-      remoteWebConfigHash: spaConfigHash(),
+      remoteWebConfigHash: spaConfigHash({ assistantId: ASSISTANT_ID }),
     });
   });
 
@@ -1906,6 +1916,7 @@ describe("ensureTunnelEdge", () => {
     });
     const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
     expect(conf).toContain("location ^~ /assistant/ {");
+    expect(conf).not.toContain("assistantId");
   });
 
   test("missing nginx throws with install instructions", async () => {

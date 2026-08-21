@@ -256,6 +256,9 @@ export async function runTailscaleTunnel(
   console.log(
     "This URL is reachable only from devices signed in to your tailnet.",
   );
+  console.log(
+    "For public webhook ingress, use --provider ngrok or --provider cloudflare.",
+  );
   console.log("");
   console.log(
     "The serve runs in the background (tailscaled) and persists after this",

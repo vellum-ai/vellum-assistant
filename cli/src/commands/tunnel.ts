@@ -25,7 +25,7 @@ import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
 
-const DEFAULT_PROVIDER: TunnelProvider = "vellum";
+const DEFAULT_PROVIDER: TunnelProvider = "tailscale";
 
 interface TunnelArgs {
   assistantName: string | null;
@@ -55,6 +55,13 @@ function parseArgs(): TunnelArgs {
       );
       console.log(
         "enabling webhook integrations (Telegram, Twilio, etc.) to reach the assistant.",
+      );
+      console.log("");
+      console.log(
+        "The default tailscale provider is reachable only from your own tailnet.",
+      );
+      console.log(
+        "Public webhook ingress needs --provider ngrok or --provider cloudflare.",
       );
       console.log("");
       console.log(
@@ -88,7 +95,7 @@ function parseArgs(): TunnelArgs {
       console.log("");
       console.log("Providers:");
       console.log(
-        "  vellum       Managed tunnel via Vellum Cloud (default; requires account)",
+        "  vellum       Managed tunnel via Vellum Cloud (not yet available)",
       );
       console.log(
         "  ngrok        ngrok tunnel — install: brew install ngrok/ngrok/ngrok",
@@ -100,7 +107,7 @@ function parseArgs(): TunnelArgs {
         "               No Cloudflare account required for quick tunnels.",
       );
       console.log(
-        "  tailscale    Tailscale serve — install: brew install tailscale, then `tailscale up`",
+        "  tailscale    Tailscale serve (default). Install: brew install tailscale, then `tailscale up`",
       );
       console.log(
         "               Reachable only from your own tailnet (private; LetsEncrypt cert).",

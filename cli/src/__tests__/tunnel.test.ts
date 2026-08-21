@@ -627,6 +627,22 @@ describe("tunnel edge targeting", () => {
     expect(logs).toContain("serves webhooks only");
   });
 
+  test("a bare invocation defaults to the tailscale provider", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    process.argv = ["bun", "vellum", "tunnel"];
+
+    await runTunnelCapturingLogs();
+
+    expect(runTailscaleTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
+    });
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
   test("missing nginx aborts before any provider spawn", async () => {
     process.argv = ["bun", "vellum", "tunnel", "--provider", "ngrok"];
     ensureTunnelEdgeMock.mockRejectedValue(
@@ -797,8 +813,8 @@ describe("tunnel edge targeting", () => {
   });
 
   test("a not-yet-implemented provider error carries the stale-CLI hint", async () => {
-    // The default `vellum` provider has no runtime yet, so it exercises the
-    // not-yet-implemented path without any network call.
+    // `vellum` stays valid-but-unimplemented, so it hits this path rather
+    // than the unknown-provider one.
     process.argv = ["bun", "vellum", "tunnel", "--provider", "vellum"];
 
     let err: Error | undefined;
