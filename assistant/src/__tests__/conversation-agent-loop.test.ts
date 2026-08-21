@@ -627,10 +627,15 @@ let mockConversationErrorClassification = {
   retryable: false,
   errorCategory: "processing_failed",
 };
+// Captures the context passed to the real classifier so attribution tests
+// can assert what the loop derived (the mock discards it otherwise).
+let lastClassifyErrorCtx: Record<string, unknown> | undefined;
 
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) =>
-    mockConversationErrorClassification,
+  classifyConversationError: (_err: unknown, ctx: unknown) => {
+    lastClassifyErrorCtx = ctx as Record<string, unknown>;
+    return mockConversationErrorClassification;
+  },
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) {
       return false;
@@ -688,6 +693,10 @@ import {
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
+import { createConnection } from "../providers/inference/connections.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
@@ -973,6 +982,7 @@ beforeEach(() => {
     retryable: false,
     errorCategory: "processing_failed",
   };
+  lastClassifyErrorCtx = undefined;
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
@@ -1981,6 +1991,42 @@ describe("session-agent-loop", () => {
         type: "conversation_error",
         code: "CONVERSATION_PROCESSING_FAILED",
         errorCategory: "processing_failed",
+      });
+    });
+
+    test("error attribution auto-resolves the connection for a bare-vendor winner", async () => {
+      await initializeDb();
+      getDb().delete(providerConnections).run();
+      createConnection(getDb(), {
+        name: "anthropic-personal",
+        provider: "anthropic",
+        auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+      });
+      seedLlmConfig({
+        profiles: {
+          ...disabledCatalogDefaultProfiles,
+          bare: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+        activeProfile: "bare",
+      });
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("provider exploded");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(lastClassifyErrorCtx).toMatchObject({
+        connectionName: "anthropic-personal",
+        profileName: "bare",
       });
     });
 

@@ -1091,6 +1091,79 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
   });
 });
 
+// ── Underivable rows (auth payload the typed loader cannot derive) ───────────
+
+describe("DELETE repairs a row whose stored auth is underivable", () => {
+  // A keyed provider with no credential payload derives no auth
+  // (`parseAuth` returns null), e.g. a legacy `auth: {type: "none"}` row
+  // stripped to `{}` by migration 367.
+  beforeEach(() => {
+    seedConnection({ name: "zombie", provider: "anthropic", auth: {} });
+  });
+
+  test("list and get exclude the row", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_list"),
+      {},
+    )) as { connections: { name: string }[] };
+    expect(result.connections.map((c) => c.name)).not.toContain("zombie");
+    await expect(
+      call(findHandler("inference_provider_connections_get"), {
+        pathParams: { name: "zombie" },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("DELETE succeeds and frees the name for re-create", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "zombie" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+
+    const recreated = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "zombie",
+          provider: "anthropic",
+          auth: { type: "api_key", credential: "vault/anthropic/key" },
+        },
+      },
+    )) as { name: string };
+    expect(recreated.name).toBe("zombie");
+  });
+
+  test("a profile reference still blocks the delete", async () => {
+    setConfig("llm", {
+      profiles: { "my-profile": { provider: "zombie" } },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_delete"), {
+        pathParams: { name: "zombie" },
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("DELETE proceeds even when the default provider resolves to the name", async () => {
+    // The default is already broken (resolution cannot load the row), so
+    // the orphan guard must not block the one repair path.
+    clearConnections();
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: {},
+    });
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-personal" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+});
+
 // ── llm.defaultProvider guard ─────────────────────────────────────────────────
 
 describe("DELETE guards the llm.defaultProvider reference", () => {

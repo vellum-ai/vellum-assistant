@@ -34,6 +34,7 @@ import {
   createConnection,
   deleteConnection,
   getConnection,
+  getConnectionRowRaw,
   LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   MANAGED_CONNECTION_NAMES,
@@ -570,7 +571,14 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // Existence check first so a stale profile reference to a missing
   // connection returns 404 (not 409).
   const existing = getConnection(getDb(), name);
-  if (!existing) {
+  // A row whose stored auth payload is underivable (`parseAuth` returns
+  // null) is hidden by the typed loader but still occupies its name;
+  // DELETE is the one repair path, so fall through to the raw row and run
+  // the guards below on it. Such a row can never be the managed row (the
+  // managed row's auth always derives), cannot be routed through, and
+  // carries no credential slot to clean up.
+  const rawRow = existing ?? getConnectionRowRaw(getDb(), name);
+  if (!rawRow) {
     throw new NotFoundError(`Connection "${name}" not found.`);
   }
 
@@ -585,7 +593,8 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // managed routing ignores. That row must stay deletable, since deleting it
   // is what lets boot seeding restore the real managed connection.
   const claimsManagedName =
-    MANAGED_CONNECTION_NAMES.has(name) && !isVellumManagedConnection(existing);
+    MANAGED_CONNECTION_NAMES.has(name) &&
+    (existing == null || !isVellumManagedConnection(existing));
   if (MANAGED_CONNECTION_NAMES.has(name) && !claimsManagedName) {
     throw new BadRequestError(
       `Cannot delete managed connection "${name}". This is a Vellum-managed connection that is re-seeded on every startup.`,
@@ -605,8 +614,10 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // A `vellum` default resolves to the canonical name, so this guard would
   // otherwise block deleting a row that merely claims that name. Deleting it
   // does not orphan the default: boot seeding writes the real managed
-  // connection under the same name on the next restart.
-  if (dp && !claimsManagedName) {
+  // connection under the same name on the next restart. An underivable row
+  // (existing == null) is skipped for the same reason: a default resolving
+  // to it is already broken, and delete + re-create is the repair.
+  if (dp && !claimsManagedName && existing != null) {
     if (name === resolveDefaultConnectionName(dp)) {
       throw new ConflictError(
         `Connection "${name}" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.`,
@@ -614,7 +625,7 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       );
     }
     if (
-      existing.provider === dp.provider &&
+      rawRow.provider === dp.provider &&
       listConnections(getDb(), { provider: dp.provider }).filter(
         (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
       ).length === 1
@@ -668,7 +679,7 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // are logged, never surfaced: a vault outage leaves an orphaned secret,
   // not a failed delete (the timeout on vault calls bounds the wait).
   if (
-    existing.auth.type === "api_key" &&
+    existing?.auth.type === "api_key" &&
     existing.auth.credential === credentialKey(name, "api_key")
   ) {
     try {

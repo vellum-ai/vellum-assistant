@@ -164,6 +164,29 @@ export function getConnection(
   };
 }
 
+/**
+ * The raw name and provider column of a stored row, bypassing auth
+ * derivation. Exists for the delete repair path: a row whose stored auth
+ * payload is underivable (`parseAuth` returns null) is invisible to
+ * list/get but still occupies its name, so DELETE must be able to see and
+ * remove it.
+ */
+export function getConnectionRowRaw(
+  db: DrizzleDb,
+  name: string,
+): { name: string; provider: string } | null {
+  return (
+    db
+      .select({
+        name: providerConnections.name,
+        provider: providerConnections.provider,
+      })
+      .from(providerConnections)
+      .where(eq(providerConnections.name, name))
+      .get() ?? null
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------

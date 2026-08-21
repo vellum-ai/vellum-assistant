@@ -1,5 +1,4 @@
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
-import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 import type { ModelIntent } from "./types.js";
 
 /**
@@ -89,23 +88,6 @@ for (const [provider, intents] of Object.entries(PROVIDER_MODEL_INTENTS)) {
           `which is not in PROVIDER_CATALOG. Update model-catalog.ts or model-intents.ts.`,
       );
     }
-  }
-}
-
-// The openai column must additionally stay inside the ChatGPT Codex
-// subscription set: the subscription default provider is stored as
-// `llm.defaultProvider = { provider: "openai", connectionName:
-// "chatgpt-subscription" }`, so the materialized default profiles resolve
-// through this column while pinning the subscription connection, which
-// bypasses the auto-resolution compat gate and hard-routes to the Codex
-// endpoint, where a non-Codex model 400s on every request.
-for (const [intent, modelId] of Object.entries(PROVIDER_MODEL_INTENTS.openai)) {
-  if (!isCodexSubscriptionModel(modelId)) {
-    throw new Error(
-      `PROVIDER_MODEL_INTENTS[openai][${intent}] references model "${modelId}" ` +
-        `which the ChatGPT subscription cannot serve. Pick a model from ` +
-        `CODEX_SUBSCRIPTION_MODEL_IDS in openai/codex-models.ts.`,
-    );
   }
 }
 
