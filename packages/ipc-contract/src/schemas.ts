@@ -112,6 +112,11 @@ export const companionContextSchema = z.object({
   // Defaulted for the same reason `working` is: a publisher that runs no watch
   // session has nothing to report, and staying silent is its truthful answer.
   watching: z.boolean().default(false),
+  // Left optional rather than defaulted, because this one has no resting value
+  // to stand in for: `pending` and `ready` are both claims that something is
+  // happening, and absence is the only way to say nothing is. See
+  // `CompanionWatchRetro`.
+  watchRetro: z.enum(["pending", "ready"]).optional(),
   // The running session's screen reads, counted. Bounded to a non-negative
   // integer at the boundary because the surface reads a step in it as a
   // capture having happened, and the only shape that can say that is a whole

@@ -96,6 +96,8 @@ import {
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
+import { beginWatchRetro } from "@/domains/chat/watch/watch-retro";
+import { supportsWatchRetroCompletion } from "@/lib/backwards-compat/watch-retro-completion";
 import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
 import {
   getSelfHostedActorToken,
@@ -400,6 +402,18 @@ function openSession(
   // has captured nothing and holds nothing on the runtime, which is what
   // decides whether stopping owes a flush.
   let accepted = false;
+  /**
+   * The ids the runtime named its session by, or null when it named none.
+   *
+   * Separate from {@link accepted} rather than standing in for it, because they
+   * answer different questions. Acceptance is whether a session exists, and the
+   * flush and the slot both turn on that. These ids are only how the summary
+   * that session leaves behind is recognised when the runtime announces it, so
+   * a `ready` that arrives without them still opens the microphone and only
+   * costs the prompt at the end.
+   */
+  let runtimeSession: { sessionId: string; conversationId: string } | null =
+    null;
   // Set while this session is the one holding {@link drainRelease}, so the
   // next start can be let through once the runtime has let go.
   let releaseDrain: (() => void) | null = null;
@@ -582,6 +596,25 @@ function openSession(
         claimHandoff();
       }
 
+      // **The summary starts waiting here, not when the socket closes.** A
+      // session the runtime accepted is one it will write a retrospective for,
+      // and the wait is the user's: they pressed stop and the surface owes them
+      // an answer from that press onward, not from whenever the flush happens
+      // to finish. Only a deliberate stop, because every other ending is
+      // something going wrong rather than the user asking for a summary.
+      //
+      // Gated separately from watching itself. An assistant can be new enough
+      // to serve the stream and still predate the announcement that ends the
+      // wait, and opening a wait against one of those leaves the surface
+      // expanded on "Summarizing" until the three-minute give-up timer, after
+      // every session. See `backwards-compat/watch-retro-completion.ts`.
+      if (
+        runtimeSession !== null &&
+        supportsWatchRetroCompletion(ownerAssistantId)
+      ) {
+        beginWatchRetro({ ...runtimeSession, assistantId: ownerAssistantId });
+      }
+
       let draining = false;
       if (accepted && socketOpen) {
         // The last few milliseconds still sit in the capture's batch
@@ -693,8 +726,11 @@ function openSession(
    * opening it before the session exists would put the pair the other way
    * round: audio flowing with nothing on screen saying so.
    */
-  const onReady = (): void => {
+  const onReady = (
+    session: { sessionId: string; conversationId: string } | null,
+  ): void => {
     accepted = true;
+    runtimeSession = session;
     readyTimer = cancel(readyTimer);
     // The capture count belongs to this session and starts at none, in the
     // same write as the flag: a surface that read a leftover count beside a
@@ -725,12 +761,29 @@ function openSession(
     if (!parsed || typeof parsed !== "object") {
       return;
     }
-    const message = parsed as { type?: string; message?: string };
+    const message = parsed as {
+      type?: string;
+      message?: string;
+      sessionId?: string;
+      conversationId?: string;
+    };
     if (message.type === "ready") {
       // Only ever meaningful on a live session. A `ready` arriving while the
       // socket drains would be reopening a microphone the user just closed.
       if (phase === "live") {
-        onReady();
+        onReady(
+          // The ids the runtime names its session by. A frame missing either
+          // still starts the session: recording is what the user pressed for,
+          // and the cost of the gap is a summary this window cannot match to an
+          // announcement, which is smaller than a microphone that never opened.
+          typeof message.sessionId === "string" &&
+            typeof message.conversationId === "string"
+            ? {
+                sessionId: message.sessionId,
+                conversationId: message.conversationId,
+              }
+            : null,
+        );
       }
       return;
     }

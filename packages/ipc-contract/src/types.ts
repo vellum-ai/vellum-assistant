@@ -82,6 +82,22 @@ export type VellumCommand =
    */
   | { kind: "toggleWatch" }
   /**
+   * Answer the question the surface asks once a watch session's summary is
+   * written: open it now, or not.
+   *
+   * `open: true` is the one press on this surface that deliberately raises the
+   * app, and it is the exception `toggleWatch` above explains: the session is
+   * over, so there is no longer any work of the user's for Vellum to cover, and
+   * a "show me" that left the report where it was would be a promise the
+   * surface cannot keep.
+   *
+   * `open: false` still travels rather than being handled where it was pressed.
+   * The window that holds the session holds the question too, and a dismissal
+   * the surface kept to itself would leave that window waiting on an answer
+   * that already happened, ready to redraw the prompt on the next push.
+   */
+  | { kind: "answerWatchRetro"; open: boolean }
+  /**
    * Start a live-voice session, or end the one that is running.
    *
    * The keyboard's version of Talk. It differs from `startVoice` in the one
@@ -771,6 +787,25 @@ export interface CompanionTurn {
 }
 
 /**
+ * Where a finished watch session's summary has got to.
+ *
+ * A session ends the moment the user presses stop, and the account of it does
+ * not: the runtime spends a full turn reading the timeline back before there is
+ * anything to show. Those are the two states worth a surface, and neither is
+ * `watching`, which is over by the time either is true.
+ *
+ * - `pending`: the turn is running. The surface says so, because a session that
+ *   ends into silence reads as one that was thrown away.
+ * - `ready`: there is a report to read, and the surface asks whether to open
+ *   it.
+ *
+ * Absent is the resting answer, and covers both ends of the life: no session
+ * has finished, or the last one that did was answered, dismissed, or produced
+ * nothing to read.
+ */
+export type CompanionWatchRetro = "pending" | "ready";
+
+/**
  * What the app's own window knows that the surface cannot.
  *
  * The surface is a renderer with no assistant and no conversation in it, so
@@ -811,6 +846,17 @@ export interface CompanionContext {
    * always send it.
    */
   watching?: boolean;
+  /**
+   * Where the last session's summary has got to, when the publisher knows.
+   *
+   * Optional for the same reason `watching` is, and answered by the same
+   * window: the runtime reports the retrospective on the assistant's event
+   * stream, which the app's window is subscribed to and the surface's is not.
+   *
+   * See {@link CompanionWatchRetro}. Omitted means there is nothing to say.
+   */
+  watchRetro?: CompanionWatchRetro;
+
   /**
    * How many times the running session has read the screen, counted from the
    * moment it started.
@@ -944,6 +990,19 @@ export interface CompanionSurfaceState {
    * machine that is not being captured.
    */
   watching?: boolean;
+  /**
+   * Where the last session's summary has got to, as the window that ran it
+   * last reported. See {@link CompanionWatchRetro}.
+   *
+   * Held here rather than in the surface's own renderer for the reason the
+   * turns are: the retrospective runs long enough that the surface can reload
+   * inside it, and a prompt that came back empty would be a question the user
+   * was asked and then never got to answer.
+   *
+   * Optional, and absence means there is nothing to draw.
+   */
+  watchRetro?: CompanionWatchRetro;
+
   /**
    * How many screen reads the running session has taken, from the window that
    * owns it. See {@link CompanionContext.captureCount}.

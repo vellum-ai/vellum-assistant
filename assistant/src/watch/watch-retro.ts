@@ -28,6 +28,7 @@ import {
   setConversationSurfaced,
 } from "../persistence/conversation-crud.js";
 import type { WakeOptions } from "../runtime/agent-wake.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import {
   escapeTagBoundaries,
@@ -242,18 +243,71 @@ export interface WatchRetroOptions {
     conversationId: string,
     prompt: string,
   ) => Promise<WatchRetroDispatchResult>;
+  /**
+   * Tells the clients how the retro ended. Defaults to
+   * {@link broadcastWatchRetroCompleted}.
+   */
+  readonly announce?: (
+    summary: WatchSessionSummary,
+    result: WatchRetroResult,
+  ) => void;
 }
 
 /**
- * Run a finished session's retrospective.
+ * Run a finished session's retrospective and say how it ended.
  *
  * Never throws. The caller is a socket teardown with nowhere to put a
  * rejection, and a failed retro costs the user a report rather than any of the
  * recording it would have been drawn from.
+ *
+ * The announcement is unconditional, and that is the point of the wrapper: a
+ * surface that told the user their session is being summarized is waiting on
+ * this, and every way this can end is a way that wait has to end. A retro that
+ * produced nothing is news the same as one that produced a report.
  */
 export async function runWatchRetro(
   summary: WatchSessionSummary,
   options: WatchRetroOptions = {},
+): Promise<WatchRetroResult> {
+  const result = await dispatchWatchRetro(summary, options);
+  const announce = options.announce ?? broadcastWatchRetroCompleted;
+  try {
+    announce(summary, result);
+  } catch (err) {
+    // The report is written and the conversation is surfaced either way. A
+    // failed announcement costs the user the prompt, not the retrospective.
+    log.warn(
+      { err, sessionId: summary.sessionId },
+      "Failed to announce the watch retrospective",
+    );
+  }
+  return result;
+}
+
+/**
+ * Announce a finished retrospective on the assistant's event stream.
+ *
+ * The stream rather than the watch socket, because that socket is already gone:
+ * a session sends `closed` and tears down before the retro is dispatched, so
+ * the transport the user pressed stop on cannot carry the answer. See the event
+ * itself (`api/events/watch-retro-completed.ts`) for why it is routed globally.
+ */
+function broadcastWatchRetroCompleted(
+  summary: WatchSessionSummary,
+  result: WatchRetroResult,
+): void {
+  broadcastMessage({
+    type: "watch_retro_completed",
+    sessionId: summary.sessionId,
+    conversationId: summary.conversationId,
+    reportReady: result.status === "dispatched",
+  });
+}
+
+/** Produce the retrospective, or report why there is none. */
+async function dispatchWatchRetro(
+  summary: WatchSessionSummary,
+  options: WatchRetroOptions,
 ): Promise<WatchRetroResult> {
   try {
     // `screenshotEntryIds` goes unread: no frame is attached. The tree beside

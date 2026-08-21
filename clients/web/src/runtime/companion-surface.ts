@@ -93,6 +93,19 @@ export function toggleCompanionWatch(): void {
 }
 
 /**
+ * Answer the question a finished watch session leaves on the surface: open its
+ * summary now, or not.
+ *
+ * Both answers leave this renderer, including the dismissal. The window that
+ * ran the retrospective is the one holding the question, so an answer kept here
+ * would be a question that goes on being asked: the next state main pushes
+ * would carry `watchRetro` still set and draw the prompt again.
+ */
+export function answerCompanionWatchRetro(open: boolean): void {
+  bridge()?.answerWatchRetro?.(open);
+}
+
+/**
  * Bring Vellum forward on the conversation the user was last in, which is what
  * pressing the avatar asks for.
  *

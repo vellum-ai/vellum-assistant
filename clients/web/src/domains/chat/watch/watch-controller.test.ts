@@ -88,6 +88,8 @@ const { useLiveVoiceStore } =
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
+const { MIN_VERSION: RETRO_MIN_VERSION } =
+  await import("@/lib/backwards-compat/watch-retro-completion");
 const {
   buildWatchStreamWsUrl,
   isWatchSessionActive,
@@ -96,6 +98,7 @@ const {
   toggleWatch,
   useWatchStore,
 } = await import("./watch-controller");
+const { clearWatchRetro, useWatchRetroStore } = await import("./watch-retro");
 
 /**
  * Live-voice subscriptions, counted.
@@ -128,10 +131,17 @@ useLiveVoiceStore.subscribe = ((
 /** The assistant every session in this file is started against. */
 const ASSISTANT_ID = "asst-owner";
 
-/** Make `assistantId` the active one, on a version that serves the route. */
+/**
+ * Make `assistantId` the active one, on a version that serves the route.
+ *
+ * The default is the later of the two watch floors, so a case that says nothing
+ * about versions gets an assistant that both serves the stream and announces
+ * its retrospectives. The stream floor on its own is a real assistant too, and
+ * the band between them has its own case below.
+ */
 const activate = (
   assistantId: string | null,
-  version: string | null = MIN_VERSION,
+  version: string | null = RETRO_MIN_VERSION,
 ) => {
   activeAssistantId = assistantId;
   useAssistantIdentityStore
@@ -358,6 +368,9 @@ beforeEach(() => {
   // isolation it is not providing.
   useWatchStore.setState({ watching: false, captureCount: 0 });
   activate(ASSISTANT_ID);
+  // Module state like the session slot, and with a give-up timer behind it that
+  // would otherwise outlive the case that armed it.
+  clearWatchRetro();
 });
 
 afterEach(() => {
@@ -369,6 +382,7 @@ afterEach(() => {
   for (const ws of sockets) {
     ws.emit("close", { code: 1000 });
   }
+  clearWatchRetro();
   useAssistantIdentityStore.getState().clearIdentity();
   activeAssistantId = null;
   assistantListeners.clear();
@@ -964,6 +978,9 @@ describe("the flush window after the user stops", () => {
     await startRunning();
 
     stopWatch();
+    // The summary the stop leaves behind holds its own subscription on the
+    // active-assistant store, which is not the session's to release.
+    clearWatchRetro();
 
     expect(useWatchStore.getState().watching).toBe(false);
     expect(capture.calls.shutdown).toBe(1);
@@ -1208,6 +1225,68 @@ describe("the flush window after the user stops", () => {
  * value: a flag that goes true and back is exactly the bug, and a final read
  * cannot see it.
  */
+describe("the summary a stopped session leaves behind", () => {
+  /**
+   * A stopped session is not a finished one: the runtime writes an account of
+   * what was narrated in a turn that starts after this socket is gone, and the
+   * surface has to say so from the press onward rather than from whenever the
+   * flush lands.
+   */
+  test("the wait starts on the stop press, named by the runtime's own ids", async () => {
+    await startRunning();
+
+    stopWatch();
+
+    expect(useWatchRetroStore.getState().retro).toEqual({
+      sessionId: "sess-1",
+      conversationId: "conv-1",
+      assistantId: ASSISTANT_ID,
+      phase: "pending",
+    });
+  });
+
+  /**
+   * The two halves of watching landed on different commits, so there is a band
+   * of assistants that serve `/v1/watch/stream` and never announce that the
+   * retrospective is done. Opening a wait against one of those leaves the
+   * companion expanded on "Summarizing" until the three-minute give-up timer,
+   * after every single session.
+   */
+  test("an assistant that cannot announce the summary leaves the surface resting", async () => {
+    activate(ASSISTANT_ID, MIN_VERSION);
+
+    await startRunning();
+    stopWatch();
+
+    expect(useWatchRetroStore.getState().retro).toBeNull();
+  });
+
+  // A start the runtime never accepted recorded nothing, so there is no
+  // retrospective coming and nothing to tell the user about.
+  test("a session the runtime never accepted leaves nothing to wait on", async () => {
+    await startPending();
+
+    stopWatch();
+
+    expect(useWatchRetroStore.getState().retro).toBeNull();
+  });
+
+  /**
+   * Every ending that is not the user's own press is something going wrong: a
+   * socket that dropped, a call taking the microphone, the layout going away.
+   * None of them is a request for a summary, and a runtime that is gone is not
+   * going to write one.
+   */
+  test("a socket that drops leaves nothing to wait on", async () => {
+    await startRunning();
+
+    socket().emit("close", { code: 1006 });
+    await Promise.resolve();
+
+    expect(useWatchRetroStore.getState().retro).toBeNull();
+  });
+});
+
 describe("a watch session between the socket and the runtime", () => {
   test("shows nothing while the session is still pending", async () => {
     const seen = await flagEmissions(async () => {
@@ -1479,6 +1558,10 @@ describe("a watch session across an assistant switch", () => {
     expect(assistantListeners.size).toBe(1);
 
     stopWatch();
+    // The summary the stop leaves behind binds to this same store on the same
+    // terms, and outlives the session on purpose. Released here so what is
+    // counted is the session's subscription and nothing else.
+    clearWatchRetro();
 
     expect(assistantListeners.size).toBe(0);
   });
@@ -1488,6 +1571,7 @@ describe("a watch session across an assistant switch", () => {
     await stopAndSettle();
     await startRunning();
     await stopAndSettle();
+    clearWatchRetro();
 
     expect(assistantListeners.size).toBe(0);
   });

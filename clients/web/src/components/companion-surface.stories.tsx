@@ -228,6 +228,38 @@ export const Watching: Story = {
 };
 
 /**
+ * The session is over and its summary is being written.
+ *
+ * A session ends twice. The socket closes on the stop press, and the account of
+ * what was narrated is written afterwards by a turn that runs for the better
+ * part of a minute. Collapsing to rest across that gap reads as the recording
+ * having been thrown away, so the pill stays open and says what is happening.
+ *
+ * The ring is the session's amber rather than the assistant's accent, because
+ * this is the same session finishing rather than an unrelated turn.
+ */
+export const SummaryPending: Story = {
+  args: { phase: "summary", watchRetro: "pending", hovered: false },
+};
+
+/**
+ * The summary is written, and the surface asks whether to open it.
+ *
+ * Two answers, both drawn. This surface floats over whatever the user does
+ * next, so the way out of a question has to be as reachable as the way in: a
+ * prompt whose only dismissal is going somewhere else is one that follows them
+ * around. Not now is a deferral rather than a discard, since the report is
+ * already in the assistant's conversation list under the session's own title.
+ *
+ * **Clear `watchRetro` to see what the phase alone means.** The row falls back
+ * to the ordinary controls, which is right: nothing here should draw a question
+ * with no answer behind it.
+ */
+export const SummaryReady: Story = {
+  args: { phase: "summary", watchRetro: "ready", hovered: false },
+};
+
+/**
  * The same session, with the user mid-sentence in the composer.
  *
  * The phase the pill draws is `typing`, which outranks `watching`, and the

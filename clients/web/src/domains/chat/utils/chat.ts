@@ -142,6 +142,11 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // *different* conversation), so gate them as global rather than through the
   // conversation-id filter.
   "notification_conversation_created",
+  // A watch session's retrospective finishing announces a conversation other
+  // than the active one: the report lands in the session's own background
+  // thread, and the user is by definition working somewhere else when a session
+  // ends. Routed by session id rather than against the open conversation.
+  "watch_retro_completed",
   "recording_start",
   "recording_stop",
   "recording_pause",

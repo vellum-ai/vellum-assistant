@@ -40,6 +40,7 @@ import {
   stopWatch,
   useWatchStore,
 } from "@/domains/chat/watch/watch-controller";
+import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
 import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -132,6 +133,11 @@ function currentContext(): CompanionContext {
     // asked for, so this is the one side that can say whether it is running.
     // What the surface turns into its capture indicator.
     watching: useWatchStore.getState().watching,
+    // Where the last session's summary has got to. Published from here for the
+    // same reason `watching` is, and with one more step behind it: the runtime
+    // announces the retrospective on this window's event stream, which the
+    // surface's own renderer is not subscribed to.
+    watchRetro: useWatchRetroStore.getState().retro?.phase,
     // The session's screen reads, counted. A step in this is the surface's
     // only evidence that a capture happened, so it is published with the flag
     // rather than beside it: the two are one fact about one session, and a
@@ -141,13 +147,11 @@ function currentContext(): CompanionContext {
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
-      .map(
-        (message): CompanionTurn => ({
-          role:
-            message.role === "user" ? ("user" as const) : ("assistant" as const),
-          text: messagePlainText(message),
-        }),
-      ),
+      .map((message): CompanionTurn => ({
+        role:
+          message.role === "user" ? ("user" as const) : ("assistant" as const),
+        text: messagePlainText(message),
+      })),
   };
 }
 
@@ -157,11 +161,13 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.assistantName === b.assistantName &&
     a.working === b.working &&
     a.watching === b.watching &&
+    a.watchRetro === b.watchRetro &&
     a.captureCount === b.captureCount &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
-        turn.role === b.turns[index]?.role && turn.text === b.turns[index]?.text,
+        turn.role === b.turns[index]?.role &&
+        turn.text === b.turns[index]?.text,
     )
   );
 }
@@ -229,6 +235,10 @@ export function useCompanionMirror(): void {
     // screen read, all three of which the surface draws, where the
     // conversation store moves for plenty the card never draws.
     const unsubscribeWatch = useWatchStore.subscribe(sync);
+    // The summary's own store, for the same reason and on the same terms: it
+    // moves on the stop edge, on the runtime's announcement, and on the user
+    // answering, and nothing else here reports any of those.
+    const unsubscribeWatchRetro = useWatchRetroStore.subscribe(sync);
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published
       // and the surface does not keep a capture indicator over a machine
@@ -244,6 +254,7 @@ export function useCompanionMirror(): void {
       unsubscribeTurn();
       unsubscribeIdentity();
       unsubscribeWatch();
+      unsubscribeWatchRetro();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The tail and the name are left standing:
       // they are a record of what was said, and the surface is still the place

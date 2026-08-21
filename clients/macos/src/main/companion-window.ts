@@ -337,6 +337,10 @@ const currentState = (): CompanionSurfaceState => {
     // reporting no session of its own. Settled to a boolean here rather than
     // passed through, so the surface reads one shape whatever arrived.
     watching: context.watching === true,
+    // Passed through as it arrived, absence included: unlike `watching` this
+    // has no resting value to settle to, since every value it can hold is a
+    // claim that something is happening.
+    watchRetro: context.watchRetro,
     // Settled the same way, and to zero rather than to anything carried over:
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
@@ -698,6 +702,30 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:toggleWatch", z.tuple([]), () => {
     dispatchWithoutRaising({ kind: "toggleWatch" });
+  });
+
+  /**
+   * The answer to the summary question, delivered to the window that asked it.
+   *
+   * The one companion press that may raise the app, and only on a yes. Watch's
+   * press is kept behind the user's work because that work is the session's
+   * subject; by the time this is pressed the session is over, and the report is
+   * a thing to read rather than a thing to avoid covering. A dismissal still
+   * travels and still leaves the window where it is: the question lives in the
+   * renderer that ran the retrospective, and the answer has to reach it either
+   * way or it will ask again on its next push.
+   */
+  on("vellum:companion:answerWatchRetro", z.tuple([z.boolean()]), ([open]) => {
+    if (!open) {
+      dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
+      return;
+    }
+    // The same shape `activate` takes, because it is the same request: bring
+    // the app forward first, then tell it where to go. Dispatching before the
+    // window is visible would navigate a page the user is not looking at.
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "answerWatchRetro", open: true });
+    });
   });
 
   /**

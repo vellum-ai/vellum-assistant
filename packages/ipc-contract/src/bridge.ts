@@ -428,6 +428,15 @@ export interface VellumBridge {
      */
     toggleWatch(): void;
     /**
+     * Answer the summary question a finished watch session leaves on the
+     * surface: open the report now, or not.
+     *
+     * See the `answerWatchRetro` command. Both answers travel, because the
+     * window that ran the retrospective is the one holding the question; what
+     * comes back either way is `watchRetro` going absent on `onState`.
+     */
+    answerWatchRetro(open: boolean): void;
+    /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.
      */

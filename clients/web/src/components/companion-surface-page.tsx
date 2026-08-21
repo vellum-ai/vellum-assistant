@@ -11,6 +11,7 @@ import {
 } from "@/components/companion-surface";
 import {
   activateCompanionApp,
+  answerCompanionWatchRetro,
   advanceCompanionIntro,
   getCompanionState,
   moveCompanionBy,
@@ -30,6 +31,7 @@ import type {
   CompanionIntroBeat,
   CompanionSurfaceState,
   CompanionTurn,
+  CompanionWatchRetro,
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -97,6 +99,12 @@ export function CompanionSurfacePage() {
   // Held by main and pushed here with everything else, so this window can
   // reload mid-session without the indicator that says so going dark.
   const [watching, setWatching] = useState(false);
+  // Where the last session's summary has got to, from the window that ran it.
+  // Undefined is the resting answer and the only one that draws nothing: both
+  // of the others are claims that something is happening.
+  const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
+    undefined,
+  );
   // How many times the running session has read the screen. Held with the flag
   // rather than derived from it, because the flag is a state that lasts for
   // minutes and this is the only account of the discrete moments inside it.
@@ -159,6 +167,7 @@ export function CompanionSurfacePage() {
       // reads as nothing running, because the alternative is a capture
       // indicator over a machine nobody is reading.
       setWatching(state.watching === true);
+      setWatchRetro(state.watchRetro);
       // Absence is no reads, for the same reason absence is no session: a
       // state that cannot say how much of the screen was taken has not
       // established that any of it was.
@@ -360,6 +369,11 @@ export function CompanionSurfacePage() {
   // one runs beside whatever they are doing. Being outranked costs the session
   // nothing, since the phase is only what the pill is drawing and the indicator
   // reads `watching` instead.
+  //
+  // The summary of a finished session sits between the two: it outranks hover
+  // because it is a wait the user is owed an answer to and then a question
+  // waiting on one, and it is outranked by a session still recording, which is
+  // the one thing on this surface a user must always be able to see and stop.
   // The introduction sits above the pointer and below everything the user is in
   // the middle of. A beat that names a control has to have that control on
   // screen to name, so it holds the pill open the way a call does; but a run
@@ -372,7 +386,9 @@ export function CompanionSurfacePage() {
       ? "call"
       : watching
         ? "watching"
-        : (introHeld ?? (hovered ? "hover" : "resting"));
+        : watchRetro !== undefined
+          ? "summary"
+          : (introHeld ?? (hovered ? "hover" : "resting"));
 
   // The avatar's own colour, which arrives with the session. It is `""` until
   // the avatar resolves and the contract makes no promise it parses, so
@@ -453,6 +469,17 @@ export function CompanionSurfacePage() {
           // indicator and the control that ends the session are not: they
           // belong to the session, not to whatever the pill is drawing over it.
           watching={watching}
+          // Its own prop rather than something derived from the phase, for the
+          // reason `watching` is: a call or an open composer outranks the
+          // phase, and a question the user has been asked must not lose its
+          // answer because they picked up the phone.
+          watchRetro={watchRetro}
+          // Out through main and into the window that ran the retrospective. A
+          // yes raises the app on the report; a no leaves the window where it
+          // is. Neither is handled here: this page has no conversation and no
+          // router, and the answer has to reach the side holding the question
+          // or the prompt comes back on the next push.
+          onWatchRetro={answerCompanionWatchRetro}
           // The reads that session has taken, which is what turns a running
           // session into something the user can see happening rather than
           // something they are told is on.

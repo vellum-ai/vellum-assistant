@@ -350,6 +350,7 @@ declare global {
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
         toggleWatch?(): void;
+        answerWatchRetro?(open: boolean): void;
         activate?(): void;
         setComposing?(composing: boolean): void;
         submit?(message: string, startsConversation: boolean): void;

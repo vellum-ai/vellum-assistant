@@ -745,6 +745,102 @@ describe("the companion surface's stop control", () => {
  * ceiling is not a wide pill, it is a clipped one, and the fix is on the other
  * side of the bridge.
  */
+/**
+ * The second ending of a session: the wait for its summary, and the question
+ * that follows it.
+ *
+ * A session ends when the user presses stop, and the account of it is written
+ * afterwards by a turn that runs for the better part of a minute. Collapsing to
+ * rest across that gap reads as the recording having been thrown away, and the
+ * report would land in a thread nobody was ever shown.
+ */
+describe("the summary a finished watch session leaves on the surface", () => {
+  const buttonOf = (
+    container: HTMLElement,
+    label: string,
+  ): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+
+  test("says the summary is being written while the turn runs", () => {
+    const { container } = render(
+      <CompanionSurface phase="summary" watchRetro="pending" />,
+    );
+    expect(container.textContent).toContain("Summarizing");
+    // Nothing to press yet, so nothing that looks pressable.
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  test("burns the session's own ring while it waits", () => {
+    const { container } = render(
+      <CompanionSurface phase="summary" watchRetro="pending" />,
+    );
+    expect(ringOf(container)).not.toBeNull();
+  });
+
+  // The ring outlives the phase, the same way the capture indicator does: a
+  // call or an open composer outranks the phase and the turn runs regardless.
+  test("keeps that ring under a phase that outranks it", () => {
+    const { container } = render(
+      <CompanionSurface phase="typing" watchRetro="pending" />,
+    );
+    expect(ringOf(container)).not.toBeNull();
+  });
+
+  test("asks once there is something to read", () => {
+    const { container } = render(
+      <CompanionSurface phase="summary" watchRetro="ready" />,
+    );
+    expect(buttonOf(container, "Show summary")).not.toBeNull();
+    expect(buttonOf(container, "Not now")).not.toBeNull();
+  });
+
+  test("a yes asks for the report", () => {
+    const answers: boolean[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="summary"
+        watchRetro="ready"
+        onWatchRetro={(open) => answers.push(open)}
+      />,
+    );
+
+    fireEvent.click(buttonOf(container, "Show summary")!);
+
+    expect(answers).toEqual([true]);
+  });
+
+  /**
+   * The way out has to be as reachable as the way in. This surface floats over
+   * whatever the user does next, so a prompt whose only dismissal is going
+   * somewhere else is one that follows them around.
+   */
+  test("a no is an answer, not an absence of one", () => {
+    const answers: boolean[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="summary"
+        watchRetro="ready"
+        onWatchRetro={(open) => answers.push(open)}
+      />,
+    );
+
+    fireEvent.click(buttonOf(container, "Not now")!);
+
+    expect(answers).toEqual([false]);
+  });
+
+  // The phase without the state behind it is the ordinary row, not an empty
+  // one: nothing on this surface should draw a question with no answer in it.
+  test("draws the ordinary controls when there is no summary", () => {
+    // `watchEnabled` because this asserts the ordinary controls, and the flag
+    // is what decides whether Watch is among them.
+    const { container } = render(
+      <CompanionSurface phase="summary" watchEnabled />,
+    );
+    expect(buttonOf(container, "Watch")).not.toBeNull();
+  });
+});
+
 describe("the companion surface's width ceiling", () => {
   /** `BASE_MAX_PILL_WIDTH` in `clients/macos/src/main/companion-window.ts`. */
   const CANVAS_CEILING = 360;
