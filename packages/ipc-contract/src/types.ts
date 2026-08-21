@@ -814,12 +814,17 @@ export interface CompanionContext {
 }
 
 /**
- * The feature flag key Watch is behind, as the app's window wrote it into
+ * The feature flag key Teach is behind, as the app's window wrote it into
  * settings (`useElectronFeatureFlagBridge`).
+ *
+ * The constant is still named for the feature's old name, Watch, as are the
+ * symbols around it; only what a user reads has been renamed so far
+ * (JARVIS-1620). The key itself is user-visible in the LaunchDarkly dashboard,
+ * which is why it moved with the copy rather than with the symbols.
  *
  * Here rather than in either client, because two clients read the same
  * evaluation for two halves of one gate: Electron main reads it to decide
- * whether the companion surface draws the Watch control at all, and the web
+ * whether the companion surface draws the Teach control at all, and the web
  * app's `toggleWatch` command reads it to decide whether a press may start a
  * session. A second copy of the string is a gate that can disagree with
  * itself, and both ways it can disagree are bad: a visible control that
@@ -829,7 +834,7 @@ export interface CompanionContext {
  * {@link CompanionSurfaceState.watchEnabled}; this is only the key it is
  * evaluated under.
  */
-export const WATCH_FLAG = "watch";
+export const WATCH_FLAG = "teach";
 
 /**
  * The beats of the surface's one-time introduction, in order.

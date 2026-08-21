@@ -822,13 +822,13 @@ describe("the Watch flag on the pushed state", () => {
   });
 
   test("is off when the evaluation says so", () => {
-    setFlags({ "companion-surface": true, watch: false });
+    setFlags({ "companion-surface": true, teach: false });
 
     expect(state().watchEnabled).toBe(false);
   });
 
   test("is on when the evaluation says so", () => {
-    setFlags({ "companion-surface": true, watch: true });
+    setFlags({ "companion-surface": true, teach: true });
 
     expect(state().watchEnabled).toBe(true);
   });
@@ -842,17 +842,17 @@ describe("the Watch flag on the pushed state", () => {
     setFlags({ "companion-surface": true });
     const before = pushes.length;
 
-    setFlags({ "companion-surface": true, watch: true });
+    setFlags({ "companion-surface": true, teach: true });
 
     expect(pushes.length).toBeGreaterThan(before);
     expect(pushes.at(-1)?.watchEnabled).toBe(true);
   });
 
   test("is pushed again when the answer is taken away", () => {
-    setFlags({ "companion-surface": true, watch: true });
+    setFlags({ "companion-surface": true, teach: true });
     const before = pushes.length;
 
-    setFlags({ "companion-surface": true, watch: false });
+    setFlags({ "companion-surface": true, teach: false });
 
     expect(pushes.length).toBeGreaterThan(before);
     expect(pushes.at(-1)?.watchEnabled).toBe(false);

@@ -294,7 +294,7 @@ describe("the working ring on the page", () => {
 describe("the watch session on the companion surface", () => {
   const watchOf = (container: HTMLElement): HTMLButtonElement => {
     const found = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Watch"]',
+      'button[aria-label="Teach"]',
     );
     if (!found) {
       throw new Error("Expected Watch to render");
@@ -370,7 +370,7 @@ describe("the watch session on the companion surface", () => {
 
     const stop = await waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Stop watching"]',
+        'button[aria-label="Stop teaching"]',
       );
       if (!found) {
         throw new Error("Expected the stop control to render");
@@ -570,7 +570,7 @@ describe("the companion's introduction", () => {
  */
 describe("the Watch flag on the companion surface", () => {
   const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
-    container.querySelector<HTMLButtonElement>('button[aria-label="Watch"]');
+    container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
 
   /** Open the pill, which is where the way into a session would be drawn. */
   const openPill = async (container: HTMLElement): Promise<void> => {
@@ -621,7 +621,7 @@ describe("the Watch flag on the companion surface", () => {
 
     const stop = await waitFor(() => {
       const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Stop watching"]',
+        'button[aria-label="Stop teaching"]',
       );
       if (!found) {
         throw new Error("Expected the stop control to render");
