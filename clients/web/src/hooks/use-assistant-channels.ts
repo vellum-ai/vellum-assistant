@@ -266,11 +266,16 @@ function toChannelStatus(
   if (!snap) {
     return "not_configured";
   }
-  if (snap.ready || snap.setupStatus === "ready") {
+  // `ready` is the only thing that means working. `setupStatus` is progress:
+  // a fully configured channel whose delivery is failing reports
+  // `setupStatus: "ready"` and `ready: false`, and treating the former as
+  // connected would show a broken channel as healthy. The CLI already reads
+  // it in this order.
+  if (snap.ready) {
     return "ready";
   }
-  if (snap.setupStatus === "incomplete") {
-    return "incomplete";
+  if (snap.setupStatus === "not_configured") {
+    return "not_configured";
   }
-  return "not_configured";
+  return "incomplete";
 }

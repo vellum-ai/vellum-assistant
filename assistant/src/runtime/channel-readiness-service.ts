@@ -9,6 +9,7 @@ import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
+  ChannelHealth,
   ChannelId,
   ChannelProbe,
   ChannelProbeContext,
@@ -252,7 +253,10 @@ const telegramProbe: ChannelProbe = {
       "Telegram is delivering to this assistant",
       health.detail,
     );
-    return [indeterminate ? { ...result, indeterminate: true } : result];
+    const operational = { ...result, kind: "operational" as const };
+    return [
+      indeterminate ? { ...operational, indeterminate: true } : operational,
+    ];
   },
 };
 
@@ -519,14 +523,7 @@ export class ChannelReadinessService {
       // itself live on the strength of a check that never ran.
       const verified = (c: ReadinessCheckResult): boolean =>
         c.passed && !c.indeterminate;
-      const allLocalPassed = localChecks.every(verified);
-      const allRemotePassed =
-        remoteChecks && remoteChecksAffectReadiness
-          ? remoteChecks.every(verified)
-          : true;
-      const ready = allLocalPassed && allRemotePassed;
 
-      // setupStatus: considers all checks (credentials + infrastructure)
       const consideredChecks = [
         ...localChecks,
         ...(remoteChecks && remoteChecksAffectReadiness ? remoteChecks : []),
@@ -537,12 +534,38 @@ export class ChannelReadinessService {
       // progress reports an untouched workspace as `incomplete`, which is what
       // sends the Channels UI down the "finish setup" path instead of the
       // normal setup flow.
-      const anyCheckPassed = consideredChecks.some(verified);
-      const setupStatus: SetupStatus = !anyCheckPassed
+      // Two axes, not one ladder. Setup progress asks whether the channel is
+      // configured; health asks whether it is working. They were the same
+      // question only while readiness meant "are the credentials present", and
+      // stopped being the same the moment a check started reporting delivery:
+      // a fully configured channel whose socket just died is not half set up,
+      // and telling its owner to finish setup sends them to fix the one thing
+      // that is not broken.
+      const configurationChecks = consideredChecks.filter(
+        (c) => (c.kind ?? "configuration") === "configuration",
+      );
+      const operationalChecks = consideredChecks.filter(
+        (c) => c.kind === "operational",
+      );
+
+      const setupStatus: SetupStatus = !configurationChecks.some(verified)
         ? "not_configured"
-        : ready
+        : configurationChecks.every(verified)
           ? "ready"
           : "incomplete";
+
+      // Absent, not "unknown", when the channel asks no operational question.
+      // Nothing was measured, so nothing is claimed, and readiness rests on
+      // configuration alone. Collapsing that into `unknown` would report every
+      // channel without a delivery check as unverifiable.
+      const health: ChannelHealth | undefined =
+        operationalChecks.length === 0
+          ? undefined
+          : operationalChecks.some((c) => !c.passed)
+            ? "failing"
+            : operationalChecks.every(verified)
+              ? "ok"
+              : "unknown";
 
       const reasons: Array<{ code: string; text: string }> = [];
       for (const check of localChecks) {
@@ -560,8 +583,12 @@ export class ChannelReadinessService {
 
       const snapshot: ChannelReadinessSnapshot = {
         channel: ch,
-        ready,
+        ready:
+          setupStatus === "ready" &&
+          health !== "failing" &&
+          health !== "unknown",
         setupStatus,
+        health,
         checkedAt:
           remoteChecks && cached && !remoteChecksFreshlyFetched
             ? cached.checkedAt

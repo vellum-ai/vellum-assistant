@@ -4360,7 +4360,17 @@ paths:
                         setupStatus:
                           anyOf:
                             - type: string
+                              enum:
+                                - not_configured
+                                - incomplete
+                                - ready
                             - type: "null"
+                        health:
+                          type: string
+                          enum:
+                            - ok
+                            - failing
+                            - unknown
                         checkedAt:
                           anyOf:
                             - type: number
@@ -4370,7 +4380,16 @@ paths:
                         reasons:
                           type: array
                           items:
-                            type: string
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                              text:
+                                type: string
+                            required:
+                              - code
+                              - text
+                            additionalProperties: false
                         localChecks:
                           type: array
                           items:
@@ -4384,6 +4403,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -4401,6 +4427,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -4482,7 +4515,17 @@ paths:
                         setupStatus:
                           anyOf:
                             - type: string
+                              enum:
+                                - not_configured
+                                - incomplete
+                                - ready
                             - type: "null"
+                        health:
+                          type: string
+                          enum:
+                            - ok
+                            - failing
+                            - unknown
                         checkedAt:
                           anyOf:
                             - type: number
@@ -4492,7 +4535,16 @@ paths:
                         reasons:
                           type: array
                           items:
-                            type: string
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                              text:
+                                type: string
+                            required:
+                              - code
+                              - text
+                            additionalProperties: false
                         localChecks:
                           type: array
                           items:
@@ -4506,6 +4558,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -4523,6 +4582,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed

@@ -14,6 +14,11 @@ import {
   getInviteAdapterRegistry,
   resolveAdapterHandle,
 } from "../channel-invite-transport.js";
+import {
+  CHANNEL_HEALTHS,
+  CHECK_KINDS,
+  SETUP_STATUSES,
+} from "../channel-readiness-types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 async function enrichSnapshots(
@@ -32,6 +37,7 @@ async function enrichSnapshots(
         channel: s.channel,
         ready: s.ready,
         setupStatus: s.setupStatus,
+        health: s.health,
         checkedAt: s.checkedAt,
         stale: s.stale,
         reasons: s.reasons,
@@ -89,15 +95,21 @@ const readinessCheckSchema = z.object({
   name: z.string(),
   passed: z.boolean(),
   message: z.string().nullable().optional(),
+  // `passed` alone cannot say "I could not tell", and dropping this at the
+  // boundary is why a client cannot distinguish a channel that is broken from
+  // one whose state could not be established.
+  indeterminate: z.boolean().optional(),
+  kind: z.enum(CHECK_KINDS).optional(),
 });
 
 const readinessSnapshotSchema = z.object({
   channel: z.enum(CHANNEL_IDS),
   ready: z.boolean(),
-  setupStatus: z.string().nullable().optional(),
+  setupStatus: z.enum(SETUP_STATUSES).nullable().optional(),
+  health: z.enum(CHANNEL_HEALTHS).optional(),
   checkedAt: z.number().nullable().optional(),
   stale: z.boolean().optional(),
-  reasons: z.array(z.string()).optional(),
+  reasons: z.array(z.object({ code: z.string(), text: z.string() })).optional(),
   localChecks: z.array(readinessCheckSchema).optional(),
   remoteChecks: z.array(readinessCheckSchema).optional(),
   channelHandle: z.string().nullable().optional(),
