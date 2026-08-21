@@ -761,7 +761,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T15:31:03.000Z"
+      "updatedAt": "2026-08-21T15:44:11.000Z"
     },
     {
       "id": "public-ingress",
@@ -982,7 +982,7 @@
     {
       "id": "twilio-setup",
       "name": "twilio-setup",
-      "description": "Configure Twilio credentials and phone numbers for voice calls",
+      "description": "Configure Twilio credentials and phone numbers for voice calls. Use when setting up Twilio, when someone asks who can call the assistant, or when an inbound call greets with \"I don't recognize this number\" or asks for the caller's name (Phone channel trust floor).",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "📱",
@@ -991,11 +991,20 @@
           "display-name": "Twilio Setup",
           "includes": [
             "public-ingress"
+          ],
+          "activation-hints": [
+            "Twilio setup, Account SID, Auth Token, or assigning a phone number",
+            "Who can call the assistant, Phone channel trust floors, or inbound call access",
+            "Inbound call greets with I don't recognize this number, asks for the caller's name, or holds for permission"
+          ],
+          "avoid-when": [
+            "Local push-to-talk or microphone setup (use voice-setup)",
+            "Placing or steering a live call after Twilio is already working (use phone-calls)"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-21T20:35:28.000Z"
     },
     {
       "id": "typescript-eval",
