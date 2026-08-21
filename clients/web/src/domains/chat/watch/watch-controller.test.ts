@@ -88,7 +88,6 @@ const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
-const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
 const { MIN_VERSION: RETRO_MIN_VERSION } =
   await import("@/lib/backwards-compat/watch-retro-completion");
 const {
@@ -1244,22 +1243,6 @@ describe("the summary a stopped session leaves behind", () => {
       assistantId: ASSISTANT_ID,
       phase: "pending",
     });
-  });
-
-  /**
-   * The two halves of watching landed on different commits, so there is a band
-   * of assistants that serve `/v1/watch/stream` and never announce that the
-   * retrospective is done. Opening a wait against one of those leaves the
-   * companion expanded on "Summarizing" until the three-minute give-up timer,
-   * after every single session.
-   */
-  test("an assistant that cannot announce the summary leaves the surface resting", async () => {
-    activate(ASSISTANT_ID, MIN_VERSION);
-
-    await startRunning();
-    stopWatch();
-
-    expect(useWatchRetroStore.getState().retro).toBeNull();
   });
 
   // A start the runtime never accepted recorded nothing, so there is no

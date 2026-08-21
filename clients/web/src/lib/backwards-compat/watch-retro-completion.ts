@@ -35,6 +35,12 @@
  * its retrospective, and a second constant would only be a second thing to
  * keep in step.
  *
+ * **It cannot refuse while the two share a floor.** A stop edge only exists
+ * for a session that started, and a session only starts for an assistant that
+ * cleared the stream's floor, which is this one. So the gate reads true
+ * wherever it is currently reachable. It is kept for the moment the two part,
+ * and because a caller should not have to know they are the same today.
+ *
  * This stays its own gate rather than folding into that one because the two
  * answer different questions, and a caller reading `supportsWatchRetroCompletion`
  * at the stop edge should not have to know they currently share a number. If
