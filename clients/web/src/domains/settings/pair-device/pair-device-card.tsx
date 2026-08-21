@@ -3,10 +3,11 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { useTranslation } from "@/i18n";
+import { Trans, useTranslation } from "@/i18n";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
@@ -15,6 +16,13 @@ import { PairDeviceReady } from "./pair-device-ready";
 import { PairedDevicesSection } from "./paired-devices-section";
 import { PendingPairingRequests } from "./pending-pairing-requests";
 import { usePairDevice } from "./use-pair-device";
+
+/** Names a provider explicitly: the CLI's `vellum` default is not implemented. */
+const TUNNEL_COMMAND = "vellum tunnel --provider tailscale";
+const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
+
+const CODE_CLASS =
+  "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-primary)]";
 
 /**
  * Settings card that pairs another device to this assistant without shell
@@ -51,6 +59,8 @@ export function PairDeviceCard() {
     return null;
   }
 
+  const assistantLabel =
+    target.assistantName ?? t("pairDeviceCard.subtitleFallbackName");
   const { phase } = pair;
   const isMinting = phase.kind === "minting";
   const isReady = phase.kind === "ready";
@@ -68,14 +78,33 @@ export function PairDeviceCard() {
   return (
     <DetailCard
       title={t("pairDeviceCard.title")}
-      subtitle={t("pairDeviceCard.subtitle", {
-        name: target.assistantName ?? t("pairDeviceCard.subtitleFallbackName"),
-      })}
+      subtitle={t("pairDeviceCard.subtitle", { name: assistantLabel })}
     >
       <div className="flex flex-col gap-4">
         {showNoTunnelGuidance && (
           <Notice tone="info" title={t("pairDeviceCard.noTunnelTitle")}>
-            {t("pairDeviceCard.noTunnelBody")}
+            <div className="flex flex-col gap-2">
+              <p>{t("pairDeviceCard.noTunnelWhy", { name: assistantLabel })}</p>
+              <code
+                className={cn(
+                  CODE_CLASS,
+                  "w-fit max-w-full overflow-x-auto px-2.5 py-1.5",
+                )}
+              >
+                {TUNNEL_COMMAND}
+              </code>
+              <p>{t("pairDeviceCard.noTunnelNext")}</p>
+              <p>
+                <Trans
+                  i18nKey="pairDeviceCard.noTunnelMore"
+                  ns="settings"
+                  values={{ command: TUNNEL_HELP_COMMAND }}
+                  components={{
+                    code: <code className={cn(CODE_CLASS, "px-1.5 py-0.5")} />,
+                  }}
+                />
+              </p>
+            </div>
           </Notice>
         )}
         <div className="flex flex-col gap-3">
