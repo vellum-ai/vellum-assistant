@@ -29,7 +29,7 @@ import { usePairDevice } from "./use-pair-device";
 import { useRelativeAgeTick } from "./use-relative-age-tick";
 import { useTunnelStatus } from "./use-tunnel-status";
 
-/** Named explicitly: the CLI's `vellum` default is not implemented. */
+/** Named explicitly so the command does not depend on the CLI's default. */
 const TUNNEL_PROVIDER = "tailscale";
 const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
 
@@ -41,8 +41,7 @@ const CODE_CLASS =
 
 /**
  * Settings card that pairs another device to this assistant without shell
- * commands —
- * the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
+ * commands, the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
  * device-code challenge against the host's loopback gateway and renders the
  * https pair URL as a QR with a copyable link and expiry countdown. It also
  * hosts the approval list for pairing requests minted elsewhere

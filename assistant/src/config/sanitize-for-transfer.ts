@@ -1,3 +1,8 @@
+import {
+  INGRESS_ASSISTANT_ID_KEY,
+  INGRESS_LAST_TUNNEL_KEY,
+} from "@vellumai/service-contracts/ingress";
+
 /**
  * Strips environment-specific fields from config JSON before transferring
  * between local and platform environments (teleport/restore).
@@ -48,8 +53,8 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     delete ingress.publicBaseUrlManagedBy;
     // The remembered tunnel and the assistant it fronted belong to the source
     // host; carrying them over makes tunnel-status UIs name the old deployment.
-    delete ingress.lastTunnel;
-    delete ingress.assistantId;
+    delete ingress[INGRESS_LAST_TUNNEL_KEY];
+    delete ingress[INGRESS_ASSISTANT_ID_KEY];
   }
 
   // Strip the recorded Telegram webhook URL. It records where *this*
