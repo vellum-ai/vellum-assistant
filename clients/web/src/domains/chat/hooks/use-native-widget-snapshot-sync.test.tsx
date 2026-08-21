@@ -43,19 +43,30 @@ mock.module("@/utils/conversation-list-fetchers", () => ({
 }));
 
 const syncedSnapshots: WidgetSnapshotPayload[] = [];
+const syncedAssistantIds: (string | null)[] = [];
 let clearCount = 0;
 let syncAvailable = true;
+// Stands in for the producer id the bridge persists beside the App Group
+// snapshot, so a test can start from a snapshot a previous run left behind.
+let persistedAssistantId: string | null = null;
 
 // Full module surface: `mock.module` is process-global in bun, so a partial
 // shape would shadow the other exports for later test files in the run.
 mock.module("@/runtime/widget-snapshot", () => ({
   WIDGET_SNAPSHOT_SCHEMA_VERSION: 1,
   isWidgetSnapshotSyncAvailable: () => syncAvailable,
-  syncWidgetSnapshot: async (snapshot: WidgetSnapshotPayload) => {
+  readWidgetSnapshotAssistantId: () => persistedAssistantId,
+  syncWidgetSnapshot: async (
+    snapshot: WidgetSnapshotPayload,
+    assistantId: string | null,
+  ) => {
     syncedSnapshots.push(snapshot);
+    syncedAssistantIds.push(assistantId);
+    persistedAssistantId = assistantId;
   },
   clearWidgetSnapshot: async () => {
     clearCount++;
+    persistedAssistantId = null;
   },
 }));
 
@@ -83,7 +94,7 @@ function group(id: string, name: string): ConversationGroup {
 }
 
 interface Props {
-  assistantId?: string;
+  assistantId?: string | null;
   conversations: Conversation[];
   conversationGroups: ConversationGroup[];
   listResolved: boolean;
@@ -96,7 +107,7 @@ function render(initialProps: Props) {
   return renderHook(
     (props: Props) =>
       useNativeWidgetSnapshotSync(
-        props.assistantId ?? ASSISTANT_ID,
+        props.assistantId === undefined ? ASSISTANT_ID : props.assistantId,
         props.conversations,
         props.conversationGroups,
         true,
@@ -112,8 +123,10 @@ function render(initialProps: Props) {
 
 beforeEach(() => {
   syncedSnapshots.length = 0;
+  syncedAssistantIds.length = 0;
   clearCount = 0;
   syncAvailable = true;
+  persistedAssistantId = null;
   useConversationStore.setState({ processingConversationIds: new Set() });
 });
 
@@ -264,6 +277,69 @@ describe("useNativeWidgetSnapshotSync", () => {
     });
     expect(clearCount).toBe(0);
     expect(syncedSnapshots).toHaveLength(0);
+  });
+
+  it("records the producing assistant with the snapshot it writes", () => {
+    render({
+      conversations: [conversation("c1")],
+      conversationGroups: NO_GROUPS,
+      listResolved: true,
+    });
+    expect(syncedAssistantIds).toEqual([ASSISTANT_ID]);
+  });
+
+  it("clears a cold-boot snapshot left by another assistant before any list resolves", () => {
+    // The launch that motivates the persisted id: the App Group still holds
+    // the previous run's snapshot, this run starts on a different assistant,
+    // and nothing in memory knows the difference.
+    persistedAssistantId = "asst-previous-run";
+    const { rerender } = render({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
+    expect(syncedSnapshots).toHaveLength(0);
+
+    // The producer is consulted once, so a list that stays unresolved does
+    // not cost a clear per render.
+    rerender({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
+  });
+
+  it("keeps a cold-boot snapshot this assistant produced while its list is pending", () => {
+    persistedAssistantId = ASSISTANT_ID;
+    render({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(0);
+    expect(syncedSnapshots).toHaveLength(0);
+  });
+
+  it("waits for the active assistant before judging a cold-boot snapshot", () => {
+    // `activeAssistantId` resolves after the layout mounts. A null id matches
+    // nothing, so acting on it would blank the widgets on every launch.
+    persistedAssistantId = "asst-previous-run";
+    const { rerender } = render({
+      assistantId: null,
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(0);
+
+    rerender({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
   });
 
   it("syncs the three most recent rows with group names, unseen and processing state", () => {

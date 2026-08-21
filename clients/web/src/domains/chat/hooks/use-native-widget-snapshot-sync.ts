@@ -4,6 +4,7 @@ import { useUnreadConversationCount } from "@/hooks/conversation-queries";
 import {
   clearWidgetSnapshot,
   isWidgetSnapshotSyncAvailable,
+  readWidgetSnapshotAssistantId,
   syncWidgetSnapshot,
   WIDGET_SNAPSHOT_SCHEMA_VERSION,
   type WidgetSnapshotConversation,
@@ -68,8 +69,16 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * previous assistant's titles, counts and conversation targets on a Home
  * Screen that never reloads on its own, indefinitely if the new assistant
  * never comes up. So the hook tracks which assistant produced the snapshot it
- * last wrote and drops it as soon as that id changes. A launch (no snapshot
- * written yet) is not a switch and keeps the preservation.
+ * last wrote and drops it as soon as that id changes.
+ *
+ * An in-memory ref alone cannot answer that on a cold launch: the App Group
+ * snapshot outlives the page, so a run that starts on a different assistant
+ * begins with the ref null and would preserve another assistant's titles for
+ * as long as its own list stayed unresolved. The producer id is therefore
+ * also persisted next to the snapshot (`readWidgetSnapshotAssistantId`), and
+ * consulted once per launch as the ref's cold-boot complement. A launch with
+ * no recorded producer, or one recorded for the assistant now active, is not
+ * a switch and keeps the preservation.
  */
 export function useNativeWidgetSnapshotSync(
   assistantId: string | null,
@@ -83,6 +92,10 @@ export function useNativeWidgetSnapshotSync(
   // this hook has written one, which is what keeps a launch from reading as
   // a switch.
   const syncedAssistantIdRef = useRef<string | null>(null);
+  // Whether the persisted producer id has been consulted. It only answers for
+  // a snapshot this page lifetime did not write, so one read per launch is
+  // enough and the ref is authoritative from then on.
+  const readPersistedOwnerRef = useRef(false);
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
 
@@ -102,9 +115,19 @@ export function useNativeWidgetSnapshotSync(
     // to resolve. Dropping the dedup key too, so the new assistant's first
     // resolved list always reaches the bridge even when it happens to
     // serialize identically to what the previous one last wrote.
+    //
+    // On a cold launch the ref is null while a snapshot from a previous run
+    // may still be on the Home Screen, so its producer comes from storage
+    // instead. Deferred until the active assistant is known, so a launch that
+    // has not resolved one yet is never mistaken for a switch.
+    let persistedOwnerId: string | null = null;
+    if (!readPersistedOwnerRef.current && assistantId !== null) {
+      readPersistedOwnerRef.current = true;
+      persistedOwnerId = readWidgetSnapshotAssistantId();
+    }
+    const snapshotOwnerId = syncedAssistantIdRef.current ?? persistedOwnerId;
     const switchedAssistant =
-      syncedAssistantIdRef.current !== null &&
-      syncedAssistantIdRef.current !== assistantId;
+      snapshotOwnerId !== null && snapshotOwnerId !== assistantId;
     if (switchedAssistant) {
       syncedAssistantIdRef.current = null;
       lastPayloadRef.current = null;
@@ -161,10 +184,13 @@ export function useNativeWidgetSnapshotSync(
     }
     lastPayloadRef.current = serialized;
     syncedAssistantIdRef.current = assistantId;
-    void syncWidgetSnapshot({
-      ...content,
-      generatedAt: new Date().toISOString(),
-    });
+    void syncWidgetSnapshot(
+      {
+        ...content,
+        generatedAt: new Date().toISOString(),
+      },
+      assistantId,
+    );
   }, [
     assistantId,
     conversations,

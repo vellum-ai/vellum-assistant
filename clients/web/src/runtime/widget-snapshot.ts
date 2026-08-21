@@ -17,6 +17,29 @@
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
+import {
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
+} from "@/utils/local-settings";
+
+/**
+ * Which assistant produced the snapshot currently in the App Group.
+ *
+ * The cache outlives the page, so a cold launch inherits a snapshot no
+ * in-memory ref can account for and has to be able to tell whether it belongs
+ * to the assistant now active. Per-device UI bookkeeping rather than wire
+ * state, so it lives in localStorage beside the client's other local
+ * settings; a read or write that fails leaves it absent, which reads as "no
+ * known producer" and preserves the last-known-good snapshot.
+ */
+const SNAPSHOT_ASSISTANT_ID_KEY = "vellum:widgetSnapshotAssistantId";
+
+/** The assistant that wrote the snapshot in the App Group, if it is known. */
+export function readWidgetSnapshotAssistantId(): string | null {
+  return getLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY, "") || null;
+}
+
 /**
  * Wire-format version. Must stay in lockstep with the Swift side's
  * `WidgetSnapshot.currentSchemaVersion`: a snapshot written under a version
@@ -63,9 +86,15 @@ export function isWidgetSnapshotSyncAvailable(): boolean {
  * ordering and the counts). Swallows bridge failures with a debug log per
  * the skew convention (see `apns-environment.ts`): an older installed shell
  * without the plugin is an expected state on every web deploy, not a fault.
+ *
+ * `assistantId` is the assistant the snapshot was built from, recorded once
+ * the write lands so a later cold launch can recognize a snapshot it did not
+ * produce. A rejected sync leaves whatever the last successful one wrote, and
+ * so leaves the recorded producer with it.
  */
 export async function syncWidgetSnapshot(
   snapshot: WidgetSnapshotPayload,
+  assistantId: string | null,
 ): Promise<void> {
   if (!isWidgetSnapshotSyncAvailable()) {
     return;
@@ -74,7 +103,13 @@ export async function syncWidgetSnapshot(
     await WidgetSnapshot.sync(snapshot);
   } catch (err) {
     console.debug("[widget-snapshot] WidgetSnapshot bridge unavailable:", err);
+    return;
   }
+  if (assistantId === null) {
+    removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);
+    return;
+  }
+  setLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY, assistantId);
 }
 
 /**
@@ -86,6 +121,9 @@ export async function syncWidgetSnapshot(
  *
  * Gated and guarded like {@link syncWidgetSnapshot}, because its callers are
  * platform-neutral session seams rather than the iOS-only producer hook.
+ *
+ * Drops the recorded producer with the snapshot, so every caller (sign-out,
+ * assistant switch, the producer hook) leaves the two consistent.
  */
 export async function clearWidgetSnapshot(): Promise<void> {
   if (!isWidgetSnapshotSyncAvailable()) {
@@ -95,5 +133,7 @@ export async function clearWidgetSnapshot(): Promise<void> {
     await WidgetSnapshot.clear();
   } catch (err) {
     console.debug("[widget-snapshot] WidgetSnapshot bridge unavailable:", err);
+    return;
   }
+  removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);
 }

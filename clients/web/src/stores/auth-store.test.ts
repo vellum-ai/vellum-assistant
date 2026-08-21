@@ -331,6 +331,7 @@ const clearWidgetSnapshotMock = mock(async () => {});
 mock.module("@/runtime/widget-snapshot", () => ({
   WIDGET_SNAPSHOT_SCHEMA_VERSION: 1,
   isWidgetSnapshotSyncAvailable: () => false,
+  readWidgetSnapshotAssistantId: () => null,
   syncWidgetSnapshot: async () => {},
   clearWidgetSnapshot: clearWidgetSnapshotMock,
 }));
