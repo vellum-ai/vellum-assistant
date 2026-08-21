@@ -1045,7 +1045,7 @@
     {
       "id": "vellum-client-capabilities",
       "name": "vellum-client-capabilities",
-      "description": "Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client, no OS permission prompt can be shown, and location requests are answered by asking for a typed city or address instead.",
+      "description": "Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client and there is no location permission prompt to approve, so location requests are answered by asking for a typed city or address instead.",
       "metadata": {
         "emoji": "📍",
         "vellum": {
@@ -1061,7 +1061,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T18:25:39.000Z"
+      "updatedAt": "2026-08-21T19:07:59.000Z"
     },
     {
       "id": "vellum-conversation-management",
