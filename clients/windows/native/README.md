@@ -12,6 +12,12 @@ and notification providers without coupling their protocols.
 Native coordinates use physical pixels in the Windows virtual desktop space, including its possible negative origin. A capability that consumes logical or
 per-monitor coordinates owns conversion at its API boundary.
 
+`appControl.perform` pins a session to the target PID and process start time.
+It verifies foreground ownership through Win32 and UI Automation before input,
+uses DWM bounds for window-relative coordinates, and blocks capture or pointer
+input when another process covers the target. Window capture reads the visible
+desktop pixels and never sends messages into another process.
+
 Release builds publish self-contained, single-file `win-x64` and `win-arm64`
 executables under the Electron resources directory. Users do not install a
 separate .NET runtime. Packaging must preserve architecture selection.

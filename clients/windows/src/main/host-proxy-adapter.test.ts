@@ -34,9 +34,13 @@ test("creates a Windows runtime with only the committed portable executors", () 
   expect(() => runtime.teardownExecutors?.()).not.toThrow();
 });
 
-test("adds host_cu when the computer-use capability is installed", () => {
+test("adds native input executors when the capability is installed", () => {
   // GIVEN computer-use executors contributed by the capability module
   const host_cu = {
+    handleRequest: () => undefined,
+    handleCancel: () => undefined,
+  };
+  const host_app_control = {
     handleRequest: () => undefined,
     handleCancel: () => undefined,
   };
@@ -54,11 +58,12 @@ test("adds host_cu when the computer-use capability is installed", () => {
     installPresenceMonitor: () => () => undefined,
     getClientId: () => "client-123",
     logger: console,
-    computerUseExecutors: { host_cu, teardown },
+    computerUseExecutors: { host_cu, host_app_control, teardown },
   });
 
   // THEN the daemon sees host_cu and teardown is routed to the helper shutdown
   expect(Object.keys(runtime.executors).sort()).toEqual([
+    "host_app_control",
     "host_bash",
     "host_browser",
     "host_cu",
@@ -67,6 +72,7 @@ test("adds host_cu when the computer-use capability is installed", () => {
     "host_ui_snapshot",
   ]);
   expect(runtime.executors.host_cu).toBe(host_cu);
+  expect(runtime.executors.host_app_control).toBe(host_app_control);
   runtime.teardownExecutors?.();
   expect(didTeardown).toBe(true);
 });

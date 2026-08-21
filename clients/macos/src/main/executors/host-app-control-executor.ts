@@ -9,14 +9,9 @@
  * only forwards the request and translates the result.
  */
 
-import { z } from "zod";
-
 import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
-import {
-  HostHelperProxyExecutor,
-  type CuHelperClient,
-  type HostHelperProxyConfig,
-} from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
+import { createAppControlHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/app-control-executor";
+import type { CuHelperClient } from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
 import log from "../logger";
 import { getSharedCuHelper } from "../sidecar/shared-cu-helper";
 
@@ -24,57 +19,15 @@ export interface HostAppControlExecutorDeps {
   helper?: CuHelperClient;
 }
 
-const APP_CONTROL_RESULT_SCHEMA = z
-  .object({
-    state: z.enum(["running", "missing", "minimized"]),
-    pngBase64: z.string().optional(),
-    windowBounds: z
-      .object({
-        x: z.number(),
-        y: z.number(),
-        width: z.number(),
-        height: z.number(),
-      })
-      .optional(),
-    executionResult: z.string().optional(),
-    executionError: z.string().optional(),
-  })
-  .passthrough();
-
-function config(deps: HostAppControlExecutorDeps): HostHelperProxyConfig<
-  z.infer<typeof APP_CONTROL_RESULT_SCHEMA>
-> {
-  return {
-    label: "host-app-control-executor",
-    logger: log,
-    method: "appControl.perform",
-    resolveHelper: deps.helper ? () => deps.helper as CuHelperClient : getSharedCuHelper,
-    schema: APP_CONTROL_RESULT_SCHEMA,
-    buildParams: (message, requestId) => {
-      const input = message.input as Record<string, unknown> | undefined;
-      if (!input) return { error: "Missing input" };
-      return {
-        params: {
-          requestId,
-          conversationId: (message.conversationId as string | undefined) ?? "",
-          ...(typeof message.toolName === "string" ? { toolName: message.toolName } : {}),
-          input,
-        },
-      };
-    },
-    postSuccess: (poster, requestId, result) => {
-      void poster.postAppControlResult({ requestId, ...result });
-    },
-    postError: (poster, requestId, message) => {
-      void poster.postAppControlResult({ requestId, state: "missing", executionError: message });
-    },
-  };
-}
-
 export function createHostAppControlExecutor(
   deps: HostAppControlExecutorDeps = {},
 ): HostProxyExecutor {
-  return new HostHelperProxyExecutor(config(deps));
+  return createAppControlHelperProxyExecutor({
+    logger: log,
+    resolveHelper: deps.helper
+      ? () => deps.helper as CuHelperClient
+      : getSharedCuHelper,
+  });
 }
 
 export const hostAppControlExecutor: HostProxyExecutor = createHostAppControlExecutor();

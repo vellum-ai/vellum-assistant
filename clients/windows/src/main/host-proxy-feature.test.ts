@@ -76,10 +76,14 @@ test("installs the bridge with the portable executors and tears down on quit", a
   expect(__testing.executors.size).toBe(0);
 });
 
-test("installs the computer-use executor contributed by its capability", async () => {
+test("installs native input executors contributed by their capability", async () => {
   const registry = new DesktopCapabilityRegistry();
   registry.provide(COMPUTER_USE_ACTION_EXECUTORS, {
     host_cu: {
+      handleRequest: () => undefined,
+      handleCancel: () => undefined,
+    },
+    host_app_control: {
       handleRequest: () => undefined,
       handleCancel: () => undefined,
     },
@@ -90,4 +94,5 @@ test("installs the computer-use executor contributed by its capability", async (
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(__testing.executors.has("host_cu")).toBe(true);
+  expect(__testing.executors.has("host_app_control")).toBe(true);
 });
