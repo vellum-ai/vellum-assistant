@@ -636,7 +636,7 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     expect(result.reason).toBe("missing_conversation_fields");
   });
 
-  test("consumeGrantForInvocation peeks a conversation_tool grant without consuming it", async () => {
+  test("consumeGrantForInvocation does not treat a conversation_tool grant as a one-shot consume", async () => {
     mintGrantFromDecision(
       mintParams({
         scopeMode: "conversation_tool",
@@ -645,7 +645,7 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
       }),
     );
 
-    const first = await consumeGrantForInvocation(
+    const result = await consumeGrantForInvocation(
       {
         toolName: "bash",
         inputDigest: "sha256:first",
@@ -655,22 +655,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
       },
       { maxWaitMs: 0 },
     );
-    expect(first.ok).toBe(true);
-
-    const second = await consumeGrantForInvocation(
-      {
-        toolName: "bash",
-        inputDigest: "sha256:second",
-        consumingRequestId: "c2",
-        conversationId: "conv-xyz",
-        requesterExternalUserId: "user-123",
-      },
-      { maxWaitMs: 0 },
-    );
-    expect(second.ok).toBe(true);
-    if (first.ok && second.ok) {
-      expect(first.grant.id).toBe(second.grant.id);
-      expect(second.grant.status).toBe("active");
-    }
+    expect(result.ok).toBe(false);
   });
 });

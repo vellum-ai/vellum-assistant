@@ -295,30 +295,16 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
     "No tool_signature grant match found",
   );
 
-  if (params.conversationId) {
-    const standing = peekConversationToolGrant({
-      toolName: params.toolName,
-      conversationId: params.conversationId,
-      requesterExternalUserId: params.requesterExternalUserId,
-      now: params.now,
-    });
-    if (standing) {
-      log.info(
-        {
-          event: "approval_primitive_peek_hit",
-          mode: "conversation_tool",
-          grantId: standing.id,
-          toolName: params.toolName,
-          conversationId: params.conversationId,
-          consumingRequestId: params.consumingRequestId,
-        },
-        "Standing conversation_tool grant peeked",
-      );
-      return { ok: true, grant: standing };
-    }
-  }
-
   return { ok: false, reason: "no_match" };
+}
+
+export function peekConversationToolGrantForInvocation(params: {
+  toolName: string;
+  conversationId: string;
+  requesterExternalUserId?: string;
+  now?: number;
+}): ScopedApprovalGrant | null {
+  return peekConversationToolGrant(params);
 }
 
 // ---------------------------------------------------------------------------

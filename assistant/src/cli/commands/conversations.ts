@@ -540,22 +540,16 @@ export function registerConversationsCommand(program: Command): void {
           body.slackUserId = slackUserId;
         }
 
-        let result: {
-          ok: boolean;
-          result?: WorkspaceCommandsResult;
-          error?: string;
-        };
-        if (action === "get") {
-          result = await cliIpcCall<WorkspaceCommandsResult>(
-            "conversation_workspace_commands_get_cli",
-            { body },
-          );
-        } else {
-          result = await cliIpcCall<WorkspaceCommandsResult>(
-            "conversation_workspace_commands_set_cli",
-            { body: { ...body, enabled: action === "allow" } },
-          );
-        }
+        const result =
+          action === "get"
+            ? await cliIpcCall<WorkspaceCommandsResult>(
+                "conversation_workspace_commands_get_cli",
+                { body },
+              )
+            : await cliIpcCall<WorkspaceCommandsResult>(
+                "conversation_workspace_commands_set_cli",
+                { body: { ...body, enabled: action === "allow" } },
+              );
 
         if (!result.ok) {
           if (opts.json) {

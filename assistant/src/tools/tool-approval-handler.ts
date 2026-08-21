@@ -1,4 +1,7 @@
-import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import {
+  consumeGrantForInvocation,
+  peekConversationToolGrantForInvocation,
+} from "../approvals/approval-primitive.js";
 import {
   getGuardianRequestOrNull,
   updateGuardianRequest,
@@ -966,6 +969,35 @@ export class ToolApprovalHandler {
     // minting (2-5s). Non-voice channels get an instant sync lookup so
     // normal denials are not delayed.
     if (needsGrantConsumption && deferredConsumeParams) {
+      if (
+        isStandingWorkspaceCommandGrantHonored({
+          toolName: name,
+          executionTarget,
+          trustClass: context.trustClass,
+          riskLevel,
+        })
+      ) {
+        const standing = peekConversationToolGrantForInvocation({
+          toolName: name,
+          conversationId: context.conversationId,
+          requesterExternalUserId: context.requesterExternalUserId,
+        });
+        if (standing) {
+          log.info(
+            {
+              toolName: name,
+              conversationId: context.conversationId,
+              trustClass: context.trustClass,
+              executionTarget,
+              grantId: standing.id,
+              scopeMode: standing.scopeMode,
+            },
+            "Standing conversation_tool grant peeked - allowing trusted contact workspace command",
+          );
+          return { allowed: true, tool, grantConsumed: true, parsedInput };
+        }
+      }
+
       const isVoice = context.executionChannel === "phone";
       const grantResult = await consumeGrantForInvocation(
         deferredConsumeParams,
@@ -973,41 +1005,18 @@ export class ToolApprovalHandler {
       );
 
       if (grantResult.ok) {
-        if (
-          grantResult.grant.scopeMode === "conversation_tool" &&
-          !isStandingWorkspaceCommandGrantHonored({
+        log.info(
+          {
             toolName: name,
-            executionTarget,
+            conversationId: context.conversationId,
             trustClass: context.trustClass,
-            riskLevel,
-          })
-        ) {
-          log.info(
-            {
-              toolName: name,
-              conversationId: context.conversationId,
-              trustClass: context.trustClass,
-              executionTarget,
-              riskLevel,
-              grantId: grantResult.grant.id,
-            },
-            "Standing conversation_tool grant does not cover this invocation",
-          );
-        } else {
-          log.info(
-            {
-              toolName: name,
-              conversationId: context.conversationId,
-              trustClass: context.trustClass,
-              executionTarget,
-              grantId: grantResult.grant.id,
-              scopeMode: grantResult.grant.scopeMode,
-            },
-            "Scoped grant consumed - allowing untrusted actor tool invocation",
-          );
+            executionTarget,
+            grantId: grantResult.grant.id,
+          },
+          "Scoped grant consumed - allowing untrusted actor tool invocation",
+        );
 
-          return { allowed: true, tool, grantConsumed: true, parsedInput };
-        }
+        return { allowed: true, tool, grantConsumed: true, parsedInput };
       }
 
       // Treat abort as a cancellation - not a grant denial. This matches

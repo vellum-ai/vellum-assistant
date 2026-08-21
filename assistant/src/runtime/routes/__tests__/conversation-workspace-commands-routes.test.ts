@@ -95,10 +95,10 @@ describe("conversation workspace-commands routes", () => {
   });
 
   test("CLI rejects multiple identifiers", async () => {
-    await expect(
+    expect(() =>
       getCliHandler({
         body: { conversationId: "conv-xyz", slackUserId: "U12345678" },
       }),
-    ).rejects.toThrow("exactly one");
+    ).toThrow("exactly one");
   });
 });
