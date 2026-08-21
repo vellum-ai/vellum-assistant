@@ -386,7 +386,7 @@ describe("the companion's introduction", () => {
    * presses meant for whatever the user was working in.
    */
   test("gives the desktop back when the run ends under the pointer", async () => {
-    STATE.intro = "tray";
+    STATE.intro = "menu";
     const { container } = render(<CompanionSurfacePage />);
     await pinPill(container);
     await pinCard(container);

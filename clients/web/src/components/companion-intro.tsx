@@ -84,9 +84,9 @@ export const INTRO_COPY: Record<CompanionIntroBeat, IntroCopy> = {
     title: "Type",
     body: "Send a message from here and read the reply here too.",
   },
-  tray: {
-    title: "Hide me anytime",
-    body: "Disable “Show Companion” in the menu bar.",
+  menu: {
+    title: "Right-click me",
+    body: "That’s where you hide me or change my size.",
   },
 };
 
@@ -94,9 +94,9 @@ export const INTRO_COPY: Record<CompanionIntroBeat, IntroCopy> = {
  * Which control the pill should draw as though the pointer were on it.
  *
  * Only the beats that name a control on the pill have one. `meet` is about the
- * creature, and `tray` is about the menu bar, which is not on the surface at
- * all. Shared with the page and the stories so a beat cannot be introduced in
- * one place and spotlighted in another.
+ * creature, and `menu` is about a right-click on it, which no control on the
+ * pill stands for. Shared with the page and the stories so a beat cannot be
+ * introduced in one place and spotlighted in another.
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
