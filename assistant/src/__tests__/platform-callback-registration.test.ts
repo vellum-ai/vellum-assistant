@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { credentialKey } from "../security/credential-key.js";
 import { setIngressPublicBaseUrl } from "../config/env.js";
+import { credentialKey } from "../security/credential-key.js";
 
 let mockIsPlatform = true;
 let mockPlatformBaseUrl = "";

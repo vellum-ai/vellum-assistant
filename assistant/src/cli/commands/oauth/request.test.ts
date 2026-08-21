@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const PNG_MAGIC = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
@@ -31,8 +31,8 @@ mock.module("../../../ipc/cli-client.js", () => ({
 import { Command } from "commander";
 
 import { applyCommandHelp } from "../../lib/cli-command-help.js";
-import { registerRequestCommand } from "./request.js";
 import { oauthHelp } from "./index.help.js";
+import { registerRequestCommand } from "./request.js";
 
 let tempDir: string;
 
