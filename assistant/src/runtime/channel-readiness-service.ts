@@ -248,7 +248,11 @@ const telegramProbe: ChannelProbe = {
       health.status === "unknown" ||
       health.status === "unverified";
     const result = check(
-      "inbound_delivery",
+      // Published identifier. Installed skill copies and external clients
+      // search readiness responses for this name, and they do not upgrade in
+      // lockstep with the daemon, so renaming it silently breaks their
+      // delivery gate while Telegram is healthy.
+      "webhook_delivery",
       health.status === "healthy" || indeterminate,
       "Telegram is delivering to this assistant",
       health.detail,

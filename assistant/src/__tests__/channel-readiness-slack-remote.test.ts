@@ -321,7 +321,10 @@ describe("slack inbound delivery", () => {
    * any of them.
    */
   test("fails on a dead socket even while auth.test passes", async () => {
+    // Both tokens, or the channel is not fully configured and "incomplete" is
+    // the correct answer rather than the one under test.
     mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    mockSecureKeys[credentialKey("slack_channel", "app_token")] = "xapp-fake";
     setConfig("slack", { teamId: "T123" });
     fetchHandler = () => ({
       ok: true,

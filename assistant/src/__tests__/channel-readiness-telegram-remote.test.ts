@@ -43,10 +43,10 @@ async function runTelegramRemoteProbe() {
 async function deliveryCheck() {
   const [snapshot] = await runTelegramRemoteProbe();
   const remote = snapshot.remoteChecks ?? [];
-  const result = remote.find((c) => c.name === "inbound_delivery");
+  const result = remote.find((c) => c.name === "webhook_delivery");
   if (!result) {
     throw new Error(
-      `no inbound_delivery check ran; got: ${remote.map((c) => c.name).join(", ") || "(none)"}`,
+      `no webhook_delivery check ran; got: ${remote.map((c) => c.name).join(", ") || "(none)"}`,
     );
   }
   return result;
