@@ -109,6 +109,7 @@ export function ChannelPanel({
         {connected ? (
           <SlackConnectionCard
             slackHandle={channel.address}
+            health={channel.health}
             disconnectPending={pending}
             onDisconnect={onDisconnect}
           >

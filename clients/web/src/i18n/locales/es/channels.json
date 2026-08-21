@@ -10,6 +10,8 @@
   },
   "connectionCard": {
     "connected": "Conectado",
+    "reconnecting": "Reconectando…",
+    "statusUnavailable": "Estado no disponible",
     "disconnecting": "Desconectando…",
     "disconnect": "Desconectar"
   },

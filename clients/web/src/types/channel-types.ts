@@ -27,7 +27,14 @@ export type ChannelStatus = "ready" | "incomplete" | "not_configured";
 
 export interface AssistantChannelState {
   key: SetupChannelId;
+  /**
+   * Setup progress. Whether the channel is currently working is {@link health}:
+   * a configured channel that is momentarily down is still set up, and must not
+   * be sent back through the wizard.
+   */
   status: ChannelStatus;
+  /** Absent when the channel measures nothing operational. */
+  health?: ChannelReadinessSnapshot["health"];
   address?: string;
   warning?: string;
 }

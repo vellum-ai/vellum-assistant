@@ -1,4 +1,4 @@
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, CircleDashed, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -10,6 +10,8 @@ import { useTranslation } from "@/i18n";
 import { publicAsset } from "@/utils/public-asset";
 
 interface SlackConnectionCardProps {
+  /** Operational health; absent reads as connected. */
+  health?: "ok" | "failing" | "unknown";
   /** The assistant's Slack @handle, when known. */
   slackHandle?: string;
   /** Disconnect in flight; disables the button and swaps its label. */
@@ -28,11 +30,36 @@ interface SlackConnectionCardProps {
  */
 export function SlackConnectionCard({
   slackHandle,
+  health,
   disconnectPending = false,
   onDisconnect,
   children,
 }: SlackConnectionCardProps) {
   const { t } = useTranslation("channels");
+  // Deliberately calm rather than an alarm. A configured channel reports
+  // `failing` while its socket is down, and the gateway reconnects itself
+  // within about forty seconds, so there is nothing for the reader to do. The
+  // failures a reader can act on are credential failures, and those fail a
+  // configuration check instead, which shows the setup wizard rather than
+  // this card.
+  const [statusTone, statusIcon, statusLabelKey] =
+    health === "failing"
+      ? ([
+          "warning",
+          <RefreshCw key="i" />,
+          "connectionCard.reconnecting",
+        ] as const)
+      : health === "unknown"
+        ? ([
+            "neutral",
+            <CircleDashed key="i" />,
+            "connectionCard.statusUnavailable",
+          ] as const)
+        : ([
+            "positive",
+            <CheckCircle key="i" />,
+            "connectionCard.connected",
+          ] as const);
   return (
     <Card.Root>
       <Card.Header>
@@ -47,8 +74,8 @@ export function SlackConnectionCard({
               {slackHandle}
             </Typography>
           ) : null}
-          <Tag tone="positive" leftIcon={<CheckCircle />}>
-            {t("connectionCard.connected")}
+          <Tag tone={statusTone} leftIcon={statusIcon}>
+            {t(statusLabelKey)}
           </Tag>
           <div className="ml-auto">
             <Button
