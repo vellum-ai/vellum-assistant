@@ -243,11 +243,10 @@ export function createToolExecutor(
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
+  toolEventSink?: (event: AssistantEvent) => void,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
-  registerConversationSender(ctx.conversationId, (msg) =>
-    ctx.emitToCurrentTurn(msg),
-  );
+  registerConversationSender(ctx.conversationId, (msg) => ctx.emit(msg));
 
   // Execution-layer allowlist gate (`subagentToolGateMode === "execution"`,
   // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
@@ -360,6 +359,7 @@ export function createToolExecutor(
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
     toolUseId?: string,
+    toolEventSink?: (event: AssistantEvent) => void,
   ) => {
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
@@ -440,7 +440,7 @@ export function createToolExecutor(
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
         // signature, but at runtime these are always AssistantEvent instances.
-        ctx.emitToCurrentTurn(msg as AssistantEvent);
+        (toolEventSink ?? ctx.emit)(msg as AssistantEvent);
         if (msg.type === "ui_surface_show") {
           // The tool-context sendToClient signature is loose, so the show
           // message's fields are untyped here; map them through the same

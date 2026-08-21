@@ -78,4 +78,22 @@ describe("createBatchedTurnEventSink", () => {
     });
     expect(publish).toHaveBeenCalledTimes(2);
   });
+
+  test("leaves open_url untargeted when the response owner is clientless", () => {
+    const publish = mock(() => {});
+    const send = createBatchedTurnEventSink([
+      { publish, originClientId: "client-1" },
+      { publish },
+    ]);
+    const event: AssistantEvent = {
+      type: "open_url",
+      url: "ms-settings:privacy-microphone",
+      conversationId: "conv-1",
+    };
+
+    send(event);
+
+    expect(publish).toHaveBeenCalledWith(event);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
 });

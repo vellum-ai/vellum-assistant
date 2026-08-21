@@ -1316,6 +1316,7 @@ export async function runAgentLoopImpl(
         ctx.agentLoop.run({
           messages: msgs,
           onEvent: eventHandler,
+          toolEventSink: (event) => ctx.emitForTurn(event, onEvent),
           signal: abortController.signal,
           requestId: reqId,
           onCheckpoint,

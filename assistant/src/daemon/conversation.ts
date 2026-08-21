@@ -328,9 +328,6 @@ export class Conversation {
    * {@link emit}, which also notifies {@link addEventObserver} observers.
    */
   private readonly sendToClient: (msg: AssistantEvent) => void;
-  private currentTurnEventBinding?: {
-    sink?: (msg: AssistantEvent) => void;
-  };
   /**
    * Observers notified after every {@link emit}, in registration order. An
    * observer sees the event after the sink delivered it, so anything it does
@@ -1568,12 +1565,12 @@ export class Conversation {
     this.deliverEvent(msg, this.sendToClient);
   };
 
-  /** Deliver a tool event through the active turn's request-bound sink. */
-  readonly emitToCurrentTurn = (msg: AssistantEvent): void => {
-    this.deliverEvent(
-      msg,
-      this.currentTurnEventBinding?.sink ?? this.sendToClient,
-    );
+  /** Deliver a turn-owned event through its request-bound sink. */
+  readonly emitForTurn = (
+    msg: AssistantEvent,
+    sink: (msg: AssistantEvent) => void,
+  ): void => {
+    this.deliverEvent(msg, sink);
   };
 
   /**
@@ -2789,21 +2786,13 @@ export class Conversation {
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
-    const turnEventBinding = { sink: onEvent };
-    this.currentTurnEventBinding = turnEventBinding;
-    try {
-      return await runAgentLoopImpl(
-        this,
-        content,
-        userMessageId,
-        onEvent ?? this.emit,
-        rest,
-      );
-    } finally {
-      if (this.currentTurnEventBinding === turnEventBinding) {
-        this.currentTurnEventBinding = undefined;
-      }
-    }
+    return runAgentLoopImpl(
+      this,
+      content,
+      userMessageId,
+      onEvent ?? this.emit,
+      rest,
+    );
   }
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {

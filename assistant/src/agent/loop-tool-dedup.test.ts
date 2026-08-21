@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createMockProvider } from "../__tests__/helpers/mock-provider.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { ContentBlock, ProviderResponse } from "../providers/types.js";
 import { AgentLoop } from "./loop.js";
 
@@ -74,6 +75,35 @@ const baseRun = {
 };
 
 describe("AgentLoop: duplicate tool_use ids", () => {
+  test("passes the run-owned event sink to tool execution", async () => {
+    const { provider } = createMockProvider([
+      toolUseTurn([{ id: "call-1", name: "read_file" }]),
+      endTurn("done"),
+    ]);
+    const toolEventSink = (_event: AssistantEvent) => {};
+    let receivedSink: typeof toolEventSink | undefined;
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "sys",
+      conversationId: "sink-1",
+      tools: [
+        {
+          name: "read_file",
+          description: "",
+          input_schema: { type: "object" },
+        },
+      ],
+      toolExecutor: async (_name, _input, _onOutput, _toolUseId, sink) => {
+        receivedSink = sink;
+        return { content: "ok", isError: false };
+      },
+    });
+
+    await loop.run({ ...baseRun, toolEventSink });
+
+    expect(receivedSink).toBe(toolEventSink);
+  });
+
   /** A call the provider emits twice under one id runs a single time. */
   test("executes a call id once when the provider emits it twice", async () => {
     // GIVEN a provider turn carrying the same tool_use id twice

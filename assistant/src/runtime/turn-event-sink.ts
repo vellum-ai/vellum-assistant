@@ -28,15 +28,9 @@ export function createBatchedTurnEventSink(
   const publishers = Array.from(
     new Set(members.map((member) => member.publish)),
   );
-  let origin: (typeof members)[number] | undefined;
-  for (let index = members.length - 1; index >= 0; index -= 1) {
-    if (members[index].originClientId) {
-      origin = members[index];
-      break;
-    }
-  }
-  const targetedSink = origin
-    ? createTurnEventSink(origin.publish, origin.originClientId)
+  const responseOwner = members.at(-1);
+  const targetedSink = responseOwner?.originClientId
+    ? createTurnEventSink(responseOwner.publish, responseOwner.originClientId)
     : undefined;
 
   return (msg) => {

@@ -102,7 +102,6 @@ function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
     getTurnActorPrincipalId: () => undefined,
     abortController: null,
     emit: mock(() => {}),
-    emitToCurrentTurn: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
@@ -225,17 +224,23 @@ describe("resolveConversationAttribution", () => {
 describe("createToolExecutor attribution threading", () => {
   test("routes tool events through the active turn sink", async () => {
     const emit = mock(() => {});
-    const emitToCurrentTurn = mock(() => {});
+    const toolEventSink = mock(() => {});
     const { executor, calls } = makeCapturingExecutor();
-    const toolFn = makeToolFn(executor, makeCtx({ emit, emitToCurrentTurn }));
+    const toolFn = makeToolFn(executor, makeCtx({ emit }));
 
-    await toolFn("file_read", { path: "/tmp/a" });
+    await toolFn(
+      "file_read",
+      { path: "/tmp/a" },
+      undefined,
+      undefined,
+      toolEventSink,
+    );
     calls[0].context.sendToClient?.({
       type: "open_url",
       url: "ms-settings:privacy-microphone",
     });
 
-    expect(emitToCurrentTurn).toHaveBeenCalledWith({
+    expect(toolEventSink).toHaveBeenCalledWith({
       type: "open_url",
       url: "ms-settings:privacy-microphone",
     });
