@@ -249,7 +249,7 @@ public sealed class DictationSessionManager(
         notify("dictation.error",
             new { message, onDevice = true, willRetryServer = false });
 
-    internal static TimeSpan TranscriptionCompletionTimeout(
+    private static TimeSpan TranscriptionCompletionTimeout(
         int pcmByteLength,
         int sampleRate)
     {

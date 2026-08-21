@@ -14,6 +14,7 @@ public static class DictationServiceTests
         public bool Cancelled;
         public bool Disposed;
         public bool FinalizeOnFinish = true;
+        public TimeSpan? CompletionTimeout;
         public readonly List<byte[]> Chunks = [];
         public Exception? StartError;
 
@@ -31,9 +32,10 @@ public static class DictationServiceTests
 
         public void Append(byte[] pcm) => Chunks.Add(pcm);
 
-        public void Finish(TimeSpan _)
+        public void Finish(TimeSpan completionTimeout)
         {
             Finished = true;
+            CompletionTimeout = completionTimeout;
             if (FinalizeOnFinish)
             {
                 Finalized?.Invoke("final text");
@@ -151,8 +153,10 @@ public static class DictationServiceTests
         // The completion guard includes the submitted recording duration so
         // a long pushed buffer can drain before the fallback finalizes it.
         var oneMinutePcm = new byte[16000 * sizeof(short) * 60];
-        Assert(DictationSessionManager.TranscriptionCompletionTimeout(
-            oneMinutePcm.Length, 16000) == TimeSpan.FromSeconds(63));
+        var longRecordingEngine = new FakeEngine();
+        manager = new DictationSessionManager(_ => longRecordingEngine, Notify);
+        manager.Transcribe(Convert.ToBase64String(oneMinutePcm), 16000);
+        Assert(longRecordingEngine.CompletionTimeout == TimeSpan.FromSeconds(63));
 
         Console.WriteLine("Dictation tests passed");
     }
