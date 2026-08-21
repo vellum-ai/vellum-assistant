@@ -32,6 +32,35 @@ function makeEvent(
 // ── Fanout ────────────────────────────────────────────────────────────────────
 
 describe("AssistantEventHub — fanout", () => {
+  test("requires the validated actor for client-targeted delivery", async () => {
+    const hub = new AssistantEventHub();
+    const received: AssistantEventEnvelope[] = [];
+    hub.subscribe({
+      type: "client",
+      clientId: "client-1",
+      interfaceId: "windows",
+      capabilities: [],
+      actorPrincipalId: "actor-2",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    await hub.publish(makeEvent(), {
+      targetClientId: "client-1",
+      targetActorPrincipalId: "actor-1",
+    });
+
+    expect(received).toEqual([]);
+
+    await hub.publish(makeEvent(), {
+      targetClientId: "client-1",
+      targetActorPrincipalId: "actor-2",
+    });
+
+    expect(received).toHaveLength(1);
+  });
+
   test("delivers event to a single matching subscriber", async () => {
     const hub = new AssistantEventHub();
     const received: AssistantEventEnvelope[] = [];

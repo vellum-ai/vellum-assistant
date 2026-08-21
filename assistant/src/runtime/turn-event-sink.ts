@@ -5,17 +5,26 @@ import { enforceSameActorOrThrow } from "./auth/same-actor.js";
 export type TurnEventPublisher = (
   msg: AssistantEvent,
   conversationId?: string,
-  options?: { targetClientId?: string },
+  options?: {
+    targetClientId?: string;
+    targetActorPrincipalId?: string;
+  },
 ) => void;
 
 export function createTurnEventSink(
   publish: TurnEventPublisher,
   originClientId?: string,
+  originActorPrincipalId?: string,
 ): (msg: AssistantEvent) => void {
   return (msg) => {
     const options =
       msg.type === "open_url" && originClientId
-        ? { targetClientId: originClientId }
+        ? {
+            targetClientId: originClientId,
+            ...(originActorPrincipalId
+              ? { targetActorPrincipalId: originActorPrincipalId }
+              : {}),
+          }
         : undefined;
     publish(msg, undefined, options);
   };
@@ -36,13 +45,18 @@ export function createAuthenticatedTurnEventSink(args: {
       op: "conversation_open_url",
     });
   }
-  return createTurnEventSink(publish, originClientId);
+  return createTurnEventSink(
+    publish,
+    originClientId,
+    originClientId ? sourceActorPrincipalId : undefined,
+  );
 }
 
 export function createBatchedTurnEventSink(
   members: ReadonlyArray<{
     publish: TurnEventPublisher;
     originClientId?: string;
+    originActorPrincipalId?: string;
   }>,
 ): (msg: AssistantEvent) => void {
   const publishers = Array.from(
@@ -50,7 +64,11 @@ export function createBatchedTurnEventSink(
   );
   const responseOwner = members.at(-1);
   const targetedSink = responseOwner?.originClientId
-    ? createTurnEventSink(responseOwner.publish, responseOwner.originClientId)
+    ? createTurnEventSink(
+        responseOwner.publish,
+        responseOwner.originClientId,
+        responseOwner.originActorPrincipalId,
+      )
     : undefined;
 
   return (msg) => {

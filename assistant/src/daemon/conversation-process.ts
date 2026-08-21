@@ -1299,7 +1299,11 @@ async function drainSingleMessage(
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
       ...drainLoopOptions,
-      onEvent: createTurnEventSink(next.onEvent, next.originClientId),
+      onEvent: createTurnEventSink(
+        next.onEvent,
+        next.originClientId,
+        next.originActorPrincipalId,
+      ),
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -1743,6 +1747,7 @@ async function drainBatch(
     successfulBatch.map((qm) => ({
       publish: qm.onEvent,
       originClientId: qm.originClientId,
+      originActorPrincipalId: qm.originActorPrincipalId,
     })),
   );
 

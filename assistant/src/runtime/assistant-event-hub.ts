@@ -332,6 +332,8 @@ export class AssistantEventHub {
    *   clientId, bypassing the conversation-id filter entirely (the web-origin
    *   event's conversationId differs from the macOS client's subscribed
    *   conversation).
+   * - if `targetActorPrincipalId` is set with `targetClientId`, the subscriber
+   *   must retain the actor identity validated when targeting was created.
    * - if `filter.conversationId` is set (and `targetClientId` is not), the
    *   `event.conversationId` must equal it
    * - if `targetCapability` is set, only subscribers whose capabilities include
@@ -367,6 +369,7 @@ export class AssistantEventHub {
 
     const targetCapability = options?.targetCapability;
     const targetClientId = options?.targetClientId;
+    const targetActorPrincipalId = options?.targetActorPrincipalId;
     const targetInterfaceId = options?.targetInterfaceId;
     const excludeClientId = options?.excludeClientId;
     const snapshot = Array.from(this.subscribers);
@@ -403,6 +406,12 @@ export class AssistantEventHub {
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
         if (entry.type !== "client" || entry.clientId !== targetClientId) {
+          continue;
+        }
+        if (
+          targetActorPrincipalId != null &&
+          entry.actorPrincipalId !== targetActorPrincipalId
+        ) {
           continue;
         }
         if (
@@ -738,10 +747,15 @@ let _hubChain = Promise.resolve();
 export function broadcastMessage(
   msg: AssistantEvent,
   conversationId?: string,
-  options?: { targetClientId?: string; targetInterfaceId?: InterfaceId },
+  options?: {
+    targetClientId?: string;
+    targetActorPrincipalId?: string;
+    targetInterfaceId?: InterfaceId;
+  },
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
+  const targetActorPrincipalId = options?.targetActorPrincipalId;
   const targetInterfaceId = options?.targetInterfaceId;
 
   // `conversation_list_invalidated` is a list-level system event — publish
@@ -768,11 +782,13 @@ export function broadcastMessage(
   const publishOptions =
     targetCapability != null ||
     targetClientId != null ||
+    targetActorPrincipalId != null ||
     targetInterfaceId != null ||
     excludeClientId != null
       ? {
           targetCapability,
           targetClientId,
+          targetActorPrincipalId,
           targetInterfaceId,
           excludeClientId,
         }

@@ -2226,6 +2226,9 @@ export async function handleSendMessage(
       attachments,
       onEvent: broadcastMessage,
       originClientId,
+      originActorPrincipalId: originClientId
+        ? sourceActorPrincipalId
+        : undefined,
       requestId,
       metadata: withClientMetadata(
         {

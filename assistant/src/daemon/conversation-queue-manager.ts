@@ -54,6 +54,8 @@ export interface QueuedMessage {
   clientMessageId?: string;
   /** Client that originated this queued turn, used for targeted UI directives. */
   originClientId?: string;
+  /** Actor identity validated for the originating client at enqueue time. */
+  originActorPrincipalId?: string;
   /**
    * True once a drain has told clients this message was dequeued and before
    * the turn it was dequeued for actually took over. A drain that sends the
@@ -271,6 +273,9 @@ function estimateItemBytes(item: QueuedMessage): number {
   }
   if (item.originClientId) {
     bytes += item.originClientId.length * 2;
+  }
+  if (item.originActorPrincipalId) {
+    bytes += item.originActorPrincipalId.length * 2;
   }
   // Small fixed overhead for metadata, pointers, etc. (not worth
   // measuring precisely — the content/attachment data dominates).

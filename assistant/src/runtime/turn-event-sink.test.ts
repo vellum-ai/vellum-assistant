@@ -73,6 +73,7 @@ describe("createAuthenticatedTurnEventSink", () => {
 
     expect(publish).toHaveBeenCalledWith(event, undefined, {
       targetClientId: "client-1",
+      targetActorPrincipalId: "actor-1",
     });
   });
 
@@ -94,8 +95,16 @@ describe("createBatchedTurnEventSink", () => {
   test("deduplicates shared publishers and targets open_url to one origin", () => {
     const publish = mock(() => {});
     const send = createBatchedTurnEventSink([
-      { publish, originClientId: "client-1" },
-      { publish, originClientId: "client-2" },
+      {
+        publish,
+        originClientId: "client-1",
+        originActorPrincipalId: "actor-1",
+      },
+      {
+        publish,
+        originClientId: "client-2",
+        originActorPrincipalId: "actor-2",
+      },
     ]);
     const textEvent: AssistantEvent = {
       type: "assistant_text_delta",
@@ -114,6 +123,7 @@ describe("createBatchedTurnEventSink", () => {
     expect(publish).toHaveBeenNthCalledWith(1, textEvent);
     expect(publish).toHaveBeenNthCalledWith(2, openUrlEvent, undefined, {
       targetClientId: "client-2",
+      targetActorPrincipalId: "actor-2",
     });
     expect(publish).toHaveBeenCalledTimes(2);
   });

@@ -14,6 +14,7 @@ import { HOST_PROXY_CAPABILITIES, INTERFACE_IDS } from "../channels/types.js";
 export const AssistantEventPublishOptionsSchema = z.object({
   targetCapability: z.enum(HOST_PROXY_CAPABILITIES).optional(),
   targetClientId: z.string().optional(),
+  targetActorPrincipalId: z.string().optional(),
   targetInterfaceId: z.enum(INTERFACE_IDS).optional(),
   /**
    * Skip the subscriber with this `clientId`. Used for self-echo suppression on
