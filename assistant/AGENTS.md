@@ -2,7 +2,10 @@
 
 For error handling conventions (throw vs result objects vs null), see [docs/error-handling.md](docs/error-handling.md).
 
-Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/permissions/`, `src/plugins/`, `src/workspace/migrations/`.
+Subdirectory-scoped rules live in local AGENTS.md files throughout `src/`, some
+of them nested several levels down. Read the one nearest the code you are
+changing plus any above it, and follow the nearest where two disagree.
+`git ls-files 'assistant/src/**/AGENTS.md'` lists them.
 
 ## Adding new environment variables
 
