@@ -2,7 +2,7 @@
  * Tests for the desktop presence policy.
  *
  * The invariant under test is fail-open: only a fresh `active` report from a
- * `macos` client answers `true`. Every other shape (stale, idle, away, no
+ * desktop client answers `true`. Every other shape (stale, idle, away, no
  * presence, wrong interface, no clients, hub throw) answers `false` so the
  * push is sent. Scoping the read to an actor principal narrows what counts as
  * attendance, so it can only ever turn a `true` into a `false`.
@@ -42,6 +42,15 @@ afterEach(() => {
 describe("isDesktopAttended", () => {
   test("fresh active macos client is attended", () => {
     registerClient({ clientId: "mac-1", presence: "active" });
+    expect(isDesktopAttended()).toBe(true);
+  });
+
+  test("fresh active windows client is attended", () => {
+    registerClient({
+      clientId: "windows-1",
+      interfaceId: "windows",
+      presence: "active",
+    });
     expect(isDesktopAttended()).toBe(true);
   });
 
@@ -92,9 +101,13 @@ describe("isDesktopAttended", () => {
     }
   });
 
-  test("one active macos client among several is enough", () => {
+  test("one active desktop client among several is enough", () => {
     registerClient({ clientId: "mac-1", presence: "away" });
-    registerClient({ clientId: "mac-2", presence: "active" });
+    registerClient({
+      clientId: "windows-1",
+      interfaceId: "windows",
+      presence: "active",
+    });
     expect(isDesktopAttended()).toBe(true);
   });
 });
@@ -103,6 +116,16 @@ describe("isDesktopAttended scoped to an actor principal", () => {
   test("matching actor principal is attended", () => {
     registerClient({
       clientId: "mac-1",
+      presence: "active",
+      actorPrincipalId: "actor-a",
+    });
+    expect(isDesktopAttended({ actorPrincipalId: "actor-a" })).toBe(true);
+  });
+
+  test("matching actor principal on windows is attended", () => {
+    registerClient({
+      clientId: "windows-1",
+      interfaceId: "windows",
       presence: "active",
       actorPrincipalId: "actor-a",
     });
@@ -123,7 +146,7 @@ describe("isDesktopAttended scoped to an actor principal", () => {
     expect(isDesktopAttended({ actorPrincipalId: "actor-a" })).toBe(false);
   });
 
-  test("omitting the principal counts any attended macos client", () => {
+  test("omitting the principal counts any attended desktop client", () => {
     registerClient({
       clientId: "mac-1",
       presence: "active",

@@ -71,6 +71,14 @@ describe("resolveVerbosity", () => {
     ).toBe("rich");
   });
 
+  test("explicit interfaceHint=windows overrides to rich", () => {
+    expect(
+      resolveVerbosity("telegram" as NotificationChannel, {
+        interfaceHint: "windows",
+      }),
+    ).toBe("rich");
+  });
+
   test("explicit interfaceHint=telegram overrides to compact", () => {
     expect(
       resolveVerbosity("vellum" as NotificationChannel, {
