@@ -13,8 +13,8 @@ name: Release Windows
 #            vars.AZURE_TRUSTED_SIGNING_PROFILE, vars.WINDOWS_SIGNING_PUBLISHER_NAME
 #   command: secrets.WINDOWS_SIGN_COMMAND (a signing CLI invocation with a {file} placeholder),
 #            vars.WINDOWS_SIGNING_PUBLISHER_NAME
-#   production observability: secrets.SENTRY_DSN_WINDOWS,
-#             vars.VITE_SENTRY_DSN, secrets.SENTRY_AUTH_TOKEN,
+#   production observability: secrets.SENTRY_DSN_WINDOWS (main process and
+#             the renderer's VITE_SENTRY_DSN_WINDOWS), secrets.SENTRY_AUTH_TOKEN,
 #             vars.SENTRY_PROJECT_WINDOWS
 #   optional: vars.WINDOWS_SIGNING_TIMESTAMP_URL
 
@@ -52,7 +52,7 @@ jobs:
           HAS_PFX: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 != '' && secrets.WINDOWS_SIGNING_PFX_PASSWORD != '' }}
           HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && vars.AZURE_TRUSTED_SIGNING_ACCOUNT != '' && vars.AZURE_TRUSTED_SIGNING_PROFILE != '' && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
           HAS_COMMAND: ${{ contains(secrets.WINDOWS_SIGN_COMMAND, '{file}') && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
-          HAS_SENTRY: ${{ secrets.SENTRY_DSN_WINDOWS != '' && vars.VITE_SENTRY_DSN != '' && secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_PROJECT_WINDOWS != '' }}
+          HAS_SENTRY: ${{ secrets.SENTRY_DSN_WINDOWS != '' && secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_PROJECT_WINDOWS != '' }}
         run: |
           case "$ENVIRONMENT" in
             dev|staging|production) ;;
@@ -74,7 +74,7 @@ jobs:
               echo "::error::Unknown WINDOWS_SIGNING_PROVIDER '$SIGNING_PROVIDER'"; exit 1 ;;
           esac
           if [ "$ENVIRONMENT" = "production" ] && [ "$HAS_SENTRY" != "true" ]; then
-            echo "::error::Production Windows releases need SENTRY_DSN_WINDOWS and SENTRY_AUTH_TOKEN secrets plus VITE_SENTRY_DSN and SENTRY_PROJECT_WINDOWS variables"
+            echo "::error::Production Windows releases need SENTRY_DSN_WINDOWS and SENTRY_AUTH_TOKEN secrets plus the SENTRY_PROJECT_WINDOWS variable"
             exit 1
           fi
           if [ "$HAS_SENTRY" != "true" ]; then
@@ -157,7 +157,10 @@ jobs:
       - name: Build packaged runtime
         env:
           VITE_PLATFORM_MODE: "false"
+          # The renderer picks VITE_SENTRY_DSN_WINDOWS on a Windows host; the
+          # web DSN covers the SPA the bundled runtime serves to browsers.
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
           VITE_SENTRY_ENVIRONMENT: ${{ inputs.environment }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}

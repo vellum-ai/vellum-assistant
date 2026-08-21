@@ -136,8 +136,10 @@ Signing is provider-neutral and an explicit gate on each GitHub environment
   so the updater can verify downloaded installers.
 
 Production also requires `SENTRY_DSN_WINDOWS` and `SENTRY_AUTH_TOKEN` secrets
-plus `VITE_SENTRY_DSN` and `SENTRY_PROJECT_WINDOWS` variables. These enable
-main-process reporting and renderer source-map uploads. Non-production builds
+plus the `SENTRY_PROJECT_WINDOWS` variable. The DSN serves both the main
+process and the renderer (baked in as `VITE_SENTRY_DSN_WINDOWS`, which the
+shared web bundle selects on a Windows host), and the token and project enable
+renderer source-map uploads. Non-production builds
 warn and continue when Sentry is not configured. `WINDOWS_SIGNING_TIMESTAMP_URL`
 is optional. Unsigned Windows releases are never published.
 
