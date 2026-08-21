@@ -1,17 +1,18 @@
-import { CheckCircle, CircleDashed, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { useTranslation } from "@/i18n";
+import type { AssistantChannelState } from "@/types/channel-types";
+
+import { ChannelHealthTag } from "./channel-health-tag";
 import { publicAsset } from "@/utils/public-asset";
 
 interface SlackConnectionCardProps {
   /** Operational health; absent reads as connected. */
-  health?: "ok" | "failing" | "unknown";
+  health?: AssistantChannelState["health"];
   /** The assistant's Slack @handle, when known. */
   slackHandle?: string;
   /** Disconnect in flight; disables the button and swaps its label. */
@@ -36,30 +37,6 @@ export function SlackConnectionCard({
   children,
 }: SlackConnectionCardProps) {
   const { t } = useTranslation("channels");
-  // Deliberately calm rather than an alarm. A configured channel reports
-  // `failing` while its socket is down, and the gateway reconnects itself
-  // within about forty seconds, so there is nothing for the reader to do. The
-  // failures a reader can act on are credential failures, and those fail a
-  // configuration check instead, which shows the setup wizard rather than
-  // this card.
-  const [statusTone, statusIcon, statusLabelKey] =
-    health === "failing"
-      ? ([
-          "warning",
-          <RefreshCw key="i" />,
-          "connectionCard.reconnecting",
-        ] as const)
-      : health === "unknown"
-        ? ([
-            "neutral",
-            <CircleDashed key="i" />,
-            "connectionCard.statusUnavailable",
-          ] as const)
-        : ([
-            "positive",
-            <CheckCircle key="i" />,
-            "connectionCard.connected",
-          ] as const);
   return (
     <Card.Root>
       <Card.Header>
@@ -74,9 +51,7 @@ export function SlackConnectionCard({
               {slackHandle}
             </Typography>
           ) : null}
-          <Tag tone={statusTone} leftIcon={statusIcon}>
-            {t(statusLabelKey)}
-          </Tag>
+          <ChannelHealthTag health={health} />
           <div className="ml-auto">
             <Button
               type="button"

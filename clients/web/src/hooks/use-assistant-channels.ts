@@ -255,6 +255,7 @@ function deriveChannelStates(
     return {
       key,
       status,
+      configured: snap?.setupStatus === "ready",
       health: snap?.health,
       address: snap?.channelHandle ?? undefined,
     };
@@ -267,12 +268,10 @@ function toChannelStatus(
   if (!snap) {
     return "not_configured";
   }
-  // Progress only. Whether the channel is working is carried separately as
-  // `health`, because this value chooses between the setup wizard and the
-  // connection card, and a configured channel that is momentarily down needs
-  // the card. Sending it back through setup asks the owner to re-enter
-  // credentials that are already correct.
-  if (snap.setupStatus === "ready") {
+  // Working, not merely configured: every list renders this as the connection
+  // state, and a channel whose delivery is failing is honestly not connected.
+  // The wizard-versus-card decision asks `configured` instead.
+  if (snap.ready) {
     return "ready";
   }
   if (snap.setupStatus === "not_configured") {

@@ -91,7 +91,10 @@ export function ChannelPanel({
   onPolicyChange,
 }: ChannelPanelProps) {
   const { t } = useTranslation("channels");
-  const connected = channel.status === "ready";
+  // Setup, not health: a configured channel that is down keeps its card and
+  // reports the outage on the badge, rather than being sent back through the
+  // wizard to re-enter credentials that are already correct.
+  const connected = channel.configured ?? channel.status === "ready";
   // Manual credential entry is a connect-time affordance, so it only applies
   // while disconnected — seeded from a `?setup=<channel>` deep link. Declared
   // before the Slack branch to keep hook order stable across renders.
@@ -153,6 +156,7 @@ export function ChannelPanel({
       {connected ? (
         <>
           <ConnectedChannelHeader
+            health={channel.health}
             address={channel.address}
             pending={pending}
             onDisconnect={onDisconnect}
