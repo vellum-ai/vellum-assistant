@@ -1,4 +1,7 @@
-import { isMacOSBrowser } from "@/runtime/platform-detection";
+import {
+  detectElectronHostOS,
+  isMacOSBrowser,
+} from "@/runtime/platform-detection";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   FN_PTT_ACTIVATOR,
@@ -56,14 +59,25 @@ export function defaultVoiceModeActivator(
 }
 
 /**
+ * Whether the host offers bare-modifier voice mode bindings (a tap of Ctrl,
+ * Alt, or Ctrl+Shift). Windows desktop only: it has no Fn channel, and an
+ * Electron `globalShortcut` cannot express a bare modifier, so these bind as
+ * focused-window tap listeners instead (see `use-voice-mode-hotkey`).
+ */
+export function supportsBareModifierVoiceMode(): boolean {
+  return detectElectronHostOS() === "windows";
+}
+
+/**
  * Whether `activator` can bind voice mode. Rejects modifier-only bindings
- * other than Fn; see the note on {@link VoiceModeActivator}.
+ * other than Fn (see the note on {@link VoiceModeActivator}), except on the
+ * Windows desktop host, where a bare-modifier tap stands in for Fn.
  */
 export function isValidVoiceModeActivator(
   activator: VoiceModeActivator,
 ): boolean {
   if (activator.kind === "modifierOnly") {
-    return isFnVoiceModeActivator(activator);
+    return isFnVoiceModeActivator(activator) || supportsBareModifierVoiceMode();
   }
   return true;
 }

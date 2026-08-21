@@ -1236,12 +1236,10 @@ export async function handleListMessages({
 
       const alignedContentOrder = aligned.rewriteContentOrder(contentOrder);
 
-      // Use sentAt (actual event time) for the display timestamp when available,
-      // falling back to createdAt (persistence time). Clients use this display
-      // timestamp as their pagination cursor after memory-pressure trimming,
-      // while server-side pagination filters on createdAt. The mismatch is
-      // benign: it may return slightly extra data on a page boundary but never
-      // loses messages.
+      // Use sentAt (actual event time) for the display timestamp when
+      // available, falling back to createdAt (persistence time). Pagination
+      // is unaffected: the cursor is `oldestTimestamp`, built from
+      // `createdAt` on both ends.
       const displayTimestamp = m.sentAt ?? m.createdAt;
       return {
         id: m.id ?? "",

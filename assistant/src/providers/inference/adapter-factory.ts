@@ -18,6 +18,7 @@
  *   3. Register the client in `ADAPTER_FACTORIES` below.
  */
 
+import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { AnthropicProvider } from "../anthropic/client.js";
 import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { BasetenProvider } from "../baseten/client.js";
@@ -39,6 +40,7 @@ import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
 import { effectiveConnectionAuth } from "./auth.js";
+import { MissingCredentialGuardProvider } from "./missing-credential-guard.js";
 import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
@@ -289,7 +291,7 @@ export function createAdapterFromConnection(
   // identity, the only route that flows through our proxy.
   const isManagedProxy = isVellumManagedConnection(connection);
   const effectiveAuth = effectiveConnectionAuth(connection);
-  return new UsageTrackingProvider(
+  const tracked = new UsageTrackingProvider(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isManagedProxy,
       credentialSource: isManagedProxy
@@ -307,6 +309,16 @@ export function createAdapterFromConnection(
         : {}),
     }),
   );
+
+  // A credential-backed connection can lose its key between construction and
+  // dispatch. Some upstreams answer that with 200 + empty content rather than
+  // a 401, which would otherwise land as a blank assistant turn.
+  return "credential" in effectiveAuth
+    ? new MissingCredentialGuardProvider(tracked, {
+        name: connection.name,
+        credentialAccount: normalizeCredentialRef(effectiveAuth.credential),
+      })
+    : tracked;
 }
 
 function buildConnectionAdapter(

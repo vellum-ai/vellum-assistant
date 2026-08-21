@@ -6,50 +6,38 @@ import { ConversationActionsMenu } from "@/domains/chat/components/conversation-
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
-  buildMoveToGroupTargets,
-  isInCustomGroup,
-} from "@/domains/chat/utils/group-conversations";
-import {
   ChannelIcon,
   getOpenInChannelLabel,
 } from "@/utils/channel-presentation";
-import type {
-  Conversation,
-  ConversationGroup,
-} from "@/types/conversation-types";
+import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
   activeConversation: Conversation | null;
   headerSupplements: ChatHeaderSupplements | null;
-  showLlmInspector: boolean;
-  conversationGroups?: ConversationGroup[];
+  /** Gates the internal-only menu items: Copy Full Conversation, Open in New
+   *  Window, Refresh, Analyze Conversation, and Copy conversation ID. See
+   *  `@/lib/auth/internal-thread-actions`. */
+  showInternalActions: boolean;
   onArchive: (c: Conversation) => void;
   onUnarchive: (c: Conversation) => void;
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
   onRename: (c: Conversation) => void;
-  onMoveToGroup: (c: Conversation, groupId: string) => void;
-  onCreateGroupInto: (c: Conversation) => void;
-  onRemoveFromGroup: (c: Conversation) => void;
 }
 
 export function ChatConversationHeader({
   assistantId,
   activeConversation,
   headerSupplements,
-  showLlmInspector,
-  conversationGroups,
+  showInternalActions,
   onArchive,
   onUnarchive,
   onMarkUnread,
   onMarkRead,
   onPinToggle,
   onRename,
-  onMoveToGroup,
-  onCreateGroupInto,
-  onRemoveFromGroup,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
     if (!assistantId) {
@@ -99,17 +87,6 @@ export function ChatConversationHeader({
       isReadonly={isReadonly}
       onPinToggle={() => onPinToggle(activeConversation)}
       onRename={() => onRename(activeConversation)}
-      moveToGroups={buildMoveToGroupTargets(
-        activeConversation,
-        conversationGroups,
-      )}
-      onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
-      onCreateGroupInto={() => onCreateGroupInto(activeConversation)}
-      onRemoveFromGroup={
-        isInCustomGroup(activeConversation)
-          ? () => onRemoveFromGroup(activeConversation)
-          : undefined
-      }
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
       onForkConversation={
@@ -120,21 +97,26 @@ export function ChatConversationHeader({
           : undefined
       }
       onOpenInNewWindow={
+        showInternalActions &&
         headerSupplements?.onOpenInNewWindow &&
         activeConversation.conversationId
           ? () => headerSupplements.onOpenInNewWindow!(activeConversation)
           : undefined
       }
       onInspect={
-        showLlmInspector &&
+        showInternalActions &&
         headerSupplements?.onInspect &&
         activeConversation.conversationId
           ? () => headerSupplements.onInspect!(activeConversation)
           : undefined
       }
-      onCopyConversation={headerSupplements?.onCopyConversation ?? undefined}
+      onCopyConversation={
+        showInternalActions
+          ? (headerSupplements?.onCopyConversation ?? undefined)
+          : undefined
+      }
       onCopyConversationId={
-        activeConversation.conversationId
+        showInternalActions && activeConversation.conversationId
           ? () =>
               copyIdToClipboard(
                 activeConversation.conversationId!,
@@ -143,6 +125,7 @@ export function ChatConversationHeader({
           : undefined
       }
       onRefresh={
+        showInternalActions &&
         headerSupplements?.onRefresh &&
         activeConversation.conversationId != null
           ? headerSupplements.onRefresh

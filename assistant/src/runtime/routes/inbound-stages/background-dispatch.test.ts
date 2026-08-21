@@ -92,9 +92,29 @@ const sentReactions: Array<{
   callbackUrl: string;
   target: Record<string, unknown>;
 }> = [];
+const sentStreamOps: Array<Record<string, unknown>> = [];
+let sendChannelStreamOpImpl: (
+  op: Record<string, unknown>,
+) => Promise<{ ok: boolean; ts?: string }> = async () => ({ ok: true });
+const sentThreadStatuses: Array<Record<string, unknown>> = [];
 mock.module("../../../messaging/providers/index.js", () => ({
   sendChannelTyping: async () => ({ ok: true }),
   supportsChannelTyping: () => false,
+  sendChannelStreamOp: async (
+    _callbackUrl: string,
+    _chatId: string,
+    op: Record<string, unknown>,
+  ) => {
+    sentStreamOps.push(op);
+    return sendChannelStreamOpImpl(op);
+  },
+  setChannelThreadStatus: async (
+    _callbackUrl: string,
+    status: Record<string, unknown>,
+  ) => {
+    sentThreadStatuses.push(status);
+    return { ok: true };
+  },
   sendChannelReaction: async (
     callbackUrl: string,
     target: Record<string, unknown>,
@@ -144,6 +164,9 @@ beforeEach(() => {
   clearConversations();
   deliveredChannelReplies.length = 0;
   sentReactions.length = 0;
+  sentStreamOps.length = 0;
+  sendChannelStreamOpImpl = async () => ({ ok: true });
+  sentThreadStatuses.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
   retryableFailureEvents.length = 0;
@@ -161,10 +184,7 @@ beforeEach(() => {
   deliverReplyViaCallbackImpl = async () => {};
 });
 
-const slackStreamOps = (): Array<Record<string, unknown>> =>
-  deliveredChannelReplies
-    .map((entry) => entry.payload.slackStream as Record<string, unknown>)
-    .filter(Boolean);
+const slackStreamOps = (): Array<Record<string, unknown>> => sentStreamOps;
 
 describe("isBoundGuardianActor", () => {
   test("returns true only when requester matches bound guardian", () => {
@@ -509,7 +529,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     const channelId = "D-STREAMED";
     const threadTs = "1700000000.000044";
     const streamTs = "1700000000.000033";
-    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
+    sendChannelStreamOpImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -688,7 +708,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     const channelId = "D-STREAM-PROCESSING-FAILURE";
     const threadTs = "1700000000.000066";
     const streamTs = "1700000000.000077";
-    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
+    sendChannelStreamOpImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -985,17 +1005,14 @@ describe("Slack thinking status timing", () => {
     const threadTs = "1700000000.000011";
 
     const processMessage: MessageProcessor = async () => {
-      expect(deliveredChannelReplies).toHaveLength(1);
-      expect(deliveredChannelReplies[0]!.payload.assistantThreadStatus).toEqual(
-        {
-          channel: channelId,
-          threadTs,
-          status: expect.any(String),
-          loadingMessages: ["Thinking\u2026"],
-        },
-      );
-      const threadStatus = deliveredChannelReplies[0]!.payload
-        .assistantThreadStatus as { status: string };
+      expect(sentThreadStatuses).toHaveLength(1);
+      expect(sentThreadStatuses[0]).toEqual({
+        chatId: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["Thinking\u2026"],
+      });
+      const threadStatus = sentThreadStatuses[0] as { status: string };
       expect(slackStatusLabels).toContain(threadStatus.status);
       return { messageId: "user-msg-mention-immediate" };
     };
@@ -1016,12 +1033,9 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map((entry) => {
-      const status = entry.payload.assistantThreadStatus as
-        | { status?: string }
-        | undefined;
-      return status?.status;
-    });
+    const statuses = sentThreadStatuses.map(
+      (entry) => (entry as { status?: string }).status,
+    );
     expect(slackStatusLabels).toContain(statuses[0]!);
     expect(statuses[1]).toBe("");
   });
@@ -1102,12 +1116,9 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map((entry) => {
-      const status = entry.payload.assistantThreadStatus as
-        | { status?: string }
-        | undefined;
-      return status?.status;
-    });
+    const statuses = sentThreadStatuses.map(
+      (entry) => (entry as { status?: string }).status,
+    );
     expect(slackStatusLabels).toContain(statuses[0]!);
     expect(statuses[1]).toBe("");
   });
@@ -1164,18 +1175,16 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map(
-      (entry) => entry.payload.assistantThreadStatus,
-    );
+    const statuses = sentThreadStatuses;
     expect(statuses).toEqual([
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: expect.any(String),
         loadingMessages: ["In progress (1/2): Search docs"],
       },
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: "",
       },
@@ -1298,24 +1307,22 @@ describe("Slack thinking status timing", () => {
 
     await flush();
 
-    const statuses = deliveredChannelReplies.map(
-      (entry) => entry.payload.assistantThreadStatus,
-    );
+    const statuses = sentThreadStatuses;
     expect(statuses).toEqual([
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: expect.any(String),
         loadingMessages: ["In progress (1/2): Read request"],
       },
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: expect.any(String),
         loadingMessages: ["In progress (2/2): Write answer"],
       },
       {
-        channel: channelId,
+        chatId: channelId,
         threadTs,
         status: "",
       },

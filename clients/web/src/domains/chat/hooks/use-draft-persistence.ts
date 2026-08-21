@@ -14,8 +14,9 @@
  * - **Cold-load restore**: when a conversation first becomes active, restore its
  *   saved draft into an empty composer.
  *
- * Drafts are keyed by `activeConversationId`, which is reload-stable: new chats
- * carry a `draft-…` id in the URL and the id is re-derived from the URL on load.
+ * Drafts are keyed by `activeConversationId`, which is reload-stable because a
+ * new chat's client-minted key is in the URL and is re-derived from it on load.
+ * Nothing distinguishes that key by its shape.
  *
  * Self-contained — reads both stores directly, so it mounts once with no props.
  */

@@ -528,6 +528,14 @@
     },
     "noColor": "No color"
   },
+  "preferencesUsagePanel": {
+    "addCreditsAriaLabel": "Add credits",
+    "exhausted": "Add credits to continue.",
+    "pctUsed": "{pct}% used",
+    "resets": "Resets {date}",
+    "settingsAriaLabel": "Usage and billing settings",
+    "title": "Usage"
+  },
   "promptTab": {
     "availableTools": "Available tools",
     "bannerNoSections": "This call has no normalized prompt sections yet.",

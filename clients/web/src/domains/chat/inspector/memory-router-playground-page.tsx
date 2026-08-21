@@ -6,7 +6,7 @@ import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { Trans, t, useTranslation } from "@/i18n";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import type {
   MemoryRouterSimulateRequest,
   MemoryRouterSimulateResponse,
@@ -39,7 +39,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
   const { t } = useTranslation("chat");
-  const canInspect = useCanUseLlmInspector();
+  const canInspect = useCanUseInternalThreadActions();
   const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 

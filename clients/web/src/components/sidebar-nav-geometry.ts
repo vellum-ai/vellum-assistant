@@ -43,13 +43,6 @@ export const SIDEBAR_SECTION_INDENT = 0;
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
 
 /**
- * Bounds for the Pinned section's user-adjustable height (dragging the rule
- * under the curated block). Min fits two desktop rows (30px each) plus their
- * 4px gap. Max stays a fixed constant rather than viewport-derived: the
- * sidebar body scrolls, so an oversized section degrades to body scrolling
- * the same way a long section list does today.
- */
-/**
  * The gap between any two stacked entries in the sidebar: the built-in nav's
  * pills, the section cards, and the scrollport that holds them.
  *
@@ -59,9 +52,6 @@ export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
  * adjacent entries, and which container wins is not locally visible.
  */
 export const SIDEBAR_STACK_GAP = "gap-2";
-
-export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
-export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;
 
 /**
  * Text treatment for a section title (Pinned, a custom group, Chats, a

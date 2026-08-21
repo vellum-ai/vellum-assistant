@@ -51,6 +51,7 @@ import {
   isFnVoiceModeActivator,
   keyboardDefaultActivator,
   readVoiceModeActivator,
+  supportsBareModifierVoiceMode,
   writeVoiceModeActivator,
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
@@ -374,6 +375,26 @@ const MODIFIER_KEY_NAMES = new Set(["Control", "Alt", "Shift", "Meta", "Fn"]);
 /** The Keyboard Shortcuts key the desktop host binds Talk to, globally. */
 const TALK_HOTKEY_KEY = "toggleVoice";
 
+/**
+ * Bare-modifier taps for the Windows desktop host, where Fn does not exist
+ * (the keyboard firmware handles it; the OS never sees a key event). Bound as
+ * focused-window tap listeners in `use-voice-mode-hotkey`, since an Electron
+ * `globalShortcut` cannot express a bare modifier.
+ */
+const BARE_MODIFIER_PRESETS: ReadonlyArray<{
+  label: string;
+  activator: VoiceModeActivator;
+}> = [
+  {
+    label: "Ctrl+Shift",
+    activator: { kind: "modifierOnly", modifiers: ["control", "shift"] },
+  },
+  {
+    label: "Alt",
+    activator: { kind: "modifierOnly", modifiers: ["option"] },
+  },
+];
+
 function VoiceModeShortcutCard() {
   const { t } = useTranslation("settings");
   const fnConfigurable = supportsFnPushToTalk();
@@ -434,6 +455,19 @@ function VoiceModeShortcutCard() {
     selectActivator(FN_PTT_ACTIVATOR);
     recorder.removeHotkey(TALK_HOTKEY_KEY);
   }, [recorder, selectActivator]);
+
+  // Like Fn, a bare-modifier tap is an answer to the same one question, so
+  // choosing one also clears the recorded Talk chord.
+  const bareModifierPresets = supportsBareModifierVoiceMode()
+    ? BARE_MODIFIER_PRESETS
+    : [];
+  const chooseBareModifier = useCallback(
+    (next: VoiceModeActivator) => {
+      selectActivator(next);
+      recorder.removeHotkey(TALK_HOTKEY_KEY);
+    },
+    [recorder, selectActivator],
+  );
 
   const beginRecording = useCallback(() => {
     setIsRecording(true);
@@ -570,6 +604,14 @@ function VoiceModeShortcutCard() {
                 onClick={chooseFn}
               />
             )}
+            {bareModifierPresets.map((preset) => (
+              <ActivationKeyOption
+                key={preset.label}
+                label={preset.label}
+                selected={activatorsEqual(preset.activator, activator)}
+                onClick={() => chooseBareModifier(preset.activator)}
+              />
+            ))}
             <ActivationKeyOption
               label={
                 recordingTalk ? (
@@ -654,27 +696,27 @@ function VoiceModeShortcutCard() {
                 />
               ))}
               {isRecording ? (
-                  <ActivationKeyOption
-                    label={
-                      pendingModifiers.length > 0
-                        ? modifierLabel(pendingModifiers)
-                        : t("voicePage.pressShortcut")
-                    }
-                    selected
-                    recording
-                    onClick={cancelRecording}
-                  />
-                ) : (
-                  <ActivationKeyOption
-                    label={
-                      isCustom
-                        ? activatorDisplayName(activator)
-                        : t("voicePage.customKey")
-                    }
-                    selected={isCustom}
-                    onClick={beginRecording}
-                  />
-                )}
+                <ActivationKeyOption
+                  label={
+                    pendingModifiers.length > 0
+                      ? modifierLabel(pendingModifiers)
+                      : t("voicePage.pressShortcut")
+                  }
+                  selected
+                  recording
+                  onClick={cancelRecording}
+                />
+              ) : (
+                <ActivationKeyOption
+                  label={
+                    isCustom
+                      ? activatorDisplayName(activator)
+                      : t("voicePage.customKey")
+                  }
+                  selected={isCustom}
+                  onClick={beginRecording}
+                />
+              )}
             </div>
 
             {showChordHint && (

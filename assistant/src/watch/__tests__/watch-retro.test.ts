@@ -225,11 +225,26 @@ describe("watch retrospective", () => {
 
     const { prompt } = calls[0]!;
     expect(prompt).toContain("skill-management");
-    // The four points the alignment pass needs before it will scaffold.
-    expect(prompt).toContain("The task.");
-    expect(prompt).toContain("The phrase they would use");
-    expect(prompt).toContain("The steps, in order");
-    expect(prompt).toContain("What you are unsure about.");
+    // The ask leads, and the record follows it.
+    expect(prompt).toContain("What I need from you");
+    expect(prompt).toContain("What I saw");
+    expect(prompt.indexOf("What I need from you")).toBeLessThan(
+      prompt.indexOf("What I saw"),
+    );
+    // The one field the recording cannot supply is always asked for.
+    expect(prompt).toContain("what they would say to start this task");
+    // And the report is not turned back into a questionnaire about itself.
+    expect(prompt).toContain(
+      "do not ask them to confirm something the recording already showed you.",
+    );
+    expect(prompt).toContain("No preamble");
+    // A destructive step is confirmed however plainly it was recorded. The
+    // recording establishes what someone did once and nothing about whether
+    // they want it repeated unattended, so it is the one exception to the
+    // rule above.
+    expect(prompt).toContain(
+      "Always confirm any destructive or irreversible step, even one the recording showed plainly",
+    );
   });
 
   test("authors nothing until the user has confirmed", async () => {
@@ -240,7 +255,7 @@ describe("watch retrospective", () => {
 
     const { prompt } = calls[0]!;
     expect(prompt).toContain(
-      "Do not author or scaffold a skill until they have confirmed",
+      "Do not author or scaffold a skill until the four points that step names are settled",
     );
     // The retro delegates authoring to the skill-management flow rather than
     // naming the tool that writes a skill, so nothing here can reach it.
@@ -590,7 +605,7 @@ describe("watch retrospective", () => {
     expect(payload).toBeGreaterThan(opened);
     expect(payload).toBeLessThan(closed);
     // The retrospective's own instructions sit outside it.
-    expect(prompt.indexOf("Report back to the user")).toBeGreaterThan(closed);
+    expect(prompt.indexOf("Write back to the user")).toBeGreaterThan(closed);
 
     // One real envelope, so nothing in the recording can pass for a second.
     expect(prompt.match(/<external_content/g)).toHaveLength(1);

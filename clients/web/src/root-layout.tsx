@@ -17,7 +17,6 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
-import { toggleWatch } from "@/domains/chat/watch/watch-controller";
 import {
   clearWatchRetro,
   useWatchRetroStore,
@@ -36,6 +35,7 @@ import {
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
+import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -342,20 +342,6 @@ export function RootLayout() {
       }
       startVoiceFromSurface(navigate);
     },
-    // Wrapped rather than passed by reference: handlers are called with the
-    // command, and this one's only parameter is the controller's test seams.
-    // The start edge resolves the assistant version before it opens anything,
-    // so the call is fire-and-forget; the stop edge is taken synchronously.
-    toggleWatch: () => {
-      // Both edges through one call, because the surface draws one control and
-      // this window is the side holding the session.
-      //
-      // Nothing is navigated and the window is deliberately not raised, unlike
-      // `startVoice`. The session reads the user's screen, so the work in front
-      // of them is its subject: bringing Vellum forward would cover the very
-      // thing the session exists to watch.
-      void toggleWatch();
-    },
     answerWatchRetro: (command) => {
       if (command.kind !== "answerWatchRetro") {
         return;
@@ -390,6 +376,11 @@ export function RootLayout() {
       // `navigateToConversation` exists to prevent.
       navigateToConversation(navigate, retro.conversationId);
     },
+    // The flag gate and the toggle both live in `watch-command.ts`. This is the
+    // one command registered here that can start reading the user's screen, so
+    // its refusal is worth being able to test, and a module is what makes that
+    // possible. It takes no arguments, which the handler signature allows.
+    toggleWatch: handleToggleWatchCommand,
     companionSubmit: (command) => {
       if (command.kind !== "companionSubmit") {
         return;

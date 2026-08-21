@@ -13,6 +13,14 @@ export type InboundChannelId = Extract<
   "telegram" | "whatsapp" | "slack" | "email" | "a2a" | "discord" | "plugin"
 >;
 
+export type GatewayInboundAttachment = {
+  type: "photo" | "document" | "image" | "video" | "audio" | "sticker";
+  fileId: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+};
+
 interface InboundEventBase<C extends InboundChannelId> {
   version: "v1";
   sourceChannel: C;
@@ -24,13 +32,7 @@ interface InboundEventBase<C extends InboundChannelId> {
     isEdit?: boolean;
     callbackQueryId?: string;
     callbackData?: string;
-    attachments?: Array<{
-      type: "photo" | "document" | "image" | "video" | "audio" | "sticker";
-      fileId: string;
-      fileName?: string;
-      mimeType?: string;
-      fileSize?: number;
-    }>;
+    attachments?: GatewayInboundAttachment[];
   };
   actor: {
     actorExternalId: string;
