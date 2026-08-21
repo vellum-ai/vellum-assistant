@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   BUNDLES_DIR_NAME,
   configureBundlePlatform,
-  type ActiveBundleGateway,
+  resolveActiveBundleGateway,
 } from "@vellumai/electron-desktop/bundle-platform";
 import { denyAllPermissions } from "@vellumai/electron-desktop/permissions";
 import {
@@ -13,7 +13,6 @@ import {
 } from "@vellumai/electron-desktop/bundle-flow";
 import {
   getGuardianAccessToken,
-  getLockfileData,
   resolveConfigDir,
   resolveLockfilePaths,
 } from "@vellumai/local-mode";
@@ -21,26 +20,6 @@ import {
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle, on } from "./ipc";
 import { resolveCliInvocation } from "./local-mode.client";
-
-const resolveActiveGateway = (): ActiveBundleGateway | null => {
-  const result = getLockfileData(resolveLockfilePaths(process.env));
-  if (!result.ok) {
-    return null;
-  }
-
-  const { assistants, activeAssistant } = result.data;
-  if (!activeAssistant) {
-    return null;
-  }
-
-  const entry = assistants.find(
-    (assistant) => assistant.assistantId === activeAssistant,
-  );
-  if (!entry?.resources?.gatewayPort) {
-    return null;
-  }
-  return { assistantId: entry.assistantId, port: entry.resources.gatewayPort };
-};
 
 const acquireGatewayToken = async (
   assistantId: string,
@@ -61,7 +40,8 @@ const acquireGatewayToken = async (
 
 export const installMacBundleWorkflow = (): void => {
   configureBundlePlatform({
-    resolveActiveGateway,
+    resolveActiveGateway: () =>
+      resolveActiveBundleGateway(resolveLockfilePaths(process.env)),
     acquireGatewayToken,
     bundlesRoot: () => path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
     rendererBase: () =>

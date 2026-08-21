@@ -15,7 +15,6 @@ const onBeforeRequest = mock(
 );
 
 mock.module("electron", () => ({
-  app: { isPackaged: true },
   session: { defaultSession: { webRequest: { onBeforeRequest } } },
 }));
 
@@ -32,7 +31,10 @@ beforeEach(() => {
 
 describe("installPairedGatewayRequestGuard", () => {
   test("gates both supported paired proxy paths by frame origin", () => {
-    const remove = installPairedGatewayRequestGuard(APP_ORIGIN);
+    const remove = installPairedGatewayRequestGuard({
+      appOrigin: APP_ORIGIN,
+      resolveAllowedOrigin: () => APP_ORIGIN,
+    });
 
     expect(registeredFilter?.urls).toEqual([
       "app://vellum.ai/assistant/__gateway-paired/*",

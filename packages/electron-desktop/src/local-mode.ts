@@ -21,7 +21,6 @@ import {
   unpairAssistant,
   upsertRendererLockfileAssistant,
   type CliInvocation,
-  type GuardianTokenOptions,
   type LockfileWriteResult,
   type TokenResult,
   type UpgradeOptions,
@@ -273,24 +272,23 @@ async function upgrade(
   }
 }
 
-async function getHostGuardianAccessToken(
+export async function getLocalGuardianAccessToken(
   assistantId: string,
-  configDir: string,
-  options: GuardianTokenOptions,
 ): Promise<TokenResult> {
+  const configured = requireRuntime();
   let invocation: CliInvocation;
   try {
-    invocation = await requireRuntime().cli.resolveInvocation();
+    invocation = await configured.cli.resolveInvocation();
   } catch (err) {
     return { ok: false, status: 500, error: (err as Error).message };
   }
   return getGuardianAccessToken(
     assistantId,
-    configDir,
+    configured.paths.configDir,
     invocation,
     true,
-    { VELLUM_ENVIRONMENT: requireRuntime().paths.environment },
-    options,
+    { VELLUM_ENVIRONMENT: configured.paths.environment },
+    { paired: false },
   );
 }
 
@@ -577,9 +575,7 @@ export const installLocalMode = (): void => {
           error: PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
         };
       }
-      return getHostGuardianAccessToken(assistantId, configDir, {
-        paired: false,
-      });
+      return getLocalGuardianAccessToken(assistantId);
     },
   );
 };

@@ -1,6 +1,12 @@
 import type { IpcRenderer, IpcRendererEvent } from "electron";
 
-import type { DeepLink, VellumBridge } from "@vellumai/ipc-contract";
+import {
+  BUNDLE_CONFIRM_GET_DATA,
+  BUNDLE_CONFIRM_RESPOND,
+  type BundleScanData,
+  type DeepLink,
+  type VellumBridge,
+} from "@vellumai/ipc-contract";
 
 type RendererIpc = Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
 
@@ -27,4 +33,14 @@ export const createLaunchAtLoginBridge = (
   get: () => ipc.invoke("vellum:launchAtLogin:get") as Promise<boolean>,
   set: (enabled) =>
     ipc.invoke("vellum:launchAtLogin:set", enabled) as Promise<void>,
+});
+
+export const createBundleConfirmationBridge = (
+  ipc: RendererIpc,
+): VellumBridge["bundleConfirm"] => ({
+  getData: () =>
+    ipc.invoke(BUNDLE_CONFIRM_GET_DATA) as Promise<BundleScanData | null>,
+  respond: (accepted) => {
+    ipc.send(BUNDLE_CONFIRM_RESPOND, accepted);
+  },
 });
