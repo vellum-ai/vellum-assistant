@@ -295,22 +295,37 @@ function profileConfigIssue(
     return { code: "model_unknown", message: reach.message };
   }
   if (typeof record.maxTokens === "number") {
-    const catalogProvider = catalogProviderForProfile(provider, model);
-    if (catalogProvider !== null) {
-      const budget = validateInferenceProfileConfig({
-        maxTokens: record.maxTokens,
-        modelMaxOutputTokens: catalogMaxOutputTokens(catalogProvider, model),
-        modelContextWindowTokens: catalogContextWindowTokens(
-          catalogProvider,
-          model,
-        ),
-      });
-      if (budget) {
-        return { code: "max_tokens_invalid", message: budget.message };
-      }
+    const budget = maxTokensBudgetIssue(provider, model, record.maxTokens);
+    if (budget) {
+      return { code: "max_tokens_invalid", message: budget.message };
     }
   }
   return null;
+}
+
+/**
+ * The shared token-budget judgment over a (provider, model, maxTokens)
+ * triple with the catalog-provider translation applied. Null when the budget
+ * passes or the catalog knows nothing to judge against. One implementation
+ * for the write routes and the listing verdict so the two cannot drift.
+ */
+function maxTokensBudgetIssue(
+  provider: string,
+  model: string,
+  maxTokens: number,
+): ReturnType<typeof validateInferenceProfileConfig> {
+  const catalogProvider = catalogProviderForProfile(provider, model);
+  if (catalogProvider === null) {
+    return null;
+  }
+  return validateInferenceProfileConfig({
+    maxTokens,
+    modelMaxOutputTokens: catalogMaxOutputTokens(catalogProvider, model),
+    modelContextWindowTokens: catalogContextWindowTokens(
+      catalogProvider,
+      model,
+    ),
+  });
 }
 
 function assertConnectionExists(name: string): void {
@@ -482,18 +497,7 @@ function assertSaneMaxTokens(
   if (maxTokens === undefined) {
     return;
   }
-  const catalogProvider = catalogProviderForProfile(provider, model);
-  if (catalogProvider === null) {
-    return;
-  }
-  const issue = validateInferenceProfileConfig({
-    maxTokens,
-    modelMaxOutputTokens: catalogMaxOutputTokens(catalogProvider, model),
-    modelContextWindowTokens: catalogContextWindowTokens(
-      catalogProvider,
-      model,
-    ),
-  });
+  const issue = maxTokensBudgetIssue(provider, model, maxTokens);
   if (issue) {
     throw new BadRequestError(issue.message);
   }

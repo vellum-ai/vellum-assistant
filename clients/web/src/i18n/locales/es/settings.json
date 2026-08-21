@@ -1529,6 +1529,8 @@
     "makeDefault": "Hacer predeterminado",
     "managedByVellum": "Gestionado por Vellum",
     "openProfileAriaLabel": "Abrir perfil {displayName}",
+    "configIssueMaxTokens": "El máximo de tokens de salida de este perfil supera lo que admite su modelo.",
+    "configIssueModelUnknown": "El modelo de este perfil no está disponible en su proveedor.",
     "providerUnavailableDefault": "El proveedor de este perfil no está disponible.",
     "providerUnavailableFixable": "{message} Haz clic para corregirlo.",
     "view": "Ver"

@@ -92,11 +92,17 @@ export function ProfileRow({
   const availabilityMessage =
     availability?.message ?? t("profileRow.providerUnavailableDefault");
   // A config issue outranks availability: the entry itself is wrong, so the
-  // connection verdict behind it is secondary.
+  // connection verdict behind it is secondary. Composed from catalog copy
+  // keyed on the issue code, so the surface stays translated; the daemon's
+  // English detail remains in the editor and CLI.
   const rowProblem =
     configIssue != null
       ? t("profileRow.providerUnavailableFixable", {
-          message: configIssue.message,
+          message: t(
+            configIssue.code === "max_tokens_invalid"
+              ? "profileRow.configIssueMaxTokens"
+              : "profileRow.configIssueModelUnknown",
+          ),
         })
       : availability != null && availability.status !== "ok"
         ? fixableHere
