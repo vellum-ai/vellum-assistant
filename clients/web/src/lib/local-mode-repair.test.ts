@@ -24,7 +24,10 @@ mock.module("@/runtime/local-mode-host", () => ({
   wakeLocalAssistantHost: (
     id: string,
     options?: { repairGuardian?: boolean },
-  ) => wakeLocalAssistantHost(id, options),
+  ) =>
+    options === undefined
+      ? wakeLocalAssistantHost(id)
+      : wakeLocalAssistantHost(id, options),
   // The post-wake reload reads back the lockfile; serve the in-store copy so the
   // retry resolves the selected assistant rather than hitting the real host.
   loadLockfileHost: async () =>
