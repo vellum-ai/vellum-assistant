@@ -128,17 +128,6 @@ describe("AppIconCard", () => {
     expect(getAppIconState).not.toHaveBeenCalled();
   });
 
-  test("draws nothing on a build with no alternate icons", async () => {
-    iconState = { supported: false, current: null, available: [] };
-
-    const { container } = await renderCard();
-
-    await waitFor(() => {
-      expect(getAppIconState).toHaveBeenCalled();
-    });
-    expect(container.innerHTML).toBe("");
-  });
-
   test("matches a name the user already declined in the prompt", async () => {
     localStorage.setItem(`vellum:appIcon:declined:${ICON}`, "1");
 

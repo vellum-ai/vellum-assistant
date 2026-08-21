@@ -21,22 +21,26 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import type { AppIconState } from "@/runtime/app-icon";
 
-/** What every degrade path resolves to: no icon UI may draw. */
+/**
+ * What every degrade path resolves to: no icon UI may draw. Spelled out here
+ * rather than imported from `runtime/app-icon.ts`, because a value import from
+ * that module runs its `registerPlugin` call at load time.
+ */
 export const APP_ICON_UNSUPPORTED: AppIconState = {
   supported: false,
   current: null,
   available: [],
 };
 
-export interface AppIconStoreState {
+interface AppIconStoreState {
   snapshot: AppIconState;
 }
 
-export interface AppIconStoreActions {
+interface AppIconStoreActions {
   setSnapshot: (next: AppIconState) => void;
 }
 
-export type AppIconStore = AppIconStoreState & AppIconStoreActions;
+type AppIconStore = AppIconStoreState & AppIconStoreActions;
 
 function isSameSnapshot(a: AppIconState, b: AppIconState): boolean {
   return (

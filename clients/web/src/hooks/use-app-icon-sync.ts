@@ -12,8 +12,12 @@
  * or no avatar at all resolves to `null` and can never be offered.
  *
  * The whole surface reports `enabled: false`, and therefore draws nothing, off
- * native iOS, with the `ios-avatar-app-icon` flag off, or on a shell whose
- * build ships no alternate icons (`docs/CAPACITOR.md` § The skew rule).
+ * native iOS, with the `ios-avatar-app-icon` flag off, or when the installed
+ * shell answers `supported: false` (`docs/CAPACITOR.md` § The skew rule).
+ * A shell that supports alternates but bundles none this avatar maps to stays
+ * enabled: {@link resolveAppIconTarget} reports no match, so `canOffer` is
+ * false and nothing is ever offered, while the settings card still has a real
+ * status to report.
  *
  * The shell's answer is one fact about one device, so it lives in
  * {@link useAppIconStore} rather than in per-instance state: an apply from the

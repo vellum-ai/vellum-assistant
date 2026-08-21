@@ -1,4 +1,5 @@
 import { isCharacterTraits } from "@/types/avatar";
+import type { AppIconState } from "@/runtime/app-icon";
 import type { AvatarState } from "@/types/avatar";
 
 /**
@@ -9,19 +10,6 @@ import type { AvatarState } from "@/types/avatar";
  * name is the wire contract between the generated bundles and the runtime, so
  * it is produced in exactly one place: `appIconNameForAvatar`.
  */
-
-/**
- * The installed shell's alternate-icon capability, typed structurally so this
- * module does not depend on the native plugin wrapper that reports it.
- */
-export interface AppIconAvailability {
-  /** False on web, Android, and iOS builds without alternate-icon support. */
-  supported: boolean;
-  /** The alternate icon currently applied, or null for the default icon. */
-  current: string | null;
-  /** Alternate icon names the installed binary actually bundles. */
-  available: string[];
-}
 
 /** A resolved icon target plus whether the installed shell can apply it. */
 export interface AppIconTarget {
@@ -72,7 +60,7 @@ export function isAvatarAppIcon(name: string | null): boolean {
  */
 export function resolveAppIconTarget(
   state: AvatarState | null,
-  iconState: AppIconAvailability,
+  iconState: AppIconState,
 ): AppIconTarget {
   const target = appIconNameForAvatar(state);
   const availableMatch =
