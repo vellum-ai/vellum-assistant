@@ -32,7 +32,7 @@
     },
     {
       "name": "open_system_settings",
-      "description": "Open a specific macOS System Settings pane (e.g. Microphone or Speech Recognition privacy). Use this to guide the user through granting permissions that can only be toggled in System Settings.",
+      "description": "Open a specific macOS or Windows system settings pane (e.g. Microphone or Speech Recognition privacy). Use this to guide the user through granting permissions that can only be toggled in system settings. Set platform from the current client_os context.",
       "category": "system",
       "risk": "low",
       "input_schema": {
@@ -42,9 +42,14 @@
             "type": "string",
             "enum": ["microphone", "speech_recognition"],
             "description": "The System Settings pane to open"
+          },
+          "platform": {
+            "type": "string",
+            "enum": ["macos", "windows"],
+            "description": "The desktop platform from the current client_os context"
           }
         },
-        "required": ["pane"]
+        "required": ["pane", "platform"]
       },
       "executor": "tools/open-system-settings.ts",
       "execution_target": "host"

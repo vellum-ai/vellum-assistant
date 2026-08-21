@@ -222,6 +222,31 @@ describe("resolveConversationAttribution", () => {
 });
 
 describe("createToolExecutor attribution threading", () => {
+  test("routes tool events through the active turn sink", async () => {
+    const emit = mock(() => {});
+    const toolEventSink = mock(() => {});
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(executor, makeCtx({ emit }));
+
+    await toolFn(
+      "file_read",
+      { path: "/tmp/a" },
+      undefined,
+      undefined,
+      toolEventSink,
+    );
+    calls[0].context.sendToClient?.({
+      type: "open_url",
+      url: "ms-settings:privacy-microphone",
+    });
+
+    expect(toolEventSink).toHaveBeenCalledWith({
+      type: "open_url",
+      url: "ms-settings:privacy-microphone",
+    });
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   test("stamps the attribution snapshot onto the ToolContext for direct tool calls", async () => {
     const { executor, calls } = makeCapturingExecutor();
     const toolFn = makeToolFn(

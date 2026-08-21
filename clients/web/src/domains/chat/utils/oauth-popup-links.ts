@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 
 import { openUrl } from "@/runtime/browser";
+import { dispatchSystemPermissionSettingsUrl } from "@/runtime/system-permissions";
 
 const OAUTH_POPUP_FEATURES = "width=500,height=600";
 
@@ -126,6 +127,7 @@ export function openUrlInPopupOrTab(url: string): boolean {
 export type OpenUrlDispatchOutcome =
   | { kind: "routed" }
   | { kind: "opened" }
+  | { kind: "ignored" }
   | { kind: "invalid" }
   | { kind: "blocked"; url: string };
 
@@ -144,6 +146,14 @@ export function dispatchOpenUrl(
   if (sameOriginRoutePath) {
     opts.push(sameOriginRoutePath);
     return { kind: "routed" };
+  }
+
+  const settingsOutcome = dispatchSystemPermissionSettingsUrl(href);
+  if (settingsOutcome === "opened") {
+    return { kind: "opened" };
+  }
+  if (settingsOutcome === "ignored") {
+    return { kind: "ignored" };
   }
 
   const url = getHttpUrl(href);

@@ -104,6 +104,7 @@ const SEQ_RESERVATION_BLOCK = 1024;
 export interface EventTargeting {
   targetCapability?: string;
   targetClientId?: string;
+  targetActorPrincipalId?: string;
   targetInterfaceId?: string;
   excludeClientId?: string;
 }
@@ -116,6 +117,7 @@ export interface EventTargeting {
 export interface ReplaySubscriber {
   type: "client" | "process";
   clientId?: string;
+  actorPrincipalId?: string;
   interfaceId?: string;
   capabilities?: readonly string[];
 }
@@ -558,6 +560,12 @@ function matchesSubscriber(
     if (
       subscriber.type !== "client" ||
       subscriber.clientId !== t.targetClientId
+    ) {
+      return false;
+    }
+    if (
+      t.targetActorPrincipalId != null &&
+      subscriber.actorPrincipalId !== t.targetActorPrincipalId
     ) {
       return false;
     }

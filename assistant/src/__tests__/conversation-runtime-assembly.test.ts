@@ -862,6 +862,29 @@ describe("trust-gating via channel capabilities", () => {
     expect(injected).not.toContain("CHANNEL CONSTRAINTS");
   });
 
+  test("vellum channel with Windows client OS injects PowerShell guidance", () => {
+    const caps: ChannelCapabilities = {
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+      clientOS: "web",
+    };
+    const message: Message = {
+      role: "user",
+      content: [{ type: "text", text: "List my downloads" }],
+    };
+
+    const result = injectChannelCapabilityContext(message, caps, "windows");
+
+    expect(result).not.toBe(message);
+    const injected = (result.content[0] as { type: "text"; text: string }).text;
+    expect(injected).toContain("client_os: windows");
+    expect(injected).toContain("`host_bash` runs PowerShell");
+    expect(injected).toContain("Windows paths");
+    expect(injected).not.toContain("CHANNEL CONSTRAINTS");
+  });
+
   test("non-dashboard channel adds constraint rules preventing UI references", () => {
     const caps = resolveChannelCapabilities("telegram");
     const message: Message = {

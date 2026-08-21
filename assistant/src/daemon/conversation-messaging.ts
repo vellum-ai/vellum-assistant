@@ -563,6 +563,8 @@ export interface EnqueueMessageOptions {
   displayContent?: string;
   transport?: ConversationTransportMetadata;
   clientMessageId?: string;
+  originClientId?: string;
+  originActorPrincipalId?: string;
   /** JWT-verified requester principal captured for queued host-proxy routing. */
   sourceActorPrincipalId?: string;
   /** Auth context snapshot captured for queued turn-scoped authorization. */
@@ -593,6 +595,8 @@ export function enqueueMessage(
     displayContent,
     transport,
     clientMessageId,
+    originClientId,
+    originActorPrincipalId,
     authContext,
   } = options;
   const queuedAuthContext =
@@ -635,6 +639,8 @@ export function enqueueMessage(
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
+    originClientId,
+    originActorPrincipalId,
   });
   if (!accepted) {
     onEvent?.({

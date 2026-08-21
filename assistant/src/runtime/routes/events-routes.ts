@@ -512,6 +512,7 @@ export function handleSubscribeAssistantEvents(
               ? {
                   type: "client",
                   clientId,
+                  actorPrincipalId,
                   interfaceId,
                   capabilities: ALL_CAPABILITIES.filter((cap) =>
                     supportsHostProxy(interfaceId, cap),
@@ -634,11 +635,15 @@ function handleEventsTail({
   const interfaceId = clientId
     ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
     : null;
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardianSync(
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
   const subscriber: ReplaySubscriber | undefined =
     clientId && interfaceId
       ? {
           type: "client",
           clientId,
+          actorPrincipalId,
           interfaceId,
           capabilities: ALL_CAPABILITIES.filter((cap) =>
             supportsHostProxy(interfaceId, cap),

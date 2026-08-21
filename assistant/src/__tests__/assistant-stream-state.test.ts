@@ -337,6 +337,7 @@ describe("assistant-stream-state", () => {
     const MACOS_CLIENT: ReplaySubscriber = {
       type: "client",
       clientId: "mac-1",
+      actorPrincipalId: "actor-1",
       interfaceId: "macos",
       capabilities: ["host_bash", "host_file", "host_cu", "host_browser"],
     };
@@ -431,6 +432,24 @@ describe("assistant-stream-state", () => {
       expect(macReplay!.map((e) => e.seq)).toEqual([1]);
       expect(webReplay).toEqual([]);
       expect(procReplay).toEqual([]);
+    });
+
+    test("client-targeted replay also requires the validated actor", () => {
+      stampAndBuffer(mkEvent(), {
+        targeting: {
+          targetClientId: "mac-1",
+          targetActorPrincipalId: "actor-1",
+        },
+      });
+
+      const ownerReplay = getReplayWindow(0, MACOS_CLIENT);
+      const replacedClientReplay = getReplayWindow(0, {
+        ...MACOS_CLIENT,
+        actorPrincipalId: "actor-2",
+      });
+
+      expect(ownerReplay!.map((event) => event.seq)).toEqual([1]);
+      expect(replacedClientReplay).toEqual([]);
     });
 
     test("client + capability targeting requires both to match", () => {
