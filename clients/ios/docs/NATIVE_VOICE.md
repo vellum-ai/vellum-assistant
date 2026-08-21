@@ -583,12 +583,12 @@ The client's 120 is the correct one: a quiet call emits no frames, so nothing
 dispatches, and a 45-second horizon would strip the phase off a perfectly
 healthy session that nobody happens to be talking to.
 
-### 2. No App Group
+### 2. The Live Activity needs no App Group (the Home Screen widgets do)
 
 `ContentState` carries only primitives (`phase`, `label`, `detail`,
 `accentHex`, `muted`, `outputMuted`, `approvalRequestId`), and the attributes
 carry `assistantName`, `startedAt`, and the
-avatar as `Data`. The extension ships **no entitlements file at all**.
+avatar as `Data`. Nothing on this path touches a shared container.
 
 *Why:* an App Group is only needed to share *files*, and nothing here needs
 one. The obvious candidate was the avatar, but `ActivityAttributes` is
@@ -604,6 +604,23 @@ placeholder. That is also why the avatar is sized to a measured byte ceiling
 before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
 `clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
 activity rather than degrading the image.
+
+*What changed:* on exactly the reasoning above, the appex used to ship **no
+entitlements file at all**. The Home Screen widgets are the one consumer that
+changed the answer: they render from a snapshot the app writes (unread and
+in-progress counts, the three most recent conversation ids and titles), and
+there is no ActivityKit-style wire format to carry it, because nothing is
+pushing an update when the user glances at the Home Screen. So the appex now
+ships `App/App/Extension.entitlements` with the App Group and nothing else,
+`APP_GROUP_ID` is set per environment in every app and extension xcconfig, and
+the six App IDs carry the capability in the portal. The Live Activity path
+itself is untouched, and the rest of the reasoning still binds: nothing else
+gets declared speculatively.
+
+The group carries **non-secret display data only** (ids, titles, group names,
+counts, timestamps). No token, credential, or message body ever enters it. A
+Home Screen widget renders without the app being unlocked, which is the same
+reason the snapshot is cleared on sign-out rather than left to age out.
 
 ### 3. The island's buttons act in the app process, with no credential
 

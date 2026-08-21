@@ -624,11 +624,17 @@ track that releases hourly, so it is the fastest way to prove the setup):
    → **Identifiers** → **+** → **App IDs** → **App**. Set
    **Bundle ID** to **Explicit** and paste the exact string from the
    table. Description can be anything descriptive
-   (e.g. "Vellum Assistant iOS Dev VoiceActivity"). **Enable no
-   capabilities** — the extension deliberately ships no entitlements
-   file (no App Group, no push; see the comment at the top of
+   (e.g. "Vellum Assistant iOS Dev VoiceActivity"). Enable **App
+   Groups** and nothing else, then assign the group for this row's
+   environment (`group.ai.vocify-inc.vellum-assistant-ios`, plus the
+   `.staging` / `.dev` suffix; create it under **Identifiers → App
+   Groups** first if it does not exist). The containing app's App ID
+   needs the same capability and the same group. Push in particular
+   stays off: the extension's entitlements file carries the App Group
+   alone (see the comment at the top of
    `App/App/Config/Extension-Base.xcconfig`), and a capability enabled
-   here produces a profile the build cannot satisfy. **Register**.
+   here that the build does not declare produces a profile the build
+   cannot satisfy. **Register**.
 2. **Create the distribution profile.** **Profiles** → **+** →
    **Distribution → App Store Connect** → pick the App ID from step 1 →
    pick the Apple Distribution certificate that matches the

@@ -2,6 +2,7 @@
 
 #include "Base.xcconfig"
 
+APP_GROUP_ID = group.ai.vocify-inc.vellum-assistant-ios.staging
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging
 ASSOCIATED_DOMAIN = staging-assistant.vellum.ai
 BUNDLE_DISPLAY_NAME = Vellum Staging
