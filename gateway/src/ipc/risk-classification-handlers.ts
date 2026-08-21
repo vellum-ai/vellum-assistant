@@ -28,6 +28,7 @@ import {
   isPathWithinRoot,
   type FileClassificationContext,
 } from "../risk/file-risk-classifier.js";
+import { powerShellRiskClassifier } from "../risk/powershell-risk-classifier.js";
 import type {
   CommandRiskSpec,
   DirectoryScopeOption,
@@ -138,6 +139,25 @@ export async function handleClassifyRisk(
       const command = params.command ?? "";
       const workingDir = params.workingDir ?? process.cwd();
       const isContainerized = params.isContainerized ?? false;
+
+      if (tool === "host_bash" && params.shell === "powershell") {
+        const assessment = await powerShellRiskClassifier.classify(command);
+        return {
+          risk: assessment.riskLevel,
+          reason: assessment.reason,
+          scopeOptions: assessment.scopeOptions,
+          allowlistOptions: assessment.allowlistOptions,
+          actionKeys: assessment.actionKeys,
+          commandCandidates: assessment.commandCandidates,
+          dangerousPatterns: assessment.dangerousPatterns,
+          opaqueConstructs: assessment.opaqueConstructs,
+          isComplexSyntax: assessment.isComplexSyntax,
+          sandboxAutoApprove: false,
+          directoryScopeOptions: assessment.directoryScopeOptions,
+          resolvedPaths: assessment.resolvedPaths,
+          matchType: assessment.matchType,
+        };
+      }
 
       const assessment = await bashRiskClassifier.classify({
         command,

@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 
+import { CLIENT_OS_VALUES, type ClientOs } from "../channels/types.js";
 import type { SkillToolEntry, SkillToolManifest } from "../config/skills.js";
 
 const VALID_RISK_LEVELS = new Set(["low", "medium", "high"]);
 const VALID_EXECUTION_TARGETS = new Set(["host", "sandbox"]);
+const VALID_CLIENT_OS_VALUES = new Set<string>(CLIENT_OS_VALUES);
 
 /**
  * Parse and validate a raw TOOLS.json payload into a typed SkillToolManifest.
@@ -137,6 +139,23 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   const execution_target =
     entry.execution_target as SkillToolEntry["execution_target"];
 
+  let supported_client_os: ClientOs[] | undefined;
+  if ("supported_client_os" in entry) {
+    if (
+      !Array.isArray(entry.supported_client_os) ||
+      entry.supported_client_os.length === 0 ||
+      entry.supported_client_os.some(
+        (value) =>
+          typeof value !== "string" || !VALID_CLIENT_OS_VALUES.has(value),
+      )
+    ) {
+      throw new Error(
+        `${prefix}: "supported_client_os" must be a non-empty array of known client OS values`,
+      );
+    }
+    supported_client_os = [...new Set(entry.supported_client_os as ClientOs[])];
+  }
+
   return {
     name,
     description,
@@ -145,6 +164,7 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
     input_schema,
     executor,
     execution_target,
+    supported_client_os,
   };
 }
 

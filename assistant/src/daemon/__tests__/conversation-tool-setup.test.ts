@@ -58,6 +58,9 @@ const {
   HOST_TOOL_TO_CAPABILITY,
   isToolActiveForContext,
 } = await import("../conversation-tool-setup.js");
+const { registerSkillTools, unregisterSkillTools } =
+  await import("../../tools/registry.js");
+const { finalizeTool } = await import("../../tools/tool-defaults.js");
 type SkillProjectionCache =
   import("../conversation-skill-tools.js").SkillProjectionCache;
 
@@ -78,7 +81,39 @@ beforeEach(() => {
   mockClientCountByCapability.clear();
 });
 
-describe("isToolActiveForContext — Slack task_progress UI exception", () => {
+describe("isToolActiveForContext - client OS eligibility", () => {
+  test("hides a macOS-only skill tool from Windows turns", () => {
+    const skillId = "client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "client_os_test_tool",
+        supportedClientOs: ["macos"],
+      }),
+    ]);
+
+    try {
+      expect(
+        isToolActiveForContext(
+          "client_os_test_tool",
+          makeCtx({
+            clientOs: "windows",
+            currentTurnClientOs: "windows",
+          }),
+        ),
+      ).toBe(false);
+      expect(
+        isToolActiveForContext(
+          "client_os_test_tool",
+          makeCtx({ clientOs: "macos", currentTurnClientOs: "macos" }),
+        ),
+      ).toBe(true);
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
+});
+
+describe("isToolActiveForContext - Slack task_progress UI exception", () => {
   test("ui_show and ui_update are active for Slack task_progress turns", () => {
     const ctx = makeCtx({
       hasNoClient: false,

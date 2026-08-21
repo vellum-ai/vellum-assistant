@@ -547,6 +547,27 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(result.level).toBe(RiskLevel.Medium);
     });
 
+    test("builds PowerShell params for Windows host_bash", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "PowerShell mutation",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+
+      await classifyRisk(
+        "host_bash",
+        { command: "Remove-Item C:\\Temp\\data" },
+        "C:\\Users\\Example",
+        undefined,
+        undefined,
+        undefined,
+        "powershell",
+      );
+
+      expect(lastClassifyRiskParams?.shell).toBe("powershell");
+    });
+
     test("builds params for file tools", async () => {
       mockIpcClassifyRiskResult = {
         risk: "low",

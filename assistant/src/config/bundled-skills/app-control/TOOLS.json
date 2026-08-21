@@ -11,7 +11,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "args": {
             "type": "array",
@@ -34,7 +34,7 @@
     },
     {
       "name": "app_control_observe",
-      "description": "Capture the current window state of the target application — returns lifecycle state (running/missing/minimized), an optional screenshot, and window bounds. Use this before issuing input actions, or to check progress without acting.",
+      "description": "Capture the current window state of the target application. Returns lifecycle state (running/missing/minimized), an optional screenshot, and window bounds. Use this before issuing input actions, or to check progress without acting.",
       "category": "app-control",
       "risk": "low",
       "input_schema": {
@@ -42,11 +42,11 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "settle_ms": {
             "type": "integer",
-            "description": "Milliseconds to wait before capturing so the target app and the WindowServer can flush pending input + composite a fresh frame. Default ~200ms (sized for emulator-class apps at 60fps). Pass 0 for static UIs; raise for slow-feedback apps."
+            "description": "Milliseconds to wait before capturing so the target app and desktop compositor can flush pending input and render a fresh frame. Default ~200ms (sized for emulator-class apps at 60fps). Pass 0 for static UIs; raise for slow-feedback apps."
           },
           "target_client_id": {
             "type": "string",
@@ -60,7 +60,7 @@
     },
     {
       "name": "app_control_press",
-      "description": "Press a single key in the target application, with optional modifiers (cmd/shift/option/ctrl) and a hold duration in milliseconds.",
+      "description": "Press a single key in the target application, with optional platform-appropriate modifiers and a hold duration in milliseconds.",
       "category": "app-control",
       "risk": "low",
       "input_schema": {
@@ -68,7 +68,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "key": {
             "type": "string",
@@ -77,7 +77,7 @@
           "modifiers": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Modifier list, e.g. [\"cmd\", \"shift\"]. Omit for no modifiers."
+            "description": "Modifier list, e.g. [\"ctrl\", \"shift\"] or [\"cmd\", \"shift\"]. Omit for no modifiers."
           },
           "duration_ms": {
             "type": "integer",
@@ -99,7 +99,7 @@
     },
     {
       "name": "app_control_combo",
-      "description": "Press multiple keys simultaneously in the target application (e.g. cmd+shift+4). Use for keyboard shortcuts where every key is held at once.",
+      "description": "Press multiple keys simultaneously in the target application. Use for keyboard shortcuts where every key is held at once.",
       "category": "app-control",
       "risk": "low",
       "input_schema": {
@@ -107,12 +107,12 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "keys": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Sequence of keys pressed simultaneously, e.g. [\"cmd\", \"shift\", \"4\"]"
+            "description": "Sequence of keys pressed simultaneously, using platform-appropriate modifier names"
           },
           "duration_ms": {
             "type": "integer",
@@ -134,7 +134,7 @@
     },
     {
       "name": "app_control_sequence",
-      "description": "Send an ordered batch of single-key presses to the target application. The target app is activated once at the start, then each step is pressed serially with optional inter-step gaps. PREFER this over multiple back-to-back app_control_press calls when sending an ordered batch (e.g. menu navigation, repeated movement) — sequence runs in a single round-trip with no window for keyboard focus to drift between presses.",
+      "description": "Send an ordered batch of single-key presses to the target application. The target app is activated once at the start, then each step is pressed serially with optional inter-step gaps. Prefer this over multiple back-to-back app_control_press calls when sending an ordered batch because sequence runs in a single round-trip with no window for keyboard focus to drift between presses.",
       "category": "app-control",
       "risk": "low",
       "input_schema": {
@@ -142,7 +142,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "steps": {
             "type": "array",
@@ -157,7 +157,7 @@
                 "modifiers": {
                   "type": "array",
                   "items": { "type": "string" },
-                  "description": "Modifier list for this step, e.g. [\"cmd\", \"shift\"]. Omit for no modifiers."
+                  "description": "Modifier list for this step, using platform-appropriate names. Omit for no modifiers."
                 },
                 "duration_ms": {
                   "type": "integer",
@@ -195,7 +195,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "text": {
             "type": "string",
@@ -225,7 +225,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "x": {
             "type": "integer",
@@ -268,7 +268,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Bundle ID (preferred, e.g. 'com.apple.Safari') or process name of the target application"
+            "description": "Stable application identifier or process name of the target application"
           },
           "from_x": {
             "type": "integer",
@@ -315,7 +315,7 @@
         "properties": {
           "app": {
             "type": "string",
-            "description": "Optional bundle ID or process name. When omitted, stops whichever app currently holds the session."
+            "description": "Optional stable application identifier or process name. When omitted, stops whichever app currently holds the session."
           },
           "reason": {
             "type": "string",

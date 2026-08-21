@@ -9,7 +9,7 @@ const SKILL_PAGES = [
   { title: "Messaging", href: "/docs/skills-reference/messaging", description: "Read, search, send, and manage messages across multiple platforms." },
   { title: "Phone Calls", href: "/docs/skills-reference/phone-calls", description: "Make and receive phone calls with real-time voice conversation via Twilio." },
   { title: "Browser", href: "/docs/skills-reference/browser", description: "Navigate web pages, interact with elements, extract content, and fill forms." },
-  { title: "Computer Use", href: "/docs/skills-reference/computer-use", description: "Control your Mac directly — observe the screen and perform actions via accessibility APIs." },
+  { title: "Computer Use", href: "/docs/skills-reference/computer-use", description: "Control a connected desktop by observing the screen and performing actions through accessibility APIs." },
   { title: "Screen Watch", href: "/docs/skills-reference/screen-watch", description: "Observe your screen at regular intervals using OCR for contextual assistance." },
   { title: "Image Studio", href: "/docs/skills-reference/image-studio", description: "Generate and edit images using AI models." },
   { title: "Document", href: "/docs/skills-reference/document", description: "Create and edit long-form text — blog posts, articles, essays, and reports." },

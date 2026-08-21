@@ -52,6 +52,16 @@ describe("bash classification", () => {
     expect(result.matchType).toBe("registry");
   });
 
+  test("host_bash uses PowerShell classification for Windows", async () => {
+    const result = await classify({
+      tool: "host_bash",
+      command: "Remove-Item -Recurse C:\\Temp\\data",
+      shell: "powershell",
+    });
+    expect(result.risk).toBe("high");
+    expect(result.actionKeys).toEqual(["action:remove-item"]);
+  });
+
   test("empty command is low risk", async () => {
     const result = await classify({
       tool: "bash",

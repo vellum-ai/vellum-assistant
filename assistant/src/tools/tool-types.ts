@@ -348,6 +348,8 @@ export interface ToolContext {
    * `InterfaceId` union.
    */
   transportInterface?: string;
+  /** Operating system reported by the client for the current turn. */
+  clientOs?: "web" | "ios" | "macos" | "windows" | "android";
   /**
    * True when the host browser proxy's sender was overridden by an
    * extension connection (WebSocket browser-relay).
@@ -374,6 +376,14 @@ export interface Tool {
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;
+  /** Client operating systems that may expose this tool. Unset means all. */
+  supportedClientOs?: readonly (
+    | "web"
+    | "ios"
+    | "macos"
+    | "windows"
+    | "android"
+  )[];
   getDefinition(): ToolDefinition;
   execute(
     input: Record<string, unknown>,

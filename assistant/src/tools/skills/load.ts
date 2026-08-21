@@ -25,6 +25,7 @@ import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
+import { supportsClientOs } from "../client-os.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -83,8 +84,16 @@ function loadToolManifest(
  */
 function formatToolSchemas(
   manifest: SkillToolManifest,
+  clientOs: ToolContext["clientOs"],
   childSkillName?: string,
-): string {
+): string | undefined {
+  const tools = manifest.tools.filter((tool) =>
+    supportsClientOs(tool.supported_client_os, clientOs),
+  );
+  if (tools.length === 0) {
+    return undefined;
+  }
+
   const lines: string[] = childSkillName
     ? [`### Tools from ${childSkillName}`, ""]
     : [
@@ -96,7 +105,7 @@ function formatToolSchemas(
 
   const toolHeadingLevel = childSkillName ? "####" : "###";
 
-  for (const tool of manifest.tools) {
+  for (const tool of tools) {
     lines.push(`${toolHeadingLevel} ${tool.name}`);
     lines.push(
       tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
@@ -403,7 +412,7 @@ export const skillLoadTool = {
     // Load tool schemas for the main skill
     const mainManifest = loadToolManifest(skill.directoryPath);
     const toolSchemasSection = mainManifest
-      ? formatToolSchemas(mainManifest)
+      ? formatToolSchemas(mainManifest, context.clientOs)
       : undefined;
 
     // Build immediate children metadata section and load included skill bodies
@@ -518,10 +527,15 @@ export const skillLoadTool = {
             childLoaded.skill.directoryPath,
           );
           if (childManifest) {
-            anyChildHasTools = true;
-            includedBodies.push(
-              formatToolSchemas(childManifest, childLoaded.skill.displayName),
+            const childSchemas = formatToolSchemas(
+              childManifest,
+              context.clientOs,
+              childLoaded.skill.displayName,
             );
+            if (childSchemas) {
+              anyChildHasTools = true;
+              includedBodies.push(childSchemas);
+            }
           }
         }
       }
