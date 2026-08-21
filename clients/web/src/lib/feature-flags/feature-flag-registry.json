@@ -325,6 +325,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "memory-v3-bm25-auto-calibration",
+      "scope": "assistant",
+      "key": "memory-v3-bm25-auto-calibration",
+      "label": "Memory v3 BM25 Auto-Calibration",
+      "description": "Derives the BM25F normalization constant k from the live corpus size instead of using the fixed DEFAULT_BM25_NORM_K=9. Lowers k for small corpora (<33 sections) so the sparse gate fires at fewer matched terms; raises k for large corpora (>33 sections) to hold the same normalized score threshold. Gate behind this flag while large-corpus fire-rate data is gathered.",
+      "defaultEnabled": false
+    },
+    {
       "id": "assistant-switcher",
       "scope": "client",
       "key": "assistant-switcher",

@@ -33,6 +33,7 @@ import {
   VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
 } from "@vellumai/plugin-api";
 
+import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
@@ -58,6 +59,7 @@ import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
 import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
+import { calibrateBm25NormK, DEFAULT_BM25_NORM_K } from "./gate.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
@@ -762,10 +764,18 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
-      // Per-turn injection gate: the `memory.v3.gate` tuning, `enabled`
-      // kill-switch included. Read-only downstream, so the config object is
-      // passed as-is.
-      gateConfig: v3.gate,
+      // Per-turn injection gate: the `memory.v3.gate` tuning with bm25NormK
+      // resolved from null to a corpus-calibrated value (flag on) or the
+      // static default (flag off). The spread is the compile-time drift guard —
+      // if the gate schema and `V3GateConfig` diverge, this stops typechecking.
+      gateConfig: {
+        ...v3.gate,
+        bm25NormK:
+          v3.gate.bm25NormK ??
+          (isAssistantFeatureFlagEnabled("memory-v3-bm25-auto-calibration", cfg)
+            ? calibrateBm25NormK(lanes.sectionIndex.sections.length)
+            : DEFAULT_BM25_NORM_K),
+      },
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be
