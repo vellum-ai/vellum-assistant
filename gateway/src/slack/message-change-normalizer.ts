@@ -1,4 +1,5 @@
 import { isSlackDmChannel } from "./channel.js";
+import { slackChannelChatType } from "./message-normalizer.js";
 import {
   slackMessageChangedEventSchema,
   slackMessageDeletedEventSchema,
@@ -79,7 +80,9 @@ export function normalizeSlackMessageEdit(
         updateId: eventId,
         // The original message's ts lets the runtime identify which message was edited
         messageId: edited.ts,
-        ...(isDm ? {} : { chatType: "channel" }),
+        ...(isDm
+          ? {}
+          : { chatType: slackChannelChatType(channel, changed.channel_type) }),
         ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
       },
       raw: rawEvent,
@@ -156,7 +159,9 @@ export function normalizeSlackMessageDelete(
         // Original message's ts — the lookup key the daemon uses to find
         // the stored row to mark deleted.
         messageId: deleted.deleted_ts,
-        ...(isDm ? {} : { chatType: "channel" }),
+        ...(isDm
+          ? {}
+          : { chatType: slackChannelChatType(channel, deleted.channel_type) }),
         ...(previousThreadTs ? { threadId: previousThreadTs } : {}),
       },
       raw: rawEvent,

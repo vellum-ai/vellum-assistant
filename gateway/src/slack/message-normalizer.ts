@@ -10,6 +10,7 @@ import {
 } from "./render-text.js";
 import { slackUserActorFields, slackBotSenderInfo } from "./actor.js";
 import { extractSlackAttachments, extractSlackFileMap } from "./attachments.js";
+import type { ChannelConversationType } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -31,8 +32,13 @@ export function isIgnoredSlackMessageSubtype(
 
 /** The per-event-type differences across the plain-message normalizers. */
 type SlackMessageShape = {
-  /** `source.chatType`; omitted for `app_mention`. */
-  chatType?: "im" | "channel" | "mpim";
+  /**
+   * `source.chatType`; omitted for `app_mention`, which Slack sends without
+   * saying which kind of room it came from. `group` is Slack's word for a
+   * private channel, forwarded distinctly so the permission matrix can tell a
+   * private room from a public one.
+   */
+  chatType?: "im" | "channel" | "group" | "mpim";
   /** Stamp the sender's workspace id onto the actor (channel + app_mention). */
   stampTeam: boolean;
   /** Reply in the message's own ts when it has no `thread_ts` (channel + app_mention). */
@@ -119,6 +125,9 @@ function buildNormalizedSlackMessage(
         updateId: eventId,
         messageId: event.ts,
         ...(shape.chatType ? { chatType: shape.chatType } : {}),
+        ...(slackConversationType(shape.chatType)
+          ? { conversationType: slackConversationType(shape.chatType) }
+          : {}),
         ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
         ...(appContext ? { appContext } : {}),
       },
@@ -184,7 +193,7 @@ export function normalizeSlackDirectMessage(
  * addressed to its participants, so no @-mention or tracked thread is needed)
  * but forwards `chatType: "mpim"` rather than collapsing it to `im`. The
  * daemon reads that value directly: `isGroupChatType` injects group-chat
- * etiquette for it, and `mapChatTypeToConversationType` resolves it to the
+ * etiquette for it, and `slackConversationType` resolves it to the
  * `private` permission-matrix cell. Reporting `im` for a multi-party room
  * would suppress the etiquette and select the looser `dm` cell.
  *
@@ -231,6 +240,58 @@ export function normalizeSlackGroupDirectMessage(
 }
 
 /**
+ * How visible a Slack conversation is, on the permission matrix's axis.
+ *
+ * Slack is the one channel that can answer this from the event alone, because
+ * it names a private channel `group` and a public one `channel`. Everything
+ * that cannot be proven public is reported private by
+ * {@link slackChannelChatType} upstream, so this never has to guess.
+ */
+export function slackConversationType(
+  chatType: "im" | "channel" | "group" | "mpim" | undefined,
+): ChannelConversationType | undefined {
+  switch (chatType) {
+    case "im":
+      return "dm";
+    case "mpim":
+    case "group":
+      return "private";
+    case "channel":
+      return "public";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Which kind of channel a non-DM Slack message came from.
+ *
+ * Slack distinguishes a public channel (`channel`) from a private one
+ * (`group`), and collapsing the two is what kept the permission matrix's public
+ * tier from ever matching: a permissive public-channel rule must never be
+ * allowed to govern a private room, so an uncertain answer has to read as
+ * private rather than public.
+ *
+ * Two signals, the same composition {@link isSlackDmChannel} uses, because
+ * neither is always present. `channel_type` is authoritative but Slack omits it
+ * on thread replies, edits and deletes. A `G` prefix marks a private channel
+ * and is always present; `G` is shared with multi-person IMs, which reach their
+ * own normalizer rather than this one, so within this path it means private.
+ *
+ * @see https://api.slack.com/types/conversation
+ */
+export function slackChannelChatType(
+  channelId: string | undefined,
+  channelType?: string,
+): "channel" | "group" {
+  if (channelType === "group") return "group";
+  if (channelType === "channel") return "channel";
+  return typeof channelId === "string" && channelId.startsWith("G")
+    ? "group"
+    : "channel";
+}
+
+/**
  * Normalize a Slack channel `message` event (thread reply in an active bot
  * thread) into the gateway's canonical inbound event shape.
  *
@@ -266,7 +327,11 @@ export function normalizeSlackChannelMessage(
     routing,
     msg.channel,
     msg.user,
-    { chatType: "channel", stampTeam: true, fallbackThreadToTs: true },
+    {
+      chatType: slackChannelChatType(msg.channel, msg.channel_type),
+      stampTeam: true,
+      fallbackThreadToTs: true,
+    },
     botToken,
     renderContext,
   );
