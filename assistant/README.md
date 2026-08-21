@@ -70,16 +70,16 @@ bun run src/index.ts                # interactive CLI session
 
 ### CLI commands
 
-| Command                                            | Description                                      |
-| -------------------------------------------------- | ------------------------------------------------ |
-| `vellum wake`                                      | Start assistant + gateway from current checkout  |
-| `vellum sleep`                                     | Stop assistant + gateway processes               |
-| `vellum ps`                                        | List assistants and per-assistant process status |
-| `assistant`                                        | Launch interactive CLI session                   |
+| Command                                                    | Description                                      |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| `vellum wake`                                              | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                             | Stop assistant + gateway processes               |
+| `vellum ps`                                                | List assistants and per-assistant process status |
+| `assistant`                                                | Launch interactive CLI session                   |
 | `assistant conversations list\|search\|new\|export\|clear` | Manage conversations                             |
-| `assistant config set\|get\|list`                  | Manage configuration                             |
-| `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
-| `assistant trust list\|add\|update\|remove`        | Manage trust rules                               |
+| `assistant config set\|get\|list`                          | Manage configuration                             |
+| `assistant keys set\|list\|delete`                         | Manage API keys in secure storage                |
+| `assistant trust list\|add\|update\|remove`                | Manage trust rules                               |
 
 ## Project Structure
 
@@ -249,9 +249,9 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity. The CLI authenticates using its bearer token obtained during `hatch`.
+The vellum desktop channel uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity. The CLI authenticates using its bearer token obtained during `hatch`.
 
-- **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials. The CLI does not bootstrap separately; it uses the bearer token minted during `hatch`.
+- **Bootstrap**: After hatch, desktop clients call `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials. The CLI does not bootstrap separately; it uses the bearer token minted during `hatch`.
 - **Local identity**: Local connections get a server-side synthetic `AuthContext` via `resolveLocalAuthContext()` (`runtime/local-actor-identity.ts`) without requiring a JWT; trust derives from the gateway guardian binding via `resolveLocalPrincipalTrustContext()` (`runtime/local-principal-trust.ts`), failing closed to unknown.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
 - **Startup migration**: On gateway start, `ensureVellumGuardianBinding()` in `gateway/src/auth/guardian-bootstrap.ts` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.

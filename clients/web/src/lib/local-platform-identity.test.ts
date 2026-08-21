@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ElectronHostOS } from "@/runtime/platform-detection";
+
 const RUNTIME_ASSISTANT_ID = "qa-loopback-auth";
 const PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3c";
 const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
@@ -32,6 +34,8 @@ let reprovisionApiKeyBody: unknown;
 let requests: RecordedRequest[] = [];
 let secretsUnavailable = false;
 let storedSecrets: string[] = [];
+let electronHostOS: ElectronHostOS | null = null;
+let electronSessionToken: string | null = null;
 
 const buildVellumMutatingHeadersMock = mock(
   async (
@@ -74,12 +78,12 @@ mock.module("@/runtime/device-id", () => ({
   getDeviceId: () => browserDeviceId,
 }));
 
-mock.module("@/runtime/is-electron", () => ({
-  isElectron: () => false,
+mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () => electronHostOS,
 }));
 
 mock.module("@/runtime/session-token", () => ({
-  getElectronSessionToken: () => null,
+  getElectronSessionToken: () => electronSessionToken,
 }));
 
 mock.module("@/stores/organization-store", () => ({
@@ -154,6 +158,8 @@ beforeEach(() => {
   requests = [];
   secretsUnavailable = false;
   storedSecrets = [];
+  electronHostOS = null;
+  electronSessionToken = null;
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
@@ -317,6 +323,30 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       platformAssistantId: PLATFORM_ASSISTANT_ID,
       platformBaseUrl: STATUS_PLATFORM_BASE_URL,
       platformOrganizationId: ORGANIZATION_ID,
+    });
+  });
+
+  test("reports the Windows Electron host during platform registration", async () => {
+    electronHostOS = "windows";
+    electronSessionToken = "electron-session-token";
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: false,
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(
+      requests.find((request) =>
+        request.pathname.endsWith("/ensure-registration/"),
+      )?.body,
+    ).toEqual({
+      client_installation_id: HOST_INSTALLATION_ID,
+      runtime_assistant_id: RUNTIME_ASSISTANT_ID,
+      client_platform: "windows",
     });
   });
 

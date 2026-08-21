@@ -745,6 +745,7 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
  */
 export function buildChannelCapabilityBlock(
   caps: ChannelCapabilities,
+  clientOs: string | undefined = caps.clientOS,
 ): string | null {
   // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
@@ -752,7 +753,8 @@ export function buildChannelCapabilityBlock(
     caps.supportsDynamicUi &&
     caps.supportsVoiceInput &&
     !isGroupChatType(caps.chatType) &&
-    caps.clientOS !== "macos"
+    clientOs !== "macos" &&
+    clientOs !== "windows"
   ) {
     return null;
   }
@@ -762,14 +764,21 @@ export function buildChannelCapabilityBlock(
   lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
   lines.push(`supports_dynamic_ui: ${caps.supportsDynamicUi}`);
   lines.push(`supports_voice_input: ${caps.supportsVoiceInput}`);
-  if (caps.clientOS) {
-    lines.push(`client_os: ${caps.clientOS}`);
+  if (clientOs) {
+    lines.push(`client_os: ${clientOs}`);
   }
 
-  if (caps.clientOS === "macos") {
+  if (clientOs === "macos") {
     lines.push("");
     lines.push(
       "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
+    );
+  }
+
+  if (clientOs === "windows") {
+    lines.push("");
+    lines.push(
+      "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths.",
     );
   }
 
@@ -834,8 +843,9 @@ export function buildChannelCapabilityBlock(
 export function injectChannelCapabilityContext(
   message: Message,
   caps: ChannelCapabilities,
+  clientOs?: string,
 ): Message {
-  const block = buildChannelCapabilityBlock(caps);
+  const block = buildChannelCapabilityBlock(caps, clientOs);
   if (block === null) {
     return message;
   }
@@ -2642,8 +2652,10 @@ export async function applyRuntimeInjections(
   if (channelCapabilities) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
-      const channelCapabilityBlock =
-        buildChannelCapabilityBlock(channelCapabilities);
+      const channelCapabilityBlock = buildChannelCapabilityBlock(
+        channelCapabilities,
+        clientOs,
+      );
       if (channelCapabilityBlock !== null) {
         channelCapabilitiesCaptured = channelCapabilityBlock;
         result = [
