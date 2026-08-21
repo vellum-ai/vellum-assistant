@@ -31,8 +31,6 @@ import {
 // profile that runs another.
 
 const FLAG = BALANCED_MODEL_EXPERIMENT_FLAG_KEY;
-// The `glm-5p2` arm names the shipped pin, so that arm moves nothing today.
-// It stays covered because the arm keeps its meaning if the pin moves again.
 const SHIPPED_MODEL = "accounts/fireworks/models/glm-5p2";
 const GLM_MODEL = SHIPPED_MODEL;
 

@@ -73,8 +73,6 @@ type ProfileImpls = Record<DefaultProfileKey, DefaultProfileTemplate>;
  */
 const VELLUM_PROFILE_IMPLS: ProfileImpls = {
   balanced: {
-    // Text-only: Balanced does not pass `doesSupportVision`, so image input
-    // routes through the image-fallback captioning plugin.
     model: "accounts/fireworks/models/glm-5p2",
     provider: "vellum",
     source: "managed",
