@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { CameraCaptureOverlay } from "@/domains/chat/components/chat-attachments/camera-capture-overlay";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 
 /**
@@ -49,7 +53,9 @@ interface UseCameraDeepLinkResult {
  *
  * Subscribed to the park rather than read once on mount, so a tap arriving
  * while the composer is already on screen (the app was in the foreground) is
- * answered too. The consume is one-shot, so a re-render cannot replay it.
+ * answered too. The consume is one-shot, so a re-render cannot replay it, and a
+ * drain landing during a live-voice call spends the request without raising
+ * anything: the call owns the one camera layer.
  */
 export function useCameraDeepLink({
   onFiles,
@@ -69,6 +75,23 @@ export function useCameraDeepLink({
         .getState()
         .consumePendingCamera(PENDING_CAMERA_TTL_MS)
     ) {
+      return;
+    }
+    // A running call owns the camera. `useVoiceCamera` is a hook over one
+    // native preview layer, so a second instance raised here starts and stops
+    // the viewfinder the room is still showing, while the room's own hook goes
+    // on believing its camera is up.
+    //
+    // The request is spent rather than held back until the call ends. A call
+    // runs longer than the park's minute, so holding one either ages it out
+    // anyway or raises a viewfinder long after the tap that asked for it, which
+    // is the surprise the TTL exists to prevent. Dropping it costs a command
+    // the user can reissue, and the call carries a camera control of its own.
+    //
+    // The session phase is the whole gate rather than "the room's viewfinder is
+    // open": nothing publishes the latter, since it lives in the room's own
+    // `useVoiceCamera` instance.
+    if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
       return;
     }
     setCaptureOpen(true);

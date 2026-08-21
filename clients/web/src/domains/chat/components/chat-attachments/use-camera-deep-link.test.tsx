@@ -27,6 +27,9 @@ const { PENDING_CAMERA_TTL_MS, useCameraDeepLink } = await import(
 );
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
+const { useLiveVoiceStore } = await import(
+  "@/domains/chat/voice/live-voice/live-voice-store"
+);
 
 const onFiles = mock((_files: File[]) => {});
 
@@ -50,11 +53,13 @@ beforeEach(() => {
   onFiles.mockClear();
   overlayProps = null;
   __resetPendingDeepLinkForTesting();
+  useLiveVoiceStore.setState({ state: "idle" });
 });
 
 afterEach(() => {
   cleanup();
   __resetPendingDeepLinkForTesting();
+  useLiveVoiceStore.setState({ state: "idle" });
 });
 
 describe("useCameraDeepLink", () => {
@@ -147,6 +152,26 @@ describe("useCameraDeepLink", () => {
     renderCameraDeepLink();
 
     expect(surface()).not.toBeNull();
+  });
+
+  test("a running call keeps the camera: no surface, and the request is spent", () => {
+    // The room's viewfinder and this one are two hooks over one native preview
+    // layer, so the drain gives way rather than fighting it for the camera.
+    useLiveVoiceStore.setState({ state: "listening" });
+    usePendingDeepLinkStore.getState().setPendingCamera();
+
+    const { rerender } = renderCameraDeepLink();
+
+    expect(surface()).toBeNull();
+    expect(captureOpen()).toBe("false");
+    // Spent rather than parked: a call outlives the TTL, so a held request
+    // would raise a viewfinder long after the tap asked for one.
+    expect(usePendingDeepLinkStore.getState().pendingCameraAt).toBeNull();
+
+    useLiveVoiceStore.setState({ state: "idle" });
+    rerender(createElement(Host, { enabled: true }));
+
+    expect(surface()).toBeNull();
   });
 
   test("a disabled composer leaves the park alone for the one that answers it", () => {

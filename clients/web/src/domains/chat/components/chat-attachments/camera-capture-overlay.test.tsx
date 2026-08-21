@@ -7,6 +7,10 @@
  * contract from both ends (the acquisition runs on mount, and no file input
  * exists on the path at all) and cover the ways a photo can fail to arrive.
  *
+ * The same absence of a tap is why the modality is covered here: a surface that
+ * arrives on its own has to move focus in, hold it, hand it back, and take the
+ * app behind it out of reach, none of which a `role="dialog"` attribute does.
+ *
  * `useVoiceCamera` is stubbed: which of its two backends is live (the native
  * Capacitor preview, the `getUserMedia` fallback) is that module's own test's
  * business, and what matters here is only what this surface does with the
@@ -53,8 +57,15 @@ function renderOverlay() {
 }
 
 const shutter = () => screen.getByTestId("camera-deep-link-shutter");
+const closeControl = () => screen.getByTestId("camera-deep-link-close");
 /** Portalled out of the caller's tree, so it is never in `container`. */
 const surface = () => screen.getByTestId("camera-deep-link-surface");
+
+/** The focus scope restores on a macrotask, so its work has to be let out. */
+const flushFocusRestore = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
 beforeEach(() => {
   cameraOpen = true;
@@ -155,9 +166,55 @@ describe("CameraCaptureOverlay", () => {
   test("Escape closes the surface", () => {
     const { onClose } = renderOverlay();
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(surface(), { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("moves focus into the surface, since nothing tapped its way in", () => {
+    renderOverlay();
+
+    // The box rather than a control: both controls carry a tooltip, and a
+    // tooltip opened by autofocus is a dismissable layer that would own the
+    // first Escape.
+    expect(document.activeElement).toBe(surface());
+    expect(screen.queryAllByRole("tooltip")).toHaveLength(0);
+  });
+
+  test("returns focus to whatever held it once the surface goes away", async () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+
+    const { unmount } = renderOverlay();
+    expect(document.activeElement).not.toBe(opener);
+
+    unmount();
+    await flushFocusRestore();
+
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
+  test("takes the app behind it out of the accessibility tree", () => {
+    // The `getUserMedia` path leaves `#root` on screen behind a full-screen
+    // viewfinder, so the composer under it has to stop being reachable.
+    cameraNative = false;
+    const { container } = renderOverlay();
+
+    expect(container.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  test("keeps Tab inside the surface", () => {
+    renderOverlay();
+
+    // Off the last control, so the cycle has to come back around rather than
+    // reaching the composer behind the camera.
+    const flip = screen.getByTestId("camera-deep-link-flip");
+    flip.focus();
+    fireEvent.keyDown(flip, { key: "Tab" });
+
+    expect(document.activeElement).toBe(closeControl());
   });
 
   test("the flip control switches cameras without leaving the surface", () => {

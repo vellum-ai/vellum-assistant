@@ -32,8 +32,25 @@
  * teardown, so every way out of here (the shutter, the close control, Escape, a
  * failure, the composer going away) turns the hardware off without anything
  * having to remember to.
+ *
+ * ## Modality
+ *
+ * `@radix-ui/react-dialog`, the primitive the design library's `Modal` is built
+ * on, taken one layer down rather than through `Modal` itself: `Modal` paints a
+ * scrim and a centered card, and both are wrong here, since the native preview
+ * is behind the web view and anything painted over it hides the camera. What
+ * the primitive is here for is the modality `role="dialog"` only claims: focus
+ * moves in on mount and cycles inside, the rest of the app leaves the
+ * accessibility tree and stops taking pointer events, and focus returns to
+ * whatever held it when the surface goes away. That matters most on the
+ * `getUserMedia` path, where `#root` stays visible behind a full-screen
+ * viewfinder and would otherwise still be reachable by keyboard and VoiceOver.
+ *
+ * Escape belongs to the dialog layer for the same reason, so whatever is
+ * stacked highest owns the key.
  */
 
+import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "@vellumai/design-library";
 import { SwitchCamera, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -64,10 +81,20 @@ export function CameraCaptureOverlay({
   onClose,
 }: CameraCaptureOverlayProps) {
   const { t } = useTranslation("chat");
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { captureFrame, error, flipCamera, native, open, openCamera } =
     useVoiceCamera(videoRef);
   const [capturing, setCapturing] = useState(false);
+
+  // Read while rendering, which is the last moment it is still true: the focus
+  // scope moves focus into the dialog in its own mount effect, and effects here
+  // run after that one.
+  const [focusOnClose] = useState<HTMLElement | null>(() =>
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
 
   // Once per mount, guarded rather than run off `openCamera`'s identity: that
   // callback is reminted whenever the camera flips, and reopening the camera
@@ -104,99 +131,126 @@ export function CameraCaptureOverlay({
     onClose();
   }, [captureFrame, onCapture, onClose, t]);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape" || event.defaultPrevented) {
-        return;
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        onClose();
       }
-      event.preventDefault();
-      onClose();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    },
+    [onClose],
+  );
 
   return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("cameraDeepLink.title")}
-      data-testid="camera-deep-link-surface"
-      className={cn(
-        "fixed inset-0 z-50",
-        // The native preview sits behind the web view, so a background here
-        // would paint straight over it. The fallback's `<video>` is in this box
-        // and wants the black behind it while the first frame decodes.
-        native ? "bg-transparent" : "bg-black",
-      )}
-    >
-      {native ? null : (
-        <video
-          ref={videoRef}
-          aria-hidden
-          autoPlay
-          muted
-          playsInline
-          className="absolute inset-0 size-full object-cover"
-        />
-      )}
-
-      <div
-        className="absolute left-4 z-10"
-        style={{ top: `calc(1rem + ${SAFE_AREA_TOP})` }}
+    <Dialog.Root open onOpenChange={handleOpenChange}>
+      <Dialog.Content
+        ref={surfaceRef}
+        // No description to point at, and the primitive otherwise leaves the
+        // attribute aimed at an id nothing carries.
+        aria-describedby={undefined}
+        data-testid="camera-deep-link-surface"
+        // The box itself takes focus, rather than the first control in it. Both
+        // of those are icon buttons carrying a tooltip, and a tooltip opens on
+        // focus and is a dismissable layer of its own, so autofocusing one
+        // floats a label over the viewfinder the moment the camera appears and
+        // hands it the first Escape. Landing on the dialog announces its title,
+        // leaves Escape with this surface, and puts Tab one press from the
+        // close control.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          surfaceRef.current?.focus();
+        }}
+        // The dialog has no trigger to hand focus back to, which is what the
+        // primitive's default reaches for, so the element that had focus when
+        // the camera opened is restored here instead. Skipped once it is gone,
+        // since the composer can unmount underneath the surface.
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (focusOnClose?.isConnected) {
+            focusOnClose.focus();
+          }
+        }}
+        className={cn(
+          "fixed inset-0 z-50 focus:outline-none",
+          // The native preview sits behind the web view, so a background here
+          // would paint straight over it. The fallback's `<video>` is in this
+          // box and wants the black behind it while the first frame decodes.
+          native ? "bg-transparent" : "bg-black",
+        )}
       >
-        <VoiceRoomControl
-          label={t("cameraDeepLink.close")}
-          onClick={onClose}
-          overMedia
-          data-testid="camera-deep-link-close"
-        >
-          <X className="size-5" />
-        </VoiceRoomControl>
-      </div>
+        <Dialog.Title className="sr-only">
+          {t("cameraDeepLink.title")}
+        </Dialog.Title>
 
-      <div
-        className="absolute inset-x-0 z-10 flex items-center justify-center"
-        style={{ bottom: `calc(2rem + ${SAFE_AREA_BOTTOM})` }}
-      >
-        <button
-          type="button"
-          onClick={() => void takePhoto()}
-          disabled={!open || capturing}
-          aria-label={t("cameraDeepLink.shutter")}
-          data-testid="camera-deep-link-shutter"
-          className={cn(
-            "flex size-16 items-center justify-center rounded-full border-4 transition",
-            // Video is the only thing this is ever seen against, and the frame
-            // can be any brightness, so the white ring sits on a dark fill and
-            // a dark outer hairline: one edge or the other separates it at
-            // both extremes. Matches the voice room's shutter for the same
-            // reason.
-            "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
-            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-            capturing || !open ? "opacity-60" : "hover:bg-black/45",
-          )}
-        >
-          <span
-            className={cn(
-              "rounded-full bg-white transition-all",
-              capturing ? "size-6" : "size-11",
-            )}
+        {native ? null : (
+          <video
+            ref={videoRef}
+            aria-hidden
+            autoPlay
+            muted
+            playsInline
+            className="absolute inset-0 size-full object-cover"
           />
-        </button>
+        )}
 
-        <div className="absolute right-8">
+        {/* First tabbable control in the box, so one Tab off the dialog is the
+            way out of here. */}
+        <div
+          className="absolute left-4 z-10"
+          style={{ top: `calc(1rem + ${SAFE_AREA_TOP})` }}
+        >
           <VoiceRoomControl
-            label={t("cameraDeepLink.flip")}
-            onClick={() => void flipCamera()}
+            label={t("cameraDeepLink.close")}
+            onClick={onClose}
             overMedia
-            data-testid="camera-deep-link-flip"
+            data-testid="camera-deep-link-close"
           >
-            <SwitchCamera className="size-5" />
+            <X className="size-5" />
           </VoiceRoomControl>
         </div>
-      </div>
-    </div>,
+
+        <div
+          className="absolute inset-x-0 z-10 flex items-center justify-center"
+          style={{ bottom: `calc(2rem + ${SAFE_AREA_BOTTOM})` }}
+        >
+          <button
+            type="button"
+            onClick={() => void takePhoto()}
+            disabled={!open || capturing}
+            aria-label={t("cameraDeepLink.shutter")}
+            data-testid="camera-deep-link-shutter"
+            className={cn(
+              "flex size-16 items-center justify-center rounded-full border-4 transition",
+              // Video is the only thing this is ever seen against, and the
+              // frame can be any brightness, so the white ring sits on a dark
+              // fill and a dark outer hairline: one edge or the other separates
+              // it at both extremes. Matches the voice room's shutter for the
+              // same reason.
+              "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+              capturing || !open ? "opacity-60" : "hover:bg-black/45",
+            )}
+          >
+            <span
+              className={cn(
+                "rounded-full bg-white transition-all",
+                capturing ? "size-6" : "size-11",
+              )}
+            />
+          </button>
+
+          <div className="absolute right-8">
+            <VoiceRoomControl
+              label={t("cameraDeepLink.flip")}
+              onClick={() => void flipCamera()}
+              overMedia
+              data-testid="camera-deep-link-flip"
+            >
+              <SwitchCamera className="size-5" />
+            </VoiceRoomControl>
+          </div>
+        </div>
+      </Dialog.Content>
+    </Dialog.Root>,
     document.body,
   );
 }
