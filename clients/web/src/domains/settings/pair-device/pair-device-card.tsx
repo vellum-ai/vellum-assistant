@@ -39,7 +39,6 @@ import { useTunnelStatus } from "./use-tunnel-status";
  * accepts.
  */
 const TUNNEL_PROVIDER: TunnelProviderName = "tailscale";
-const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
 
 /** The URL field's disclosure holds a single section. */
 const URL_FIELD_SECTION = "public-url";
@@ -56,12 +55,7 @@ const DOUBTED_KINDS = new Set<TunnelStatusView["kind"]>([
   "foreign",
 ]);
 
-/** Names a provider explicitly: the CLI's `vellum` default is not implemented. */
-const TUNNEL_COMMAND = "vellum tunnel --provider tailscale";
 const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
-
-const CODE_CLASS =
-  "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-primary)]";
 
 /**
  * Settings card that pairs another device to this assistant without shell
