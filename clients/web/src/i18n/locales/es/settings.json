@@ -938,6 +938,17 @@
     "subtitle": "Configura cómo habla tu asistente",
     "title": "Texto a voz"
   },
+  "tunnelStatusRow": {
+    "checkedAt": "Comprobado {when}",
+    "checkingStatus": "Comprobando si el túnel es accesible…",
+    "foreignStatus": "Esta dirección está sirviendo a otro asistente ahora mismo.",
+    "foreignStatusNamed": "Esta dirección está sirviendo a {name} ahora mismo, no a este asistente.",
+    "healthyStatus": "El túnel está en marcha y es accesible.",
+    "refreshLabel": "Comprobar el túnel de nuevo",
+    "stoppedRestart": "Ejecuta <code>{command}</code> en una terminal de este equipo para volver a iniciarlo.",
+    "stoppedStatus": "El túnel está detenido, por lo que otros dispositivos no pueden alcanzar este asistente.",
+    "unreachableStatus": "Esta dirección no responde ahora mismo."
+  },
   "upgradeCancelPage": {
     "billingUnavailable": "La facturación no está disponible para el estado actual del asistente.",
     "platformLoginNotice": "Inicie sesión en la plataforma Vellum para administrar facturación y uso.",

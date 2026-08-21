@@ -938,6 +938,17 @@
     "subtitle": "Configure how your assistant speaks",
     "title": "Text-to-Speech"
   },
+  "tunnelStatusRow": {
+    "checkedAt": "Checked {when}",
+    "checkingStatus": "Checking whether the tunnel is reachable…",
+    "foreignStatus": "This address is serving a different assistant right now.",
+    "foreignStatusNamed": "This address is serving {name} right now, not this assistant.",
+    "healthyStatus": "The tunnel is running and reachable.",
+    "refreshLabel": "Check the tunnel again",
+    "stoppedRestart": "Run <code>{command}</code> in a terminal on this computer to start it again.",
+    "stoppedStatus": "The tunnel is stopped, so other devices cannot reach this assistant.",
+    "unreachableStatus": "This address is not answering right now."
+  },
   "upgradeCancelPage": {
     "billingUnavailable": "Billing isn't available for the current assistant state.",
     "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
