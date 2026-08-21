@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { getConfig } from "../config/loader.js";
+import { isFileUnheld } from "../util/file-use.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
 import { PromiseGuard } from "../util/promise-guard.js";
@@ -419,20 +420,9 @@ export class WorkspaceGitService {
       return;
     }
 
-    try {
-      // lsof exits non-zero when no process holds the file, which rejects the
-      // promise and falls through to removal below.
-      const { stdout } = await execFileAsync("lsof", ["-t", lockPath], {
-        timeout: 3000,
-      });
-      if (stdout.length > 0) {
-        log.debug("index.lock held by an active process, skipping removal");
-        return;
-      }
-    } catch {
-      // lsof unavailable or errored — fall through to remove.
-      // On platforms without lsof this degrades to unconditional removal,
-      // which is the same as the previous behavior.
+    if (!(await isFileUnheld(lockPath))) {
+      log.debug("Could not prove index.lock is stale, skipping removal");
+      return;
     }
 
     try {

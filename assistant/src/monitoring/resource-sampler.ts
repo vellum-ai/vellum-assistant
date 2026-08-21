@@ -34,6 +34,10 @@ import { diffCounters } from "../util/counter-diff.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
+import {
+  listProcessTable,
+  type ProcessTableRow,
+} from "../util/process-table.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
 import { readActiveConversations } from "./active-conversations.js";
 import { topProcessesByFd } from "./file-descriptors.js";
@@ -149,10 +153,12 @@ export async function writeSnapshot(
   mkdirSync(snapshotsDir, { recursive: true });
 
   let tree: unknown = null;
+  let processTable: ProcessTableRow[] | null = null;
   try {
-    const procs = await listProcesses();
-    // pid 1 is the container init; its subtree is the whole container.
-    tree = buildProcessTree(procs, 1);
+    processTable = listProcessTable();
+    const procs = await listProcesses(processTable);
+    const rootPid = process.platform === "win32" ? process.pid : 1;
+    tree = buildProcessTree(procs, rootPid);
   } catch (err) {
     log.warn({ err }, "Failed to enumerate process tree for snapshot");
   }
@@ -166,21 +172,32 @@ export async function writeSnapshot(
     log.warn({ err }, "Failed to read page-cache residency for snapshot");
   }
 
+  const capturedProcessTable = processTable;
+  const enumerateProcesses =
+    capturedProcessTable == null
+      ? listProcessTable
+      : () => capturedProcessTable;
   const snapshot = {
     ts: sample.ts,
     kind,
     sample,
     fileResidency,
-    // PSS-ranked with per-process anon/file split; PSS sums reconcile against
-    // the cgroup total where an RSS sum double-counts shared pages.
-    topProcesses: topProcessesByMemory(15),
+    // Linux uses PSS with an anon/file split. Windows uses working-set size.
+    topProcesses: topProcessesByMemory(
+      15,
+      process.platform,
+      enumerateProcesses,
+    ),
     // Slab memory belongs to no process; without this, cgroup usage that
     // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
-    // Descriptor pressure, ranked against each process's own soft limit. An
-    // EMFILE storm and a memory spike look alike from the outside (unrelated
-    // failures across the daemon), so the capture records both.
-    topProcessesByFd: topProcessesByFd(15),
+    // Linux ranks descriptor pressure against the soft limit. Windows records
+    // handle counts because it has no comparable per-process soft limit.
+    topProcessesByFd: topProcessesByFd(
+      15,
+      process.platform,
+      enumerateProcesses,
+    ),
     processTree: tree,
   };
 

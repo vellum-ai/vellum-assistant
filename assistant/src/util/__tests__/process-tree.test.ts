@@ -20,6 +20,14 @@ describe("deriveName", () => {
     expect(deriveName("qdrant")).toBe("qdrant");
   });
 
+  test("handles quoted Windows executable and script paths", () => {
+    expect(
+      deriveName(
+        '"C:\\Program Files\\Bun\\bun.exe" run "C:\\Example App\\jobs\\worker.ts"',
+      ),
+    ).toBe("jobs-worker");
+  });
+
   test("summarizes the script path as <parent>-<file> for interpreter invocations", () => {
     expect(deriveName("bun run /home/u/app/jobs/worker.ts")).toBe(
       "jobs-worker",
@@ -64,6 +72,12 @@ describe("deriveOrigin", () => {
       deriveOrigin(
         "bun --smol run /home/u/.vellum/workspace/plugins/cognee/server.ts",
       ),
+    ).toBe("plugin:cognee");
+  });
+
+  test("tags a plugin from a Windows command path", () => {
+    expect(
+      deriveOrigin("bun run C:\\Vellum\\workspace\\plugins\\cognee\\server.ts"),
     ).toBe("plugin:cognee");
   });
 
