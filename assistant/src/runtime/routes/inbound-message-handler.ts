@@ -1092,8 +1092,8 @@ export async function handleChannelInbound({
     // cleanup. When a Slack block_actions payload is forwarded, the gateway
     // sets sourceMetadata.messageId to the ts of the message containing
     // the button. This lets us edit the message after resolution.
-    const approvalMessageTs =
-      sourceChannel === "slack" && typeof sourceMetadata?.messageId === "string"
+    const approvalMessageId =
+      typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
         : undefined;
 
@@ -1109,7 +1109,7 @@ export async function handleChannelInbound({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       approvalCopyGenerator,
       approvalConversationGenerator,
-      approvalMessageTs,
+      approvalMessageId,
     });
 
     if (approvalResult.handled) {
@@ -1199,10 +1199,10 @@ export async function handleChannelInbound({
       // instead of a silent no-op (JARVIS-299).
       // No channel check: a transport without `edit` declines the call, so a
       // channel gains this the moment it can revise a sent message.
-      if (replyCallbackUrl && approvalMessageTs) {
+      if (replyCallbackUrl && approvalMessageId) {
         editChannelMessage(replyCallbackUrl, {
           chatId: conversationExternalId,
-          messageId: approvalMessageTs,
+          messageId: approvalMessageId,
           text: "This approval request has been resolved.",
         }).catch((err) => {
           log.error(

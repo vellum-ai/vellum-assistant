@@ -30,7 +30,8 @@ mock.module("./api.js", () => ({
 }));
 
 const { TelegramNonRetryableError } = await import("./api.js");
-const { sendTelegramReply, sendTelegramRichReply } = await import("./send.js");
+const { editTelegramMessage, sendTelegramReply, sendTelegramRichReply } =
+  await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
 const approval: ApprovalUIMetadata = {
@@ -298,5 +299,59 @@ describe("telegramTransport topic targeting", () => {
       chat_id: "123",
       action: "typing",
     });
+  });
+});
+
+describe("editTelegramMessage", () => {
+  const ctx = { callbackUrl: "http://gw/deliver/telegram", params: {} };
+
+  const sendMessageCalls = () =>
+    callTelegramBotApiMock.mock.calls.filter(
+      (call) => call[0] === "sendMessage",
+    );
+
+  test("edits in place and never posts a new message", async () => {
+    await telegramTransport.edit!(ctx as CallbackContext, {
+      chatId: "123",
+      messageId: "456",
+      text: "revised",
+    });
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledTimes(1);
+    const [method, body] = callTelegramBotApiMock.mock.calls[0]!;
+    expect(method).toBe("editMessageText");
+    // Telegram wants a numeric message id, where the capability carries the
+    // channel's id as a string.
+    expect(body).toEqual({ chat_id: "123", message_id: 456, text: "revised" });
+  });
+
+  test("treats an unchanged message as already done", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError(
+        "Bad Request",
+        "Bad Request: message is not modified",
+      );
+    });
+
+    // The edit asked for a state the message is already in, which is the
+    // request satisfied rather than refused.
+    await expect(
+      editTelegramMessage("123", "456", "same"),
+    ).resolves.toBeUndefined();
+    expect(sendMessageCalls()).toHaveLength(0);
+  });
+
+  test("throws on any other rejection rather than posting a replacement", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError(
+        "Bad Request",
+        "Bad Request: message to edit not found",
+      );
+    });
+
+    // Posting instead would leave the original beside a duplicate, so the
+    // failure has to reach the caller.
+    await expect(editTelegramMessage("123", "456", "gone")).rejects.toThrow();
+    expect(sendMessageCalls()).toHaveLength(0);
   });
 });

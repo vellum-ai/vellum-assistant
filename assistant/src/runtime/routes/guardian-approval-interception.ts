@@ -48,7 +48,7 @@ export interface ApprovalInterceptionParams {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Original approval message timestamp (Slack ts) for editing after resolution. */
-  approvalMessageTs?: string;
+  approvalMessageId?: string;
 }
 
 import type { ApprovalInterceptionResult } from "./approval-interception-types.js";
@@ -79,7 +79,7 @@ export async function handleApprovalInterception(
     assistantId,
     approvalCopyGenerator,
     approvalConversationGenerator,
-    approvalMessageTs,
+    approvalMessageId,
   } = params;
 
   // Slack emoji reactions are handled by the guardian decision
@@ -245,11 +245,11 @@ export async function handleApprovalInterception(
           );
 
           // Edit the original Slack approval message to remove stale buttons
-          if (sourceChannel === "slack" && approvalMessageTs) {
+          if (approvalMessageId) {
             editStaleSlackApprovalMessage({
               replyCallbackUrl,
               chatId: conversationExternalId,
-              messageTs: approvalMessageTs,
+              messageTs: approvalMessageId,
               assistantId,
               conversationId,
             });
@@ -264,7 +264,7 @@ export async function handleApprovalInterception(
       if (result.applied) {
         // Edit the original Slack approval message to show the decision
         // and remove stale action buttons.
-        if (sourceChannel === "slack" && approvalMessageTs) {
+        if (approvalMessageId) {
           const decisionOutcome: "approved" | "denied" =
             cbDecision.action === "reject" ? "denied" : "approved";
           const statusEmoji =
@@ -273,11 +273,11 @@ export async function handleApprovalInterception(
             decisionOutcome === "approved" ? "Approved" : "Denied";
           editChannelMessage(replyCallbackUrl, {
             chatId: conversationExternalId,
-            messageId: approvalMessageTs,
+            messageId: approvalMessageId,
             text: `${statusEmoji} ${statusLabel}`,
           }).catch((err) => {
             log.error(
-              { err, conversationId, messageTs: approvalMessageTs },
+              { err, conversationId, messageTs: approvalMessageId },
               "Failed to edit Slack approval message after decision",
             );
           });
@@ -291,11 +291,11 @@ export async function handleApprovalInterception(
       // Race condition: request was already resolved between the stale check
       // above and the decision attempt.
       // Edit the original Slack approval message to remove stale buttons
-      if (sourceChannel === "slack" && approvalMessageTs) {
+      if (approvalMessageId) {
         editStaleSlackApprovalMessage({
           replyCallbackUrl,
           chatId: conversationExternalId,
-          messageTs: approvalMessageTs,
+          messageTs: approvalMessageId,
           assistantId,
           conversationId,
         });
