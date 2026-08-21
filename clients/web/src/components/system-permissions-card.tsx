@@ -30,10 +30,7 @@ interface SystemPermissionRowMeta {
   sourceKind: SystemPermissionKind;
   label: string;
   description: string;
-  /**
-   * Windows-specific description. Absent means the permission has no
-   * Windows equivalent and the row is hidden on a Windows host.
-   */
+  availableOnWindows?: boolean;
   windowsDescription?: string;
 }
 
@@ -68,6 +65,7 @@ const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
     label: "Screen Recording",
     description:
       "Allows your assistant to capture screen context during computer-use tasks.",
+    availableOnWindows: true,
   },
   {
     id: "microphone",
@@ -76,8 +74,7 @@ const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
     label: "Microphone",
     description:
       "Allows your assistant to capture audio for voice input and recordings.",
-    windowsDescription:
-      "Allows your assistant to capture audio for voice input and recordings.",
+    availableOnWindows: true,
   },
   {
     id: "speechRecognition",
@@ -86,6 +83,7 @@ const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
     label: "Speech Recognition",
     description:
       "Allows your assistant to transcribe your speech into text on-device.",
+    availableOnWindows: true,
     windowsDescription:
       "Allows your assistant to transcribe your speech into text with Windows speech recognition.",
   },
@@ -96,6 +94,7 @@ const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
     label: "Notifications",
     description:
       "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
+    availableOnWindows: true,
     windowsDescription:
       "Allows your assistant to show Windows notifications for approvals, messages, and task updates.",
   },
@@ -217,7 +216,7 @@ export function SystemPermissionsCard({
   const visibleSystemRows = useMemo(
     () =>
       SYSTEM_PERMISSION_ROWS.filter(
-        (meta) => !isWindowsHost || meta.windowsDescription,
+        (meta) => !isWindowsHost || meta.availableOnWindows,
       ),
     [isWindowsHost],
   );
@@ -233,7 +232,7 @@ export function SystemPermissionsCard({
 
     for (const meta of visibleSystemRows) {
       const item = state[meta.sourceKind];
-      if (item) {
+      if (item && item.status !== "not-applicable") {
         rows.set(meta.id, { meta, item });
       }
     }
