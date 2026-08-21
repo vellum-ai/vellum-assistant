@@ -154,6 +154,9 @@ const MIN_TRANSCRIBED_TIMEOUT_MS = 8000;
 const TRANSCRIBED_TIMEOUT_GRACE_MS = 5000;
 
 function transcribedTimeoutMs(pcmByteLength: number): number {
+  if (window.vellum?.hostOS !== "windows") {
+    return MIN_TRANSCRIBED_TIMEOUT_MS;
+  }
   const pcmDurationMs =
     (pcmByteLength / (PUSH_SAMPLE_RATE * Int16Array.BYTES_PER_ELEMENT)) * 1000;
   return Math.max(
