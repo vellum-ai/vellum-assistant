@@ -7,12 +7,13 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { LastTunnelRecord } from "../../../daemon/handlers/config-ingress.js";
+import type { LastTunnelRecord } from "@vellumai/service-contracts/ingress";
+
 import type { TunnelProbeResult } from "../../../inbound/tunnel-probe.js";
 import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 
 let ingressConfig = {
-  enabled: false,
+  enabled: true,
   publicBaseUrl: "",
   localGatewayTarget: "http://127.0.0.1:4000",
   managedCallbacks: false,
@@ -50,7 +51,7 @@ const TUNNEL_URL = "https://assistant-1.example.ts.net";
 describe("integrations_ingress_status route", () => {
   beforeEach(() => {
     ingressConfig = {
-      enabled: false,
+      enabled: true,
       publicBaseUrl: "",
       localGatewayTarget: "http://127.0.0.1:4000",
       managedCallbacks: false,
@@ -75,7 +76,6 @@ describe("integrations_ingress_status route", () => {
   test("reports unconfigured for a platform-hosted assistant", async () => {
     ingressConfig = {
       ...ingressConfig,
-      enabled: true,
       publicBaseUrl: "https://platform.example.com/gateway/callbacks/a-1",
       managedCallbacks: true,
     };
@@ -86,11 +86,14 @@ describe("integrations_ingress_status route", () => {
   });
 
   test("reports unconfigured with no URL and no recorded tunnel", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: "" };
+
     expect(await route.handler({})).toEqual({ state: "unconfigured" });
     expect(probeTunnelMock).not.toHaveBeenCalled();
   });
 
   test("reports stopped with the recorded tunnel when the URL is gone", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: "" };
     lastTunnel = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
 
     expect(await route.handler({})).toEqual({
@@ -100,12 +103,34 @@ describe("integrations_ingress_status route", () => {
     expect(probeTunnelMock).not.toHaveBeenCalled();
   });
 
-  test("reports healthy with a timestamp when the probe succeeds", async () => {
+  test("reports stopped without probing when ingress is switched off", async () => {
     ingressConfig = {
       ...ingressConfig,
-      enabled: true,
+      enabled: false,
       publicBaseUrl: TUNNEL_URL,
     };
+    lastTunnel = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
+
+    expect(await route.handler({})).toEqual({
+      state: "stopped",
+      lastTunnel: { provider: "tailscale", publicBaseUrl: TUNNEL_URL },
+    });
+    expect(probeTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("reports stopped for a disabled URL with no recorded tunnel", async () => {
+    ingressConfig = {
+      ...ingressConfig,
+      enabled: false,
+      publicBaseUrl: TUNNEL_URL,
+    };
+
+    expect(await route.handler({})).toEqual({ state: "stopped" });
+    expect(probeTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("reports healthy with a timestamp when the probe succeeds", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     recordedAssistantId = "assistant-1";
 
     const result = (await route.handler({})) as Record<string, unknown>;
@@ -120,11 +145,7 @@ describe("integrations_ingress_status route", () => {
   });
 
   test("omits expectedAssistantId when no id was recorded", async () => {
-    ingressConfig = {
-      ...ingressConfig,
-      enabled: true,
-      publicBaseUrl: TUNNEL_URL,
-    };
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
 
     await route.handler({});
 
@@ -134,11 +155,7 @@ describe("integrations_ingress_status route", () => {
   });
 
   test("reports unreachable with the probe's detail", async () => {
-    ingressConfig = {
-      ...ingressConfig,
-      enabled: true,
-      publicBaseUrl: TUNNEL_URL,
-    };
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     probeResult = { kind: "unreachable", detail: "HTTP 502" };
 
     const result = (await route.handler({})) as Record<string, unknown>;
@@ -150,11 +167,7 @@ describe("integrations_ingress_status route", () => {
   });
 
   test("reports foreign with the name the edge serves under", async () => {
-    ingressConfig = {
-      ...ingressConfig,
-      enabled: true,
-      publicBaseUrl: TUNNEL_URL,
-    };
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     recordedAssistantId = "assistant-1";
     probeResult = {
       kind: "foreign",
@@ -170,11 +183,7 @@ describe("integrations_ingress_status route", () => {
   });
 
   test("omits servingAssistantName when the edge reports no name", async () => {
-    ingressConfig = {
-      ...ingressConfig,
-      enabled: true,
-      publicBaseUrl: TUNNEL_URL,
-    };
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     probeResult = { kind: "foreign", assistantId: "assistant-2" };
 
     const result = (await route.handler({})) as Record<string, unknown>;
@@ -183,8 +192,46 @@ describe("integrations_ingress_status route", () => {
     expect(result).not.toHaveProperty("servingAssistantName");
   });
 
+  test("names the tunnel to restart when the URL is unreachable", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "unreachable", detail: "HTTP 502" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unreachable");
+    expect(result.lastTunnel).toEqual({
+      provider: "ngrok",
+      publicBaseUrl: TUNNEL_URL,
+    });
+  });
+
+  test("names the tunnel to restart when the URL is foreign", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "foreign", assistantId: "assistant-2" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("foreign");
+    expect(result.lastTunnel).toEqual({
+      provider: "ngrok",
+      publicBaseUrl: TUNNEL_URL,
+    });
+  });
+
+  test("omits lastTunnel from a healthy response", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(result).not.toHaveProperty("lastTunnel");
+  });
+
   test("treats a whitespace-only URL as no URL", async () => {
-    ingressConfig = { ...ingressConfig, enabled: true, publicBaseUrl: "   " };
+    ingressConfig = { ...ingressConfig, publicBaseUrl: "   " };
 
     expect(await route.handler({})).toEqual({ state: "unconfigured" });
     expect(probeTunnelMock).not.toHaveBeenCalled();

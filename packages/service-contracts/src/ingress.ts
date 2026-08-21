@@ -48,3 +48,68 @@ export function normalizeHttpPublicBaseUrl(value: unknown): string | undefined {
     return undefined;
   }
 }
+
+// Records `vellum tunnel` leaves in the workspace config's `ingress` section.
+// The CLI writes them and the daemon reads them, and the two are separate
+// build units that cannot import each other, so the key names, the provider
+// allowlist, and the validation all live here rather than in a copy on each
+// side.
+
+/** Key under `ingress` holding the tunnel that most recently ran. */
+export const INGRESS_LAST_TUNNEL_KEY = "lastTunnel";
+
+/** Key under `ingress` holding the assistant id that tunnel fronted. */
+export const INGRESS_ASSISTANT_ID_KEY = "assistantId";
+
+/**
+ * The local tunnel providers the CLI can start, in the order they are offered.
+ * `vellum tunnel`'s accepted `--provider` values and the persisted-record
+ * validation below both derive from it.
+ */
+export const TUNNEL_PROVIDERS = ["ngrok", "cloudflare", "tailscale"] as const;
+
+export type TunnelProviderName = (typeof TUNNEL_PROVIDERS)[number];
+
+/** The tunnel that most recently ran, kept after teardown so UIs can name the command to restart. */
+export interface LastTunnelRecord {
+  provider: TunnelProviderName;
+  publicBaseUrl: string;
+}
+
+function isTunnelProviderName(value: unknown): value is TunnelProviderName {
+  return (
+    typeof value === "string" &&
+    (TUNNEL_PROVIDERS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Parse an `ingress.lastTunnel` value, or null when it is absent or malformed.
+ *
+ * A hand-edited config must not hand callers an unusable address or a provider
+ * name no command accepts: the provider is checked against the allowlist
+ * because readers render it into a restart command, and the URL faces the same
+ * absolute HTTP(S) constraint as every other public base URL.
+ */
+export function parseLastTunnelRecord(value: unknown): LastTunnelRecord | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const { provider, publicBaseUrl } = value as Record<string, unknown>;
+  if (!isTunnelProviderName(provider) || typeof publicBaseUrl !== "string") {
+    return null;
+  }
+  if (!normalizeHttpPublicBaseUrl(publicBaseUrl)) {
+    return null;
+  }
+  return { provider, publicBaseUrl: publicBaseUrl.trim() };
+}
+
+/** Parse an `ingress.assistantId` value, or null when it is absent or blank. */
+export function parseRecordedAssistantId(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}

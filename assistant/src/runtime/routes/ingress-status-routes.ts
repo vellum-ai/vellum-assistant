@@ -44,7 +44,9 @@ const IngressStatusResponseSchema = z.object({
   lastTunnel: z
     .object({ provider: z.string(), publicBaseUrl: z.string() })
     .optional()
-    .describe("The tunnel to restart. Set for stopped."),
+    .describe(
+      "The tunnel to restart. Set whenever one is recorded and the URL is not serving this assistant: stopped, unreachable, and foreign.",
+    ),
   servingAssistantName: z
     .string()
     .optional()
@@ -70,12 +72,19 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
     return { state: "unconfigured" };
   }
 
+  // Carried by every state the user has to act on, so the client can name the
+  // command that brings the tunnel back.
+  const lastTunnel = loadLastTunnelRecord();
+  const restartHint = lastTunnel ? { lastTunnel } : {};
+
   const publicBaseUrl = config.publicBaseUrl.trim();
-  if (!publicBaseUrl) {
-    const lastTunnel = loadLastTunnelRecord();
-    return lastTunnel
-      ? { state: "stopped", lastTunnel }
-      : { state: "unconfigured" };
+  if (!publicBaseUrl && !lastTunnel) {
+    return { state: "unconfigured" };
+  }
+  // The URL survives the enabled toggle, so probing while ingress is off would
+  // report a tunnel the user switched off as healthy.
+  if (!publicBaseUrl || !config.enabled) {
+    return { state: "stopped", ...restartHint };
   }
 
   // Omitted when unrecorded so the probe skips the identity check entirely
@@ -91,11 +100,17 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
     case "healthy":
       return { state: "healthy", ...checked };
     case "unreachable":
-      return { state: "unreachable", ...checked, detail: result.detail };
+      return {
+        state: "unreachable",
+        ...checked,
+        ...restartHint,
+        detail: result.detail,
+      };
     case "foreign":
       return {
         state: "foreign",
         ...checked,
+        ...restartHint,
         ...(result.assistantName
           ? { servingAssistantName: result.assistantName }
           : {}),
@@ -116,7 +131,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Get ingress tunnel status",
     description:
-      "Probe the configured public ingress URL and report whether a tunnel is serving this assistant. `unconfigured` means no tunnel has ever been recorded (or the assistant is platform-hosted, which never uses one), `stopped` means a tunnel ran before and `lastTunnel` names it, `healthy` means the URL answers and fronts this assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant.",
+      "Probe the configured public ingress URL and report whether a tunnel is serving this assistant. `unconfigured` means no tunnel has ever been recorded (or the assistant is platform-hosted, which never uses one), `stopped` means a tunnel ran before and is not running now (ingress is switched off, or its URL is gone), `healthy` means the URL answers and fronts this assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant. `lastTunnel` names the tunnel to restart on every state but `healthy` and `unconfigured`.",
     tags: ["config"],
     handler: handleIngressStatus,
     responseBody: IngressStatusResponseSchema,

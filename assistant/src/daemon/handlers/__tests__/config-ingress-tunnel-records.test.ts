@@ -1,7 +1,9 @@
 /**
  * Unit tests for the ingress section of the workspace config, including the
- * records `vellum tunnel` leaves behind. A hand-edited or half-written entry
- * must yield a typed fallback or null, never a throw or an unusable address.
+ * records `vellum tunnel` leaves behind. The record truth table lives on the
+ * shared parser (`packages/service-contracts/src/__tests__/ingress.test.ts`);
+ * what is checked here is that the daemon reads the keys the CLI writes and
+ * inherits that validation.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -52,21 +54,28 @@ describe("workspace tunnel records", () => {
     expect(loadRecordedAssistantId()).toBeNull();
   });
 
-  test("returns null for a record missing either field", () => {
-    rawConfig = { ingress: { lastTunnel: { provider: "ngrok" } } };
-    expect(loadLastTunnelRecord()).toBeNull();
+  test("returns null for a provider outside the shared registry", () => {
+    // Readers render the provider into a shell command they tell the user to
+    // run, so an unknown one makes the whole record unusable.
+    rawConfig = {
+      ingress: {
+        lastTunnel: { provider: "wireguard", publicBaseUrl: TUNNEL_URL },
+      },
+    };
 
-    rawConfig = { ingress: { lastTunnel: { publicBaseUrl: TUNNEL_URL } } };
     expect(loadLastTunnelRecord()).toBeNull();
   });
 
-  test("returns null for a URL that is not absolute HTTP(S)", () => {
-    for (const publicBaseUrl of ["", "   ", "example.ts.net", "ftp://x.test"]) {
-      rawConfig = {
-        ingress: { lastTunnel: { provider: "ngrok", publicBaseUrl } },
-      };
-      expect(loadLastTunnelRecord()).toBeNull();
-    }
+  test("returns null for a malformed record", () => {
+    rawConfig = { ingress: { lastTunnel: { provider: "ngrok" } } };
+    expect(loadLastTunnelRecord()).toBeNull();
+
+    rawConfig = {
+      ingress: {
+        lastTunnel: { provider: "ngrok", publicBaseUrl: "example.ts.net" },
+      },
+    };
+    expect(loadLastTunnelRecord()).toBeNull();
   });
 
   test("returns null for a blank recorded assistant id", () => {

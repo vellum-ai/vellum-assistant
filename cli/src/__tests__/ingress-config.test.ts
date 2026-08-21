@@ -7,10 +7,10 @@ import { join } from "node:path";
 const testDir = mkdtempSync(join(tmpdir(), "ingress-config-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
+import { parseLastTunnelRecord } from "@vellumai/service-contracts/ingress";
+
 import {
   clearIngressUrl,
-  loadLastTunnel,
-  loadRecordedAssistantId,
   saveIngressUrl,
   TUNNEL_PROVIDERS,
 } from "../lib/ingress-config.js";
@@ -131,11 +131,6 @@ describe("last-tunnel record", () => {
       publicBaseUrl: "https://a.trycloudflare.com",
     });
     expect(ingress.assistantId).toBe("ingress-test");
-    expect(loadLastTunnel(ws)).toEqual({
-      provider: "cloudflare",
-      publicBaseUrl: "https://a.trycloudflare.com",
-    });
-    expect(loadRecordedAssistantId(ws)).toBe("ingress-test");
   });
 
   test("clearIngressUrl drops the URL but keeps the tunnel and assistant records", () => {
@@ -149,12 +144,13 @@ describe("last-tunnel record", () => {
 
     clearIngressUrl(ws);
 
-    expect(readIngress(ws).publicBaseUrl).toBeUndefined();
-    expect(loadLastTunnel(ws)).toEqual({
+    const ingress = readIngress(ws);
+    expect(ingress.publicBaseUrl).toBeUndefined();
+    expect(ingress.lastTunnel).toEqual({
       provider: "tailscale",
       publicBaseUrl: "https://tunnel.example.ts.net",
     });
-    expect(loadRecordedAssistantId(ws)).toBe("ingress-test");
+    expect(ingress.assistantId).toBe("ingress-test");
   });
 
   test("saving without a provider leaves an existing lastTunnel untouched", () => {
@@ -163,69 +159,31 @@ describe("last-tunnel record", () => {
 
     saveIngressUrl(ws, "https://two.ngrok.app");
 
-    expect(readIngress(ws).publicBaseUrl).toBe("https://two.ngrok.app");
-    expect(loadLastTunnel(ws)).toEqual({
+    const ingress = readIngress(ws);
+    expect(ingress.publicBaseUrl).toBe("https://two.ngrok.app");
+    expect(ingress.lastTunnel).toEqual({
       provider: "ngrok",
       publicBaseUrl: "https://one.ngrok.app",
     });
   });
 
-  test("loadLastTunnel returns null for missing, unknown, or empty records", () => {
-    const missing = makeWorkspace();
-    expect(loadLastTunnel(missing)).toBeNull();
-    expect(loadRecordedAssistantId(missing)).toBeNull();
+  test("saving without a provider records no tunnel", () => {
+    const ws = makeWorkspace();
 
-    saveIngressUrl(missing, "https://one.ngrok.app");
-    expect(loadLastTunnel(missing)).toBeNull();
-    expect(loadRecordedAssistantId(missing)).toBeNull();
+    saveIngressUrl(ws, "https://one.ngrok.app");
 
-    const unknown = makeWorkspace();
-    writeFileSync(
-      join(unknown, "config.json"),
-      JSON.stringify({
-        ingress: {
-          lastTunnel: {
-            provider: "wireguard",
-            publicBaseUrl: "https://x.test",
-          },
-        },
-      }),
-    );
-    expect(loadLastTunnel(unknown)).toBeNull();
-
-    const emptyUrl = makeWorkspace();
-    writeFileSync(
-      join(emptyUrl, "config.json"),
-      JSON.stringify({
-        ingress: { lastTunnel: { provider: "ngrok", publicBaseUrl: "  " } },
-      }),
-    );
-    expect(loadLastTunnel(emptyUrl)).toBeNull();
+    const ingress = readIngress(ws);
+    expect(ingress.lastTunnel).toBeUndefined();
+    expect(ingress.assistantId).toBeUndefined();
   });
 
-  test("loadLastTunnel rejects a URL that is not absolute HTTP(S)", () => {
-    for (const publicBaseUrl of [
-      "not-a-url",
-      "one.ngrok.app",
-      "ftp://one.ngrok.app",
-      "https://one.ngrok.app?token=x",
-    ]) {
-      const ws = makeWorkspace();
-      writeFileSync(
-        join(ws, "config.json"),
-        JSON.stringify({
-          ingress: { lastTunnel: { provider: "ngrok", publicBaseUrl } },
-        }),
-      );
-      expect(loadLastTunnel(ws)).toBeNull();
-    }
-  });
-
-  test("every provider in the shared registry round-trips", () => {
+  test("every provider the CLI writes is one the shared parser accepts", () => {
+    // The daemon reads these records through parseLastTunnelRecord, so what
+    // `vellum tunnel` writes has to survive that parse for every provider.
     for (const provider of TUNNEL_PROVIDERS) {
       const ws = makeWorkspace();
       saveIngressUrl(ws, `https://${provider}.test`, undefined, provider);
-      expect(loadLastTunnel(ws)).toEqual({
+      expect(parseLastTunnelRecord(readIngress(ws).lastTunnel)).toEqual({
         provider,
         publicBaseUrl: `https://${provider}.test`,
       });
