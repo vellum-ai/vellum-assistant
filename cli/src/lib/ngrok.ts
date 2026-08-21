@@ -235,8 +235,8 @@ function hasNonNgrokIngressUrl(workspaceDir: string): boolean {
  * non-ngrok ingress URL is present. Designed to be called during daemon/gateway
  * startup. Non-fatal: if ngrok is unavailable or fails, startup continues.
  *
- * `assistantId` is what the recorded tunnel fronts — without it an automatic
- * start would leave `ingress.assistantId` absent or stale from an earlier run.
+ * `assistantId` records what the tunnel fronts. Without it, an automatic start
+ * would leave `ingress.assistantId` absent or stale from an earlier run.
  *
  * Returns the spawned ngrok child process (for PID tracking) or null.
  */

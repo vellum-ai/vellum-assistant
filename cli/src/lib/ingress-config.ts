@@ -18,16 +18,20 @@ import {
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
  */
 
-export type TunnelProviderName = "ngrok" | "cloudflare" | "tailscale";
+/**
+ * The local tunnel providers the CLI can start, in the order they are offered.
+ * Single source of truth: the provider type, the persisted-record validation
+ * below, and `vellum tunnel`'s accepted `--provider` values all derive from it.
+ */
+export const TUNNEL_PROVIDERS = ["ngrok", "cloudflare", "tailscale"] as const;
 
-const TUNNEL_PROVIDER_NAMES: readonly string[] = [
-  "ngrok",
-  "cloudflare",
-  "tailscale",
-];
+export type TunnelProviderName = (typeof TUNNEL_PROVIDERS)[number];
 
 function isTunnelProviderName(value: unknown): value is TunnelProviderName {
-  return typeof value === "string" && TUNNEL_PROVIDER_NAMES.includes(value);
+  return (
+    typeof value === "string" &&
+    (TUNNEL_PROVIDERS as readonly string[]).includes(value)
+  );
 }
 
 /** The tunnel that most recently ran, kept after teardown so UIs can name the command to restart. */
@@ -97,7 +101,7 @@ function stampLockfileIngressUrl(
 /**
  * Persist a public ingress URL to the workspace config and enable ingress.
  * `provider`/`assistantId` also land under `ingress.lastTunnel` and
- * `ingress.assistantId` — workspace-only records the daemon reads to report
+ * `ingress.assistantId`: workspace-only records the daemon reads to report
  * tunnel health, deliberately not mirrored onto the lockfile.
  */
 export function saveIngressUrl(
@@ -184,7 +188,7 @@ export function clearIngressUrl(
 ): void {
   const config = loadRawConfig(workspaceDir);
   const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  // `lastTunnel`/`assistantId` survive teardown on purpose — readers name the
+  // `lastTunnel`/`assistantId` survive teardown on purpose: readers name the
   // tunnel to restart once it is gone.
   delete ingress.publicBaseUrl;
   config.ingress = ingress;

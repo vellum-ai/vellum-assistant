@@ -27,6 +27,7 @@ import * as ngrok from "../lib/ngrok.js";
 import * as nginxIngress from "../lib/nginx-ingress.js";
 import * as tailscaleTunnel from "../lib/tailscale-tunnel.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
+import { TUNNEL_PROVIDERS } from "../lib/ingress-config.js";
 
 const realCloudflareTunnel = { ...cloudflareTunnel };
 const realNgrok = { ...ngrok };
@@ -673,6 +674,23 @@ describe("tunnel edge targeting", () => {
     expect(errors).toContain("bun install -g vellum@latest");
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("accepts every provider in the shared registry", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const provider of TUNNEL_PROVIDERS) {
+        writeLockfile(makeLocalEntry());
+        process.argv = ["bun", "vellum", "tunnel", "--provider", provider];
+
+        const { exited, errors } = await runTunnelExpectingExit1();
+
+        expect(exited).toBe(false);
+        expect(errors).not.toContain("unknown tunnel provider");
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   test("threads --domain through to runNgrokTunnel", async () => {

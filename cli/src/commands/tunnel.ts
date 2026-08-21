@@ -11,6 +11,7 @@ import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import {
   getDefaultWorkspaceDir,
   saveNgrokDomain,
+  TUNNEL_PROVIDERS,
 } from "../lib/ingress-config.js";
 import {
   ensureTunnelEdge,
@@ -22,7 +23,10 @@ import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
 import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 
-const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
+// `vellum` is the managed option this command owns; the local providers come
+// from the shared registry so validation here cannot drift from what the
+// workspace config accepts.
+const VALID_PROVIDERS = ["vellum", ...TUNNEL_PROVIDERS] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
 
 const DEFAULT_PROVIDER: TunnelProvider = "tailscale";

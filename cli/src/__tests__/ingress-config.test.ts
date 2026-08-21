@@ -12,6 +12,7 @@ import {
   loadLastTunnel,
   loadRecordedAssistantId,
   saveIngressUrl,
+  TUNNEL_PROVIDERS,
 } from "../lib/ingress-config.js";
 
 function writeLockfile(entry: Record<string, unknown>): void {
@@ -200,5 +201,16 @@ describe("last-tunnel record", () => {
       }),
     );
     expect(loadLastTunnel(emptyUrl)).toBeNull();
+  });
+
+  test("every provider in the shared registry round-trips", () => {
+    for (const provider of TUNNEL_PROVIDERS) {
+      const ws = makeWorkspace();
+      saveIngressUrl(ws, `https://${provider}.test`, undefined, provider);
+      expect(loadLastTunnel(ws)).toEqual({
+        provider,
+        publicBaseUrl: `https://${provider}.test`,
+      });
+    }
   });
 });
