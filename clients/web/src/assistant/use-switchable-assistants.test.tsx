@@ -1,9 +1,9 @@
 /**
- * Tests for `useSwitchableAssistants`: the gate (flag pair + gateway-auth
- * mode) and the list derivation (org validity, device reachability,
- * per-kind accessibility, and the two-entry floor) the sidebar switcher
- * renders from. The resolved-assistants and feature-flag stores are real;
- * the environment probes around them are mocked per test.
+ * Tests for `useSwitchableAssistants`: the remote-gateway gate and the list
+ * derivation (org validity, device reachability, per-kind accessibility, and
+ * the two-entry floor) the sidebar switcher renders from. The
+ * resolved-assistants store is real; the environment probes around it are
+ * mocked per test.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -33,9 +33,6 @@ mock.module("@/stores/auth-store", () => ({
 
 const { useResolvedAssistantsStore } = await import(
   "@/stores/resolved-assistants-store"
-);
-const { useClientFeatureFlagStore } = await import(
-  "@/stores/client-feature-flag-store"
 );
 const { useSwitchableAssistants } = await import(
   "@/assistant/use-switchable-assistants"
@@ -69,10 +66,6 @@ beforeEach(() => {
   organizationId = "org-1";
   hasPlatformSession = true;
   seed([]);
-  useClientFeatureFlagStore.setState({
-    multiPlatformAssistant: false,
-    assistantSwitcher: true,
-  });
 });
 
 afterEach(() => {
@@ -80,24 +73,9 @@ afterEach(() => {
 });
 
 describe("useSwitchableAssistants gate", () => {
-  test("closed with both flags off, whatever the list holds", () => {
-    useClientFeatureFlagStore.setState({
-      multiPlatformAssistant: false,
-      assistantSwitcher: false,
-    });
+  test("open with two switchable entries", () => {
     seed([platform("a1"), platform("a2")]);
 
-    expect(run().canSwitch).toBe(false);
-  });
-
-  test("either flag alone opens it", () => {
-    seed([platform("a1"), platform("a2")]);
-    expect(run().canSwitch).toBe(true);
-
-    useClientFeatureFlagStore.setState({
-      multiPlatformAssistant: true,
-      assistantSwitcher: false,
-    });
     expect(run().canSwitch).toBe(true);
   });
 

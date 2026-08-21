@@ -760,14 +760,23 @@ export const installCompanionWindow = (): void => {
     }
     const current = readCompanionSize();
     const menu = Menu.buildFromTemplate([
-      ...COMPANION_SIZES.map((size) => ({
-        label: COMPANION_SIZE_LABELS[size],
-        type: "radio" as const,
-        checked: current === size,
-        click: () => {
-          setCompanionSurfaceSize(size);
-        },
-      })),
+      {
+        // The sizes sit under a heading rather than flat at the top level.
+        // Flat, the first thing a right-click offered was four words that only
+        // read as sizes once you had noticed they were sizes, and the one item
+        // that was not a size sat at the end of the same list. A named submenu
+        // says what the four are before it shows them, and leaves the top level
+        // short enough to read at a glance.
+        label: "Size",
+        submenu: COMPANION_SIZES.map((size) => ({
+          label: COMPANION_SIZE_LABELS[size],
+          type: "radio" as const,
+          checked: current === size,
+          click: () => {
+            setCompanionSurfaceSize(size);
+          },
+        })),
+      },
       { type: "separator" as const },
       {
         // Named for what it does to the thing under the cursor. The tray's item

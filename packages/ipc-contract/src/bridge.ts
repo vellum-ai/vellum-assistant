@@ -5,9 +5,10 @@
  * Capability surfaces are required: the preload implements every method, so
  * this interface type-checks completeness at the implementation site.
  * Compatibility discriminators can be optional when an absent field has a
- * defined fallback. The renderer's `declare global` also makes
- * version-skew-tolerant capabilities optional because older preloads may not
- * expose them.
+ * defined fallback, and a surface that only one desktop shell can back is
+ * optional with a doc comment naming the shell that lacks it. The renderer's
+ * `declare global` also makes version-skew-tolerant capabilities optional
+ * because older preloads may not expose them.
  *
  * This is the single canonical definition of the bridge shape. The
  * preload types its `contextBridge.exposeInMainWorld` value against this
@@ -387,8 +388,10 @@ export interface VellumBridge {
    * different halves: the window holding the session drives `start`/`update`/
    * `end` and listens for `onControl`; the companion surface's own route reads
    * the session off `companion.onState` and presses `control`.
+   *
+   * Absent on shells without a companion surface (the Windows shell).
    */
-  voiceActivity: {
+  voiceActivity?: {
     start(state: VoiceActivityStart): void;
     update(content: VoiceActivityContent): void;
     end(): void;
@@ -402,8 +405,10 @@ export interface VellumBridge {
    * and reports whether the pointer is over the pill so main can make the
    * window clickable without the transparent canvas swallowing clicks meant for
    * whatever is behind it.
+   *
+   * Absent on shells without a companion surface (the Windows shell).
    */
-  companion: {
+  companion?: {
     getState(): Promise<CompanionSurfaceState | null>;
     onState(callback: (state: CompanionSurfaceState) => void): () => void;
     setInteractive(interactive: boolean): void;
@@ -485,3 +490,51 @@ export interface VellumBridge {
     onState(callback: (state: UpdateState) => void): () => void;
   };
 }
+
+/**
+ * Every top-level `VellumBridge` capability, for runtime parity checks. The
+ * `satisfies` below fails to compile when the interface gains a key this list
+ * lacks.
+ */
+export const VELLUM_BRIDGE_KEYS = [
+  "platform",
+  "hostOS",
+  "app",
+  "text",
+  "auth",
+  "hotkeys",
+  "launchAtLogin",
+  "featureFlags",
+  "diagnostics",
+  "helper",
+  "permissions",
+  "commands",
+  "status",
+  "identity",
+  "icon",
+  "dock",
+  "share",
+  "localMode",
+  "menu",
+  "mainWindow",
+  "power",
+  "deepLinks",
+  "fileOpen",
+  "paths",
+  "feedback",
+  "connectivity",
+  "notifications",
+  "bundleConfirm",
+  "quickInput",
+  "commandPalette",
+  "dictationOverlay",
+  "voiceActivity",
+  "companion",
+  "popout",
+  "update",
+] as const satisfies readonly (keyof VellumBridge)[];
+
+({}) satisfies Record<
+  Exclude<keyof VellumBridge, (typeof VELLUM_BRIDGE_KEYS)[number]>,
+  never
+>;

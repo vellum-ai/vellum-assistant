@@ -81,8 +81,11 @@ export {
   getGuardianAccessToken,
   getPairedGuardianAccessToken,
   isConfidentialRefreshUrl,
+  formatGuardianRefreshCliFailure,
+  parseGuardianRefreshCliFailure,
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   PAIRED_GUARDIAN_TARGET_MISMATCH_ERROR,
+  GUARDIAN_REFRESH_ERROR_PREFIX,
   saveGuardianToken,
 } from "./guardian-token";
 export type {
