@@ -235,12 +235,15 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     })),
 
   // Only the holder may release, so a response that has been superseded cannot
-  // reopen the double-submit guard for whoever holds it now.
+  // reopen the double-submit guard for whoever holds it now. Returns `state`
+  // itself for a non-holder rather than an empty patch: zustand skips the
+  // notification only on an identical reference, and a superseded resume
+  // calling this is the ordinary case, not the rare one.
   releaseSubmission: (kind, requestId) =>
     set((state) =>
       state.submittingByKind[kind] === requestId
         ? { submittingByKind: { ...state.submittingByKind, [kind]: null } }
-        : {},
+        : state,
     ),
 
   // ----- Secret -----
@@ -385,7 +388,7 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   showAcpConnect: (payload) =>
     set((state) =>
       state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)
-        ? {}
+        ? state
         : { pendingAcpConnect: payload },
     ),
 

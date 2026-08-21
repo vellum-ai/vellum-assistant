@@ -28,7 +28,8 @@ export async function handleSecretSubmit(
   delivery: string = "store",
 ): Promise<void> {
   const { pendingSecret, submittingByKind } = useInteractionStore.getState();
-  // Guards double-submitting this prompt, not any prompt.
+  // Guards double-submitting this prompt, not any prompt; see
+  // `prompt-submission.ts` for why that is not "anything in flight".
   if (!pendingSecret || submittingByKind.secret === pendingSecret.requestId) {
     return;
   }

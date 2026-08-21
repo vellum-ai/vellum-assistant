@@ -26,7 +26,8 @@ export async function handleContactPromptSubmit(
 ): Promise<void> {
   const { pendingContactRequest, submittingByKind } =
     useInteractionStore.getState();
-  // Guards double-submitting this prompt, not any prompt.
+  // Guards double-submitting this prompt, not any prompt; see
+  // `prompt-submission.ts` for why that is not "anything in flight".
   if (
     !pendingContactRequest ||
     submittingByKind.contactRequest === pendingContactRequest.requestId

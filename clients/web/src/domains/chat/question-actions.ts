@@ -66,11 +66,8 @@ export async function handleQuestionResponse(
 ): Promise<void> {
   const { pendingQuestion: snapshot, submittingByKind } =
     useInteractionStore.getState();
-  // Guards double-submitting *this* prompt, not any prompt. A newer prompt
-  // supersedes an older one while its answer is still on the wire, and the user
-  // must be able to answer what is now in front of them; starting that
-  // submission is what moves ownership, and the older one stands down when it
-  // returns.
+  // Guards double-submitting this prompt, not any prompt; see
+  // `prompt-submission.ts` for why that is not "anything in flight".
   if (!snapshot || submittingByKind.question === snapshot.requestId) {
     return;
   }

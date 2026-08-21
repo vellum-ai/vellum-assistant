@@ -11,12 +11,28 @@
  * Two questions follow from that, and they have different answers, which is why
  * they are asked separately here rather than inferred from the store at each
  * call site.
+ *
+ * The same identity drives the double-submit guard every submit path opens
+ * with: it compares the slot against *this* prompt's request, not against
+ * "anything in flight". A newer prompt supersedes an older one while that
+ * older answer is still on the wire, and the user has to be able to answer
+ * what is now in front of them. Starting that submission is what moves
+ * ownership; the older one stands down when it returns.
  */
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 
-/** The prompt kinds that can have a submission in flight. */
+/**
+ * The prompt kinds that can have a submission in flight.
+ *
+ * Deliberately not `UserFacingInteractionKind`, which it overlaps on three
+ * members. That union mirrors the daemon's registry enum; this one names the
+ * cards the client can be mid-submit on. `contactRequest` is client-only and
+ * has no daemon interaction at all, and `acp_confirmation` shares the
+ * confirmation card and so shares its slot rather than owning one. Merging
+ * them would give two of these four the wrong answer.
+ */
 export type PromptKind =
   | "confirmation"
   | "question"
