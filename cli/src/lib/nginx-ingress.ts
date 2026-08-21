@@ -921,6 +921,23 @@ export interface TunnelEdge {
 }
 
 /**
+ * Recovery text for a drifted edge that outlived the automatic restart.
+ * `startRemoteWebIngress` already escalated SIGTERM to SIGKILL before
+ * reporting `already-running`, so the only thing left is the wedged process
+ * itself: name its PID and log so the user can clear it by hand.
+ */
+function stuckEdgeRecoveryHint(workspaceDir: string): string {
+  const { logPath } = getIngressPaths(workspaceDir);
+  const pid = getIngressPid(workspaceDir);
+  const target = pid !== null ? `the nginx process (PID ${pid})` : "it";
+  return (
+    `Vellum could not stop ${target}, even with SIGKILL. ` +
+    `Stop it by hand and retry, or run \`vellum sleep\` to shut the ` +
+    `assistant down entirely. Check the nginx log: ${logPath}`
+  );
+}
+
+/**
  * Bring up the nginx edge as the canonical tunnel target and return the listen
  * port a tunnel should front.
  *
@@ -970,7 +987,7 @@ export async function ensureTunnelEdge(opts: {
         throw new Error(
           "The nginx edge is still running in webhooks-only mode " +
             "and could not be restarted in web app mode. " +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       if (result.gatewayPort !== opts.gatewayPort) {
@@ -981,14 +998,14 @@ export async function ensureTunnelEdge(opts: {
         throw new Error(
           `The nginx edge is ${upstream} ` +
             `and could not be restarted against port ${opts.gatewayPort}. ` +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       if (result.staleRemoteWebConfig) {
         throw new Error(
           "The nginx edge is still serving an outdated remote web config " +
             "and could not be restarted with the updated one. " +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       return {
