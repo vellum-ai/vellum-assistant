@@ -251,17 +251,23 @@ export interface VoiceTurnCallbacks {
     detail?: { toolUseId?: string; input?: Record<string, unknown> },
   ) => void;
   /**
-   * Fired when the provider OPENS a tool-use content block, before its input
-   * JSON streams - earlier and weaker than `tool_use_start`, which waits for a
-   * definitive, parsed call.
+   * Fired when the provider OPENS any tool block, before its input streams -
+   * earlier and weaker than `tool_use_start`, which waits for a definitive,
+   * parsed call.
    *
    * Consumers must not use this to display or act on a tool: the call may
    * never materialize. It is a structural signal about the RESPONSE, not the
-   * tool - once a tool-use block opens, the text block before it is closed, so
-   * any text streamed since the last block boundary was working commentary
-   * rather than the turn's answer.
+   * tool - once a tool block opens, the text block before it is closed, so any
+   * text streamed since the last block boundary was working commentary rather
+   * than the turn's answer.
+   *
+   * Both client-executed tools (`tool_use_preview_start`) and provider-native
+   * ones such as web search (`server_tool_start`) fire this. They are one
+   * concept here deliberately: a consumer that tracked only the former would
+   * silently miss every block boundary on a server-tool turn, and the text
+   * before that boundary would be misread as part of the answer.
    */
-  tool_use_preview_start?: (toolName: string, toolUseId: string) => void;
+  tool_block_opened?: (toolName: string, toolUseId: string) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
@@ -1718,10 +1724,12 @@ export async function startVoiceTurn(
             // structural signal about the response. Activity display stays on
             // the definitive `tool_use_start`, which is the only tool event a
             // consumer may show or act on.
-            opts.callbacks?.tool_use_preview_start?.(
-              msg.toolName,
-              msg.toolUseId,
-            );
+            opts.callbacks?.tool_block_opened?.(msg.toolName, msg.toolUseId);
+          } else if (msg.type === "server_tool_start") {
+            // A provider-native tool (web search and friends) opens a block the
+            // same way, and there is no preview event for it. Same boundary,
+            // same callback: text before it is commentary, not the answer.
+            opts.callbacks?.tool_block_opened?.(msg.name, msg.toolUseId);
           } else if (msg.type === "tool_result") {
             eventSink.onToolResult({
               toolName: msg.toolName,
