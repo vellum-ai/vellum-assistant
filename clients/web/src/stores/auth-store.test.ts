@@ -324,6 +324,18 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
+// The iOS widget snapshot outlives the page, so every session-ending path has
+// to drop it. Full module surface: `mock.module` is process-global in bun, so
+// a partial shape would shadow the other exports for later test files.
+const clearWidgetSnapshotMock = mock(async () => {});
+mock.module("@/runtime/widget-snapshot", () => ({
+  WIDGET_SNAPSHOT_SCHEMA_VERSION: 1,
+  isWidgetSnapshotSyncAvailable: () => false,
+  readWidgetSnapshotAssistantId: () => null,
+  syncWidgetSnapshot: async () => {},
+  clearWidgetSnapshot: clearWidgetSnapshotMock,
+}));
+
 // Use the REAL resolved-assistants store: it's dependency-light, so loading it
 // for real is cheap, and the `beforeEach` resets it between tests. (The list is
 // now loaded by the platform-assistants-sync subscription, not the auth store —
@@ -461,6 +473,7 @@ beforeEach(() => {
   mockFetchConsentError = null;
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
+  clearWidgetSnapshotMock.mockClear();
   logoutMock.mockClear();
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
@@ -1703,6 +1716,150 @@ describe("session cleanup on logout", () => {
     await useAuthStore.getState().logout();
 
     expect(order).toEqual(["reset", "clear:null"]);
+  });
+});
+
+// A Home Screen widget is readable without unlocking the device, so the iOS
+// widget snapshot must not outlive the session it was built from. Explicit
+// logout is the rare way a session ends; a revoked or expired one settles
+// through `refreshSession` or `initSession` instead, so the drop belongs to
+// the shared session-ended transition rather than to `logout()`.
+describe("iOS widget snapshot on session end", () => {
+  test("logout drops the widget snapshot", async () => {
+    await useAuthStore.getState().logout();
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("gateway logout drops the widget snapshot", async () => {
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the drop completes before the session leaves authenticated", async () => {
+    // The state write is what hands a signed-out page to its redirect, which
+    // on the logout path can be a hard navigation. A detached bridge call
+    // would race that teardown.
+    let statusAtClearTime = useAuthStore.getState().sessionStatus;
+    clearWidgetSnapshotMock.mockImplementationOnce(async () => {
+      statusAtClearTime = useAuthStore.getState().sessionStatus;
+    });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(statusAtClearTime).toBe("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("a settled 401 on refreshSession drops the widget snapshot", async () => {
+    // The revoked-session path: no logout call ever runs, so this is the one
+    // chance to drop the previous account's conversation titles.
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed remote-gateway refresh drops the widget snapshot", async () => {
+    mockIsRemoteGatewayMode = true;
+    useAuthStore.setState({ ...authenticatedLocalUserForTest() });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a boot probe that finds no session drops the widget snapshot", async () => {
+    sessionUser = null;
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an exhausted gateway prime drops the widget snapshot", async () => {
+    // Boot ends the authenticated session after the startup-retry budget is
+    // spent, so the previous session's titles must not survive on the Home
+    // Screen while the app shows the recovery controls.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the exhausted gateway prime leaves the platform probe unsettled", async () => {
+    // The snapshot drop must not drag the rest of the `sessionEnded()`
+    // transition along: writing `platformSession: "absent"` here would settle
+    // the probe on a value the follow-up probe is about to replace.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "unknown" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().platformSession).toBe("unknown");
+
+    gates[0]?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("an inconclusive probe keeps the session and the widget snapshot", async () => {
+    // Offline resume (LUM-2412): the session never ended, so blanking the
+    // widgets would be a regression, not a cleanup.
+    getSessionThrows = true;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(clearWidgetSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  test("a local session that survives a settled 401 keeps the widget snapshot", async () => {
+    // The demotion path drops the platform user but not the session, so the
+    // local assistant's conversations are still the user's own.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "unknown",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(clearWidgetSnapshotMock).not.toHaveBeenCalled();
   });
 });
 

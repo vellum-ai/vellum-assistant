@@ -34,6 +34,7 @@ import {
   readUserSnapshot,
 } from "@/lib/auth/user-snapshot";
 import { getElectronSessionToken } from "@/runtime/session-token";
+import { clearWidgetSnapshot } from "@/runtime/widget-snapshot";
 import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
@@ -222,6 +223,42 @@ const sessionEnded = (): Partial<AuthState> => ({
   user: null,
   platformSession: "absent",
 });
+
+/**
+ * Apply the {@link sessionEnded} transition. Every path that ends a session
+ * goes through here, not through a bare `set(sessionEnded())`, because a
+ * session ends far more often without an explicit `logout()` than with one:
+ * a revoked or expired session settles through `refreshSession`'s 401 branch,
+ * and a boot that finds no session settles through `initSession`.
+ *
+ * The one thing that has to happen off-store is dropping the iOS widget
+ * snapshot. A Home Screen widget is readable without unlocking the device, so
+ * the previous account's conversation titles must not outlive the session that
+ * produced them, whichever way it ended. No-op off Capacitor iOS.
+ *
+ * Awaited BEFORE the state write: the write is what flips signed-in surfaces
+ * to the login screen, and on the logout path that can end in a hard
+ * navigation that tears the page down before a detached bridge call would
+ * reach the shell.
+ *
+ * `keepPlatformSession` omits the `platformSession: "absent"` half of the
+ * transition for the one caller that ends the session with a platform probe
+ * still in flight. Writing `"absent"` there would settle
+ * {@link isPlatformSessionSettled} on a value the probe is about to replace,
+ * and consumers that gate on the settle (the billing tab rewrite,
+ * `usePlatformGate`) would act on it. The snapshot drop is unconditional.
+ */
+async function endSession(
+  set: AuthSet,
+  options?: { keepPlatformSession?: boolean },
+): Promise<void> {
+  await clearWidgetSnapshot();
+  set(
+    options?.keepPlatformSession
+      ? { sessionStatus: "unauthenticated", user: null }
+      : sessionEnded(),
+  );
+}
 
 /**
  * A `getSession()` outcome that says nothing about the session itself —
@@ -861,7 +898,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       if (await hasRemoteGatewaySessionAfterRefresh()) {
         set({ ...authenticatedLocalUser(), platformSession: "absent" });
       } else {
-        set(sessionEnded());
+        await endSession(set);
       }
       return;
     }
@@ -879,7 +916,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       } catch {
         // Gateway prime failed: settle to unauthenticated but leave
         // `platformSession` for the follow-up probe to resolve.
-        set({ sessionStatus: "unauthenticated", user: null });
+        await endSession(set, { keepPlatformSession: true });
       }
       probePlatformSessionIfReachable(set);
       return;
@@ -920,7 +957,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         } else {
           clearUserSnapshot();
         }
-        set(sessionEnded());
+        await endSession(set);
         return;
       }
       set(authenticatedLocalUser());
@@ -989,7 +1026,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     if (!isInconclusiveProbe(result)) {
       clearUserSnapshot();
     }
-    set(sessionEnded());
+    await endSession(set);
   },
 
   /**
@@ -1087,7 +1124,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         set({ ...authenticatedLocalUser(), platformSession: "absent" });
         return true;
       }
-      set(sessionEnded());
+      await endSession(set);
       return false;
     }
 
@@ -1105,7 +1142,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         }
         set({ sessionStatus: "authenticated" });
       } catch {
-        set(sessionEnded());
+        await endSession(set);
         return false;
       }
       probePlatformSessionIfReachable(set, { clearOnFailure: true });
@@ -1181,7 +1218,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     }
     clearUserSnapshot();
     await syncUserScopedState(null);
-    set(sessionEnded());
+    await endSession(set);
     return false;
   },
 
@@ -1200,7 +1237,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();
-      set(sessionEnded());
+      await endSession(set);
       broadcastAuthChange();
       return;
     }
@@ -1233,7 +1270,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // removed the persisted key, and a surviving slice would resolve the
       // previous user's assistant after re-login.
       await setSelectedAssistant(null);
-      set(sessionEnded());
+      await endSession(set);
       broadcastAuthChange();
     }
   },
