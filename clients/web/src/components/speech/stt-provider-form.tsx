@@ -13,6 +13,7 @@ import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
@@ -30,7 +31,7 @@ import {
 } from "@/utils/local-settings-keys";
 import {
   MACOS_NATIVE_STT_PROVIDER_ID,
-  STT_PROVIDERS,
+  sttProvidersForHostOS,
 } from "@/lib/provider-catalogs";
 import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
 import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
@@ -117,10 +118,10 @@ export function SttProviderForm({
   const isOrgReady = useIsOrgReady();
   const queryClient = useQueryClient();
   // Capability is fixed for the renderer's lifetime, so compute the offered
-  // list once: the native provider only exists inside the macOS Electron
-  // shell, where the helper's SFSpeechRecognizer bridge is wired.
+  // list once because host OS and preload capabilities do not change while
+  // the renderer is running.
   const [providers] = useState(() =>
-    STT_PROVIDERS.filter(
+    sttProvidersForHostOS(detectElectronHostOS()).filter(
       (p) => !p.requiresNativeDictation || isNativeDictationSupported(),
     ),
   );

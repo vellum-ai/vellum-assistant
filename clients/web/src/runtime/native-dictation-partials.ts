@@ -44,7 +44,7 @@ function dictationBridge() {
  * True when the renderer can route dictation through the native helper's
  * on-device recognizer, i.e. an Electron shell with a preload new
  * enough to expose the dictation bridge. Settings uses this to decide
- * whether to offer the "macOS Native Dictation" STT provider at all.
+ * whether to offer the desktop-native dictation provider at all.
  *
  * Requires the one-shot `transcribe`/`onTranscribed` surface, not just the
  * partials methods: those members are optional for version-skew tolerance,

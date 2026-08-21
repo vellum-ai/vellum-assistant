@@ -5,6 +5,7 @@
  * corresponding settings card to populate dropdowns, display credential
  * guides, and gate feature availability.
  */
+import type { ElectronHostOS } from "@vellumai/ipc-contract";
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -115,8 +116,7 @@ export interface STTProvider {
   displayName: string;
   subtitle: string;
   /**
-   * Only offered when the renderer can reach the mac helper's
-   * `SFSpeechRecognizer` (the macOS Electron shell) — see
+   * Only offered when the renderer can reach a desktop-native recognizer. See
    * `isNativeDictationSupported()` in `@/runtime/native-dictation-partials`.
    */
   requiresNativeDictation?: boolean;
@@ -131,9 +131,9 @@ export interface STTProvider {
 }
 
 /**
- * STT provider id for Apple's on-device recognition. Not a daemon provider:
- * when selected, dictation routes through the mac helper's recognizer and
- * never calls `/v1/stt/transcribe`. Duplicated as a literal in
+ * Stable id for native desktop recognition. The macOS-prefixed value is kept
+ * for persisted settings compatibility. Native recognition never calls
+ * `/v1/stt/transcribe`. Duplicated as a literal in
  * `@/domains/chat/voice/stt-api.ts` (`prefersMacosNativeStt`) — cross-domain
  * constants stay duplicated there, like the `LS_STT_*` keys.
  */
@@ -181,6 +181,29 @@ export const STT_PROVIDERS: readonly STTProvider[] = [
       "Requires macOS Dictation to be turned on: open System Settings → Keyboard, then enable Dictation. macOS downloads the on-device speech model the first time Dictation is enabled — without it, voice input produces no transcript.",
   },
 ];
+
+const WINDOWS_NATIVE_STT_PROVIDER: STTProvider = {
+  id: MACOS_NATIVE_STT_PROVIDER_ID,
+  displayName: "Windows Native Dictation",
+  subtitle:
+    "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
+  requiresNativeDictation: true,
+  setupWarning:
+    "Requires a Windows speech language pack: open Settings > Time & language > Language & region, choose your language's Language options, then install Speech.",
+};
+
+export function sttProvidersForHostOS(
+  hostOS: ElectronHostOS | null,
+): readonly STTProvider[] {
+  if (hostOS !== "windows") {
+    return STT_PROVIDERS;
+  }
+  return STT_PROVIDERS.map((provider) =>
+    provider.id === MACOS_NATIVE_STT_PROVIDER_ID
+      ? WINDOWS_NATIVE_STT_PROVIDER
+      : provider,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Email BYO

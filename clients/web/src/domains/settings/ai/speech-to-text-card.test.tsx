@@ -20,6 +20,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ElectronHostOS } from "@vellumai/ipc-contract";
 import {
   cleanup,
   fireEvent,
@@ -31,6 +32,10 @@ import {
 let nativeDictationSupported = false;
 mock.module("@/runtime/native-dictation-partials", () => ({
   isNativeDictationSupported: () => nativeDictationSupported,
+}));
+let electronHostOS: ElectronHostOS | null = "macos";
+mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () => electronHostOS,
 }));
 
 const ASSISTANT_ID = "asst-test";
@@ -146,6 +151,7 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
   beforeEach(() => {
     localStorage.clear();
     nativeDictationSupported = false;
+    electronHostOS = "macos";
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
     daemonConfigData = { services: {} };
@@ -184,6 +190,20 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // macOS native dictation is client-only — Save must not touch the daemon.
     expect(credentialsSetCalls.length).toBe(0);
     expect(configPatchCalls.length).toBe(0);
+  });
+
+  test("Windows uses native provider metadata for its speech stack", () => {
+    nativeDictationSupported = true;
+    electronHostOS = "windows";
+    renderCard();
+
+    openProviderSelect();
+    expect(visibleOptions()).toContain("Windows Native Dictation");
+    expect(visibleOptions()).not.toContain("macOS Native Dictation");
+
+    selectOption("Windows Native Dictation");
+    expect(screen.getByText(/Windows speech language pack/)).toBeTruthy();
+    expect(screen.queryByText(/System Settings/)).toBeNull();
   });
 
   test("selecting Deepgram and saving provisions the daemon (CES key + services.stt)", async () => {
