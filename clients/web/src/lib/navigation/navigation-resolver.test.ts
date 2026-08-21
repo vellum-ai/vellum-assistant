@@ -254,9 +254,7 @@ describe("resolveNavigation", () => {
     });
 
     // The platform build hosts the hub chooser: the route admits a settled
-    // authenticated user in every mode. The assistant-switcher flag gate for
-    // platform-mode access lives in the screen, which can wait on flag
-    // hydration; the resolver has no hydration signal to gate on.
+    // authenticated user in every mode.
     test("allows a consented authenticated non-local user on select-assistant", () => {
       expect(guard(s({ isLocalClient: false }), CHOOSER)).toEqual(ALLOW);
     });

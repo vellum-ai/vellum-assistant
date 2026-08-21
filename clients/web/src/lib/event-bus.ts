@@ -242,6 +242,20 @@ export interface BusEventMap {
   "connectivity.state": {
     state: "online" | "device-offline" | "backend-unreachable";
   };
+  /**
+   * The local gateway rejects the guardian token behind this session, past
+   * what the renderer can repair on its own: the `/auth/token` mint still
+   * answers 401 after the wake `primeLocalGatewayConnectionWithRepair` ran,
+   * and a plain wake never re-leases a guardian token. Only a guardian
+   * re-provision clears it, and that revokes the assistant's other
+   * device-bound tokens, so no automatic path may run it.
+   *
+   * Published by `localGatewayAuthRecoveryInterceptor`, which has no route
+   * to the user, once it has given up. `useGuardianRepairRoute` sends the
+   * session to the assistant chooser, whose connect path owns the
+   * re-provision.
+   */
+  "gateway.guardian-repair-required": Record<string, never>;
 }
 
 export type BusEventName = keyof BusEventMap;

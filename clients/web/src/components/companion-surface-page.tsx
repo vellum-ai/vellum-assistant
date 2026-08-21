@@ -434,6 +434,11 @@ export function CompanionSurfacePage() {
                 growth={growth}
                 cardGrowth={cardGrowth}
                 accentHex={accentHex}
+                // Same undefined-not-empty rule as the composer's placeholder
+                // above: the first beat introduces the creature by name, and
+                // before the app's window has published one there is no name to
+                // introduce it by.
+                assistantName={assistantName === "" ? undefined : assistantName}
                 cardRef={introRef}
                 onAdvance={advanceCompanionIntro}
               />

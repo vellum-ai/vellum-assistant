@@ -556,9 +556,7 @@ function enforceModeBoundary(
   // lockfile-driven picker, and the platform build hosts the hub chooser. The
   // non-local case falls through rather than allowing, so `requireConsent`
   // below still binds on this route; `requireAssistant` exempts it on purpose
-  // (see NO_ASSISTANT_EXEMPT_PATHS). The screen owns the assistant-switcher
-  // flag gate for platform-mode access, because the flag hydrates
-  // asynchronously and this resolver has no hydration signal.
+  // (see NO_ASSISTANT_EXEMPT_PATHS).
   if (path === routes.selectAssistant) {
     return state.isLocalClient ? localChooserDecision(state) : null;
   }

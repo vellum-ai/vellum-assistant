@@ -13,7 +13,6 @@ import type { LocalListDevicesResult } from "@/runtime/local-mode-host";
 
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
-let webRemoteIngressOn = true;
 let pairedDevicesUIOn = true;
 let selectedAssistant: {
   assistantId: string;
@@ -38,7 +37,6 @@ mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
-      webRemoteIngress: () => webRemoteIngressOn,
       pairedDevicesUI: () => pairedDevicesUIOn,
     },
   },
@@ -176,7 +174,6 @@ function typeUrl(value: string) {
 beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
-  webRemoteIngressOn = true;
   pairedDevicesUIOn = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
   listDevicesResult = { ok: false, error: "unavailable" };
@@ -212,14 +209,6 @@ describe("PairDeviceCard", () => {
 
   test("renders nothing against an assistant without the pairing routes", () => {
     supportsPairingRoutes = false;
-    const { container } = render(<PairDeviceCard />);
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByText("Pair a device")).toBeNull();
-  });
-
-  test("renders nothing when web-remote-ingress is off", () => {
-    // The client flag only controls the card's visibility.
-    webRemoteIngressOn = false;
     const { container } = render(<PairDeviceCard />);
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pair a device")).toBeNull();
@@ -297,14 +286,16 @@ describe("PairDeviceCard", () => {
     // Helper text explains the prefilled address came from `vellum tunnel`.
     expect(screen.getByText(/comes from/)).toBeTruthy();
     // A recorded tunnel URL suppresses the no-tunnel empty state.
-    expect(screen.queryByText("No tunnel detected")).toBeNull();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
   });
 
   test("shows honest no-tunnel guidance when no ingress URL and no stored value", () => {
     render(<PairDeviceCard />);
 
-    expect(screen.getByText("No tunnel detected")).toBeTruthy();
-    expect(screen.getByText(/vellum tunnel --provider tailscale/)).toBeTruthy();
+    expect(screen.getByText("Open a tunnel first")).toBeTruthy();
+    expect(screen.getByText("vellum tunnel --provider tailscale")).toBeTruthy();
+    expect(screen.getByText(/Paste it into Public URL below/)).toBeTruthy();
+    expect(screen.getByText("vellum tunnel --help")).toBeTruthy();
     // The manual field stays available beneath the guidance.
     expect(screen.getByLabelText("Public URL")).toBeTruthy();
     expect(
@@ -601,16 +592,6 @@ describe("PairDeviceCard: pending pairing requests", () => {
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pairing requests")).toBeNull();
     // The gate keeps the poll from ever firing.
-    expect(fetchLog).toHaveLength(0);
-  });
-
-  test("stays hidden with the card when web-remote-ingress is off", () => {
-    webRemoteIngressOn = false;
-    installPendingFetch();
-    const { container } = render(<PairDeviceCard />);
-
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByText("Pairing requests")).toBeNull();
     expect(fetchLog).toHaveLength(0);
   });
 });

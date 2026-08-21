@@ -18,4 +18,5 @@ export const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
   medium: "Medium",
   large: "Large",
   huge: "Huge",
+  ridiculous: "Ridiculous",
 };

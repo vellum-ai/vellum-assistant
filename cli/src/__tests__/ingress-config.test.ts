@@ -7,7 +7,12 @@ import { join } from "node:path";
 const testDir = mkdtempSync(join(tmpdir(), "ingress-config-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
-import { clearIngressUrl, saveIngressUrl } from "../lib/ingress-config.js";
+import {
+  clearIngressUrl,
+  parseGatewayPortFromEntryUrls,
+  saveIngressUrl,
+} from "../lib/ingress-config.js";
+import type { AssistantEntry } from "../lib/assistant-config.js";
 
 function writeLockfile(entry: Record<string, unknown>): void {
   writeFileSync(
@@ -99,5 +104,36 @@ describe("ingress lockfile mirroring", () => {
       saveIngressUrl(ws, "https://tunnel.example.ts.net", "no-such-assistant");
     }).not.toThrow();
     expect(readLockfileEntry().ingressUrl).toBeUndefined();
+  });
+});
+
+describe("parseGatewayPortFromEntryUrls", () => {
+  test("prefers the loopback localUrl over runtimeUrl", () => {
+    expect(
+      parseGatewayPortFromEntryUrls({
+        assistantId: "a",
+        localUrl: "http://127.0.0.1:7830",
+        runtimeUrl: "https://stale-tunnel.ngrok-free.dev",
+      } as AssistantEntry),
+    ).toBe(7830);
+  });
+
+  test("falls back to runtimeUrl when localUrl is absent", () => {
+    expect(
+      parseGatewayPortFromEntryUrls({
+        assistantId: "a",
+        runtimeUrl: "http://localhost:9123",
+      } as AssistantEntry),
+    ).toBe(9123);
+  });
+
+  test("is undefined when neither URL carries an explicit port", () => {
+    expect(
+      parseGatewayPortFromEntryUrls({
+        assistantId: "a",
+        runtimeUrl: "https://runtime.example.com/a",
+      } as AssistantEntry),
+    ).toBeUndefined();
+    expect(parseGatewayPortFromEntryUrls(undefined)).toBeUndefined();
   });
 });

@@ -24,6 +24,11 @@
  */
 
 import { getLogger } from "../logger.js";
+import {
+  defaultSchedule,
+  type CancelTimer,
+  type ScheduleFn,
+} from "../util/schedule.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import { admitDiscordMessage } from "./admit.js";
@@ -109,17 +114,6 @@ export interface GatewaySocketLike {
     listener: (event: { data?: unknown; code?: number }) => void,
   ): void;
 }
-
-/** Cancel handle returned by {@link ScheduleFn}. */
-export type CancelTimer = () => void;
-
-/** Injectable timer: schedule `fn` after `delayMs`, return a cancel handle. */
-export type ScheduleFn = (fn: () => void, delayMs: number) => CancelTimer;
-
-const defaultSchedule: ScheduleFn = (fn, delayMs) => {
-  const timer = setTimeout(fn, delayMs);
-  return () => clearTimeout(timer);
-};
 
 export interface DiscordGatewayClientOptions {
   botToken: string;

@@ -658,13 +658,22 @@ export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
  * Named rather than free, because the avatar's box is not a style: it is the
  * geometry both sides of the bridge agree on, and everything derives from it:
  * the pill's reach, the card's height, and the canvas sized to hold the largest
- * state. A continuous scale would be a layout nobody had ever looked at; four
- * steps are four layouts, each checkable in Storybook.
+ * state. A continuous scale would be a layout nobody had ever looked at; five
+ * steps are five layouts, each checkable in Storybook.
  *
- * `large` is the default. `small` is the size the surface's layout is authored
- * at, which every other step scales from.
+ * `medium` is the default. `small` is the size the surface's layout is authored
+ * at, which every other step scales from. `ridiculous` is the joke at the end
+ * of the scale, and it is a real step rather than a gag drawn some other way:
+ * every length on the surface is stated in `small`, so the largest step costs
+ * one number here and is drawn by the same code as the other four.
  */
-export const COMPANION_SIZES = ["small", "medium", "large", "huge"] as const;
+export const COMPANION_SIZES = [
+  "small",
+  "medium",
+  "large",
+  "huge",
+  "ridiculous",
+] as const;
 
 export type CompanionSize = (typeof COMPANION_SIZES)[number];
 
@@ -674,10 +683,26 @@ export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
   medium: 66,
   large: 88,
   huge: 110,
+  // Five times the authored size, which puts the canvas well past the width of
+  // any display it will be shown on. That is allowed: a canvas may hang off the
+  // left and right freely, and the card flips to growing downward when the
+  // display is too short for it, so the oversize step lands on paths the other
+  // four already take near an edge.
+  ridiculous: 220,
 };
 
-/** What the surface is drawn at when nothing has been chosen. */
-export const DEFAULT_COMPANION_SIZE: CompanionSize = "large";
+/**
+ * What the surface is drawn at when nothing has been chosen.
+ *
+ * The second step rather than the third. The companion arrives on the desktop
+ * without anyone having asked for it, over whatever the user was already
+ * working in, so it arrives at the size of an uninvited guest: big enough to be
+ * recognised as the creature it is, small enough that nobody has to move it
+ * before they can carry on. The steps above are for the users who then want it
+ * bigger, and the introduction's last beat is where they are told to find
+ * them (see {@link COMPANION_INTRO_BEATS}).
+ */
+export const DEFAULT_COMPANION_SIZE: CompanionSize = "medium";
 
 /**
  * The avatar's box the companion's layout is authored at, and the size every
@@ -785,14 +810,15 @@ export interface CompanionContext {
  *
  * A list rather than a count, because each beat names the control it sits over
  * and the renderer spotlights that control by name. Two of them have no
- * control to spotlight: `meet` is the avatar itself, and `tray` is about the
- * menu bar, which is the one part of this the surface cannot point at.
+ * control to spotlight: `meet` is the avatar itself, and `menu` is about a
+ * press rather than a control drawn on the pill.
  *
- * `tray` is last and is the answer to "how do I make this go away". A surface
- * that sits above every other window has to say where its own off switch is,
- * and it is the only thing here the user cannot find by looking at the pill.
+ * `menu` is last and is the answer to "how do I make this go away" and "how do
+ * I make it a different size". A surface that sits above every other window has
+ * to say where its own off switch is, and the right-click menu it points at is
+ * the only part of this the user cannot find by looking at the pill.
  */
-export const COMPANION_INTRO_BEATS = ["meet", "talk", "type", "tray"] as const;
+export const COMPANION_INTRO_BEATS = ["meet", "talk", "type", "menu"] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
 

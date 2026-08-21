@@ -2,6 +2,29 @@
   "addCreditsModal": {
     "configureAutoReload": "Configurar la recarga automática"
   },
+  "companionIntro": {
+    "ariaLabel": "Te presento a tu compañero",
+    "meet": {
+      "title": "Este soy yo",
+      "titleNamed": "Soy {name}",
+      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
+    },
+    "talk": {
+      "title": "Talk",
+      "body": "Inicia una conversación por voz."
+    },
+    "type": {
+      "title": "Type",
+      "body": "Envía un mensaje desde aquí y lee la respuesta aquí también."
+    },
+    "menu": {
+      "title": "Haz clic derecho sobre mí",
+      "body": "Ahí puedes ocultarme o cambiar mi tamaño."
+    },
+    "skip": "Omitir",
+    "next": "Siguiente",
+    "done": "Entendido"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Página no encontrada",
