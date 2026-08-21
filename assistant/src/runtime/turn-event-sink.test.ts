@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
 import {
+  createAuthenticatedTurnEventSink,
   createBatchedTurnEventSink,
   createTurnEventSink,
 } from "./turn-event-sink.js";
@@ -48,6 +49,44 @@ describe("createTurnEventSink", () => {
       undefined,
       undefined,
     );
+  });
+});
+
+describe("createAuthenticatedTurnEventSink", () => {
+  test("targets a client owned by the submitting actor", () => {
+    const publish = mock(() => {});
+    const send = createAuthenticatedTurnEventSink({
+      publish,
+      originClientId: "client-1",
+      sourceActorPrincipalId: "actor-1",
+      hub: {
+        getActorPrincipalIdForClient: () => "actor-1",
+      },
+    });
+    const event: AssistantEvent = {
+      type: "open_url",
+      url: "ms-settings:privacy-microphone",
+      conversationId: "conv-1",
+    };
+
+    send(event);
+
+    expect(publish).toHaveBeenCalledWith(event, undefined, {
+      targetClientId: "client-1",
+    });
+  });
+
+  test("rejects a client owned by another actor", () => {
+    expect(() =>
+      createAuthenticatedTurnEventSink({
+        publish: mock(() => {}),
+        originClientId: "client-2",
+        sourceActorPrincipalId: "actor-1",
+        hub: {
+          getActorPrincipalIdForClient: () => "actor-2",
+        },
+      }),
+    ).toThrow("not authenticated as the submitting actor");
   });
 });
 

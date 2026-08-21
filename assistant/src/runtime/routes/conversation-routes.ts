@@ -169,7 +169,7 @@ import {
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
 import { withSourceChannel } from "../trust-context-resolver.js";
-import { createTurnEventSink } from "../turn-event-sink.js";
+import { createAuthenticatedTurnEventSink } from "../turn-event-sink.js";
 import {
   emitCannedMessageComplete,
   persistCannedAssistantCard,
@@ -1531,7 +1531,6 @@ export async function handleSendMessage(
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
-  const turnEventSink = createTurnEventSink(broadcastMessage, originClientId);
   const clientMetadata = readClientMetadataHeaders(headers);
 
   const { conversationKey, content, attachmentIds } = body;
@@ -1934,6 +1933,12 @@ export async function handleSendMessage(
   const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
     actorPrincipalId ?? undefined,
   );
+  const turnEventSink = createAuthenticatedTurnEventSink({
+    publish: broadcastMessage,
+    originClientId,
+    sourceActorPrincipalId,
+    hub: assistantEventHub,
+  });
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).

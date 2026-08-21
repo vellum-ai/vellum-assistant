@@ -36,7 +36,7 @@ const log = getLogger("same-actor");
  * the target client's internal state.
  */
 const REJECTION_MESSAGE =
-  "Submitting actor does not match the target client's actor for this request. The targeted client's authenticated user must submit the result.";
+  "The targeted client is not authenticated as the submitting actor.";
 
 /**
  * Per-reason rejection messages for the proxy path.
@@ -76,7 +76,8 @@ export type SameActorOp =
   | "host_browser"
   | "host_app_control"
   | "host_transfer"
-  | "host_ui_snapshot";
+  | "host_ui_snapshot"
+  | "conversation_open_url";
 
 /**
  * Args for the live-lookup variant: caller supplies the hub + target client
@@ -138,9 +139,7 @@ function detectRejection(
     ? args.hub.getActorPrincipalIdForClient(targetClientId)
     : (args.targetActorPrincipalId ??
       (isHttpAuthDisabled()
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
-            targetClientId,
-          )
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
         : undefined));
 
   let reason: RejectionReason | undefined;
