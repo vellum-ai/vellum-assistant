@@ -19,7 +19,7 @@
  * Apply iOS refuses leaves the home screen untouched, so the dialog stays up
  * with the failure named on it and the name goes back to the session.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
@@ -75,6 +75,13 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
   const onboardingActive = onSetupRoute || focusedOnboarding || tourActive;
 
   const [offer, setOffer] = useState<string | null>(null);
+  // Completion handlers read the offer through this ref: a swap can outlive
+  // the offer that started it, and only the dialog for the completed name may
+  // settle. Synced in an effect, never during render.
+  const offerRef = useRef<string | null>(null);
+  useEffect(() => {
+    offerRef.current = offer;
+  }, [offer]);
   const [applyFailed, setApplyFailed] = useState(false);
   const [pending, setPending] = useState(false);
 
@@ -117,13 +124,19 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
         // An earlier refusal in this same dialog handed the name back to the
         // session, so a landed swap has to take it again.
         offeredThisSession.add(name);
-        setOffer(null);
+        // A replacement offer can appear while the swap is in flight; only
+        // the dialog for the completed name settles.
+        if (offerRef.current === name) {
+          setOffer(null);
+        }
         return;
       }
       // Nothing changed on the home screen, so nothing was answered: give the
       // name back to the session and keep the dialog up to be tried again.
       offeredThisSession.delete(name);
-      setApplyFailed(true);
+      if (offerRef.current === name) {
+        setApplyFailed(true);
+      }
     } finally {
       setPending(false);
     }
