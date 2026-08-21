@@ -378,10 +378,15 @@ const whatsappProbe: ChannelProbe = {
  * keepalive is a full interval after it opens, so requiring one would call
  * every healthy reconnect broken.
  *
- * Local rather than remote because it costs one IPC round trip to the gateway
- * beside us, not a call to Slack. Remote checks are cached for
- * {@link REMOTE_TTL_MS}, which is far longer than the socket takes to die and
- * recover, so caching this would report a stale connection state.
+ * Declared `operational`, so it decides the channel's health rather than its
+ * setup progress: a dead socket means a configured channel is down, not a
+ * half-configured one.
+ *
+ * It runs among the local checks purely for freshness. It costs one IPC round
+ * trip to the gateway beside us rather than a call to Slack, and the remote
+ * bucket is cached for {@link REMOTE_TTL_MS}, far longer than a socket takes
+ * to die and recover. Placement is a cost decision here; `kind` carries the
+ * meaning.
  */
 async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
   // Imported here rather than at module scope, matching the Telegram probe:
@@ -396,6 +401,7 @@ async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
   } catch {
     return {
       name: "inbound_delivery",
+      kind: "operational",
       passed: true,
       message: "Could not reach the gateway to read the Slack connection state",
       indeterminate: true,
@@ -405,6 +411,7 @@ async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
   if (health.status === "not_configured" || health.status === "unsupported") {
     return {
       name: "inbound_delivery",
+      kind: "operational",
       passed: true,
       message:
         health.status === "not_configured"
@@ -418,12 +425,15 @@ async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
     health.lastLivenessAt === undefined
       ? "no keepalive answered yet on this connection"
       : `last keepalive ${new Date(health.lastLivenessAt).toISOString()}`;
-  return check(
-    "inbound_delivery",
-    health.status === "connected",
-    `Slack is delivering to this assistant (${lastProof})`,
-    "Slack Socket Mode holds no live connection, so inbound messages are not reaching this assistant",
-  );
+  return {
+    ...check(
+      "inbound_delivery",
+      health.status === "connected",
+      `Slack is delivering to this assistant (${lastProof})`,
+      "Slack Socket Mode holds no live connection, so inbound messages are not reaching this assistant",
+    ),
+    kind: "operational",
+  };
 }
 
 const slackProbe: ChannelProbe = {

@@ -341,6 +341,11 @@ describe("slack inbound delivery", () => {
     expect(delivery.passed).toBe(false);
     expect(delivery.indeterminate).toBeFalsy();
     expect(delivery.message).toMatch(/not reaching this assistant/i);
+    // The point of declaring it operational: a configured channel whose
+    // socket is dead is down, not half set up.
+    expect(snapshot.setupStatus).toBe("ready");
+    expect(snapshot.health).toBe("failing");
+    expect(snapshot.ready).toBe(false);
   });
 
   test("passes on a live socket and reports the last keepalive", async () => {
@@ -398,6 +403,10 @@ describe("slack inbound delivery", () => {
     expect(delivery.indeterminate).toBe(true);
     expect(delivery.passed).toBe(true);
     expect(delivery.message).toMatch(/could not reach the gateway/i);
+    // Unknown, not failing: an unreachable gateway is a fact about the
+    // gateway, and the channel must be neither vouched for nor condemned.
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.ready).toBe(false);
   });
 
   test("runs on every request rather than riding the remote-check cache", async () => {
