@@ -622,6 +622,14 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * may accompany `mix`.
    */
   mix: MixSchema.optional(),
+  /**
+   * Name of another profile to fall back to when this profile's model
+   * fails with an outage-type error (retries exhausted, invalid managed
+   * credential, unknown model). Single hop: the referenced profile must
+   * not declare its own fallbackProfile. Managed (`vellum`) profiles
+   * only — BYOK installs may hold no credential for the backup provider.
+   */
+  fallbackProfile: z.string().min(1).optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
@@ -776,11 +784,13 @@ export const LLMSchema = z
     // --- Mix profile validation --------------------------------------------
     // Config keys a mix profile must NOT also set (a mix only references other
     // profiles + metadata). Derived from the fragment shape plus the
-    // ProfileEntry-only `provider_connection` so it can't drift if a new config
-    // field is added to `LLMConfigFragment`.
+    // ProfileEntry-only `provider_connection` and `fallbackProfile` (a mix
+    // carries no config of its own, so it has no route to fall back from) so
+    // it can't drift if a new config field is added to `LLMConfigFragment`.
     const MIX_DISALLOWED_CONFIG_KEYS = [
       ...Object.keys(LLMConfigFragment.shape),
       "provider_connection",
+      "fallbackProfile",
     ];
     const mixProfileNames = new Set(
       Object.entries(config.profiles ?? {})
@@ -829,6 +839,56 @@ export const LLMSchema = z
             message: `Mix profile "${name}" references another mix profile "${arm.profile}" — mixes cannot be nested; constituents must be standard profiles.`,
           });
         }
+      }
+    }
+
+    // --- fallbackProfile validation ----------------------------------------
+    // `LLMSchema.superRefine` enforces that (a) the referenced profile exists,
+    // (b) a profile does not fall back to itself, (c) the referenced profile
+    // is not a mix (a fallback must be a directly dispatchable route), and
+    // (d) the referenced profile does not itself set `fallbackProfile` —
+    // fallback is a single hop in v1, never a chain. A mix profile setting
+    // `fallbackProfile` at all is rejected by the mix validation above
+    // (MIX_DISALLOWED_CONFIG_KEYS).
+    for (const [name, profile] of Object.entries(config.profiles ?? {})) {
+      const fallback = profile?.fallbackProfile;
+      if (fallback == null) {
+        continue;
+      }
+      // (b) No self-reference.
+      if (fallback === name) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["profiles", name, "fallbackProfile"],
+          message: `Profile "${name}" cannot declare itself as its fallbackProfile.`,
+        });
+        continue;
+      }
+      // (a) Referenced profile must exist.
+      if (!profileNames.has(fallback)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["profiles", name, "fallbackProfile"],
+          message: `Profile "${name}" declares fallbackProfile "${fallback}" which is not defined in llm.profiles.`,
+        });
+        continue;
+      }
+      // (c) A fallback target must be a standard (non-mix) profile.
+      if (mixProfileNames.has(fallback)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["profiles", name, "fallbackProfile"],
+          message: `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile — a fallback must be a standard profile.`,
+        });
+        continue;
+      }
+      // (d) Single hop only — the target must not declare its own fallback.
+      if (config.profiles?.[fallback]?.fallbackProfile != null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["profiles", name, "fallbackProfile"],
+          message: `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile — fallback is a single hop, chains are not allowed.`,
+        });
       }
     }
   });
