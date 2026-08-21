@@ -55,13 +55,17 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
-// Which auth mode the session is in decides whether a 401 means "your login
-// failed" at all. Stubbed so each case states its own mode rather than
-// inheriting whatever the ambient config resolves to.
+// Whether the session authenticates through a gateway decides whether a 401
+// means "your login failed" at all. Both predicates are stubbed: the real
+// `isGatewayAuthMode` reads the gateway token, which the guardian-repair
+// handoff clears before the 401 lands, so a case can hold them apart to model
+// that ordering.
+let gatewayAuthEnabled = false;
 let gatewayAuthMode = false;
 mock.module(
   "@/lib/auth/gateway-session",
   (): Partial<typeof GatewaySession> => ({
+    isGatewayAuthEnabled: () => gatewayAuthEnabled,
     isGatewayAuthMode: () => gatewayAuthMode,
   }),
 );
@@ -106,6 +110,7 @@ beforeEach(() => {
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
   listError = null;
   toastErrorMock = mock((_message: string) => {});
+  gatewayAuthEnabled = false;
   gatewayAuthMode = false;
   useChatSessionStore.getState().setError(null);
 });
@@ -196,6 +201,7 @@ describe("useConversationLoader resume grace on list-load errors", () => {
      */
 
     // GIVEN a local session authenticated through the gateway
+    gatewayAuthEnabled = true;
     gatewayAuthMode = true;
     const { rerender } = renderLoader();
 
@@ -204,6 +210,29 @@ describe("useConversationLoader resume grace on list-load errors", () => {
     rerender();
 
     // THEN nothing claims the user failed to authenticate
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("stays quiet when the repair handoff cleared the token before the 401", () => {
+    /**
+     * The guardian-repair handoff calls `clearGatewayToken()` and only then
+     * returns the 401 to the caller, so by the time this effect runs
+     * `isGatewayAuthMode()` reads false: it bottoms out at
+     * `getGatewayToken() !== null`. Classifying on that would call the repair
+     * path a platform session and toast on it, which is the one path this
+     * suppression exists for.
+     */
+
+    // GIVEN a gateway session whose token the handoff has already cleared
+    gatewayAuthEnabled = true;
+    gatewayAuthMode = false;
+    const { rerender } = renderLoader();
+
+    // WHEN the 401 that triggered the handoff reaches the loader
+    listError = new ApiError(401, "unauthorized");
+    rerender();
+
+    // THEN it is still recognised as a gateway session, and says nothing
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 });

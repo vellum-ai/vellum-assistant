@@ -1,5 +1,5 @@
 import { t } from "@/i18n";
-import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
@@ -216,15 +216,22 @@ export function useConversationLoader({
   // not on every render. The banner consumer below intentionally skips 401
   // because this toast already surfaces the right message.
   //
-  // Platform sessions only. In gateway-auth mode there is no user login to
-  // fail: the guardian is authenticated locally and a 401 means the gateway
-  // rejected the bearer, which the 401 recovery either re-mints through or
-  // hands to the chooser's guardian repair. Telling that user their
-  // authentication failed names the wrong subject and points them at a
-  // sign-in they do not need.
+  // Platform sessions only. Where the session authenticates through a gateway
+  // there is no user login to fail: the guardian is authenticated locally and
+  // a 401 means the gateway rejected the bearer, which the 401 recovery either
+  // re-mints through or hands to the chooser's guardian repair. Telling that
+  // user their authentication failed names the wrong subject and points them
+  // at a sign-in they do not need.
+  //
+  // Keyed on `isGatewayAuthEnabled` rather than `isGatewayAuthMode`, because
+  // the latter bottoms out at `getGatewayToken() !== null` and the repair
+  // handoff clears that token before this 401 arrives. Reading it here would
+  // classify the guardian-repair path, the one this exists for, as a platform
+  // session. Enablement comes from the lockfile and survives the token going
+  // away.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (isGatewayAuthMode()) {
+    if (isGatewayAuthEnabled()) {
       return;
     }
     if (
