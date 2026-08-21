@@ -24,6 +24,7 @@ import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
 import { getCachedCatalogSync } from "../skills/catalog-cache.js";
 import { readInstallMeta, touchSkillLastUsed } from "../skills/install-meta.js";
+import { isSkillCompatibleWithPlatform } from "../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
@@ -381,7 +382,10 @@ export function projectSkillTools(
   for (const id of allCandidateIds) {
     const skill = catalogById.get(id);
     const flagKey = skill ? skillFlagKey(skill) : undefined;
-    if (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config)) {
+    if (
+      (!skill || isSkillCompatibleWithPlatform(skill)) &&
+      (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config))
+    ) {
       activeIds.add(id);
     }
   }

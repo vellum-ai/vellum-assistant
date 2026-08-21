@@ -6,6 +6,8 @@ metadata:
   icon: assets/icon.svg
   emoji: "🎙️"
   vellum:
+    platforms:
+      - macos
     category: "voice"
     display-name: "Voice Setup"
     includes: ["elevenlabs-voice", "deepgram-voice"]

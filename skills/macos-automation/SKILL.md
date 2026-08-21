@@ -8,6 +8,8 @@ metadata:
   vellum:
     category: "system"
     display-name: "macOS Automation"
+    platforms:
+      - macos
     activation-hints:
       - "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
     avoid-when:

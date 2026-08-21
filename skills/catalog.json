@@ -536,6 +536,9 @@
         "vellum": {
           "category": "system",
           "display-name": "macOS Automation",
+          "platforms": [
+            "macos"
+          ],
           "activation-hints": [
             "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
           ],
@@ -822,7 +825,10 @@
         "emoji": "🎬",
         "vellum": {
           "category": "content",
-          "display-name": "Screen Recording"
+          "display-name": "Screen Recording",
+          "platforms": [
+            "macos"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
@@ -1210,7 +1216,10 @@
         "emoji": "🔊",
         "vellum": {
           "category": "content",
-          "display-name": "Sounds"
+          "display-name": "Sounds",
+          "platforms": [
+            "macos"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
@@ -1285,6 +1294,9 @@
         "vellum": {
           "category": "voice",
           "display-name": "Voice Setup",
+          "platforms": [
+            "macos"
+          ],
           "includes": [
             "elevenlabs-voice",
             "deepgram-voice"
@@ -1310,7 +1322,11 @@
         "vellum": {
           "category": "content",
           "display-name": "Watch Together",
-          "emoji": "📺"
+          "emoji": "📺",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
         }
       },
       "updatedAt": "2026-07-15T00:42:43.000Z"
