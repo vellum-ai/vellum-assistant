@@ -1,13 +1,14 @@
 /**
  * Tests for the tunnel reachability probe.
  *
- * Three properties carry the feature. First, `/healthz` alone decides
- * liveness, so an edge whose nginx answers while the gateway behind it does
- * not must read `unreachable`, while an ingress that never serves
- * `/assistant/__config` at all, or is too slow to finish it, still reads
- * `healthy`. Second, `foreign` is an accusation ("this URL now fronts someone
+ * Four properties carry the feature. First, `/healthz` decides liveness, so an
+ * edge whose nginx answers while the gateway behind it does not reads
+ * `unreachable`. Second, the config path decides pairing: an ingress that
+ * answers it with anything other than a config reads `unpairable`, while a
+ * config request that gets no answer at all leaves the liveness verdict
+ * standing. Third, `foreign` is an accusation ("this URL now fronts someone
  * else's assistant"), so it is reserved for a positive mismatch of two known
- * ids and every skew case reads `healthy`. Third, the probe runs often enough
+ * ids and every skew case reads `healthy`. Fourth, the probe runs often enough
  * that a body it never parses has to be cancelled rather than left to GC.
  *
  * Every case injects `fetchImpl`, so nothing here touches the network.
@@ -168,7 +169,9 @@ describe("probeTunnel", () => {
     });
   });
 
-  test("healthy when the config body is not JSON", async () => {
+  test("unpairable when the config path answers with something else", async () => {
+    // An SPA edge serves JSON here. Anything else means whatever is answering
+    // is not the app that serves `/assistant/pair` either.
     const { fetchImpl } = stubFetch({
       config: { status: 200, body: "<html>nope</html>" },
     });
@@ -179,13 +182,14 @@ describe("probeTunnel", () => {
         fetchImpl,
       }),
     ).resolves.toEqual({
-      kind: "healthy",
-      assistantId: undefined,
-      assistantName: undefined,
+      kind: "unpairable",
+      detail: "no assistant config served",
     });
   });
 
-  test("healthy when the ingress does not serve the config path at all", async () => {
+  test("unpairable when the ingress does not serve the config path at all", async () => {
+    // A tunnel pointed straight at the gateway: `/healthz` is the gateway's
+    // own, and no pairing app sits in front of it.
     const { fetchImpl } = stubFetch({
       config: { status: 404, body: "not found" },
     });
@@ -195,14 +199,12 @@ describe("probeTunnel", () => {
         expectedAssistantId: "asst_1",
         fetchImpl,
       }),
-    ).resolves.toEqual({
-      kind: "healthy",
-      assistantId: undefined,
-      assistantName: undefined,
-    });
+    ).resolves.toEqual({ kind: "unpairable", detail: "HTTP 404" });
   });
 
   test("healthy when the config request rejects but the gateway answers", async () => {
+    // A request that never lands says nothing about what the edge serves, so
+    // the answered `/healthz` stands.
     const { fetchImpl } = stubFetch({
       config: { reject: new TypeError("fetch failed") },
     });

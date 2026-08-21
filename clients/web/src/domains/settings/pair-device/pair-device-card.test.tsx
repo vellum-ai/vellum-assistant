@@ -818,6 +818,28 @@ describe("PairDeviceCard: tunnel status", () => {
     expect(screen.queryByText("Open a tunnel first")).toBeNull();
   });
 
+  test("a tunnel that cannot pair demotes Generate without disabling it", async () => {
+    probeAnswers({
+      state: "unpairable",
+      publicBaseUrl: TUNNEL_URL,
+      checkedAt: new Date().toISOString(),
+      detail: "HTTP 404",
+    });
+    renderCard();
+
+    const button = (await screen.findByRole("button", {
+      name: "Generate anyway",
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.className).toContain("bg-transparent");
+    expect(
+      screen.getByText(
+        "This address answers, but it is not serving the pairing app. Start a tunnel with the web app enabled so pairing links open.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+  });
+
   test("a foreign tunnel gets the same Generate anyway treatment", async () => {
     probeAnswers({
       state: "foreign",

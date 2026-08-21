@@ -1,7 +1,7 @@
 /**
  * Unit tests for the integrations_ingress_status route handler.
  *
- * The workspace config reads and the probe are both mocked, so the five
+ * The workspace config reads and the probe are both mocked, so the six
  * states are exercised without a config file or network access.
  */
 
@@ -196,6 +196,44 @@ describe("integrations_ingress_status route", () => {
     expect(result.checkedAt).toBeString();
   });
 
+  test("reports unpairable with the probe's detail", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "unpairable", detail: "HTTP 404" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unpairable");
+    expect(result.detail).toBe("HTTP 404");
+    expect(result.publicBaseUrl).toBe(TUNNEL_URL);
+    expect(result.checkedAt).toBeString();
+  });
+
+  test("omits the detail when the unpairable edge gave no reason", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "unpairable" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unpairable");
+    expect(result).not.toHaveProperty("detail");
+  });
+
+  test("names the tunnel to restart when the URL cannot pair", async () => {
+    // Same remedy as an unreachable address: start a tunnel that serves the
+    // web app in front of this assistant.
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "unpairable", detail: "HTTP 404" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unpairable");
+    expect(result.lastTunnel).toEqual({
+      provider: "tailscale",
+      publicBaseUrl: TUNNEL_URL,
+    });
+  });
+
   test("reports foreign with the name the edge serves under", async () => {
     ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     recordedAssistantId = "assistant-1";
@@ -368,6 +406,27 @@ describe("integrations_ingress_status route", () => {
     });
   });
 
+  test("probes the pairing tunnel while callback ingress is switched off", async () => {
+    // `ingress.enabled` governs webhook callbacks. `vellum tunnel --provider
+    // tailscale` records a pairing tunnel without touching it, so the opt-out
+    // must not discard the address the command just established.
+    ingressConfig = {
+      ...ingressConfig,
+      enabled: false,
+      explicitlyDisabled: true,
+      publicBaseUrl: "https://webhooks.ngrok.app",
+    };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(result.publicBaseUrl).toBe(PAIRING_URL);
+    expect(probeTunnelMock).toHaveBeenCalledWith({
+      publicBaseUrl: PAIRING_URL,
+    });
+  });
+
   test("probes a pairing tunnel recorded without a callback base", async () => {
     ingressConfig = { ...ingressConfig, publicBaseUrl: "" };
     pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
@@ -378,16 +437,36 @@ describe("integrations_ingress_status route", () => {
     expect(result.publicBaseUrl).toBe(PAIRING_URL);
   });
 
-  test("ignores a pairing record on a Velay-managed ingress", async () => {
+  test("prefers the pairing tunnel over a Velay-managed callback base", async () => {
+    // Velay owns the callback URL, not the tailnet address the user started
+    // for pairing, and the Velay URL exposes neither `/healthz` nor the
+    // pairing surface (`gateway/src/velay/allowed-paths.ts`).
     velayManaged = true;
     ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
 
     const result = (await route.handler({})) as Record<string, unknown>;
 
-    expect(result.publicBaseUrl).toBe(TUNNEL_URL);
+    expect(result.publicBaseUrl).toBe(PAIRING_URL);
     expect(probeTunnelMock).toHaveBeenCalledWith({
-      publicBaseUrl: TUNNEL_URL,
+      publicBaseUrl: PAIRING_URL,
+    });
+  });
+
+  test("names the pairing tunnel to restart on a Velay-managed ingress", async () => {
+    // The restart guidance Velay must never get is for its own ingress; the
+    // pairing tunnel beside it is the user's to start again.
+    velayManaged = true;
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+    probeResult = { kind: "unreachable", detail: "HTTP 502" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unreachable");
+    expect(result.lastTunnel).toEqual({
+      provider: "tailscale",
+      publicBaseUrl: PAIRING_URL,
     });
   });
 

@@ -24,8 +24,13 @@ export type TunnelStatusView =
       publicBaseUrl?: string;
     }
   | { kind: "healthy"; publicBaseUrl: string; checkedAt: string }
+  /**
+   * An address the card cannot pair against: `unpairable` answers without
+   * serving the pairing app, `unreachable` does not answer at all. One shape,
+   * because the row draws them alike and both end in the same restart.
+   */
   | {
-      kind: "unreachable";
+      kind: "unpairable" | "unreachable";
       publicBaseUrl: string;
       checkedAt: string;
       /** Short, already-redacted diagnostic from the daemon. Not localized. */
@@ -108,6 +113,7 @@ const DOT_COLOR: Record<RenderedTunnelStatus["kind"], string> = {
   checking: "var(--content-tertiary)",
   stopped: "var(--content-tertiary)",
   healthy: "var(--system-positive-strong)",
+  unpairable: "var(--system-mid-strong)",
   unreachable: "var(--system-mid-strong)",
   foreign: "var(--system-negative-strong)",
 };
@@ -145,7 +151,7 @@ export function TunnelStatusRow({
   const checkedAt = statusCheckedAt(status);
   const publicBaseUrl = statusPublicBaseUrl(status);
   const provider = "provider" in status ? status.provider : undefined;
-  const detail = status.kind === "unreachable" ? status.detail : undefined;
+  const detail = "detail" in status ? status.detail : undefined;
 
   return (
     <div className="flex items-start gap-2.5 rounded-lg border border-[var(--border-element)] px-3 py-2.5">
@@ -211,6 +217,8 @@ function statusSentence(
       return t("tunnelStatusRow.stoppedStatus");
     case "healthy":
       return t("tunnelStatusRow.healthyStatus");
+    case "unpairable":
+      return t("tunnelStatusRow.unpairableStatus");
     case "unreachable":
       return t("tunnelStatusRow.unreachableStatus");
     case "foreign":

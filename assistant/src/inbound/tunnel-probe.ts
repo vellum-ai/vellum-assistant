@@ -8,19 +8,24 @@
  * probe asks the edge two questions at once, and the two answers carry very
  * different weight:
  *
- *   - `GET /healthz` is the liveness verdict, and the only one. Every ingress
- *     shape answers it: the nginx edge proxies it to the gateway, and a
- *     tunnel pointed straight at the gateway port serves it from the gateway
- *     itself. A 2xx proves the whole chain; anything else means the URL is
- *     not usable.
- *   - `GET /assistant/__config` establishes identity, nothing more. Only the
- *     nginx remote-web SPA edge serves it (`buildRemoteWebIngressLocations`
- *     in `cli/src/lib/nginx-ingress.ts`). A gateway-direct tunnel, a
- *     bring-your-own HTTPS front, or a hand-set `ingress.publicBaseUrl` will
- *     404 there while working perfectly, so a config that is missing,
- *     failing, slow, or unreadable leaves the identity unknown and never
- *     fails the probe. An edge answering with a body this cannot read is
- *     still an edge that is answering.
+ *   - `GET /healthz` is the liveness verdict. Every ingress shape answers it:
+ *     the nginx edge proxies it to the gateway, and a tunnel pointed straight
+ *     at the gateway port serves it from the gateway itself. Anything but a
+ *     2xx means the URL is not usable at all, which is `unreachable`.
+ *   - `GET /assistant/__config` decides whether that live edge is one a device
+ *     can pair against. Only the nginx remote-web SPA edge serves it
+ *     (`buildRemoteWebIngressLocations` in `cli/src/lib/nginx-ingress.ts`),
+ *     and that is the same edge serving `/assistant/pair`, so an edge that
+ *     answers the config request with anything other than a config is an edge
+ *     whose pair URL would 404. That is `unpairable`: alive, and no use to a
+ *     card whose whole job is pairing. A tunnel pointed straight at the
+ *     gateway and a bring-your-own HTTPS front that only proxies the gateway
+ *     both land there. A config request that gets no answer at all, because
+ *     it lost the shared deadline or the connection dropped under it, proves
+ *     nothing either way, and the live `/healthz` stands.
+ *
+ * The served config also carries the assistant's id, which is what separates
+ * `healthy` from `foreign`.
  *
  * Neither path is denylisted, so both are publicly reachable.
  *
@@ -40,6 +45,8 @@ import { truncate } from "../util/truncate.js";
 /**
  * Verdict for one probe.
  *
+ * `unpairable` means the edge answered the config request with something that
+ * is not a config, so it is alive without fronting the pairing app.
  * `foreign` means the edge positively identified itself as a different
  * assistant. Any case where either id is unknown is `healthy`: a config
  * served by a CLI that predates the id, or a URL recorded before the id was
@@ -48,6 +55,7 @@ import { truncate } from "../util/truncate.js";
 export type TunnelProbeResult =
   | { kind: "healthy"; assistantId?: string; assistantName?: string }
   | { kind: "unreachable"; detail: string }
+  | { kind: "unpairable"; detail?: string }
   | { kind: "foreign"; assistantId?: string; assistantName?: string };
 
 const DEFAULT_TIMEOUT_MS = 4_000;
@@ -63,6 +71,9 @@ const MAX_CAUSE_DEPTH = 5;
 
 /** Wrappers fetch layers raise when the real reason sits one `cause` down. */
 const GENERIC_FETCH_MESSAGES = new Set(["fetch failed", "failed to fetch"]);
+
+/** Reported when the config path answers with a body that is not a config. */
+const UNREADABLE_CONFIG_DETAIL = "no assistant config served";
 
 export async function probeTunnel(args: {
   publicBaseUrl: string;
@@ -85,9 +96,9 @@ export async function probeTunnel(args: {
   }
 
   const fetchImpl = args.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  // One deadline covers both requests: `/healthz` alone decides the verdict,
-  // so a slow edge that answers it and loses the config request to the same
-  // deadline is still a working tunnel with an unknown identity.
+  // One deadline covers both requests: only an answered config request can
+  // demote a live edge, so a slow edge that answers `/healthz` and loses the
+  // config request to the same deadline keeps its liveness verdict.
   const signal = AbortSignal.timeout(args.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const [health, config] = await Promise.allSettled([
     fetchImpl(`${base}/healthz`, { signal }),
@@ -108,13 +119,18 @@ export async function probeTunnel(args: {
   }
 
   const served = await readServedConfig(configResponse);
+  if (served.kind === "notServed") {
+    return { kind: "unpairable", detail: served.detail };
+  }
+
+  const identity = served.kind === "served" ? served.config : {};
   const expected = trimmedNonEmptyString(args.expectedAssistantId);
   const isForeign =
     expected !== undefined &&
-    served.assistantId !== undefined &&
-    served.assistantId !== expected;
+    identity.assistantId !== undefined &&
+    identity.assistantId !== expected;
 
-  return { kind: isForeign ? "foreign" : "healthy", ...served };
+  return { kind: isForeign ? "foreign" : "healthy", ...identity };
 }
 
 /**
@@ -186,25 +202,44 @@ interface ServedEdgeConfig {
   assistantName?: string;
 }
 
-/** Identity only: every failure here yields an unknown identity. */
+/**
+ * What the config request settled: the identity the pairing edge reports, a
+ * positive "whatever is here does not serve the pairing app", or nothing.
+ */
+type ServedConfigReading =
+  | { kind: "unanswered" }
+  | { kind: "notServed"; detail: string }
+  | { kind: "served"; config: ServedEdgeConfig };
+
+/**
+ * A 2xx JSON object is the pairing edge identifying itself, any other answer
+ * is an edge that does not serve the pairing app, and no answer is no
+ * evidence.
+ */
 async function readServedConfig(
   response: Response | undefined,
-): Promise<ServedEdgeConfig> {
-  if (response === undefined || !response.ok) {
+): Promise<ServedConfigReading> {
+  if (response === undefined) {
+    return { kind: "unanswered" };
+  }
+  if (!response.ok) {
     await discardBody(response);
-    return {};
+    return { kind: "notServed", detail: `HTTP ${response.status}` };
   }
   try {
     const body: unknown = await response.json();
-    if (!isPlainObject(body)) {
-      return {};
+    if (isPlainObject(body)) {
+      return {
+        kind: "served",
+        config: {
+          assistantId: trimmedNonEmptyString(body.assistantId),
+          assistantName: trimmedNonEmptyString(body.assistantName),
+        },
+      };
     }
-    return {
-      assistantId: trimmedNonEmptyString(body.assistantId),
-      assistantName: trimmedNonEmptyString(body.assistantName),
-    };
   } catch {
-    await discardBody(response);
-    return {};
+    /* an unparseable body is an edge answering with something else */
   }
+  await discardBody(response);
+  return { kind: "notServed", detail: UNREADABLE_CONFIG_DETAIL };
 }

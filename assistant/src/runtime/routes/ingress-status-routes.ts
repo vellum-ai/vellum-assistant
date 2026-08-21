@@ -5,8 +5,11 @@
  * some point. It stays behind in both directions: a killed tunnel leaves the
  * URL in place, and an edge can survive while the gateway behind it dies or
  * while it starts fronting a different assistant. This route resolves that by
- * probing the URL live (`inbound/tunnel-probe.ts`) and reporting one of five
- * states, so a client can tell the user what to do instead of guessing.
+ * probing the URL live (`inbound/tunnel-probe.ts`) and reporting one of six
+ * states, so a client can tell the user what to do instead of guessing. The
+ * card the states drive exists to pair devices, so an address that answers
+ * without serving the pairing app is its own state (`unpairable`) rather than
+ * a healthy one.
  *
  * Platform-hosted assistants receive webhooks through platform callback
  * routing and never run `vellum tunnel`, so they report `unconfigured`
@@ -40,18 +43,21 @@ const IngressStatusResponseSchema = z.object({
     "unconfigured",
     "stopped",
     "healthy",
+    "unpairable",
     "unreachable",
     "foreign",
   ]),
   publicBaseUrl: z
     .string()
     .optional()
-    .describe("The probed URL. Set for healthy, unreachable, and foreign."),
+    .describe(
+      "The probed URL. Set for healthy, unpairable, unreachable, and foreign.",
+    ),
   lastTunnel: z
     .object({ provider: z.string(), publicBaseUrl: z.string() })
     .optional()
     .describe(
-      "The tunnel to restart. Set on stopped whenever one is recorded, and on unreachable and foreign when the recorded tunnel fronted the configured URL.",
+      "The tunnel to restart. Set on stopped whenever one is recorded, and on unpairable, unreachable and foreign when the recorded tunnel fronted the configured URL.",
     ),
   servingAssistantName: z
     .string()
@@ -62,7 +68,9 @@ const IngressStatusResponseSchema = z.object({
   detail: z
     .string()
     .optional()
-    .describe("Short failure reason, free of the URL. Set for unreachable."),
+    .describe(
+      "Short failure reason, free of the URL. Set for unreachable, and for unpairable when the edge gave one.",
+    ),
   checkedAt: z
     .string()
     .optional()
@@ -78,26 +86,29 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
     return { state: "unconfigured" };
   }
 
+  // A tunnel published for pairing alone is the address this route reports on:
+  // it exists to answer the pairing card, and the `publicBaseUrl` beside it is
+  // a webhook callback base that tunnel deliberately left in place. The user
+  // owns and restarts that tunnel even where Velay owns the callback ingress.
+  const pairingTunnel = loadPairingTunnelRecord();
   // A Velay-managed URL belongs to the gateway, which writes it, clears it,
   // and reconnects on its own, so there is no tunnel for the user to restart.
   const velayManaged = isVelayManagedIngress();
-  // A tunnel published for pairing alone is the address this route reports on:
-  // it exists to answer the pairing card, and the `publicBaseUrl` beside it is
-  // a webhook callback base that tunnel deliberately left in place.
-  const pairingTunnel = velayManaged ? null : loadPairingTunnelRecord();
-  const lastTunnel = velayManaged
-    ? null
-    : (pairingTunnel ?? loadLastTunnelRecord());
+  const lastTunnel =
+    pairingTunnel ?? (velayManaged ? null : loadLastTunnelRecord());
 
   const publicBaseUrl =
     pairingTunnel?.publicBaseUrl ?? config.publicBaseUrl.trim();
   if (!publicBaseUrl && !lastTunnel) {
     return { state: "unconfigured" };
   }
-  // The URL survives the enabled toggle, so probing while ingress is opted out
-  // would report a tunnel the user switched off as healthy. An unset flag is
-  // not an opt-out: a bring-your-own-HTTPS front sets only the URL.
-  if (!publicBaseUrl || config.explicitlyDisabled) {
+  // `ingress.enabled` governs callback ingress alone, and the URL survives
+  // that toggle, so probing a callback base while ingress is opted out would
+  // report an address the user switched off as healthy. A pairing tunnel is
+  // published outside the toggle, so the opt-out says nothing about it. An
+  // unset flag is not an opt-out either: a bring-your-own-HTTPS front sets
+  // only the URL.
+  if (!publicBaseUrl || (!pairingTunnel && config.explicitlyDisabled)) {
     return { state: "stopped", ...(lastTunnel ? { lastTunnel } : {}) };
   }
 
@@ -122,12 +133,14 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
   switch (result.kind) {
     case "healthy":
       return { state: "healthy", ...checked };
+    // One remedy for both: start a tunnel that serves the web app.
+    case "unpairable":
     case "unreachable":
       return {
-        state: "unreachable",
+        state: result.kind,
         ...checked,
         ...restartHint,
-        detail: result.detail,
+        ...(result.detail ? { detail: result.detail } : {}),
       };
     case "foreign":
       return {
@@ -154,7 +167,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Get ingress tunnel status",
     description:
-      "Probe the configured public ingress URL and report whether a tunnel is serving this assistant. `unconfigured` means no tunnel has ever been recorded (or the ingress is managed for this assistant, as it is when platform-hosted or fronted by a Velay tunnel), `stopped` means a tunnel ran before and is not running now (ingress is explicitly switched off, or its URL is gone), `healthy` means the URL answers and fronts this assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant. `lastTunnel` names the tunnel to restart, on the states where a recorded one applies to the configured URL.",
+      "Probe the configured public ingress URL and report whether a tunnel is serving this assistant. `unconfigured` means no tunnel has ever been recorded (or the ingress is managed for this assistant, as it is when platform-hosted or fronted by a Velay tunnel), `stopped` means a tunnel ran before and is not running now (callback ingress is explicitly switched off, or its URL is gone), `healthy` means the URL answers and fronts this assistant's web app, `unpairable` means it answers but does not serve that app, so a pairing link minted against it would not open, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant. `lastTunnel` names the tunnel to restart, on the states where a recorded one applies to the configured URL.",
     tags: ["config"],
     handler: handleIngressStatus,
     responseBody: IngressStatusResponseSchema,

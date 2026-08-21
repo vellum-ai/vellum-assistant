@@ -93,7 +93,7 @@ export function toStatusView(
 
   const { lastTunnel } = response;
   // Both are set by the daemon for every probed state; the wire marks them
-  // optional because the response is one flat object across all five.
+  // optional because the response is one flat object across all six.
   const publicBaseUrl = response.publicBaseUrl ?? "";
   const checkedAt = response.checkedAt ?? "";
   // Spread onto the states that take it optionally, so an absent record stays
@@ -111,9 +111,10 @@ export function toStatusView(
       };
     case "healthy":
       return { kind: "healthy", publicBaseUrl, checkedAt };
+    case "unpairable":
     case "unreachable":
       return {
-        kind: "unreachable",
+        kind: response.state,
         publicBaseUrl,
         checkedAt,
         ...(response.detail ? { detail: response.detail } : {}),

@@ -28,6 +28,7 @@ import {
   statusPublicBaseUrl,
   TunnelStatusRow,
   tunnelStartCommand,
+  type TunnelStatusView,
 } from "./tunnel-status-row";
 import { usePairDevice } from "./use-pair-device";
 import { useTunnelStatus } from "./use-tunnel-status";
@@ -42,6 +43,18 @@ const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
 
 /** The URL field's disclosure holds a single section. */
 const URL_FIELD_SECTION = "public-url";
+
+/**
+ * Verdicts that doubt the address the card is about to advertise. Generate
+ * softens on these rather than repeating the warning the status row prints,
+ * and it stays enabled throughout: a false negative must not strand a user
+ * whose address does work.
+ */
+const DOUBTED_KINDS = new Set<TunnelStatusView["kind"]>([
+  "unpairable",
+  "unreachable",
+  "foreign",
+]);
 
 /**
  * Settings card that pairs another device to this assistant without shell
@@ -132,11 +145,7 @@ export function PairDeviceCard() {
   // carries the re-check for coming back. Only a verdict can be re-checked:
   // below the version floor, or with the probe given up, `refresh` is a no-op.
   const offerFirstRunRecheck = showNoTunnelGuidance && probeAnswered;
-  // The probe doubts the address. The status row already says so, so the
-  // button softens to match instead of repeating the warning.
-  const tunnelWarns =
-    probeAnswered &&
-    (tunnel.status.kind === "unreachable" || tunnel.status.kind === "foreign");
+  const tunnelWarns = probeAnswered && DOUBTED_KINDS.has(tunnel.status.kind);
   const buttonLabel = isMinting
     ? t("pairDeviceCard.generateButtonMinting")
     : isReady
@@ -152,8 +161,6 @@ export function PairDeviceCard() {
   // inside a closed disclosure.
   const urlFieldOpen = urlFieldOpened || pair.inputError !== null;
 
-  // Never disabled on the probe's word: a false negative must not strand a
-  // user whose address does work.
   const generateButton = (
     <Button
       variant={tunnelWarns ? "outlined" : "primary"}

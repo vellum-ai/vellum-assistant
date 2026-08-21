@@ -1043,6 +1043,7 @@
     "restartHint": "Start this assistant's tunnel again with <code>{command}</code> in a terminal on this computer.",
     "stoppedRestart": "Run <code>{command}</code> in a terminal on this computer to start it again.",
     "stoppedStatus": "The tunnel is stopped, so other devices cannot reach this assistant.",
+    "unpairableStatus": "This address answers, but it is not serving the pairing app. Start a tunnel with the web app enabled so pairing links open.",
     "unreachableStatus": "This address is not answering right now."
   },
   "twoFactorSection": {

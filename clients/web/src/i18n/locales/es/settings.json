@@ -1043,6 +1043,7 @@
     "restartHint": "Vuelve a iniciar el túnel de este asistente con <code>{command}</code> en una terminal de este equipo.",
     "stoppedRestart": "Ejecuta <code>{command}</code> en una terminal de este equipo para volver a iniciarlo.",
     "stoppedStatus": "El túnel está detenido, por lo que otros dispositivos no pueden alcanzar este asistente.",
+    "unpairableStatus": "Esta dirección responde, pero no está sirviendo la aplicación de vinculación. Inicia un túnel con la aplicación web habilitada para que los enlaces de vinculación se abran.",
     "unreachableStatus": "Esta dirección no responde ahora mismo."
   },
   "twoFactorSection": {

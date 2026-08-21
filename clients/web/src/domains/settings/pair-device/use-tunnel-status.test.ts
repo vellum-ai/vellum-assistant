@@ -133,6 +133,29 @@ describe("toStatusView", () => {
     });
   });
 
+  // The address answers, so it carries one, and the recorded provider comes
+  // along for the same reason it does on unreachable: the fix is a restart.
+  test("maps unpairable with its detail and recorded provider", () => {
+    expect(
+      toStatusView(
+        {
+          state: "unpairable",
+          publicBaseUrl: PUBLIC_URL,
+          checkedAt: CHECKED_AT,
+          detail: "HTTP 404",
+          lastTunnel: { provider: "tailscale", publicBaseUrl: PUBLIC_URL },
+        },
+        false,
+      ),
+    ).toEqual({
+      kind: "unpairable",
+      publicBaseUrl: PUBLIC_URL,
+      checkedAt: CHECKED_AT,
+      detail: "HTTP 404",
+      provider: "tailscale",
+    });
+  });
+
   test("carries the daemon's detail onto unreachable", () => {
     expect(
       toStatusView(
