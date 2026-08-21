@@ -76,17 +76,26 @@ export async function openSystemPermissionSettings(
   return await window.vellum!.permissions!.openSettings(kind);
 }
 
-export function openSystemPermissionSettingsUrl(url: string): boolean {
+export type SystemPermissionSettingsUrlOutcome =
+  | "opened"
+  | "ignored"
+  | "unrecognized";
+
+export function dispatchSystemPermissionSettingsUrl(
+  url: string,
+): SystemPermissionSettingsUrlOutcome {
   const target = SYSTEM_PERMISSION_SETTINGS_URLS[url];
+  if (!target) {
+    return "unrecognized";
+  }
   if (
-    !target ||
     detectElectronHostOS() !== target.hostOS ||
     !supportsSystemPermissions()
   ) {
-    return false;
+    return "ignored";
   }
   void openSystemPermissionSettings(target.kind);
-  return true;
+  return "opened";
 }
 
 export async function quitAndReopenForPermissions(): Promise<void> {

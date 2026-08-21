@@ -260,7 +260,7 @@ describe("oauth popup links", () => {
           isNative: false,
           push: () => undefined,
         }),
-      ).toEqual({ kind: "invalid" });
+      ).toEqual({ kind: "ignored" });
       expect(openSettings).not.toHaveBeenCalled();
     });
   });
