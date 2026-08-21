@@ -5152,6 +5152,9 @@ paths:
                     required:
                       - profile
                       - weight
+                fallbackProfile:
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response
@@ -34632,6 +34635,11 @@ components:
                   - profile
                   - weight
             - type: "null"
+        fallbackProfile:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
       additionalProperties: {}
     ProfileStatus:
       type: string
@@ -35401,6 +35409,9 @@ components:
               - profile
               - weight
             additionalProperties: false
+        fallbackProfile:
+          type: string
+          minLength: 1
         supportsVision:
           type: boolean
         invariant:
