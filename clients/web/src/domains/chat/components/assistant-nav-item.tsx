@@ -76,6 +76,7 @@ function NewChatTooltip({
   children: ReactElement;
   side: "right" | "top";
 }) {
+  const { t } = useTranslation("chat");
   const hint = newChatShortcutHint();
   return (
     <Tooltip

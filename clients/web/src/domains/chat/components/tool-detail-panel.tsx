@@ -257,6 +257,7 @@ export function ToolDetailPanel({
    */
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {

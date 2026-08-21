@@ -268,6 +268,7 @@ function MessageBookmarkButton({
   messageId: string;
   conversationId: string;
 }) {
+  const { t } = useTranslation("chat");
   const isBookmarked = useIsBookmarked(messageId);
   const toggleBookmark = useBookmarkToggle();
   const handleToggle = useCallback(() => {

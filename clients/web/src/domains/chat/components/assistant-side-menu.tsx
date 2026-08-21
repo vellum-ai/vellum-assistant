@@ -280,8 +280,6 @@ export function AssistantSideMenu({
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
-  const { t } = useTranslation("chat");
-
   // Whole-section reordering. Rows themselves do not reorder: every section
   // is recency-sorted (LUM-3108).
   const sectionDragFor = useSectionDragReorder({
