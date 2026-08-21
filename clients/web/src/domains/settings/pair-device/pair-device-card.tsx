@@ -5,9 +5,12 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Trans, useTranslation } from "@/i18n";
+import { useSupportsIngressStatus } from "@/lib/backwards-compat/ingress-status-gate";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
@@ -15,7 +18,9 @@ import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
 import { PairedDevicesSection } from "./paired-devices-section";
 import { PendingPairingRequests } from "./pending-pairing-requests";
+import { statusPublicBaseUrl, TunnelStatusRow } from "./tunnel-status-row";
 import { usePairDevice } from "./use-pair-device";
+import { useTunnelStatus } from "./use-tunnel-status";
 
 /** Names a provider explicitly: the CLI's `vellum` default is not implemented. */
 const TUNNEL_COMMAND = "vellum tunnel --provider tailscale";
@@ -33,6 +38,13 @@ const CODE_CLASS =
  * hosts the approval list for pairing requests minted elsewhere
  * ({@link PendingPairingRequests}).
  *
+ * What the tunnel is doing comes from the daemon-side probe
+ * ({@link useTunnelStatus}), which drives the status row, the URL field's
+ * prefill and the first-run notice, and re-runs on the `app.resume` foreground
+ * edge. Against an assistant below {@link useSupportsIngressStatus}'s floor the
+ * probe never runs, so the card falls back to the assistant's recorded ingress
+ * URL and infers the empty state from the field.
+ *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
  * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
@@ -47,7 +59,24 @@ export function PairDeviceCard() {
   const supported = useSupportsRemoteWebPairing();
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pairedDevicesUIOn = useClientFeatureFlagStore.use.pairedDevicesUI();
-  const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
+  const assistantId = useActiveAssistantId();
+  // Read alongside the probe so the card can tell "the daemon reports no
+  // tunnel" from "this assistant cannot be asked", which the status view
+  // spells the same way.
+  const probesTunnel = useSupportsIngressStatus(assistantId);
+  const surfaceEnabled = supported && webRemoteIngressOn;
+  const tunnel = useTunnelStatus(surfaceEnabled && target !== null);
+  // The user starts the tunnel in a terminal and tabs back, so the foreground
+  // edge is the re-check that matters most.
+  useBusSubscription("app.resume", () => {
+    tunnel.refresh();
+  });
+  const pair = usePairDevice(
+    target?.base ?? null,
+    probesTunnel
+      ? statusPublicBaseUrl(tunnel.status)
+      : (target?.ingressUrl ?? null),
+  );
   // Bumped when the pending-request flow pairs a device, so the device list
   // below refetches without waiting for a live-code poll.
   const [devicesRevalidateKey, setDevicesRevalidateKey] = useState(0);
@@ -55,7 +84,7 @@ export function PairDeviceCard() {
     errorMessage: t("pairDeviceCard.copyError"),
   });
 
-  if (!target || !supported || !webRemoteIngressOn) {
+  if (!target || !surfaceEnabled) {
     return null;
   }
 
@@ -65,10 +94,13 @@ export function PairDeviceCard() {
   const isMinting = phase.kind === "minting";
   const isReady = phase.kind === "ready";
   const prefilledFromTunnel = pair.prefillSource === "tunnel";
-  // Honest empty state: no recorded tunnel URL, no stored value, field still
-  // empty. Advanced users can still type an address into the field below.
-  const showNoTunnelGuidance =
-    pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
+  // Honest empty state: the daemon's verdict where the probe runs, and where
+  // it cannot, the field-derived inference (no reported URL, no stored value,
+  // field still empty). Advanced users can still type an address into the
+  // field below either way.
+  const showNoTunnelGuidance = probesTunnel
+    ? tunnel.status.kind === "unconfigured"
+    : pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
   const buttonLabel = isMinting
     ? t("pairDeviceCard.generateButtonMinting")
     : isReady
@@ -107,6 +139,11 @@ export function PairDeviceCard() {
             </div>
           </Notice>
         )}
+        <TunnelStatusRow
+          status={tunnel.status}
+          onRefresh={tunnel.refresh}
+          isRefreshing={tunnel.isRefreshing}
+        />
         <div className="flex flex-col gap-3">
           <Input
             label={t("pairDeviceCard.publicUrlLabel")}

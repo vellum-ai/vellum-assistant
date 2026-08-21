@@ -25,6 +25,11 @@ export type TunnelStatusView =
 /** Every state the row actually draws; `unconfigured` renders nothing. */
 type RenderedTunnelStatus = Exclude<TunnelStatusView, { kind: "unconfigured" }>;
 
+/** The public address a status reports, or `null` in the states carrying none. */
+export function statusPublicBaseUrl(status: TunnelStatusView): string | null {
+  return "publicBaseUrl" in status ? status.publicBaseUrl : null;
+}
+
 interface TunnelStatusRowProps {
   status: TunnelStatusView;
   /** Re-runs the daemon-side probe. The row owns no fetching of its own. */
@@ -68,7 +73,7 @@ export function TunnelStatusRow({
 
   const busy = status.kind === "checking" || isRefreshing;
   const checkedAt = "checkedAt" in status ? status.checkedAt : null;
-  const publicBaseUrl = "publicBaseUrl" in status ? status.publicBaseUrl : null;
+  const publicBaseUrl = statusPublicBaseUrl(status);
 
   return (
     <div className="flex items-start gap-2.5 rounded-lg border border-[var(--border-element)] px-3 py-2.5">

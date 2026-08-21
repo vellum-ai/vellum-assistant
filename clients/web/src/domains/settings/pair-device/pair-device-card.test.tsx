@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -9,6 +10,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 
+import type { IntegrationsIngressStatusGetResponse } from "@/generated/daemon/types.gen";
+import { publish, __resetForTesting as resetEventBus } from "@/lib/event-bus";
 import type { LocalListDevicesResult } from "@/runtime/local-mode-host";
 
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
@@ -48,6 +51,29 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => true,
+}));
+
+let probeResponse: IntegrationsIngressStatusGetResponse = {
+  state: "unconfigured",
+};
+const probeMock = mock(async () => ({
+  data: probeResponse,
+  error: undefined,
+  response: new Response(null, { status: 200 }),
+}));
+
+/* Spread over the real module rather than replacing it: the generated SDK is a
+   single barrel that the query-options barrel also pulls from, and a bare
+   object drops every export this file does not name. */
+const realDaemonSdk = await import("@/generated/daemon/sdk.gen");
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...realDaemonSdk,
+  integrationsIngressStatusGet: probeMock,
+}));
+
 let listDevicesResult: LocalListDevicesResult = {
   ok: false,
   error: "unavailable",
@@ -66,6 +92,15 @@ mock.module(
 );
 
 const { PairDeviceCard } = await import("./pair-device-card");
+const { MIN_VERSION: INGRESS_STATUS_MIN_VERSION } = await import(
+  "@/lib/backwards-compat/ingress-status-gate"
+);
+const { useAssistantIdentityStore } = await import(
+  "@/stores/assistant-identity-store"
+);
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 const {
   createTimerHarness,
   fetchLog,
@@ -79,6 +114,42 @@ const {
 
 const PUBLIC_URL = "https://foo.ts.net";
 const PAIR_URL = "https://foo.ts.net/assistant/pair#device_code=DEV-123";
+const ASSISTANT_ID = "self";
+/** Below the ingress-status floor, so the probe stays out of reach. */
+const VERSION_WITHOUT_INGRESS_STATUS = "0.11.5";
+const TUNNEL_URL = "https://tunnel.example.ts.net";
+const RECORDED_INGRESS_URL = "https://recorded.example.ts.net";
+
+/** Move the active assistant onto a version whose daemon serves the probe. */
+function enableTunnelStatus() {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", INGRESS_STATUS_MIN_VERSION, ASSISTANT_ID);
+}
+
+function healthyStatus(publicBaseUrl = TUNNEL_URL) {
+  return {
+    state: "healthy" as const,
+    publicBaseUrl,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+/** Render inside a fresh query client, which the tunnel-status probe needs. */
+function renderCard() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <PairDeviceCard />
+    </QueryClientProvider>,
+  );
+}
+
+function urlField(): HTMLInputElement {
+  return screen.getByLabelText("Public URL") as HTMLInputElement;
+}
 
 function futureIso(): string {
   return new Date(Date.now() + 10 * 60_000).toISOString();
@@ -183,6 +254,13 @@ beforeEach(() => {
   listDevicesCalls = 0;
   resetFetchLog();
   localStorage.clear();
+  probeResponse = { state: "unconfigured" };
+  probeMock.mockClear();
+  useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
+  // Tests that exercise the status row opt into a version that serves it.
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", VERSION_WITHOUT_INGRESS_STATUS, ASSISTANT_ID);
   // A rendered card polls the pending-request list on mount, so every test
   // needs the route answered; minting stays unexpected unless overridden.
   installFetch(unexpectedMint);
@@ -191,18 +269,21 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   restoreFetch();
+  resetEventBus();
+  useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 describe("PairDeviceCard", () => {
   test("renders nothing when there is no local gateway (remote/platform mode)", () => {
     gatewayPath = undefined;
-    const { container } = render(<PairDeviceCard />);
+    const { container } = renderCard();
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
   test("renders the section in local mode", () => {
-    render(<PairDeviceCard />);
+    renderCard();
     expect(screen.getByText("Pair a device")).toBeTruthy();
     expect(screen.getByLabelText("Public URL")).toBeTruthy();
     expect(
@@ -212,7 +293,7 @@ describe("PairDeviceCard", () => {
 
   test("renders nothing against an assistant without the pairing routes", () => {
     supportsPairingRoutes = false;
-    const { container } = render(<PairDeviceCard />);
+    const { container } = renderCard();
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pair a device")).toBeNull();
   });
@@ -220,14 +301,14 @@ describe("PairDeviceCard", () => {
   test("renders nothing when web-remote-ingress is off", () => {
     // The client flag only controls the card's visibility.
     webRemoteIngressOn = false;
-    const { container } = render(<PairDeviceCard />);
+    const { container } = renderCard();
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pair a device")).toBeNull();
   });
 
   test("mints + approves, then shows the QR and pair URL", async () => {
     installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
+    renderCard();
     typeUrl(PUBLIC_URL);
     fireEvent.click(
       screen.getByRole("button", { name: "Generate pairing QR" }),
@@ -256,7 +337,7 @@ describe("PairDeviceCard", () => {
         403,
       ),
     );
-    render(<PairDeviceCard />);
+    renderCard();
     typeUrl(PUBLIC_URL);
     fireEvent.click(
       screen.getByRole("button", { name: "Generate pairing QR" }),
@@ -270,7 +351,7 @@ describe("PairDeviceCard", () => {
 
   test("blocks a loopback URL client-side without a network call", () => {
     installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
+    renderCard();
     typeUrl("http://localhost:3000");
     fireEvent.click(
       screen.getByRole("button", { name: "Generate pairing QR" }),
@@ -290,7 +371,7 @@ describe("PairDeviceCard", () => {
       cloud: "local",
       ingressUrl: "https://tunnel.example.ts.net",
     };
-    render(<PairDeviceCard />);
+    renderCard();
 
     const input = screen.getByLabelText("Public URL") as HTMLInputElement;
     expect(input.value).toBe("https://tunnel.example.ts.net");
@@ -301,7 +382,7 @@ describe("PairDeviceCard", () => {
   });
 
   test("shows honest no-tunnel guidance when no ingress URL and no stored value", () => {
-    render(<PairDeviceCard />);
+    renderCard();
 
     expect(screen.getByText("Open a tunnel first")).toBeTruthy();
     expect(screen.getByText("vellum tunnel --provider tailscale")).toBeTruthy();
@@ -316,7 +397,7 @@ describe("PairDeviceCard", () => {
 
   test("rejects a tunnel-provider website URL (Tailscale admin invite) with a service-website message", () => {
     installFetch(() => jsonResponse(challengeBody()));
-    render(<PairDeviceCard />);
+    renderCard();
     typeUrl("https://login.tailscale.com/admin/invite/abc123");
     fireEvent.click(
       screen.getByRole("button", { name: "Generate pairing QR" }),
@@ -337,7 +418,7 @@ describe("PairDeviceCard", () => {
       cloud: "local",
       name: "My Assistant",
     };
-    render(<PairDeviceCard />);
+    renderCard();
 
     expect(
       screen.getByText(
@@ -359,7 +440,7 @@ describe("PairDeviceCard", () => {
         },
       ],
     };
-    render(<PairDeviceCard />);
+    renderCard();
 
     expect(
       await screen.findByRole("button", { name: "Paired devices (1)" }),
@@ -381,7 +462,7 @@ describe("PairDeviceCard", () => {
         },
       ],
     };
-    render(<PairDeviceCard />);
+    renderCard();
 
     expect(screen.getByText("Pair a device")).toBeTruthy();
     // The mount-time pending-request poll settles; the device list is never
@@ -396,7 +477,7 @@ describe("PairDeviceCard", () => {
   });
 
   test("falls back to generic copy when the assistant has no name", () => {
-    render(<PairDeviceCard />);
+    renderCard();
 
     expect(
       screen.getByText(
@@ -416,7 +497,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
   }
 
   test("hides the approval section while no request is pending", async () => {
-    render(<PairDeviceCard />);
+    renderCard();
 
     // The list was polled and came back empty.
     await waitFor(() =>
@@ -432,7 +513,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
       onPendingRequests: () =>
         jsonResponse({ error: { message: "gateway unreachable" } }, 500),
     });
-    render(<PairDeviceCard />);
+    renderCard();
 
     await waitFor(() =>
       expect(screen.getByText("gateway unreachable")).toBeTruthy(),
@@ -446,7 +527,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
 
   test("renders a pending request's user code and requester metadata", async () => {
     installPendingFetch();
-    render(<PairDeviceCard />);
+    renderCard();
 
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
     expect(screen.getByText("Pairing requests")).toBeTruthy();
@@ -475,7 +556,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
     timerHarness.install();
     try {
       await act(async () => {
-        render(<PairDeviceCard />);
+        renderCard();
       });
       expect(screen.getByText(/Requested 2 minutes ago/)).toBeTruthy();
 
@@ -497,7 +578,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
 
   test("Approve posts the request id and removes the row", async () => {
     installPendingFetch();
-    render(<PairDeviceCard />);
+    renderCard();
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -510,7 +591,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
 
   test("approving a pending request refetches the paired-device list", async () => {
     installPendingFetch();
-    render(<PairDeviceCard />);
+    renderCard();
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
     const callsBeforeApprove = listDevicesCalls;
 
@@ -523,7 +604,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
 
   test("Deny posts the request id and removes the row", async () => {
     installPendingFetch();
-    render(<PairDeviceCard />);
+    renderCard();
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
@@ -539,7 +620,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
     installPendingFetch({
       onRequestAction: () => new Promise<Response>(() => {}),
     });
-    render(<PairDeviceCard />);
+    renderCard();
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
@@ -573,7 +654,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
           ],
         }),
     });
-    render(<PairDeviceCard />);
+    renderCard();
 
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
     expect(
@@ -587,7 +668,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
       onPendingRequests: () =>
         jsonResponse({ requests: [pendingRequestBody({ viaEdgeProxy: true })] }),
     });
-    render(<PairDeviceCard />);
+    renderCard();
 
     await waitFor(() => expect(screen.getByText("QRST-7890")).toBeTruthy());
     expect(
@@ -598,7 +679,7 @@ describe("PairDeviceCard: pending pairing requests", () => {
   test("stays hidden with the card when there is no local gateway", () => {
     gatewayPath = undefined;
     installPendingFetch();
-    const { container } = render(<PairDeviceCard />);
+    const { container } = renderCard();
 
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pairing requests")).toBeNull();
@@ -609,10 +690,113 @@ describe("PairDeviceCard: pending pairing requests", () => {
   test("stays hidden with the card when web-remote-ingress is off", () => {
     webRemoteIngressOn = false;
     installPendingFetch();
-    const { container } = render(<PairDeviceCard />);
+    const { container } = renderCard();
 
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pairing requests")).toBeNull();
     expect(fetchLog).toHaveLength(0);
+  });
+});
+
+describe("PairDeviceCard: tunnel status", () => {
+  beforeEach(() => {
+    enableTunnelStatus();
+  });
+
+  test("shows the status row for a healthy tunnel, without the first-run notice", async () => {
+    probeResponse = healthyStatus();
+    renderCard();
+
+    expect(
+      await screen.findByText("The tunnel is running and reachable."),
+    ).toBeTruthy();
+    expect(screen.getByText(TUNNEL_URL)).toBeTruthy();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+  });
+
+  test("shows the first-run notice only once the daemon reports no tunnel", async () => {
+    probeResponse = { state: "unconfigured" };
+    renderCard();
+
+    // The in-flight probe is not an empty state, so the row speaks first.
+    expect(
+      screen.getByText("Checking whether the tunnel is reachable…"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+
+    expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
+    expect(screen.getByText("vellum tunnel --provider tailscale")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Check the tunnel again" }),
+    ).toBeNull();
+  });
+
+  test("re-checks the tunnel when the app resumes", async () => {
+    probeResponse = healthyStatus();
+    renderCard();
+    await screen.findByText("The tunnel is running and reachable.");
+    expect(probeMock).toHaveBeenCalledTimes(1);
+
+    act(() => publish("app.resume", { signal: "visibility" }));
+
+    await waitFor(() => expect(probeMock).toHaveBeenCalledTimes(2));
+  });
+
+  test("prefills the URL field from the daemon's address, not the recorded one", async () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      ingressUrl: RECORDED_INGRESS_URL,
+    };
+    probeResponse = healthyStatus();
+    renderCard();
+
+    await waitFor(() => expect(urlField().value).toBe(TUNNEL_URL));
+    // The helper text still credits `vellum tunnel` for the address.
+    expect(screen.getByText(/comes from/)).toBeTruthy();
+  });
+
+  test("keeps a typed URL when the probe answers", async () => {
+    probeResponse = healthyStatus();
+    renderCard();
+    typeUrl(PUBLIC_URL);
+
+    await screen.findByText("The tunnel is running and reachable.");
+    expect(urlField().value).toBe(PUBLIC_URL);
+  });
+});
+
+describe("PairDeviceCard: without the ingress-status route", () => {
+  test("never probes and keeps the recorded ingress URL as the prefill", async () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      ingressUrl: RECORDED_INGRESS_URL,
+    };
+    probeResponse = healthyStatus();
+    renderCard();
+
+    expect(urlField().value).toBe(RECORDED_INGRESS_URL);
+    expect(
+      screen.queryByRole("button", { name: "Check the tunnel again" }),
+    ).toBeNull();
+    // A recorded URL is the pre-probe evidence of a tunnel, so no first-run
+    // notice even though the probe never reported one.
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+
+    act(() => publish("app.resume", { signal: "visibility" }));
+    await waitFor(() =>
+      expect(
+        fetchLog.some((r) => r.url.endsWith("/v1/remote-web/pairing-requests")),
+      ).toBe(true),
+    );
+    expect(probeMock).not.toHaveBeenCalled();
+  });
+
+  test("keeps the field-derived first-run notice with nothing recorded", () => {
+    renderCard();
+
+    expect(screen.getByText("Open a tunnel first")).toBeTruthy();
+    expect(probeMock).not.toHaveBeenCalled();
   });
 });
