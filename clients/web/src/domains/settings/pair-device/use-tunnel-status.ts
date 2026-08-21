@@ -130,5 +130,10 @@ export function toStatusView(
           : {}),
         ...recordedProvider,
       };
+    default:
+      // A newer daemon can name a state this bundle predates. Falling off the
+      // switch would return undefined and crash the row on `.kind`, so an
+      // unknown verdict degrades to no verdict.
+      return { kind: "unavailable" };
   }
 }

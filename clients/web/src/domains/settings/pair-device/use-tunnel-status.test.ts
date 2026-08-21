@@ -89,6 +89,17 @@ describe("toStatusView", () => {
     expect(toStatusView(undefined, false)).toEqual({ kind: "unavailable" });
   });
 
+  // A cached bundle can outlive the daemon it talks to. Falling off the switch
+  // would hand the row `undefined` and crash it on `.kind`.
+  test("reports unavailable for a state this bundle predates", () => {
+    expect(
+      toStatusView(
+        { state: "a-state-from-a-newer-daemon" } as never,
+        false,
+      ),
+    ).toEqual({ kind: "unavailable" });
+  });
+
   test("maps unconfigured", () => {
     expect(toStatusView({ state: "unconfigured" }, false)).toEqual({
       kind: "unconfigured",
