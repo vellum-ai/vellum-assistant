@@ -3,9 +3,10 @@ import WidgetKit
 
 /// Widget bundle entry point for the VoiceActivity extension.
 ///
-/// Four members: the live-voice Live Activity
-/// (`VoiceSessionLiveActivity.swift`), the Catch Up Home Screen widget
-/// (`Widgets/CatchUpWidget.swift`), and two Control Center / Lock Screen
+/// Five members: the live-voice Live Activity
+/// (`VoiceSessionLiveActivity.swift`), two Home Screen widgets, Catch Up
+/// (`Widgets/CatchUpWidget.swift`) and Quick Actions
+/// (`Widgets/QuickActionsWidget.swift`), and two Control Center / Lock Screen
 /// controls, one starting a voice conversation (`StartVoiceControl.swift`) and
 /// one opening the app (`OpenVellumControl.swift`). A `WidgetBundle` holds
 /// Home Screen widgets alongside the rest, which is why the widgets join this
@@ -23,6 +24,7 @@ struct VoiceActivityBundle: WidgetBundle {
     var body: some Widget {
         VoiceSessionLiveActivity()
         CatchUpWidget()
+        QuickActionsWidget()
         if #available(iOS 18.0, *) {
             StartVoiceControl()
             OpenVellumControl()
