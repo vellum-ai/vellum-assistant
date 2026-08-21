@@ -42,6 +42,7 @@ import {
   normalizeSlackReactionRemoved,
 } from "./reaction-normalizer.js";
 import { enrichNormalizedActor } from "./actor.js";
+import { resolveSlackChannelIsPrivate } from "./user-directory.js";
 import { SlackSocketLiveness } from "./socket-liveness.js";
 import {
   defaultSchedule,
@@ -1699,14 +1700,12 @@ export class SlackSocketModeClient {
         eventId,
         this.config.gatewayConfig,
         renderContext,
-        this.config.botToken,
       );
     } else if (isMessageDeleted) {
       normalized = normalizeSlackMessageDelete(
         event,
         eventId,
         this.config.gatewayConfig,
-        this.config.botToken,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
@@ -1799,6 +1798,29 @@ export class SlackSocketModeClient {
         // Also re-runs bot-sender classification: an is_bot-only bot (no
         // top-level bot_id) is undetectable during cache-only normalization.
         enrichNormalizedActor(normalized, userInfo);
+      }
+    }
+
+    // Resolve visibility when the id and event type could not settle it, for
+    // the same reason the actor is enriched above: this is a permission input
+    // and it has to be right before enforcement, not eventually.
+    //
+    // Only a bare `C` reaches here. It is a public channel or a modern
+    // multi-person IM, and nothing about the id distinguishes them, so a
+    // background warm would return the permissive answer on the first event
+    // and the correct one later. Bounded by the same timeout as the actor
+    // lookup, and an unanswered lookup stays unknown rather than public.
+    if (!normalized.event.source.conversationType && channelId) {
+      const isPrivate = await Promise.race([
+        resolveSlackChannelIsPrivate(channelId, this.config.botToken),
+        new Promise<undefined>((resolve) =>
+          setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
+        ),
+      ]);
+      if (isPrivate !== undefined) {
+        normalized.event.source.conversationType = isPrivate
+          ? "private"
+          : "public";
       }
     }
 

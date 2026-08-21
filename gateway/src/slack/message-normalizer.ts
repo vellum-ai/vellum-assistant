@@ -11,7 +11,6 @@ import {
 import { slackUserActorFields, slackBotSenderInfo } from "./actor.js";
 import { extractSlackAttachments, extractSlackFileMap } from "./attachments.js";
 import type { ChannelConversationType } from "@vellumai/gateway-client";
-import { cachedSlackChannelIsMpim } from "./user-directory.js";
 import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -130,7 +129,6 @@ function buildNormalizedSlackMessage(
           const conversationType = slackConversationVisibility(
             channel,
             event.channel_type,
-            botToken,
           );
           return conversationType ? { conversationType } : {};
         })(),
@@ -267,7 +265,6 @@ export function normalizeSlackGroupDirectMessage(
 export function slackConversationVisibility(
   channelId: string | undefined,
   channelType?: string,
-  botToken?: string,
 ): ChannelConversationType | undefined {
   if (channelType === "im") return "dm";
   if (channelType === "group" || channelType === "mpim") return "private";
@@ -277,14 +274,10 @@ export function slackConversationVisibility(
   if (channelType === "channel") return "public";
   // A `C` proves nothing on its own: a modern multi-person IM is minted with
   // one, so claiming public here would hand a group DM a public-channel rule.
-  // Only what the cache already knows can settle it, and a miss declines to
-  // answer rather than fetching: this runs on every inbound event, and the
-  // mention path resolves nothing it does not already have.
-  const isMpim = botToken
-    ? cachedSlackChannelIsMpim(channelId, botToken)
-    : undefined;
-  if (isMpim === true) return "private";
-  return isMpim === false ? "public" : undefined;
+  // Answering nothing hands it to the caller, which resolves it against Slack
+  // before the event is emitted. This stays free of I/O so it can run on every
+  // inbound event.
+  return undefined;
 }
 
 /**

@@ -32,7 +32,6 @@ export function normalizeSlackMessageEdit(
   eventId: string,
   config: GatewayConfig,
   renderContext?: SlackTextRenderContext,
-  botToken?: string,
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageChangedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -86,7 +85,6 @@ export function normalizeSlackMessageEdit(
           const conversationType = slackConversationVisibility(
             channel,
             changed.channel_type,
-            botToken,
           );
           return conversationType ? { conversationType } : {};
         })(),
@@ -124,7 +122,6 @@ export function normalizeSlackMessageDelete(
   event: unknown,
   eventId: string,
   config: GatewayConfig,
-  botToken?: string,
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageDeletedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -172,7 +169,6 @@ export function normalizeSlackMessageDelete(
           const conversationType = slackConversationVisibility(
             channel,
             deleted.channel_type,
-            botToken,
           );
           return conversationType ? { conversationType } : {};
         })(),

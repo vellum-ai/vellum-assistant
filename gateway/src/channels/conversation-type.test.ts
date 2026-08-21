@@ -44,15 +44,21 @@ describe("conversation type, per channel", () => {
     expect(slackConversationVisibility("D0DIRECT", undefined)).toBe("dm");
   });
 
-  test("a bare C prefix is not enough to call a room public", () => {
+  test("a bare C prefix answers nothing rather than guessing public", () => {
     // The failure this shape exists to prevent. A modern multi-person IM is
-    // minted with a plain `C`, and an app mention never warms the kind cache,
-    // so the first mention in a private group DM after a restart would be
-    // stamped public and a public-channel rule would govern it. Unknown fails
-    // closed: no answer rather than the permissive one.
+    // minted with a plain `C` and looks exactly like a public channel, so
+    // answering here would hand a group DM a public-channel rule. The caller
+    // resolves this case against Slack before emitting.
     expect(slackConversationVisibility("C0UNKNOWN", undefined)).toBeUndefined();
-    // An explicit type is still proof.
+    // An explicit type is still proof, and costs nothing.
     expect(slackConversationVisibility("C0PUBLIC", "channel")).toBe("public");
+  });
+
+  test("the free half of the answer makes no network call", () => {
+    // Asserted as a property rather than a mock: the helper takes no token and
+    // no cache, so it cannot reach Slack even by accident. This is what lets it
+    // run on every inbound event.
+    expect(slackConversationVisibility.length).toBe(2);
   });
 
   test("nothing to go on resolves to nothing", () => {
