@@ -656,6 +656,34 @@ describe("POST oauth/request", () => {
     expect(result.body).toEqual({ hello: "world" });
   });
 
+  test("base64-encodes binary response bodies for the JSON envelope", async () => {
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/octet-stream" },
+      body: binary,
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/drive/v3/files/file-123?alt=media",
+        },
+      }),
+    )) as {
+      ok: boolean;
+      status: number;
+      body: unknown;
+      bodyEncoding?: string;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.body).toBe(binary.toString("base64"));
+    expect(result.bodyEncoding).toBe("base64");
+    expect(Buffer.from(String(result.body), "base64").equals(binary)).toBe(
+      true,
+    );
+  });
+
   test("rejects absolute URL host outside provider base host when no injection templates exist", async () => {
     await expect(
       getRoute("POST", "oauth/request").handler(

@@ -14,6 +14,7 @@ import type {
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "./connection.js";
+import { decodeOAuthResponseBytes } from "./connection.js";
 
 const log = getLogger("byo-oauth-connection");
 
@@ -150,17 +151,10 @@ async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {
     headers[key] = value;
   });
 
-  let body: unknown;
-  const text = await resp.text().catch(() => "");
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-  } else {
-    body = null;
-  }
-
-  return { status: resp.status, headers, body };
+  const raw = Buffer.from(await resp.arrayBuffer());
+  return {
+    status: resp.status,
+    headers,
+    body: decodeOAuthResponseBytes(raw, headers["content-type"] ?? ""),
+  };
 }
