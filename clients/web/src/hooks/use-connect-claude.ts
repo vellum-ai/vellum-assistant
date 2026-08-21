@@ -34,20 +34,23 @@ const POLL_INTERVAL_MS = 2000;
 // ~5 min of polling, comfortably inside the daemon's 10-min pending-flow TTL.
 const MAX_POLL_ATTEMPTS = 150;
 
-type ConnectClaudeErrorKey =
-  | "failed"
-  | "timedOut"
-  | "startFailed"
-  | "popupBlocked"
-  | "pasteEmpty"
-  | "notStarted"
-  | "exchangeFailed";
+// Full catalog keys spelled out per error (rather than a template over the
+// suffix) so `catalogs.test.ts` can see each key referenced in source.
+const ERROR_MESSAGE_KEYS = {
+  failed: "useConnectClaude.failed",
+  timedOut: "useConnectClaude.timedOut",
+  startFailed: "useConnectClaude.startFailed",
+  popupBlocked: "useConnectClaude.popupBlocked",
+  pasteEmpty: "useConnectClaude.pasteEmpty",
+  notStarted: "useConnectClaude.notStarted",
+  exchangeFailed: "useConnectClaude.exchangeFailed",
+} as const;
 
 // Errors are stored as catalog keys (or the daemon's own message) and
 // translated at render with the reactive `t`, so a locale switch re-renders a
 // displayed error in the new language along with the rest of the card.
 type ConnectClaudeErrorState =
-  | { key: ConnectClaudeErrorKey }
+  | { key: keyof typeof ERROR_MESSAGE_KEYS }
   | { message: string };
 
 export interface UseConnectClaudeResult {
@@ -228,7 +231,7 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
     errorState === null
       ? null
       : "key" in errorState
-        ? t(`useConnectClaude.${errorState.key}`)
+        ? t(ERROR_MESSAGE_KEYS[errorState.key])
         : errorState.message;
 
   return { phase, mode, error, isBusy, connect, submitPastedCode, reset };
