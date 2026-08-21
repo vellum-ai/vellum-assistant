@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, Menu, screen } from "electron";
 import { z } from "zod";
 
 import {
@@ -10,6 +10,7 @@ import {
   COMPANION_BASE_CANVAS_PAD,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
+  COMPANION_SIZES,
   COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
   type CompanionCardGrowth,
@@ -22,6 +23,7 @@ import {
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
+import { COMPANION_SIZE_LABELS } from "@vellumai/electron-desktop/companion-menu";
 import {
   readCompanionHidden,
   readCompanionIntroSeen,
@@ -736,6 +738,49 @@ export const installCompanionWindow = (): void => {
       pushState();
     },
   );
+
+  /**
+   * The surface's own menu, on a right-click.
+   *
+   * **Because the tray is the wrong place to look.** The two things a user
+   * wants from a floating avatar are to resize it and to make it go away, and
+   * both were otherwise reachable only from a menu-bar icon that says nothing
+   * about the thing they are actually looking at. A press on the object itself
+   * is where people reach first.
+   *
+   * Built here rather than in the renderer: a menu is a native window, and main
+   * is the side that owns both the size and the visibility. The wording comes
+   * from the tray's own table, so the two menus cannot drift into describing
+   * the same surface differently.
+   */
+  on("vellum:companion:contextMenu", z.tuple([]), () => {
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+    const current = readCompanionSize();
+    const menu = Menu.buildFromTemplate([
+      ...COMPANION_SIZES.map((size) => ({
+        label: COMPANION_SIZE_LABELS[size],
+        type: "radio" as const,
+        checked: current === size,
+        click: () => {
+          setCompanionSurfaceSize(size);
+        },
+      })),
+      { type: "separator" as const },
+      {
+        // Named for what it does to the thing under the cursor. The tray's item
+        // is a checkbox because it is also the way back; here there is a
+        // surface in front of the user, so this only has to take it away.
+        label: "Hide Companion",
+        click: () => {
+          setCompanionSurfaceVisible(false);
+        },
+      },
+    ]);
+    menu.popup({ window: win });
+  });
 
   on("vellum:companion:activate", z.tuple([]), () => {
     void ensureMainWindowVisible().then(() => {

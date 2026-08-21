@@ -16,6 +16,7 @@ import {
   moveCompanionBy,
   setCompanionComposing,
   setCompanionInteractive,
+  showCompanionContextMenu,
   startCompanionVoice,
   submitCompanionMessage,
   subscribeCompanionState,
@@ -440,9 +441,22 @@ export function CompanionSurfacePage() {
           }
           rootRef={pillRef}
           onSurfaceMouseDown={(event) => {
+            // A right-click is a menu, not a grab. Left alone it would arm the
+            // drag and then never be released by a `mouseup` this window sees,
+            // because the menu takes the pointer for as long as it is open.
+            if (event.button !== 0) {
+              return;
+            }
             dragRef.current = { x: event.screenX, y: event.screenY };
             pressOriginRef.current = { x: event.screenX, y: event.screenY };
             draggedRef.current = false;
+          }}
+          onSurfaceContextMenu={(event) => {
+            event.preventDefault();
+            // Main pops the menu at the pointer, so the window has to still be
+            // clickable when it does. It is: the pointer is on the pill, which
+            // is the only thing that makes this window interactive at all.
+            showCompanionContextMenu();
           }}
           // A press that never became a drag. The window comes forward on the
           // conversation this surface belongs to; main decides what that means.

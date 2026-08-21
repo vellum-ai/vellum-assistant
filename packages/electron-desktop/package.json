@@ -18,6 +18,7 @@
     "./capability-registry": "./src/capability-registry.ts",
     "./command-palette-window": "./src/command-palette-window.ts",
     "./commands": "./src/commands.ts",
+    "./companion-menu": "./src/companion-menu.ts",
     "./connectivity-probe": "./src/connectivity-probe.ts",
     "./csp": "./src/csp.ts",
     "./deep-links": "./src/deep-links.ts",

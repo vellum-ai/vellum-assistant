@@ -283,6 +283,14 @@ export interface CompanionSurfaceProps {
    */
   onSurfaceMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   /**
+   * Open the surface's own menu, which a right-click anywhere on it asks for.
+   *
+   * On the whole surface rather than the avatar: at rest the two are the same
+   * box, and when expanded a user reaching for "make this go away" should not
+   * have to find the mascot inside the pill first.
+   */
+  onSurfaceContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  /**
    * Draw a control as though the pointer were on it.
    *
    * Real hover is CSS and needs no help. This is for playback with no pointer
@@ -380,6 +388,7 @@ export function CompanionSurface({
   cardGrowth = "up",
   rootRef,
   onSurfaceMouseDown,
+  onSurfaceContextMenu,
   spotlight,
   onTalk,
   onType,
@@ -520,6 +529,7 @@ export function CompanionSurface({
         style={style}
         onMouseLeave={onHoverEnd}
         onMouseDown={onSurfaceMouseDown}
+        onContextMenu={onSurfaceContextMenu}
         ref={rootRef}
       >
         {/* The pill's body, which exists only once there is a pill. At rest the

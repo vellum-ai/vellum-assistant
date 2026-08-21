@@ -443,6 +443,15 @@ export interface VellumBridge {
      * has been seen, so the run never comes back.
      */
     advanceIntro(action: CompanionIntroAction): void;
+    /**
+     * Open the surface's own menu, at the pointer.
+     *
+     * Built and popped in main, because a menu is a native window: the
+     * renderer knows a right-click happened and nothing else. The items are
+     * the ones the tray carries for the companion, so the two cannot come to
+     * describe the surface differently.
+     */
+    showContextMenu(): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

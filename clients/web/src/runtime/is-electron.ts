@@ -351,6 +351,7 @@ declare global {
         submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
+        showContextMenu?(): void;
       };
     };
   }

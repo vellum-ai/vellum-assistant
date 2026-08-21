@@ -529,6 +529,9 @@ const bridge: VellumBridge = {
     advanceIntro: (action: CompanionIntroAction): void => {
       ipcRenderer.send("vellum:companion:advanceIntro", action);
     },
+    showContextMenu: (): void => {
+      ipcRenderer.send("vellum:companion:contextMenu");
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

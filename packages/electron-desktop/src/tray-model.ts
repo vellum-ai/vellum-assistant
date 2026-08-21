@@ -29,6 +29,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
+import { COMPANION_SIZE_LABELS } from "./companion-menu";
 
 export type TrayMenuIcon =
   | "check"
@@ -138,21 +139,6 @@ export interface TrayHandlers {
  * Resolve a user-facing display title for a lockfile assistant. Uses the
  * assistant name when present, falling back to a truncated id.
  */
-/**
- * Menu wording for each companion size.
- *
- * Here rather than in the contract: the contract carries what the two processes
- * send each other, and these are words on a menu. The point sizes are not in
- * the labels: "88pt" means nothing next to a floating avatar, and the sizes
- * are meant to be picked by looking at the result.
- */
-const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  huge: "Huge",
-};
-
 const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
   if (assistant.name) {
     return assistant.name;

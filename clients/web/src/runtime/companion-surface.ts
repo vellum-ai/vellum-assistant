@@ -176,3 +176,13 @@ export function clearCompanionWorking(): void {
 export function advanceCompanionIntro(action: CompanionIntroAction): void {
   bridge()?.advanceIntro?.(action);
 }
+
+/**
+ * Ask main to open the surface's own menu at the pointer.
+ *
+ * The renderer knows a right-click happened and nothing else: the menu is a
+ * native window, and the size and visibility it acts on are main's.
+ */
+export function showCompanionContextMenu(): void {
+  bridge()?.showContextMenu?.();
+}

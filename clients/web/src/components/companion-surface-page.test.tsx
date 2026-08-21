@@ -13,6 +13,7 @@ const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
+const contextMenuMock = mock(() => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -64,6 +65,7 @@ mock.module("@/runtime/companion-surface", () => ({
   setCompanionComposing: () => undefined,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
+  showCompanionContextMenu: contextMenuMock,
 }));
 
 mock.module("@/runtime/desktop-voice-activity", () => ({
@@ -79,6 +81,7 @@ afterEach(() => {
   setInteractiveMock.mockClear();
   activateMock.mockClear();
   advanceIntroMock.mockClear();
+  contextMenuMock.mockClear();
 });
 
 /** The canvas the page fills, which is where the pointer handlers live. */
@@ -445,5 +448,46 @@ describe("the companion's introduction", () => {
     pushState();
 
     expect(container.querySelector('[role="group"]')).not.toBeNull();
+  });
+});
+
+/**
+ * The surface's own menu. The tray is the only other way to resize or hide the
+ * companion, and it names a menu-bar icon rather than the thing on screen, so a
+ * press on the object itself is where a user reaches first.
+ */
+describe("the companion's own menu", () => {
+  test("a right-click asks main to open it", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const pill = await pinPill(container);
+
+    fireEvent.contextMenu(pill);
+
+    expect(contextMenuMock).toHaveBeenCalled();
+  });
+
+  /**
+   * A right-click must not arm the drag. The menu takes the pointer for as long
+   * as it is open, so the `mouseup` that ends a press never reaches this
+   * window: the surface would follow the pointer afterwards with no button
+   * held, which is the stuck-drag bug with a different trigger.
+   */
+  test("a right-press does not start a drag", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const pill = await pinPill(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    // button 2 is the right button; the drag arms only on the left.
+    fireEvent.mouseDown(pill, { button: 2, screenX: 500, screenY: 500 });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 560,
+      screenY: 540,
+      buttons: 2,
+    });
+
+    expect(moveByMock).not.toHaveBeenCalled();
   });
 });
