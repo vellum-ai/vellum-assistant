@@ -456,6 +456,7 @@ export function ExtensibilityPluginsContent() {
             <code>{`my-plugin/
 ├── package.json               # Manifest (required)
 ├── README.md                  # Optional plugin docs
+├── mcp.json                   # Optional MCP server declarations
 ├── config.json                # User-editable config (preserved across upgrades)
 ├── data/                      # Runtime data directory (preserved across upgrades)
 ├── hooks/                     # Lifecycle hooks, one per file
@@ -465,6 +466,8 @@ export function ExtensibilityPluginsContent() {
 │   └── example.ts
 ├── routes/                    # HTTP routes, served under /x/plugins/<name>/
 │   └── status.ts
+├── channels/                  # Public ingress that makes the plugin a channel
+│   └── ingress.json
 ├── apps/                      # Interactive apps served in the workspace panel
 │   └── dashboard/
 │       └── src/
@@ -491,8 +494,10 @@ export function ExtensibilityPluginsContent() {
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
             Each surface can also be dropped straight into the workspace at{" "}
             <code>/workspace/&lt;surface&gt;/&lt;name&gt;/</code> without
-            wrapping it in a plugin. A plugin is what lets you ship several
-            surfaces together as one installable unit.
+            wrapping it in a plugin, except MCP servers (workspace MCP is
+            configured in settings, not by dropping an{" "}
+            <code>mcp.json</code> into the workspace). A plugin is what lets you
+            ship several surfaces together as one installable unit.
           </p>
 
           <div id="preserved-entries" className="mt-8">
@@ -660,6 +665,26 @@ export function ExtensibilityPluginsContent() {
             </li>
             <li>
               <strong className="text-zinc-900 dark:text-zinc-100">
+                <code>displayName</code>
+              </strong>
+              ,{" "}
+              <strong className="text-zinc-900 dark:text-zinc-100">
+                <code>description</code>
+              </strong>
+              ,{" "}
+              <strong className="text-zinc-900 dark:text-zinc-100">
+                <code>icon</code>
+              </strong>
+              . Optional presentation for the channels list when the plugin
+              declares ingress. <code>icon</code> is a Lucide name without the{" "}
+              <code>lucide-</code> prefix. None of them gate load. See the{" "}
+              <Link href="/docs/extensibility/channels" className={linkClass}>
+                Channels page
+              </Link>
+              .
+            </li>
+            <li>
+              <strong className="text-zinc-900 dark:text-zinc-100">
                 <code>vellum</code>
               </strong>
               . Reserved for future use.
@@ -796,10 +821,6 @@ export function ExtensibilityPluginsContent() {
                     "Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).",
                   ],
                   [
-                    "Webhooks",
-                    "Inbound HTTP endpoints that deliver external events into the assistant.",
-                  ],
-                  [
                     "Prompts",
                     "Reusable system prompt fragments and templates.",
                   ],
@@ -810,7 +831,7 @@ export function ExtensibilityPluginsContent() {
                   ["Bin", "CLI commands the assistant exposes as tools."],
                   [
                     "Integrations",
-                    "OAuth-connected and MCP-connected external services (Google, Linear, Slack, etc.) with credential management.",
+                    "OAuth-connected external services (Google, Linear, Slack, etc.) with credential management.",
                   ],
                   [
                     "Slash commands",
@@ -850,8 +871,8 @@ export function ExtensibilityPluginsContent() {
             own. The plugin is the distribution unit: its{" "}
             <code>package.json</code> manifest, the{" "}
             <code>@vellumai/plugin-api</code> peer dependency, and the install
-            flow exist to make hooks, tools, skills, routes, and apps portable
-            and discoverable.
+            flow exist to make hooks, tools, skills, MCP servers, routes,
+            channels, and apps portable and discoverable.
           </p>
         </section>
       </DocsContent>

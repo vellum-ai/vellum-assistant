@@ -28,7 +28,6 @@ import {
 
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
-let webRemoteIngressOn = true;
 let pairedDevicesUIOn = true;
 let selectedAssistant: {
   assistantId: string;
@@ -53,7 +52,6 @@ mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
-      webRemoteIngress: () => webRemoteIngressOn,
       pairedDevicesUI: () => pairedDevicesUIOn,
     },
   },
@@ -254,7 +252,6 @@ function recheckButton(): HTMLElement | null {
 beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
-  webRemoteIngressOn = true;
   pairedDevicesUIOn = true;
   selectedAssistant = { assistantId: "self", cloud: "local" };
   listDevicesResult = { ok: false, error: "unavailable" };
@@ -299,14 +296,6 @@ describe("PairDeviceCard", () => {
 
   test("renders nothing against an assistant without the pairing routes", () => {
     supportsPairingRoutes = false;
-    const { container } = renderCard();
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByText("Pair a device")).toBeNull();
-  });
-
-  test("renders nothing when web-remote-ingress is off", () => {
-    // The client flag only controls the card's visibility.
-    webRemoteIngressOn = false;
     const { container } = renderCard();
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pair a device")).toBeNull();
@@ -690,16 +679,6 @@ describe("PairDeviceCard: pending pairing requests", () => {
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pairing requests")).toBeNull();
     // The gate keeps the poll from ever firing.
-    expect(fetchLog).toHaveLength(0);
-  });
-
-  test("stays hidden with the card when web-remote-ingress is off", () => {
-    webRemoteIngressOn = false;
-    installPendingFetch();
-    const { container } = renderCard();
-
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByText("Pairing requests")).toBeNull();
     expect(fetchLog).toHaveLength(0);
   });
 });

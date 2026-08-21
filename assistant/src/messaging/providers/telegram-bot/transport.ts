@@ -32,11 +32,11 @@ export const telegramTransport: ChannelTransport = {
     const opts = threadOptions(ctx);
 
     if (text) {
-      // `useBlocks` is the channel-neutral "render richly" intent set by the
+      // The delivery layer sets this on every segment; Telegram answers it
       // delivery layer; the Telegram adapter honors it by forwarding markdown
       // to `sendRichMessage`, degrading to plain text otherwise (and on any
       // rich-send rejection).
-      if (payload.useBlocks) {
+      if (payload.renderRichly) {
         await sendTelegramRichReply(chatId, text, approval, opts);
       } else {
         await sendTelegramReply(chatId, text, approval, opts);

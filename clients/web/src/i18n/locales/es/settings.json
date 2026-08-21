@@ -155,15 +155,52 @@
     "returnTo": "Volver a {assistantName}",
     "title": "¡Ya está todo listo!"
   },
+  "credentialRow": {
+    "addedMetadata": "añadida el {date}",
+    "clickToRevealTitle": "Haz clic para revelar",
+    "configureAriaLabel": "Configurar {name}",
+    "configureButton": "Configurar",
+    "copyFailedToast": "No se pudo copiar. Revela y copia manualmente.",
+    "copyValueAriaLabel": "Copiar valor de {name}",
+    "copyValueTitle": "Copiar valor",
+    "deleteLabel": "Eliminar",
+    "generateLinkLabel": "Generar enlace",
+    "hideValueAriaLabel": "Ocultar valor de {name}",
+    "hideValueTitle": "Ocultar valor",
+    "revealFailedToast": "No se pudo revelar {name}.",
+    "revealValueAriaLabel": "Revelar valor de {name}"
+  },
   "credentialsPage": {
+    "addButton": "Añadir",
+    "addCredentialButton": "Añadir credencial",
+    "copyLinkButton": "Copiar enlace",
+    "credentialSourceAriaLabel": "Origen de credenciales",
     "deleteConfirmLabel": "Eliminar",
     "deleteConfirmMessage": "¿Eliminar {name}? Las herramientas e integraciones que la usan perderán el acceso.",
     "deleteConfirmTitle": "Eliminar credencial",
     "deleteErrorToast": "No se pudo eliminar la credencial",
     "deleteSuccessToast": "Se eliminó {name}.",
+    "emptySubtitle": "Añade una clave de API o un token para que herramientas e integraciones lo usen.",
+    "emptyTitle": "Aún no hay credenciales",
+    "generateLinkFailedToast": "No se pudo generar un enlace de un solo uso",
     "inUseConfirmLabel": "Eliminar de todos modos",
     "inUseMessage": "{count, plural, one {{name} es la credencial con la que la conexión {connections} envía sus solicitudes. Si la eliminas, esa conexión dejará de responder hasta que agregues una credencial nueva.} other {{name} es la credencial con la que las conexiones {connections} envían sus solicitudes. Si la eliminas, esas conexiones dejarán de responder hasta que agregues una credencial nueva.}}",
-    "inUseTitle": "La credencial está en uso"
+    "inUseTitle": "La credencial está en uso",
+    "linkCopiedToast": "Enlace copiado al portapapeles.",
+    "linkCopyFailedToast": "No se pudo copiar el enlace. Selecciónalo y cópialo manualmente.",
+    "linkLabel": "Enlace",
+    "managedTag": "Gestionada",
+    "noMatch": "Ninguna credencial coincide con \"{query}\".",
+    "oneTimeLinkModalDescription": "Envía este enlace a quien deba proporcionar {name}. Funciona exactamente una vez{expiresClause}. Cualquiera con el enlace puede establecer esta credencial, así que compártelo por un canal seguro.",
+    "oneTimeLinkModalExpiresClause": " y caduca el {expiresAt}",
+    "oneTimeLinkModalTitle": "Enlace de credencial de un solo uso",
+    "searchAriaLabel": "Buscar credenciales",
+    "searchPlaceholder": "Buscar credenciales",
+    "segmentManaged": "Gestionadas",
+    "segmentYourOwn": "Propias",
+    "subtitleManaged": "Proporcionadas a través de tus integraciones gestionadas por Vellum. Aquí son solo de lectura.",
+    "subtitleOwn": "Guardadas cifradas en la bóveda de credenciales de tu asistente. Revela un valor bajo demanda, o reemplázalo o elimínalo en cualquier momento.",
+    "title": "Credenciales"
   },
   "customPlanModal": {
     "cancel": "Cancelar",
@@ -275,6 +312,28 @@
     "setupInstructions": "Configura {providerName} mediante la CLI del asistente: pídele al asistente que ejecute la habilidad <code>{setupSkill}</code>. Te guiará para guardar la clave API, detectar el dominio y (opcionalmente) configurar un webhook entrante.",
     "subtitle": "Configura cómo tu asistente envía y recibe correo",
     "title": "Correo"
+  },
+  "enrollTotpModal": {
+    "cancel": "Cancelar",
+    "codeLabel": "Código de 6 dígitos",
+    "codePlaceholder": "123456",
+    "copyError": "No se pudo copiar la clave de configuración.",
+    "copySuccess": "Clave de configuración copiada.",
+    "description": "Escanea el código QR con una aplicación de autenticación como Google Authenticator o 1Password, luego ingresa el código de 6 dígitos que muestra.",
+    "errorCodeMismatch": "Ese código no coincide. Revisa tu aplicación de autenticación y vuelve a intentarlo.",
+    "errorSessionExpired": "Esta sesión de configuración caducó. Escanea el nuevo código QR y vuelve a intentarlo.",
+    "errorThrottledInline": "Demasiados intentos. Espera un minuto y vuelve a intentarlo.",
+    "errorVerifyFailed": "No se pudo verificar el código. Espera un momento y vuelve a intentarlo.",
+    "manualKeyHint": "¿No puedes escanearlo? Ingresa esta clave de configuración manualmente:",
+    "qrCodeAlt": "Código QR para tu aplicación de autenticación",
+    "title": "Configurar aplicación de autenticación",
+    "toastEnabled": "La autenticación de dos factores está activada.",
+    "toastFactorLimitReached": "Ya hay una aplicación de autenticación configurada. Elimínala antes de añadir otra.",
+    "toastNoWorkosAccount": "La autenticación de dos factores solo está disponible para cuentas de la plataforma Vellum.",
+    "toastStartFailed": "No se pudo iniciar la configuración. Vuelve a intentarlo.",
+    "toastThrottled": "Demasiados intentos. Vuelve a intentarlo en un minuto.",
+    "verify": "Verificar",
+    "verifying": "Verificando…"
   },
   "errorStates": {
     "fetchErrorTitle": "No se pudo acceder a facturación",
@@ -787,10 +846,10 @@
     "addProviderTitle": "Añadir proveedor",
     "advanced": "Avanzado",
     "apiKeyPlaceholder": "Introduce tu clave API",
+    "baseUrlHintOllama": "Déjalo en blanco para usar el Ollama local predeterminado, o introduce un host remoto o no predeterminado.",
     "baseUrlLabel": "URL base",
     "baseUrlPlaceholder": "https://api.x.ai/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
-    "baseUrlHintOllama": "Déjalo en blanco para usar el Ollama local predeterminado, o introduce un host remoto o no predeterminado.",
     "cancel": "Cancelar",
     "customProviderHint": "Los proveedores personalizados se conectan a cualquier endpoint que ofrezca la API compatible con OpenAI: xAI, Groq, LM Studio, vLLM y similares.",
     "customProviderOption": "Proveedor personalizado",
@@ -830,10 +889,10 @@
   },
   "providerEditorContent": {
     "apiKeyPlaceholder": "Introduce tu clave API",
+    "baseUrlHintOllama": "Déjalo en blanco para usar el Ollama local predeterminado, o introduce un host remoto o no predeterminado.",
     "baseUrlLabel": "URL base",
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
-    "baseUrlHintOllama": "Déjalo en blanco para usar el Ollama local predeterminado, o introduce un host remoto o no predeterminado.",
     "cancel": "Cancelar",
     "displayNameLabel": "Nombre para mostrar <optional>(opcional)</optional>",
     "displayNamePlaceholder": "p. ej., Mi clave de Anthropic",
@@ -849,6 +908,12 @@
     "nothingToEdit": "No hay nada que editar. Cierra e inténtalo de nuevo.",
     "saveChanges": "Guardar cambios",
     "saving": "Guardando…"
+  },
+  "providerEndpointCheck": {
+    "httpError": "El endpoint devolvió HTTP {status} en una solicitud de prueba.",
+    "notFound": "El endpoint devolvió 404 en una solicitud de prueba: revisa la ruta base de este proveedor (p. ej., NVIDIA necesita /v1 y OpenRouter /api/v1). Algunos proveedores exigen autenticación, así que puede ser una falsa alarma.",
+    "unauthorized": "El endpoint rechazó la credencial en una solicitud de prueba (HTTP {status}). Revisa la clave de API.",
+    "unreachable": "No se pudo conectar con el endpoint en una solicitud de prueba. Revisa la URL."
   },
   "providerRow": {
     "actionsAriaLabel": "Acciones para {displayName}",
@@ -907,6 +972,23 @@
     "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
     "yourOwnLabel": "Propio"
   },
+  "shortcutsSections": {
+    "alreadyUsedBy": "Ya está en uso por {label}",
+    "appDescription": "Funcionan mientras una ventana de Vellum está enfocada.",
+    "appTitle": "Atajos de la aplicación",
+    "cancel": "Cancelar",
+    "conflictNoticePrefix": "Ese atajo ya está en uso por {label}.",
+    "conflictRecordingHint": "Elige una combinación diferente, o presiona Esc para cancelar.",
+    "conflictResetHint": "Elimina o cambia esa asignación antes de restablecer.",
+    "globalDescription": "Funcionan en cualquier lugar, incluso cuando Vellum está en segundo plano.",
+    "globalTitle": "Atajos globales",
+    "none": "Ninguno",
+    "record": "Grabar",
+    "recordShortcutAriaLabel": "Grabar atajo para {label}",
+    "recordingHint": "Grabando… presiona un atajo, o Esc para cancelar",
+    "removeBindingAriaLabel": "Eliminar asignación de {label}",
+    "resetShortcutAriaLabel": "Restablecer {label} al valor predeterminado"
+  },
   "soundsSections": {
     "addSound": "Agregar sonido",
     "allSoundsAdded": "Todos los sonidos agregados",
@@ -936,6 +1018,17 @@
     "subtitle": "Configura cómo tu asistente transcribe el habla",
     "title": "Voz a texto"
   },
+  "teleportCard": {
+    "cancel": "Cancelar",
+    "confirmAndSwitch": "Confirmar y cambiar",
+    "confirmLabel": "Teleportar",
+    "confirmMessage": "Tus datos se copiarán al nuevo entorno. El asistente actual seguirá disponible hasta que confirmes que el nuevo funciona.",
+    "progressAriaLabel": "Progreso de teleportación",
+    "subtitle": "Mueve tu asistente a un entorno de alojamiento diferente.",
+    "title": "Teleport",
+    "tryAgain": "Intentar de nuevo",
+    "verifyTitle": "Transferencia completa: verifica que tu nuevo asistente funciona."
+  },
   "textToSpeechCard": {
     "subtitle": "Configura cómo habla tu asistente",
     "title": "Texto a voz"
@@ -951,6 +1044,20 @@
     "stoppedRestart": "Ejecuta <code>{command}</code> en una terminal de este equipo para volver a iniciarlo.",
     "stoppedStatus": "El túnel está detenido, por lo que otros dispositivos no pueden alcanzar este asistente.",
     "unreachableStatus": "Esta dirección no responde ahora mismo."
+  },
+  "twoFactorSection": {
+    "addAuthenticatorApp": "Añadir aplicación de autenticación",
+    "addedOn": " · Añadido {date}",
+    "authenticatorApp": "Aplicación de autenticación",
+    "emptyDescription": "No hay ninguna aplicación de autenticación configurada. Añade una para requerir un código de un solo uso al iniciar sesión.",
+    "loadError": "No se pudieron cargar tus aplicaciones de autenticación. <retryButton>Intentar de nuevo</retryButton>",
+    "loading": "Cargando aplicaciones de autenticación…",
+    "remove": "Eliminar",
+    "removeDialogConfirm": "Eliminar",
+    "removeDialogMessage": "Al iniciar sesión ya no se pedirá un código de esta aplicación. Puedes configurar una nueva aplicación de autenticación en cualquier momento.",
+    "removeDialogTitle": "Eliminar aplicación de autenticación",
+    "toastRemoveFailed": "No se pudo eliminar la aplicación de autenticación. Vuelve a intentarlo.",
+    "toastRemoved": "Aplicación de autenticación eliminada."
   },
   "upgradeCancelPage": {
     "billingUnavailable": "La facturación no está disponible para el estado actual del asistente.",
@@ -1040,7 +1147,7 @@
     "setDefaultFailedToast": "No se pudo establecer el proveedor predeterminado. Inténtalo de nuevo."
   },
   "voicePage": {
-    "activationKeyLabel": "Atajo:",
+    "activationKeyLabel": "Tecla de activación:",
     "allowMicrophoneAccess": "Permitir acceso al micrófono",
     "captionsSubtitle": "Muestra texto en vivo de lo que tú y el asistente dicen durante una conversación de voz.",
     "captionsTitle": "Subtítulos",
@@ -1049,7 +1156,7 @@
     "enableVoiceShortcut": "Activar el atajo del modo de voz",
     "fnKeyLabel": "Fn",
     "fnRefusedNote": "Fn necesita Monitorización de entrada. Concédela en Ajustes del Sistema o define un atajo personalizado.",
-    "focusedTabNote": "El atajo solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunas combinaciones (p. ej., Ctrl+T) antes de que la página las detecte. Para un atajo que funcione en cualquier lugar, usa la aplicación de escritorio de Vellum.",
+    "focusedTabNote": "Pulsar para hablar solo funciona mientras esta pestaña está enfocada, y los navegadores pueden interceptar algunos atajos (p. ej., Ctrl+T) antes de que la página los detecte. Para PTT siempre activo, usa la aplicación de escritorio de Vellum.",
     "grantMicrophoneAccessHint": "Concede acceso al micrófono para enumerar tus dispositivos de entrada disponibles.",
     "interruptSensitivityAriaLabel": "Sensibilidad a interrupciones",
     "interruptSensitivityDescription": "Qué tan fácilmente hablar por encima del asistente lo interrumpe. Redúcela si el asistente se corta a sí mismo por ruido de fondo o muletillas; aumenta la sensibilidad para interrumpir más rápido.",

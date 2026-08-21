@@ -11,6 +11,8 @@ metadata:
       - "User wants to build, scaffold, or author a Vellum plugin"
       - "User wants to edit, update, or push changes to an existing plugin's GitHub repo"
       - "User wants to package skills, hooks, or tools into an installable plugin"
+      - "User wants to ship MCP servers as part of a plugin (mcp.json)"
+      - "User wants a plugin to receive public webhooks or become a channel (channels/ingress.json)"
       - "User wants to extend their assistant with a new capability shipped as a plugin"
       - "User wants to publish a plugin to the Vellum marketplace catalog"
       - "User asks how to ship or distribute extensions for Vellum"
@@ -40,17 +42,19 @@ Plugins can also be discovered and managed from the Plugins tab in the app, or s
 
 A single plugin can contribute several different kinds of behavior. Each surface is discovered by convention from a named subdirectory. Missing directories are simply skipped, so a plugin contributes only what it ships.
 
-| Surface                                    | Lives in           | What it does                                                                                                                                     |
-| ------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts`  | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI.                 |
-| [Skills](references/skills.md)             | `skills/<name>/`   | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.                    |
-| [Model-visible tools](references/tools.md) | `tools/<name>.ts`  | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                                       |
-| [HTTP routes](references/routes.md)        | `routes/<path>.ts` | Serve HTTP endpoints (webhooks, integrations, callbacks) in the plugin's own `/x/plugins/<name>/` namespace.                                     |
-| [Apps](references/apps.md)                 | `apps/<name>/`     | Ship persistent interactive apps (dashboards, trackers, visualizations) compiled from a Preact + TSX bundle and rendered in the workspace panel. |
+| Surface                                    | Lives in                | What it does                                                                                                                                     |
+| ------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts`       | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI.                 |
+| [Skills](references/skills.md)             | `skills/<name>/`        | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.                    |
+| [Model-visible tools](references/tools.md) | `tools/<name>.ts`       | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                                       |
+| [MCP servers](references/mcp.md)           | `mcp.json`              | Declare MCP servers the assistant connects on install. Their tools land as `mcp__<id>__<tool>` alongside workspace-configured MCP tools.         |
+| [HTTP routes](references/routes.md)        | `routes/<path>.ts`      | Serve HTTP endpoints in the plugin's own `/x/plugins/<name>/` namespace (apps, local callers, and the handler behind public ingress).            |
+| [Channels](references/channels.md)         | `channels/ingress.json` | Declare public webhook and WebSocket routes that make the plugin a channel. The gateway signature-checks them and forwards to matching routes.   |
+| [Apps](references/apps.md)                 | `apps/<name>/`          | Ship persistent interactive apps (dashboards, trackers, visualizations) compiled from a Preact + TSX bundle and rendered in the workspace panel. |
 
 The two extensibility patterns serve different goals. **Plugins are for distribution**: you intend to share the capability, publish to the marketplace, or install it across multiple assistants. The plugin manifest (`package.json`), the `@vellumai/plugin-api` peer dependency, and the install flow exist to make a capability portable, versioned, and discoverable by others.
 
-**Direct workspace contributions are for personal extension**: you simply want to extend your assistant and have no intention of distributing the work. Skip the plugin packaging entirely. Drop the file directly into the matching top-level workspace directory (`/workspace/tools/<name>/` for a tool, `/workspace/skills/<name>/` for a skill, etc.) and the assistant picks it up automatically. No manifest, no install step, no peer dependency. Lifecycle hooks are the one exception: they can only be contributed through a plugin, since there is no direct `/workspace/hooks/` path.
+**Direct workspace contributions are for personal extension**: you simply want to extend your assistant and have no intention of distributing the work. Skip the plugin packaging entirely. Drop the file directly into the matching top-level workspace directory (`/workspace/tools/<name>/` for a tool, `/workspace/skills/<name>/` for a skill, etc.) and the assistant picks it up automatically. No manifest, no install step, no peer dependency. MCP servers can also be added in settings without a plugin; `mcp.json` is the way to ship them with one.
 
 Several surfaces that plugins contribute run in the same process as the main Assistant process. They can import all internal methods from the Assistant from the single public package, [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api), which is the only supported contract. Anything not exported from there is internal and can change without notice. See `references/plugins.md` for the full export surface.
 
@@ -111,7 +115,7 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 ## SKILL COMPLETE WHEN
 
 - Job and surfaces locked in the alignment pass (questions 1 and 2 answered).
-- Directory matches the loader convention: one subdirectory per surface it ships (see the surfaces table), plus an optional `src/` for internal modules.
+- Directory matches the loader convention: one subdirectory (or declared file) per surface it ships (see the surfaces table), plus an optional `src/` for internal modules.
 - `package.json` declares `name`, `version`, and a real `peerDependencies["@vellumai/plugin-api"]` range.
 - Any durable state lives in `data/`, created by `init` and cleaned up by `shutdown` / `conversation-deleted`.
 - Each surface has been exercised locally with a working example.
@@ -123,6 +127,8 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 - `references/hooks.md`: Every lifecycle hook with its context fields, the agent loop diagram, resolution order, and a hook anatomy example.
 - `references/tools.md`: Tool definition fields, the execute context, result shape, resolution order, and a tool anatomy example.
 - `references/skills.md`: Frontmatter reference, resolution order, and a skill anatomy example.
+- `references/mcp.md`: Root `mcp.json` declarations, transports, server ids, credentials, and risk defaults.
 - `references/routes.md`: The `/x/plugins/<name>/` namespace, path mapping, handler signature, and a route anatomy example.
+- `references/channels.md`: `channels/ingress.json`, public `/webhooks/plugins/<name>/` routes, guardian approval, verification, and inbound delivery.
 - `references/apps.md`: The Preact + TSX app structure, `src/`→`dist/` compilation, the `plugins~<name>~<app>` id scheme, serving in the workspace panel, and an app anatomy example.
 - `references/distribution.md`: Marketplace catalog, CLI commands, drift and upgrades, the manifest schema, commit pinning, and adapters.

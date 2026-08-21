@@ -457,29 +457,43 @@ export function ActiveChatView() {
   // "Summarize up to here" confirm dialog. The hover action only records the
   // target message; the POST fires from the dialog's confirm button — a
   // misfired summarize mutates the assistant's live context with no undo, so
-  // it always goes through an explicit confirmation. Version-gated at the
-  // callback source: assistants below the endpoint's release get no
-  // `onSummarizeUpToHere`, so the hover button never renders and the dialog
-  // is unreachable.
+  // it always goes through an explicit confirmation. Gated at the callback
+  // source on both the endpoint version and the internal-thread-actions
+  // audience: without either, no `onSummarizeUpToHere` is provided, so the
+  // hover button never renders and the dialog is unreachable.
   const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
   const [pendingSummarizeMessageId, setPendingSummarizeMessageId] = useState<
     string | null
   >(null);
   const [summarizePending, setSummarizePending] = useState(false);
+  // A pending target only counts while the viewer still qualifies, so a flag
+  // sync that revokes the gate mid-dialog closes it and takes its confirm
+  // button with it rather than leaving one summarize reachable. The derived
+  // value closes the dialog in the same render the gate drops; the effect
+  // below discards the target itself, so restoring the flag cannot resurrect
+  // a confirmation the viewer never re-opened.
+  const activeSummarizeMessageId = canUseInternalActions
+    ? pendingSummarizeMessageId
+    : null;
+  useEffect(() => {
+    if (!canUseInternalActions) {
+      setPendingSummarizeMessageId(null);
+    }
+  }, [canUseInternalActions]);
   const handleSummarizeUpToHere = useCallback((messageId: string) => {
     setPendingSummarizeMessageId(messageId);
   }, []);
   const handleConfirmSummarize = useCallback(() => {
-    if (!pendingSummarizeMessageId) {
+    if (!activeSummarizeMessageId) {
       return;
     }
     setSummarizePending(true);
     // Errors toast inside the handler; the dialog just closes.
-    void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {
+    void handleSummarizeUpToMessage(activeSummarizeMessageId).finally(() => {
       setSummarizePending(false);
       setPendingSummarizeMessageId(null);
     });
-  }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
+  }, [activeSummarizeMessageId, handleSummarizeUpToMessage]);
   const handleCancelSummarize = useCallback(() => {
     setPendingSummarizeMessageId(null);
   }, []);
@@ -576,9 +590,10 @@ export function ActiveChatView() {
     handleForkConversation: canUseInternalActions
       ? handleForkConversation
       : undefined,
-    onSummarizeUpToHere: supportsSummarizeUpToHere
-      ? handleSummarizeUpToHere
-      : undefined,
+    onSummarizeUpToHere:
+      supportsSummarizeUpToHere && canUseInternalActions
+        ? handleSummarizeUpToHere
+        : undefined,
     onRetryLatestTurn: supportsRetryTurn
       ? handleRetryLatestTurnRequested
       : undefined,
@@ -625,7 +640,7 @@ export function ActiveChatView() {
         </LazyBoundary>
       ) : null}
       <ConfirmDialog
-        open={pendingSummarizeMessageId !== null}
+        open={activeSummarizeMessageId !== null}
         title="Summarize up to here?"
         message="The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted."
         confirmLabel="Summarize"

@@ -1,10 +1,12 @@
+import { formatGuardianRefreshCliFailure } from "@vellumai/local-mode";
+
 import {
   lookupAssistantByIdentifier,
   formatAssistantLookupError,
 } from "../../lib/assistant-config.js";
 import {
   loadGuardianToken,
-  refreshGuardianToken,
+  refreshGuardianTokenResult,
 } from "../../lib/guardian-token.js";
 
 function printUsage(): void {
@@ -63,11 +65,17 @@ export async function gatewayToken(): Promise<void> {
     process.exit(1);
   }
 
-  const refreshed = await refreshGuardianToken(gatewayUrl, entry.assistantId);
-  if (!refreshed) {
-    console.error("Failed to refresh guardian token.");
+  const refreshed = await refreshGuardianTokenResult(
+    gatewayUrl,
+    entry.assistantId,
+  );
+  if (!refreshed.ok) {
+    console.error(refreshed.error);
+    console.error(
+      formatGuardianRefreshCliFailure(refreshed.status, refreshed.error),
+    );
     process.exit(1);
   }
 
-  console.log(refreshed.accessToken);
+  console.log(refreshed.token.accessToken);
 }

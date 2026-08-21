@@ -197,7 +197,7 @@ export const ChannelReplyPayloadSchema = z.object({
    * Each channel decides what that means, and one that cannot ignores it.
    * Slack is the only channel acting on it today, where it becomes Block Kit.
    */
-  useBlocks: z.boolean().optional(),
+  renderRichly: z.boolean().optional(),
 });
 
 export type ChannelReplyPayload = z.infer<typeof ChannelReplyPayloadSchema>;

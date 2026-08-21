@@ -44,14 +44,24 @@ env.VITE_SENTRY_DSN = "https://web@example.com/web";
 env.VITE_SENTRY_DSN_IOS = "https://ios@example.com/ios";
 env.VITE_SENTRY_DSN_ANDROID = "https://android@example.com/android";
 env.VITE_SENTRY_DSN_MACOS = "https://macos@example.com/macos";
+env.VITE_SENTRY_DSN_WINDOWS = "https://windows@example.com/windows";
 
 const { initSentry } = await import("@/lib/sentry/sentry-init");
+
+// The Electron host is read off `window.vellum.hostOS`; without it the
+// resolver falls back to `navigator.platform`, which happy-dom reports
+// differently per machine.
+const setElectronHost = (hostOS: "macos" | "windows"): void => {
+  electron = true;
+  window.vellum = { hostOS } as never;
+};
 
 beforeEach(() => {
   syncedOptions = undefined;
   nativePlatform = false;
   electron = false;
   capacitorPlatform = "web";
+  delete (window as { vellum?: unknown }).vellum;
 });
 
 describe("initSentry DSN selection", () => {
@@ -75,10 +85,16 @@ describe("initSentry DSN selection", () => {
     expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_ANDROID);
   });
 
-  test("uses the macOS DSN in the Electron renderer", () => {
-    electron = true;
+  test("uses the macOS DSN in the macOS Electron renderer", () => {
+    setElectronHost("macos");
     initSentry();
     expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_MACOS);
+  });
+
+  test("uses the Windows DSN in the Windows Electron renderer", () => {
+    setElectronHost("windows");
+    initSentry();
+    expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_WINDOWS);
   });
 });
 
@@ -95,10 +111,16 @@ describe("initSentry client_os tag", () => {
     expect(clientOsTag()).toBe("web");
   });
 
-  test("tags macos in the Electron renderer", () => {
-    electron = true;
+  test("tags macos in the macOS Electron renderer", () => {
+    setElectronHost("macos");
     initSentry();
     expect(clientOsTag()).toBe("macos");
+  });
+
+  test("tags windows in the Windows Electron renderer", () => {
+    setElectronHost("windows");
+    initSentry();
+    expect(clientOsTag()).toBe("windows");
   });
 });
 

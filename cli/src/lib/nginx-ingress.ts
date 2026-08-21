@@ -21,10 +21,17 @@ import { cloudAssistantHubUrl } from "@vellumai/environments";
 import {
   getAssistantDisplayName,
   lookupAssistantByIdentifier,
+  type AssistantEntry,
 } from "./assistant-config.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { waitForDaemonReady } from "./http-client.js";
-import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
+import {
+  getDefaultWorkspaceDir,
+  isLocalContainerEntry,
+  loadRawConfig,
+  parseGatewayPortFromEntryUrls,
+  saveRawConfig,
+} from "./ingress-config.js";
 import { findWebDistDir } from "./web-dist.js";
 
 export { findWebDistDir } from "./web-dist.js";
@@ -926,6 +933,35 @@ export function formatEdgeMode(includesWebApp: boolean): string {
   return includesWebApp ? "remote web + webhooks" : "webhooks only";
 }
 
+/**
+ * Stop the tunnel edge fronting a container assistant, if this assistant is
+ * the one it currently fronts.
+ *
+ * Container topologies share one default-workspace edge (one pidfile, one
+ * listen port), so the recorded `gatewayPort` is what attributes it. Without
+ * that check this would tear down another assistant's working tunnel; a record
+ * with no recorded port cannot be attributed, so it is left alone.
+ */
+export async function stopContainerTunnelEdge(
+  entry: AssistantEntry,
+): Promise<boolean> {
+  if (!isLocalContainerEntry(entry)) {
+    return false;
+  }
+  const gatewayPort = parseGatewayPortFromEntryUrls(entry);
+  if (gatewayPort === undefined) {
+    return false;
+  }
+  const workspaceDir = getDefaultWorkspaceDir();
+  if (!isIngressRunning(workspaceDir)) {
+    return false;
+  }
+  if (readIngressState(workspaceDir)?.gatewayPort !== gatewayPort) {
+    return false;
+  }
+  return stopIngressNginx(workspaceDir);
+}
+
 /** Resolved edge a tunnel (or bring-your-own HTTPS front) should target. */
 export interface TunnelEdge {
   /** Loopback listen port the HTTPS front should forward to. */
@@ -933,6 +969,23 @@ export interface TunnelEdge {
   /** True when this call started the edge, false when a running one was reused. */
   started: boolean;
   includesWebApp: boolean;
+}
+
+/**
+ * Recovery text for a drifted edge that outlived the automatic restart.
+ * `startRemoteWebIngress` already escalated SIGTERM to SIGKILL before
+ * reporting `already-running`, so the only thing left is the wedged process
+ * itself: name its PID and log so the user can clear it by hand.
+ */
+function stuckEdgeRecoveryHint(workspaceDir: string): string {
+  const { logPath } = getIngressPaths(workspaceDir);
+  const pid = getIngressPid(workspaceDir);
+  const target = pid !== null ? `the nginx process (PID ${pid})` : "it";
+  return (
+    `Vellum could not stop ${target}, even with SIGKILL. ` +
+    `Stop it by hand and retry, or run \`vellum sleep\` to shut the ` +
+    `assistant down entirely. Check the nginx log: ${logPath}`
+  );
 }
 
 /**
@@ -986,7 +1039,7 @@ export async function ensureTunnelEdge(opts: {
         throw new Error(
           "The nginx edge is still running in webhooks-only mode " +
             "and could not be restarted in web app mode. " +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       if (result.gatewayPort !== opts.gatewayPort) {
@@ -997,14 +1050,14 @@ export async function ensureTunnelEdge(opts: {
         throw new Error(
           `The nginx edge is ${upstream} ` +
             `and could not be restarted against port ${opts.gatewayPort}. ` +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       if (result.staleRemoteWebConfig) {
         throw new Error(
           "The nginx edge is still serving an outdated remote web config " +
             "and could not be restarted with the updated one. " +
-            "Run `vellum nginx-ingress down` and retry.",
+            stuckEdgeRecoveryHint(opts.workspaceDir),
         );
       }
       return {

@@ -169,6 +169,22 @@ export const LongList: Story = {
   },
 };
 
+/**
+ * A row that leaves the list rather than continuing it, kept on screen while
+ * the catalog above it scrolls.
+ */
+export const StickyLastOption: Story = {
+  args: {
+    options: [
+      ...manyOptions,
+      { value: "create", label: "+ Create new", sticky: true },
+    ],
+    value: "option-1",
+    menuMaxHeight: 200,
+    "aria-label": "Option",
+  },
+};
+
 export const EndAligned: Story = {
   args: { menuAlign: "end" },
   render: function EndAlignedSelect(args) {

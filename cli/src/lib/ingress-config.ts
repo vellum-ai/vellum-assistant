@@ -12,6 +12,7 @@ import {
 import {
   lookupAssistantByIdentifier,
   saveAssistantEntry,
+  type AssistantEntry,
 } from "./assistant-config.js";
 
 /**
@@ -24,6 +25,36 @@ import {
  * that CLI features (e.g. remote-web pairing defaults) read, per the
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
  */
+
+function parsePortFromUrl(url: unknown): number | undefined {
+  if (typeof url !== "string" || !url.trim()) return undefined;
+  try {
+    const port = Number(new URL(url).port);
+    return Number.isInteger(port) && port > 0 && port <= 65535
+      ? port
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Container topologies whose gateway runs on this machine without host `resources`. */
+export function isLocalContainerEntry(entry: AssistantEntry): boolean {
+  return entry.cloud === "docker" || entry.cloud === "apple-container";
+}
+
+/**
+ * Derive the gateway port from an entry's recorded URLs, preferring the
+ * loopback `localUrl` over `runtimeUrl`. Undefined when neither carries an
+ * explicit port (e.g. a platform-hosted https runtime URL).
+ */
+export function parseGatewayPortFromEntryUrls(
+  entry: AssistantEntry | undefined,
+): number | undefined {
+  return (
+    parsePortFromUrl(entry?.localUrl) ?? parsePortFromUrl(entry?.runtimeUrl)
+  );
+}
 
 /** Default workspace dir: `$VELLUM_WORKSPACE_DIR` or `~/.vellum/workspace`. */
 export function getDefaultWorkspaceDir(): string {
