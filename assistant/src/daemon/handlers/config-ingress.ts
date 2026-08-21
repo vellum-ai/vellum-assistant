@@ -1,3 +1,5 @@
+import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
+
 import { updatePhoneNumberWebhooks } from "../../calls/twilio-rest.js";
 import {
   getGatewayInternalBaseUrl,
@@ -12,10 +14,64 @@ import {
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
+import { isPlainObject } from "../../util/object.js";
 import { log } from "./shared.js";
 
 export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
+}
+
+/**
+ * The `ingress` section of the raw workspace config.
+ *
+ * `vellum tunnel` writes this section (`cli/src/lib/ingress-config.ts`), so
+ * the field names below are the contract between the two packages: the CLI is
+ * a separate build unit the assistant does not depend on, so the assistant
+ * reads the same keys rather than importing the CLI's readers.
+ */
+function readIngressSection(): Record<string, unknown> {
+  const ingress = loadRawConfig().ingress;
+  return isPlainObject(ingress) ? ingress : {};
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** The tunnel that most recently ran; the CLI keeps it across teardown. */
+export interface LastTunnelRecord {
+  /** Provider name as the CLI wrote it, opaque here. */
+  provider: string;
+  publicBaseUrl: string;
+}
+
+/** Read the last tunnel that ran, or null when it is absent or malformed. */
+export function loadLastTunnelRecord(): LastTunnelRecord | null {
+  const record = readIngressSection().lastTunnel;
+  if (!isPlainObject(record)) {
+    return null;
+  }
+  const provider = readNonEmptyString(record.provider);
+  const publicBaseUrl = readNonEmptyString(record.publicBaseUrl);
+  // A hand-edited config must not hand callers an unusable address, so the
+  // URL faces the same absolute HTTP(S) constraint the CLI applies to it.
+  if (
+    !provider ||
+    !publicBaseUrl ||
+    !normalizeHttpPublicBaseUrl(publicBaseUrl)
+  ) {
+    return null;
+  }
+  return { provider, publicBaseUrl };
+}
+
+/**
+ * Read the assistant id the last tunnel fronted, or null when absent. The
+ * daemon cannot derive it: it scopes itself as `self` internally.
+ */
+export function loadRecordedAssistantId(): string | null {
+  return readNonEmptyString(readIngressSection().assistantId);
 }
 
 /**
@@ -48,10 +104,12 @@ export function getIngressConfigResult(): {
     }
   }
 
-  const raw = loadRawConfig();
-  const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-  const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-  const enabled = (ingress.enabled as boolean | undefined) ?? false;
+  const ingress = readIngressSection();
+  // Typed reads, not casts: a hand-edited config must not hand callers a
+  // value whose type contradicts this function's return type.
+  const publicBaseUrl =
+    typeof ingress.publicBaseUrl === "string" ? ingress.publicBaseUrl : "";
+  const enabled = ingress.enabled === true;
   return {
     enabled,
     publicBaseUrl,

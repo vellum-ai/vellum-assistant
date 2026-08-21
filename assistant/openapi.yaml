@@ -15468,6 +15468,61 @@ paths:
                   - localGatewayTarget
                   - success
                 additionalProperties: false
+  /v1/integrations/ingress/status:
+    get:
+      operationId: integrations_ingress_status_get
+      summary: Get ingress tunnel status
+      description:
+        Probe the configured public ingress URL and report whether a tunnel is serving this assistant.
+        `unconfigured` means no tunnel has ever been recorded (or the assistant is platform-hosted, which never uses
+        one), `stopped` means a tunnel ran before and `lastTunnel` names it, `healthy` means the URL answers and fronts
+        this assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different
+        assistant.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - unconfigured
+                      - stopped
+                      - healthy
+                      - unreachable
+                      - foreign
+                  publicBaseUrl:
+                    description: The probed URL. Set for healthy, unreachable, and foreign.
+                    type: string
+                  lastTunnel:
+                    description: The tunnel to restart. Set for stopped.
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      publicBaseUrl:
+                        type: string
+                    required:
+                      - provider
+                      - publicBaseUrl
+                    additionalProperties: false
+                  servingAssistantName:
+                    description: Name the edge serves under. Set for foreign when it reports one.
+                    type: string
+                  detail:
+                    description: Short failure reason, free of the URL. Set for unreachable.
+                    type: string
+                  checkedAt:
+                    description: ISO-8601 instant the probe finished. Set whenever one ran.
+                    type: string
+                required:
+                  - state
+                additionalProperties: false
   /v1/integrations/oauth/start:
     post:
       operationId: integrations_oauth_start_post
