@@ -6,7 +6,6 @@ import type { ChannelTransport } from "../channel-transport.js";
 import {
   sendSlackAgentSessionStatus,
   sendSlackAttachments,
-  sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
   updateSlackMessage,
@@ -74,25 +73,15 @@ export const slackTransport: ChannelTransport = {
     return { ok: true, ts: result.ts };
   },
 
-  async react(_ctx, target) {
-    await sendSlackReaction(
-      target.chatId,
-      target.emoji,
-      target.messageId,
-      target.action,
-    );
-    return { ok: true };
-  },
-
   async setActivity(ctx, target) {
-    await sendSlackAgentSessionStatus({
+    const ok = await sendSlackAgentSessionStatus({
       channel: target.chatId,
       phase: target.phase,
       threadTs: ctx.params.threadTs,
       messageTs: ctx.params.messageTs,
       initiatorUserId: target.initiatorUserId,
     });
-    return { ok: true };
+    return { ok };
   },
 
   async streamReply(_ctx, chatId, op) {

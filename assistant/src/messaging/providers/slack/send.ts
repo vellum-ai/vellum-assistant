@@ -403,7 +403,9 @@ const SLACK_SESSION_STATUS: Record<
  * passed on every call and Slack ignores it after the first.
  *
  * Falls back to an emoji reaction on failure, which is all a workspace that
- * denies the scope can show.
+ * denies the scope can show. Reports whether the session status itself landed,
+ * because a caller that owes a terminal transition has to know it was lost: the
+ * reaction cannot clear a status the API already set.
  */
 export async function sendSlackAgentSessionStatus(params: {
   channel: string;
@@ -413,7 +415,7 @@ export async function sendSlackAgentSessionStatus(params: {
   /** The message that opened the turn, used only by the reaction fallback. */
   messageTs?: string;
   initiatorUserId?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const { channel, phase, threadTs, messageTs, initiatorUserId } = params;
   const status = SLACK_SESSION_STATUS[phase];
   try {
@@ -423,7 +425,7 @@ export async function sendSlackAgentSessionStatus(params: {
       ...(threadTs ? { thread_ts: threadTs } : {}),
       ...(initiatorUserId ? { initiator_user_id: initiatorUserId } : {}),
     });
-    return;
+    return true;
   } catch {
     log.warn(
       { channel, status },
@@ -433,7 +435,7 @@ export async function sendSlackAgentSessionStatus(params: {
 
   const reactionTarget = threadTs ?? messageTs;
   if (!reactionTarget) {
-    return;
+    return false;
   }
   await sendSlackReaction(
     channel,
@@ -441,6 +443,7 @@ export async function sendSlackAgentSessionStatus(params: {
     reactionTarget,
     status === "processing" ? "add" : "remove",
   );
+  return false;
 }
 
 export type SlackAttachmentResult = {

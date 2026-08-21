@@ -386,6 +386,24 @@ export function shouldShowActivityForText(text: string): boolean {
 }
 
 /**
+ * Room shapes with one other participant, in each channel's own word for it.
+ *
+ * SHIM. `chatType` reaches the daemon as whatever the channel called it, so one
+ * idea arrives under three spellings and a fourth channel would add a fourth.
+ * It belongs normalized at ingress, where each channel already parses its own
+ * payload and knows the answer. Until then this is the single place that has to
+ * widen for a new channel, and the single place to delete once it does not.
+ *
+ * Slack's `mpim` is deliberately absent: a group DM has other readers, so it is
+ * a room rather than a direct conversation.
+ */
+const DIRECT_CHAT_TYPES: ReadonlySet<string> = new Set([
+  "im", // Slack
+  "dm", // Discord
+  "private", // Telegram
+]);
+
+/**
  * Whether the assistant should show it is working before it has produced any
  * text: it was addressed directly, so a reply is expected either way.
  */
@@ -393,7 +411,10 @@ export function shouldShowActivityImmediately(params: {
   chatType?: string;
   botMentioned?: boolean;
 }): boolean {
-  return params.chatType === "im" || params.botMentioned === true;
+  return (
+    (params.chatType !== undefined && DIRECT_CHAT_TYPES.has(params.chatType)) ||
+    params.botMentioned === true
+  );
 }
 
 /**
@@ -432,18 +453,48 @@ function startChannelActivity(params: {
   // Serialized so a later phase cannot overtake an earlier one and leave the
   // channel showing a state the turn has already left.
   let pending: Promise<unknown> = Promise.resolve();
+  let inFlight = false;
 
-  const send = (phase: AssistantActivityPhase): void => {
-    lastPhase = phase;
-    pending = pending.then(() =>
-      setChannelActivity(url, {
-        chatId,
-        phase,
-        ...(initiatorUserId ? { initiatorUserId } : {}),
-      }).catch((err) => {
+  const deliver = (phase: AssistantActivityPhase): Promise<boolean> =>
+    setChannelActivity(url, {
+      chatId,
+      phase,
+      ...(initiatorUserId ? { initiatorUserId } : {}),
+    })
+      .then((result) => result.ok)
+      .catch((err) => {
         log.debug({ err, chatId, phase }, "Failed to set channel activity");
-      }),
-    );
+        return false;
+      });
+
+  /**
+   * `refresh` is a re-assertion of a phase the channel is already showing, so
+   * it is dropped while a call is outstanding. A slow channel would otherwise
+   * queue one per tick, and those land after the turn's `idle` and raise the
+   * indicator again on a turn that has finished.
+   */
+  const send = (
+    phase: AssistantActivityPhase,
+    options?: { refresh?: boolean; retryOnce?: boolean },
+  ): void => {
+    if (options?.refresh && inFlight) {
+      return;
+    }
+    lastPhase = phase;
+    inFlight = true;
+    pending = pending
+      .then(async () => {
+        const ok = await deliver(phase);
+        // A lost terminal transition is not cosmetic: a channel that holds its
+        // indicator keeps showing the assistant as working until something
+        // else changes it, which on Slack is an hour away.
+        if (!ok && options?.retryOnce) {
+          await deliver(phase);
+        }
+      })
+      .finally(() => {
+        inFlight = false;
+      });
   };
 
   const currentPhase = (): AssistantActivityPhase =>
@@ -458,8 +509,10 @@ function startChannelActivity(params: {
     const phase = currentPhase();
     // A channel whose indicator expires needs the same phase re-asserted; one
     // that holds only needs to hear about a change.
-    if (phase !== lastPhase || refreshMs !== undefined) {
+    if (phase !== lastPhase) {
       send(phase);
+    } else if (refreshMs !== undefined) {
+      send(phase, { refresh: true });
     }
   };
 
@@ -497,7 +550,7 @@ function startChannelActivity(params: {
       // Only owed when something was shown. `idle` is a real transition on
       // channels that hold the indicator, not a no-op clear.
       if (showing) {
-        send("idle");
+        send("idle", { retryOnce: true });
       }
     },
   };

@@ -97,6 +97,9 @@ let sendChannelStreamOpImpl: (
   op: Record<string, unknown>,
 ) => Promise<{ ok: boolean; ts?: string }> = async () => ({ ok: true });
 const sentActivity: Array<Record<string, unknown>> = [];
+let setChannelActivityImpl: (target: Record<string, unknown>) => {
+  ok: boolean;
+} = () => ({ ok: true });
 mock.module("../../../messaging/providers/index.js", () => ({
   supportsChannelActivity: () => true,
   // Undefined stands for a channel whose indicator holds until it is changed,
@@ -108,7 +111,7 @@ mock.module("../../../messaging/providers/index.js", () => ({
     target: Record<string, unknown>,
   ) => {
     sentActivity.push(target);
-    return { ok: true };
+    return setChannelActivityImpl(target);
   },
   sendChannelStreamOp: async (
     _callbackUrl: string,
@@ -170,6 +173,7 @@ beforeEach(() => {
   sentStreamOps.length = 0;
   sendChannelStreamOpImpl = async () => ({ ok: true });
   sentActivity.length = 0;
+  setChannelActivityImpl = () => ({ ok: true });
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
   retryableFailureEvents.length = 0;
@@ -926,11 +930,36 @@ describe("channel activity timing", () => {
     );
   });
 
-  test("shows activity immediately only when the assistant was addressed", () => {
+  test("recognizes a direct conversation in every channel's word for one", () => {
+    // One idea, three spellings, because `chatType` arrives as whatever the
+    // channel called it. Slack `im`, Discord `dm`, Telegram `private`. Missing
+    // one does not fail loudly: that channel silently reads as an ambient room
+    // and stops showing an indicator it used to show.
     expect(shouldShowActivityImmediately({ chatType: "im" })).toBe(true);
-    expect(shouldShowActivityImmediately({ botMentioned: true })).toBe(true);
+    expect(shouldShowActivityImmediately({ chatType: "dm" })).toBe(true);
+    expect(shouldShowActivityImmediately({ chatType: "private" })).toBe(true);
+  });
+
+  test("treats a room with other readers as ambient, including a group DM", () => {
+    // Slack's `mpim` has other readers, so it is a room: the assistant may
+    // process the traffic and decide to stay quiet, and an indicator there
+    // announces it was reading.
+    expect(shouldShowActivityImmediately({ chatType: "mpim" })).toBe(false);
     expect(shouldShowActivityImmediately({ chatType: "channel" })).toBe(false);
+    expect(shouldShowActivityImmediately({ chatType: "supergroup" })).toBe(
+      false,
+    );
     expect(shouldShowActivityImmediately({})).toBe(false);
+  });
+
+  test("shows activity immediately when the assistant is mentioned", () => {
+    expect(shouldShowActivityImmediately({ botMentioned: true })).toBe(true);
+    expect(
+      shouldShowActivityImmediately({
+        chatType: "channel",
+        botMentioned: true,
+      }),
+    ).toBe(true);
   });
 
   test("shows activity immediately in a DM and settles it when the turn ends", async () => {
@@ -995,6 +1024,40 @@ describe("channel activity timing", () => {
     await flush();
 
     expect(phases()).toEqual(["thinking", "idle"]);
+  });
+
+  test("retries a terminal transition the channel failed to accept", async () => {
+    const conversationId = "conv-idle-retry";
+    const channelId = "D-IDLE-RETRY";
+    let idleAttempts = 0;
+    setChannelActivityImpl = (target) => {
+      if (target.phase === "idle") {
+        idleAttempts += 1;
+        return { ok: idleAttempts > 1 };
+      }
+      return { ok: true };
+    };
+
+    processChannelMessageInBackground({
+      processMessage: async () => ({ messageId: "user-msg-idle-retry" }),
+      conversationId,
+      eventId: "evt-idle-retry",
+      content: "dm message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&messageTs=1700000000.000020`,
+    });
+
+    await flush();
+
+    // A dropped `idle` is not cosmetic on a channel that holds its indicator:
+    // Slack keeps showing the assistant as working for an hour, so the
+    // terminal transition is the one worth attempting twice.
+    expect(idleAttempts).toBe(2);
   });
 
   test("stays silent for a turn that decides not to answer", async () => {

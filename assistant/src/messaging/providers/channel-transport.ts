@@ -17,15 +17,6 @@ export interface CallbackContext {
   readonly params: Readonly<Record<string, string>>;
 }
 
-/** The message an emoji reaction lands on, and what to do there. */
-export interface ReactionTarget {
-  readonly chatId: string;
-  /** The target message, in the channel's own id space. */
-  readonly messageId: string;
-  readonly emoji: string;
-  readonly action: "add" | "remove";
-}
-
 /**
  * How busy the assistant is in one conversation, for the channel to show.
  *
@@ -139,19 +130,6 @@ export interface ChannelTransport {
    * cadence here keeps the caller from having to know which channel it is.
    */
   readonly activityRefreshMs?: number;
-
-  /**
-   * Add or remove one of the assistant's own emoji reactions on a message.
-   *
-   * `messageId` is the target's id in the channel's own space, the same way
-   * `chatId` is: Slack spells it as a timestamp, Discord and Telegram as ids.
-   * Nothing outside the channel reads it, so nothing outside needs a shared
-   * spelling for it.
-   */
-  react?(
-    ctx: CallbackContext,
-    target: ReactionTarget,
-  ): Promise<ChannelDeliveryResult>;
 
   /**
    * Advance a streamed reply: open it, add to it, or close it.

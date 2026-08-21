@@ -22,7 +22,6 @@ import type {
   CallbackContext,
   ChannelTransport,
   EditTarget,
-  ReactionTarget,
 } from "./channel-transport.js";
 import { discordTransport } from "./discord/transport.js";
 import { slackTransport } from "./slack/transport.js";
@@ -107,24 +106,6 @@ export async function editChannelMessage(
     return { ok: true };
   }
   return transport.edit(callbackContext(callbackUrl), target);
-}
-
-/**
- * Add or remove one of the assistant's own reactions on a message.
- *
- * Resolves to nothing when the channel has none, the same as the activity
- * indicator: a reaction is an acknowledgement, and a channel that cannot show
- * one is not a failed delivery.
- */
-export async function sendChannelReaction(
-  callbackUrl: string,
-  target: ReactionTarget,
-): Promise<ChannelDeliveryResult> {
-  const transport = getTransportForCallback(callbackUrl);
-  if (!transport?.react) {
-    return { ok: true };
-  }
-  return transport.react(callbackContext(callbackUrl), target);
 }
 
 /**

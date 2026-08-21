@@ -62,7 +62,6 @@ mock.module("../../../util/logger.js", () => ({
 const {
   deliverDirect,
   editChannelMessage,
-  sendChannelReaction,
   sendChannelStreamOp,
   setChannelActivity,
   supportsChannelActivity,
@@ -144,18 +143,6 @@ describe("Slack sub-operation selection", () => {
     expect(opts.threadTs).toBe("1700.9");
   });
 
-  test("sendChannelReaction reaches Slack without touching the text path", async () => {
-    await sendChannelReaction(`${BASE}/deliver/slack`, {
-      chatId: "C1",
-      messageId: "1700.5",
-      emoji: "white_check_mark",
-      action: "add",
-    });
-
-    expect(slack.sendSlackReaction).toHaveBeenCalledTimes(1);
-    expect(slack.sendSlackReply).not.toHaveBeenCalled();
-  });
-
   test("editChannelMessage updates in place instead of posting", async () => {
     await editChannelMessage(`${BASE}/deliver/slack`, {
       chatId: "C1",
@@ -206,22 +193,6 @@ describe("Slack sub-operation selection", () => {
 });
 
 describe("capability gating across channels", () => {
-  test("a channel with no reaction capability resolves quietly", async () => {
-    // Slack is the only channel that implements it, because the only producer
-    // is Slack's own acknowledgement fallback. A channel without the method
-    // is not a failed delivery, so nothing is attempted and nothing throws.
-    const target = {
-      chatId: "C1",
-      messageId: "1",
-      emoji: "eyes",
-      action: "add",
-    } as const;
-    expect(
-      await sendChannelReaction(`${BASE}/deliver/telegram`, target),
-    ).toEqual({ ok: true });
-    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
-  });
-
   test("Slack renders a muted edit as its own context block", async () => {
     await editChannelMessage(`${BASE}/deliver/slack`, {
       chatId: "C1",
