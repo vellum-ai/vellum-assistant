@@ -6,7 +6,7 @@
     "ariaLabel": "Te presento a tu compañero",
     "meet": {
       "title": "Este soy yo",
-      "titleNamed": "¡{name} al habla!",
+      "titleNamed": "Soy {name}",
       "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
     },
     "talk": {

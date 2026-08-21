@@ -320,7 +320,7 @@ describe("the companion's introduction", () => {
     const card = await pinCard(container);
     // The creature introduces itself by name. The surface is the one place it
     // appears with none of the app around it to say whose it is.
-    expect(card.textContent).toContain("Ziggy here!");
+    expect(card.textContent).toContain("I’m Ziggy");
   });
 
   /**

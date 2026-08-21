@@ -6,7 +6,7 @@
     "ariaLabel": "Introducing your companion",
     "meet": {
       "title": "This is me",
-      "titleNamed": "{name} here!",
+      "titleNamed": "I’m {name}",
       "body": "I stay on your desktop, even when Vellum isn’t visible."
     },
     "talk": {

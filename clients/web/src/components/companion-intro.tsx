@@ -223,7 +223,12 @@ export function CompanionIntro({
         event.stopPropagation();
       }}
     >
-      <p className="text-[13px] leading-tight font-medium text-white">
+      {/* Clamped, because the only variable in this card is a name the user
+          chose and there is no length it has to be. The card's width is fixed
+          and its height is borrowed from the canvas the typing card reserves,
+          so a title free to wrap is a title free to grow the card past what it
+          was drawn into. Two lines holds every name worth reading. */}
+      <p className="line-clamp-2 text-[13px] leading-tight font-medium text-white">
         {/* The first beat is the introduction proper, so it is the one that
             says the name. Two keys rather than one with an empty argument: a
             sentence built around a name that is not there reads as a bug, and
