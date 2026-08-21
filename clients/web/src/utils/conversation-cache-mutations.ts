@@ -52,6 +52,7 @@ import {
   isPinnedInjectedFilter,
   SCHEDULED_FILTER,
 } from "@/utils/conversation-list-keys";
+import { ApiError } from "@/utils/api-errors";
 import {
   ConversationNotFoundError,
   fetchConversationDetail,
@@ -329,9 +330,10 @@ export function surfaceConversationInCaches(
  *   `serializeConversationSummary`).
  * - Row absent from cache but server returns a payload: append; the
  *   row will sort into place on the next list refetch.
- * - Server returns 404 ({@link ConversationNotFoundError}): remove the
- *   row from the cache. Mirrors how `deleteConversation` cleans up
- *   after a local deletion.
+ * - Server returns 404 ({@link ConversationNotFoundError}, or an
+ *   {@link ApiError} from a deduped in-flight `throwOnError` fetch of the
+ *   same row): remove the row from the cache. Mirrors how
+ *   `deleteConversation` cleans up after a local deletion.
  * - Network / other errors: rethrown to the caller so the SSE consumer
  *   can log/sentry-capture without silently dropping the signal.
  */
@@ -352,7 +354,10 @@ export async function refreshConversationRow(
       conversationId,
     );
   } catch (err) {
-    if (err instanceof ConversationNotFoundError) {
+    if (
+      err instanceof ConversationNotFoundError ||
+      (err instanceof ApiError && err.status === 404)
+    ) {
       removeConversation(queryClient, assistantId, conversationId);
       return;
     }

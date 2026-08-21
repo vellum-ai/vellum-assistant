@@ -50,6 +50,7 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
 
 const { useActiveConversation } =
   await import("@/domains/chat/hooks/use-active-conversation");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 function makeConversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
@@ -153,6 +154,21 @@ describe("useActiveConversation", () => {
         { assistantId: "asst-1", conversationId: "bg-unloaded" },
       ]);
     });
+  });
+
+  test("does not fetch a client-minted draft that has no server row", async () => {
+    // GIVEN the open conversation is a draft (no row exists to fetch)
+    useConversationStore.getState().registerDraftConversationId("draft-1");
+
+    // WHEN the hook resolves that draft
+    renderHook(() => useActiveConversation("asst-1", "draft-1", true), {
+      wrapper,
+    });
+
+    // THEN no single-row fetch is issued (it could only 404)
+    await Promise.resolve();
+    expect(refreshConversationRowCalls).toHaveLength(0);
+    useConversationStore.getState().clearDraftConversationId("draft-1");
   });
 
   test("does not fetch when disabled", async () => {
