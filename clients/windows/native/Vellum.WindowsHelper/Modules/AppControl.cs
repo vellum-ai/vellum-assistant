@@ -1042,7 +1042,7 @@ public sealed class WindowsAppControlHost : IAppControlHost
 }
 
 [StructLayout(LayoutKind.Sequential)]
-file struct NativeRect
+internal struct NativeRect
 {
     public int Left;
     public int Top;
@@ -1051,13 +1051,13 @@ file struct NativeRect
 }
 
 [StructLayout(LayoutKind.Sequential)]
-file struct NativePoint(int x, int y)
+internal struct NativePoint(int x, int y)
 {
     public int X = x;
     public int Y = y;
 }
 
-file static partial class AppControlNativeMethods
+internal static partial class AppControlNativeMethods
 {
     internal delegate bool EnumWindowsCallback(nint window, nint parameter);
 
