@@ -127,7 +127,7 @@ export function pendingRequest(
   };
 }
 
-export interface RecordedFetch {
+interface RecordedFetch {
   url: string;
   init: RequestInit | undefined;
 }
@@ -175,7 +175,7 @@ export interface ArmedTimer {
   cleared: boolean;
 }
 
-export interface TimerHarness {
+interface TimerHarness {
   /** Every interval armed since {@link TimerHarness.install}, oldest first. */
   timers: ArmedTimer[];
   install: () => void;

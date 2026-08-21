@@ -7,6 +7,7 @@ import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { cn } from "@vellumai/design-library/utils/cn";
+import type { TunnelProviderName } from "@vellumai/service-contracts/ingress";
 
 import { DetailCard } from "@/components/detail-card";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -15,10 +16,13 @@ import { Trans, useTranslation } from "@/i18n";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
+import { CODE_CHIP_CLASS } from "./code-chip";
 import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
 import { PairedDevicesSection } from "./paired-devices-section";
 import { PendingPairingRequests } from "./pending-pairing-requests";
+import { useRelativeAgeTick } from "./relative-age";
+import { TunnelRecheckButton } from "./tunnel-recheck-button";
 import {
   statusCheckedAt,
   statusPublicBaseUrl,
@@ -26,18 +30,18 @@ import {
   tunnelStartCommand,
 } from "./tunnel-status-row";
 import { usePairDevice } from "./use-pair-device";
-import { useRelativeAgeTick } from "./use-relative-age-tick";
 import { useTunnelStatus } from "./use-tunnel-status";
 
-/** Named explicitly so the command does not depend on the CLI's default. */
-const TUNNEL_PROVIDER = "tailscale";
+/**
+ * Named explicitly so the command does not depend on the CLI's default, and
+ * typed against the shared registry so it can only name a provider the CLI
+ * accepts.
+ */
+const TUNNEL_PROVIDER: TunnelProviderName = "tailscale";
 const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
 
 /** The URL field's disclosure holds a single section. */
 const URL_FIELD_SECTION = "public-url";
-
-const CODE_CLASS =
-  "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-primary)]";
 
 /**
  * Settings card that pairs another device to this assistant without shell
@@ -51,10 +55,12 @@ const CODE_CLASS =
  * ({@link useTunnelStatus}), which drives the status row, the first-run
  * notice, the URL field's prefill and whether it hides behind its disclosure,
  * and how much the Generate button insists. The probe re-runs on the
- * `app.resume` foreground edge. Where that probe has no verdict, because the
- * assistant sits below the ingress-status version floor or because the query
- * gave up, the card falls back to the assistant's recorded ingress URL and
- * infers the empty state from the field.
+ * `app.resume` foreground edge, and on the re-check both the status row and
+ * the first-run notice carry: the user opens the tunnel in a terminal beside
+ * the window, which is not a foreground edge at all. Where the probe has no
+ * verdict, because the assistant sits below the ingress-status version floor
+ * or because the query gave up, the card falls back to the assistant's
+ * recorded ingress URL and infers the empty state from the field.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
@@ -125,6 +131,10 @@ export function PairDeviceCard() {
   const showNoTunnelGuidance = probeAnswered
     ? tunnel.status.kind === "unconfigured"
     : pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
+  // The first-run notice is where the user leaves to start a tunnel, so it
+  // carries the re-check for coming back. Only a verdict can be re-checked:
+  // below the version floor, or with the probe given up, `refresh` is a no-op.
+  const offerFirstRunRecheck = showNoTunnelGuidance && probeAnswered;
   // The probe doubts the address. The status row already says so, so the
   // button softens to match instead of repeating the warning.
   const tunnelWarns =
@@ -191,12 +201,24 @@ export function PairDeviceCard() {
     >
       <div className="flex flex-col gap-4">
         {showNoTunnelGuidance && (
-          <Notice tone="info" title={t("pairDeviceCard.noTunnelTitle")}>
+          <Notice
+            tone="info"
+            title={t("pairDeviceCard.noTunnelTitle")}
+            actions={
+              offerFirstRunRecheck ? (
+                <TunnelRecheckButton
+                  onRefresh={tunnel.refresh}
+                  isRefreshing={tunnel.isRefreshing}
+                  labelled
+                />
+              ) : undefined
+            }
+          >
             <div className="flex flex-col gap-2">
               <p>{t("pairDeviceCard.noTunnelWhy", { name: assistantLabel })}</p>
               <code
                 className={cn(
-                  CODE_CLASS,
+                  CODE_CHIP_CLASS,
                   "w-fit max-w-full overflow-x-auto px-2.5 py-1.5",
                 )}
               >
@@ -209,7 +231,9 @@ export function PairDeviceCard() {
                   ns="settings"
                   values={{ command: TUNNEL_HELP_COMMAND }}
                   components={{
-                    code: <code className={cn(CODE_CLASS, "px-1.5 py-0.5")} />,
+                    code: (
+                      <code className={cn(CODE_CHIP_CLASS, "px-1.5 py-0.5")} />
+                    ),
                   }}
                 />
               </p>
