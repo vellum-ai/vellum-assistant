@@ -33,8 +33,8 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
-	<!-- The App Group this appex shares with its containing app, so widget
-	     code can open the shared container. The entitlement grants access
+	<!-- The App Group this appex shares with its containing app, so code
+	     here can open the shared container. The entitlement grants access
 	     but is not readable from Swift, so the identifier travels as this
 	     plain string, populated from the same $(APP_GROUP_ID) variable that
 	     fills the entitlement. Read via AppGroupID. -->

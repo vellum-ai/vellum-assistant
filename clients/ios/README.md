@@ -648,8 +648,8 @@ track that releases hourly, so it is the fastest way to prove the setup):
 2. **Add the App Group to the containing app's App ID.**
    **Identifiers** → the app bundle ID from the second table →
    **App Groups** → tick it, **Edit**, and assign the same group as
-   step 1 → **Save**. The app writes the snapshot the extension reads,
-   so both bundle IDs have to name the identical group.
+   step 1 → **Save**. A container is shared only between bundles naming
+   the identical group, so both bundle IDs carry the same one.
 3. **Create the extension's distribution profile.** **Profiles** → **+**
    → **Distribution → App Store Connect** → pick the App ID from step 1 →
    pick the Apple Distribution certificate that matches the

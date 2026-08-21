@@ -21,11 +21,10 @@
 // restate, and all must be copied verbatim from the matching
 // App*.xcconfig.
 //
-// APP_GROUP_ID: the widget snapshot store reads the container the app
-// wrote, and a container is shared only between bundles naming the
-// identical group. It reaches the entitlement below and, so Swift can
-// resolve it at runtime, the VellumAppGroupId Info.plist key read via
-// AppGroupID.
+// APP_GROUP_ID: a container is shared only between bundles naming the
+// identical group, so the appex restates the app's value verbatim. It
+// reaches the entitlement below and, so Swift can resolve it at runtime,
+// the VellumAppGroupId Info.plist key read via AppGroupID.
 //
 // BUNDLE_URL_SCHEME: the Live Activity's widgetURL has to deep-link into
 // its *own* containing app — a mismatch sends a Dev build's island tap
@@ -39,10 +38,9 @@
 // failure surfaces at the altool step in release-ios.yaml.
 //
 // The extension's entitlements file carries exactly the App Group and
-// nothing else. The Home Screen widgets render from a snapshot the app
-// writes into the group container, so the entitlement is one the build
-// uses rather than merely declares, and the container holds non-secret
-// display data only.
+// nothing else. That group is the shared container for widget snapshot
+// data, the one place this appex and its containing app both reach, and
+// it takes non-secret display data only.
 //
 // Nothing else belongs in that file: an entitlement enabled in the
 // portal but not satisfiable by the build is a provisioning failure

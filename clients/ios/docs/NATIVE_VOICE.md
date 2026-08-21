@@ -583,7 +583,7 @@ The client's 120 is the correct one: a quiet call emits no frames, so nothing
 dispatches, and a 45-second horizon would strip the phase off a perfectly
 healthy session that nobody happens to be talking to.
 
-### 2. The Live Activity needs no App Group (the Home Screen widgets do)
+### 2. The Live Activity needs no App Group
 
 `ContentState` carries only primitives (`phase`, `label`, `detail`,
 `accentHex`, `muted`, `outputMuted`, `approvalRequestId`), and the attributes
@@ -593,10 +593,10 @@ avatar as `Data`. Nothing on this path touches a shared container.
 *Why:* an App Group is only needed to share *files*, and nothing here needs
 one. The obvious candidate was the avatar, but `ActivityAttributes` is
 `Codable`, so the bytes travel in the attributes and render via
-`Image(uiImage:)`: no entitlement on this path, and nothing the island renders
-waits on an Apple Developer portal capability being in sync across six App IDs
-(an entitlement enabled in the portal but not satisfiable by the build is a
-provisioning failure waiting to happen).
+`Image(uiImage:)`: nothing the island renders reaches a shared container, and
+nothing on this path waits on an Apple Developer portal capability being in
+sync across six App IDs (an entitlement enabled in the portal but not
+satisfiable by the build is a provisioning failure waiting to happen).
 
 What is genuinely impossible is fetching anything at render time: a Live
 Activity draws from a snapshot, so a URL would only ever render `AsyncImage`'s
@@ -605,20 +605,22 @@ before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
 `clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
 activity rather than degrading the image.
 
-*The widgets are the exception:* they render from a snapshot the app writes
-(unread and in-progress counts, the three most recent conversation ids and
-titles), and no ActivityKit-style wire format carries it, because nothing is
-pushing an update when the user glances at the Home Screen. The appex
-therefore ships `App/App/Extension.entitlements` with the App Group and
-nothing else, `APP_GROUP_ID` is set per environment in every app and extension
-xcconfig, and the six App IDs carry the capability in the portal. The Live
-Activity path draws nothing from that container, and the rest of the reasoning
-still binds: nothing else is declared speculatively.
+*The appex does carry one App Group, for a different path:* the group named by
+`APP_GROUP_ID` is the shared container for widget snapshot data, the one place
+the app and its widget extension both reach, since a widget draws from storage
+rather than from an ActivityKit payload. `App/App/Extension.entitlements`
+declares that group and nothing else, `APP_GROUP_ID` names it per environment
+in every app and extension xcconfig, and both bundles resolve the identifier at
+runtime from the `VellumAppGroupId` Info.plist key through `AppGroupID`
+(`App/App/Shared/AppGroupID.swift`), because the entitlement that grants access
+is not readable from Swift. Enabling the capability on the six App IDs is
+portal work; see `clients/ios/README.md`.
 
-The group carries **non-secret display data only** (ids, titles, group names,
-counts, timestamps). No token, credential, or message body ever enters it. A
-Home Screen widget renders without the app being unlocked, which is the same
-reason the snapshot is cleared on sign-out rather than left to age out.
+Nothing else joins that entitlements file, push included: only a capability the
+build satisfies ships. And the container takes **non-secret display data only**
+(ids, titles, group names, counts, timestamps), because a widget renders
+without the app being unlocked, so no token, credential, or message body
+belongs in it.
 
 ### 3. The island's buttons act in the app process, with no credential
 
