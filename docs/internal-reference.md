@@ -612,6 +612,8 @@ Creating the GitHub Release triggers three workflows in parallel:
 - **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
 - **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
 
+- **Release Windows** (`release-windows` job, reusable `release-windows.yaml`): Builds, signs, and verifies the NSIS installer per architecture on native Windows runners, then publishes the installer, blockmap, and `{env}.yml` manifest to the GCS feed at `win-electron/{arch}/`. Enabled per channel by `WINDOWS_{STAGING,PRODUCTION}_RELEASE_ENABLED` (and `WINDOWS_DEV_RELEASE_ENABLED` in `dev-release.yaml`); signing credentials are an explicit gate documented in `clients/windows/README.md`.
+
 #### Auto-updates for macOS clients
 
 The macOS app updates via [`electron-updater`](https://www.electron.build/auto-update), which polls the GCS generic feed at `mac-electron/{arch}/`. Existing installations detect a newer version, download it in the background, and install it on the next launch. The feed is independent of GitHub Release assets.

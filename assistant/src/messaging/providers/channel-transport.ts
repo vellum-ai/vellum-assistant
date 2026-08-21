@@ -42,7 +42,7 @@ export interface ThreadStatus {
  * An existing message to replace in place, and what to replace it with.
  *
  * `messageId` is the target in the channel's own id space, the same way
- * `chatId` is. `blocks` and `useBlocks` are the rendering inputs the edit
+ * `chatId` is. `blocks` and `renderRichly` are the rendering inputs the edit
  * carries, so a replacement renders the way the original did rather than
  * degrading to plain text.
  */
@@ -51,7 +51,7 @@ export interface EditTarget {
   readonly messageId: string;
   readonly text: string;
   readonly blocks?: readonly KnownBlock[];
-  readonly useBlocks?: boolean;
+  readonly renderRichly?: boolean;
 }
 
 /**

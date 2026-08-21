@@ -84,8 +84,9 @@ export function InspectPage(): ReactNode {
   const { t: tChat } = useTranslation("chat");
   const canInspect = useCanUseInternalThreadActions();
   // The internal-thread-actions flag reads as registry-default `false` until
-  // the `/feature-flags` response lands, so a staff session would flash the
-  // denial on deep links. Treat the pre-hydration window as loading instead.
+  // the `/feature-flags` response lands, so an enabled session would flash
+  // the denial on deep links. Treat the pre-hydration window as loading
+  // instead.
   const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
   const authLoading = useIsSessionInitializing();
   // React Router's :conversationId segment is the source of truth; the

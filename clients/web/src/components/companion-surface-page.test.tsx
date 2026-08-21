@@ -40,6 +40,7 @@ const resetState = () => {
   delete STATE.captureCount;
   STATE.watchEnabled = true;
   STATE.intro = null;
+  STATE.assistantName = "Ziggy";
 };
 
 /**
@@ -488,6 +489,22 @@ describe("the companion's introduction", () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
+    // The creature introduces itself by name. The surface is the one place it
+    // appears with none of the app around it to say whose it is.
+    expect(card.textContent).toContain("I’m Ziggy");
+  });
+
+  /**
+   * A cold launch reaches the surface before the app's window has published a
+   * name, and the first beat is the one most likely to be on screen when it
+   * does. The unnamed version is a different sentence rather than the same one
+   * with a hole where the name goes.
+   */
+  test("introduces the creature unnamed until a name arrives", async () => {
+    STATE.intro = "meet";
+    STATE.assistantName = "";
+    const { container } = render(<CompanionSurfacePage />);
+    const card = await pinCard(container);
     expect(card.textContent).toContain("This is me");
   });
 
@@ -557,7 +574,7 @@ describe("the companion's introduction", () => {
    * presses meant for whatever the user was working in.
    */
   test("gives the desktop back when the run ends under the pointer", async () => {
-    STATE.intro = "tray";
+    STATE.intro = "menu";
     const { container } = render(<CompanionSurfacePage />);
     await pinPill(container);
     await pinCard(container);

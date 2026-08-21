@@ -10,7 +10,9 @@
  *   resolved through `llm.profiles` to an effective `(provider, model)`.
  *   Default profile keys resolve through `llm.defaultProvider`'s column of the
  *   intent × provider matrix, so the judged model is the one that actually
- *   runs on a BYO install.
+ *   runs on a BYO install. A profile whose provider names a connection entry
+ *   row (e.g. a `<vendor>-personal` binding) is judged by the row's
+ *   dispatchable vendor, sharing dispatch's entry-name translation.
  *
  * A bare string is tried as a model id first and then as a profile key, so the
  * two callers share one function. Resolution returns `false` when nothing
@@ -21,6 +23,7 @@
 
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
+import { resolveEntryProviderKind } from "../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
@@ -117,11 +120,20 @@ function resolveEntryVision(entry: {
 }): boolean | undefined {
   // Routing identities ("vellum"/"chatgpt") are not catalog providers; the
   // model's catalog owner is the capability source for them.
-  const provider =
+  const declared =
     entry.provider != null && ROUTING_IDENTITY_PROVIDERS.has(entry.provider)
       ? undefined
       : entry.provider;
   const model = entry.model;
+
+  // A provider naming a connection entry row (e.g. a "<vendor>-personal"
+  // binding) translates to the row's dispatchable kind, the same translation
+  // dispatch uses, so the catalog judges the vendor actually serving the
+  // profile. Vendor ids pass through untranslated.
+  const provider =
+    declared != null
+      ? (resolveEntryProviderKind(declared, model) ?? declared)
+      : undefined;
 
   // Infer provider from model when missing (mirrors the resolver's catalog
   // provider implication).

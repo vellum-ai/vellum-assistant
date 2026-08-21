@@ -68,28 +68,22 @@ export function GeneralPage() {
   } = useAssistantWithHealthz();
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
     useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
   const isNativeMobile = useIsNativeMobile();
-  // The assistant-switcher flag gates every chooser surface; the card
-  // supersedes the in-page picker so the two never render together. On
-  // remote-gateway origins and native shells the client flag store settles to
-  // registry defaults (no LD fetch), so the registry default / env /
-  // localStorage override governs there, not per-user LD targeting.
+  // The card supersedes the in-page picker so the two never render together.
   //
   // Deliberately wider than `useGatedSelectedAssistantId` in
   // `assistant/selection.ts`: that gate closes under `isGatewayAuthMode()`,
   // which is exactly where this card hands off to the hub chooser.
   const showAssistantSwitcherCard =
-    assistantSwitcher &&
-    (isLocalClient() ||
-      isAuthenticated ||
-      isRemoteGatewayMode() ||
-      isNativeMobile);
+    isLocalClient() ||
+    isAuthenticated ||
+    isRemoteGatewayMode() ||
+    isNativeMobile;
   const navigate = useNavigate();
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
