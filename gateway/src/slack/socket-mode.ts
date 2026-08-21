@@ -347,9 +347,8 @@ export class SlackSocketModeClient {
       schedule: this.schedule,
       now: deps.now,
       onRoundTrip: (roundTripMs) => {
-        // The pong deadline is derived from Slack's own SDK defaults rather
-        // than from our traffic. Logging the real round trip is what lets
-        // that constant be re-derived from this deployment's measurements.
+        // The pong deadline comes from Slack's SDK defaults, not our traffic;
+        // this is what lets it be re-derived from real measurements.
         log.debug({ roundTripMs }, "Slack Socket Mode ping round trip");
       },
       onDead: (reason) => {
@@ -1150,8 +1149,6 @@ export class SlackSocketModeClient {
         this.backoff.reset();
         this.cancelConnectDeadline?.();
         this.cancelConnectDeadline = null;
-        // Socket Mode has no application heartbeat, so liveness rides on the
-        // transport's ping/pong. See socket-liveness.ts.
         this.liveness.start(ws);
         // Retry bot identity resolution on every reconnect so a transient
         // auth.test failure at startup is self-healing. Once resolved, the
@@ -1894,11 +1891,10 @@ export class SlackSocketModeClient {
     );
 
     let recovered = 0;
-    // `fetchChannelHistorySince` / `fetchThreadRepliesSince` report a failed
-    // call as an empty message list, so without counting `ok` a total API
-    // failure and a genuinely empty window produce the identical
-    // `recovered: 0` line. Carrying the count into the completion log is what
-    // makes "nothing was missed" distinguishable from "nothing was fetched".
+    // The fetch helpers report a failed call as an empty message list, so
+    // without this a total API failure and a genuinely empty window both log
+    // `recovered: 0`. This separates "nothing was missed" from "nothing was
+    // fetched".
     let failedFetches = 0;
     const abort = new CatchupAbortSignal();
 

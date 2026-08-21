@@ -89,7 +89,6 @@ describe("SlackSocketLiveness", () => {
 
     clock.advance(DEFAULT_PROBE_INTERVAL_MS);
     expect(ping).toHaveBeenCalledTimes(1);
-    expect(liveness.isProbeOutstanding).toBe(true);
     expect(deaths).toEqual([]);
 
     // One tick short of the deadline the connection is still trusted.

@@ -141,11 +141,6 @@ export class SlackSocketLiveness {
     this.socket = null;
   }
 
-  /** Whether a probe is currently awaiting its pong. */
-  get isProbeOutstanding(): boolean {
-    return this.probeSentAt !== undefined;
-  }
-
   private armProbe(): void {
     this.cancelProbeTimer = this.schedule(() => {
       this.cancelProbeTimer = null;
