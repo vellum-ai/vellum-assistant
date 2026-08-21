@@ -31,8 +31,10 @@ import {
 // profile that runs another.
 
 const FLAG = BALANCED_MODEL_EXPERIMENT_FLAG_KEY;
-const SHIPPED_MODEL = "gpt-5.6-luna";
-const GLM_MODEL = "accounts/fireworks/models/glm-5p2";
+// The `glm-5p2` arm names the shipped pin, so that arm moves nothing today.
+// It stays covered because the arm keeps its meaning if the pin moves again.
+const SHIPPED_MODEL = "accounts/fireworks/models/glm-5p2";
+const GLM_MODEL = SHIPPED_MODEL;
 
 function setArm(value: boolean | string): void {
   setOverridesForTesting({ [FLAG]: value });
@@ -79,7 +81,7 @@ describe("balanced-model experiment arms", () => {
     expect(entry?.source).toBe("managed");
   });
 
-  test("glm-5p2 repoints mainAgent at GLM 5.2 within the model's output cap", () => {
+  test("glm-5p2 resolves mainAgent to GLM 5.2 within the model's output cap", () => {
     setArm("glm-5p2");
     const resolved = resolveCallSiteConfig(
       "mainAgent",
@@ -93,7 +95,7 @@ describe("balanced-model experiment arms", () => {
     const cap = catalogMaxOutputTokens(upstream as string, GLM_MODEL);
     expect(cap).toBeDefined();
     expect(resolved.maxTokens).toBeLessThanOrEqual(cap as number);
-    // Only the model moves: the shipped token budget stands.
+    // The shipped token budget stands.
     expect(resolved.maxTokens).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.maxTokens as number,
     );
@@ -111,7 +113,7 @@ describe("balanced-model experiment arms", () => {
   });
 
   test("the other default profiles are untouched by an arm", () => {
-    setArm("glm-5p2");
+    setArm("terra");
     for (const key of [
       "quality-optimized",
       "cost-optimized",
@@ -239,10 +241,10 @@ describe("balanced-model experiment boundaries", () => {
   });
 
   test("an install with no defaultProvider still picks up the arm", () => {
-    setArm("glm-5p2");
+    setArm("terra");
     expect(
       resolveDefaultProfileForProvider(undefined, "balanced", null)?.model,
-    ).toBe(GLM_MODEL);
+    ).toBe("gpt-5.6-terra");
   });
 });
 
