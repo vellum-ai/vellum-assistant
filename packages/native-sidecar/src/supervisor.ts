@@ -340,6 +340,7 @@ export class NativeSidecarClient {
     }
     return spawn(helperPath, this.spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
       env: this.spawnEnv ? { ...process.env, ...this.spawnEnv } : undefined,
     });
   }

@@ -50,7 +50,7 @@ describe("runRetire", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "retire", "asst-42", "--yes"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 

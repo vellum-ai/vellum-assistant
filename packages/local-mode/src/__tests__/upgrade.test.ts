@@ -85,7 +85,7 @@ describe("runUpgrade", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "upgrade", "asst-42", "--version", "v1.2.3"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 

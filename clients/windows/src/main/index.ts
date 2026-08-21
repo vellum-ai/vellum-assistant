@@ -9,10 +9,25 @@ import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import {
+  authorizePairedGatewayForwardPlan,
+  executeGatewayForwardPlan,
+  planGatewayForward,
+  planPairedGatewayForward,
+  type GatewayForwardFetcher,
+} from "@vellumai/electron-desktop/gateway-forward";
+import { getPairedGuardianAccessToken } from "@vellumai/electron-desktop/local-mode";
+import { getWatchedLockfileSnapshot } from "@vellumai/electron-desktop/lockfile-watcher";
+import {
   executePlatformForwardPlan,
   planPlatformForward,
 } from "@vellumai/electron-desktop/platform-forward";
-import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
+import {
+  pairedGatewayTargetsFromLockfile,
+  readAllowedGatewayPorts,
+  readPairedGatewayTargets,
+  resolveLocalConfigFromEnv,
+  resolveLockfilePaths,
+} from "@vellumai/local-mode";
 
 import {
   APP_PROTOCOL,
@@ -25,6 +40,7 @@ import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
+import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
@@ -117,8 +133,44 @@ const resolveRendererRoot = (): string => {
 const registerAppProtocol = (): void => {
   const rendererRoot = resolveRendererRoot();
   const indexHtml = path.join(rendererRoot, "index.html");
+  const lockfilePaths = resolveLockfilePaths(process.env);
+  const getAllowedGatewayPorts = (): Set<number> =>
+    readAllowedGatewayPorts(lockfilePaths);
+  // Prefer the watcher's in-memory snapshot so paired requests never read
+  // disk; the direct read covers only the window before the watcher installs.
+  const getPairedGatewayTargets = (): Map<string, string> => {
+    const watched = getWatchedLockfileSnapshot();
+    return watched
+      ? pairedGatewayTargetsFromLockfile(watched)
+      : readPairedGatewayTargets(lockfilePaths);
+  };
 
   protocol.handle(APP_PROTOCOL, async (request) => {
+    // The renderer addresses local gateways at the same `app://` origin via
+    // `/assistant/__gateway/{port}/*`. Forward those to loopback here so the
+    // secure renderer never touches an insecure `http://127.0.0.1` origin
+    // directly; the lockfile allowlist is the security boundary. Mirrors the
+    // Vite dev-server proxy (`clients/web/vite-plugin-local-mode.ts`).
+    const proxied = await forwardGatewayRequest(
+      request,
+      getAllowedGatewayPorts,
+    );
+    if (proxied) {
+      return proxied;
+    }
+
+    // Paired remote gateways ride the same-origin path too, via
+    // `/assistant/__gateway-paired/{assistantId}/*`; the WebRequest guard
+    // admits only trusted app frames, and the lockfile's paired entries
+    // allowlist the remote targets.
+    const pairedProxied = await forwardPairedGatewayRequest(
+      request,
+      getPairedGatewayTargets,
+    );
+    if (pairedProxied) {
+      return pairedProxied;
+    }
+
     const platformProxied = await forwardPlatformRequest(
       request,
       resolvedConfig.platformUrl,
@@ -169,6 +221,41 @@ handleSync("vellum:config:get", () => ({
   deviceId: getDeviceId(),
 }));
 
+const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
+  net.fetch(url, init);
+
+/**
+ * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to
+ * the local gateway on loopback, or return `null` when the URL is not a
+ * gateway request. `net.fetch` runs in main, so the renderer only ever talks
+ * to its own secure `app://` origin.
+ */
+const forwardGatewayRequest = async (
+  request: GlobalRequest,
+  getAllowedPorts: () => Set<number>,
+): Promise<Response | null> =>
+  executeGatewayForwardPlan(
+    planGatewayForward(request, getAllowedPorts),
+    request,
+    gatewayForwardFetcher,
+  );
+
+/**
+ * Forward a paired-gateway request (`/assistant/__gateway-paired/{id}/*`) to
+ * the remote gateway an imported pairing recorded as its `runtimeUrl`, or
+ * return `null` when the URL is not a paired-gateway request.
+ */
+const forwardPairedGatewayRequest = async (
+  request: GlobalRequest,
+  getTargets: () => Map<string, string>,
+): Promise<Response | null> => {
+  const plan = await authorizePairedGatewayForwardPlan(
+    planPairedGatewayForward(request, getTargets),
+    getPairedGuardianAccessToken,
+  );
+  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
+};
+
 const forwardPlatformRequest = async (
   request: GlobalRequest,
   platformUrl: string,
@@ -202,6 +289,7 @@ app
     log.info("[app] ready");
     if (usesAppProtocolRenderer(app.isPackaged)) {
       registerAppProtocol();
+      installPairedGatewayRequestGuard();
     }
     if (app.isPackaged && process.platform === "win32") {
       try {

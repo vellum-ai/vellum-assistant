@@ -342,7 +342,11 @@ function refreshToken(
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, "gateway", "token", "refresh", assistantId],
-      { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: { ...process.env, ...env },
+      },
     );
 
     let stdout = "";

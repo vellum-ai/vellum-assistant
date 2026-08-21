@@ -71,7 +71,7 @@ describe("runDevicesList", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "devices", "asst-42", "--json"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 
@@ -226,7 +226,7 @@ describe("runDevicesRevoke", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "devices", "revoke", "hash-a", "asst-42", "--yes", "--json"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 
