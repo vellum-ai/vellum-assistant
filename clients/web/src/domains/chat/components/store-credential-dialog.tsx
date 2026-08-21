@@ -4,6 +4,7 @@ import {
   PRIVATE_KEY_LABEL,
   type DetectedSecret,
 } from "@vellumai/service-contracts/secret-detection";
+import { useTranslation } from "@/i18n";
 
 import { AddCredentialModal } from "@/components/add-credential-modal";
 import { useComposerStore } from "@/domains/chat/composer-store";
@@ -181,6 +182,7 @@ export function StoreCredentialDialog({
   onClose,
   onStored,
 }: StoreCredentialDialogProps) {
+  const { t } = useTranslation("chat");
   const suggestion = suggestCredentialSlot(secret?.label ?? "");
   // Reactively track the raw composer input: "Store securely" rewrites only
   // `input`, so the dialog may open only while the secret actually lives in it.
@@ -237,7 +239,7 @@ export function StoreCredentialDialog({
       open={open && storable}
       onClose={onClose}
       onSaved={handleSaved}
-      successToastMessage="Stored securely. The key never entered the chat."
+      successToastMessage={t("storeCredentialDialog.successToast")}
       initialValues={{
         service: suggestion.service,
         field: suggestion.field,

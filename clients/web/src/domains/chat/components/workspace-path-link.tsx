@@ -37,6 +37,7 @@ import {
   workspaceBasenameOf,
   workspaceDirOf,
 } from "@/domains/chat/utils/workspace-path-links";
+import { useTranslation } from "@/i18n";
 
 /**
  * Workspace contents change while a conversation is open (the assistant is
@@ -77,6 +78,7 @@ export function WorkspacePathLink({
   assistantId,
   onOpen,
 }: WorkspacePathLinkProps) {
+  const { t } = useTranslation("chat");
   const label = raw ?? path ?? "";
   // Platform-hosted requests carry a `Vellum-Organization-Id` header sourced
   // from the org store, which hydrates after auth. Firing before then is
@@ -134,7 +136,7 @@ export function WorkspacePathLink({
         onOpen(toVellumWorkspaceHref(path), workspaceBasenameOf(path))
       }
       className={`${MARKDOWN_INLINE_CODE_CLASS} cursor-pointer text-[var(--system-positive-strong)] underline decoration-dotted underline-offset-2 hover:opacity-80`}
-      title={`Open ${path}`}
+      title={t("workspacePathLink.openTitle", { path })}
     >
       {label}
     </button>

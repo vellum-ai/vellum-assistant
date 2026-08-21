@@ -24,6 +24,7 @@ import { Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { useTranslation } from "@/i18n";
 
 /** Shared across both pill variants. */
 interface ToolStepPillBaseProps {
@@ -134,6 +135,7 @@ function WebStepPill({
   domain,
   ariaLabel,
 }: ToolStepPillWebProps) {
+  const { t } = useTranslation("chat");
   return (
     <a
       href={url}
@@ -141,7 +143,7 @@ function WebStepPill({
       rel="noopener noreferrer"
       data-testid="tool-step-pill"
       data-variant="web"
-      aria-label={ariaLabel ?? `Open ${label}`}
+      aria-label={ariaLabel ?? t("toolStepPill.openAria", { label })}
       className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${IDLE_COLOR_CLASSES}`}
     >
       <PillFavicon faviconUrl={faviconUrl} domain={domain} label={label} />
@@ -156,6 +158,7 @@ function WebStepPill({
 }
 
 export function ToolStepPill(props: ToolStepPillProps) {
+  const { t } = useTranslation("chat");
   if (props.variant === "web") {
     return <WebStepPill {...props} />;
   }
@@ -196,7 +199,7 @@ export function ToolStepPill(props: ToolStepPillProps) {
         data-testid="tool-step-pill"
         data-active={active ? "" : undefined}
         aria-pressed={active}
-        aria-label={ariaLabel ?? `View details: ${label}`}
+        aria-label={ariaLabel ?? t("toolStepPill.viewDetailsAria", { label })}
         onClick={onClick}
         className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
       >

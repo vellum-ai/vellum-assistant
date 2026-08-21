@@ -3,6 +3,7 @@ import { PinOff, Rocket } from "lucide-react";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
+import { useTranslation } from "@/i18n";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnedAppEntry } from "@/utils/app-pin-storage";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
@@ -56,6 +57,7 @@ export function PinnedAppNavItem({
   collapsed,
   onOpen,
 }: PinnedAppNavItemProps) {
+  const { t } = useTranslation("chat");
   const unpin = usePinnedAppsStore.use.unpin();
   const setColor = usePinnedAppsStore.use.setColor();
 
@@ -102,7 +104,7 @@ export function PinnedAppNavItem({
         leftIcon={<PinOff size={14} />}
         onSelect={() => unpin(app.appId)}
       >
-        Unpin
+        {t("pinnedAppNavItem.unpin")}
       </ContextMenu.Item>
     </ContextMenu.Content>
   );
@@ -149,7 +151,7 @@ export function PinnedAppNavItem({
       trailingAction={
         <button
           type="button"
-          aria-label={`Unpin ${app.name}`}
+          aria-label={t("pinnedAppNavItem.unpinAria", { name: app.name })}
           onClick={(event) => {
             event.stopPropagation();
             unpin(app.appId);
@@ -167,7 +169,7 @@ export function PinnedAppNavItem({
   const trailingActions: SwipeAction[] = [
     {
       id: "unpin",
-      label: "Unpin",
+      label: t("pinnedAppNavItem.unpin"),
       icon: PinOff,
       variant: "destructive",
       onSelect: () => unpin(app.appId),

@@ -23,6 +23,7 @@ import { isPointerCoarse } from "@/utils/pointer";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -187,6 +188,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   isStreaming,
   isLatestMessage,
 }: TranscriptRowProps) {
+  const { t } = useTranslation("chat");
   switch (item.kind) {
     case "message": {
       // Daemon-authored status cards render as standalone system notices,
@@ -259,7 +261,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           }`}
         >
           <StreamingShimmerText>
-            {item.label ?? "Thinking"}
+            {item.label ?? t("transcriptRow.thinking")}
           </StreamingShimmerText>
         </div>
       );

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "@/i18n";
 
 import { Plug } from "lucide-react";
 
@@ -20,6 +21,7 @@ interface NewChatPluginsSectionProps {
 export function NewChatPluginsSection({
   assistantId,
 }: NewChatPluginsSectionProps) {
+  const { t } = useTranslation("chat");
   const { plugins, isSelected, toggle } = useNewChatPlugins(assistantId);
   const [revealed, setRevealed] = useState(false);
 
@@ -37,7 +39,7 @@ export function NewChatPluginsSection({
           tintColor="var(--content-secondary)"
           className="h-[34px] rounded-full border border-[var(--border-disabled)] pl-2.5 pr-3"
         >
-          Manage Plugins
+          {t("newChatPluginsSection.managePlugins")}
         </Button>
       </div>
     );

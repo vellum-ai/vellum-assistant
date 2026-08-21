@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "@/i18n";
 
 import { X } from "lucide-react";
 
@@ -42,6 +43,7 @@ export function BillingErrorBanner({
   onDismiss,
   detached = false,
 }: BillingErrorBannerProps) {
+  const { t } = useTranslation("chat");
   return (
     <div
       className="flex overflow-hidden"
@@ -114,8 +116,8 @@ export function BillingErrorBanner({
                 variant="ghost"
                 size="compact"
                 iconOnly={<X />}
-                tooltip="Dismiss"
-                aria-label="Dismiss"
+                tooltip={t("billingErrorBanner.dismiss")}
+                aria-label={t("billingErrorBanner.dismiss")}
                 onClick={onDismiss}
               />
             ) : null}

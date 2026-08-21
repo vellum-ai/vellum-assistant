@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Compact, expandable phase-grouped timeline for the subagent detail panel.
  *
@@ -283,6 +284,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
   onToggle: (key: string) => void;
   onStepDetailClick?: (detailKey: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const reduce = useReducedMotion();
   const rawStatus = phaseHeaderStatus(section.steps);
   // Only the active tail — the last phase while the subagent is still running —
@@ -496,7 +498,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
             variant="body-small-default"
             className="min-w-0 truncate text-[var(--content-tertiary)]"
           >
-            {`Worked for ${totalDuration}`}
+            {t("subagentPhaseTimeline.workedFor", { duration: totalDuration })}
           </Typography>
         ) : null}
 
@@ -554,7 +556,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName={step.iconName}
                         label={step.activity || step.info || step.title}
-                        ariaLabel="View tool details"
+                        ariaLabel={t("subagentPhaseTimeline.viewToolDetails")}
                         onClick={() => onStepDetailClick(detailKey)}
                       />
                     );
@@ -566,7 +568,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName="brain"
                         label={thinkingPreview(step.text)}
-                        ariaLabel="View reasoning"
+                        ariaLabel={t("subagentPhaseTimeline.viewReasoning")}
                         onClick={() => onStepDetailClick(detailKey)}
                       />
                     );
@@ -583,7 +585,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName="globe"
                         label={step.query || step.title}
-                        ariaLabel="View search details"
+                        ariaLabel={t("subagentPhaseTimeline.viewSearchDetails")}
                         onClick={() => onStepDetailClick(detailKey)}
                       />
                     );
@@ -599,7 +601,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName="globe"
                         label={step.errorMessage}
-                        ariaLabel="View search error"
+                        ariaLabel={t("subagentPhaseTimeline.viewSearchError")}
                         onClick={() => onStepDetailClick(detailKey)}
                       />
                     );
