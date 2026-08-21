@@ -958,7 +958,7 @@ public sealed class WindowsAppControlHost : IAppControlHost
     private static IReadOnlyList<nint> EnumerateWindows(int processId)
     {
         var windows = new List<nint>();
-        _ = AppControlNativeMethods.EnumWindows((handle, _) =>
+        _ = AppControlNativeMethods.EnumWindows((handle, _parameter) =>
         {
             _ = AppControlNativeMethods.GetWindowThreadProcessId(handle, out var owner);
             if (owner == processId && AppControlNativeMethods.IsWindowVisible(handle) &&
