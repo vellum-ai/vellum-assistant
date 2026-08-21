@@ -295,7 +295,7 @@ async function runSharp(
 ): Promise<Buffer | null> {
   try {
     const { default: sharp } = await import("sharp");
-    let pipeline = sharp(inputBytes, { failOn: "error" });
+    let pipeline = sharp(inputBytes, { failOn: "error" }).autoOrient();
     if (options.resizeToPx != null) {
       pipeline = pipeline.resize(
         options.resizeToPx.width,

@@ -83,4 +83,18 @@ describe("safe-env Windows forwarding", () => {
       }
     }
   });
+
+  test("matches Windows environment names case-insensitively", () => {
+    const windowsEnv = buildSanitizedEnv("win32", {
+      Path: "C:\\Windows\\System32;C:\\Program Files\\Vellum",
+      systemroot: "C:\\Windows",
+      ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    });
+
+    expect(windowsEnv.PATH).toBe(
+      "C:\\Windows\\System32;C:\\Program Files\\Vellum",
+    );
+    expect(windowsEnv.SystemRoot).toBe("C:\\Windows");
+    expect(windowsEnv.COMSPEC).toBe("C:\\Windows\\System32\\cmd.exe");
+  });
 });

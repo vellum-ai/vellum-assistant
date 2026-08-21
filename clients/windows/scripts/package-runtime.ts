@@ -1,15 +1,9 @@
-import {
-  copyFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  realpathSync,
-  rmSync,
-} from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { resolveBuildCommitSha } from "./build-metadata";
+import { findPackageDir } from "./package-runtime-packages";
 
 interface RuntimeTarget {
   readonly name: string;
@@ -154,33 +148,42 @@ for (const { name, entry, externals, defines } of targets) {
   }
 }
 
-function findPackageDir(specifier: string): string {
-  let current = path.dirname(Bun.resolveSync(specifier, repoRoot));
-  for (;;) {
-    if (existsSync(path.join(current, "package.json"))) {
-      return realpathSync(current);
-    }
-    const parent = path.dirname(current);
-    if (parent === current) {
-      throw new Error(`Could not locate package directory for ${specifier}.`);
-    }
-    current = parent;
-  }
-}
-
+const nativeSharpPackage = `@img/sharp-win32-${targetArch}`;
+const assistantPackageDir = path.join(repoRoot, "assistant");
+const sharpPackageDir = findPackageDir("sharp", assistantPackageDir);
 const runtimePackages = [
-  "sharp",
-  "@img/colour",
-  `@img/sharp-win32-${targetArch}`,
-  "detect-libc",
-  "semver",
+  {
+    packageName: "sharp",
+    resolveSpecifier: "sharp",
+    basedir: assistantPackageDir,
+  },
+  {
+    packageName: "@img/colour",
+    resolveSpecifier: "@img/colour",
+    basedir: sharpPackageDir,
+  },
+  {
+    packageName: nativeSharpPackage,
+    resolveSpecifier: `${nativeSharpPackage}/sharp.node`,
+    basedir: sharpPackageDir,
+  },
+  {
+    packageName: "detect-libc",
+    resolveSpecifier: "detect-libc",
+    basedir: sharpPackageDir,
+  },
+  {
+    packageName: "semver",
+    resolveSpecifier: "semver",
+    basedir: sharpPackageDir,
+  },
 ] as const;
 const runtimeNodeModules = path.join(outputDir, "node_modules");
 mkdirSync(runtimeNodeModules, { recursive: true });
-for (const specifier of runtimePackages) {
+for (const { packageName, resolveSpecifier, basedir } of runtimePackages) {
   cpSync(
-    findPackageDir(specifier),
-    path.join(runtimeNodeModules, ...specifier.split("/")),
+    findPackageDir(resolveSpecifier, basedir),
+    path.join(runtimeNodeModules, ...packageName.split("/")),
     { recursive: true },
   );
 }

@@ -192,18 +192,29 @@ function appendUniquePathEntries(
 
 export function buildSanitizedEnv(
   hostPlatform: NodeJS.Platform = process.platform,
+  sourceEnv: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const env: Record<string, string> = {};
-  const isKataRuntime = isKataFamilyRuntime(process.env.VELLUM_SANDBOX_RUNTIME);
+  const isKataRuntime = isKataFamilyRuntime(sourceEnv.VELLUM_SANDBOX_RUNTIME);
   const platformVars =
     hostPlatform === "win32" ? WINDOWS_SAFE_ENV_VARS : ([] as const);
   const safeEnvVars = isKataRuntime
     ? [...SAFE_ENV_VARS, ...platformVars, ...KATA_SAFE_ENV_VARS]
     : [...SAFE_ENV_VARS, ...platformVars];
 
+  const windowsEnv =
+    hostPlatform === "win32"
+      ? new Map(
+          Object.entries(sourceEnv).map(([key, value]) => [
+            key.toLowerCase(),
+            value,
+          ]),
+        )
+      : null;
   for (const key of safeEnvVars) {
-    if (process.env[key] != null) {
-      env[key] = process.env[key]!;
+    const value = windowsEnv?.get(key.toLowerCase()) ?? sourceEnv[key];
+    if (value != null) {
+      env[key] = value;
     }
   }
   if (isKataRuntime) {

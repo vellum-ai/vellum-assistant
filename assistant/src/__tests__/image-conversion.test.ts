@@ -161,6 +161,28 @@ describe("convertImageToJpeg", () => {
     expect(isCompleteJpeg(converted!)).toBe(true);
     expect(hasValidJpegStructure(converted!)).toBe(true);
   });
+
+  test("applies EXIF orientation before encoding", async () => {
+    const { default: sharp } = await import("sharp");
+    const source = await sharp({
+      create: {
+        width: 2,
+        height: 1,
+        channels: 3,
+        background: { r: 255, g: 0, b: 0 },
+      },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+
+    const converted = await convertImageToJpeg(source, { quality: 83 });
+    expect(converted).not.toBeNull();
+    const metadata = await sharp(converted!).metadata();
+    expect(metadata.width).toBe(1);
+    expect(metadata.height).toBe(2);
+    expect(metadata.orientation).toBeUndefined();
+  });
 });
 
 // Mirrors the converter's cache-key derivation so the test can plant a
