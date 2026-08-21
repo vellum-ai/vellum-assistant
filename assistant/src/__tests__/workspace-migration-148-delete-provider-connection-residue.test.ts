@@ -111,6 +111,60 @@ describe("148-delete-provider-connection-residue", () => {
     expect(work.model).toBe("claude-opus-4-8");
   });
 
+  test("folds a vellum binding carrying the dated DeepSeek id migration 146 writes", () => {
+    // Migration 146 (which runs first) rewrites the undated Fireworks
+    // DeepSeek flash id to the dated one, so this is the form the fold sees.
+    seedRows([{ name: "vellum", provider: "vellum" }]);
+    writeConfig({
+      llm: {
+        profiles: {
+          deepseek: {
+            provider: "fireworks",
+            provider_connection: "vellum",
+            model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+          },
+        },
+      },
+    });
+
+    run();
+
+    const deepseek = readProfiles().deepseek;
+    expect(deepseek.provider).toBe("vellum");
+    expect(deepseek).not.toHaveProperty("provider_connection");
+    expect(deepseek.model).toBe(
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+  });
+
+  test("deletes a self-named pin shadowed by the conventional row", () => {
+    // With both the self-named row and `<provider>-personal` present,
+    // bare-vendor dispatch prefers the conventional row, so the delete is
+    // recorded with reason "self_named_binding_shadowed"; the field is
+    // schema-dead and dropped either way.
+    seedRows([
+      { name: "anthropic", provider: "anthropic" },
+      { name: "anthropic-personal", provider: "anthropic" },
+    ]);
+    writeConfig({
+      llm: {
+        profiles: {
+          pinned: {
+            provider: "anthropic",
+            provider_connection: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+
+    run();
+
+    const pinned = readProfiles().pinned;
+    expect(pinned.provider).toBe("anthropic");
+    expect(pinned).not.toHaveProperty("provider_connection");
+  });
+
   test("folds a self-named pin (the entry name is the vendor)", () => {
     seedRows([
       { name: "anthropic", provider: "anthropic" },

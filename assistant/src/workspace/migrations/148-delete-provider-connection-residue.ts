@@ -30,8 +30,14 @@ const log = getLogger("migrations/148-delete-provider-connection-residue");
 //   end state: the field is deleted with a structured warn
 //   `{ profile, provider, binding, reason: "dangling_binding_dropped" }`
 //   and the entry keeps its declared provider.
-// - A binding equal to the declared provider is a plain delete: the bare
-//   vendor value already means the default entry of that kind.
+// - A binding equal to the declared provider is deleted: the bare vendor
+//   value already means the default entry of that kind. Bare-vendor
+//   dispatch auto-resolves convention-first (`<provider>-personal`
+//   outranks a row named exactly the vendor), so when BOTH rows exist the
+//   pin's row is not the one dispatch picks; the delete then logs a
+//   structured warn with reason "self_named_binding_shadowed" so the
+//   cohort is identifiable. With no conventional sibling the delete is
+//   lossless (auto-resolve's second preference is the self-named row).
 //
 // With bindings to judge, an unreadable or unqueryable connection table
 // DEFERS the run (failed checkpoint, retried next boot) instead of
@@ -42,8 +48,8 @@ const log = getLogger("migrations/148-delete-provider-connection-residue");
 // Idempotent: a config without the field is untouched. Forward-only.
 //
 // The identity mapping, managed-routable set, and identity model tables are
-// frozen snapshots (migrations are self-contained), copied from migration
-// 145 (as of 2026-08-10).
+// frozen snapshots (migrations are self-contained) of the routing tables as
+// of 2026-08-20, matching migration 147's snapshots.
 
 const ROUTING_IDENTITIES = new Set(["vellum", "chatgpt"]);
 const MANAGED_ROUTABLE = new Set([
@@ -91,7 +97,10 @@ const VELLUM_ROUTABLE_MODELS = new Set([
   "accounts/fireworks/models/minimax-m3",
   "accounts/fireworks/models/minimax-m2p7",
   "accounts/fireworks/models/deepseek-v4-pro",
+  // Migration 146 (which runs first) rewrites the undated DeepSeek flash id
+  // to the dated one; both are listed so either form folds.
   "accounts/fireworks/models/deepseek-v4-flash",
+  "accounts/fireworks/models/deepseek-v4-flash-0731",
   "MiniMaxAI/MiniMax-M3",
 ]);
 const CODEX_MODELS = new Set([
@@ -192,10 +201,22 @@ export const deleteProviderConnectionResidueMigration: WorkspaceMigration = {
       }
 
       if (binding === provider) {
-        log.info(
-          { profile: key, provider },
-          "Deleted self-referential binding (bare vendor means the default entry)",
-        );
+        if (rows.has(binding) && rows.has(`${provider}-personal`)) {
+          log.warn(
+            {
+              profile: key,
+              provider,
+              binding,
+              reason: "self_named_binding_shadowed",
+            },
+            "Deleted self-named binding; bare-vendor dispatch prefers the conventional row over the row this pin named",
+          );
+        } else {
+          log.info(
+            { profile: key, provider },
+            "Deleted self-referential binding (bare vendor means the default entry)",
+          );
+        }
         continue;
       }
 
