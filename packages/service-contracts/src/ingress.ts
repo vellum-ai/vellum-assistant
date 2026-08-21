@@ -70,7 +70,9 @@ export function normalizeHttpPublicBaseUrlWithoutTrailingSlash(
  * assistant.
  */
 export function trimmedNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
@@ -84,6 +86,16 @@ export function trimmedNonEmptyString(value: unknown): string | undefined {
 /** Key under `ingress` holding the tunnel that most recently ran. */
 export const INGRESS_LAST_TUNNEL_KEY = "lastTunnel";
 
+/**
+ * Key under `ingress` holding a tunnel published for device pairing alone.
+ *
+ * A tailnet-only tunnel started while webhook integrations are configured
+ * cannot carry their callbacks, so it leaves `publicBaseUrl` (the callback
+ * base) as it is and records itself here. Readers that answer the pairing card
+ * prefer this address over `publicBaseUrl`; teardown drops the key.
+ */
+export const INGRESS_PAIRING_TUNNEL_KEY = "pairingTunnel";
+
 /** Key under `ingress` holding the assistant id that tunnel fronted. */
 export const INGRESS_ASSISTANT_ID_KEY = "assistantId";
 
@@ -96,8 +108,8 @@ export const TUNNEL_PROVIDERS = ["ngrok", "cloudflare", "tailscale"] as const;
 
 export type TunnelProviderName = (typeof TUNNEL_PROVIDERS)[number];
 
-/** The tunnel that most recently ran, kept after teardown so UIs can name the command to restart. */
-export interface LastTunnelRecord {
+/** A recorded tunnel, kept after teardown so UIs can name the command to restart. */
+export interface TunnelRecord {
   provider: TunnelProviderName;
   publicBaseUrl: string;
 }
@@ -110,7 +122,8 @@ function isTunnelProviderName(value: unknown): value is TunnelProviderName {
 }
 
 /**
- * Parse an `ingress.lastTunnel` value, or null when it is absent or malformed.
+ * Parse an `ingress.lastTunnel` or `ingress.pairingTunnel` value, or null when
+ * it is absent or malformed.
  *
  * A hand-edited config must not hand callers an unusable address or a provider
  * name no command accepts: the provider is checked against the allowlist
@@ -118,7 +131,7 @@ function isTunnelProviderName(value: unknown): value is TunnelProviderName {
  * absolute HTTP(S) constraint as every other public base URL. The URL comes
  * back in the shape the validator produced, so readers never re-normalize it.
  */
-export function parseLastTunnelRecord(value: unknown): LastTunnelRecord | null {
+export function parseTunnelRecord(value: unknown): TunnelRecord | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }

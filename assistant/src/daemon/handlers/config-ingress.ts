@@ -1,10 +1,11 @@
 import {
   INGRESS_ASSISTANT_ID_KEY,
   INGRESS_LAST_TUNNEL_KEY,
-  type LastTunnelRecord,
+  INGRESS_PAIRING_TUNNEL_KEY,
   normalizePublicBaseUrl,
-  parseLastTunnelRecord,
   parseRecordedAssistantId,
+  parseTunnelRecord,
+  type TunnelRecord,
 } from "@vellumai/service-contracts/ingress";
 
 import { updatePhoneNumberWebhooks } from "../../calls/twilio-rest.js";
@@ -43,8 +44,20 @@ function readIngressSection(): Record<string, unknown> {
 }
 
 /** Read the last tunnel that ran, or null when it is absent or malformed. */
-export function loadLastTunnelRecord(): LastTunnelRecord | null {
-  return parseLastTunnelRecord(readIngressSection()[INGRESS_LAST_TUNNEL_KEY]);
+export function loadLastTunnelRecord(): TunnelRecord | null {
+  return parseTunnelRecord(readIngressSection()[INGRESS_LAST_TUNNEL_KEY]);
+}
+
+/**
+ * Read the tunnel published for device pairing alone, or null when it is
+ * absent or malformed.
+ *
+ * A tailnet-only tunnel started beside configured webhook integrations records
+ * itself here instead of replacing `publicBaseUrl`, which those callbacks need
+ * to keep resolving to an address their callers can reach.
+ */
+export function loadPairingTunnelRecord(): TunnelRecord | null {
+  return parseTunnelRecord(readIngressSection()[INGRESS_PAIRING_TUNNEL_KEY]);
 }
 
 /**
@@ -76,14 +89,18 @@ export function isVelayManagedIngress(): boolean {
 }
 
 /**
- * Drop `ingress.assistantId` and `ingress.lastTunnel` from `ingress` when
- * `nextPublicBaseUrl` replaces a different address, mutating it in place.
+ * Drop `ingress.assistantId`, `ingress.lastTunnel` and `ingress.pairingTunnel`
+ * from `ingress` when `nextPublicBaseUrl` replaces a different address,
+ * mutating it in place.
  *
- * Both records describe the address being replaced, so keeping them makes the
+ * The first two describe the address being replaced, so keeping them makes the
  * status route call a legitimate retarget `foreign` and name a tunnel that
- * never fronted the new address. Every writer of `ingress.publicBaseUrl` owes
- * this cleanup, so it lives here rather than in each of them. An absent
- * `ingress` section carries no records to drop.
+ * never fronted the new address. The pairing record goes with them because it
+ * outranks `publicBaseUrl` where the status route reports an address: a
+ * leftover one would hide the address the user just set behind a tunnel they
+ * are no longer running. Every writer of `ingress.publicBaseUrl` owes this
+ * cleanup, so it lives here rather than in each of them. An absent `ingress`
+ * section carries no records to drop.
  */
 export function dropTunnelRecordsForNewUrl(
   ingress: Record<string, unknown> | undefined,
@@ -100,6 +117,7 @@ export function dropTunnelRecordsForNewUrl(
   }
   delete ingress[INGRESS_ASSISTANT_ID_KEY];
   delete ingress[INGRESS_LAST_TUNNEL_KEY];
+  delete ingress[INGRESS_PAIRING_TUNNEL_KEY];
 }
 
 /**

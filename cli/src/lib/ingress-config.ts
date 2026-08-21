@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import {
   INGRESS_ASSISTANT_ID_KEY,
   INGRESS_LAST_TUNNEL_KEY,
-  type LastTunnelRecord,
+  INGRESS_PAIRING_TUNNEL_KEY,
   type TunnelProviderName,
+  type TunnelRecord,
 } from "@vellumai/service-contracts/ingress";
 
 import {
@@ -88,6 +89,12 @@ export function saveRawConfig(
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
+/** The ingress URL mirrored onto the lockfile entry, or null when it has none. */
+export function readLockfileIngressUrl(assistantId: string): string | null {
+  const result = lookupAssistantByIdentifier(assistantId);
+  return result.status === "found" ? (result.entry.ingressUrl ?? null) : null;
+}
+
 /**
  * Mirror the ingress URL onto the lockfile entry; null removes it. Exported on
  * its own for tunnels that publish an address to pair against while leaving the
@@ -130,17 +137,49 @@ export function saveIngressUrl(
     ingress[INGRESS_LAST_TUNNEL_KEY] = {
       provider,
       publicBaseUrl: publicUrl,
-    } satisfies LastTunnelRecord;
+    } satisfies TunnelRecord;
   }
   // The daemon can't derive this: it uses 'self' internally.
   if (assistantId) {
     ingress[INGRESS_ASSISTANT_ID_KEY] = assistantId;
   }
+  // This URL is the address to reach the assistant at, pairing included, so a
+  // pairing-only record left by an earlier run no longer names one to prefer.
+  delete ingress[INGRESS_PAIRING_TUNNEL_KEY];
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
   if (assistantId) {
     stampLockfileIngressUrl(assistantId, publicUrl);
   }
+}
+
+/**
+ * Persist the tunnel devices pair against under `ingress.pairingTunnel`, plus
+ * the assistant it fronts; null drops the record.
+ *
+ * A tunnel that cannot carry webhook callbacks leaves `ingress.publicBaseUrl`
+ * alone, so the lockfile mirror alone would leave it invisible to the daemon,
+ * which reads only the workspace config. `ingress.assistantId` rides along
+ * because the daemon's probe needs it to tell this assistant's edge from
+ * someone else's, and it names the same assistant either record fronts.
+ */
+export function savePairingTunnel(
+  workspaceDir: string,
+  record: TunnelRecord | null,
+  assistantId?: string,
+): void {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
+  if (record) {
+    ingress[INGRESS_PAIRING_TUNNEL_KEY] = record;
+    if (assistantId) {
+      ingress[INGRESS_ASSISTANT_ID_KEY] = assistantId;
+    }
+  } else {
+    delete ingress[INGRESS_PAIRING_TUNNEL_KEY];
+  }
+  config.ingress = ingress;
+  saveRawConfig(workspaceDir, config);
 }
 
 /** Persist a reserved ngrok domain under `ingress.ngrok.domain`; null clears it. */

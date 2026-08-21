@@ -20,10 +20,12 @@ import {
   getIngressConfigResult,
   isVelayManagedIngress,
   loadLastTunnelRecord,
+  loadPairingTunnelRecord,
   loadRecordedAssistantId,
 } from "../config-ingress.js";
 
 const TUNNEL_URL = "https://assistant-1.example.ts.net";
+const PAIRING_URL = "https://assistant-1.pairing.example.ts.net";
 
 describe("workspace tunnel records", () => {
   beforeEach(() => {
@@ -45,8 +47,43 @@ describe("workspace tunnel records", () => {
     expect(loadRecordedAssistantId()).toBe("assistant-1");
   });
 
+  test("reads a pairing record beside the tunnel that owns the URL", () => {
+    rawConfig = {
+      ingress: {
+        publicBaseUrl: "https://webhooks.ngrok.app",
+        lastTunnel: {
+          provider: "ngrok",
+          publicBaseUrl: "https://webhooks.ngrok.app",
+        },
+        pairingTunnel: { provider: "tailscale", publicBaseUrl: PAIRING_URL },
+      },
+    };
+
+    expect(loadPairingTunnelRecord()).toEqual({
+      provider: "tailscale",
+      publicBaseUrl: PAIRING_URL,
+    });
+    expect(loadLastTunnelRecord()).toEqual({
+      provider: "ngrok",
+      publicBaseUrl: "https://webhooks.ngrok.app",
+    });
+  });
+
+  test("inherits the shared validation for the pairing record", () => {
+    rawConfig = {
+      ingress: {
+        pairingTunnel: { provider: "wireguard", publicBaseUrl: PAIRING_URL },
+      },
+    };
+    expect(loadPairingTunnelRecord()).toBeNull();
+
+    rawConfig = { ingress: { pairingTunnel: { provider: "tailscale" } } };
+    expect(loadPairingTunnelRecord()).toBeNull();
+  });
+
   test("returns null when the ingress section is absent", () => {
     expect(loadLastTunnelRecord()).toBeNull();
+    expect(loadPairingTunnelRecord()).toBeNull();
     expect(loadRecordedAssistantId()).toBeNull();
   });
 
@@ -132,6 +169,7 @@ describe("dropTunnelRecordsForNewUrl", () => {
     publicBaseUrl: TUNNEL_URL,
     assistantId: "assistant-1",
     lastTunnel: { provider: "tailscale", publicBaseUrl: TUNNEL_URL },
+    pairingTunnel: { provider: "tailscale", publicBaseUrl: PAIRING_URL },
   });
 
   test("keeps the records when the URL is unchanged", () => {
@@ -140,6 +178,16 @@ describe("dropTunnelRecordsForNewUrl", () => {
     dropTunnelRecordsForNewUrl(ingress, ` ${TUNNEL_URL}/ `);
 
     expect(ingress).toEqual(records());
+  });
+
+  test("drops the pairing record too, so a new URL is the one reported", () => {
+    // The pairing record outranks `publicBaseUrl` in the status route, so a
+    // leftover one would hide the address the user just set.
+    const retargeted: Record<string, unknown> = records();
+
+    dropTunnelRecordsForNewUrl(retargeted, "https://other.example.ts.net");
+
+    expect(retargeted.pairingTunnel).toBeUndefined();
   });
 
   test("drops the records when the URL is retargeted or cleared", () => {

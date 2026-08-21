@@ -1,6 +1,7 @@
 import {
   INGRESS_ASSISTANT_ID_KEY,
   INGRESS_LAST_TUNNEL_KEY,
+  INGRESS_PAIRING_TUNNEL_KEY,
 } from "@vellumai/service-contracts/ingress";
 
 /**
@@ -12,6 +13,7 @@ import {
  * - `ingress.enabled` → deleted
  * - `ingress.publicBaseUrlManagedBy` → deleted
  * - `ingress.lastTunnel` → deleted
+ * - `ingress.pairingTunnel` → deleted
  * - `ingress.assistantId` → deleted
  * - `telegram.registeredWebhookUrl` → deleted
  * - `daemon` → deleted entirely
@@ -51,9 +53,12 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     ingress.publicBaseUrl = "";
     delete ingress.enabled;
     delete ingress.publicBaseUrlManagedBy;
-    // The remembered tunnel and the assistant it fronted belong to the source
-    // host; carrying them over makes tunnel-status UIs name the old deployment.
+    // The remembered tunnels and the assistant they fronted belong to the
+    // source host; carrying them over makes tunnel-status UIs name the old
+    // deployment, and the pairing record would have the destination advertise
+    // an address on the source's tailnet.
     delete ingress[INGRESS_LAST_TUNNEL_KEY];
+    delete ingress[INGRESS_PAIRING_TUNNEL_KEY];
     delete ingress[INGRESS_ASSISTANT_ID_KEY];
   }
 

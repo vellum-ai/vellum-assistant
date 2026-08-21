@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { LastTunnelRecord } from "@vellumai/service-contracts/ingress";
+import type { TunnelRecord } from "@vellumai/service-contracts/ingress";
 
 import type { TunnelProbeResult } from "../../../inbound/tunnel-probe.js";
 import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
@@ -21,7 +21,8 @@ let ingressConfig = {
   success: true,
 };
 let velayManaged = false;
-let lastTunnel: LastTunnelRecord | null = null;
+let lastTunnel: TunnelRecord | null = null;
+let pairingTunnel: TunnelRecord | null = null;
 let recordedAssistantId: string | null = null;
 let probeResult: TunnelProbeResult = { kind: "healthy" };
 
@@ -36,6 +37,7 @@ mock.module("../../../daemon/handlers/config-ingress.js", () => ({
   getIngressConfigResult: () => ingressConfig,
   isVelayManagedIngress: () => velayManaged,
   loadLastTunnelRecord: () => lastTunnel,
+  loadPairingTunnelRecord: () => pairingTunnel,
   loadRecordedAssistantId: () => recordedAssistantId,
 }));
 
@@ -50,6 +52,7 @@ const route = ROUTES.find(
 )!;
 
 const TUNNEL_URL = "https://assistant-1.example.ts.net";
+const PAIRING_URL = "https://assistant-1.pairing.example.ts.net";
 
 describe("integrations_ingress_status route", () => {
   beforeEach(() => {
@@ -63,6 +66,7 @@ describe("integrations_ingress_status route", () => {
     };
     velayManaged = false;
     lastTunnel = null;
+    pairingTunnel = null;
     recordedAssistantId = null;
     probeResult = { kind: "healthy" };
     probeTunnelMock.mockClear();
@@ -315,6 +319,86 @@ describe("integrations_ingress_status route", () => {
 
     expect(result.state).toBe("healthy");
     expect(result).not.toHaveProperty("lastTunnel");
+  });
+
+  test("probes the pairing tunnel over the webhook callback base", async () => {
+    // `vellum tunnel --provider tailscale` beside configured webhooks leaves
+    // the callback base alone, so the address the user started for pairing is
+    // the one this route exists to report on.
+    ingressConfig = {
+      ...ingressConfig,
+      publicBaseUrl: "https://webhooks.ngrok.app",
+    };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+    lastTunnel = {
+      provider: "ngrok",
+      publicBaseUrl: "https://webhooks.ngrok.app",
+    };
+    recordedAssistantId = "assistant-1";
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(result.publicBaseUrl).toBe(PAIRING_URL);
+    expect(probeTunnelMock).toHaveBeenCalledWith({
+      publicBaseUrl: PAIRING_URL,
+      expectedAssistantId: "assistant-1",
+    });
+  });
+
+  test("names the pairing tunnel to restart when its address is dead", async () => {
+    ingressConfig = {
+      ...ingressConfig,
+      publicBaseUrl: "https://webhooks.ngrok.app",
+    };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+    lastTunnel = {
+      provider: "ngrok",
+      publicBaseUrl: "https://webhooks.ngrok.app",
+    };
+    probeResult = { kind: "unreachable", detail: "HTTP 502" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unreachable");
+    expect(result.publicBaseUrl).toBe(PAIRING_URL);
+    expect(result.lastTunnel).toEqual({
+      provider: "tailscale",
+      publicBaseUrl: PAIRING_URL,
+    });
+  });
+
+  test("probes a pairing tunnel recorded without a callback base", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: "" };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(result.publicBaseUrl).toBe(PAIRING_URL);
+  });
+
+  test("ignores a pairing record on a Velay-managed ingress", async () => {
+    velayManaged = true;
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.publicBaseUrl).toBe(TUNNEL_URL);
+    expect(probeTunnelMock).toHaveBeenCalledWith({
+      publicBaseUrl: TUNNEL_URL,
+    });
+  });
+
+  test("reports the configured URL when no pairing tunnel is recorded", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(result.publicBaseUrl).toBe(TUNNEL_URL);
   });
 
   test("treats a whitespace-only URL as no URL", async () => {

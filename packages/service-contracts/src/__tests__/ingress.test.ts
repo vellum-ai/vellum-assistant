@@ -4,8 +4,8 @@ import {
   normalizeHttpPublicBaseUrl,
   normalizeHttpPublicBaseUrlWithoutTrailingSlash,
   normalizePublicBaseUrl,
-  parseLastTunnelRecord,
   parseRecordedAssistantId,
+  parseTunnelRecord,
   trimmedNonEmptyString,
   TUNNEL_PROVIDERS,
   velayHostForPlatformHost,
@@ -158,13 +158,13 @@ describe("Twilio ingress helpers", () => {
   });
 });
 
-describe("parseLastTunnelRecord", () => {
+describe("parseTunnelRecord", () => {
   const TUNNEL_URL = "https://assistant-1.example.ts.net";
 
   test("accepts every provider in the registry", () => {
     for (const provider of TUNNEL_PROVIDERS) {
       expect(
-        parseLastTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
+        parseTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
       ).toEqual({ provider, publicBaseUrl: TUNNEL_URL });
     }
   });
@@ -178,20 +178,20 @@ describe("parseLastTunnelRecord", () => {
       `${TUNNEL_URL}///`,
     ]) {
       expect(
-        parseLastTunnelRecord({ provider: "ngrok", publicBaseUrl }),
+        parseTunnelRecord({ provider: "ngrok", publicBaseUrl }),
       ).toEqual({ provider: "ngrok", publicBaseUrl: TUNNEL_URL });
     }
   });
 
   test("rejects values that are not a record", () => {
     for (const value of [undefined, null, "nonsense", 42, []]) {
-      expect(parseLastTunnelRecord(value)).toBeNull();
+      expect(parseTunnelRecord(value)).toBeNull();
     }
   });
 
   test("rejects a record missing either field", () => {
-    expect(parseLastTunnelRecord({ provider: "ngrok" })).toBeNull();
-    expect(parseLastTunnelRecord({ publicBaseUrl: TUNNEL_URL })).toBeNull();
+    expect(parseTunnelRecord({ provider: "ngrok" })).toBeNull();
+    expect(parseTunnelRecord({ publicBaseUrl: TUNNEL_URL })).toBeNull();
   });
 
   test("rejects a provider outside the registry", () => {
@@ -199,7 +199,7 @@ describe("parseLastTunnelRecord", () => {
     // command, so a hand-edited config must not reach a terminal.
     for (const provider of ["wireguard", "; rm -rf /", "", 42]) {
       expect(
-        parseLastTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
+        parseTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
       ).toBeNull();
     }
   });
@@ -215,7 +215,7 @@ describe("parseLastTunnelRecord", () => {
       42,
     ]) {
       expect(
-        parseLastTunnelRecord({ provider: "ngrok", publicBaseUrl }),
+        parseTunnelRecord({ provider: "ngrok", publicBaseUrl }),
       ).toBeNull();
     }
   });

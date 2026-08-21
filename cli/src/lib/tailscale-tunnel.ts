@@ -4,7 +4,9 @@ import { GATEWAY_PORT } from "./constants.js";
 import {
   clearIngressUrl,
   getDefaultWorkspaceDir,
+  readLockfileIngressUrl,
   saveIngressUrl,
+  savePairingTunnel,
   stampLockfileIngressUrl,
 } from "./ingress-config.js";
 
@@ -178,8 +180,12 @@ export interface RunTailscaleTunnelOptions {
 
 /**
  * Record the serve URL as the address to reach this assistant at: the workspace
- * ingress base URL plus the lockfile mirror, or the lockfile alone when the
- * workspace record must be preserved.
+ * ingress base URL plus the lockfile mirror, or the pairing record plus that
+ * mirror when the ingress base URL must be preserved.
+ *
+ * The pairing card asks the daemon which address is serving this assistant,
+ * and the daemon reads the workspace config, so a preserved run that published
+ * to the lockfile alone would start a tunnel that card never shows.
  */
 function publishServeUrl(
   opts: RunTailscaleTunnelOptions,
@@ -190,22 +196,37 @@ function publishServeUrl(
     saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "tailscale");
     return;
   }
+  savePairingTunnel(
+    workspaceDir,
+    { provider: "tailscale", publicBaseUrl: publicUrl },
+    opts.assistantId,
+  );
   if (opts.assistantId) {
     stampLockfileIngressUrl(opts.assistantId, publicUrl);
   }
 }
 
-/** Drop what {@link publishServeUrl} recorded, from the same places. */
-function retractServeUrl(
+/**
+ * Drop what {@link publishServeUrl} recorded, from the same places, putting
+ * back the lockfile URL it replaced.
+ *
+ * A preserved run overwrites a lockfile `ingressUrl` that the webhook callback
+ * tunnel may still be serving, so teardown restores it rather than clearing
+ * it: pairing and connection flows that read the lockfile keep a live address.
+ * Exported for the teardown tests, since the run itself holds until a signal.
+ */
+export function retractServeUrl(
   opts: RunTailscaleTunnelOptions,
   workspaceDir: string,
+  previousLockfileIngressUrl: string | null,
 ): void {
   if (!opts.preserveIngressUrl) {
     clearIngressUrl(workspaceDir, opts.assistantId);
     return;
   }
+  savePairingTunnel(workspaceDir, null);
   if (opts.assistantId) {
-    stampLockfileIngressUrl(opts.assistantId, null);
+    stampLockfileIngressUrl(opts.assistantId, previousLockfileIngressUrl);
   }
 }
 
@@ -214,6 +235,8 @@ export interface TailscaleServeInfo {
   port: number;
   binary: string;
   workspaceDir: string;
+  /** Lockfile `ingressUrl` this run replaced, for teardown to put back. */
+  previousLockfileIngressUrl: string | null;
 }
 
 /**
@@ -255,9 +278,18 @@ export async function startTailscaleServe(
     throw new Error(serveFailureMessage(serveResult));
   }
 
+  const previousLockfileIngressUrl = opts.assistantId
+    ? readLockfileIngressUrl(opts.assistantId)
+    : null;
   publishServeUrl(opts, workspaceDir, publicUrl);
 
-  return { publicUrl, port, binary, workspaceDir };
+  return {
+    publicUrl,
+    port,
+    binary,
+    workspaceDir,
+    previousLockfileIngressUrl,
+  };
 }
 
 /**
@@ -289,10 +321,8 @@ export async function runTailscaleTunnel(
     : "ingress URL";
 
   console.log("Setting up tailscale serve...");
-  const { publicUrl, port, binary, workspaceDir } = await startTailscaleServe(
-    opts,
-    deps,
-  );
+  const { publicUrl, port, binary, workspaceDir, previousLockfileIngressUrl } =
+    await startTailscaleServe(opts, deps);
 
   console.log("");
   console.log(`Tunnel established: ${publicUrl}`);
@@ -341,7 +371,7 @@ export async function runTailscaleTunnel(
       );
     }
     if (shouldClearIngressUrl(result)) {
-      retractServeUrl(opts, workspaceDir);
+      retractServeUrl(opts, workspaceDir, previousLockfileIngressUrl);
     } else {
       console.error(
         `Keeping the saved ${publishedLabel} since serve may still be active. ` +

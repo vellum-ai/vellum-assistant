@@ -22,6 +22,7 @@ import {
   getIngressConfigResult,
   isVelayManagedIngress,
   loadLastTunnelRecord,
+  loadPairingTunnelRecord,
   loadRecordedAssistantId,
 } from "../../daemon/handlers/config-ingress.js";
 import { probeTunnel } from "../../inbound/tunnel-probe.js";
@@ -79,9 +80,17 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
 
   // A Velay-managed URL belongs to the gateway, which writes it, clears it,
   // and reconnects on its own, so there is no tunnel for the user to restart.
-  const lastTunnel = isVelayManagedIngress() ? null : loadLastTunnelRecord();
+  const velayManaged = isVelayManagedIngress();
+  // A tunnel published for pairing alone is the address this route reports on:
+  // it exists to answer the pairing card, and the `publicBaseUrl` beside it is
+  // a webhook callback base that tunnel deliberately left in place.
+  const pairingTunnel = velayManaged ? null : loadPairingTunnelRecord();
+  const lastTunnel = velayManaged
+    ? null
+    : (pairingTunnel ?? loadLastTunnelRecord());
 
-  const publicBaseUrl = config.publicBaseUrl.trim();
+  const publicBaseUrl =
+    pairingTunnel?.publicBaseUrl ?? config.publicBaseUrl.trim();
   if (!publicBaseUrl && !lastTunnel) {
     return { state: "unconfigured" };
   }
