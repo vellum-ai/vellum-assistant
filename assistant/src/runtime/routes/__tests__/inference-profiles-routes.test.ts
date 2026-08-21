@@ -748,6 +748,22 @@ describe("POST inference/profiles/:name/validate billing guards", () => {
     })) as { check: unknown };
     expect(result.check).toBeNull();
   });
+
+  test("gives no verdict when a call-site override routes the probe onto the managed identity", async () => {
+    seedVellumConnection();
+    setConfig("llm", {
+      profiles: {
+        "my-byok": { provider: "openai", model: "gpt-5.2" },
+      },
+      callSites: {
+        inference: { provider: "vellum", model: "claude-opus-4-8" },
+      },
+    });
+    const result = (await call("inference_profiles_validate", {
+      pathParams: { name: "my-byok" },
+    })) as { check: unknown };
+    expect(result.check).toBeNull();
+  });
 });
 
 describe("PUT inference/active-profile validation", () => {

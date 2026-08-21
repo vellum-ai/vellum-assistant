@@ -13,7 +13,10 @@
  */
 
 import type { ResolutionFallbackReason } from "../../config/llm-resolver.js";
-import { selectWinningProfile } from "../../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../../config/llm-resolver.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
@@ -157,21 +160,21 @@ export async function probeInferenceProfile(
     };
   }
 
-  // Billing guards run on the CONCRETE entry the resolver selected — for a
-  // mix that is the expanded arm, not the mix record (which carries no
-  // provider or connection of its own) — so a probe can never dispatch a
-  // managed or platform-billed route the raw entry hid.
-  const dispatchEntry =
-    (winner.entry as Record<string, unknown> | null) ?? entry;
-  const provider =
-    typeof dispatchEntry.provider === "string" ? dispatchEntry.provider : "";
+  // Billing guards run on the fully resolved call-site config — the same
+  // composition dispatch consumes (mix arm expanded, call-site overrides
+  // applied) — so neither a mix nor an `llm.callSites.inference` provider
+  // tweak can route the probe onto a managed or platform-billed path the
+  // stored entry hid. Same seed as the dispatch below, so the judged arm is
+  // the dispatched arm.
+  const resolved = resolveCallSiteConfig("inference", llm, {
+    overrideProfile: name,
+    selectionSeed,
+  });
+  const provider = resolved.provider ?? "";
   if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
     return null;
   }
-  const connection =
-    typeof dispatchEntry.provider_connection === "string"
-      ? dispatchEntry.provider_connection
-      : provider || undefined;
+  const connection = resolved.provider_connection ?? (provider || undefined);
   // A legacy profile can declare a concrete provider while staying bound to
   // a platform-billed connection row (e.g. the canonical vellum connection);
   // the row's auth is the billing fact, so it gates the probe too.
