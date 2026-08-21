@@ -93,14 +93,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "companion-surface",
-      "scope": "client",
-      "key": "companion-surface",
-      "label": "Companion Surface",
-      "description": "Show the macOS companion surface: the floating avatar that carries Talk, Type and the running call, and its tray item. Read in the Electron main process, which decides whether the window opens at all",
-      "defaultEnabled": false
-    },
-    {
       "id": "expand-completed-steps",
       "scope": "client",
       "key": "expand-completed-steps",
@@ -153,7 +145,7 @@
       "scope": "client",
       "key": "internal-thread-actions",
       "label": "Internal Thread Actions",
-      "description": "Show the internal-only thread affordances: 'Fork from here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
+      "description": "Show the internal thread affordances: 'Fork from here' and 'Summarize up to here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. The flag is the sole gate: any session that enables it gets the affordances, including local sessions with no platform identity.",
       "defaultEnabled": false
     },
     {
@@ -234,14 +226,6 @@
       "key": "self-hosted-assistant",
       "label": "Self-Hosted Assistant",
       "description": "Enable self-hosted assistant configuration.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "web-remote-ingress",
-      "scope": "client",
-      "key": "web-remote-ingress",
-      "label": "Web Remote Ingress",
-      "description": "Show the pair-a-device card in web settings. Visibility only; pairing itself is always available.",
       "defaultEnabled": false
     },
     {
@@ -333,14 +317,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "assistant-switcher",
-      "scope": "client",
-      "key": "assistant-switcher",
-      "label": "Assistant Switcher",
-      "description": "Show the Switch Assistant section in General settings, linking to the assistant chooser. Covers local clients, signed-in cloud-hub users, remote-gateway origins, and native mobile shells; remote-gateway desktop browsers hand off to the hub chooser with a self-registration param. Also makes the chooser's selection authoritative for the app's active assistant on every surface including the platform hub, a job that previously belonged to multi-platform-assistant alone.",
-      "defaultEnabled": false
-    },
-    {
       "id": "marketing-pricing-takeover",
       "scope": "client",
       "key": "marketing-pricing-takeover",
@@ -385,7 +361,7 @@
       "scope": "assistant",
       "key": "experiment-balanced-model-2026-08-06",
       "label": "Experiment: Balanced Profile Model",
-      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
+      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = the shipped pin (accounts/fireworks/models/glm-5p2); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
       "defaultEnabled": "control",
       "values": ["control", "terra", "glm-5p2"]
     },

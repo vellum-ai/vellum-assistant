@@ -28,7 +28,7 @@ mock.module("./api.js", () => ({
 // the (unmocked) shared transport, so thrown test errors must be real
 // instances or every branch under test would silently take the generic path.
 const { SlackApiError } = await import("./web-api-transport.js");
-const { sendSlackAssistantThreadStatus, sendSlackReply } =
+const { sendSlackAssistantThreadStatus, sendSlackReply, updateSlackMessage } =
   await import("./send.js");
 
 describe("sendSlackAssistantThreadStatus", () => {
@@ -80,9 +80,8 @@ describe("sendSlackAssistantThreadStatus", () => {
   });
 });
 
-describe("sendSlackReply update path", () => {
+describe("updateSlackMessage", () => {
   const messageTs = "1700000000.000100";
-  const threadTs = "1700000000.000001";
   const blocks: KnownBlock[] = [
     { type: "section", text: { type: "mrkdwn", text: "Final reply" } },
   ];
@@ -104,9 +103,7 @@ describe("sendSlackReply update path", () => {
       })
       .mockImplementationOnce(async () => ({ ok: true, ts: messageTs }));
 
-    const result = await sendSlackReply("C123", "Final reply", {
-      messageTs,
-      threadTs,
+    const result = await updateSlackMessage("C123", messageTs, "Final reply", {
       blocks,
     });
 
@@ -138,7 +135,7 @@ describe("sendSlackReply update path", () => {
       });
 
     await expect(
-      sendSlackReply("C123", "Final reply", { messageTs, threadTs, blocks }),
+      updateSlackMessage("C123", messageTs, "Final reply", { blocks }),
     ).rejects.toThrow();
 
     // Two in-place chat.update attempts (with then without blocks), then give
@@ -155,7 +152,7 @@ describe("sendSlackReply update path", () => {
     });
 
     await expect(
-      sendSlackReply("C123", "Final reply", { messageTs, threadTs, blocks }),
+      updateSlackMessage("C123", messageTs, "Final reply", { blocks }),
     ).rejects.toThrow();
 
     // A single failed chat.update, no chat.postMessage fallback: a transient
@@ -175,7 +172,7 @@ describe("sendSlackReply update path", () => {
     });
 
     await expect(
-      sendSlackReply("C123", "Final reply", { messageTs, threadTs, blocks }),
+      updateSlackMessage("C123", messageTs, "Final reply", { blocks }),
     ).rejects.toThrow();
 
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);

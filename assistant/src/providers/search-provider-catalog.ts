@@ -76,6 +76,14 @@ export interface SearchProviderCatalogEntry {
   /** Privacy-policy URL surfaced in marketing data-sharing docs.
    *  BYOK providers only. */
   readonly privacyPolicyUrl?: string;
+  /**
+   * When true, settings UIs show an optional API Base field. Empty /
+   * omitted base uses {@link defaultApiBase}.
+   */
+  readonly supportsApiBase?: boolean;
+  /** Cloud default origin when `supportsApiBase` is true and the user
+   *  leaves API Base empty. */
+  readonly defaultApiBase?: string;
 }
 
 export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
@@ -142,6 +150,18 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     secretKey: "keenable",
     fallbackOrder: 5,
     privacyPolicyUrl: "https://keenable.ai/privacy",
+  },
+  {
+    id: "fastcrw",
+    displayName: "fastCRW",
+    kind: "byok",
+    apiKeyPrefix: "crw_live_...",
+    envVar: "FASTCRW_API_KEY",
+    secretKey: "fastcrw",
+    fallbackOrder: 6,
+    privacyPolicyUrl: "https://fastcrw.com/privacy",
+    supportsApiBase: true,
+    defaultApiBase: "https://api.fastcrw.com",
   },
 ];
 

@@ -73,7 +73,7 @@ type ProfileImpls = Record<DefaultProfileKey, DefaultProfileTemplate>;
  */
 const VELLUM_PROFILE_IMPLS: ProfileImpls = {
   balanced: {
-    model: "gpt-5.6-luna",
+    model: "accounts/fireworks/models/glm-5p2",
     provider: "vellum",
     source: "managed",
     label: "Balanced",
@@ -130,8 +130,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     // provisioned in every environment, and it alone selects the upstream:
     // `provider` below is the provider-agnostic managed sentinel, so
     // `getManagedUpstream` resolves the real upstream from the model's catalog
-    // owner. Sharing `balanced`'s model is deliberate: the split is effort
-    // and thinking, and this model is the one live-voice TTFT drives validated.
+    // owner. This model is the one live-voice TTFT drives validated.
     model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
@@ -165,8 +164,8 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
  * arm is remote input, and an object lookup would resolve `constructor` or
  * `toString` to an inherited `Object.prototype` member instead of missing.
  *
- * `glm-5p2` is text-only: Balanced does not pass `doesSupportVision` on that
- * arm, so image input routes through the image-fallback captioning plugin.
+ * `glm-5p2` names the same model as the shipped pin and stays in the table so
+ * the arm keeps its meaning if the shipped pin moves again.
  */
 const BALANCED_EXPERIMENT_MODELS = new Map<string, string>([
   ["terra", "gpt-5.6-terra"],
@@ -206,7 +205,7 @@ const CHATGPT_PROFILE_IMPLS: ProfileImpls = {
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
-    // Matches the vellum column's Balanced (same model): the Codex path
+    // Matches the vellum column's Balanced token budget: the Codex path
     // sends no max_output_tokens, so this only sizes internal budgeting.
     maxTokens: 32000,
     effort: "high",

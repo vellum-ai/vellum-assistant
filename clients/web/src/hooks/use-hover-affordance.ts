@@ -1,7 +1,4 @@
-import { useMediaQuery } from "@/hooks/use-media-query";
-
-/** Hover being available as a way to interact, not merely to point. */
-const HOVER_QUERY = "(hover: hover)";
+import { useHoverCapable } from "@vellumai/design-library/utils/hover-capability";
 
 /**
  * Whether the device can hover, which is the only axis that says whether an
@@ -14,11 +11,15 @@ const HOVER_QUERY = "(hover: hover)";
  * a row deciding in TypeScript whether to render a hover-revealed control and
  * the CSS deciding whether to paint it stay in agreement.
  *
+ * The query is defined once in the design library, alongside the tooltip and
+ * reveal rules that have to agree with it, and is re-exported here so app code
+ * has a single module to import (and tests a single module to stub). Imported
+ * from the utility's own entry point rather than the package root, so a test
+ * that stubs the design library's components does not take the signal with it.
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  */
-export function useHoverCapable(): boolean {
-  return useMediaQuery(HOVER_QUERY);
-}
+export { useHoverCapable };
 
 /**
  * Whether a row should render a control that only hover reveals.

@@ -6,6 +6,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { client } from "@/generated/api/client.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useTranslation } from "@/i18n";
 import {
   ALL_FLAGS,
   flagKeyToStoreKey,
@@ -66,6 +67,7 @@ type FlagDisplayEntry =
     };
 
 export function FeatureFlagsPanel() {
+  const { t } = useTranslation("settings");
   // The panel renders under `ActiveAssistantGate` (routes.tsx), which defers
   // child rendering until an assistant is resolved — so the id is always
   // available here. Reading it from the resolved-assistants store (via
@@ -168,15 +170,15 @@ export function FeatureFlagsPanel() {
 
   return (
     <DetailCard
-      title="Feature Flags"
-      subtitle="Active feature flags evaluated for the current session."
+      title={t("featureFlagsPanel.title")}
+      subtitle={t("featureFlagsPanel.subtitle")}
     >
       <div className="space-y-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--content-tertiary)]" />
           <input
             type="text"
-            placeholder="Search flags..."
+            placeholder={t("featureFlagsPanel.searchPlaceholder")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
@@ -185,7 +187,7 @@ export function FeatureFlagsPanel() {
 
         {filteredFlags.length === 0 && (
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            No matching flags.
+            {t("featureFlagsPanel.noMatching")}
           </p>
         )}
 
@@ -212,15 +214,24 @@ interface FeatureFlagRowProps {
 }
 
 function ScopeChips({ scope }: { scope: FlagScope }) {
+  const { t } = useTranslation("settings");
   if (scope === "both") {
     return (
       <>
-        <Tag tone={SCOPE_TONE.client}>client</Tag>
-        <Tag tone={SCOPE_TONE.assistant}>assistant</Tag>
+        <Tag tone={SCOPE_TONE.client}>{t("featureFlagsPanel.scopeClient")}</Tag>
+        <Tag tone={SCOPE_TONE.assistant}>
+          {t("featureFlagsPanel.scopeAssistant")}
+        </Tag>
       </>
     );
   }
-  return <Tag tone={SCOPE_TONE[scope]}>{scope}</Tag>;
+  return (
+    <Tag tone={SCOPE_TONE[scope]}>
+      {scope === "client"
+        ? t("featureFlagsPanel.scopeClient")
+        : t("featureFlagsPanel.scopeAssistant")}
+    </Tag>
+  );
 }
 
 function BooleanFlagRow({
@@ -230,6 +241,7 @@ function BooleanFlagRow({
   flag: Extract<FlagDisplayEntry, { kind: "boolean" }>;
   assistantId: string;
 }) {
+  const { t } = useTranslation("settings");
   const clientSetFlag = useClientFeatureFlagStore.use.setFlag();
   const assistantSetFlag = useAssistantFeatureFlagStore.use.setFlag();
 
@@ -248,7 +260,11 @@ function BooleanFlagRow({
         <Toggle
           checked={flag.value}
           onChange={handleToggle}
-          aria-label={`${flag.label} is ${flag.value ? "on" : "off"}`}
+          aria-label={
+            flag.value
+              ? t("featureFlagsPanel.flagOnAriaLabel", { label: flag.label })
+              : t("featureFlagsPanel.flagOffAriaLabel", { label: flag.label })
+          }
         />
       </div>
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -263,9 +279,13 @@ function BooleanFlagRow({
         </span>
         <div className="flex items-center gap-1">
           <span className="text-body-small-default text-[var(--content-tertiary)]">
-            Default:
+            {t("featureFlagsPanel.defaultLabel")}
           </span>
-          <Tag tone="neutral">{flag.defaultValue ? "On" : "Off"}</Tag>
+          <Tag tone="neutral">
+            {flag.defaultValue
+              ? t("featureFlagsPanel.on")
+              : t("featureFlagsPanel.off")}
+          </Tag>
         </div>
       </div>
     </div>
@@ -279,6 +299,7 @@ function StringFlagRow({
   flag: Extract<FlagDisplayEntry, { kind: "string" }>;
   assistantId: string;
 }) {
+  const { t } = useTranslation("settings");
   const clientSetStringFlag = useClientFeatureFlagStore.use.setStringFlag();
   const assistantSetStringFlag =
     useAssistantFeatureFlagStore.use.setStringFlag();
@@ -342,7 +363,9 @@ function StringFlagRow({
             }}
             options={knownValues.map((v) => ({ value: v, label: v }))}
             className="w-48"
-            aria-label={`${flag.label} value`}
+            aria-label={t("featureFlagsPanel.valueAriaLabel", {
+              label: flag.label,
+            })}
           />
         ) : (
           <div className="space-y-1">
@@ -358,20 +381,26 @@ function StringFlagRow({
                   ? "border-[var(--system-negative-strong)]"
                   : "border-[var(--border-base)] focus:border-[var(--border-focus)]",
               )}
-              placeholder={flag.defaultValue || "Enter value..."}
+              placeholder={
+                flag.defaultValue || t("featureFlagsPanel.enterValue")
+              }
             />
             {isInvalid && (
               <span className="block text-body-small-default text-[var(--system-negative-strong)]">
-                Expected one of: {knownValues!.join(", ")}
+                {t("featureFlagsPanel.expectedOneOf", {
+                  values: knownValues!.join(", "),
+                })}
               </span>
             )}
           </div>
         )}
         <div className="flex items-center gap-1">
           <span className="text-body-small-default text-[var(--content-tertiary)]">
-            Default:
+            {t("featureFlagsPanel.defaultLabel")}
           </span>
-          <Tag tone="neutral">{flag.defaultValue || "(empty)"}</Tag>
+          <Tag tone="neutral">
+            {flag.defaultValue || t("featureFlagsPanel.empty")}
+          </Tag>
         </div>
       </div>
     </div>

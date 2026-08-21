@@ -7,6 +7,7 @@ import {
   useOrganizationsBillingPortalSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { t } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export const PORTAL_RETURN_SNAPSHOT_KEY = "billing-portal-return-snapshot";
@@ -161,7 +162,7 @@ export function useBillingPortalSession(snapshot: PortalReturnSnapshot | null) {
       void openUrl(data.portal_url);
     },
     onError: () => {
-      toast.error("Couldn't open the billing portal. Please try again.", {
+      toast.error(t("settings:useBillingPortalSession.openError"), {
         id: "billing-portal-session-error",
       });
     },

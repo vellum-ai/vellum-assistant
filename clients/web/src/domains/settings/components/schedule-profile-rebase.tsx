@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { reassignScheduleInferenceProfile } from "@/domains/settings/api/schedules";
 import { canScheduleStillRun } from "@/domains/settings/utils/schedule-formatters";
 import { useCallSiteDefaultProfile } from "@/hooks/use-call-site-default-profile";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -56,6 +57,7 @@ export function useScheduleProfileRebase(
   schedules: Schedule[],
   onRebased: () => void,
 ): ScheduleProfileRebase {
+  const { t } = useTranslation("settings");
   const defaultProfile = useCallSiteDefaultProfile(assistantId, "mainAgent");
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -80,13 +82,18 @@ export function useScheduleProfileRebase(
       onRebased();
       toast.success(
         moved === 0
-          ? `Every schedule already runs on ${label}.`
-          : `Moved ${moved} ${moved === 1 ? "schedule" : "schedules"} to ${label}.`,
+          ? t("scheduleProfileRebase.alreadyOnProfileToast", {
+              profile: label,
+            })
+          : t("scheduleProfileRebase.movedToast", {
+              count: moved,
+              profile: label,
+            }),
       );
     },
     onError: (error) => {
       captureError(error, { context: "schedules_rebase_inference_profile" });
-      toast.error("Failed to move the schedules.");
+      toast.error(t("scheduleProfileRebase.moveFailedToast"));
     },
   });
 
@@ -124,14 +131,16 @@ export function ScheduleProfileRebaseDialog({
   onConfirm,
   onCancel,
 }: ScheduleProfileRebaseDialogProps) {
+  const { t } = useTranslation("settings");
   return (
     <ConfirmDialog
       open={open}
-      title={`Use ${profileLabel} for every schedule?`}
-      message={`${offDefaultCount} of the schedules below ${
-        offDefaultCount === 1 ? "runs" : "run"
-      } on a different model. This moves every schedule, including reminders your assistant set aside for later, onto ${profileLabel}, your current default. Schedules you deliberately put on another model move too.`}
-      confirmLabel="Move schedules"
+      title={t("scheduleProfileRebase.dialogTitle", { profile: profileLabel })}
+      message={t("scheduleProfileRebase.dialogMessage", {
+        count: offDefaultCount,
+        profile: profileLabel,
+      })}
+      confirmLabel={t("scheduleProfileRebase.moveSchedules")}
       isPending={isPending}
       onConfirm={onConfirm}
       onCancel={onCancel}

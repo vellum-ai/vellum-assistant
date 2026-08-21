@@ -145,9 +145,11 @@ test("retries a prior chord after a failed binding change", async () => {
 test("registers the latest binding after an in-flight failure", async () => {
   const registrations: Array<PushToTalkActivator | null> = [];
   let rejectOption = (): void => undefined;
-  const optionResult = new Promise<{ ok: boolean; reason: string }>((resolve) => {
-    rejectOption = () => resolve({ ok: false, reason: "unavailable" });
-  });
+  const optionResult = new Promise<{ ok: boolean; reason: string }>(
+    (resolve) => {
+      rejectOption = () => resolve({ ok: false, reason: "unavailable" });
+    },
+  );
   window.vellum = {
     platform: "electron",
     helper: {

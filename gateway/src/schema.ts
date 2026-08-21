@@ -190,6 +190,36 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/velay/status": {
+        get: {
+          summary: "Velay tunnel status",
+          description:
+            "Returns the current state of the Velay tunnel connection: whether it is connected and its public URL when available. Returns { connected: false, publicUrl: null } when Velay is not configured (VELAY_BASE_URL not set).",
+          operationId: "velayStatus",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Velay tunnel status returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      connected: { type: "boolean" },
+                      publicUrl: { type: "string", nullable: true },
+                    },
+                    required: ["connected", "publicUrl"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+          },
+        },
+      },
       "/v1/brain-graph": {
         get: {
           summary: "Brain graph data",

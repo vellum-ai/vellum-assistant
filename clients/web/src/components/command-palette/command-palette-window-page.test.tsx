@@ -74,15 +74,6 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => false,
 }));
 
-mock.module("@/stores/client-feature-flag-store", () => ({
-  useClientFeatureFlagStore: {
-    use: {
-      multiPlatformAssistant: () => true,
-      assistantSwitcher: () => false,
-    },
-  },
-}));
-
 mock.module("@/stores/auth-store", () => {
   const useAuthStore = () => null;
   useAuthStore.use = {

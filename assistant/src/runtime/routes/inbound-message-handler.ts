@@ -17,6 +17,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
+import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -42,6 +43,7 @@ import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
+import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
   resolveSlackBotUserId,
   withSlackBotToken,
@@ -908,10 +910,11 @@ export async function handleChannelInbound({
         text: replyText,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
         replyDelivered = true;
@@ -970,10 +973,11 @@ export async function handleChannelInbound({
         text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
       } catch (err) {
@@ -1088,8 +1092,8 @@ export async function handleChannelInbound({
     // cleanup. When a Slack block_actions payload is forwarded, the gateway
     // sets sourceMetadata.messageId to the ts of the message containing
     // the button. This lets us edit the message after resolution.
-    const approvalMessageTs =
-      sourceChannel === "slack" && typeof sourceMetadata?.messageId === "string"
+    const approvalMessageId =
+      typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
         : undefined;
 
@@ -1105,7 +1109,7 @@ export async function handleChannelInbound({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       approvalCopyGenerator,
       approvalConversationGenerator,
-      approvalMessageTs,
+      approvalMessageId,
     });
 
     if (approvalResult.handled) {
@@ -1190,15 +1194,16 @@ export async function handleChannelInbound({
         }
       }
 
-      // On Slack, edit the original approval message to remove stale buttons
-      // and deliver an ephemeral error so the user gets visible feedback
+      // Edit the original approval message to remove stale buttons
+      // and reply so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
-      if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
-        deliverChannelReply(replyCallbackUrl, {
+      // No channel check: a transport without `edit` declines the call, so a
+      // channel gains this the moment it can revise a sent message.
+      if (replyCallbackUrl && approvalMessageId) {
+        editChannelMessage(replyCallbackUrl, {
           chatId: conversationExternalId,
+          messageId: approvalMessageId,
           text: "This approval request has been resolved.",
-          messageTs: approvalMessageTs,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },

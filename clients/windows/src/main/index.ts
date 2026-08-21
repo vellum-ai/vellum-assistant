@@ -28,18 +28,12 @@ import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
- * Minimal Windows shell for the Vellum Assistant.
- *
- * This is the bootstrap skeleton: a hardened BrowserWindow loading the
- * clients/web renderer (Vite dev server in dev, `app://` static serving of
- * `resources/web-dist` in packaged builds) plus the smallest IPC surface
- * the renderer needs to boot. The renderer's runtime wrappers
- * (`clients/web/src/runtime/`) feature-detect each bridge namespace, so the
- * partial preload bridge degrades to web behavior everywhere else.
- *
- * Not ported from the macOS client yet (see `clients/macos/src/main/` for the
- * reference implementations): gateway request forwarding, auto-update, CSP,
- * notifications, and hotkeys.
+ * Windows shell for the Vellum Assistant: a hardened BrowserWindow loading
+ * the clients/web renderer (Vite dev server in dev, `app://` static serving
+ * of `resources/web-dist` in packaged builds). Every desktop capability is a
+ * module under `./features/`, composed through the capability registry once
+ * the app is ready; `docs/parity-matrix.md` maps them to their macOS
+ * counterparts.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so

@@ -24,6 +24,89 @@ const schemes =
     ? ["vellum", "vellum-assistant"]
     : [`vellum-assistant-${env}`];
 
+const iconEnvironment = ["local", "dev", "staging", "production"].includes(
+  env,
+)
+  ? env
+  : "production";
+const appIcon = `build-resources/icons/${iconEnvironment}/icon.ico`;
+
+const requireEnv = (name) => {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is required for WINDOWS_SIGNING_PROVIDER=${process.env.WINDOWS_SIGNING_PROVIDER}`,
+    );
+  }
+  return value;
+};
+
+// Signing is provider-neutral: the release workflow picks a provider through
+// WINDOWS_SIGNING_PROVIDER and electron-builder signs every exe/dll/node in
+// the app, the NSIS uninstaller, and the installer. Unset means unsigned
+// (local packs and CI smoke).
+const resolveSigning = () => {
+  const provider = process.env.WINDOWS_SIGNING_PROVIDER;
+  const timestampUrl =
+    process.env.WINDOWS_SIGNING_TIMESTAMP_URL ||
+    "http://timestamp.digicert.com";
+  switch (provider || "") {
+    case "":
+      return {};
+    // Certificate and password arrive through electron-builder's own
+    // WIN_CSC_LINK (base64 PFX) and WIN_CSC_KEY_PASSWORD.
+    case "pfx":
+      return {
+        signtoolOptions: {
+          signingHashAlgorithms: ["sha256"],
+          rfc3161TimeStampServer: timestampUrl,
+        },
+      };
+    // Authenticates through AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET.
+    case "azure-trusted-signing":
+      return {
+        azureSignOptions: {
+          endpoint: requireEnv("AZURE_TRUSTED_SIGNING_ENDPOINT"),
+          codeSigningAccountName: requireEnv("AZURE_TRUSTED_SIGNING_ACCOUNT"),
+          certificateProfileName: requireEnv("AZURE_TRUSTED_SIGNING_PROFILE"),
+          publisherName: requireEnv("WINDOWS_SIGNING_PUBLISHER_NAME"),
+          timestampRfc3161: timestampUrl,
+        },
+      };
+    // Any other signing CLI (DigiCert KeyLocker, AzureSignTool, ...): a shell
+    // command with a {file} placeholder, run once per file. The publisher
+    // name lands in app-update.yml so the updater verifies downloads.
+    case "command": {
+      const template = requireEnv("WINDOWS_SIGN_COMMAND");
+      if (!template.includes("{file}")) {
+        throw new Error(
+          "WINDOWS_SIGN_COMMAND must contain a {file} placeholder",
+        );
+      }
+      return {
+        signtoolOptions: {
+          publisherName: requireEnv("WINDOWS_SIGNING_PUBLISHER_NAME"),
+          signingHashAlgorithms: ["sha256"],
+          sign: async ({ path: file }) => {
+            const command = template.replaceAll("{file}", `"${file}"`);
+            const result = spawnSync(command, {
+              shell: true,
+              stdio: "inherit",
+            });
+            if (result.status !== 0) {
+              throw new Error(
+                `WINDOWS_SIGN_COMMAND failed for ${file} (exit ${result.status})`,
+              );
+            }
+          },
+        },
+      };
+    }
+    default:
+      throw new Error(`Unknown WINDOWS_SIGNING_PROVIDER: ${provider}`);
+  }
+};
+
 // Enumerates every packaged executable and DLL (and later the installer)
 // into dist/signing-manifest-<arch>.json for signature verification.
 const enumerateSignableFiles = (args) => {
@@ -66,14 +149,21 @@ module.exports = {
     },
   ],
   win: {
+    icon: appIcon,
     target: [
       {
         target: "nsis",
         arch: [targetArch],
       },
     ],
+    // electron-builder signs only `.exe` by default; the CLI runtime, helper,
+    // and preview-handler DLL must carry the same signature.
+    signExts: [".exe", ".dll", ".node"],
+    ...resolveSigning(),
   },
   nsis: {
+    installerIcon: appIcon,
+    uninstallerIcon: appIcon,
     oneClick: false,
     perMachine: false,
     allowToChangeInstallationDirectory: true,
@@ -99,6 +189,15 @@ module.exports = {
     },
   ],
   afterPack: async (context) => {
+    enumerateSignableFiles([
+      "--app-out-dir",
+      context.appOutDir,
+      "--arch",
+      targetArch,
+    ]);
+  },
+  // Signing rewrites the binaries, so the manifest hashes are taken again.
+  afterSign: async (context) => {
     enumerateSignableFiles([
       "--app-out-dir",
       context.appOutDir,

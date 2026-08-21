@@ -54,10 +54,22 @@ selectors to subscribe to. Wrapping it in a Zustand store adds
 ceremony without value — `useEventBusStore.getState().publish(...)`
 when `publish(...)` is the actual operation.
 
-The convention: stateless pub/sub registries are plain modules with
-exported functions. They live in `lib/` alongside other app
-infrastructure. The event bus is the canonical example; other
-registries (if any are added) should follow the same shape.
+The convention: `lib/event-bus.ts` is that registry, singular. It is a
+module to use, not a shape to copy. A new stateless signal is an entry in
+`BusEventMap` plus a producer (see
+[`EVENT_BUS.md`](./EVENT_BUS.md#adding-a-new-event)), not a second module with
+its own listener `Set`. A parallel registry is a second mechanism for one job,
+and it is invisible to anyone reading the bus's event table to find out what
+signals exist. Don't stand one up without a documented reason, the same bar
+`EVENT_BUS.md` puts on adding a producer.
+
+The line this section draws is *stateless signal* versus *state*, and only
+the first side belongs on the bus. A module that pairs listeners with
+values consumers read back is a store, however much its listener `Set`
+resembles a registry: that belongs in Zustand, or in `useSyncExternalStore`
+when it is mirroring a browser API it does not own (`hooks/use-element-size.ts`,
+`lib/app-sandbox-debug-flag.ts`). Reaching for the bus there loses selectors
+and gives subscribers no value to read.
 
 ## Zustand store conventions
 

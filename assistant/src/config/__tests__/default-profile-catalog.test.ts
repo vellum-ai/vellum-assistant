@@ -57,12 +57,12 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
-  test("the managed Balanced profile routes GPT-5.6 Luna through OpenAI", () => {
+  test("the managed Balanced profile routes GLM 5.2 through Fireworks", () => {
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
-    expect(balanced.model).toBe("gpt-5.6-luna");
+    expect(balanced.model).toBe("accounts/fireworks/models/glm-5p2");
     expect(resolveRoutingIdentity(balanced.provider, balanced.model)).toEqual({
       connectionName: "vellum",
-      expectedProvider: "openai",
+      expectedProvider: "fireworks",
     });
   });
 

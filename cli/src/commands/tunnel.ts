@@ -10,6 +10,8 @@ import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import {
   getDefaultWorkspaceDir,
+  isLocalContainerEntry,
+  parseGatewayPortFromEntryUrls,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
 import {
@@ -20,7 +22,6 @@ import {
 import { runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
-import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -100,7 +101,7 @@ function parseArgs(): TunnelArgs {
         "               No Cloudflare account required for quick tunnels.",
       );
       console.log(
-        "  tailscale    Tailscale serve — install: brew install tailscale, then `tailscale up`",
+        "  tailscale    Tailscale serve - install: https://tailscale.com/download, then run `tailscale up`",
       );
       console.log(
         "               Reachable only from your own tailnet (private; LetsEncrypt cert).",
@@ -188,19 +189,13 @@ interface LocalTunnelTarget {
   workspaceDir: string;
 }
 
-/** Container topologies whose gateway runs on this machine without host `resources`. */
-function isLocalContainerEntry(entry: AssistantEntry): boolean {
-  return entry.cloud === "docker" || entry.cloud === "apple-container";
-}
-
 /**
  * Map an entry to its local tunnel target, or null when it has no locally
  * reachable gateway (e.g. platform-hosted). Entries with `resources` carry
  * their own gateway port and instance workspace. Local container entries
  * (docker, apple-container) run locally without host resources: their gateway
  * port comes from localUrl/runtimeUrl and their ingress state lives in the
- * default workspace, matching the `vellum nginx-ingress` resolution for the
- * same topology.
+ * default workspace.
  */
 function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
   if (entry.resources) {

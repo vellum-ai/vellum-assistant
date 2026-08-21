@@ -69,6 +69,7 @@ import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
+import { postUnsendableImageNotice } from "./unsendable-image-notice.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -855,7 +856,6 @@ export async function persistQueuedMessageBody(
       filePath: attachment.filePath,
     }),
   );
-  const cleanMessage = await createUserMessage(content, attachmentInputs);
   let pushedToHistory = false;
 
   try {
@@ -1015,6 +1015,14 @@ export async function persistQueuedMessageBody(
       attachmentInputs,
     );
 
+    // The turn sees exactly what was persisted: an attachment rejected during
+    // materialization is absent from both, so a file the store refused cannot
+    // reach the model through the in-memory message.
+    const sentAttachments = preparedAttachments.map(
+      (p) => attachmentInputs[p.position],
+    );
+    const cleanMessage = await createUserMessage(content, sentAttachments);
+
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message
     // after restart. The in-memory userMessage (sent to the LLM) still uses
@@ -1119,7 +1127,7 @@ export async function persistQueuedMessageBody(
 
     const llmMessage = enrichMessageWithSourcePaths(
       cleanMessage,
-      attachmentInputs,
+      sentAttachments,
     );
     log.info(
       {
@@ -1143,6 +1151,18 @@ export async function persistQueuedMessageBody(
         conv.createdAt,
       );
     }
+
+    // Read after the content is final (including any link-failure repair), so
+    // the notice describes the blocks the send boundary will actually see.
+    const persistedImages = preparedAttachments.flatMap((p, idx) => {
+      const block = repairedBlocks?.[idx] ?? p.block;
+      if (block.type !== "image") {
+        return [];
+      }
+      const { filename } = attachmentInputs[p.position];
+      return [{ filename, source: block.source }];
+    });
+    await postUnsendableImageNotice(ctx.conversationId, persistedImages);
 
     return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {

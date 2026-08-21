@@ -1,4 +1,7 @@
+import { toast } from "@vellumai/design-library/components/toast";
+
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import type { TFunction } from "@/i18n";
 import type {
   Auth,
   ConnectionProvider,
@@ -108,6 +111,33 @@ export function validationErrorMessage(
   return typeof message === "string" && message.length > 0
     ? message
     : undefined;
+}
+
+/**
+ * Surface a failed save-time endpoint probe as a warning toast, mapping the
+ * probe's structured status onto catalog copy (the daemon's English `hint` is
+ * for non-localized surfaces like the CLI). The save itself succeeded, so
+ * this never blocks the flow.
+ */
+export function warnOnFailedEndpointCheck(
+  connection: {
+    endpoint_check?: { ok: boolean; status?: number };
+  },
+  t: TFunction<"settings">,
+): void {
+  const check = connection.endpoint_check;
+  if (!check || check.ok) {
+    return;
+  }
+  const key =
+    check.status === 404
+      ? ("providerEndpointCheck.notFound" as const)
+      : check.status === 401 || check.status === 403
+        ? ("providerEndpointCheck.unauthorized" as const)
+        : check.status !== undefined
+          ? ("providerEndpointCheck.httpError" as const)
+          : ("providerEndpointCheck.unreachable" as const);
+  toast.warning(t(key, { status: check.status }));
 }
 
 export function providerConnectionDisplayName(

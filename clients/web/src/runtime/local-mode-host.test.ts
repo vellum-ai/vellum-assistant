@@ -23,6 +23,7 @@ const {
   getLocalAssistantStatusHost,
   fetchGuardianTokenHost,
   isLocalModeHostAvailable,
+  requiresGuardianReprovision,
 } = await import("./local-mode-host");
 
 const realFetch = globalThis.fetch;
@@ -811,6 +812,30 @@ describe("fetchGuardianTokenHost", () => {
     expect(err).toBeInstanceOf(GuardianTokenError);
     expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(500);
     expect((err as Error).message).toBe("refresh failed");
+  });
+});
+
+describe("requiresGuardianReprovision", () => {
+  test("true only for a missing (404) or spent (401) guardian token", () => {
+    expect(requiresGuardianReprovision(new GuardianTokenError(401, "x"))).toBe(
+      true,
+    );
+    expect(requiresGuardianReprovision(new GuardianTokenError(404, "x"))).toBe(
+      true,
+    );
+  });
+
+  test("false for an unreachable gateway or a loopback-boundary refusal", () => {
+    expect(requiresGuardianReprovision(new GuardianTokenError(503, "x"))).toBe(
+      false,
+    );
+    expect(requiresGuardianReprovision(new GuardianTokenError(500, "x"))).toBe(
+      false,
+    );
+    expect(requiresGuardianReprovision(new GuardianTokenError(403, "x"))).toBe(
+      false,
+    );
+    expect(requiresGuardianReprovision(new Error("x"))).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import { AlertCircle } from "lucide-react";
 import { Select } from "@vellumai/design-library/components/select";
 
 import { useProfileOptions } from "@/domains/settings/hooks/use-profile-options";
+import { useTranslation } from "@/i18n";
 
 import type {
   SelectMenuAlign,
@@ -53,6 +54,7 @@ export function ModelProfileSelect({
   variant,
   menuAlign,
 }: ModelProfileSelectProps) {
+  const { t } = useTranslation("settings");
   const options = useProfileOptions(assistantId, value)
     .filter((option) => includeDefaultOption || option.value != null)
     .map((option) => ({
@@ -79,7 +81,7 @@ export function ModelProfileSelect({
       className={className}
       variant={variant}
       menuAlign={menuAlign}
-      aria-label="Model profile"
+      aria-label={t("modelProfileSelect.ariaLabel")}
     />
   );
 }

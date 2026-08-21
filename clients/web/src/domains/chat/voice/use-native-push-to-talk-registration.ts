@@ -13,30 +13,25 @@ import {
 } from "@/runtime/hotkey";
 import { isPopoutWindow } from "@/runtime/popout-window";
 
-function desiredActivator(): PTTActivator {
-  return pushToTalkActivation.load();
-}
-
 export function useNativePushToTalkRegistration(): void {
   useEffect(() => {
     if (typeof window === "undefined" || !supportsConfigurablePushToTalk()) {
       return;
     }
 
+    // The main window owns the global binding; a popout only suppresses its
+    // own focused-window fallback so the two never race.
     if (isPopoutWindow(window.location.search)) {
       setConfigurablePushToTalkActive(true);
       return () => setConfigurablePushToTalkActive(false);
     }
     let disposed = false;
-    let desired = desiredActivator();
+    let desired = pushToTalkActivation.load();
     let appliedKey: string | null = null;
     let syncInFlight: Promise<void> | null = null;
 
-    const apply = async (activator: PTTActivator): Promise<boolean> => {
-      return setNativePushToTalkActivator(
-        activator.kind === "off" ? null : activator,
-      );
-    };
+    const apply = (activator: PTTActivator) =>
+      setNativePushToTalkActivator(activator.kind === "off" ? null : activator);
 
     const sync = () => {
       if (syncInFlight) {
@@ -67,7 +62,7 @@ export function useNativePushToTalkRegistration(): void {
     };
 
     const updateDesiredRegistration = () => {
-      desired = desiredActivator();
+      desired = pushToTalkActivation.load();
       sync();
     };
 

@@ -105,21 +105,12 @@ function playActivationBlip(): void {
 }
 
 /**
- * Listens for the saved PTT activator on `window` keydown/keyup and drives
- * the provided voice-input handle. Hold-to-talk: key-down starts recording
- * after a 100 ms hold delay, key-up stops it. Key chords (Ctrl+K) activate
- * as soon as their key arrives; modifier-only bindings, single or chorded,
- * wait out the delay. Only fires while the Vellum tab has focus unless a
- * configurable desktop host owns the binding globally.
- *
- * The 100 ms hold delay prevents accidental activation from quick taps. If
- * another non-modifier key is pressed during the hold window, activation is
- * cancelled (the user is likely typing a shortcut like Ctrl+C, or
- * Ctrl+Shift+T over a Ctrl+Shift binding).
- *
- * Storage lives in `localStorage` under `LS_PTT_ACTIVATION_KEY`; the hook
- * re-reads on `storage` events so PTT picks up changes made in the settings
- * UI without a reload.
+ * Hold-to-talk on `window` keydown/keyup, driving the voice-input handle.
+ * Modifier-only bindings wait out the hold delay so taps and shortcuts that
+ * share the prefix (Ctrl+C, Ctrl+Shift+T) cancel instead of recording; key
+ * chords (Ctrl+K) activate on their key. Focused-window only, unless a
+ * desktop host owns the binding globally, in which case the native events
+ * drive the same handle.
  */
 export function usePushToTalk(
   targetSource: PushToTalkTargetSource,
@@ -131,8 +122,6 @@ export function usePushToTalk(
   const activeOriginRef = useRef<"dom" | "native" | null>(null);
   const activeTargetRef = useRef<PushToTalkTarget | null>(null);
 
-  // Hold-delay state is tracked via refs so event handlers always see the
-  // latest values without requiring effect re-runs.
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdingRef = useRef(false);
 
@@ -214,14 +203,13 @@ export function usePushToTalk(
         return;
       }
 
-      holdingRef.current = true;
       // A key chord ends with its key, so it is unambiguous on arrival. A
       // modifier-only chord may be the prefix of a shortcut, so it waits.
       if (activator.kind === "key" && activator.modifiers.length > 0) {
-        holdingRef.current = false;
         startActiveTarget("dom");
         return;
       }
+      holdingRef.current = true;
       holdTimerRef.current = setTimeout(() => {
         holdTimerRef.current = null;
         if (!holdingRef.current) {
@@ -273,10 +261,7 @@ export function usePushToTalk(
     };
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
-      if (nativeConfigurable && !isConfigurablePushToTalkActive()) {
-        return;
-      }
-      if (!nativeConfigurable) {
+      if (!nativeConfigurable || !isConfigurablePushToTalkActive()) {
         return;
       }
       if (event.state === "down") {

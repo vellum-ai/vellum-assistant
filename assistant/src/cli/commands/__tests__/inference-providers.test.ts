@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Command } from "commander";
 
 let ipcCalls: { method: string; params?: any }[] = [];
+let openedUrls: string[] = [];
+let storedSecrets: Array<{ key: string; value: string }> = [];
 let mockIpcResult: { ok: boolean; result?: unknown; error?: string } = {
   ok: true,
   result: {},
@@ -28,6 +30,35 @@ mock.module("../../../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
   getCliLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+}));
+
+mock.module("../../lib/open-browser.js", () => ({
+  openInHostBrowser: (url: string) => {
+    openedUrls.push(url);
+  },
+}));
+
+mock.module("../../../security/oauth2.js", () => ({
+  startOAuth2Flow: async (
+    _config: unknown,
+    callbacks: { openUrl: (url: string) => void },
+  ) => {
+    callbacks.openUrl("https://auth.openai.com/oauth/authorize?state=test");
+    return {
+      tokens: {
+        accessToken: "test-access-token",
+        refreshToken: "test-refresh-token",
+        expiresIn: 3600,
+      },
+    };
+  },
+}));
+
+mock.module("../../../security/secure-keys.js", () => ({
+  setSecureKeyAsync: async (key: string, value: string) => {
+    storedSecrets.push({ key, value });
+    return true;
+  },
 }));
 
 const { attachProvidersSubcommand } = await import("../inference-providers.js");
@@ -48,6 +79,8 @@ function lastIpcCall(): { method: string; params?: any } | null {
 
 beforeEach(() => {
   ipcCalls = [];
+  openedUrls = [];
+  storedSecrets = [];
   mockIpcResult = { ok: true, result: CONNECTION_RESULT };
   process.exitCode = 0;
 });
@@ -58,13 +91,19 @@ afterEach(() => {
 
 async function run(
   args: string[],
-): Promise<{ stdout: string; exitCode: number }> {
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const originalWrite = process.stdout.write.bind(process.stdout);
+  const originalErrorWrite = process.stderr.write.bind(process.stderr);
   const chunks: string[] = [];
+  const errorChunks: string[] = [];
   process.stdout.write = ((chunk: unknown) => {
     chunks.push(typeof chunk === "string" ? chunk : String(chunk));
     return true;
   }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown) => {
+    errorChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
 
   const prevExit = process.exitCode;
   process.exitCode = 0;
@@ -79,11 +118,13 @@ async function run(
     // swallow commander exits
   } finally {
     process.stdout.write = originalWrite;
+    process.stderr.write = originalErrorWrite;
   }
   const stdout = chunks.join("");
+  const stderr = errorChunks.join("");
   const exitCode = (process.exitCode as number) ?? 0;
   process.exitCode = prevExit;
-  return { stdout, exitCode };
+  return { stdout, stderr, exitCode };
 }
 
 describe("providers create — derived auth", () => {
@@ -482,5 +523,29 @@ describe("deprecated providers connections alias", () => {
     const { stdout } = await run(["providers", "connections", "list"]);
     expect(lastIpcCall()?.method).toBe("inference_provider_connections_list");
     expect(stdout).toContain("No providers found.");
+  });
+});
+
+describe("providers login-chatgpt", () => {
+  test("delivers the authorization URL through the browser helper and stderr", async () => {
+    const { stdout, stderr, exitCode } = await run([
+      "providers",
+      "login-chatgpt",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true });
+    expect(stderr).toContain(
+      "https://auth.openai.com/oauth/authorize?state=test",
+    );
+    expect(openedUrls).toEqual([
+      "https://auth.openai.com/oauth/authorize?state=test",
+    ]);
+    expect(storedSecrets).toContainEqual({
+      key: "credential/chatgpt/access_token",
+      value: "test-access-token",
+    });
+    expect(lastIpcCall()?.method).toBe("inference_provider_connections_update");
   });
 });

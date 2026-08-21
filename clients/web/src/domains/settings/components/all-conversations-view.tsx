@@ -12,7 +12,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Archive, Loader2, RotateCcw, Search } from "lucide-react";
-import { type ChangeEvent, useCallback, useState } from "react";
+import { type ChangeEvent, useCallback, useMemo, useState } from "react";
 
 import {
   type AllConversationsRow,
@@ -23,6 +23,7 @@ import {
   conversationsByIdArchivePost,
   conversationsByIdUnarchivePost,
 } from "@/generated/daemon/sdk.gen";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { Conversation } from "@/types/conversation-types";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
@@ -41,12 +42,6 @@ export interface AllConversationsViewProps {
   initialFilter?: ConversationFilter;
   onOpenConversation: (conversationId: string) => void;
 }
-
-const FILTER_ITEMS: SelectOption<ConversationFilter>[] = [
-  { value: "all", label: "All" },
-  { value: "active", label: "Active" },
-  { value: "archived", label: "Archived" },
-];
 
 /** Human-readable timestamp for a conversation row (lifted from the Settings
  *  archive tab so that surface can be retired without losing the format). */
@@ -83,6 +78,7 @@ function ConversationRow({
   onUnarchive: () => void;
   isPending: boolean;
 }) {
+  const { t } = useTranslation("settings");
   const { conversation, archived } = row;
   const dateText = formatConversationDate(
     conversation.lastMessageAt ?? conversation.createdAt,
@@ -92,7 +88,7 @@ function ConversationRow({
   const title =
     conversation.title && conversation.title.trim().length > 0
       ? conversation.title
-      : "Untitled conversation";
+      : t("allConversationsView.untitled");
 
   return (
     <div
@@ -121,14 +117,16 @@ function ConversationRow({
         {isPending ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
-            {archived ? "Unarchiving" : "Archiving"}
+            {archived
+              ? t("allConversationsView.unarchiving")
+              : t("allConversationsView.archiving")}
           </>
         ) : archived ? (
-          "Unarchive"
+          t("allConversationsView.unarchive")
         ) : (
           <>
             <Archive className="h-4 w-4" />
-            Archive
+            {t("allConversationsView.archive")}
           </>
         )}
       </Button>
@@ -142,6 +140,7 @@ export function AllConversationsView({
   initialFilter,
   onOpenConversation,
 }: AllConversationsViewProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const {
     rows,
@@ -155,6 +154,15 @@ export function AllConversationsView({
   } = useAllConversationsData(assistantId, initialFilter);
 
   const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const filterItems: SelectOption<ConversationFilter>[] = useMemo(
+    () => [
+      { value: "all", label: t("allConversationsView.filterAll") },
+      { value: "active", label: t("allConversationsView.filterActive") },
+      { value: "archived", label: t("allConversationsView.filterArchived") },
+    ],
+    [t],
+  );
 
   const runRowAction = useCallback(
     async (
@@ -187,11 +195,11 @@ export function AllConversationsView({
       void runRowAction(
         conversation,
         conversationsByIdArchivePost,
-        "Failed to archive conversation.",
+        t("allConversationsView.archiveFailed"),
         "all_conversations_archive_conversation",
       );
     },
-    [runRowAction],
+    [runRowAction, t],
   );
 
   const handleUnarchive = useCallback(
@@ -199,11 +207,11 @@ export function AllConversationsView({
       void runRowAction(
         conversation,
         conversationsByIdUnarchivePost,
-        "Failed to unarchive conversation.",
+        t("allConversationsView.unarchiveFailed"),
         "all_conversations_unarchive_conversation",
       );
     },
-    [runRowAction],
+    [runRowAction, t],
   );
 
   // --- Render: loading ---
@@ -213,7 +221,7 @@ export function AllConversationsView({
         <div
           className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-base)] border-t-[var(--primary-base)]"
           role="status"
-          aria-label="Loading conversations"
+          aria-label={t("allConversationsView.loading")}
         />
       </div>
     );
@@ -224,11 +232,11 @@ export function AllConversationsView({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-4">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Failed to load conversations
+          {t("allConversationsView.loadError")}
         </p>
         <Button variant="outlined" onClick={refetch}>
           <RotateCcw className="h-4 w-4" />
-          Retry
+          {t("allConversationsView.retry")}
         </Button>
       </div>
     );
@@ -247,7 +255,7 @@ export function AllConversationsView({
           fullWidth
           wrapperClassName="min-w-0 flex-1"
           type="text"
-          placeholder="Search conversations"
+          placeholder={t("allConversationsView.searchPlaceholder")}
           value={searchText}
           onChange={(e: ChangeEvent<HTMLInputElement>) =>
             setSearchText(e.target.value)
@@ -255,10 +263,10 @@ export function AllConversationsView({
           leftIcon={<Search size={16} />}
         />
         <Select<ConversationFilter>
-          aria-label="Filter conversations"
+          aria-label={t("allConversationsView.filterAria")}
           value={filter}
           onChange={setFilter}
-          options={FILTER_ITEMS}
+          options={filterItems}
           menuAlign="end"
           className="w-36 shrink-0"
         />
@@ -300,6 +308,8 @@ function ConversationsBody({
   onArchive: (conversation: Conversation) => void;
   onUnarchive: (conversation: Conversation) => void;
 }) {
+  const { t } = useTranslation("settings");
+
   if (rows.length === 0) {
     // A trimmed search that matched nothing gets the search-empty copy,
     // regardless of the active filter.
@@ -308,7 +318,7 @@ function ConversationsBody({
         <div className="flex flex-col items-center justify-center py-16">
           <Search size={32} className="mb-4 text-[var(--content-tertiary)]" />
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            No conversations matched &ldquo;{searchText}&rdquo;
+            {t("allConversationsView.noMatch", { query: searchText })}
           </p>
         </div>
       );
@@ -320,10 +330,10 @@ function ConversationsBody({
     // archive tab's wording, since this retires that surface.
     const emptyCopy =
       filter === "archived"
-        ? "No archived conversations"
+        ? t("allConversationsView.emptyArchived")
         : filter === "active"
-          ? "No active conversations"
-          : "No conversations yet";
+          ? t("allConversationsView.emptyActive")
+          : t("allConversationsView.emptyAll");
 
     return (
       <div className="flex flex-col items-center justify-center py-16">

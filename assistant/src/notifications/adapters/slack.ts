@@ -14,7 +14,10 @@
 
 import type { Button, CardBlock, ContextBlock, KnownBlock } from "@slack/types";
 
-import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import {
+  sendSlackReply,
+  updateSlackMessage,
+} from "../../messaging/providers/slack/send.js";
 import { APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX } from "../../messaging/providers/slack/withdraw.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
@@ -476,10 +479,12 @@ export class SlackAdapter implements ChannelAdapter {
       return { success: false, error: "no body or title supplied for update" };
     }
     try {
-      const result = await sendSlackReply(delivery.destination, text, {
-        messageTs: delivery.messageId,
-        useBlocks: true,
-      });
+      const result = await updateSlackMessage(
+        delivery.destination,
+        delivery.messageId,
+        text,
+        { useBlocks: true },
+      );
       log.info(
         { chatId: delivery.destination, messageTs: delivery.messageId },
         "Slack notification updated",

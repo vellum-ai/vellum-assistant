@@ -360,6 +360,12 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+// System cards: a transcript notice authored by the daemon rather than the
+// assistant persona, for telling the user something a turn did to their input
+// that the model's reply cannot explain (e.g. an attachment that could not be
+// sent). Persisted and pushed to clients; not seated in the turn's working
+// history.
+export { persistSystemCard } from "./system-card.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing

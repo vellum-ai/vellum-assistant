@@ -55,7 +55,8 @@ export async function setNativePushToTalkActivator(
     return false;
   }
   try {
-    const result = await window.vellum!.helper!.hotkey!.setPushToTalk!(activator);
+    const result =
+      await window.vellum!.helper!.hotkey!.setPushToTalk!(activator);
     return result.ok;
   } catch {
     return false;

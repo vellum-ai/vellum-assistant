@@ -18,8 +18,12 @@ const slack = {
   sendSlackStreamOp: mock((..._args: unknown[]) =>
     Promise.resolve({ ok: true, ts: "stream-ts" }),
   ),
+  updateSlackMessage: mock((..._args: unknown[]) =>
+    Promise.resolve({ ts: "slack-ts" }),
+  ),
 };
 const telegram = {
+  editTelegramMessage: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramRichReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramTypingIndicator: mock((..._args: unknown[]) => Promise.resolve()),
@@ -59,6 +63,7 @@ mock.module("../../../util/logger.js", () => ({
 
 const {
   deliverDirect,
+  editChannelMessage,
   sendChannelReaction,
   sendChannelStreamOp,
   sendChannelTyping,
@@ -154,6 +159,19 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
+  test("editChannelMessage updates in place instead of posting", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "revised",
+    });
+
+    expect(slack.updateSlackMessage).toHaveBeenCalledTimes(1);
+    // The distinction the split exists for: an edit never reaches the post
+    // path, so a failed edit cannot become a second visible message.
+    expect(slack.sendSlackReply).not.toHaveBeenCalled();
+  });
+
   test("setChannelThreadStatus reaches Slack without touching the text path", async () => {
     await setChannelThreadStatus(`${BASE}/deliver/slack`, {
       chatId: "C1",
@@ -214,6 +232,68 @@ describe("capability gating across channels", () => {
       await sendChannelReaction(`${BASE}/deliver/telegram`, target),
     ).toEqual({ ok: true });
     expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
+  });
+
+  test("Slack renders a muted edit as its own context block", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "This approval request has been resolved.",
+      emphasis: "muted",
+    });
+
+    // The producer asked for a settled message and named no markup. Slack
+    // decides that means a context block.
+    const [, , , options] = slack.updateSlackMessage.mock.calls[0]!;
+    expect((options as { blocks?: unknown[] }).blocks).toEqual([
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "This approval request has been resolved.",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("an edit with no emphasis carries no channel markup", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "revised",
+    });
+
+    const [, , , options] = slack.updateSlackMessage.mock.calls[0]!;
+    expect((options as { blocks?: unknown[] }).blocks).toBeUndefined();
+  });
+
+  test("editChannelMessage now reaches Telegram, not only Slack", async () => {
+    // The capability gate is what let Telegram gain this: no caller changed,
+    // the transport grew the method.
+    await editChannelMessage(`${BASE}/deliver/telegram`, {
+      chatId: "123",
+      messageId: "456",
+      text: "revised",
+    });
+
+    expect(telegram.editTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
+  });
+
+  test("a channel that cannot revise a sent message resolves quietly", async () => {
+    // Discord has no `edit` yet. A channel without the method is not a failed
+    // delivery: nothing is attempted, nothing throws, and no fresh message is
+    // posted in place of the revision.
+    expect(
+      await editChannelMessage(`${BASE}/deliver/discord`, {
+        chatId: "C1",
+        messageId: "1",
+        text: "revised",
+      }),
+    ).toEqual({ ok: true });
+    expect(discord.sendDiscordReply).not.toHaveBeenCalled();
   });
 
   test("the typing capability is read from the transport, not the channel name", () => {

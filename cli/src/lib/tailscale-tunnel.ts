@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { win32 } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
 import {
@@ -9,24 +10,56 @@ import {
 
 // ── Tailscale CLI discovery + invocation ────────────────────────────────────
 
-/**
- * Common macOS locations for the tailscale CLI when it is not on PATH: the
- * Homebrew bin and the CLI bundled inside the Mac App Store / standalone app.
- */
-const TAILSCALE_FALLBACK_PATHS = [
+const MACOS_TAILSCALE_FALLBACK_PATHS = [
   "/opt/homebrew/bin/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 ];
 
-const TAILSCALE_NOT_INSTALLED_MESSAGE = [
-  "Tailscale is not installed or could not be found.",
-  "",
-  "Install Tailscale:",
-  "  macOS:  brew install tailscale   (or install the Tailscale app)",
-  "  Linux:  https://tailscale.com/download/linux",
-  "",
-  "Then start it and sign in: `tailscale up`.",
-].join("\n");
+export function getTailscaleBinaryCandidates(
+  hostPlatform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  if (hostPlatform === "darwin") {
+    return ["tailscale", ...MACOS_TAILSCALE_FALLBACK_PATHS];
+  }
+  if (hostPlatform !== "win32") {
+    return ["tailscale"];
+  }
+
+  const installRoots = [
+    env.ProgramW6432,
+    env.ProgramFiles,
+    env["ProgramFiles(x86)"],
+    env.LOCALAPPDATA,
+  ].filter((value): value is string => Boolean(value));
+  return [
+    "tailscale.exe",
+    ...new Set(
+      installRoots.map((root) =>
+        win32.join(root, "Tailscale", "tailscale.exe"),
+      ),
+    ),
+  ];
+}
+
+export function getTailscaleInstallMessage(
+  hostPlatform: NodeJS.Platform = process.platform,
+): string {
+  const platformInstructions =
+    hostPlatform === "win32"
+      ? "  Windows: winget install Tailscale.Tailscale"
+      : hostPlatform === "darwin"
+        ? "  macOS:  brew install tailscale   (or install the Tailscale app)"
+        : "  Linux:  https://tailscale.com/download/linux";
+  return [
+    "Tailscale is not installed or could not be found.",
+    "",
+    "Install Tailscale:",
+    platformInstructions,
+    "",
+    "Then start it and sign in: `tailscale up`.",
+  ].join("\n");
+}
 
 export interface TailscaleCommandResult {
   status: number | null;
@@ -47,7 +80,7 @@ export interface TailscaleDeps {
 }
 
 function realFindBinary(): string | null {
-  for (const candidate of ["tailscale", ...TAILSCALE_FALLBACK_PATHS]) {
+  for (const candidate of getTailscaleBinaryCandidates()) {
     const res = spawnSync(candidate, ["version"], {
       encoding: "utf-8",
       timeout: 5_000,
@@ -189,7 +222,7 @@ export async function startTailscaleServe(
 ): Promise<TailscaleServeInfo> {
   const binary = deps.findBinary();
   if (!binary) {
-    throw new Error(TAILSCALE_NOT_INSTALLED_MESSAGE);
+    throw new Error(getTailscaleInstallMessage());
   }
 
   const statusResult = deps.run(binary, ["status", "--json"]);

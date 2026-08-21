@@ -248,7 +248,7 @@
     "title": "{name} actions"
   },
   "inspectPage": {
-    "accessDenied": "Inspector is available to Vellum staff, or when the settings-developer-nav developer flag is enabled.",
+    "accessDenied": "Inspector is available when the Internal Thread Actions feature flag is enabled.",
     "allMessages": "All messages",
     "back": "Back",
     "backToConversationAria": "Back to conversation",

@@ -7,7 +7,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
  * Tracks whether the frontend can reach the assistant's runtime pod.
  *
  * Reads from the lifecycle store's `reachable` field (set by the
- * lifecycle service's background healthz probes and unreachable-bus
+ * lifecycle service's background healthz probes and `assistant.unreachable`
  * subscription) as the source of truth. The hook owns the UI-specific
  * concerns: phase state machine, failure timeout, retry/reset actions.
  *

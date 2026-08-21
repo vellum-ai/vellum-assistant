@@ -42,17 +42,33 @@ const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
   },
 ];
 
-const labelClasses = "text-body-small-default text-[var(--content-tertiary)]";
+const MODIFIER_KEYS = ["Control", "Alt", "Shift", "Meta"];
+
+function collectModifiers(
+  event: ReactKeyboardEvent<HTMLDivElement>,
+): PTTModifier[] {
+  const modifiers: PTTModifier[] = [];
+  if (event.ctrlKey) {
+    modifiers.push("control");
+  }
+  if (event.altKey) {
+    modifiers.push("option");
+  }
+  if (event.shiftKey) {
+    modifiers.push("shift");
+  }
+  if (event.metaKey) {
+    modifiers.push("command");
+  }
+  return modifiers;
+}
 
 export function PushToTalkCard() {
   const { t } = useTranslation("settings");
   const [nativeActive, setNativeActive] = useState(
     isConfigurablePushToTalkActive,
   );
-  useEffect(
-    () => subscribeToConfigurablePushToTalk(setNativeActive),
-    [],
-  );
+  useEffect(() => subscribeToConfigurablePushToTalk(setNativeActive), []);
   const activator = pushToTalkActivation.useValue();
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
@@ -80,26 +96,6 @@ export function PushToTalkCard() {
     nonModifierPressedRef.current = false;
   }, []);
 
-  const collectModifiers = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
-      const modifiers: PTTModifier[] = [];
-      if (event.ctrlKey) {
-        modifiers.push("control");
-      }
-      if (event.altKey) {
-        modifiers.push("option");
-      }
-      if (event.shiftKey) {
-        modifiers.push("shift");
-      }
-      if (event.metaKey) {
-        modifiers.push("command");
-      }
-      return modifiers;
-    },
-    [],
-  );
-
   const handleCaptureKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -111,7 +107,7 @@ export function PushToTalkCard() {
       }
 
       const modifiers = collectModifiers(event);
-      if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) {
+      if (MODIFIER_KEYS.includes(event.key)) {
         setPendingModifiers(sortModifiers(modifiers));
         return;
       }
@@ -123,7 +119,7 @@ export function PushToTalkCard() {
         modifiers,
       });
     },
-    [cancelRecording, collectModifiers, selectActivator],
+    [cancelRecording, selectActivator],
   );
 
   const handleCaptureKeyUp = useCallback(
@@ -134,7 +130,7 @@ export function PushToTalkCard() {
       event.preventDefault();
       event.stopPropagation();
 
-      if (!["Control", "Alt", "Shift", "Meta"].includes(event.key)) {
+      if (!MODIFIER_KEYS.includes(event.key)) {
         return;
       }
       if (nonModifierPressedRef.current) {
@@ -150,7 +146,7 @@ export function PushToTalkCard() {
         });
       }
     },
-    [collectModifiers, isRecording, pendingModifiers, selectActivator],
+    [isRecording, pendingModifiers, selectActivator],
   );
 
   useEffect(() => {
@@ -171,9 +167,7 @@ export function PushToTalkCard() {
 
   const isCustom =
     enabled &&
-    !PTT_PRESETS.some((preset) =>
-      activatorsEqual(preset.activator, activator),
-    );
+    !PTT_PRESETS.some((preset) => activatorsEqual(preset.activator, activator));
 
   return (
     <DetailCard
@@ -191,7 +185,7 @@ export function PushToTalkCard() {
 
         {enabled && (
           <div className="flex flex-col gap-2">
-            <span className={labelClasses}>
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
               {t("voicePage.activationKeyLabel")}
             </span>
             <div

@@ -14,6 +14,7 @@ import {
   listAssistantBackups,
   restoreAssistantBackup,
 } from "@/assistant/api";
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -22,19 +23,26 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 const MAX_POINT_IN_TIME_BACKUPS = 3;
 
-const BACKUP_TYPE_CONFIG: Record<string, { label: string; tone: TagTone }> = {
-  point_in_time: { label: "Point-in-time", tone: "neutral" },
-  scheduled: { label: "Scheduled", tone: "positive" },
-  preview_channel: { label: "Preview", tone: "warning" },
-  doctor: { label: "Doctor", tone: "warning" },
+const BACKUP_TYPE_TONE: Record<string, TagTone> = {
+  point_in_time: "neutral",
+  scheduled: "positive",
+  preview_channel: "warning",
+  doctor: "warning",
 };
 
 function BackupTypeBadge({ type }: { type: string }) {
-  const config = BACKUP_TYPE_CONFIG[type] ?? {
-    label: type,
-    tone: "neutral" as TagTone,
-  };
-  return <Tag tone={config.tone}>{config.label}</Tag>;
+  const { t } = useTranslation("settings");
+  let label = type;
+  if (type === "point_in_time") {
+    label = t("assistantBackups.typePointInTime");
+  } else if (type === "scheduled") {
+    label = t("assistantBackups.typeScheduled");
+  } else if (type === "preview_channel") {
+    label = t("assistantBackups.typePreview");
+  } else if (type === "doctor") {
+    label = t("assistantBackups.typeDoctor");
+  }
+  return <Tag tone={BACKUP_TYPE_TONE[type] ?? "neutral"}>{label}</Tag>;
 }
 
 function formatTimestamp(value: unknown): string {
@@ -59,6 +67,7 @@ function formatTimestamp(value: unknown): string {
 }
 
 export function AssistantBackups({ assistantId }: { assistantId: string }) {
+  const { t } = useTranslation("settings");
   const [resolvedId, setResolvedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [backups, setBackups] = useState<AssistantBackup[]>([]);
@@ -72,15 +81,18 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [copiedSnapshot, setCopiedSnapshot] = useState<string | null>(null);
 
-  const handleCopySnapshotName = useCallback((name: string) => {
-    copyToClipboard(name, {
-      errorMessage: "Couldn't copy the snapshot name.",
-      onCopied: () => {
-        setCopiedSnapshot(name);
-        setTimeout(() => setCopiedSnapshot(null), 2000);
-      },
-    });
-  }, []);
+  const handleCopySnapshotName = useCallback(
+    (name: string) => {
+      copyToClipboard(name, {
+        errorMessage: t("assistantBackups.copyFailed"),
+        onCopied: () => {
+          setCopiedSnapshot(name);
+          setTimeout(() => setCopiedSnapshot(null), 2000);
+        },
+      });
+    },
+    [t],
+  );
 
   const loading = resolvedId !== assistantId;
 
@@ -99,7 +111,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
           const detail =
             typeof result.error?.detail === "string"
               ? result.error.detail
-              : "Failed to load backups.";
+              : t("assistantBackups.loadFailed");
           setError(detail);
         }
         setResolvedId(assistantId);
@@ -108,14 +120,14 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
         if (cancelled) {
           return;
         }
-        setError("Failed to load backups.");
+        setError(t("assistantBackups.loadFailed"));
         setResolvedId(assistantId);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [assistantId, refreshKey]);
+  }, [assistantId, refreshKey, t]);
 
   const handleRestoreConfirm = useCallback(async () => {
     if (!pendingBackup) {
@@ -128,48 +140,48 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     try {
       const result = await restoreAssistantBackup(assistantId, backup);
       if (result.ok) {
-        toast.success("Backup restored successfully.");
+        toast.success(t("assistantBackups.restoreSuccessToast"));
         setRefreshKey((k) => k + 1);
       } else {
         const detail =
           typeof result.error?.detail === "string"
             ? result.error.detail
-            : "Failed to restore backup.";
+            : t("assistantBackups.restoreFailedToast");
         toast.error(detail);
       }
     } catch {
-      toast.error("Failed to restore backup.");
+      toast.error(t("assistantBackups.restoreFailedToast"));
     } finally {
       setRestoringSnapshot(null);
     }
-  }, [assistantId, pendingBackup]);
+  }, [assistantId, pendingBackup, t]);
 
   const handleCreateBackup = useCallback(async () => {
     setCreatingBackup(true);
     try {
       const result = await createAssistantBackup(assistantId);
       if (result.ok) {
-        toast.success("Backup started. It will appear in the list shortly.");
+        toast.success(t("assistantBackups.createSuccessToast"));
         setRefreshKey((k) => k + 1);
       } else {
         const detail =
           typeof result.error?.detail === "string"
             ? result.error.detail
-            : "Failed to create backup.";
+            : t("assistantBackups.createFailedToast");
         toast.error(detail);
       }
     } catch {
-      toast.error("Failed to create backup.");
+      toast.error(t("assistantBackups.createFailedToast"));
     } finally {
       setCreatingBackup(false);
     }
-  }, [assistantId]);
+  }, [assistantId, t]);
 
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading backups...
+        {t("assistantBackups.loading")}
       </div>
     );
   }
@@ -191,7 +203,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
     <div className="flex flex-wrap items-center justify-end gap-3">
       {pitBackupCount >= MAX_POINT_IN_TIME_BACKUPS && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Creating a new backup will remove the oldest one.
+          {t("assistantBackups.oldestRemovedNotice")}
         </p>
       )}
       <Button
@@ -203,7 +215,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
         disabled={creatingBackup || restoringSnapshot !== null}
         className="shrink-0"
       >
-        {creatingBackup ? "Creating…" : "Create Backup"}
+        {creatingBackup
+          ? t("assistantBackups.creating")
+          : t("assistantBackups.createBackup")}
       </Button>
     </div>
   );
@@ -213,7 +227,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       <div className="space-y-3">
         <div className="flex justify-end">{createBackupButton}</div>
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          No backups found for this assistant.
+          {t("assistantBackups.empty")}
         </p>
       </div>
     );
@@ -228,10 +242,10 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
           <table className="w-full table-fixed text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
-                <th className="w-[35%] pb-2 pr-4">Snapshot Name</th>
-                <th className="w-[13%] pb-2 pr-4">Type</th>
-                <th className="w-[12%] pb-2 pr-4">Ready</th>
-                <th className="w-[20%] pb-2 pr-4">Created</th>
+                <th className="w-[35%] pb-2 pr-4">{t("assistantBackups.columnSnapshotName")}</th>
+                <th className="w-[13%] pb-2 pr-4">{t("assistantBackups.columnType")}</th>
+                <th className="w-[12%] pb-2 pr-4">{t("assistantBackups.columnReady")}</th>
+                <th className="w-[20%] pb-2 pr-4">{t("assistantBackups.columnCreated")}</th>
                 <th className="w-[20%] pb-2" />
               </tr>
             </thead>
@@ -256,7 +270,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                         }
                         data-reveal=""
                         className="shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]"
-                        title="Copy snapshot name"
+                        title={t("assistantBackups.copySnapshotName")}
                       >
                         {copiedSnapshot === backup.snapshot_name ? (
                           <Check className="h-3.5 w-3.5 text-green-500" />
@@ -271,7 +285,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   </td>
                   <td className="overflow-hidden whitespace-nowrap py-2.5 pr-4">
                     <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
-                      {backup.ready_to_use ? "Ready" : "Pending"}
+                      {backup.ready_to_use
+                        ? t("assistantBackups.ready")
+                        : t("assistantBackups.pending")}
                     </Tag>
                   </td>
                   <td className="overflow-hidden whitespace-nowrap py-2.5 pr-4 text-body-medium-default text-[var(--content-default)]">
@@ -293,11 +309,11 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                       }
                       title={
                         !backup.ready_to_use
-                          ? "Backup is not ready to use"
+                          ? t("assistantBackups.notReady")
                           : undefined
                       }
                     >
-                      Restore
+                      {t("assistantBackups.restore")}
                     </Button>
                   </td>
                 </tr>
@@ -324,7 +340,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   type="button"
                   onClick={() => handleCopySnapshotName(backup.snapshot_name)}
                   className="shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]"
-                  title="Copy snapshot name"
+                  title={t("assistantBackups.copySnapshotName")}
                 >
                   {copiedSnapshot === backup.snapshot_name ? (
                     <Check className="h-3.5 w-3.5 text-green-500" />
@@ -336,7 +352,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
               <div className="mb-2 flex flex-wrap items-center gap-2 text-body-medium-lighter">
                 <BackupTypeBadge type={backup.backup_type} />
                 <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
-                  {backup.ready_to_use ? "Ready" : "Pending"}
+                  {backup.ready_to_use
+                        ? t("assistantBackups.ready")
+                        : t("assistantBackups.pending")}
                 </Tag>
                 <span className="text-body-small-default text-[var(--content-secondary)]">
                   {formatTimestamp(backup.created_at)}
@@ -355,11 +373,11 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                 disabled={restoringSnapshot !== null || !backup.ready_to_use}
                 title={
                   !backup.ready_to_use
-                    ? "Backup is not ready to use"
+                    ? t("assistantBackups.notReady")
                     : undefined
                 }
               >
-                Restore
+                {t("assistantBackups.restore")}
               </Button>
             </div>
           ))}
@@ -367,13 +385,15 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       </div>
       <ConfirmDialog
         open={pendingBackup !== null}
-        title="Restore Backup"
+        title={t("assistantBackups.restoreTitle")}
         message={
           pendingBackup
-            ? `Restore from backup "${pendingBackup.snapshot_name}"?\n\nThe assistant will be temporarily unavailable during the restore.`
+            ? t("assistantBackups.restoreMessage", {
+                name: pendingBackup.snapshot_name,
+              })
             : ""
         }
-        confirmLabel="Restore"
+        confirmLabel={t("assistantBackups.restore")}
         destructive
         onConfirm={handleRestoreConfirm}
         onCancel={() => setPendingBackup(null)}

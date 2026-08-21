@@ -1,4 +1,4 @@
-import type { SlackStreamTask } from "@vellumai/gateway-client";
+import type { SlackStreamOp, SlackStreamTask } from "@vellumai/gateway-client";
 
 import type { AssistantEvent } from "../api/index.js";
 import {
@@ -15,7 +15,6 @@ import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";
 import { needsBoundarySpace } from "../util/text-spacing.js";
-import { deliverChannelReply } from "./gateway-client.js";
 import {
   hasDeliverableAssistantText,
   NO_RESPONSE_INLINE_RE,
@@ -197,11 +196,11 @@ export function createSlackReplySession(params: {
   ): string | undefined =>
     tasks ? JSON.stringify({ title, tasks }) : undefined;
 
+  // Typed from the stream operation these are passed to, so the element type
+  // follows that contract rather than drifting from it.
   const imageBlocks = (
     text: string,
-  ):
-    | NonNullable<Parameters<typeof deliverChannelReply>[1]["blocks"]>
-    | undefined => {
+  ): Extract<SlackStreamOp, { action: "stop" }>["blocks"] => {
     const blocks = renderSlackBlocks(text)?.filter(
       (block) => block.type === "image",
     );
