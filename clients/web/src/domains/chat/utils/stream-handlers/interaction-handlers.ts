@@ -109,13 +109,9 @@ export function handleInteractionResolved(
 
   interaction.dismissConfirmationIfMatches(requestId);
 
-  const mappedToolCallId = session.confirmationToolCallMap.get(requestId);
-  if (
-    mappedToolCallId &&
-    interaction.inlineConfirmationToolCallId === mappedToolCallId
-  ) {
-    interaction.setInlineConfirmationToolCallId(null);
-  }
+  interaction.releaseInlineAnchorIfMatches(
+    session.confirmationToolCallMap.get(requestId),
+  );
 
   // The reducer folds the marker-clear onto the snapshot tool call; here we
   // only release the interaction-store bookkeeping.

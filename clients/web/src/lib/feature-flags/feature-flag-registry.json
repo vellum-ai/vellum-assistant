@@ -93,15 +93,7 @@
       "defaultEnabled": false
     },
     {
-      "id": "companion-surface",
-      "scope": "client",
-      "key": "companion-surface",
-      "label": "Companion Surface",
-      "description": "Show the macOS companion surface: the floating avatar that carries Talk, Type and the running call, and its tray item. Read in the Electron main process, which decides whether the window opens at all",
-      "defaultEnabled": false
-    },
-    {
-      "id": "watch",
+"id": "watch",
       "scope": "client",
       "key": "watch",
       "label": "Watch",
@@ -152,8 +144,16 @@
       "id": "fork-from-message",
       "scope": "client",
       "key": "fork-from-message",
-      "label": "Fork from Message",
-      "description": "Show the fork affordance: 'Fork from here' on messages and 'Fork Conversation' in the thread menu. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
+      "label": "Internal Thread Actions (legacy key)",
+      "description": "Legacy key for `internal-thread-actions`. The client grants the internal thread affordances when either key is enabled, so the platform may serve the gate under either name. Declared here so the flag mapper keeps the value instead of dropping it as undeclared.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "internal-thread-actions",
+      "scope": "client",
+      "key": "internal-thread-actions",
+      "label": "Internal Thread Actions",
+      "description": "Show the internal-only thread affordances: 'Fork from here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. Staff-only: the client also requires the viewer to be Vellum staff, so enabling this for a non-staff account still shows nothing.",
       "defaultEnabled": false
     },
     {
@@ -388,6 +388,14 @@
       "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. control = gpt-5.6-luna (the shipped pin); terra = gpt-5.6-terra; glm-5p2 = accounts/fireworks/models/glm-5p2. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to control.",
       "defaultEnabled": "control",
       "values": ["control", "terra", "glm-5p2"]
+    },
+    {
+      "id": "obscure-credits",
+      "scope": "client",
+      "key": "obscure-credits",
+      "label": "Obscure Credits",
+      "description": "Replaces the dollar amounts on the billing Plan section with a usage-relative view: the current-plan tile trades its price footer for a Usage Balance bar (managed spend this billing cycle against the package's included credits) and the credits spec chip reads \"<Package> usage, reset monthly\" instead of naming a dollar bundle. Spec chips wrap horizontally to fit the shorter labels. Off leaves the Plan section exactly as it ships today.",
+      "defaultEnabled": false
     }
   ]
 }

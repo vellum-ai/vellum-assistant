@@ -42,12 +42,11 @@ import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loa
 import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence";
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
-import { useCanForkConversation } from "@/domains/chat/fork/access";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
 import { useSupportsResourcePressureStatus } from "@/lib/backwards-compat/use-supports-resource-pressure-status";
 import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
@@ -88,8 +87,7 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 // ---------------------------------------------------------------------------
 
 export function ActiveChatView() {
-  const showLlmInspector = useCanUseLlmInspector();
-  const canFork = useCanForkConversation();
+  const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{
     conversationId?: string;
@@ -523,7 +521,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
-    handleForkConversationFromMenu: canFork
+    handleForkConversationFromMenu: canUseInternalActions
       ? handleForkConversationFromMenu
       : undefined,
     handleOpenInNewWindow,
@@ -575,14 +573,18 @@ export function ActiveChatView() {
     handleEditQueueTail,
 
     // Conversation secondary actions
-    handleForkConversation: canFork ? handleForkConversation : undefined,
+    handleForkConversation: canUseInternalActions
+      ? handleForkConversation
+      : undefined,
     onSummarizeUpToHere: supportsSummarizeUpToHere
       ? handleSummarizeUpToHere
       : undefined,
     onRetryLatestTurn: supportsRetryTurn
       ? handleRetryLatestTurnRequested
       : undefined,
-    handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
+    handleInspectMessage: canUseInternalActions
+      ? handleInspectMessage
+      : undefined,
 
     // History pagination
     historyPagination: historyResult.pagination,

@@ -339,14 +339,22 @@ const HEIF_FTYP_BRANDS = new Set([
   "msf1",
 ]);
 
-/**
- * Content-based HEIF/HEIC detection. MIME metadata is unreliable here:
- * Chromium reports an empty `file.type` for `.heic`, which clients coerce to
- * `application/octet-stream`.
- */
-export function isHeifImage(bytes: Uint8Array): boolean {
+// Brands whose canonical MIME is `image/heic`; the remaining HEIF brands
+// (`heif`, `mif1`, `msf1`) are `image/heif`.
+const HEIC_FTYP_BRANDS = new Set([
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "heim",
+  "heis",
+  "hevm",
+  "hevs",
+]);
+
+function heifFtypBrand(bytes: Uint8Array): string | null {
   if (bytes.length < 12) {
-    return false;
+    return null;
   }
   // ISO BMFF layout: bytes 4-8 are "ftyp", bytes 8-12 the major brand.
   if (
@@ -355,7 +363,7 @@ export function isHeifImage(bytes: Uint8Array): boolean {
     bytes[6] !== 0x79 || // y
     bytes[7] !== 0x70 // p
   ) {
-    return false;
+    return null;
   }
   const brand = String.fromCharCode(
     bytes[8]!,
@@ -363,7 +371,30 @@ export function isHeifImage(bytes: Uint8Array): boolean {
     bytes[10]!,
     bytes[11]!,
   );
-  return HEIF_FTYP_BRANDS.has(brand);
+  return HEIF_FTYP_BRANDS.has(brand) ? brand : null;
+}
+
+/**
+ * Content-based HEIF/HEIC detection. MIME metadata is unreliable here:
+ * Chromium reports an empty `file.type` for `.heic`, which clients coerce to
+ * `application/octet-stream`.
+ */
+export function isHeifImage(bytes: Uint8Array): boolean {
+  return heifFtypBrand(bytes) !== null;
+}
+
+/**
+ * Canonical HEIF MIME type for bytes whose container brand names one, and null
+ * for everything else. For providers that read HEIF directly and key on the
+ * declared media type (Gemini accepts `image/heic` and `image/heif`:
+ * https://ai.google.dev/gemini-api/docs/image-understanding).
+ */
+export function heifImageMimeType(bytes: Uint8Array): string | null {
+  const brand = heifFtypBrand(bytes);
+  if (!brand) {
+    return null;
+  }
+  return HEIC_FTYP_BRANDS.has(brand) ? "image/heic" : "image/heif";
 }
 
 /**

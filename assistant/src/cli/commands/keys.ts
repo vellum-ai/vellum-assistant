@@ -123,21 +123,32 @@ Examples:
         },
       );
 
-      subcommand(keys, "delete").action(async (provider: string) => {
-        const { deleteSecureKeyViaDaemon } =
-          await import("../lib/daemon-credential-client.js");
-        const delResult = await deleteSecureKeyViaDaemon("api_key", provider);
-        if (delResult.result === "deleted") {
-          log.info(`Deleted API key for "${provider}"`);
-        } else if (delResult.result === "error") {
-          const detail = delResult.error ? `: ${delResult.error}` : "";
-          log.error(`Failed to delete API key for "${provider}"${detail}`);
-          process.exit(1);
-        } else {
-          log.error(`No API key found for "${provider}"`);
-          process.exit(1);
-        }
-      });
+      subcommand(keys, "delete").action(
+        async (provider: string, opts: { force?: boolean }) => {
+          const { deleteSecureKeyViaDaemon } =
+            await import("../lib/daemon-credential-client.js");
+          const delResult = await deleteSecureKeyViaDaemon(
+            "api_key",
+            provider,
+            opts.force === true,
+          );
+          if (delResult.result === "deleted") {
+            log.info(`Deleted API key for "${provider}"`);
+          } else if (delResult.result === "error") {
+            const detail = delResult.error ? `: ${delResult.error}` : "";
+            log.error(`Failed to delete API key for "${provider}"${detail}`);
+            if (delResult.code === "CREDENTIAL_IN_USE") {
+              log.error(
+                `Run 'assistant inference providers list' to inspect those connections, or 'assistant keys delete ${provider} --force' to delete the key anyway.`,
+              );
+            }
+            process.exit(1);
+          } else {
+            log.error(`No API key found for "${provider}"`);
+            process.exit(1);
+          }
+        },
+      );
     },
   });
 }

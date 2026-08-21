@@ -17,7 +17,7 @@ import type {
 } from "@vellumai/electron-desktop/capability-registry";
 import { onFileOpen } from "@vellumai/electron-desktop/file-open";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "../app-config";
+import { getRendererBase } from "../app-config";
 import { handle, on } from "../ipc.client";
 
 const bundles: CapabilityModule<DesktopCapabilityRegistry> = {
@@ -31,8 +31,7 @@ const bundles: CapabilityModule<DesktopCapabilityRegistry> = {
     configureBundlePlatform({
       ...host,
       bundlesRoot: () => path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
-      rendererBase: () =>
-        app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+      rendererBase: () => getRendererBase(app.isPackaged),
       ipc: { handle, on },
     });
     installBundleFlow();

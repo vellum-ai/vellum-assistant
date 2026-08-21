@@ -69,6 +69,11 @@ const register =
 
 mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
+  // Stubbed for the same reason as the rest of this mock: the module under
+  // test imports it, and an export missing from a whole-module mock fails the
+  // file at load rather than in the case that uses it.
+  Menu: { buildFromTemplate: () => ({ popup: () => undefined }) },
+  shell: { openExternal: () => Promise.resolve() },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
     getDisplayNearestPoint: () => ({
@@ -138,6 +143,11 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   readCompanionHidden: () => false,
   writeCompanionSize: () => {},
   writeCompanionHidden: () => {},
+  // Stubbed rather than omitted, like every other export here: the module
+  // under test imports these, and one missing from a whole-module mock is a
+  // load-time failure for the file rather than a failing case.
+  readCompanionIntroSeen: () => true,
+  writeCompanionIntroSeen: () => {},
 }));
 
 // Dynamic, so the mocks above are installed before the module graph loads:
@@ -149,6 +159,7 @@ const {
   geometryFor,
   placeCanvas,
   callOnUpdate,
+  introOnAdvance,
   shouldShowCompanionSurface,
   installCompanionWindow,
 } = await import("./companion-window");
@@ -241,7 +252,9 @@ describe("growthFor", () => {
   });
 
   test("one pixel short on the right flips", () => {
-    expect(growthFor(DISPLAY.width - NEEDED + 1, DISPLAY, GEOMETRY)).toBe("left");
+    expect(growthFor(DISPLAY.width - NEEDED + 1, DISPLAY, GEOMETRY)).toBe(
+      "left",
+    );
   });
 
   test("measures against the display's own origin, not the screen's", () => {
@@ -296,26 +309,30 @@ const centreOf = (
 
 describe("placeCanvas", () => {
   test("puts the avatar exactly where a position inside the work area asks", () => {
-    expect(centreOf(placeCanvas({ x: 700, y: 500 }, WORK_AREA, GEOMETRY))).toEqual({
+    expect(
+      centreOf(placeCanvas({ x: 700, y: 500 }, WORK_AREA, GEOMETRY)),
+    ).toEqual({
       x: 700,
       y: 500,
     });
   });
 
   test("holds the avatar at the right edge rather than past it", () => {
-    expect(centreOf(placeCanvas({ x: 9000, y: 500 }, WORK_AREA, GEOMETRY)).x).toBe(
-      1440 - 22,
-    );
+    expect(
+      centreOf(placeCanvas({ x: 9000, y: 500 }, WORK_AREA, GEOMETRY)).x,
+    ).toBe(1440 - 22);
   });
 
   test("holds the avatar at the left edge rather than past it", () => {
-    expect(centreOf(placeCanvas({ x: -9000, y: 500 }, WORK_AREA, GEOMETRY)).x).toBe(22);
+    expect(
+      centreOf(placeCanvas({ x: -9000, y: 500 }, WORK_AREA, GEOMETRY)).x,
+    ).toBe(22);
   });
 
   test("holds the avatar at the bottom edge rather than past it", () => {
-    expect(centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y).toBe(
-      900 - 22,
-    );
+    expect(
+      centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y,
+    ).toBe(900 - 22);
   });
 
   /**
@@ -331,9 +348,9 @@ describe("placeCanvas", () => {
 
   test("clamps against the display it is given, not the primary one", () => {
     const secondary = { x: 1440, y: 0, width: 1920, height: 1080 };
-    expect(centreOf(placeCanvas({ x: 99999, y: 500 }, secondary, GEOMETRY)).x).toBe(
-      1440 + 1920 - 22,
-    );
+    expect(
+      centreOf(placeCanvas({ x: 99999, y: 500 }, secondary, GEOMETRY)).x,
+    ).toBe(1440 + 1920 - 22);
   });
 
   /**
@@ -360,9 +377,9 @@ describe("placeCanvas", () => {
    */
   test("never asks for an origin above the work area", () => {
     for (const y of [-9000, -100, 0, 25, 40, 70, 71, 200, 400]) {
-      expect(placeCanvas({ x: 700, y }, WORK_AREA, GEOMETRY).origin.y).toBeGreaterThanOrEqual(
-        WORK_AREA.y,
-      );
+      expect(
+        placeCanvas({ x: 700, y }, WORK_AREA, GEOMETRY).origin.y,
+      ).toBeGreaterThanOrEqual(WORK_AREA.y);
     }
   });
 
@@ -372,7 +389,9 @@ describe("placeCanvas", () => {
    * old symmetric canvas spent on a card that had nowhere to grow.
    */
   test("brings the avatar within a shadow's width of the top", () => {
-    const centre = centreOf(placeCanvas({ x: 700, y: -9000 }, WORK_AREA, GEOMETRY));
+    const centre = centreOf(
+      placeCanvas({ x: 700, y: -9000 }, WORK_AREA, GEOMETRY),
+    );
     expect(centre.y).toBe(WORK_AREA.y + DROP_BELOW);
     // Where it used to stop: the old canvas's half-height below the work area.
     expect(centre.y).toBeLessThan(WORK_AREA.y + RISE_ABOVE);
@@ -389,8 +408,12 @@ describe("cardGrowthFor", () => {
   });
 
   test("flips exactly where the card stops fitting", () => {
-    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE, WORK_AREA, GEOMETRY)).toBe("up");
-    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE - 1, WORK_AREA, GEOMETRY)).toBe("down");
+    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE, WORK_AREA, GEOMETRY)).toBe(
+      "up",
+    );
+    expect(
+      cardGrowthFor(WORK_AREA.y + RISE_ABOVE - 1, WORK_AREA, GEOMETRY),
+    ).toBe("down");
   });
 
   /**
@@ -428,7 +451,10 @@ describe("avatarOffsetFor", () => {
 describe("the session main holds", () => {
   test("update merges content and leaves the fixed fields alone", () => {
     const running = { ...START };
-    const next = callOnUpdate(running, { phase: "speaking", detail: "Reading" });
+    const next = callOnUpdate(running, {
+      phase: "speaking",
+      detail: "Reading",
+    });
     expect(next).toEqual({
       ...running,
       phase: "speaking",
@@ -451,27 +477,63 @@ describe("the session main holds", () => {
 });
 
 /**
+ * The introduction runs once in an install's life, so the rule that walks it is
+ * worth stating as cases: there is no second chance to get it right for a user,
+ * and every wrong answer here is either a run that repeats or one that ends
+ * before it has said anything.
+ */
+describe("introOnAdvance", () => {
+  test("walks to the next beat", () => {
+    expect(introOnAdvance("meet", "next")).toBe("talk");
+    expect(introOnAdvance("talk", "next")).toBe("type");
+    expect(introOnAdvance("type", "next")).toBe("tray");
+  });
+
+  // Past the last beat there is no next one, and `null` is what main reads as
+  // the run being over and worth recording.
+  test("falls off the end of the last beat", () => {
+    expect(introOnAdvance("tray", "next")).toBe(null);
+  });
+
+  test("dismiss ends the run from any beat", () => {
+    expect(introOnAdvance("meet", "dismiss")).toBe(null);
+    expect(introOnAdvance("type", "dismiss")).toBe(null);
+  });
+
+  // A press that arrives after the run is already over. The renderer can be a
+  // beat behind main, so this is reachable by a real double-press on the last
+  // beat rather than only in theory.
+  test("stays over once it is over", () => {
+    expect(introOnAdvance(null, "next")).toBe(null);
+    expect(introOnAdvance(null, "dismiss")).toBe(null);
+  });
+});
+
+/**
  * The surface is the most conspicuous thing this app puts on screen, so what
- * decides whether it appears is worth stating as cases: the flag is a floor and
- * the tray preference is a veto.
+ * decides whether it appears is worth stating as cases: an assistant to draw is
+ * a floor and the tray preference is a veto.
  */
 describe("shouldShowCompanionSurface", () => {
-  test("shows for a targeted user who has not hidden it", () => {
+  test("shows once there is an assistant and it has not been hidden", () => {
     expect(shouldShowCompanionSurface(true, false)).toBe(true);
   });
 
-  test("stays away while the flag is off", () => {
-    expect(shouldShowCompanionSurface(false, false)).toBe(false);
-  });
-
-  test("honours the tray preference even while the flag is on", () => {
+  test("honours the tray preference even with an assistant to draw", () => {
     expect(shouldShowCompanionSurface(true, true)).toBe(false);
   });
 
-  // The pre-flag state of every launch: main reads the flags the app's window
-  // wrote last time, and a fresh install has none.
-  test("stays away when nothing is known yet", () => {
+  // The state every launch starts in, and the one a sign-out returns to: main's
+  // avatar cache is filled by the app's window, and until it has there is no
+  // creature, no name and no conversation for the pill to carry.
+  test("stays away while there is no assistant to be", () => {
     expect(shouldShowCompanionSurface(false, false)).toBe(false);
+  });
+
+  // Signing out must not also clear the preference, so this pair stays
+  // distinct from the one above rather than collapsing into it.
+  test("stays away with no assistant even when not hidden", () => {
+    expect(shouldShowCompanionSurface(false, true)).toBe(false);
   });
 });
 
@@ -573,7 +635,10 @@ describe("placing a larger companion", () => {
    * canvas half-height the bug was.
    */
   test("reaches the top, short by its own scaled shadow", () => {
-    const centre = centreOf(placeCanvas({ x: 700, y: -9000 }, WORK_AREA, LARGE), LARGE);
+    const centre = centreOf(
+      placeCanvas({ x: 700, y: -9000 }, WORK_AREA, LARGE),
+      LARGE,
+    );
     expect(centre.y).toBe(WORK_AREA.y + LARGE.dropBelow);
     expect(centre.y).toBeLessThan(WORK_AREA.y + LARGE.riseAbove);
   });

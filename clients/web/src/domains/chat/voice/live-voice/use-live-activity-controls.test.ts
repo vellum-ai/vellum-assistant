@@ -68,7 +68,7 @@ function pendingConfirmation(requestId: string): void {
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
-  useInteractionStore.getState().dismissConfirmation();
+  useInteractionStore.getState().resetSecretAndConfirmation();
   handleConfirmationSubmit.mockClear();
   for (const control of Object.values(controls)) {
     control.mockClear();

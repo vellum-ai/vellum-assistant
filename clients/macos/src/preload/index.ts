@@ -19,9 +19,11 @@ import type {
   AssistantStatus,
   BundleScanData,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -456,6 +458,9 @@ const bridge: VellumBridge = {
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
     },
+    setHitRegion: (region: DictationOverlayHitRegion | null): void => {
+      ipcRenderer.send("vellum:dictationOverlay:setHitRegion", region);
+    },
   },
   voiceActivity: {
     start: (state: VoiceActivityStart): void => {
@@ -527,6 +532,15 @@ const bridge: VellumBridge = {
     },
     setContext: (context: CompanionContext): void => {
       ipcRenderer.send("vellum:companion:setContext", context);
+    },
+    advanceIntro: (action: CompanionIntroAction): void => {
+      ipcRenderer.send("vellum:companion:advanceIntro", action);
+    },
+    showContextMenu: (): void => {
+      ipcRenderer.send("vellum:companion:contextMenu");
+    },
+    openLink: (url: string): void => {
+      ipcRenderer.send("vellum:companion:openLink", url);
     },
   },
   popout: {

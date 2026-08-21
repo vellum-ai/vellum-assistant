@@ -20,9 +20,11 @@ import type {
   BundleScanData,
   CompanionCharacter,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -143,7 +145,12 @@ export interface VellumBridge {
     getState(): Promise<HelperState>;
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
-    hotkey: {
+    /**
+     * The macOS Fn push-to-talk surface. Absent on shells with no global
+     * push-to-talk trigger (the Windows shell, whose configurable global
+     * chord ships separately).
+     */
+    hotkey?: {
       fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
@@ -367,6 +374,13 @@ export interface VellumBridge {
     requestStop(): void;
     onStopRequested(callback: () => void): () => void;
     setInteractive(interactive: boolean): void;
+    /**
+     * Report where the Stop control sits (window-relative CSS pixels), or
+     * null when there is none. Lets main hit-test the cursor itself on
+     * platforms where forwarded mouse moves never reach the click-through
+     * overlay.
+     */
+    setHitRegion(region: DictationOverlayHitRegion | null): void;
   };
   /**
    * The running live-voice session, as the desktop shows it. Two renderers use
@@ -444,6 +458,32 @@ export interface VellumBridge {
      * it back down as part of `onState`.
      */
     setContext(context: CompanionContext): void;
+    /**
+     * Move the one-time introduction on, or end it early.
+     *
+     * `next` walks to the following beat and finishes past the last one;
+     * `dismiss` is the Skip affordance. Either way main is what records that it
+     * has been seen, so the run never comes back.
+     */
+    advanceIntro(action: CompanionIntroAction): void;
+    /**
+     * Open the surface's own menu, at the pointer.
+     *
+     * Built and popped in main, because a menu is a native window: the
+     * renderer knows a right-click happened and nothing else. The items are
+     * the ones the tray carries for the companion, so the two cannot come to
+     * describe the surface differently.
+     */
+    showContextMenu(): void;
+    /**
+     * Open a link from the card in the user's browser.
+     *
+     * The surface's window denies every navigation and every `window.open`, so
+     * an anchor cannot follow itself: the URL is handed to main, which is the
+     * side allowed to open anything. Main validates the scheme, since a URL
+     * arriving over IPC is untrusted whatever drew the anchor.
+     */
+    openLink(url: string): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

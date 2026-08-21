@@ -304,6 +304,19 @@ export type DictationOverlayState =
 export type DictationOverlayMessage =
   DictationOverlayState | { kind: "dismiss" };
 
+/**
+ * Where the overlay's Stop control sits, in window-relative CSS pixels.
+ * The overlay renderer reports it so main can hit-test the cursor against
+ * it on platforms where forwarded mouse moves never reach a click-through
+ * window.
+ */
+export type DictationOverlayHitRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 // ---------------------------------------------------------------------------
 // Voice activity (the floating live-voice session surface)
 // ---------------------------------------------------------------------------
@@ -660,13 +673,22 @@ export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
  * Named rather than free, because the avatar's box is not a style: it is the
  * geometry both sides of the bridge agree on, and everything derives from it:
  * the pill's reach, the card's height, and the canvas sized to hold the largest
- * state. A continuous scale would be a layout nobody had ever looked at; four
- * steps are four layouts, each checkable in Storybook.
+ * state. A continuous scale would be a layout nobody had ever looked at; five
+ * steps are five layouts, each checkable in Storybook.
  *
  * `large` is the default. `small` is the size the surface's layout is authored
- * at, which every other step scales from.
+ * at, which every other step scales from. `ridiculous` is the joke at the end
+ * of the scale, and it is a real step rather than a gag drawn some other way:
+ * every length on the surface is stated in `small`, so the largest step costs
+ * one number here and is drawn by the same code as the other four.
  */
-export const COMPANION_SIZES = ["small", "medium", "large", "huge"] as const;
+export const COMPANION_SIZES = [
+  "small",
+  "medium",
+  "large",
+  "huge",
+  "ridiculous",
+] as const;
 
 export type CompanionSize = (typeof COMPANION_SIZES)[number];
 
@@ -676,6 +698,12 @@ export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
   medium: 66,
   large: 88,
   huge: 110,
+  // Five times the authored size, which puts the canvas well past the width of
+  // any display it will be shown on. That is allowed: a canvas may hang off the
+  // left and right freely, and the card flips to growing downward when the
+  // display is too short for it, so the oversize step lands on paths the other
+  // four already take near an edge.
+  ridiculous: 220,
 };
 
 /** What the surface is drawn at when nothing has been chosen. */
@@ -803,6 +831,40 @@ export interface CompanionContext {
  */
 export const WATCH_FLAG = "watch";
 
+/**
+ * The beats of the surface's one-time introduction, in order.
+ *
+ * The companion is the only thing this app puts on a user's desktop rather than
+ * in its own window, and it arrives already there rather than being opened. So
+ * it says what it is once, on itself, where the thing being described actually
+ * is: the alternative was describing it in the app window, which is the one
+ * place the user is not looking when the surface matters.
+ *
+ * A list rather than a count, because each beat names the control it sits over
+ * and the renderer spotlights that control by name. Two of them have no
+ * control to spotlight: `meet` is the avatar itself, and `tray` is about the
+ * menu bar, which is the one part of this the surface cannot point at.
+ *
+ * `tray` is last and is the answer to "how do I make this go away". A surface
+ * that sits above every other window has to say where its own off switch is,
+ * and it is the only thing here the user cannot find by looking at the pill.
+ */
+export const COMPANION_INTRO_BEATS = ["meet", "talk", "type", "tray"] as const;
+
+export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
+
+/**
+ * What a press on the introduction asks for.
+ *
+ * Two intents rather than a beat to jump to, because the renderer does not hold
+ * the running position: main does, so the renderer says which way to go and
+ * main resolves it against the beat it is actually on. A stale press from a
+ * renderer a beat behind then lands where the user could see it would.
+ */
+export const COMPANION_INTRO_ACTIONS = ["next", "dismiss"] as const;
+
+export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
+
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   growth: CompanionGrowth;
@@ -909,6 +971,16 @@ export interface CompanionSurfaceState {
    * surface, so the companion cannot drift from the icon in the Dock beside it.
    */
   avatarBase64?: string;
+  /**
+   * Which beat of the introduction the surface is on, or `null` when it is not
+   * running, which is every launch after the first.
+   *
+   * Held by main rather than the renderer, for the reason the session is: this
+   * window reloads, and an introduction anchored in it would start again from
+   * the top each time it did. Main also owns the "already seen" record, so the
+   * renderer never has to decide whether a run is due.
+   */
+  intro: CompanionIntroBeat | null;
 }
 
 // ---------------------------------------------------------------------------

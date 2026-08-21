@@ -61,7 +61,7 @@ import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-sho
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
   navigateToConversation,
   navigateToNewConversation,
@@ -293,7 +293,7 @@ export function ChatLayout({
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const showLlmInspector = useCanUseLlmInspector();
+  const showInternalActions = useCanUseInternalThreadActions();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
   // In-chat onboarding prototype: the tour's opening beats hide the sidebar
@@ -717,17 +717,13 @@ export function ChatLayout({
         assistantId={assistantId}
         activeConversation={activeConversation}
         headerSupplements={headerSupplements}
-        showLlmInspector={showLlmInspector}
-        conversationGroups={conversationGroups}
+        showInternalActions={showInternalActions}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
         onRename={handleRenameConversation}
-        onMoveToGroup={handleMoveToGroup}
-        onCreateGroupInto={handleRequestCreateGroup}
-        onRemoveFromGroup={handleRemoveFromGroup}
       />
     ) : null);
 
@@ -971,7 +967,8 @@ export function ChatLayout({
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={requestArchiveAll}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
-      onInspect={showLlmInspector ? handleInspectConversation : undefined}
+      onInspect={showInternalActions ? handleInspectConversation : undefined}
+      showInternalActions={showInternalActions}
       onMoveToGroup={handleMoveToGroup}
       onCreateGroupInto={handleRequestCreateGroup}
       onRemoveFromGroup={handleRemoveFromGroup}

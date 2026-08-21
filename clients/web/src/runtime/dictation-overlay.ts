@@ -14,6 +14,7 @@
 
 import {
   isElectron,
+  type DictationOverlayHitRegion,
   type DictationOverlayMessage,
   type DictationOverlayState,
 } from "@/runtime/is-electron";
@@ -76,4 +77,19 @@ export function setDictationOverlayInteractive(interactive: boolean): void {
     return;
   }
   window.vellum?.dictationOverlay?.setInteractive?.(interactive);
+}
+
+/**
+ * Report where the Stop control sits (window-relative CSS pixels), or null
+ * when there is none. Main hit-tests the cursor against it on platforms
+ * where forwarded mouse moves never reach the click-through overlay
+ * (Windows). No-ops on shells that predate the channel.
+ */
+export function setDictationOverlayHitRegion(
+  region: DictationOverlayHitRegion | null,
+): void {
+  if (!isElectron()) {
+    return;
+  }
+  window.vellum?.dictationOverlay?.setHitRegion?.(region);
 }

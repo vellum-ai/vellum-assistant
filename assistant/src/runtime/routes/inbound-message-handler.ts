@@ -17,6 +17,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
+import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -42,6 +43,7 @@ import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
+import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
   resolveSlackBotUserId,
   withSlackBotToken,
@@ -90,6 +92,7 @@ import {
 import { markProcessed } from "../../persistence/delivery-status.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -907,10 +910,11 @@ export async function handleChannelInbound({
         text: replyText,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
         replyDelivered = true;
@@ -969,10 +973,11 @@ export async function handleChannelInbound({
         text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.ephemeral = true;
-        replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
       } catch (err) {
@@ -1189,15 +1194,16 @@ export async function handleChannelInbound({
         }
       }
 
-      // On Slack, edit the original approval message to remove stale buttons
-      // and deliver an ephemeral error so the user gets visible feedback
+      // Edit the original approval message to remove stale buttons
+      // and reply so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
-      if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
-        deliverChannelReply(replyCallbackUrl, {
+      // No channel check: a transport without `edit` declines the call, so a
+      // channel gains this the moment it can revise a sent message.
+      if (replyCallbackUrl && approvalMessageTs) {
+        editChannelMessage(replyCallbackUrl, {
           chatId: conversationExternalId,
+          messageId: approvalMessageTs,
           text: "This approval request has been resolved.",
-          messageTs: approvalMessageTs,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },
@@ -1676,6 +1682,10 @@ function readStoredSlackThreadState(
  * content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
+ *
+ * Returns false when the row was refused rather than written. Callers mark
+ * the channel ts seen either way, so a refused body is not reconsidered on
+ * the next pass.
  */
 async function persistBackfilledSlackMessage(params: {
   conversationId: string;
@@ -1683,8 +1693,27 @@ async function persistBackfilledSlackMessage(params: {
   message: ProviderMessage;
   account?: string;
   guardianExternalUserId?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const { message } = params;
+
+  // Backfill writes externally-authored bodies into a conversation, so it
+  // carries the same secret gate as live channel ingress
+  // (`runSecretIngressCheck`). Runs before file hydration, so a refused row
+  // costs no downloads.
+  const secretScan = checkIngressForSecrets(message.text ?? "");
+  if (secretScan.blocked) {
+    log.warn(
+      {
+        conversationId: params.conversationId,
+        channelId: params.channelId,
+        channelTs: message.id,
+        detectedTypes: secretScan.detectedTypes,
+      },
+      "Skipping backfilled Slack message: secret detected",
+    );
+    return false;
+  }
+
   const slackFilesWithUrls = readSlackFilesWithUrlsFromProviderMetadata(
     message.metadata,
   );
@@ -1736,9 +1765,19 @@ async function persistBackfilledSlackMessage(params: {
 
   const rawText = message.text ?? "";
 
+  // `sentAt` is when the message was sent; the row's `createdAt` is when the
+  // import wrote it. History serialization prefers `sentAt` for the display
+  // timestamp, so setting it is what keeps weeks-old history from reading as
+  // having just arrived. The Slack adapter already derives this from the
+  // message ts, so no parsing happens here.
+  const sentAt = Number.isFinite(message.timestamp)
+    ? message.timestamp
+    : undefined;
+
   const persisted = await addMessage(params.conversationId, role, rawText, {
     metadata: {
       slackMeta: writeSlackMetadata(slackMeta),
+      ...(sentAt !== undefined ? { sentAt } : {}),
       provenanceTrustClass: isGuardian ? "guardian" : "unknown",
       provenanceSourceChannel: "slack",
       ...(params.guardianExternalUserId
@@ -1761,7 +1800,7 @@ async function persistBackfilledSlackMessage(params: {
       f.mimetype.startsWith("image/"),
   );
   if (imageFiles.length === 0) {
-    return;
+    return true;
   }
 
   const hydratedAttachments = await withSlackBotToken(
@@ -1832,7 +1871,7 @@ async function persistBackfilledSlackMessage(params: {
       { conversationId: params.conversationId, channelTs: message.id },
       "No Slack token available for backfill image hydration; skipping",
     );
-    return;
+    return true;
   }
 
   if (hydratedAttachments.length > 0) {
@@ -1843,6 +1882,7 @@ async function persistBackfilledSlackMessage(params: {
       ),
     );
   }
+  return true;
 }
 
 async function buildBackfilledSlackContentBlocks(
@@ -2079,7 +2119,7 @@ async function runBackfillSlackDmIfCold(params: {
         continue;
       }
       try {
-        await persistBackfilledSlackMessage({
+        const stored = await persistBackfilledSlackMessage({
           conversationId: params.conversationId,
           channelId: params.channelId,
           message,
@@ -2089,7 +2129,9 @@ async function runBackfillSlackDmIfCold(params: {
             : {}),
         });
         seen.add(message.id);
-        written++;
+        if (stored) {
+          written++;
+        }
       } catch (perRowErr) {
         log.warn(
           {
@@ -2677,7 +2719,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
         continue;
       }
       try {
-        await persistBackfilledSlackMessage({
+        const stored = await persistBackfilledSlackMessage({
           conversationId,
           channelId,
           message,
@@ -2685,7 +2727,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           ...(guardianExternalUserId ? { guardianExternalUserId } : {}),
         });
         threadState.storedChannelTs.add(message.id);
-        persisted++;
+        if (stored) {
+          persisted++;
+        }
       } catch (err) {
         log.warn(
           { err, conversationId, channelId, threadTs, channelTs: message.id },

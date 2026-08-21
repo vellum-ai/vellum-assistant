@@ -167,6 +167,17 @@ interface WatchCapture {
 export interface WatchControllerOptions {
   webSocketFactory?: (url: string) => WebSocket;
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => WatchCapture;
+  /**
+   * Resolves the socket URL. Defaults to {@link resolveWatchStreamWsUrl}.
+   *
+   * A seam rather than something a test reaches around, because the alternative
+   * is replacing the transport module wholesale with `mock.module`, and that
+   * replacement outlives the file that asked for it: bun shares one process
+   * across test files, so the next file to import the real module gets the
+   * stand-in instead. The three seams above exist for the same reason, and
+   * this one covers the only remaining dependency a session start has.
+   */
+  resolveWsUrl?: (assistantId: string) => Promise<string>;
   /** Overrides {@link READY_TIMEOUT_MS}, so a test need not wait it out. */
   readyTimeoutMs?: number;
   /** Overrides {@link STOP_DRAIN_TIMEOUT_MS}, for the same reason. */
@@ -841,7 +852,9 @@ export async function toggleWatch(
    */
   let wsUrl: string;
   try {
-    wsUrl = await resolveWatchStreamWsUrl(assistantId);
+    wsUrl = await (options.resolveWsUrl ?? resolveWatchStreamWsUrl)(
+      assistantId,
+    );
   } catch (err) {
     releaseAttempt();
     console.info("watch-controller: skipping (no watch transport)", err);
