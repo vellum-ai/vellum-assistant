@@ -6,7 +6,6 @@ import {
   INGRESS_ASSISTANT_ID_KEY,
   INGRESS_LAST_TUNNEL_KEY,
   type LastTunnelRecord,
-  TUNNEL_PROVIDERS,
   type TunnelProviderName,
 } from "@vellumai/service-contracts/ingress";
 
@@ -25,10 +24,6 @@ import {
  * that CLI features (e.g. remote-web pairing defaults) read, per the
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
  */
-
-// The tunnel-record contract (provider registry, record shape, key names) is
-// shared with the daemon, which reads what this module writes.
-export { TUNNEL_PROVIDERS, type TunnelProviderName };
 
 /** Default workspace dir: `$VELLUM_WORKSPACE_DIR` or `~/.vellum/workspace`. */
 export function getDefaultWorkspaceDir(): string {
@@ -52,14 +47,6 @@ export function loadRawConfig(workspaceDir: string): Record<string, unknown> {
   >;
 }
 
-function loadIngressSection(
-  workspaceDir: string,
-): Record<string, unknown> | undefined {
-  return loadRawConfig(workspaceDir).ingress as
-    | Record<string, unknown>
-    | undefined;
-}
-
 /** Write the workspace `config.json`, creating parent directories as needed. */
 export function saveRawConfig(
   workspaceDir: string,
@@ -70,8 +57,12 @@ export function saveRawConfig(
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
-/** Mirror the ingress URL onto the lockfile entry; null removes it. */
-function stampLockfileIngressUrl(
+/**
+ * Mirror the ingress URL onto the lockfile entry; null removes it. Exported on
+ * its own for tunnels that publish an address to pair against while leaving the
+ * workspace `ingress` record (the webhook callback base) alone.
+ */
+export function stampLockfileIngressUrl(
   assistantId: string,
   publicUrl: string | null,
 ): void {
@@ -139,9 +130,10 @@ export function saveNgrokDomain(
 
 /** Read the reserved ngrok domain from the workspace config, if saved. */
 export function loadNgrokDomain(workspaceDir: string): string | null {
-  const ngrok = loadIngressSection(workspaceDir)?.ngrok as
+  const ingress = loadRawConfig(workspaceDir).ingress as
     | Record<string, unknown>
     | undefined;
+  const ngrok = ingress?.ngrok as Record<string, unknown> | undefined;
   const domain = ngrok?.domain;
   return typeof domain === "string" && domain.trim() ? domain : null;
 }

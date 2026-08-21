@@ -22,12 +22,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { TUNNEL_PROVIDERS } from "@vellumai/service-contracts/ingress";
+
 import * as cloudflareTunnel from "../lib/cloudflare-tunnel.js";
 import * as ngrok from "../lib/ngrok.js";
 import * as nginxIngress from "../lib/nginx-ingress.js";
 import * as tailscaleTunnel from "../lib/tailscale-tunnel.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
-import { TUNNEL_PROVIDERS } from "../lib/ingress-config.js";
 
 const realCloudflareTunnel = { ...cloudflareTunnel };
 const realNgrok = { ...ngrok };
@@ -681,7 +682,7 @@ describe("tunnel edge targeting", () => {
     expect(runTailscaleTunnelMock).not.toHaveBeenCalled();
   });
 
-  test("an explicit --provider tailscale runs with a warning when webhook integrations are configured", async () => {
+  test("an explicit --provider tailscale keeps the webhook callback base and says so", async () => {
     const entry = makeLocalEntry();
     writeLockfile(entry);
     const workspaceDir = writeEntryWorkspaceConfig(entry, {
@@ -701,9 +702,27 @@ describe("tunnel edge targeting", () => {
       warnSpy.mockRestore();
     }
 
-    expect(warnings.join("\n")).toContain(
-      "reachable only from your own tailnet",
-    );
+    const warned = warnings.join("\n");
+    expect(warned).toContain("reachable only from your own tailnet");
+    expect(warned).toContain("saved ingress base URL stays as it is");
+    // The tunnel publishes a pairing address instead of replacing the URL the
+    // webhook callbacks resolve through.
+    expect(runTailscaleTunnelMock).toHaveBeenCalledWith({
+      port: EDGE_PORT,
+      assistantId: "assistant-1",
+      workspaceDir,
+      preserveIngressUrl: true,
+    });
+  });
+
+  test("tailscale without webhook integrations still owns the ingress URL", async () => {
+    const entry = makeLocalEntry();
+    writeLockfile(entry);
+    const workspaceDir = writeEntryWorkspaceConfig(entry, {});
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "tailscale"];
+
+    await runTunnelCapturingLogs();
+
     expect(runTailscaleTunnelMock).toHaveBeenCalledWith({
       port: EDGE_PORT,
       assistantId: "assistant-1",

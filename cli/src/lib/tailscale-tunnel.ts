@@ -5,6 +5,7 @@ import {
   clearIngressUrl,
   getDefaultWorkspaceDir,
   saveIngressUrl,
+  stampLockfileIngressUrl,
 } from "./ingress-config.js";
 
 // ── Tailscale CLI discovery + invocation ────────────────────────────────────
@@ -166,6 +167,46 @@ export interface RunTailscaleTunnelOptions {
   workspaceDir?: string;
   /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
   assistantId?: string;
+  /**
+   * Publish the tailnet URL to the lockfile entry only, leaving the workspace
+   * `ingress` record untouched. Set when the saved public base URL is a live
+   * webhook callback base: those callbacks must keep resolving to an address
+   * their callers can reach while devices pair over the tailnet.
+   */
+  preserveIngressUrl?: boolean;
+}
+
+/**
+ * Record the serve URL as the address to reach this assistant at: the workspace
+ * ingress base URL plus the lockfile mirror, or the lockfile alone when the
+ * workspace record must be preserved.
+ */
+function publishServeUrl(
+  opts: RunTailscaleTunnelOptions,
+  workspaceDir: string,
+  publicUrl: string,
+): void {
+  if (!opts.preserveIngressUrl) {
+    saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "tailscale");
+    return;
+  }
+  if (opts.assistantId) {
+    stampLockfileIngressUrl(opts.assistantId, publicUrl);
+  }
+}
+
+/** Drop what {@link publishServeUrl} recorded, from the same places. */
+function retractServeUrl(
+  opts: RunTailscaleTunnelOptions,
+  workspaceDir: string,
+): void {
+  if (!opts.preserveIngressUrl) {
+    clearIngressUrl(workspaceDir, opts.assistantId);
+    return;
+  }
+  if (opts.assistantId) {
+    stampLockfileIngressUrl(opts.assistantId, null);
+  }
 }
 
 export interface TailscaleServeInfo {
@@ -177,7 +218,8 @@ export interface TailscaleServeInfo {
 
 /**
  * Preflight tailscale, front the local edge with `tailscale serve --bg`, and
- * persist the resulting tailnet URL as the ingress base URL.
+ * persist the resulting tailnet URL (as the ingress base URL, or as the
+ * lockfile pairing address alone under `preserveIngressUrl`).
  *
  * `serve --bg` registers the mapping in tailscaled and returns immediately;
  * there is no long-lived child process to supervise. Throws on any failure
@@ -213,7 +255,7 @@ export async function startTailscaleServe(
     throw new Error(serveFailureMessage(serveResult));
   }
 
-  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "tailscale");
+  publishServeUrl(opts, workspaceDir, publicUrl);
 
   return { publicUrl, port, binary, workspaceDir };
 }
@@ -232,15 +274,19 @@ export function stopTailscaleServe(
 /**
  * Run the tailscale tunnel workflow: preflight, serve the local edge over the
  * tailnet, persist the URL, then hold until Ctrl+C to tear the serve down and
- * clear the ingress URL.
+ * drop what was persisted.
  *
  * The tailnet URL carries a real LetsEncrypt certificate but is reachable only
- * from devices signed in to the same tailnet — no public exposure.
+ * from devices signed in to the same tailnet: no public exposure.
  */
 export async function runTailscaleTunnel(
   opts: RunTailscaleTunnelOptions = {},
 ): Promise<void> {
   const deps = realTailscaleDeps();
+  // What this run publishes, and therefore what Ctrl+C takes back.
+  const publishedLabel = opts.preserveIngressUrl
+    ? "pairing address"
+    : "ingress URL";
 
   console.log("Setting up tailscale serve...");
   const { publicUrl, port, binary, workspaceDir } = await startTailscaleServe(
@@ -252,7 +298,11 @@ export async function runTailscaleTunnel(
   console.log(`Tunnel established: ${publicUrl}`);
   console.log(`Serving:            localhost:${port}`);
   console.log("");
-  console.log("Ingress URL saved to config.");
+  console.log(
+    opts.preserveIngressUrl
+      ? "Recorded as this assistant's pairing address. The saved ingress base URL, which is also the webhook callback base, is left as it was."
+      : "Ingress URL saved to config.",
+  );
   console.log(
     "This URL is reachable only from devices signed in to your tailnet.",
   );
@@ -264,12 +314,14 @@ export async function runTailscaleTunnel(
     "The serve runs in the background (tailscaled) and persists after this",
   );
   console.log(
-    "command exits. Press Ctrl+C to stop serving and clear the ingress URL,",
+    `command exits. Press Ctrl+C to stop serving and clear the ${publishedLabel},`,
   );
   console.log("or stop it later with: tailscale serve --https=443 off");
 
   const teardown = (): void => {
-    console.log("\nStopping tailscale serve and clearing the ingress URL...");
+    console.log(
+      `\nStopping tailscale serve and clearing the ${publishedLabel}...`,
+    );
     let result: TailscaleCommandResult | null = null;
     try {
       result = stopTailscaleServe(binary, deps);
@@ -289,10 +341,10 @@ export async function runTailscaleTunnel(
       );
     }
     if (shouldClearIngressUrl(result)) {
-      clearIngressUrl(workspaceDir, opts.assistantId);
+      retractServeUrl(opts, workspaceDir);
     } else {
       console.error(
-        "Keeping the saved ingress URL since serve may still be active. " +
+        `Keeping the saved ${publishedLabel} since serve may still be active. ` +
           "After stopping serve manually, clear it with another Ctrl+C run " +
           "or by re-running the tunnel command.",
       );
