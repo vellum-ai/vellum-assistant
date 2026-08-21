@@ -14,17 +14,16 @@
 
 import {
   ChannelSocketHealthIpcParamsSchema,
+  type ChannelSocketHealthIpcParams,
   type ChannelSocketHealthIpcResponse,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import type { IpcRoute } from "./server.js";
 
 /** The slice of a socket-backed channel client this route reads. */
 export type SocketHealthSource = {
-  getConnectionHealth(): {
-    connected: boolean;
-    lastLivenessAt: number | undefined;
-  };
+  getConnectionHealth(): ChannelConnectionHealth;
 };
 
 /**
@@ -33,7 +32,10 @@ export type SocketHealthSource = {
  * that is no longer the live one.
  */
 export type SocketHealthSources = Partial<
-  Record<string, () => SocketHealthSource | null>
+  Record<
+    ChannelSocketHealthIpcParams["channel"],
+    () => SocketHealthSource | null
+  >
 >;
 
 export function createChannelSocketHealthRoutes(

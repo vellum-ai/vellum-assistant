@@ -2,6 +2,7 @@
  * Shared IPC contracts for assistant-to-gateway gateway-owned reads.
  */
 
+import { CHANNEL_IDS } from "@vellumai/service-contracts/channels";
 import { z } from "zod";
 
 export const GATEWAY_LOG_LEVEL_NAMES = [
@@ -533,7 +534,7 @@ export type ChannelSocketHealthStatus =
   (typeof CHANNEL_SOCKET_HEALTH_STATUSES)[number];
 
 export const ChannelSocketHealthIpcParamsSchema = z.object({
-  channel: z.string().min(1),
+  channel: z.enum(CHANNEL_IDS),
 });
 
 export type ChannelSocketHealthIpcParams = z.infer<
@@ -541,7 +542,7 @@ export type ChannelSocketHealthIpcParams = z.infer<
 >;
 
 export const ChannelSocketHealthIpcResponseSchema = z.object({
-  channel: z.string(),
+  channel: z.enum(CHANNEL_IDS),
   status: z.enum(CHANNEL_SOCKET_HEALTH_STATUSES),
   /**
    * Epoch millis when the transport last proved it was alive, by whatever

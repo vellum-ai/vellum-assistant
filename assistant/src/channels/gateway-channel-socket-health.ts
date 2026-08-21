@@ -6,6 +6,7 @@
  */
 
 import {
+  type ChannelSocketHealthIpcParams,
   type ChannelSocketHealthIpcResponse,
   ChannelSocketHealthIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
@@ -21,7 +22,7 @@ import { ipcCallPersistentValidated } from "../ipc/gateway-validated-call.js";
  * expected to treat a throw as indeterminate.
  */
 export async function readChannelSocketHealth(
-  channel: string,
+  channel: ChannelSocketHealthIpcParams["channel"],
 ): Promise<ChannelSocketHealthIpcResponse> {
   return ipcCallPersistentValidated(
     "channel_socket_health",

@@ -31,6 +31,7 @@ import {
 } from "../util/schedule.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import { admitDiscordMessage } from "./admit.js";
 import { AdmissionDropLog } from "./admission-log.js";
 import {
@@ -218,10 +219,7 @@ export class DiscordGatewayClient {
    * HELLO deadline. A recorded heartbeat interval is the establishment
    * signal: it is set from HELLO and cleared on every reset.
    */
-  getConnectionHealth(): {
-    connected: boolean;
-    lastLivenessAt: number | undefined;
-  } {
+  getConnectionHealth(): ChannelConnectionHealth {
     return {
       connected:
         this.ws !== null && this.heartbeat.heartbeatIntervalMs !== undefined,

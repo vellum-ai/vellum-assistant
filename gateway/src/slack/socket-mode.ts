@@ -19,6 +19,7 @@ import {
   type SlackHistoryMessage,
 } from "./slack-web.js";
 import { isSlackDmChannel, isSlackMpimChannel } from "./channel.js";
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import { parseSlackEnvelope } from "./envelope.js";
 import type { SlackEnvelopePayload, SlackInboundEvent } from "./envelope.js";
 import { classifySlackEvent } from "./classify-event.js";
@@ -379,10 +380,7 @@ export class SlackSocketModeClient {
    * `open`, so every healthy reconnect has a window where no pong has landed
    * yet. Gating on it would report a fresh connection as broken.
    */
-  getConnectionHealth(): {
-    connected: boolean;
-    lastLivenessAt: number | undefined;
-  } {
+  getConnectionHealth(): ChannelConnectionHealth {
     return {
       connected: this.ws?.readyState === WebSocket.OPEN,
       lastLivenessAt: this.liveness.lastPongAt,
