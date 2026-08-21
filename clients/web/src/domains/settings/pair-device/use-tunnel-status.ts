@@ -72,16 +72,19 @@ export function useTunnelStatus(enabled: boolean): TunnelStatusController {
  * state) while the view is a union, so this narrows on `state` and drops the
  * fields that state does not populate.
  *
- * Degrades to `unconfigured` (which the row draws as nothing) whenever the
- * response cannot support a row: no answer yet with nothing in flight, or a
- * `stopped` verdict whose `lastTunnel` record is missing.
+ * Only the daemon's own verdict becomes `unconfigured`. Everything the probe
+ * cannot answer degrades to `unavailable` instead: no response with nothing
+ * in flight (the probe is gated off, or the query exhausted its retries), or
+ * a `stopped` verdict whose `lastTunnel` record is missing. The row draws
+ * both as nothing, but the card reads `unavailable` as "the probe told us
+ * nothing" and keeps its pre-probe fallbacks.
  */
 export function toStatusView(
   response: IntegrationsIngressStatusGetResponse | undefined,
   isFetching: boolean,
 ): TunnelStatusView {
   if (!response) {
-    return isFetching ? { kind: "checking" } : { kind: "unconfigured" };
+    return isFetching ? { kind: "checking" } : { kind: "unavailable" };
   }
 
   // Both are set by the daemon for every probed state; the wire marks them
@@ -99,7 +102,7 @@ export function toStatusView(
             provider: response.lastTunnel.provider,
             publicBaseUrl: response.lastTunnel.publicBaseUrl,
           }
-        : { kind: "unconfigured" };
+        : { kind: "unavailable" };
     case "healthy":
       return { kind: "healthy", publicBaseUrl, checkedAt };
     case "unreachable":

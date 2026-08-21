@@ -58,11 +58,18 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 let probeResponse: IntegrationsIngressStatusGetResponse = {
   state: "unconfigured",
 };
-const probeMock = mock(async () => ({
-  data: probeResponse,
-  error: undefined,
-  response: new Response(null, { status: 200 }),
-}));
+/** Set by a test to make the probe fail the way a dead daemon would. */
+let probeFailure: Error | null = null;
+const probeMock = mock(async () => {
+  if (probeFailure) {
+    throw probeFailure;
+  }
+  return {
+    data: probeResponse,
+    error: undefined,
+    response: new Response(null, { status: 200 }),
+  };
+});
 
 /* Spread over the real module rather than replacing it: the generated SDK is a
    single barrel that the query-options barrel also pulls from, and a bare
@@ -255,6 +262,7 @@ beforeEach(() => {
   resetFetchLog();
   localStorage.clear();
   probeResponse = { state: "unconfigured" };
+  probeFailure = null;
   probeMock.mockClear();
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   // Tests that exercise the status row opt into a version that serves it.
@@ -756,6 +764,21 @@ describe("PairDeviceCard: tunnel status", () => {
     expect(screen.getByText(/comes from/)).toBeTruthy();
   });
 
+  test("keeps the first-run notice for the daemon's own unconfigured verdict", async () => {
+    // The daemon is the authority once it answers: a recorded URL it no longer
+    // reports is stale, so it does not suppress the notice or fill the field.
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      ingressUrl: RECORDED_INGRESS_URL,
+    };
+    probeResponse = { state: "unconfigured" };
+    renderCard();
+
+    expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
+    expect(urlField().value).toBe("");
+  });
+
   test("keeps a typed URL when the probe answers", async () => {
     probeResponse = healthyStatus();
     renderCard();
@@ -763,6 +786,53 @@ describe("PairDeviceCard: tunnel status", () => {
 
     await screen.findByText("The tunnel is running and reachable.");
     expect(urlField().value).toBe(PUBLIC_URL);
+  });
+});
+
+// A probe that never came back tells the card nothing, so it degrades to the
+// pre-probe behavior rather than to a blank card the gate-off path would never
+// have produced.
+describe("PairDeviceCard: when the tunnel probe gives up", () => {
+  beforeEach(() => {
+    enableTunnelStatus();
+    probeFailure = new Error("connection refused");
+  });
+
+  test("falls back to the recorded ingress URL, notice and all", async () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      ingressUrl: RECORDED_INGRESS_URL,
+    };
+    renderCard();
+
+    await waitFor(() => expect(urlField().value).toBe(RECORDED_INGRESS_URL));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Generate pairing QR",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+    // Nothing to report and nothing to re-check from: the row stays silent.
+    expect(
+      screen.queryByRole("button", { name: "Check the tunnel again" }),
+    ).toBeNull();
+  });
+
+  test("falls back to the field-derived empty state with nothing recorded", async () => {
+    renderCard();
+
+    expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
+    expect(urlField().value).toBe("");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Generate pairing QR",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 });
 

@@ -41,9 +41,10 @@ const CODE_CLASS =
  * What the tunnel is doing comes from the daemon-side probe
  * ({@link useTunnelStatus}), which drives the status row, the URL field's
  * prefill and the first-run notice, and re-runs on the `app.resume` foreground
- * edge. Against an assistant below {@link useSupportsIngressStatus}'s floor the
- * probe never runs, so the card falls back to the assistant's recorded ingress
- * URL and infers the empty state from the field.
+ * edge. Where that probe has no verdict, because the assistant sits below
+ * {@link useSupportsIngressStatus}'s floor or because the query gave up, the
+ * card falls back to the assistant's recorded ingress URL and infers the
+ * empty state from the field.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
@@ -60,12 +61,13 @@ export function PairDeviceCard() {
   const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pairedDevicesUIOn = useClientFeatureFlagStore.use.pairedDevicesUI();
   const assistantId = useActiveAssistantId();
-  // Read alongside the probe so the card can tell "the daemon reports no
-  // tunnel" from "this assistant cannot be asked", which the status view
-  // spells the same way.
   const probesTunnel = useSupportsIngressStatus(assistantId);
   const surfaceEnabled = supported && webRemoteIngressOn;
   const tunnel = useTunnelStatus(surfaceEnabled && target !== null);
+  // Whether the daemon's verdict is the card's source of truth right now. An
+  // assistant that cannot be asked, and a probe that came back with nothing,
+  // both leave the card on its pre-probe behavior below.
+  const probeAnswered = probesTunnel && tunnel.status.kind !== "unavailable";
   // The user starts the tunnel in a terminal and tabs back, so the foreground
   // edge is the re-check that matters most.
   useBusSubscription("app.resume", () => {
@@ -73,7 +75,7 @@ export function PairDeviceCard() {
   });
   const pair = usePairDevice(
     target?.base ?? null,
-    probesTunnel
+    probeAnswered
       ? statusPublicBaseUrl(tunnel.status)
       : (target?.ingressUrl ?? null),
   );
@@ -94,11 +96,11 @@ export function PairDeviceCard() {
   const isMinting = phase.kind === "minting";
   const isReady = phase.kind === "ready";
   const prefilledFromTunnel = pair.prefillSource === "tunnel";
-  // Honest empty state: the daemon's verdict where the probe runs, and where
-  // it cannot, the field-derived inference (no reported URL, no stored value,
-  // field still empty). Advanced users can still type an address into the
-  // field below either way.
-  const showNoTunnelGuidance = probesTunnel
+  // Honest empty state: the daemon's verdict where the probe answers, and
+  // where it does not, the field-derived inference (no reported URL, no
+  // stored value, field still empty). Advanced users can still type an
+  // address into the field below either way.
+  const showNoTunnelGuidance = probeAnswered
     ? tunnel.status.kind === "unconfigured"
     : pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
   const buttonLabel = isMinting
