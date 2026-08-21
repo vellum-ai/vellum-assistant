@@ -318,7 +318,9 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   `bun clients/ios/scripts/generate-avatar-icons.ts` (add `--full` for
   every combination instead of the committed pilot set) and verify with
   `cd clients/ios && bun test scripts/__tests__/generate-avatar-icons.test.ts`.
-  No target builds them yet, so `project.yml` excludes the directory.
+  `pr-ios.yaml` and `ci-main-ios.yaml` run that same check, and both watch
+  `assistant/src/avatar/**`, so a catalog edit without a regeneration fails
+  CI. No target builds them yet, so `project.yml` excludes the directory.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.
