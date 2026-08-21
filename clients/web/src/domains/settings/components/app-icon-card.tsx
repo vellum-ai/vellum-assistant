@@ -55,8 +55,8 @@ export function AppIconCard() {
 
   return (
     <DetailCard title={t("appIconCard.title")}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
+      <div className="flex flex-col gap-3">
+        <div>
           <div className="text-body-medium-default text-[var(--content-default)]">
             {status}
           </div>
@@ -64,23 +64,27 @@ export function AppIconCard() {
             {t("appIconCard.description")}
           </p>
         </div>
-        {canOffer ? (
-          <Button
-            variant="outlined"
-            disabled={pending}
-            onClick={() => void run(apply)}
-          >
-            {t("appIconCard.match")}
-          </Button>
-        ) : null}
-        {canReset ? (
-          <Button
-            variant="outlined"
-            disabled={pending}
-            onClick={() => void run(reset)}
-          >
-            {t("appIconCard.reset")}
-          </Button>
+        {canOffer || canReset ? (
+          <div className="flex flex-wrap gap-2">
+            {canOffer ? (
+              <Button
+                variant="outlined"
+                disabled={pending}
+                onClick={() => void run(apply)}
+              >
+                {t("appIconCard.match")}
+              </Button>
+            ) : null}
+            {canReset ? (
+              <Button
+                variant="outlined"
+                disabled={pending}
+                onClick={() => void run(reset)}
+              >
+                {t("appIconCard.reset")}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </DetailCard>
