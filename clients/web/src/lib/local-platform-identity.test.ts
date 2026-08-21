@@ -35,6 +35,7 @@ let storedSecrets: string[] = [];
 let isElectronValue = false;
 let electronHostOS: "macos" | "windows" | undefined;
 let electronSessionToken: string | null = null;
+let navigatorPlatform = "MacIntel";
 
 const buildVellumMutatingHeadersMock = mock(
   async (
@@ -81,12 +82,21 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => isElectronValue,
 }));
 
+mock.module("@/runtime/native-auth", () => ({
+  isNativePlatform: () => false,
+}));
+
 Object.defineProperty(window, "vellum", {
   configurable: true,
   get: () =>
     electronHostOS
       ? { platform: "electron", hostOS: electronHostOS }
       : undefined,
+});
+
+Object.defineProperty(window.navigator, "platform", {
+  configurable: true,
+  get: () => navigatorPlatform,
 });
 
 mock.module("@/runtime/session-token", () => ({
@@ -168,6 +178,7 @@ beforeEach(() => {
   isElectronValue = false;
   electronHostOS = undefined;
   electronSessionToken = null;
+  navigatorPlatform = "MacIntel";
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
@@ -337,6 +348,31 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   test("reports the Windows Electron host during platform registration", async () => {
     isElectronValue = true;
     electronHostOS = "windows";
+    electronSessionToken = "electron-session-token";
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: false,
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(
+      requests.find((request) =>
+        request.pathname.endsWith("/ensure-registration/"),
+      )?.body,
+    ).toEqual({
+      client_installation_id: HOST_INSTALLATION_ID,
+      runtime_assistant_id: RUNTIME_ASSISTANT_ID,
+      client_platform: "windows",
+    });
+  });
+
+  test("detects Windows for an Electron bridge without hostOS", async () => {
+    isElectronValue = true;
+    navigatorPlatform = "Win32";
     electronSessionToken = "electron-session-token";
     statusBody = {
       assistant_id: PLATFORM_ASSISTANT_ID,
