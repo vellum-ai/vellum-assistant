@@ -229,14 +229,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "web-remote-ingress",
-      "scope": "client",
-      "key": "web-remote-ingress",
-      "label": "Web Remote Ingress",
-      "description": "Show the pair-a-device card in web settings. Visibility only; pairing itself is always available.",
-      "defaultEnabled": false
-    },
-    {
       "id": "paired-devices-ui",
       "scope": "client",
       "key": "paired-devices-ui",
@@ -322,14 +314,6 @@
       "key": "chat-credential-reveal",
       "label": "Chat Credential Reveal",
       "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "assistant-switcher",
-      "scope": "client",
-      "key": "assistant-switcher",
-      "label": "Assistant Switcher",
-      "description": "Show the Switch Assistant section in General settings, linking to the assistant chooser. Covers local clients, signed-in cloud-hub users, remote-gateway origins, and native mobile shells; remote-gateway desktop browsers hand off to the hub chooser with a self-registration param. Also makes the chooser's selection authoritative for the app's active assistant on every surface including the platform hub, a job that previously belonged to multi-platform-assistant alone.",
       "defaultEnabled": false
     },
     {
