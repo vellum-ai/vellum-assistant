@@ -369,11 +369,10 @@ export class SlackSocketModeClient {
    *
    * `connected` reads the socket's own `readyState`, which on its own is a
    * claim the transport cannot back up: a half-open socket reports `OPEN`
-   * indefinitely, and reporting that as health is exactly how an outage went
-   * unnoticed for half a day. It is trustworthy here only because the liveness
-   * watchdog bounds how long a socket can claim to be open while dead, to one
-   * probe interval plus one deadline. If that watchdog is ever removed, this
-   * getter starts lying again.
+   * indefinitely. It is trustworthy here only because the liveness watchdog
+   * bounds how long a socket can claim to be open while dead, to one probe
+   * interval plus one deadline. A change that removes that watchdog makes this
+   * getter unreliable.
    *
    * `lastLivenessAt` is the corroborating evidence, and is deliberately not
    * part of the `connected` verdict: the first probe is a full interval after

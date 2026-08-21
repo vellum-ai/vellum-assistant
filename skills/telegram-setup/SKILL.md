@@ -45,7 +45,7 @@ Otherwise, run `assistant credentials list --search telegram` (via the bash tool
 - **Neither present** → continue to Step 2.
 - **Both present** → credentials existing does not mean Telegram works, so
   check before saying so. Run Step 3's `assistant channels get telegram --json`
-  and read `webhook_delivery`.
+  and read `inbound_delivery`.
   - **`passed: true`, no `indeterminate`** → already set up and confirmed.
     Offer to show status or reconfigure, and stop here unless the user wants a
     reset.
@@ -96,7 +96,7 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
    `get` is always live: it invalidates the cached snapshot and re-runs the
    remote checks, so it reflects the state now rather than before the save.
 
-   Find the `webhook_delivery` check in `remoteChecks`. It has **three**
+   Find the `inbound_delivery` check in `remoteChecks`. It has **three**
    outcomes, and the third is the one that matters:
 
    - **`passed: true`, no `indeterminate`** → confirmed. Telegram is
@@ -123,11 +123,11 @@ channel was live when nothing had verified it.
 
 ⚠️ CRITICAL: **Do not report success on stored credentials alone.** Credentials
 existing is what you would expect the moment the wizard closes and says nothing
-about whether messages arrive. `webhook_delivery` is the check that does, and
+about whether messages arrive. `inbound_delivery` is the check that does, and
 it is the same signal the channel indicator uses.
 
 ⚠️ CRITICAL: **Do not run `setWebhook` or suggest a tunnel yourself.** If
-`webhook_delivery` fails, the `message` says what to do. Registration re-runs
+`inbound_delivery` fails, the `message` says what to do. Registration re-runs
 by itself whenever credentials or the ingress URL change, so a fix applied
 elsewhere takes effect without you calling Telegram.
 
@@ -155,7 +155,7 @@ Summarize:
 - Telegram delivery: {confirmed | stored, not yet confirmed}
 - Guardian identity: {verified | skipped}
 
-Use "confirmed" only for a `webhook_delivery` that passed without
+Use "confirmed" only for a `inbound_delivery` that passed without
 `indeterminate`. If it was indeterminate, say so in the summary rather than
 rounding it up, and tell the user they can ask you to check again.
 
@@ -166,7 +166,7 @@ rounding it up, and tell the user they can ask you to check again.
 - [ ] `assistant credentials list --search telegram` was called and the existing-state branch named explicitly (Step 1).
 - [ ] `ui_show` returned success before any message claiming the wizard is open (Step 2).
 - [ ] The token was never requested in chat.
-- [ ] `assistant channels get telegram` reported `webhook_delivery` as `passed: true` **without** `indeterminate` before any delivery success was claimed (Step 3).
+- [ ] `assistant channels get telegram` reported `inbound_delivery` as `passed: true` **without** `indeterminate` before any delivery success was claimed (Step 3).
 - [ ] `setWebhook`, `setMyCommands`, `assistant webhooks register` and `getWebhookInfo` were not run by hand.
 - [ ] `guardian-verify-setup` was loaded and either completed or explicitly declined (Step 4).
 

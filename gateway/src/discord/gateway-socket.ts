@@ -209,16 +209,22 @@ export class DiscordGatewayClient {
    *
    * Reported in the same shape as the other socket channels so a reader does
    * not need to know which protocol proved it. Discord's proof of liveness is
-   * an op 11 ACK rather than a pong, and `connected` is trustworthy for the
-   * same reason it is there: the ACK watchdog bounds how long a dead
-   * connection can keep claiming to be open.
+   * an op 11 ACK rather than a pong.
+   *
+   * `connected` requires an established session, not merely a socket pointer.
+   * `openSocket` assigns `this.ws` as soon as the socket is constructed, and
+   * the connection carries nothing until op 10 HELLO arrives, so a socket
+   * whose handshake stalls would otherwise report itself live for the whole
+   * HELLO deadline. A recorded heartbeat interval is the establishment
+   * signal: it is set from HELLO and cleared on every reset.
    */
   getConnectionHealth(): {
     connected: boolean;
     lastLivenessAt: number | undefined;
   } {
     return {
-      connected: this.ws !== null,
+      connected:
+        this.ws !== null && this.heartbeat.heartbeatIntervalMs !== undefined,
       lastLivenessAt: this.heartbeat.lastAckAt,
     };
   }

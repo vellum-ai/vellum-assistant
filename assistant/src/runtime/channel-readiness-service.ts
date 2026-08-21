@@ -247,7 +247,7 @@ const telegramProbe: ChannelProbe = {
       health.status === "unknown" ||
       health.status === "unverified";
     const result = check(
-      "webhook_delivery",
+      "inbound_delivery",
       health.status === "healthy" || indeterminate,
       "Telegram is delivering to this assistant",
       health.detail,
@@ -355,28 +355,31 @@ const whatsappProbe: ChannelProbe = {
 // ── Slack Probe ─────────────────────────────────────────────────────────────
 
 /**
- * Ask the gateway whether Slack's Socket Mode connection is actually receiving.
+ * Ask the gateway whether Slack's Socket Mode connection is receiving.
  *
- * `auth.test` answers a different question. Through an 11-hour outage the
- * tokens stayed valid, `auth.test` kept answering, and the workspace kept
- * matching, while the socket sat open and delivered nothing. Credential health
- * is not delivery health.
+ * Distinct from the credential checks: valid tokens and a reachable
+ * `auth.test` establish that Slack would accept us, not that anything is
+ * arriving. A socket can be open at the transport layer and deliver nothing.
  *
- * Three outcomes, mirroring the Telegram probe:
+ * Three outcomes, matching the Telegram probe:
  *
  *   - `connected` is the only verified pass.
- *   - `not_configured`, `unsupported`, and an unreachable gateway are
+ *   - `disconnected` is a failure with a concrete cause.
+ *   - `not_configured`, `unsupported` and an unreachable gateway are
  *     indeterminate. None is evidence of a fault, so none may show the channel
  *     as broken; none is evidence of delivery either, so none may make it
  *     ready.
- *   - `disconnected` is a failure with a concrete cause.
  *
  * `lastLivenessAt` is reported and never gated on: a connection's first
  * keepalive is a full interval after it opens, so requiring one would call
  * every healthy reconnect broken.
+ *
+ * Local rather than remote because it costs one IPC round trip to the gateway
+ * beside us, not a call to Slack. Remote checks are cached for
+ * {@link REMOTE_TTL_MS}, which is far longer than the socket takes to die and
+ * recover, so caching this would report a stale connection state.
  */
-async function checkSlackSocketDelivery(): Promise<ReadinessCheckResult> {
-  const PASS = "Slack is delivering to this assistant";
+async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
   // Imported here rather than at module scope, matching the Telegram probe:
   // the gateway IPC client pulls in a module graph that unrelated consumers of
   // this service should not have to mock.
@@ -388,7 +391,7 @@ async function checkSlackSocketDelivery(): Promise<ReadinessCheckResult> {
     health = await readChannelSocketHealth("slack");
   } catch {
     return {
-      name: "socket_delivery",
+      name: "inbound_delivery",
       passed: true,
       message: "Could not reach the gateway to read the Slack connection state",
       indeterminate: true,
@@ -397,7 +400,7 @@ async function checkSlackSocketDelivery(): Promise<ReadinessCheckResult> {
 
   if (health.status === "not_configured" || health.status === "unsupported") {
     return {
-      name: "socket_delivery",
+      name: "inbound_delivery",
       passed: true,
       message:
         health.status === "not_configured"
@@ -412,9 +415,9 @@ async function checkSlackSocketDelivery(): Promise<ReadinessCheckResult> {
       ? "no keepalive answered yet on this connection"
       : `last keepalive ${new Date(health.lastLivenessAt).toISOString()}`;
   return check(
-    "socket_delivery",
+    "inbound_delivery",
     health.status === "connected",
-    `${PASS} (${lastProof})`,
+    `Slack is delivering to this assistant (${lastProof})`,
     "Slack Socket Mode holds no live connection, so inbound messages are not reaching this assistant",
   );
 }
@@ -435,94 +438,84 @@ const slackProbe: ChannelProbe = {
         "app_token",
         "Slack app token",
       ),
+      await checkSlackInboundDelivery(),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
-    // Both are remote and independent, so they run concurrently. The socket
-    // check is unconditional on purpose: a valid token with a dead socket is
-    // precisely the state that went unnoticed.
-    const [authChecks, socketCheck] = await Promise.all([
-      runSlackAuthChecks(),
-      checkSlackSocketDelivery(),
-    ]);
-    return [...authChecks, socketCheck];
+    const botToken = await getSecureKeyAsync(
+      credentialKey("slack_channel", "bot_token"),
+    );
+    if (!botToken) {
+      return [
+        check(
+          "auth_test",
+          false,
+          "Slack auth.test ok",
+          "Skipped: no bot_token stored",
+        ),
+      ];
+    }
+    try {
+      const res = await fetch("https://slack.com/api/auth.test", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${botToken}` },
+      });
+      const parsed = AuthTestResponseSchema.safeParse(await res.json());
+      if (!parsed.success) {
+        return [
+          check(
+            "auth_test",
+            false,
+            "Slack auth.test ok",
+            `Slack auth.test returned an unexpected response shape: ${parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ")}`,
+          ),
+        ];
+      }
+      const data = parsed.data;
+      if (!data.ok) {
+        return [
+          check(
+            "auth_test",
+            false,
+            "Slack auth.test ok",
+            `Slack auth.test rejected bot_token: ${data.error ?? "unknown error"}`,
+          ),
+        ];
+      }
+      const raw = loadRawConfig();
+      const storedTeamId = getNestedValue(raw, "slack.teamId");
+      const teamMatches =
+        typeof storedTeamId !== "string" ||
+        storedTeamId.length === 0 ||
+        storedTeamId === data.team_id;
+      return [
+        check(
+          "auth_test",
+          true,
+          `Slack auth.test ok (workspace ${data.team ?? data.team_id ?? "unknown"}, bot ${data.user ?? "unknown"})`,
+          "Slack auth.test ok",
+        ),
+        check(
+          "workspace_match",
+          teamMatches,
+          "Stored workspace matches bot token",
+          `Stored workspace ${storedTeamId} does not match bot token's workspace ${data.team_id ?? "unknown"} — run 'assistant channels slack reconnect' to refresh metadata`,
+        ),
+        scopeGrantCheck(res.headers.get("x-oauth-scopes")),
+      ];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return [
+        check(
+          "auth_test",
+          false,
+          "Slack auth.test ok",
+          `Failed to reach Slack auth.test: ${message}`,
+        ),
+      ];
+    }
   },
 };
-
-async function runSlackAuthChecks(): Promise<ReadinessCheckResult[]> {
-  const botToken = await getSecureKeyAsync(
-    credentialKey("slack_channel", "bot_token"),
-  );
-  if (!botToken) {
-    return [
-      check(
-        "auth_test",
-        false,
-        "Slack auth.test ok",
-        "Skipped: no bot_token stored",
-      ),
-    ];
-  }
-  try {
-    const res = await fetch("https://slack.com/api/auth.test", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${botToken}` },
-    });
-    const parsed = AuthTestResponseSchema.safeParse(await res.json());
-    if (!parsed.success) {
-      return [
-        check(
-          "auth_test",
-          false,
-          "Slack auth.test ok",
-          `Slack auth.test returned an unexpected response shape: ${parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ")}`,
-        ),
-      ];
-    }
-    const data = parsed.data;
-    if (!data.ok) {
-      return [
-        check(
-          "auth_test",
-          false,
-          "Slack auth.test ok",
-          `Slack auth.test rejected bot_token: ${data.error ?? "unknown error"}`,
-        ),
-      ];
-    }
-    const raw = loadRawConfig();
-    const storedTeamId = getNestedValue(raw, "slack.teamId");
-    const teamMatches =
-      typeof storedTeamId !== "string" ||
-      storedTeamId.length === 0 ||
-      storedTeamId === data.team_id;
-    return [
-      check(
-        "auth_test",
-        true,
-        `Slack auth.test ok (workspace ${data.team ?? data.team_id ?? "unknown"}, bot ${data.user ?? "unknown"})`,
-        "Slack auth.test ok",
-      ),
-      check(
-        "workspace_match",
-        teamMatches,
-        "Stored workspace matches bot token",
-        `Stored workspace ${storedTeamId} does not match bot token's workspace ${data.team_id ?? "unknown"} — run 'assistant channels slack reconnect' to refresh metadata`,
-      ),
-      scopeGrantCheck(res.headers.get("x-oauth-scopes")),
-    ];
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return [
-      check(
-        "auth_test",
-        false,
-        "Slack auth.test ok",
-        `Failed to reach Slack auth.test: ${message}`,
-      ),
-    ];
-  }
-}
 
 // ── Service ─────────────────────────────────────────────────────────────────
 
