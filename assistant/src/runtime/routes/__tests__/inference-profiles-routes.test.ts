@@ -213,6 +213,20 @@ describe("POST inference/profiles (create) validation", () => {
     });
   });
 
+  test("rejects a vellum profile whose maxTokens exceeds the routed model's limits", async () => {
+    seedVellumConnection();
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "my-managed-big",
+          provider: "vellum",
+          model: "claude-opus-4-8",
+          maxTokens: 999999999,
+        },
+      }),
+    ).rejects.toThrow(/maxTokens/);
+  });
+
   test("rejects a vellum profile whose model has no managed upstream", async () => {
     await expect(
       call("inference_profiles_create", {
@@ -714,6 +728,27 @@ describe("GET inference/profiles honors llm.defaultProvider", () => {
 });
 
 // ── active-profile setter validation (Finding 3) ──────────────────────────────
+
+describe("POST inference/profiles/:name/validate billing guards", () => {
+  test("gives no verdict for a mix whose winning arm rides the managed route", async () => {
+    seedVellumConnection();
+    setConfig("llm", {
+      profiles: {
+        "managed-arm": { provider: "vellum", model: "claude-opus-4-8" },
+        "my-mix": {
+          mix: [
+            { profile: "managed-arm", weight: 1 },
+            { profile: "managed-arm", weight: 1 },
+          ],
+        },
+      },
+    });
+    const result = (await call("inference_profiles_validate", {
+      pathParams: { name: "my-mix" },
+    })) as { check: unknown };
+    expect(result.check).toBeNull();
+  });
+});
 
 describe("PUT inference/active-profile validation", () => {
   test("sets a valid profile", async () => {

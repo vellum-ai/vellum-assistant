@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { validateInferenceProfileConfig } from "../profile-config-validation.js";
+import { validateInferenceProfileConfig } from "../../../api/constants/profile-config-validation.js";
 
 describe("validateInferenceProfileConfig", () => {
   test("rejects an output budget that consumes the whole context window", () => {

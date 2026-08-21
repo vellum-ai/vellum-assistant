@@ -18,6 +18,7 @@
 
 import { z } from "zod";
 
+import { validateInferenceProfileConfig } from "../../api/constants/profile-config-validation.js";
 import {
   getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
@@ -45,7 +46,6 @@ import {
   isUnavailable,
 } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
-import { validateInferenceProfileConfig } from "../../providers/inference/profile-config-validation.js";
 import { probeInferenceProfile } from "../../providers/inference/profile-probe.js";
 import {
   catalogContextWindowTokens,
@@ -53,6 +53,7 @@ import {
   getModelDisplayName,
   isModelInCatalog,
 } from "../../providers/model-catalog.js";
+import { getManagedUpstream } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -400,10 +401,22 @@ function assertSaneMaxTokens(
   model: string,
   maxTokens: number | undefined,
 ): void {
-  if (maxTokens === undefined || ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+  if (maxTokens === undefined) {
     return;
   }
-  const catalogProvider = resolveEntryProviderKind(provider, model) ?? provider;
+  // Routing identities are judged against their concrete upstream's catalog
+  // entry: chatgpt serves the OpenAI catalog, and a vellum profile stores the
+  // bare native model id (validateModel rejects encoded routing strings), so
+  // the managed upstream owns its limits. An unroutable model yields no
+  // upstream and stays unjudged.
+  const catalogProvider = ROUTING_IDENTITY_PROVIDERS.has(provider)
+    ? provider === "chatgpt"
+      ? "openai"
+      : getManagedUpstream(model)
+    : (resolveEntryProviderKind(provider, model) ?? provider);
+  if (catalogProvider === null) {
+    return;
+  }
   const issue = validateInferenceProfileConfig({
     maxTokens,
     modelMaxOutputTokens: catalogMaxOutputTokens(catalogProvider, model),

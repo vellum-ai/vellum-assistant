@@ -4,12 +4,11 @@
  * (the output budget consumes the model's entire context window, or exceeds
  * its output cap) at save time instead of on the first chat message.
  *
- * Only judges what is knowable offline: fires when the profile explicitly
- * sets `maxTokens` AND the catalog declares a limit for the model. Unlisted
- * models are covered by the live save-time probe instead
- * (`profile-probe.ts`). Note `clampMaxTokensToModelCap` in
- * `default-profile-catalog.ts` protects only code-owned default profiles;
- * user-authored profiles send their `maxTokens` verbatim.
+ * Shared surface: the daemon's profile write routes enforce it as a blocking
+ * error, and the web profile editor mirrors the same judgment before its
+ * generic config PATCH, so the two paths cannot drift. Only fires when both
+ * sides of a judgment are known; unlisted models are covered by the live
+ * save-time probe instead.
  */
 
 /**
@@ -20,6 +19,8 @@ export const MIN_INPUT_RESERVE_TOKENS = 4096;
 
 export interface ProfileConfigIssue {
   field: "maxTokens";
+  /** Which judgment fired, so clients can compose surface-specific copy. */
+  code: "over_output_cap" | "no_input_room";
   message: string;
 }
 
@@ -35,6 +36,7 @@ export function validateInferenceProfileConfig(args: {
   if (modelMaxOutputTokens !== undefined && maxTokens > modelMaxOutputTokens) {
     return {
       field: "maxTokens",
+      code: "over_output_cap",
       message:
         `maxTokens (${maxTokens}) exceeds the model's maximum output of ` +
         `${modelMaxOutputTokens} tokens. Requests would be rejected upstream; ` +
@@ -47,6 +49,7 @@ export function validateInferenceProfileConfig(args: {
   ) {
     return {
       field: "maxTokens",
+      code: "no_input_room",
       message:
         `maxTokens (${maxTokens}) reserves the entire ${modelContextWindowTokens}-token ` +
         `context window for output, leaving no room for your messages. ` +

@@ -8,6 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { validateInferenceProfileConfig } from "@vellumai/assistant-api";
+
 import {
   getManagedUpstreamForModel,
   getModelsForProvider,
@@ -48,28 +50,27 @@ import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/
 import { badRequestMessage } from "@/utils/api-errors";
 
 /**
- * Mirror of the daemon's `validateInferenceProfileConfig` judgment
- * (`assistant/src/providers/inference/profile-config-validation.ts`). The
- * settings surface persists through the generic config PATCH, which is the
- * deliberately unvalidated escape hatch, so an impossible output budget must
- * be rejected here before the write or it lands stored.
+ * The settings surface persists through the generic config PATCH, which is
+ * the deliberately unvalidated escape hatch, so an impossible output budget
+ * must be rejected here before the write or it lands stored. The judgment is
+ * the daemon's own `validateInferenceProfileConfig` (shared via
+ * assistant-api) so the two paths cannot drift; only the copy is local.
  */
-const MIN_INPUT_RESERVE_TOKENS = 4096;
-
 function maxTokensBudgetError(
   catalogModel: LlmCatalogModel,
   maxTokens: number,
 ): string | null {
-  if (maxTokens > catalogModel.maxOutputTokens) {
-    return `Max tokens (${maxTokens}) exceeds the model's maximum output of ${catalogModel.maxOutputTokens} tokens. Reduce it to ${catalogModel.maxOutputTokens} or less.`;
+  const issue = validateInferenceProfileConfig({
+    maxTokens,
+    modelMaxOutputTokens: catalogModel.maxOutputTokens,
+    modelContextWindowTokens: catalogModel.contextWindowTokens,
+  });
+  if (!issue) {
+    return null;
   }
-  if (
-    maxTokens >=
-    catalogModel.contextWindowTokens - MIN_INPUT_RESERVE_TOKENS
-  ) {
-    return `Max tokens (${maxTokens}) reserves the entire ${catalogModel.contextWindowTokens}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).`;
-  }
-  return null;
+  return issue.code === "over_output_cap"
+    ? `Max tokens (${maxTokens}) exceeds the model's maximum output of ${catalogModel.maxOutputTokens} tokens. Reduce it to ${catalogModel.maxOutputTokens} or less.`
+    : `Max tokens (${maxTokens}) reserves the entire ${catalogModel.contextWindowTokens}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).`;
 }
 
 export type ProfileEditorMode = "create" | "edit" | "view";

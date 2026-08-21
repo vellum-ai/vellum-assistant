@@ -126,21 +126,6 @@ export async function probeInferenceProfile(
   if (!entry || entry.status === "disabled" || entry.source === "managed") {
     return null;
   }
-  const provider = typeof entry.provider === "string" ? entry.provider : "";
-  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
-    return null;
-  }
-  const connection =
-    typeof entry.provider_connection === "string"
-      ? entry.provider_connection
-      : provider || undefined;
-  // A legacy profile can declare a concrete provider while staying bound to
-  // a platform-billed connection row (e.g. the canonical vellum connection);
-  // the row's auth is the billing fact, so it gates the probe too.
-  const boundRow = connection ? getConnection(getDb(), connection) : null;
-  if (boundRow?.auth.type === "platform") {
-    return null;
-  }
 
   const selectionSeed = crypto.randomUUID();
 
@@ -170,6 +155,29 @@ export async function probeInferenceProfile(
       detail,
       message: checkMessage({ blame: "profile", detail }),
     };
+  }
+
+  // Billing guards run on the CONCRETE entry the resolver selected — for a
+  // mix that is the expanded arm, not the mix record (which carries no
+  // provider or connection of its own) — so a probe can never dispatch a
+  // managed or platform-billed route the raw entry hid.
+  const dispatchEntry =
+    (winner.entry as Record<string, unknown> | null) ?? entry;
+  const provider =
+    typeof dispatchEntry.provider === "string" ? dispatchEntry.provider : "";
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    return null;
+  }
+  const connection =
+    typeof dispatchEntry.provider_connection === "string"
+      ? dispatchEntry.provider_connection
+      : provider || undefined;
+  // A legacy profile can declare a concrete provider while staying bound to
+  // a platform-billed connection row (e.g. the canonical vellum connection);
+  // the row's auth is the billing fact, so it gates the probe too.
+  const boundRow = connection ? getConnection(getDb(), connection) : null;
+  if (boundRow?.auth.type === "platform") {
+    return null;
   }
 
   const timeout = createTimeout(PROBE_TIMEOUT_MS);
