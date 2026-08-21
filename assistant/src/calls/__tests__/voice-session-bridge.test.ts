@@ -133,6 +133,7 @@ interface FakeConversation {
     opts?: { decisionContext?: string },
   ) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
+  getMessages: () => Array<{ role: string; content: unknown[] }>;
   abort: (reason?: unknown) => void;
   loadFromDb: () => Promise<void>;
   toolsDisabledDepth: number;
@@ -149,6 +150,8 @@ function makeFakeConversation(opts: {
   onPersist?: (attempt: number) => void;
   /** Workspace root; pass empty to model a missing boundary. */
   workingDir?: string;
+  /** In-memory history the profile pin reads; undefined models a text-only call. */
+  messages?: Array<{ role: string; content: unknown[] }>;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   const confirmationDecisions: Array<{ requestId: string; decision: string }> =
@@ -206,6 +209,7 @@ function makeFakeConversation(opts: {
       confirmationDecisions.push({ requestId, decision });
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
+    getMessages: () => opts.messages ?? [],
     abort: () => {},
     loadFromDb: async () => {
       opts.events?.push("loadFromDb");
@@ -653,8 +657,7 @@ describe("startVoiceTurn channel capabilities", () => {
   // The turn installs its capabilities, then cleanup resets them to null — so
   // capture every applied value and read the installed (non-null) one.
   function captureInstalledCapabilities(): () =>
-    | Record<string, unknown>
-    | undefined {
+    Record<string, unknown> | undefined {
     const fake = makeFakeConversation({ processing: false });
     fakeConversation = fake.conversation;
     const applied: unknown[] = [];
@@ -1733,8 +1736,7 @@ describe("front-door hub stream gate", () => {
   function makeStreamingConversation(
     deltas: string[],
     finalEvent:
-      | "message_complete"
-      | "generation_cancelled" = "message_complete",
+      "message_complete" | "generation_cancelled" = "message_complete",
   ): void {
     const fake = makeFakeConversation({ processing: false });
     fake.conversation.runAgentLoop = async (...args: unknown[]) => {
@@ -2163,5 +2165,91 @@ describe("transcript hygiene (teardown pass)", () => {
     await flushMicrotasks();
 
     expect(crudLog.deletes).toContain("assistant-row-1");
+  });
+});
+
+describe("startVoiceTurn image-bearing profile pin", () => {
+  /** A persisted user message carrying a photo taken mid-call. */
+  const PHOTO_HISTORY = [
+    { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "here's a photo:" },
+        { type: "image", source: { type: "base64", data: "abc" } },
+      ],
+    },
+  ];
+
+  async function runOptionsFor(opts: {
+    messages?: Array<{ role: string; content: unknown[] }>;
+    turn?: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const fake = makeFakeConversation({
+      processing: false,
+      ...(opts.messages ? { messages: opts.messages } : {}),
+    });
+    fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> = {};
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
+    await startVoiceTurn({ ...makeTurnOptions(), ...(opts.turn ?? {}) });
+    return runOptions;
+  }
+
+  test("a text-only call keeps the call-site profile", async () => {
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("an image in history pins the image-capable profile", async () => {
+    // `callAgent`'s balanced profile carries no guarantee that its model takes
+    // an image, and a model that rejects one fails the whole leg.
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("latency-optimized");
+    // callAgent is not `mainAgent`, so an unforced override would sit below
+    // the call-site profile and never apply.
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("an image nested in a tool result counts too", async () => {
+    const runOptions = await runOptionsFor({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              contentBlocks: [{ type: "image", source: { data: "abc" } }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(runOptions.overrideProfile).toBe("latency-optimized");
+  });
+
+  test("a front-door leg is left alone — its own call site pins it", async () => {
+    const runOptions = await runOptionsFor({
+      messages: PHOTO_HISTORY,
+      turn: { routingLeg: "front-door" },
+    });
+
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.callSite).toBe("voiceFrontDoor");
+  });
+
+  test("an explicit routing pin wins over the image pin", async () => {
+    const runOptions = await runOptionsFor({
+      messages: PHOTO_HISTORY,
+      turn: { overrideProfile: "quality-optimized" },
+    });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
   });
 });

@@ -36,7 +36,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
-import type { ContentBlock } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -66,6 +66,34 @@ import {
 } from "./voice-triage-escalate.js";
 
 const log = getLogger("voice-session-bridge");
+
+/**
+ * Profile an image-bearing voice leg is pinned to.
+ *
+ * The latency-class profile is the one voice already leans on (it fronts every
+ * turn through `voiceFrontDoor`) and its model takes images; `callAgent`'s
+ * `balanced` profile carries no such guarantee, and a model that rejects
+ * images fails the whole leg rather than degrading it.
+ */
+const VOICE_IMAGE_PROFILE = "latency-optimized";
+
+/**
+ * Does this conversation's history carry an image?
+ *
+ * Images persist inline and are re-sent on every later turn, so one photo
+ * taken mid-call makes every remaining turn of that call an image turn -- the
+ * check is over the whole history, not just this turn's own content.
+ */
+function conversationCarriesImage(messages: readonly Message[]): boolean {
+  return messages.some((message) =>
+    message.content.some(
+      (block) =>
+        block.type === "image" ||
+        (block.type === "tool_result" &&
+          block.contentBlocks?.some((nested) => nested.type === "image")),
+    ),
+  );
+}
 
 /**
  * Front-door decision rule with the registry-derived capability digest. The
@@ -1657,6 +1685,20 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
+      // Resolved once here rather than inside the options literal below, so
+      // the history scan happens once per leg. A front-door leg is skipped:
+      // its own call site already resolves to the same profile.
+      const carriesImage =
+        opts.routingLeg !== "front-door" &&
+        conversationCarriesImage(conversation.getMessages());
+      if (carriesImage) {
+        log.info(
+          { turnId, routingLeg: opts.routingLeg ?? null },
+          "Voice leg carries an image; pinning the image-capable profile",
+        );
+      }
+      const profilePin =
+        opts.overrideProfile ?? (carriesImage ? VOICE_IMAGE_PROFILE : null);
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
@@ -1737,11 +1779,13 @@ export async function startVoiceTurn(
         // strong escalation profile. `forceOverrideProfile` floats it above the
         // callAgent call-site layers (callAgent is not `mainAgent`, so the
         // override would otherwise sit below the call-site profile).
-        ...(opts.overrideProfile != null
-          ? {
-              overrideProfile: opts.overrideProfile,
-              forceOverrideProfile: true,
-            }
+        //
+        // An explicit routing pin wins; failing that, a leg whose history
+        // carries an image is pinned to a profile whose model takes one. A
+        // front-door leg needs neither: its own call site already resolves
+        // there.
+        ...(profilePin != null
+          ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),
       });
       if (lastError) {
