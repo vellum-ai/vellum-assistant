@@ -1034,6 +1034,56 @@ describe("deeplink.startVoice", () => {
   });
 });
 
+describe("deeplink.newChat", () => {
+  test("mints a registered draft and navigates to it, the same landing the in-app new-chat controls give", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.newChat", { provenance: null });
+    });
+
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    const [to] = navigateMock.mock.calls.at(-1) as [string];
+    expect(to).toMatch(/^\/assistant\/conversations\/[^/?]+$/);
+    const draftId = to.split("/").at(-1)!;
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId),
+    ).toBe(true);
+    expect(useConversationStore.getState().activeConversationId).toBe(draftId);
+  });
+});
+
+describe("deeplink.openCamera", () => {
+  test("parks the request and lands on /assistant, where the composer that owns the camera mounts", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: null });
+    });
+
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(routes.assistant);
+    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+  });
+
+  test("a second tap refreshes the park rather than queueing a second camera", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: null });
+    });
+    const first = usePendingDeepLinkStore.getState().pendingCameraAt;
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+    const second = usePendingDeepLinkStore.getState().pendingCameraAt;
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second!).toBeGreaterThanOrEqual(first!);
+  });
+});
+
 describe("deeplink.connect", () => {
   test("a bundle link opens the connect dialog prefilled and navigates to the chooser", () => {
     renderConsumer();
