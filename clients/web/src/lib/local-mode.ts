@@ -1094,13 +1094,19 @@ export async function primeLocalGatewayConnectionWithStartupRetry(
  * Prime the local gateway connection, transparently repairing the assistant in
  * place when the first attempt fails for a repairable reason.
  *
- * This mirrors the native client's bootstrap, which re-pairs a stopped,
- * expired, or mis-seeded local assistant before the failure ever reaches the
- * user: on a repairable failure it runs `wake` (re-seeds the guardian token
- * and restarts the daemon + gateway, leaving the assistant's data and identity
- * untouched), then primes the connection once more. A non-repairable failure,
- * a wake that itself fails, or a still-failing retry propagate the original
- * error so the existing connect-error UI surfaces it unchanged.
+ * This mirrors the native client's bootstrap, which revives a stopped or
+ * unresolved local assistant before the failure ever reaches the user: on a
+ * repairable failure it runs a plain `wake` (restarts the daemon + gateway,
+ * leaving the assistant's data and identity untouched), then primes the
+ * connection once more. A non-repairable failure, a wake that itself fails, or
+ * a still-failing retry propagate the original error so the existing
+ * connect-error UI surfaces it unchanged.
+ *
+ * A plain wake cannot re-lease a guardian token the gateway rejects at the
+ * `/auth/token` mint, so a `401` that survives the retry propagates as a
+ * {@link GatewayTokenError} for callers to route to the guardian re-provision
+ * (`wakeLocalAssistantHost` with `repairGuardian`), the one repair that clears
+ * it and the one this path must never run on its own.
  */
 export async function primeLocalGatewayConnectionWithRepair(
   target?: LockfileAssistant,

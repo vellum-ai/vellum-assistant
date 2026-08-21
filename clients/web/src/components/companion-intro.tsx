@@ -8,6 +8,8 @@ import type {
 } from "@vellumai/ipc-contract";
 import type { CSSProperties, Ref } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
@@ -58,45 +60,55 @@ const AVATAR_BOX = 44;
  */
 const CARD_WIDTH = 244;
 
-interface IntroCopy {
-  title: string;
-  body: string;
-}
-
 /**
- * What each beat says.
+ * Where each beat's two lines live, by beat.
  *
  * Two short lines and no more. This is a panel floating over the app the user
  * was actually using, so every extra sentence is a sentence read at the expense
  * of the thing being pointed at, and the controls being introduced already
  * carry their own labels.
+ *
+ * A literal key per beat rather than a template built from the beat name: the
+ * catalogs type `t()`, and a key assembled at runtime types as `string` and
+ * checks against nothing, which is how a renamed beat becomes a card printing
+ * its own key path at someone.
+ *
+ * **`talk` and `type` quote the pill.** Their titles are the labels on the two
+ * controls the beat spotlights, so they are not free copy: when the surface
+ * itself is translated (`companion-surface.tsx` is still English throughout),
+ * these two titles move with the labels, in the same edit and to the same
+ * words. A card reading "Hablar" beside a button reading "Talk" points at
+ * nothing.
  */
-export const INTRO_COPY: Record<CompanionIntroBeat, IntroCopy> = {
+const INTRO_COPY_KEYS = {
   meet: {
-    title: "This is me",
-    body: "I stay on your desktop, even when Vellum isn’t visible.",
+    title: "companionIntro.meet.title",
+    body: "companionIntro.meet.body",
   },
   talk: {
-    title: "Talk",
-    body: "Start a voice conversation.",
+    title: "companionIntro.talk.title",
+    body: "companionIntro.talk.body",
   },
   type: {
-    title: "Type",
-    body: "Send a message from here and read the reply here too.",
+    title: "companionIntro.type.title",
+    body: "companionIntro.type.body",
   },
-  tray: {
-    title: "Hide me anytime",
-    body: "Disable “Show Companion” in the menu bar.",
+  menu: {
+    title: "companionIntro.menu.title",
+    body: "companionIntro.menu.body",
   },
-};
+} as const satisfies Record<
+  CompanionIntroBeat,
+  { title: string; body: string }
+>;
 
 /**
  * Which control the pill should draw as though the pointer were on it.
  *
  * Only the beats that name a control on the pill have one. `meet` is about the
- * creature, and `tray` is about the menu bar, which is not on the surface at
- * all. Shared with the page and the stories so a beat cannot be introduced in
- * one place and spotlighted in another.
+ * creature, and `menu` is about a right-click on it, which no control on the
+ * pill stands for. Shared with the page and the stories so a beat cannot be
+ * introduced in one place and spotlighted in another.
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
@@ -133,6 +145,16 @@ export interface CompanionIntroProps {
   /** The assistant's avatar colour, for the progress dots. */
   accentHex?: string;
   /**
+   * The assistant's own name, for the first beat.
+   *
+   * The creature introduces itself by name because it has one, and the surface
+   * is the one place it appears without the app around it to say whose it is.
+   * Undefined until the app's window has published a name, which is a real
+   * state on a cold launch, and the beat falls back to naming no one rather
+   * than to a gap in the sentence.
+   */
+  assistantName?: string;
+  /**
    * The card's own element, for the host to hit-test the pointer against.
    *
    * The companion's window is click-through except where it is told otherwise,
@@ -150,12 +172,14 @@ export function CompanionIntro({
   growth = "right",
   cardGrowth = "up",
   accentHex,
+  assistantName,
   cardRef,
   onAdvance,
 }: CompanionIntroProps) {
+  const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
-  const copy = INTRO_COPY[beat];
+  const copy = INTRO_COPY_KEYS[beat];
 
   // The pill's own horizontal anchoring, repeated rather than shared, because
   // the card is a sibling of the pill and not inside it: it must not inherit
@@ -189,7 +213,7 @@ export function CompanionIntro({
       // pointer, so claiming a dialog's semantics would promise keyboard
       // behaviour this panel cannot deliver.
       role="group"
-      aria-label="Introducing your companion"
+      aria-label={t("companionIntro.ariaLabel")}
       className="absolute flex flex-col gap-2 rounded-2xl border border-white/10 bg-[#17181b]/95 px-3.5 py-3 shadow-lg shadow-black/40"
       style={{ width: CARD_WIDTH, ...placement, ...anchor }}
       // The card is not a drag handle. Everything else on this surface is, and
@@ -199,10 +223,22 @@ export function CompanionIntro({
         event.stopPropagation();
       }}
     >
-      <p className="text-[13px] leading-tight font-medium text-white">
-        {copy.title}
+      {/* Clamped, because the only variable in this card is a name the user
+          chose and there is no length it has to be. The card's width is fixed
+          and its height is borrowed from the canvas the typing card reserves,
+          so a title free to wrap is a title free to grow the card past what it
+          was drawn into. Two lines holds every name worth reading. */}
+      <p className="line-clamp-2 text-[13px] leading-tight font-medium text-white">
+        {/* The first beat is the introduction proper, so it is the one that
+            says the name. Two keys rather than one with an empty argument: a
+            sentence built around a name that is not there reads as a bug, and
+            the unnamed version is a different sentence rather than the same one
+            with a hole in it. */}
+        {beat === "meet" && assistantName !== undefined
+          ? t("companionIntro.meet.titleNamed", { name: assistantName })
+          : t(copy.title)}
       </p>
-      <p className="text-[12px] leading-[1.45] text-white/70">{copy.body}</p>
+      <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
       <div className="flex items-center justify-between pt-0.5">
         {/* Where the run is, as dots rather than "2 of 3". The count is not
             information anyone acts on; that it is nearly over is. */}
@@ -231,7 +267,7 @@ export function CompanionIntro({
               className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
               onClick={() => onAdvance?.("dismiss")}
             >
-              Skip
+              {t("companionIntro.skip")}
             </button>
           )}
           <button
@@ -239,7 +275,7 @@ export function CompanionIntro({
             className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
             onClick={() => onAdvance?.("next")}
           >
-            {isLast ? "Got it" : "Next"}
+            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
           </button>
         </div>
       </div>
