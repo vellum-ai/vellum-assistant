@@ -45,7 +45,7 @@
   "sttProviderForm": {
     "windowsNativeDisplayName": "Windows Native Dictation",
     "windowsNativeSubtitle": "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
-    "windowsNativeSetupWarning": "Requires a Windows speech language pack: open Settings > Time & language > Language & region, choose your language's Language options, then install Speech."
+    "windowsNativeSetupWarning": "Requires Basic speech recognition for your Windows display language: open Settings > Time & language > Language & region, select the three dots next to the display language, choose Language options, then under Language features download Basic speech recognition."
   },
   "windowsMenuBar": {
     "file": "File",

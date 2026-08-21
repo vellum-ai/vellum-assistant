@@ -204,7 +204,7 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     expect(visibleOptions()).not.toContain("macOS Native Dictation");
 
     selectOption("Windows Native Dictation");
-    expect(screen.getByText(/Windows speech language pack/)).toBeTruthy();
+    expect(screen.getByText(/download Basic speech recognition/)).toBeTruthy();
     expect(screen.queryByText(/System Settings/)).toBeNull();
   });
 
@@ -218,7 +218,7 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     expect(visibleOptions()).toContain("Dictado nativo de Windows");
 
     selectOption("Dictado nativo de Windows");
-    expect(screen.getByText(/Requiere un paquete de voz de Windows/)).toBeTruthy();
+    expect(screen.getByText(/Reconocimiento de voz básico/)).toBeTruthy();
   });
 
   test("selecting Deepgram and saving provisions the daemon (CES key + services.stt)", async () => {
