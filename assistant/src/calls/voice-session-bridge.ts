@@ -35,6 +35,7 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
+import { doesSupportVision } from "../plugin-api/vision-support.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -71,9 +72,15 @@ const log = getLogger("voice-session-bridge");
  * Profile an image-bearing voice leg is pinned to.
  *
  * The latency-class profile is the one voice already leans on (it fronts every
- * turn through `voiceFrontDoor`) and its model takes images; `callAgent`'s
- * `balanced` profile carries no such guarantee, and a model that rejects
- * images fails the whole leg rather than degrading it.
+ * turn through `voiceFrontDoor`); `callAgent`'s `balanced` profile carries no
+ * guarantee that its model takes images, and a model that rejects an image
+ * fails the whole leg rather than degrading it.
+ *
+ * Whether THIS profile takes images is an install-level question, not a
+ * constant: a BYO provider resolves the key through its own column of the
+ * intent matrix, and on Fireworks that lands on a text-only model while its
+ * `balanced` column is vision-capable. Pinning there would break the exact
+ * turns this pin exists to save, hence the capability check at the call site.
  */
 const VOICE_IMAGE_PROFILE = "latency-optimized";
 
@@ -1687,9 +1694,12 @@ export async function startVoiceTurn(
       }
       // Resolved once here rather than inside the options literal below, so
       // the history scan happens once per leg. A front-door leg is skipped:
-      // its own call site already resolves to the same profile.
+      // its own call site already resolves to the same profile. The
+      // capability check comes before the scan because it is the cheaper of
+      // the two and it decides whether the pin is worth anything at all.
       const carriesImage =
         opts.routingLeg !== "front-door" &&
+        doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());
       if (carriesImage) {
         log.info(
