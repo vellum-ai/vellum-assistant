@@ -28,7 +28,7 @@ export async function requestNativeTranscription(
   try {
     const result = await bridge.transcribe(audio);
     if (!result.ok) {
-      return result;
+      return { ok: false, reason: result.reason };
     }
     return { ok: true, text: await textPromise };
   } finally {
