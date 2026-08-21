@@ -1,6 +1,9 @@
 import { useState } from "react";
 
+import { ChevronDown } from "lucide-react";
+
 import { Button } from "@vellumai/design-library/components/button";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -26,6 +29,9 @@ import { useTunnelStatus } from "./use-tunnel-status";
 const TUNNEL_COMMAND = "vellum tunnel --provider tailscale";
 const TUNNEL_HELP_COMMAND = "vellum tunnel --help";
 
+/** The URL field's disclosure holds a single section. */
+const URL_FIELD_SECTION = "public-url";
+
 const CODE_CLASS =
   "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-primary)]";
 
@@ -39,12 +45,13 @@ const CODE_CLASS =
  * ({@link PendingPairingRequests}).
  *
  * What the tunnel is doing comes from the daemon-side probe
- * ({@link useTunnelStatus}), which drives the status row, the URL field's
- * prefill and the first-run notice, and re-runs on the `app.resume` foreground
- * edge. Where that probe has no verdict, because the assistant sits below
- * {@link useSupportsIngressStatus}'s floor or because the query gave up, the
- * card falls back to the assistant's recorded ingress URL and infers the
- * empty state from the field.
+ * ({@link useTunnelStatus}), which drives the status row, the first-run
+ * notice, the URL field's prefill and whether it hides behind its disclosure,
+ * and how much the Generate button insists. The probe re-runs on the
+ * `app.resume` foreground edge. Where that probe has no verdict, because the
+ * assistant sits below {@link useSupportsIngressStatus}'s floor or because the
+ * query gave up, the card falls back to the assistant's recorded ingress URL
+ * and infers the empty state from the field.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
@@ -73,15 +80,21 @@ export function PairDeviceCard() {
   useBusSubscription("app.resume", () => {
     tunnel.refresh();
   });
+  // The address the daemon's current answer carries, if any. `null` while the
+  // probe is still checking, so nothing downstream mistakes a fallback for a
+  // reported address.
+  const statusAddress = statusPublicBaseUrl(tunnel.status);
   const pair = usePairDevice(
     target?.base ?? null,
-    probeAnswered
-      ? statusPublicBaseUrl(tunnel.status)
-      : (target?.ingressUrl ?? null),
+    probeAnswered ? statusAddress : (target?.ingressUrl ?? null),
   );
   // Bumped when the pending-request flow pairs a device, so the device list
   // below refetches without waiting for a live-code poll.
   const [devicesRevalidateKey, setDevicesRevalidateKey] = useState(0);
+  // The user taking the URL field over, by opening its disclosure or typing in
+  // it. Sticky, so a verdict arriving afterwards cannot collapse the field out
+  // from under them.
+  const [urlFieldOpened, setUrlFieldOpened] = useState(false);
   const { copy, copied } = useCopyToClipboard({
     errorMessage: t("pairDeviceCard.copyError"),
   });
@@ -103,11 +116,66 @@ export function PairDeviceCard() {
   const showNoTunnelGuidance = probeAnswered
     ? tunnel.status.kind === "unconfigured"
     : pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
+  // The probe doubts the address. The status row already says so, so the
+  // button softens to match instead of repeating the warning.
+  const tunnelWarns =
+    probeAnswered &&
+    (tunnel.status.kind === "unreachable" || tunnel.status.kind === "foreign");
   const buttonLabel = isMinting
     ? t("pairDeviceCard.generateButtonMinting")
     : isReady
       ? t("pairDeviceCard.generateButtonRegenerate")
-      : t("pairDeviceCard.generateButton");
+      : tunnelWarns
+        ? t("pairDeviceCard.generateButtonWarned")
+        : t("pairDeviceCard.generateButton");
+  // The URL field only hides behind its disclosure once the address it would
+  // advertise is the one the daemon just reported. Until then it leads, so a
+  // click can never mint a stale stored address the user never saw. A stopped
+  // tunnel's recorded address serves nothing, so its field leads too.
+  const daemonHasAddress =
+    probeAnswered && statusAddress !== null && tunnel.status.kind !== "stopped";
+  // A rejected address opens the field too, or its error would report from
+  // inside a closed disclosure.
+  const urlFieldOpen = urlFieldOpened || pair.inputError !== null;
+
+  // Never disabled on the probe's word: a false negative must not strand a
+  // user whose address does work.
+  const generateButton = (
+    <Button
+      variant={tunnelWarns ? "outlined" : "primary"}
+      className="self-start"
+      disabled={isMinting || pair.publicBaseUrl.trim() === ""}
+      onClick={pair.generate}
+    >
+      {buttonLabel}
+    </Button>
+  );
+
+  const urlField = (
+    <Input
+      label={t("pairDeviceCard.publicUrlLabel")}
+      fullWidth
+      placeholder={t("pairDeviceCard.publicUrlPlaceholder")}
+      helperText={
+        prefilledFromTunnel
+          ? t("pairDeviceCard.publicUrlHelperTunnel")
+          : t("pairDeviceCard.publicUrlHelper")
+      }
+      value={pair.publicBaseUrl}
+      errorText={pair.inputError ?? undefined}
+      disabled={isMinting}
+      onChange={(event) => {
+        setUrlFieldOpened(true);
+        pair.setPublicBaseUrl(event.target.value);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          pair.generate();
+        }
+      }}
+    />
+  );
 
   return (
     <DetailCard
@@ -146,35 +214,41 @@ export function PairDeviceCard() {
           onRefresh={tunnel.refresh}
           isRefreshing={tunnel.isRefreshing}
         />
+        {/* With a reported address in hand the action leads and the field
+            hides behind its disclosure. Without one the field leads and the
+            action follows it, which is the card's layout until the probe
+            answers with an address, and its whole layout before the probe. */}
         <div className="flex flex-col gap-3">
-          <Input
-            label={t("pairDeviceCard.publicUrlLabel")}
-            fullWidth
-            placeholder={t("pairDeviceCard.publicUrlPlaceholder")}
-            helperText={
-              prefilledFromTunnel
-                ? t("pairDeviceCard.publicUrlHelperTunnel")
-                : t("pairDeviceCard.publicUrlHelper")
-            }
-            value={pair.publicBaseUrl}
-            errorText={pair.inputError ?? undefined}
-            disabled={isMinting}
-            onChange={(event) => pair.setPublicBaseUrl(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                pair.generate();
-              }
-            }}
-          />
-          <Button
-            variant="primary"
-            className="self-start"
-            disabled={isMinting || pair.publicBaseUrl.trim() === ""}
-            onClick={pair.generate}
-          >
-            {buttonLabel}
-          </Button>
+          {daemonHasAddress ? (
+            <>
+              {generateButton}
+              <Collapsible.Root
+                type="single"
+                collapsible
+                value={urlFieldOpen ? URL_FIELD_SECTION : ""}
+                onValueChange={(value) =>
+                  setUrlFieldOpened(value === URL_FIELD_SECTION)
+                }
+              >
+                <Collapsible.Item value={URL_FIELD_SECTION}>
+                  <Collapsible.Trigger className="group flex w-full items-center justify-between gap-3">
+                    <span className="text-body-medium-default text-[var(--content-secondary)]">
+                      {t("pairDeviceCard.publicUrlDisclosure")}
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />
+                  </Collapsible.Trigger>
+                  <Collapsible.Content>
+                    <div className="mt-3">{urlField}</div>
+                  </Collapsible.Content>
+                </Collapsible.Item>
+              </Collapsible.Root>
+            </>
+          ) : (
+            <>
+              {urlField}
+              {generateButton}
+            </>
+          )}
         </div>
 
         {phase.kind === "error" && (

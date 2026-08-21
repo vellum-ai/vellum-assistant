@@ -60,7 +60,12 @@ let probeResponse: IntegrationsIngressStatusGetResponse = {
 };
 /** Set by a test to make the probe fail the way a dead daemon would. */
 let probeFailure: Error | null = null;
+/** Set by a test to leave the probe in flight the way a slow daemon would. */
+let probeStalls = false;
 const probeMock = mock(async () => {
+  if (probeStalls) {
+    await new Promise(() => {});
+  }
   if (probeFailure) {
     throw probeFailure;
   }
@@ -126,6 +131,9 @@ const ASSISTANT_ID = "self";
 const VERSION_WITHOUT_INGRESS_STATUS = "0.11.5";
 const TUNNEL_URL = "https://tunnel.example.ts.net";
 const RECORDED_INGRESS_URL = "https://recorded.example.ts.net";
+/** Where `usePairDevice` remembers the last URL that minted a code. */
+const STORED_URL_KEY = "vellum:pair-device:public-base-url";
+const STORED_URL = "https://stored.example.ts.net";
 
 /** Move the active assistant onto a version whose daemon serves the probe. */
 function enableTunnelStatus() {
@@ -251,6 +259,17 @@ function typeUrl(value: string) {
   });
 }
 
+/** The disclosure the URL field hides behind once an address is known. */
+const URL_DISCLOSURE_LABEL = "Use a different address";
+
+function urlDisclosure(): HTMLElement | null {
+  return screen.queryByRole("button", { name: URL_DISCLOSURE_LABEL });
+}
+
+function openUrlField() {
+  fireEvent.click(screen.getByRole("button", { name: URL_DISCLOSURE_LABEL }));
+}
+
 beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
@@ -263,6 +282,7 @@ beforeEach(() => {
   localStorage.clear();
   probeResponse = { state: "unconfigured" };
   probeFailure = null;
+  probeStalls = false;
   probeMock.mockClear();
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   // Tests that exercise the status row opt into a version that serves it.
@@ -759,7 +779,9 @@ describe("PairDeviceCard: tunnel status", () => {
     probeResponse = healthyStatus();
     renderCard();
 
-    await waitFor(() => expect(urlField().value).toBe(TUNNEL_URL));
+    await screen.findByText("The tunnel is running and reachable.");
+    openUrlField();
+    expect(urlField().value).toBe(TUNNEL_URL);
     // The helper text still credits `vellum tunnel` for the address.
     expect(screen.getByText(/comes from/)).toBeTruthy();
   });
@@ -779,13 +801,161 @@ describe("PairDeviceCard: tunnel status", () => {
     expect(urlField().value).toBe("");
   });
 
-  test("keeps a typed URL when the probe answers", async () => {
+  test("keeps a typed URL, and the field open, when the probe answers again", async () => {
     probeResponse = healthyStatus();
     renderCard();
+    await screen.findByText("The tunnel is running and reachable.");
+    openUrlField();
     typeUrl(PUBLIC_URL);
 
-    await screen.findByText("The tunnel is running and reachable.");
+    act(() => publish("app.resume", { signal: "visibility" }));
+    await waitFor(() => expect(probeMock).toHaveBeenCalledTimes(2));
     expect(urlField().value).toBe(PUBLIC_URL);
+  });
+
+  test("offers a primary Generate button when the tunnel is healthy", async () => {
+    probeResponse = healthyStatus();
+    renderCard();
+
+    await screen.findByText("The tunnel is running and reachable.");
+    const button = screen.getByRole("button", {
+      name: "Generate pairing QR",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.className).toContain("bg-[var(--primary-base)]");
+  });
+
+  test("an unreachable tunnel demotes Generate without disabling it", async () => {
+    probeResponse = {
+      state: "unreachable",
+      publicBaseUrl: TUNNEL_URL,
+      checkedAt: new Date().toISOString(),
+    };
+    renderCard();
+
+    const button = (await screen.findByRole("button", {
+      name: "Generate anyway",
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.className).toContain("bg-transparent");
+    // The status row carries the warning, so the card adds no second notice.
+    expect(
+      screen.getByText("This address is not answering right now."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Open a tunnel first")).toBeNull();
+  });
+
+  test("a foreign tunnel gets the same Generate anyway treatment", async () => {
+    probeResponse = {
+      state: "foreign",
+      publicBaseUrl: TUNNEL_URL,
+      checkedAt: new Date().toISOString(),
+    };
+    renderCard();
+
+    const button = (await screen.findByRole("button", {
+      name: "Generate anyway",
+    })) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+  });
+
+  test("hides the URL field behind a disclosure once an address is known", async () => {
+    probeResponse = healthyStatus();
+    renderCard();
+
+    await screen.findByText("The tunnel is running and reachable.");
+    expect(screen.queryByLabelText("Public URL")).toBeNull();
+
+    openUrlField();
+    expect(urlField().value).toBe(TUNNEL_URL);
+  });
+
+  test("keeps a stored URL on screen while the probe is still checking", async () => {
+    // The stale-address hazard: without a verdict yet, the field is prefilled
+    // from the last URL that worked, and Generate would mint against it.
+    localStorage.setItem(STORED_URL_KEY, STORED_URL);
+    probeStalls = true;
+    renderCard();
+
+    expect(
+      await screen.findByText("Checking whether the tunnel is reachable…"),
+    ).toBeTruthy();
+    expect(urlDisclosure()).toBeNull();
+    expect(urlField().value).toBe(STORED_URL);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Generate pairing QR",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  test("collapses the field only once the verdict carries the daemon's address", async () => {
+    localStorage.setItem(STORED_URL_KEY, STORED_URL);
+    probeResponse = healthyStatus();
+    renderCard();
+
+    // First render is the in-flight probe: the stored address still leads.
+    expect(urlDisclosure()).toBeNull();
+    expect(urlField().value).toBe(STORED_URL);
+
+    await screen.findByText("The tunnel is running and reachable.");
+    expect(screen.queryByLabelText("Public URL")).toBeNull();
+    openUrlField();
+    expect(urlField().value).toBe(TUNNEL_URL);
+  });
+
+  test("a verdict arriving mid-typing cannot collapse the field", async () => {
+    probeResponse = healthyStatus();
+    renderCard();
+
+    // Typed into the pre-verdict layout, before the disclosure exists.
+    typeUrl(PUBLIC_URL);
+    await screen.findByText("The tunnel is running and reachable.");
+
+    expect(urlField().value).toBe(PUBLIC_URL);
+  });
+
+  test("keeps the URL field in the open when the daemon reports no tunnel", async () => {
+    probeResponse = { state: "unconfigured" };
+    renderCard();
+
+    expect(await screen.findByText("Open a tunnel first")).toBeTruthy();
+    expect(urlField().value).toBe("");
+    expect(urlDisclosure()).toBeNull();
+  });
+
+  test("keeps the URL field in the open for a stopped tunnel, prefilled from its record", async () => {
+    probeResponse = {
+      state: "stopped",
+      lastTunnel: { provider: "tailscale", publicBaseUrl: TUNNEL_URL },
+    };
+    renderCard();
+
+    await screen.findByText(
+      "The tunnel is stopped, so other devices cannot reach this assistant.",
+    );
+    expect(urlField().value).toBe(TUNNEL_URL);
+    expect(urlDisclosure()).toBeNull();
+  });
+
+  test("mints against the address typed into the disclosed field", async () => {
+    installFetch(() => jsonResponse(challengeBody()));
+    probeResponse = healthyStatus();
+    renderCard();
+    await screen.findByText("The tunnel is running and reachable.");
+
+    openUrlField();
+    typeUrl(PUBLIC_URL);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate pairing QR" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTitle("Device pairing QR code")).toBeTruthy(),
+    );
+    expect(requestBody(mintCalls()[0])).toEqual({ publicBaseUrl: PUBLIC_URL });
   });
 });
 
@@ -868,5 +1038,23 @@ describe("PairDeviceCard: without the ingress-status route", () => {
 
     expect(screen.getByText("Open a tunnel first")).toBeTruthy();
     expect(probeMock).not.toHaveBeenCalled();
+  });
+
+  test("leaves the URL field in the open under a primary Generate button", () => {
+    selectedAssistant = {
+      assistantId: ASSISTANT_ID,
+      cloud: "local",
+      ingressUrl: RECORDED_INGRESS_URL,
+    };
+    renderCard();
+
+    // No verdict to steer on: the card behaves as it does without the probe.
+    expect(urlField().value).toBe(RECORDED_INGRESS_URL);
+    expect(urlDisclosure()).toBeNull();
+    const button = screen.getByRole("button", {
+      name: "Generate pairing QR",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.className).toContain("bg-[var(--primary-base)]");
   });
 });
