@@ -234,6 +234,41 @@ describe("capability gating across channels", () => {
     expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
   });
 
+  test("Slack renders a muted edit as its own context block", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "This approval request has been resolved.",
+      emphasis: "muted",
+    });
+
+    // The producer asked for a settled message and named no markup. Slack
+    // decides that means a context block.
+    const [, , , options] = slack.updateSlackMessage.mock.calls[0]!;
+    expect((options as { blocks?: unknown[] }).blocks).toEqual([
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "This approval request has been resolved.",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("an edit with no emphasis carries no channel markup", async () => {
+    await editChannelMessage(`${BASE}/deliver/slack`, {
+      chatId: "C1",
+      messageId: "1700.5",
+      text: "revised",
+    });
+
+    const [, , , options] = slack.updateSlackMessage.mock.calls[0]!;
+    expect((options as { blocks?: unknown[] }).blocks).toBeUndefined();
+  });
+
   test("editChannelMessage now reaches Telegram, not only Slack", async () => {
     // The capability gate is what let Telegram gain this: no caller changed,
     // the transport grew the method.

@@ -1,3 +1,4 @@
+import type { KnownBlock } from "@slack/types";
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
@@ -12,6 +13,11 @@ import {
 } from "./send.js";
 
 const log = getLogger("slack-transport");
+
+/** Slack's rendering of a settled message. */
+function mutedBlocks(text: string): KnownBlock[] {
+  return [{ type: "context", elements: [{ type: "mrkdwn", text }] }];
+}
 
 export const slackTransport: ChannelTransport = {
   channel: "slack",
@@ -57,7 +63,13 @@ export const slackTransport: ChannelTransport = {
       target.chatId,
       target.messageId,
       target.text,
-      { blocks: target.blocks, useBlocks: target.renderRichly },
+      {
+        // Slack's answer to a settled message is a context block, which reads
+        // smaller and greyer than body text.
+        blocks:
+          target.emphasis === "muted" ? mutedBlocks(target.text) : undefined,
+        useBlocks: target.renderRichly,
+      },
     );
     return { ok: true, ts: result.ts };
   },

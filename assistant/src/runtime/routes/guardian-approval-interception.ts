@@ -5,8 +5,6 @@
  * This module is the top-level dispatcher. It delegates plain-text messages to
  * the conversational engine in guardian-text-engine-strategy.ts.
  */
-import type { KnownBlock } from "@slack/types";
-
 import { audienceForReader } from "../../channels/message-audience.js";
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
@@ -246,10 +244,10 @@ export async function handleApprovalInterception(
 
           // Edit the original Slack approval message to remove stale buttons
           if (approvalMessageId) {
-            editStaleSlackApprovalMessage({
+            editStaleApprovalMessage({
               replyCallbackUrl,
               chatId: conversationExternalId,
-              messageTs: approvalMessageId,
+              messageId: approvalMessageId,
               assistantId,
               conversationId,
             });
@@ -292,10 +290,10 @@ export async function handleApprovalInterception(
       // above and the decision attempt.
       // Edit the original Slack approval message to remove stale buttons
       if (approvalMessageId) {
-        editStaleSlackApprovalMessage({
+        editStaleApprovalMessage({
           replyCallbackUrl,
           chatId: conversationExternalId,
-          messageTs: approvalMessageId,
+          messageId: approvalMessageId,
           assistantId,
           conversationId,
         });
@@ -374,39 +372,32 @@ export async function handleApprovalInterception(
 // ---------------------------------------------------------------------------
 
 /**
- * Fire-and-forget: edit a stale Slack approval message to indicate it has
- * been resolved and remove the action buttons. Used when a button click
- * arrives for an already-resolved approval.
+ * Fire-and-forget: mark a stale approval message as resolved and drop its
+ * action buttons. Used when a button click arrives for an approval that was
+ * already decided.
+ *
+ * Says the message is settled and leaves each channel to render that. Slack
+ * reads it as a context block, and a channel with no equivalent shows the
+ * text plainly.
  */
-function editStaleSlackApprovalMessage(params: {
+function editStaleApprovalMessage(params: {
   replyCallbackUrl: string;
   chatId: string;
-  messageTs: string;
+  messageId: string;
   assistantId: string;
   conversationId: string;
 }): void {
-  const statusText = "This approval request has been resolved.";
-  const blocks: KnownBlock[] = [
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: statusText },
-    },
-    {
-      type: "context",
-      elements: [{ type: "mrkdwn", text: statusText }],
-    },
-  ];
   editChannelMessage(params.replyCallbackUrl, {
     chatId: params.chatId,
-    messageId: params.messageTs,
-    text: statusText,
-    blocks,
+    messageId: params.messageId,
+    text: "This approval request has been resolved.",
+    emphasis: "muted",
   }).catch((err) => {
     log.error(
       {
         err,
         conversationId: params.conversationId,
-        messageTs: params.messageTs,
+        messageId: params.messageId,
       },
       "Failed to edit stale Slack approval message",
     );
