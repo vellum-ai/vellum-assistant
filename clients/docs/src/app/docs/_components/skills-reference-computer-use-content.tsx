@@ -22,9 +22,9 @@ export function SkillsReferenceComputerUseContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Controls your Mac directly &mdash; observes the screen via accessibility APIs and
-            screenshots, clicks, types, scrolls, drags, opens apps, and runs AppleScript. Your
-            assistant&apos;s hands and eyes on your desktop.
+            Controls a connected desktop directly. It observes the screen through accessibility
+            APIs and screenshots, then clicks, types, and scrolls. Some actions depend on the
+            desktop operating system.
           </p>
         </section>
 
@@ -33,7 +33,8 @@ export function SkillsReferenceComputerUseContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            None (built into the macOS app). Requires macOS system permissions.
+            None (built into the desktop app). The app will request the operating-system permissions
+            it needs.
           </p>
         </section>
 
@@ -43,7 +44,7 @@ export function SkillsReferenceComputerUseContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>Accessibility (mouse/keyboard control)</li>
-            <li>Screen Recording (seeing screen content)</li>
+            <li>Screen capture (seeing screen content)</li>
             <li>Each action is prompted individually for approval</li>
           </ul>
         </section>
@@ -67,7 +68,7 @@ export function SkillsReferenceComputerUseContent() {
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Open Safari and go to my bank&apos;s website&rdquo;
+                    &ldquo;Open my browser and go to my bank&apos;s website&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Opens app and navigates
@@ -149,11 +150,13 @@ export function SkillsReferenceComputerUseContent() {
               <strong>Session caps.</strong> Sessions are capped at 50 steps with loop detection.
             </li>
             <li>
-              <strong>macOS only.</strong> Computer use is macOS only &mdash; not available on other channels.
+              <strong>Platform differences.</strong> Dragging, opening apps by name, and AppleScript
+              are available on macOS. Windows exposes only actions its desktop helper supports, so
+              unsupported tools are not offered to the assistant.
             </li>
             <li>
-              <strong>Screen visibility.</strong> Be mindful of what&apos;s visible on screen
-              &mdash; screenshots are sent to the AI model.
+              <strong>Screen visibility.</strong> Be mindful of what&apos;s visible on screen.
+              Screenshots are sent to the AI model.
             </li>
           </ul>
         </section>

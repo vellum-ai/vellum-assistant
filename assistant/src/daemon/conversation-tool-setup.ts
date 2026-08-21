@@ -9,6 +9,7 @@
 import type { AssistantEvent } from "../api/index.js";
 import {
   type HostProxyCapability,
+  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
@@ -23,6 +24,7 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
+import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllPluginToolDefinitions,
@@ -430,6 +432,8 @@ export function createToolExecutor(
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
+      clientOs:
+        parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ?? undefined,
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
@@ -729,6 +733,22 @@ export function isToolActiveForContext(
   const transportInterface = pin
     ? pin.transportInterface
     : ctx.transportInterface;
+  const clientOs = pin
+    ? pin.clientOs
+    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
+      (transportInterface === "macos" || transportInterface === "windows"
+        ? transportInterface
+        : undefined));
+  const supportedClientOs = getTool(name)?.supportedClientOs;
+  if (
+    !supportsClientOsForSkillTool(supportedClientOs, name, {
+      clientOs,
+      transportInterface,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+    })
+  ) {
+    return false;
+  }
 
   // When the conversation is acting as a subagent, the parent orchestrator
   // restricts the tool list. A tool that isn't on the allowlist is not
@@ -1068,6 +1088,9 @@ export function createResolveToolsCallback(
         continue;
       }
       if (excluded.has(name)) {
+        continue;
+      }
+      if (!isToolActiveForContext(name, ctx)) {
         continue;
       }
       turnAllowed.add(name);

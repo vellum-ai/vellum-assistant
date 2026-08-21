@@ -3,7 +3,7 @@
  * tool-setup ↔ doordash-steps and tool-setup ↔ tool-side-effects cycles.
  */
 
-import type { InterfaceId } from "../channels/types.js";
+import type { ClientOs, InterfaceId } from "../channels/types.js";
 
 /**
  * How a subagent/wake tool allowlist is enforced.
@@ -51,8 +51,8 @@ export interface SubagentToolStats {
  * transport interface, no channel capabilities), which drops client-gated
  * tools (`host_*`, `ui_*`, `ask_question`, `request_system_permission`) from
  * the wire definitions and breaks the cache prefix anyway. When this pin is
- * set on the conversation, `isToolActiveForContext` reads `hasNoClient` and
- * `transportInterface` exclusively from the pin and treats channel
+ * set on the conversation, `isToolActiveForContext` reads `hasNoClient`,
+ * `transportInterface`, and `clientOs` exclusively from the pin and treats channel
  * capabilities as unset — an absent optional field pins the value to
  * `undefined`; there is no fall-through to the live conversation state.
  * (Interactive-interface turns never set channel capabilities, so unset IS
@@ -70,6 +70,8 @@ export interface WakeToolContextPin {
   hasNoClient: boolean;
   /** The interface the source's live turns ran on (e.g. `"macos"`). */
   transportInterface?: InterfaceId;
+  /** The client OS the source's live turns reported. */
+  clientOs?: ClientOs;
   /**
    * Origin tag stamped onto `ToolContext.requestOrigin` for the duration of
    * the wake (e.g. `"memory_retrospective"`). Wakes bypass `runAgentLoopImpl`,

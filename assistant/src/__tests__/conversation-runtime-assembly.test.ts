@@ -445,6 +445,22 @@ describe("injectChannelCapabilityContext", () => {
     expect(result.content.length).toBe(1);
   });
 
+  test("injects PowerShell guidance for a Windows desktop", () => {
+    const caps: ChannelCapabilities = {
+      channel: "vellum",
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+      clientOS: "windows",
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+
+    expect(text).toContain("`host_bash` runs PowerShell");
+    expect(text).toContain("Windows paths");
+  });
+
   test("injects constraint rules for non-dashboard channel", () => {
     const caps: ChannelCapabilities = {
       channel: "telegram",

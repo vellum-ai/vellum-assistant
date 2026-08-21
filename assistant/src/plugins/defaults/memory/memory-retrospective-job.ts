@@ -51,8 +51,10 @@ import {
 } from "@vellumai/plugin-api";
 
 import {
+  type ClientOs,
   type InterfaceId,
   isInteractiveInterface,
+  parseClientOs,
   parseInterfaceId,
 } from "../../../channels/types.js";
 import { isV3TierActive } from "../../../config/memory-v3-gate.js";
@@ -709,8 +711,10 @@ interface SourceParityPins {
  * fork's hydrated value (`true`) so the parity contract doesn't depend on
  * hydration defaults.
  *
- * `toolContextPin.transportInterface` — the interface the source's most
+ * `toolContextPin.transportInterface` - the interface the source's most
  * recent live turns ran on (see {@link resolveSourceLiveInterface}).
+ * `toolContextPin.clientOs` is recovered from the same persisted user-message
+ * metadata, with the transport interface as a fallback.
  * `channelCapabilities` is left unset: desktop/web HTTP turns never set
  * channel capabilities, and for channel-routed sources (whose live turns do
  * carry them) every tool gate resolves identically under
@@ -745,6 +749,7 @@ function resolveSourceParityPins(
   // with an unmappable channel stay undefined (their live turns were
   // clientless either way).
   const transportInterface = recovered ?? (channelRouted ? undefined : "web");
+  const clientOs = resolveSourceLiveClientOs(sliceMessages, transportInterface);
   const hasNoClient =
     transportInterface == null || !isInteractiveInterface(transportInterface);
   const personaOverride: SystemPromptPersonaOverride = channelRouted
@@ -763,6 +768,7 @@ function resolveSourceParityPins(
     toolContextPin: {
       hasNoClient,
       transportInterface,
+      clientOs,
       requestOrigin: MEMORY_RETROSPECTIVE_ORIGIN,
     },
   };
@@ -787,22 +793,11 @@ function resolveSourceLiveInterface(
   sliceMessages: Array<{ role: string; metadata: string | null }>,
 ): InterfaceId | undefined {
   for (let i = sliceMessages.length - 1; i >= 0; i--) {
-    const row = sliceMessages[i]!;
-    if (row.role !== "user" || !row.metadata) {
+    const metadata = parseUserMessageMetadata(sliceMessages[i]!);
+    if (!metadata) {
       continue;
     }
-    let meta: unknown;
-    try {
-      meta = JSON.parse(row.metadata);
-    } catch {
-      continue;
-    }
-    if (!meta || typeof meta !== "object") {
-      continue;
-    }
-    const iface = parseInterfaceId(
-      (meta as Record<string, unknown>).userMessageInterface,
-    );
+    const iface = parseInterfaceId(metadata.userMessageInterface);
     if (iface) {
       return iface;
     }
@@ -812,6 +807,44 @@ function resolveSourceLiveInterface(
     parseInterfaceId(source.originChannel) ??
     undefined
   );
+}
+
+function parseUserMessageMetadata(row: {
+  role: string;
+  metadata: string | null;
+}): Record<string, unknown> | undefined {
+  if (row.role !== "user" || !row.metadata) {
+    return undefined;
+  }
+  try {
+    const metadata: unknown = JSON.parse(row.metadata);
+    return metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveSourceLiveClientOs(
+  sliceMessages: Array<{ role: string; metadata: string | null }>,
+  transportInterface: InterfaceId | undefined,
+): ClientOs | undefined {
+  for (let i = sliceMessages.length - 1; i >= 0; i--) {
+    const metadata = parseUserMessageMetadata(sliceMessages[i]!);
+    if (metadata?.clientOsFromRequest !== true) {
+      continue;
+    }
+    const client = metadata.client;
+    if (!client || typeof client !== "object") {
+      continue;
+    }
+    const clientOs = parseClientOs((client as Record<string, unknown>).os);
+    if (clientOs) {
+      return clientOs;
+    }
+  }
+  return parseClientOs(transportInterface) ?? undefined;
 }
 
 type PriorRetrospective = NonNullable<

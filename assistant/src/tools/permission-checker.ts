@@ -30,6 +30,7 @@ import {
 } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
+import { getHostShell } from "./host-shell.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
 import type { Tool, ToolContext } from "./types.js";
@@ -124,6 +125,7 @@ export class PermissionChecker {
       undefined,
       undefined,
       context.signal,
+      getHostShell(context, input),
     );
     const { level: risk, reason: riskReason } = classification;
     const riskLevel: string = risk;
