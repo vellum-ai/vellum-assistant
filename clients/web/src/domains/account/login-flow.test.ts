@@ -7,7 +7,6 @@ import {
   requiresPlatformSession,
   resolvePostAuthDestination,
 } from "@/domains/account/login-flow";
-import { ONBOARDED_HATCH_AGE_MS } from "@/domains/onboarding/onboarded-assistant";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
@@ -65,7 +64,7 @@ describe("login flow routing", () => {
       assistants: [
         {
           id: "asst-1",
-          hatchedAt: new Date(Date.now() - ONBOARDED_HATCH_AGE_MS).toISOString(),
+          hatchedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
           isLocal: false,
           isPlatformHosted: true,
           isPaired: false,
