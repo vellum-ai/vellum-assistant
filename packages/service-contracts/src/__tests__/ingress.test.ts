@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   normalizeHttpPublicBaseUrl,
+  normalizeHttpPublicBaseUrlWithoutTrailingSlash,
   normalizePublicBaseUrl,
   parseLastTunnelRecord,
   parseRecordedAssistantId,
+  trimmedNonEmptyString,
   TUNNEL_PROVIDERS,
   velayHostForPlatformHost,
 } from "../ingress.js";
@@ -88,6 +90,35 @@ describe("normalizeHttpPublicBaseUrl", () => {
   });
 });
 
+describe("normalizeHttpPublicBaseUrlWithoutTrailingSlash", () => {
+  test("drops the root path its sibling always emits", () => {
+    expect(
+      normalizeHttpPublicBaseUrlWithoutTrailingSlash("https://x.test"),
+    ).toBe("https://x.test");
+    expect(
+      normalizeHttpPublicBaseUrlWithoutTrailingSlash("https://x.test/"),
+    ).toBe("https://x.test");
+    expect(
+      normalizeHttpPublicBaseUrlWithoutTrailingSlash(" https://x.test/api/// "),
+    ).toBe("https://x.test/api");
+  });
+
+  test("rejects everything its sibling rejects", () => {
+    for (const value of [
+      "",
+      "   ",
+      "notaurl",
+      "ftp://x.test",
+      "https://x.test?a=b",
+      42,
+    ]) {
+      expect(
+        normalizeHttpPublicBaseUrlWithoutTrailingSlash(value),
+      ).toBeUndefined();
+    }
+  });
+});
+
 describe("Twilio ingress helpers", () => {
   test("resolves public base URL with fallback", () => {
     expect(
@@ -138,13 +169,18 @@ describe("parseLastTunnelRecord", () => {
     }
   });
 
-  test("trims the recorded URL", () => {
-    expect(
-      parseLastTunnelRecord({
-        provider: "ngrok",
-        publicBaseUrl: ` ${TUNNEL_URL} `,
-      }),
-    ).toEqual({ provider: "ngrok", publicBaseUrl: TUNNEL_URL });
+  test("returns the URL in the shape its own validator produces", () => {
+    // Padding and trailing slashes are normalized away rather than handed
+    // back, so readers never re-normalize what they were given.
+    for (const publicBaseUrl of [
+      ` ${TUNNEL_URL} `,
+      `${TUNNEL_URL}/`,
+      `${TUNNEL_URL}///`,
+    ]) {
+      expect(
+        parseLastTunnelRecord({ provider: "ngrok", publicBaseUrl }),
+      ).toEqual({ provider: "ngrok", publicBaseUrl: TUNNEL_URL });
+    }
   });
 
   test("rejects values that are not a record", () => {
@@ -181,6 +217,15 @@ describe("parseLastTunnelRecord", () => {
       expect(
         parseLastTunnelRecord({ provider: "ngrok", publicBaseUrl }),
       ).toBeNull();
+    }
+  });
+});
+
+describe("trimmedNonEmptyString", () => {
+  test("trims and rejects blank or non-string values", () => {
+    expect(trimmedNonEmptyString(" assistant-1 ")).toBe("assistant-1");
+    for (const value of ["", "   ", undefined, null, 42]) {
+      expect(trimmedNonEmptyString(value)).toBeUndefined();
     }
   });
 });

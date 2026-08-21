@@ -49,6 +49,32 @@ export function normalizeHttpPublicBaseUrl(value: unknown): string | undefined {
   }
 }
 
+/**
+ * The same validation as `normalizeHttpPublicBaseUrl`, minus the root path it
+ * always emits (`https://x` becomes `https://x/`). Callers that append a path
+ * or persist the result want this shape, so they neither join through a double
+ * slash nor re-strip what the normalizer just added.
+ */
+export function normalizeHttpPublicBaseUrlWithoutTrailingSlash(
+  value: unknown,
+): string | undefined {
+  return normalizePublicBaseUrl(normalizeHttpPublicBaseUrl(value));
+}
+
+/**
+ * A trimmed string, or undefined when the value is not a non-blank string.
+ *
+ * Exported because the identity check in the daemon's tunnel probe compares an
+ * id recorded here against one an edge serves, and the two sides have to trim
+ * alike: a padded served id must read as a match, not as a different
+ * assistant.
+ */
+export function trimmedNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 // Records `vellum tunnel` leaves in the workspace config's `ingress` section.
 // The CLI writes them and the daemon reads them, and the two are separate
 // build units that cannot import each other, so the key names, the provider
@@ -89,27 +115,26 @@ function isTunnelProviderName(value: unknown): value is TunnelProviderName {
  * A hand-edited config must not hand callers an unusable address or a provider
  * name no command accepts: the provider is checked against the allowlist
  * because readers render it into a restart command, and the URL faces the same
- * absolute HTTP(S) constraint as every other public base URL.
+ * absolute HTTP(S) constraint as every other public base URL. The URL comes
+ * back in the shape the validator produced, so readers never re-normalize it.
  */
 export function parseLastTunnelRecord(value: unknown): LastTunnelRecord | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
   const { provider, publicBaseUrl } = value as Record<string, unknown>;
-  if (!isTunnelProviderName(provider) || typeof publicBaseUrl !== "string") {
+  if (!isTunnelProviderName(provider)) {
     return null;
   }
-  if (!normalizeHttpPublicBaseUrl(publicBaseUrl)) {
+  const normalized =
+    normalizeHttpPublicBaseUrlWithoutTrailingSlash(publicBaseUrl);
+  if (normalized === undefined) {
     return null;
   }
-  return { provider, publicBaseUrl: publicBaseUrl.trim() };
+  return { provider, publicBaseUrl: normalized };
 }
 
 /** Parse an `ingress.assistantId` value, or null when it is absent or blank. */
 export function parseRecordedAssistantId(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  return trimmedNonEmptyString(value) ?? null;
 }

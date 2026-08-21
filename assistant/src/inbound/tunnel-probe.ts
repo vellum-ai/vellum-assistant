@@ -18,9 +18,9 @@
  *     in `cli/src/lib/nginx-ingress.ts`). A gateway-direct tunnel, a
  *     bring-your-own HTTPS front, or a hand-set `ingress.publicBaseUrl` will
  *     404 there while working perfectly, so a config that is missing,
- *     failing, or unreadable leaves the identity unknown and never fails the
- *     probe. An edge answering with a body this cannot read is still an edge
- *     that is answering.
+ *     failing, slow, or unreadable leaves the identity unknown and never
+ *     fails the probe. An edge answering with a body this cannot read is
+ *     still an edge that is answering.
  *
  * Neither path is denylisted, so both are publicly reachable.
  *
@@ -29,7 +29,10 @@
  * probe an arbitrary URL and lets tests run without network access.
  */
 
-import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
+import {
+  normalizeHttpPublicBaseUrlWithoutTrailingSlash,
+  trimmedNonEmptyString,
+} from "@vellumai/service-contracts/ingress";
 
 import { isPlainObject } from "../util/object.js";
 import { truncate } from "../util/truncate.js";
@@ -74,13 +77,17 @@ export async function probeTunnel(args: {
   // The same validation the config writers apply, so a value they would have
   // rejected is named as malformed rather than handed to `fetch` and reported
   // through whatever string that layer happens to produce.
-  const normalized = normalizeHttpPublicBaseUrl(args.publicBaseUrl);
-  if (normalized === undefined) {
+  const base = normalizeHttpPublicBaseUrlWithoutTrailingSlash(
+    args.publicBaseUrl,
+  );
+  if (base === undefined) {
     return { kind: "unreachable", detail: "not an http(s) URL" };
   }
-  const base = normalized.replace(/\/+$/, "");
 
   const fetchImpl = args.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  // One deadline covers both requests: `/healthz` alone decides the verdict,
+  // so a slow edge that answers it and loses the config request to the same
+  // deadline is still a working tunnel with an unknown identity.
   const signal = AbortSignal.timeout(args.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const [health, config] = await Promise.allSettled([
     fetchImpl(`${base}/healthz`, { signal }),
@@ -99,14 +106,9 @@ export async function probeTunnel(args: {
     await discardBody(configResponse);
     return unreachable(`HTTP ${health.value.status}`, base);
   }
-  // An edge that stopped answering mid-probe outranks the liveness the 2xx
-  // established, so a timeout on either path is still unreachable.
-  if (config.status === "rejected" && isTimeoutError(config.reason)) {
-    return unreachable("timeout", base);
-  }
 
   const served = await readServedConfig(configResponse);
-  const expected = nonEmptyString(args.expectedAssistantId);
+  const expected = trimmedNonEmptyString(args.expectedAssistantId);
   const isForeign =
     expected !== undefined &&
     served.assistantId !== undefined &&
@@ -145,14 +147,17 @@ function isTimeoutError(error: unknown): boolean {
   );
 }
 
+function isGenericFetchMessage(message: string): boolean {
+  return GENERIC_FETCH_MESSAGES.has(message.toLowerCase());
+}
+
 /**
  * A dead tunnel surfaces as a generic wrapper ("fetch failed") whose `cause`
  * carries the reason worth reading (`ECONNREFUSED`, `ENOTFOUND`), so walk the
  * chain for a code, then for the first message that says something.
  */
 function describeError(error: unknown): string {
-  let firstMessage: string | undefined;
-  let specificMessage: string | undefined;
+  let message: string | undefined;
   let current: unknown = error;
 
   for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth += 1) {
@@ -162,33 +167,23 @@ function describeError(error: unknown): string {
     if (isTimeoutError(current)) {
       return "timeout";
     }
-    const code = nonEmptyString(current.code);
+    const code = trimmedNonEmptyString(current.code);
     if (code !== undefined) {
       return code;
     }
-    const message = nonEmptyString(current.message);
-    if (message !== undefined) {
-      firstMessage ??= message;
-      if (
-        specificMessage === undefined &&
-        !GENERIC_FETCH_MESSAGES.has(message.toLowerCase())
-      ) {
-        specificMessage = message;
-      }
+    // A wrapper only holds the slot until a deeper level fills it.
+    if (message === undefined || isGenericFetchMessage(message)) {
+      message = trimmedNonEmptyString(current.message) ?? message;
     }
     current = current.cause;
   }
 
-  return specificMessage ?? firstMessage ?? String(error);
+  return message ?? String(error);
 }
 
 interface ServedEdgeConfig {
   assistantId?: string;
   assistantName?: string;
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /** Identity only: every failure here yields an unknown identity. */
@@ -205,8 +200,8 @@ async function readServedConfig(
       return {};
     }
     return {
-      assistantId: nonEmptyString(body.assistantId),
-      assistantName: nonEmptyString(body.assistantName),
+      assistantId: trimmedNonEmptyString(body.assistantId),
+      assistantName: trimmedNonEmptyString(body.assistantName),
     };
   } catch {
     await discardBody(response);

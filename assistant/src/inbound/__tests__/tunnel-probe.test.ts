@@ -4,11 +4,11 @@
  * Three properties carry the feature. First, `/healthz` alone decides
  * liveness, so an edge whose nginx answers while the gateway behind it does
  * not must read `unreachable`, while an ingress that never serves
- * `/assistant/__config` at all still reads `healthy`. Second, `foreign` is an
- * accusation ("this URL now fronts someone else's assistant"), so it is
- * reserved for a positive mismatch of two known ids and every skew case reads
- * `healthy`. Third, the probe runs often enough that a body it never parses
- * has to be cancelled rather than left to GC.
+ * `/assistant/__config` at all, or is too slow to finish it, still reads
+ * `healthy`. Second, `foreign` is an accusation ("this URL now fronts someone
+ * else's assistant"), so it is reserved for a positive mismatch of two known
+ * ids and every skew case reads `healthy`. Third, the probe runs often enough
+ * that a body it never parses has to be cancelled rather than left to GC.
  *
  * Every case injects `fetchImpl`, so nothing here touches the network.
  */
@@ -149,6 +149,25 @@ describe("probeTunnel", () => {
     });
   });
 
+  test("healthy when the served id is padded with whitespace", async () => {
+    // The recorded id is read through a trimming parser, so a served id that
+    // only differs by padding is the same assistant, not a foreign one.
+    const { fetchImpl } = stubFetch({
+      config: configBody({ assistantId: "  asst_1  ", assistantName: " Ada " }),
+    });
+    await expect(
+      probeTunnel({
+        publicBaseUrl: BASE,
+        expectedAssistantId: " asst_1 ",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      kind: "healthy",
+      assistantId: "asst_1",
+      assistantName: "Ada",
+    });
+  });
+
   test("healthy when the config body is not JSON", async () => {
     const { fetchImpl } = stubFetch({
       config: { status: 200, body: "<html>nope</html>" },
@@ -237,12 +256,23 @@ describe("probeTunnel", () => {
     ).resolves.toEqual({ kind: "unreachable", detail: "timeout" });
   });
 
-  test("unreachable when only the config request times out", async () => {
+  test("healthy when a slow edge answers /healthz but not the config", async () => {
+    // Both requests share one deadline, so an edge that answers `/healthz`
+    // just inside it loses the identity request to it. That is still a
+    // working tunnel.
     const timeout = new DOMException("The operation timed out", "TimeoutError");
     const { fetchImpl } = stubFetch({ config: { reject: timeout } });
     await expect(
-      probeTunnel({ publicBaseUrl: BASE, fetchImpl }),
-    ).resolves.toEqual({ kind: "unreachable", detail: "timeout" });
+      probeTunnel({
+        publicBaseUrl: BASE,
+        expectedAssistantId: "asst_1",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      kind: "healthy",
+      assistantId: undefined,
+      assistantName: undefined,
+    });
   });
 
   test("surfaces the syscall code hidden under a generic fetch wrapper", async () => {
