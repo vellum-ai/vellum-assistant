@@ -733,11 +733,12 @@ export function isToolActiveForContext(
   const transportInterface = pin
     ? pin.transportInterface
     : ctx.transportInterface;
-  const clientOs =
-    parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-    (transportInterface === "macos" || transportInterface === "windows"
-      ? transportInterface
-      : undefined);
+  const clientOs = pin
+    ? pin.clientOs
+    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
+      (transportInterface === "macos" || transportInterface === "windows"
+        ? transportInterface
+        : undefined));
   const supportedClientOs = getTool(name)?.supportedClientOs;
   if (
     !supportsClientOsForSkillTool(supportedClientOs, name, {

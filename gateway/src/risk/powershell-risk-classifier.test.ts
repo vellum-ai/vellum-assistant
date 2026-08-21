@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
+import { TrustRuleStore } from "../db/trust-rule-store.js";
+import { initTrustRuleCache, resetTrustRuleCache } from "./trust-rule-cache.js";
 import { powerShellRiskClassifier } from "./powershell-risk-classifier.js";
+import "../__tests__/test-preload.js";
 
 describe("PowerShellRiskClassifier", () => {
   test("classifies read-only cmdlets as low risk", async () => {
@@ -93,5 +97,57 @@ describe("PowerShellRiskClassifier", () => {
 
     expect(result.riskLevel).toBe("high");
     expect(result.actionKeys).toContain("action:remove-item");
+  });
+
+  test("classifies commands after typed assignment targets", async () => {
+    const result = await powerShellRiskClassifier.classify(
+      "[ValidateNotNull()][string]$result = Remove-Item -Recurse C:\\Temp\\data",
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.actionKeys).toContain("action:remove-item");
+  });
+
+  test("classifies direct .NET member invocation as high risk", async () => {
+    const result = await powerShellRiskClassifier.classify(
+      "[System.IO.File]::Delete('C:\\Temp\\data.txt')",
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.dangerousPatterns).not.toHaveLength(0);
+  });
+
+  test("classifies output redirection as state-changing", async () => {
+    const result = await powerShellRiskClassifier.classify(
+      "Get-Content C:\\Temp\\source.txt > C:\\Temp\\destination.txt",
+    );
+
+    expect(result.riskLevel).toBe("medium");
+    expect(result.isComplexSyntax).toBe(true);
+  });
+
+  test("matches normalized action trust rules", async () => {
+    resetGatewayDb();
+    await initGatewayDb();
+    const store = new TrustRuleStore();
+    store.create({
+      tool: "host_bash",
+      pattern: "action:remove-item",
+      risk: "low",
+      description: "Allowed remove-item command",
+    });
+    initTrustRuleCache(store);
+
+    try {
+      const result = await powerShellRiskClassifier.classify(
+        "Remove-Item C:\\Temp\\data.txt",
+      );
+
+      expect(result.riskLevel).toBe("low");
+      expect(result.matchType).toBe("user_rule");
+    } finally {
+      resetTrustRuleCache();
+      resetGatewayDb();
+    }
   });
 });

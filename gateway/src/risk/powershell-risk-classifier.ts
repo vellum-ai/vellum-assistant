@@ -224,11 +224,22 @@ const DANGEROUS_PATTERNS: Array<{
     pattern: /\b(?:downloadstring|reflection\.assembly)\b/i,
     description: "Remote or reflected PowerShell code loading",
   },
+  {
+    pattern: /\[[^\]\r\n]+\]\s*::\s*[A-Za-z_]\w*\s*\(/,
+    description: "PowerShell .NET member invocation",
+  },
+  {
+    pattern:
+      /\$(?:[A-Za-z_][\w:]*|\{[^}]+\})(?:\.[A-Za-z_]\w*|\[[^\]]+\])*\.[A-Za-z_]\w*\s*\(/,
+    description: "PowerShell object member invocation",
+  },
 ];
 
 const POWERSHELL_VARIABLE = String.raw`\$(?:[A-Za-z_][\w:]*|\{[^}]+\})(?:\.[A-Za-z_]\w*|\[[^\]]+\])*`;
+const POWERSHELL_TYPE_CONSTRAINT = String.raw`(?:\[[^\]\r\n]+\]\s*)*`;
+const ASSIGNMENT_TARGET = String.raw`${POWERSHELL_TYPE_CONSTRAINT}${POWERSHELL_VARIABLE}`;
 const LEADING_ASSIGNMENT = new RegExp(
-  String.raw`^\s*${POWERSHELL_VARIABLE}(?:\s*,\s*${POWERSHELL_VARIABLE})*\s*(?:(?:\?\?|[+*/%-])?=)\s*`,
+  String.raw`^\s*${ASSIGNMENT_TARGET}(?:\s*,\s*${ASSIGNMENT_TARGET})*\s*(?:(?:\?\?|[+*/%-])?=)\s*`,
 );
 
 function splitPowerShell(command: string): string[] {
@@ -387,7 +398,10 @@ function classifyPowerShellProgram(segment: PowerShellSegment): {
   matchType: RiskAssessment["matchType"];
 } {
   try {
-    const rule = getTrustRuleCache().findBaseRisk("host_bash", segment.raw);
+    const cache = getTrustRuleCache();
+    const rule =
+      cache.findBaseRisk("host_bash", segment.raw) ??
+      cache.findBaseRisk("host_bash", segment.program);
     if (rule) {
       return {
         risk: rule.risk,
@@ -524,6 +538,37 @@ function detectDangerousPatterns(command: string): DangerousPattern[] {
   return patterns;
 }
 
+function hasOutputRedirection(command: string): boolean {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (const char of command) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "`") {
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === ">") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function collectWindowsPaths(segments: PowerShellSegment[]): string[] {
   const paths = new Set<string>();
   const add = (candidate: string | undefined): void => {
@@ -654,6 +699,7 @@ export class PowerShellRiskClassifier {
     const resolvedPaths = collectWindowsPaths(segments);
     const actionKeys = buildActionKeys(segments);
     const dangerousPatterns = detectDangerousPatterns(trimmed);
+    const outputRedirection = hasOutputRedirection(trimmed);
     const opaqueConstructs =
       /\$\(|[{}]|(?:^|\s)[.&](?:\s|$)/.test(trimmed) ||
       /\b(?:foreach-object|where-object)\b[^\n]*\{/i.test(trimmed);
@@ -682,6 +728,10 @@ export class PowerShellRiskClassifier {
       riskLevel = maxRisk(riskLevel, "high");
       reason = "PowerShell command contains dynamic script execution";
       matchType = "registry";
+    } else if (outputRedirection) {
+      riskLevel = maxRisk(riskLevel, "medium");
+      reason = "PowerShell command redirects output";
+      matchType = "registry";
     } else if (/\$(?:env:)?[A-Za-z_][\w:]*/.test(trimmed)) {
       riskLevel = maxRisk(riskLevel, "medium");
       reason = "PowerShell command contains variable expansion";
@@ -697,7 +747,7 @@ export class PowerShellRiskClassifier {
       commandCandidates: [trimmed, ...actionKeys],
       dangerousPatterns,
       opaqueConstructs,
-      isComplexSyntax: segments.length > 1,
+      isComplexSyntax: segments.length > 1 || outputRedirection,
       directoryScopeOptions: buildDirectoryScopeOptions(resolvedPaths),
       resolvedPaths: resolvedPaths.length > 0 ? resolvedPaths : undefined,
       matchType,

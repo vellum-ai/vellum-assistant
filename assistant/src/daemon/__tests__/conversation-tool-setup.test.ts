@@ -170,6 +170,49 @@ describe("isToolActiveForContext - client OS eligibility", () => {
       unregisterSkillTools(skillId);
     }
   });
+
+  test("uses pinned client OS without falling through to live context", () => {
+    const skillId = "pinned-client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "client_os_pinned_test_tool",
+        supportedClientOs: ["macos"],
+      }),
+    ]);
+
+    try {
+      expect(
+        isToolActiveForContext(
+          "client_os_pinned_test_tool",
+          makeCtx({
+            clientOs: "windows",
+            currentTurnClientOs: "windows",
+            toolContextPin: {
+              hasNoClient: false,
+              transportInterface: "macos",
+              clientOs: "macos",
+            },
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        isToolActiveForContext(
+          "client_os_pinned_test_tool",
+          makeCtx({
+            clientOs: "macos",
+            currentTurnClientOs: "macos",
+            toolContextPin: {
+              hasNoClient: false,
+              transportInterface: "windows",
+              clientOs: "windows",
+            },
+          }),
+        ),
+      ).toBe(false);
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
 });
 
 describe("isToolActiveForContext - Slack task_progress UI exception", () => {
