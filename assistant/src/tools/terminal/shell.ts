@@ -697,7 +697,7 @@ function buildKillTree(
   },
 ): (reason: "timeout" | "abort" | "spawn_error") => void {
   return (reason) => {
-    const processPid = child.pid ?? null;
+    const groupPid = child.pid ?? null;
     log.warn(
       {
         toolName: context.toolName,
@@ -705,10 +705,10 @@ function buildKillTree(
         command: redactSecrets(context.command),
         durationMs: Date.now() - context.startedAt,
         reason,
-        processPid,
+        groupPid,
         invocationId: context.invocationId,
       },
-      "Shell process tree termination requested",
+      "Shell process group SIGKILL'd",
     );
     terminateProcessTree(child);
   };
