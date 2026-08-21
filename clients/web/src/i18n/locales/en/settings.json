@@ -557,7 +557,7 @@
     "generateButton": "Generate pairing QR",
     "generateButtonMinting": "Generating…",
     "generateButtonRegenerate": "Generate new code",
-    "noTunnelMore": "Other providers and options:",
+    "noTunnelMore": "Other providers and options: <code>{command}</code>",
     "noTunnelNext": "The tunnel prints an https address. Paste it into Public URL below, and leave the tunnel running while you pair and use other devices.",
     "noTunnelTitle": "Open a tunnel first",
     "noTunnelWhy": "Other devices reach {name} over the internet through a tunnel from this computer. In a terminal here, run:",

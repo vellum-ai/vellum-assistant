@@ -7,7 +7,7 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import { DetailCard } from "@/components/detail-card";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { useTranslation } from "@/i18n";
+import { Trans, useTranslation } from "@/i18n";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
@@ -95,10 +95,14 @@ export function PairDeviceCard() {
               </code>
               <p>{t("pairDeviceCard.noTunnelNext")}</p>
               <p>
-                {t("pairDeviceCard.noTunnelMore")}{" "}
-                <code className={cn(CODE_CLASS, "px-1.5 py-0.5")}>
-                  {TUNNEL_HELP_COMMAND}
-                </code>
+                <Trans
+                  i18nKey="pairDeviceCard.noTunnelMore"
+                  ns="settings"
+                  values={{ command: TUNNEL_HELP_COMMAND }}
+                  components={{
+                    code: <code className={cn(CODE_CLASS, "px-1.5 py-0.5")} />,
+                  }}
+                />
               </p>
             </div>
           </Notice>

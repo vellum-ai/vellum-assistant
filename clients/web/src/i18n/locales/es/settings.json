@@ -557,7 +557,7 @@
     "generateButton": "Generar QR de vinculación",
     "generateButtonMinting": "Generando…",
     "generateButtonRegenerate": "Generar nuevo código",
-    "noTunnelMore": "Otros proveedores y opciones:",
+    "noTunnelMore": "Otros proveedores y opciones: <code>{command}</code>",
     "noTunnelNext": "El túnel imprime una dirección https. Pégala en URL pública más abajo y deja el túnel en marcha mientras vinculas y usas otros dispositivos.",
     "noTunnelTitle": "Abre primero un túnel",
     "noTunnelWhy": "Otros dispositivos alcanzan {name} por internet a través de un túnel desde este equipo. En una terminal aquí, ejecuta:",
