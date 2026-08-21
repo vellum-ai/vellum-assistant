@@ -31,7 +31,9 @@ describe("useGuardianRepairRoute", () => {
     publish("gateway.guardian-repair-required", {});
 
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
+    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant, {
+      replace: true,
+    });
   });
 
   test("routes without the auto-skip opt-out, so a lone assistant reaches the repair unattended", () => {
@@ -47,6 +49,24 @@ describe("useGuardianRepairRoute", () => {
 
     const [target] = navigateMock.mock.calls[0] as [string];
     expect(target).not.toContain("noAutoSkip");
+  });
+
+  test("replaces the rejected route instead of stacking on it", () => {
+    /**
+     * The route the session died on renders against a bearer the gateway
+     * refuses, and recovery stays latched off until a repair seeds a fresh
+     * one. A pushed entry would put that dead page one Back press away,
+     * with nothing left to heal it.
+     */
+    render(<Harness />);
+
+    publish("gateway.guardian-repair-required", {});
+
+    const [, options] = navigateMock.mock.calls[0] as [
+      string,
+      { replace?: boolean } | undefined,
+    ];
+    expect(options?.replace).toBe(true);
   });
 
   test("stops listening once unmounted", () => {
