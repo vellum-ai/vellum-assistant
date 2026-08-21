@@ -112,7 +112,7 @@ mock.module("../../../messaging/providers/slack/send.js", () => ({
   },
   sendSlackStreamOp: async () => ({ ok: true, ts: "1700000000.000200" }),
   sendSlackReaction: async () => {},
-  sendSlackAssistantThreadStatus: async () => {},
+  sendSlackAgentSessionStatus: async () => {},
   sendSlackAttachments: async () => ({
     allFailed: false,
     failureCount: 0,

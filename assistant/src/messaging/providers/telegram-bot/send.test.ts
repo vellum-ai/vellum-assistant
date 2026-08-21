@@ -273,7 +273,10 @@ describe("telegramTransport topic targeting", () => {
   });
 
   test("typing indicators target the topic", async () => {
-    await telegramTransport.typing!(topicCtx, "123");
+    await telegramTransport.setActivity!(topicCtx, {
+      chatId: "123",
+      phase: "thinking",
+    });
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
       chat_id: "123",
@@ -282,6 +285,21 @@ describe("telegramTransport topic targeting", () => {
     });
   });
 
+  // Telegram's chat action expires on its own, so a phase that is not running
+  // has nothing to say. Asserting the call count rather than the absence of a
+  // "stop" call is what catches a clearing request being invented later.
+  test.each(["idle", "awaiting_confirmation"] as const)(
+    "says nothing to Telegram for the %s phase",
+    async (phase) => {
+      await telegramTransport.setActivity!(topicCtx, {
+        chatId: "123",
+        phase,
+      });
+
+      expect(callTelegramBotApiMock).not.toHaveBeenCalled();
+    },
+  );
+
   test("a callback URL without threadId keeps sends thread-less", async () => {
     const bareCtx: CallbackContext = {
       callbackUrl: "/deliver/telegram",
@@ -289,7 +307,10 @@ describe("telegramTransport topic targeting", () => {
     };
 
     await telegramTransport.deliver(bareCtx, payload({ renderRichly: false }));
-    await telegramTransport.typing!(bareCtx, "123");
+    await telegramTransport.setActivity!(bareCtx, {
+      chatId: "123",
+      phase: "thinking",
+    });
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",

@@ -28,55 +28,112 @@ mock.module("./api.js", () => ({
 // the (unmocked) shared transport, so thrown test errors must be real
 // instances or every branch under test would silently take the generic path.
 const { SlackApiError } = await import("./web-api-transport.js");
-const { sendSlackAssistantThreadStatus, sendSlackReply, updateSlackMessage } =
+const { sendSlackAgentSessionStatus, sendSlackReply, updateSlackMessage } =
   await import("./send.js");
 
-describe("sendSlackAssistantThreadStatus", () => {
+describe("sendSlackAgentSessionStatus", () => {
+  const threadTs = "1700000000.000100";
+
   beforeEach(() => {
     callSlackApiMock.mockReset();
     callSlackApiMock.mockImplementation(async () => ({ ok: true }));
   });
 
-  test("serializes loading messages for Slack assistant thread status", async () => {
-    await sendSlackAssistantThreadStatus(
-      "C123",
-      "1700000000.000100",
-      "is working...",
-      ["Reading files", "Running tests"],
-    );
+  // Every phase, so a mapping that loses one fails here rather than showing
+  // the wrong thing in Slack. `suspended` is the one with teeth: an approval
+  // is waiting on a person, and Slack renders that differently from a turn
+  // that is still running.
+  test.each([
+    ["idle", "active"],
+    ["thinking", "processing"],
+    ["streaming", "processing"],
+    ["tool_running", "processing"],
+    ["awaiting_confirmation", "suspended"],
+  ] as const)("sends %s as the %s session status", async (phase, status) => {
+    await sendSlackAgentSessionStatus({ channel: "C123", phase, threadTs });
 
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);
-    expect(callSlackApiMock).toHaveBeenCalledWith(
-      "assistant.threads.setStatus",
-      {
-        channel_id: "C123",
-        thread_ts: "1700000000.000100",
-        status: "is working...",
-        loading_messages: ["Reading files", "Running tests"],
-      },
-    );
+    expect(callSlackApiMock).toHaveBeenCalledWith("agents.sessions.setStatus", {
+      channel_id: "C123",
+      status,
+      thread_ts: threadTs,
+    });
   });
 
-  test("falls back to the reaction path when status API delivery fails", async () => {
+  test("carries the initiator, which Slack reads only when it opens the session", async () => {
+    await sendSlackAgentSessionStatus({
+      channel: "C123",
+      phase: "thinking",
+      threadTs,
+      initiatorUserId: "U0READER",
+    });
+
+    expect(callSlackApiMock).toHaveBeenCalledWith("agents.sessions.setStatus", {
+      channel_id: "C123",
+      status: "processing",
+      thread_ts: threadTs,
+      initiator_user_id: "U0READER",
+    });
+  });
+
+  test("omits thread_ts in a conversation the app has not threaded", async () => {
+    await sendSlackAgentSessionStatus({ channel: "D123", phase: "thinking" });
+
+    expect(callSlackApiMock).toHaveBeenCalledWith("agents.sessions.setStatus", {
+      channel_id: "D123",
+      status: "processing",
+    });
+  });
+
+  test("falls back to adding a reaction when the status call fails", async () => {
     callSlackApiMock
       .mockImplementationOnce(async () => {
         throw new Error("missing_scope");
       })
       .mockImplementationOnce(async () => ({ ok: true }));
 
-    await sendSlackAssistantThreadStatus(
-      "C123",
-      "1700000000.000100",
-      "is working...",
-      ["Reading files"],
-    );
+    await sendSlackAgentSessionStatus({
+      channel: "C123",
+      phase: "thinking",
+      threadTs,
+    });
 
     expect(callSlackApiMock).toHaveBeenCalledTimes(2);
     expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "reactions.add", {
       channel: "C123",
       name: "eyes",
-      timestamp: "1700000000.000100",
+      timestamp: threadTs,
     });
+  });
+
+  test("falls back to removing the reaction once the turn is no longer running", async () => {
+    callSlackApiMock
+      .mockImplementationOnce(async () => {
+        throw new Error("missing_scope");
+      })
+      .mockImplementationOnce(async () => ({ ok: true }));
+
+    await sendSlackAgentSessionStatus({
+      channel: "C123",
+      phase: "idle",
+      threadTs,
+    });
+
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "reactions.remove", {
+      channel: "C123",
+      name: "eyes",
+      timestamp: threadTs,
+    });
+  });
+
+  test("stays quiet when the status fails and there is nothing to react to", async () => {
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new Error("missing_scope");
+    });
+
+    await sendSlackAgentSessionStatus({ channel: "D123", phase: "thinking" });
+
+    expect(callSlackApiMock).toHaveBeenCalledTimes(1);
   });
 });
 
