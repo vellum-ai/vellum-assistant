@@ -2254,6 +2254,18 @@ jobs:
       version: ${{ needs.compute-version.outputs.version }}
     secrets: inherit
 
+  release-windows:
+    needs: [compute-version, register-release, build-chrome-extension]
+    if: vars.WINDOWS_DEV_RELEASE_ENABLED == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-windows.yaml
+    with:
+      environment: dev
+      version: ${{ needs.compute-version.outputs.version }}
+    secrets: inherit
+
   # ── Slack notification (first failure only) ──────────────────────────
 
   notify-releases:
