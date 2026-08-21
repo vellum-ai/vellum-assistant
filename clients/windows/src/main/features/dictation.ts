@@ -42,6 +42,9 @@ import { getWindowsHelperClient } from "../windows-helper";
  */
 
 const DICTATION_TEXT_SCHEMA = z.object({ text: z.string() });
+const DICTATION_TRANSCRIBED_SCHEMA = DICTATION_TEXT_SCHEMA.extend({
+  requestId: z.string(),
+});
 let clientFactory = (): NativeSidecarClient => getWindowsHelperClient();
 let client: NativeSidecarClient | null = null;
 const getClient = (): NativeSidecarClient => (client ??= clientFactory());
@@ -149,10 +152,10 @@ export const installDictation = (): void => {
   );
   helper.onNotification(
     "dictation.transcribed",
-    DICTATION_TEXT_SCHEMA,
+    DICTATION_TRANSCRIBED_SCHEMA,
     (event) => {
-      const owner = dictationOwners.takeTranscriptionTarget();
-      owner?.send(HELPER_DICTATION_TRANSCRIBED_EVENT, event);
+      const owner = dictationOwners.takeTranscriptionTarget(event.requestId);
+      owner?.send(HELPER_DICTATION_TRANSCRIBED_EVENT, { text: event.text });
     },
   );
   helper.onNotification(

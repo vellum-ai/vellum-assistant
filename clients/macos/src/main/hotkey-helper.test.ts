@@ -153,6 +153,15 @@ const invokeGetState = () =>
 const invokeRestart = () =>
   handlers["vellum:helper:restart"]({ sender: defaultSender }) as unknown;
 
+const invokeDictationTranscribeFrom = (
+  sender: FakeWebContents,
+  audio: ArrayBuffer,
+) =>
+  handlers["vellum:helper:dictation:transcribe"](
+    { sender },
+    audio,
+  ) as Promise<unknown>;
+
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -417,6 +426,31 @@ describe("installHotkeyHelper", () => {
 
     expect(spawnCalls).toHaveLength(2);
     expect(lastChild).not.toBe(crashed);
+  });
+
+  test("settles one-shot transcription when the helper crashes", async () => {
+    installHotkeyHelper();
+    const transcribing = makeWebContents();
+    const pending = invokeDictationTranscribeFrom(
+      transcribing,
+      new Uint8Array([1, 2]).buffer,
+    );
+
+    expect(lastChild?.stdin.writes.at(-1)).toContain("\"requestId\":\"");
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n",
+      ),
+    );
+    expect(await pending).toEqual({ ok: true });
+
+    lastChild?.emit("close", 1, null);
+
+    expect(transcribing.send).toHaveBeenCalledWith(
+      "vellum:helper:dictation:transcribed",
+      { text: "" },
+    );
   });
 
   test("restores Fn push-to-talk after a helper crash", async () => {

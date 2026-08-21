@@ -84,6 +84,9 @@ const HELPER_PERMISSION_STATUS_SCHEMA = z.object({
 const DICTATION_PARTIAL_SCHEMA = z.object({
   text: z.string(),
 });
+const DICTATION_TRANSCRIBED_SCHEMA = DICTATION_PARTIAL_SCHEMA.extend({
+  requestId: z.string(),
+});
 
 const DICTATION_ERROR_SCHEMA = z.object({
   message: z.string(),
@@ -320,27 +323,28 @@ const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   owner.send(HELPER_DICTATION_PARTIAL_EVENT, event);
 };
 
-const sendDictationTextEventToOwner = (
-  kind: "finalized" | "transcribed",
-  event: DictationPartialEvent,
-): void => {
-  const owner =
-    kind === "transcribed"
-      ? dictationOwners.takeTranscriptionTarget()
-      : dictationOwners.target();
-  // Length only — transcript content must never be logged.
+const sendDictationFinalizedToOwner = (event: DictationPartialEvent): void => {
+  const owner = dictationOwners.target();
+  // Length only; transcript content must never be logged.
   log.info(
-    `[mac-helper] dictation ${kind} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    `[mac-helper] dictation finalized chars=${event.text.length} -> ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
   );
   if (!owner) {
     return;
   }
-  owner.send(
-    kind === "finalized"
-      ? HELPER_DICTATION_FINALIZED_EVENT
-      : HELPER_DICTATION_TRANSCRIBED_EVENT,
-    event,
+  owner.send(HELPER_DICTATION_FINALIZED_EVENT, event);
+};
+
+const sendDictationTranscribedToOwner = (event: {
+  requestId: string;
+  text: string;
+}): void => {
+  const owner = dictationOwners.takeTranscriptionTarget(event.requestId);
+  // Length only; transcript content must never be logged.
+  log.info(
+    `[mac-helper] dictation transcribed chars=${event.text.length} -> ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
   );
+  owner?.send(HELPER_DICTATION_TRANSCRIBED_EVENT, { text: event.text });
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -532,6 +536,9 @@ const handleHelperState = (state: MacHelperState): void => {
   helperRegistered = false;
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
+  dictationOwners
+    .transcriptionTarget()
+    ?.send(HELPER_DICTATION_TRANSCRIBED_EVENT, { text: "" });
   dictationOwners.clear();
   sendSyntheticHotkeyUpIfNeeded();
 };
@@ -579,14 +586,14 @@ export const installHotkeyHelper = (): void => {
     "dictation.finalized",
     DICTATION_PARTIAL_SCHEMA,
     (event) => {
-      sendDictationTextEventToOwner("finalized", event);
+      sendDictationFinalizedToOwner(event);
     },
   );
   unsubscribeDictationTranscribed = client.onNotification(
     "dictation.transcribed",
-    DICTATION_PARTIAL_SCHEMA,
+    DICTATION_TRANSCRIBED_SCHEMA,
     (event) => {
-      sendDictationTextEventToOwner("transcribed", event);
+      sendDictationTranscribedToOwner(event);
     },
   );
   unsubscribeDictationError = client.onNotification(

@@ -53,12 +53,12 @@ test("one-shot transcription ownership is isolated from streaming", () => {
   const recording = fakeWebContents();
   const transcribing = fakeWebContents();
   router.setOwner(recording, true);
-  router.setTranscriptionOwner(transcribing);
+  router.setTranscriptionOwner("request-1", transcribing);
 
   expect(router.target()).toBe(recording);
   expect(router.transcriptionTarget()).toBe(transcribing);
 
-  router.clearTranscriptionOwner(transcribing);
+  router.clearTranscriptionOwner("request-1", transcribing);
   expect(router.target()).toBe(recording);
   expect(router.transcriptionTarget()).toBeNull();
 });
@@ -68,13 +68,25 @@ test("streaming failure does not discard an in-flight transcription", () => {
   const recording = fakeWebContents();
   const transcribing = fakeWebContents();
   router.setOwner(recording, true);
-  router.setTranscriptionOwner(transcribing);
+  router.setTranscriptionOwner("request-1", transcribing);
 
   router.clearStreaming();
 
   expect(router.target()).toBeNull();
-  expect(router.takeTranscriptionTarget()).toBe(transcribing);
-  expect(router.takeTranscriptionTarget()).toBeNull();
+  expect(router.takeTranscriptionTarget("request-1")).toBe(transcribing);
+  expect(router.takeTranscriptionTarget("request-1")).toBeNull();
+});
+
+test("stale transcription completions cannot take the active owner", () => {
+  const router = new DictationOwnerRouter();
+  const replaced = fakeWebContents();
+  const active = fakeWebContents();
+  router.setTranscriptionOwner("request-1", replaced);
+  router.setTranscriptionOwner("request-2", active);
+
+  expect(router.takeTranscriptionTarget("request-1")).toBeNull();
+  expect(router.transcriptionTarget()).toBe(active);
+  expect(router.takeTranscriptionTarget("request-2")).toBe(active);
 });
 
 test("destroyed and cleared owners drop events instead of throwing", () => {

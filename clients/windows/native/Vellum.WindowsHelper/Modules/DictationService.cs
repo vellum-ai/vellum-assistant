@@ -40,7 +40,8 @@ public sealed class DictationService : IRpcModule, IDictationSink
                 Prop(parameters, "audio")?.GetString() ?? ""),
             "dictation.transcribe" => _manager.Transcribe(
                 Prop(parameters, "audio")?.GetString() ?? "",
-                Prop(parameters, "sampleRate")?.GetInt32() ?? 16000),
+                Prop(parameters, "sampleRate")?.GetInt32() ?? 16000,
+                Prop(parameters, "requestId")?.GetString() ?? ""),
             _ => throw new RpcMethodNotFoundException(method),
         };
         return ValueTask.FromResult<object?>(result);
@@ -170,7 +171,7 @@ public sealed class DictationSessionManager(
         return new { ok = true };
     }
 
-    public object Transcribe(string base64, int sampleRate)
+    public object Transcribe(string base64, int sampleRate, string requestId)
     {
         byte[] pcm;
         try
@@ -184,6 +185,10 @@ public sealed class DictationSessionManager(
         if (pcm.Length == 0)
         {
             return new { ok = false, reason = "empty audio" };
+        }
+        if (string.IsNullOrEmpty(requestId))
+        {
+            return new { ok = false, reason = "missing request id" };
         }
 
         lock (_gate)
@@ -203,11 +208,11 @@ public sealed class DictationSessionManager(
             engine.Failed += _ => ReleaseTranscriptionIfCurrent(
                 generation,
                 engine,
-                () => notify("dictation.transcribed", new { text = "" }));
+                () => notify("dictation.transcribed", new { requestId, text = "" }));
             engine.Finalized += text => ReleaseTranscriptionIfCurrent(
                 generation,
                 engine,
-                () => notify("dictation.transcribed", new { text }));
+                () => notify("dictation.transcribed", new { requestId, text }));
             _transcriptionEngine = engine;
             try
             {

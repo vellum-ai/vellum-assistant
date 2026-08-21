@@ -246,12 +246,21 @@ test("one-shot transcription routes independently from streaming", async () => {
   ).toEqual({ ok: true });
   expect(fakeClient.calls.at(-1)).toEqual({
     method: "dictation.transcribe",
-    params: { audio: "AQI=", sampleRate: 16000 },
+    params: {
+      audio: "AQI=",
+      sampleRate: 16000,
+      requestId: expect.any(String),
+    },
   });
+  const requestId = (fakeClient.calls.at(-1)?.params as { requestId: string })
+    .requestId;
 
   fakeClient.notifications.get("dictation.partial")!({ text: "streaming" });
   fakeClient.notifications.get("dictation.error")!({ message: "device lost" });
-  fakeClient.notifications.get("dictation.transcribed")!({ text: "complete" });
+  fakeClient.notifications.get("dictation.transcribed")!({
+    requestId,
+    text: "complete",
+  });
   expect(recording.send).toHaveBeenCalledWith(
     "vellum:helper:dictation:partial",
     { text: "streaming" },
@@ -289,10 +298,28 @@ test("one-shot transcription rejects empty audio and stale failures", async () =
     [new Uint8Array([2]).buffer],
     { sender: active },
   );
+  const transcriptionCalls = fakeClient.calls.filter(
+    (call) => call.method === "dictation.transcribe",
+  );
+  const firstRequestId = (
+    transcriptionCalls[0]!.params as { requestId: string }
+  ).requestId;
+  const activeRequestId = (
+    transcriptionCalls[1]!.params as { requestId: string }
+  ).requestId;
+
+  fakeClient.notifications.get("dictation.transcribed")!({
+    requestId: firstRequestId,
+    text: "stale",
+  });
+  expect(active.send).not.toHaveBeenCalled();
   rejectFirst(new Error("replaced"));
   await first;
 
-  fakeClient.notifications.get("dictation.transcribed")!({ text: "active" });
+  fakeClient.notifications.get("dictation.transcribed")!({
+    requestId: activeRequestId,
+    text: "active",
+  });
   expect(active.send).toHaveBeenCalledWith(
     "vellum:helper:dictation:transcribed",
     { text: "active" },

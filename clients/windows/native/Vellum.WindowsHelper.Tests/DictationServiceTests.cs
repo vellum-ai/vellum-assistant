@@ -126,12 +126,13 @@ public static class DictationServiceTests
         manager = new DictationSessionManager(_ => engines.Dequeue(), Notify);
         manager.SetPartials(true, true, 16000);
         Assert(Json(manager.Transcribe(
-            Convert.ToBase64String(new byte[] { 5, 6 }), 16000))
+            Convert.ToBase64String(new byte[] { 5, 6 }), 16000, "request-1"))
             .Contains("\"ok\":true", StringComparison.Ordinal));
         Assert(oneShot.Chunks.Count == 1 && oneShot.Finished);
         Assert(!streaming.Cancelled && !streaming.Disposed);
         Assert(events.Any(e => e.Method == "dictation.transcribed" &&
-            e.Json.Contains("final text", StringComparison.Ordinal)));
+            e.Json.Contains("final text", StringComparison.Ordinal) &&
+            e.Json.Contains("request-1", StringComparison.Ordinal)));
 
         // A newer one-shot request cancels the old request and suppresses
         // callbacks that arrive after replacement.
@@ -140,14 +141,16 @@ public static class DictationServiceTests
         var current = new FakeEngine();
         engines = new Queue<FakeEngine>([replaced, current]);
         manager = new DictationSessionManager(_ => engines.Dequeue(), Notify);
-        manager.Transcribe(Convert.ToBase64String(new byte[] { 1 }), 16000);
-        manager.Transcribe(Convert.ToBase64String(new byte[] { 2 }), 16000);
+        manager.Transcribe(
+            Convert.ToBase64String(new byte[] { 1 }), 16000, "request-1");
+        manager.Transcribe(
+            Convert.ToBase64String(new byte[] { 2 }), 16000, "request-2");
         Assert(replaced.Cancelled && replaced.Disposed);
         replaced.EmitFinalized("stale");
         Assert(events.Count(e => e.Method == "dictation.transcribed") == 1);
         Assert(!events.Any(e => e.Json.Contains("stale", StringComparison.Ordinal)));
 
-        Assert(Json(manager.Transcribe("not-base64", 16000))
+        Assert(Json(manager.Transcribe("not-base64", 16000, "request-3"))
             .Contains("invalid audio", StringComparison.Ordinal));
 
         // The completion guard includes the submitted recording duration so
@@ -155,7 +158,8 @@ public static class DictationServiceTests
         var oneMinutePcm = new byte[16000 * sizeof(short) * 60];
         var longRecordingEngine = new FakeEngine();
         manager = new DictationSessionManager(_ => longRecordingEngine, Notify);
-        manager.Transcribe(Convert.ToBase64String(oneMinutePcm), 16000);
+        manager.Transcribe(
+            Convert.ToBase64String(oneMinutePcm), 16000, "request-4");
         Assert(longRecordingEngine.CompletionTimeout == TimeSpan.FromSeconds(63));
 
         Console.WriteLine("Dictation tests passed");

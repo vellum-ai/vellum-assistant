@@ -15,6 +15,7 @@ export const dictationTranscribeHelperResultSchema = z.object({
 });
 
 export const DICTATION_PUSH_SAMPLE_RATE = 16000;
+let transcriptionRequestSequence = 0;
 
 /**
  * Normalizes a renderer-pushed PCM chunk into a Buffer. Structured clone
@@ -43,7 +44,10 @@ export const toAudioBuffer = (chunk: unknown): Buffer | null => {
 export class DictationOwnerRouter {
   private partialsOwner: WebContents | null = null;
   private finalOwner: WebContents | null = null;
-  private transcriptionOwner: WebContents | null = null;
+  private transcriptionOwner: {
+    requestId: string;
+    webContents: WebContents;
+  } | null = null;
 
   /** Records ownership for an enable/disable call, returning the prior owner. */
   setOwner(webContents: WebContents, enable: boolean): WebContents | null {
@@ -58,8 +62,8 @@ export class DictationOwnerRouter {
     this.finalOwner = webContents;
   }
 
-  setTranscriptionOwner(webContents: WebContents): void {
-    this.transcriptionOwner = webContents;
+  setTranscriptionOwner(requestId: string, webContents: WebContents): void {
+    this.transcriptionOwner = { requestId, webContents };
   }
 
   clear(): void {
@@ -82,17 +86,23 @@ export class DictationOwnerRouter {
   }
 
   transcriptionTarget(): WebContents | null {
-    return live(this.transcriptionOwner);
+    return live(this.transcriptionOwner?.webContents ?? null);
   }
 
-  takeTranscriptionTarget(): WebContents | null {
-    const target = this.transcriptionTarget();
+  takeTranscriptionTarget(requestId: string): WebContents | null {
+    if (this.transcriptionOwner?.requestId !== requestId) {
+      return null;
+    }
+    const target = live(this.transcriptionOwner.webContents);
     this.transcriptionOwner = null;
     return target;
   }
 
-  clearTranscriptionOwner(webContents: WebContents): void {
-    if (this.transcriptionOwner === webContents) {
+  clearTranscriptionOwner(requestId: string, webContents: WebContents): void {
+    if (
+      this.transcriptionOwner?.requestId === requestId &&
+      this.transcriptionOwner.webContents === webContents
+    ) {
       this.transcriptionOwner = null;
     }
   }
@@ -111,27 +121,29 @@ export const requestDictationTranscription = async (options: {
     return { ok: false, reason: "empty audio" };
   }
 
-  options.owners.setTranscriptionOwner(options.sender);
+  const requestId = String(++transcriptionRequestSequence);
+  options.owners.setTranscriptionOwner(requestId, options.sender);
   try {
     const result = dictationTranscribeHelperResultSchema.safeParse(
       await options.client.call("dictation.transcribe", {
         audio: buf.toString("base64"),
         sampleRate: DICTATION_PUSH_SAMPLE_RATE,
+        requestId,
       }),
     );
     if (!result.success) {
-      options.owners.clearTranscriptionOwner(options.sender);
+      options.owners.clearTranscriptionOwner(requestId, options.sender);
       return {
         ok: false,
         reason: "native helper returned an invalid transcribe result",
       };
     }
     if (!result.data.ok) {
-      options.owners.clearTranscriptionOwner(options.sender);
+      options.owners.clearTranscriptionOwner(requestId, options.sender);
     }
     return result.data;
   } catch (err) {
-    options.owners.clearTranscriptionOwner(options.sender);
+    options.owners.clearTranscriptionOwner(requestId, options.sender);
     return {
       ok: false,
       reason: err instanceof Error ? err.message : String(err),
