@@ -6,6 +6,11 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import {
+  INGRESS_ASSISTANT_ID_KEY,
+  INGRESS_LAST_TUNNEL_KEY,
+  normalizePublicBaseUrl,
+} from "@vellumai/service-contracts/ingress";
 import { z } from "zod";
 
 import { setImage } from "../../avatar/avatar-store.js";
@@ -860,10 +865,17 @@ function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
       publicBaseUrl?: string;
       enabled?: boolean;
     };
-    const value = (rawUrl ?? "").trim().replace(/\/+$/, "");
+    const value = normalizePublicBaseUrl(rawUrl);
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    ingress.publicBaseUrl = value || undefined;
+    if (value !== normalizePublicBaseUrl(ingress.publicBaseUrl)) {
+      // Both records describe the address being replaced, so keeping them
+      // makes the status route call a legitimate retarget `foreign` and name
+      // a tunnel that never fronted the new address.
+      delete ingress[INGRESS_ASSISTANT_ID_KEY];
+      delete ingress[INGRESS_LAST_TUNNEL_KEY];
+    }
+    ingress.publicBaseUrl = value;
     if (enabled !== undefined) {
       ingress.enabled = enabled;
     }
@@ -878,7 +890,7 @@ function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
 
     return {
       enabled: isEnabled,
-      publicBaseUrl: value,
+      publicBaseUrl: value ?? "",
       localGatewayTarget: computeGatewayTarget(),
       success: true,
     };

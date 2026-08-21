@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
+import {
+  INGRESS_ASSISTANT_ID_KEY,
+  INGRESS_LAST_TUNNEL_KEY,
+  type LastTunnelRecord,
+  TUNNEL_PROVIDERS,
+  type TunnelProviderName,
+} from "@vellumai/service-contracts/ingress";
 
 import {
   lookupAssistantByIdentifier,
@@ -20,27 +26,9 @@ import {
  * no-`.vellum/`-reads boundary in cli/AGENTS.md.
  */
 
-/**
- * The local tunnel providers the CLI can start, in the order they are offered.
- * Single source of truth: the provider type, the persisted-record validation
- * below, and `vellum tunnel`'s accepted `--provider` values all derive from it.
- */
-export const TUNNEL_PROVIDERS = ["ngrok", "cloudflare", "tailscale"] as const;
-
-export type TunnelProviderName = (typeof TUNNEL_PROVIDERS)[number];
-
-function isTunnelProviderName(value: unknown): value is TunnelProviderName {
-  return (
-    typeof value === "string" &&
-    (TUNNEL_PROVIDERS as readonly string[]).includes(value)
-  );
-}
-
-/** The tunnel that most recently ran, kept after teardown so UIs can name the command to restart. */
-export interface LastTunnelRecord {
-  provider: TunnelProviderName;
-  publicBaseUrl: string;
-}
+// The tunnel-record contract (provider registry, record shape, key names) is
+// shared with the daemon, which reads what this module writes.
+export { TUNNEL_PROVIDERS, type TunnelProviderName };
 
 /** Default workspace dir: `$VELLUM_WORKSPACE_DIR` or `~/.vellum/workspace`. */
 export function getDefaultWorkspaceDir(): string {
@@ -117,47 +105,20 @@ export function saveIngressUrl(
   ingress.publicBaseUrl = publicUrl;
   ingress.enabled = true;
   if (provider) {
-    ingress.lastTunnel = {
+    ingress[INGRESS_LAST_TUNNEL_KEY] = {
       provider,
       publicBaseUrl: publicUrl,
     } satisfies LastTunnelRecord;
   }
   // The daemon can't derive this: it uses 'self' internally.
   if (assistantId) {
-    ingress.assistantId = assistantId;
+    ingress[INGRESS_ASSISTANT_ID_KEY] = assistantId;
   }
   config.ingress = ingress;
   saveRawConfig(workspaceDir, config);
   if (assistantId) {
     stampLockfileIngressUrl(assistantId, publicUrl);
   }
-}
-
-/** Read the last tunnel that ran, or null when absent or malformed. */
-export function loadLastTunnel(workspaceDir: string): LastTunnelRecord | null {
-  const record = loadIngressSection(workspaceDir)?.lastTunnel as
-    | Record<string, unknown>
-    | undefined;
-  const provider = record?.provider;
-  const publicBaseUrl = record?.publicBaseUrl;
-  // A hand-edited config must not hand callers an unusable address, so the URL
-  // faces the same absolute HTTP(S) constraint as every other public base URL.
-  if (
-    !isTunnelProviderName(provider) ||
-    typeof publicBaseUrl !== "string" ||
-    !normalizeHttpPublicBaseUrl(publicBaseUrl)
-  ) {
-    return null;
-  }
-  return { provider, publicBaseUrl: publicBaseUrl.trim() };
-}
-
-/** Read the assistant ID the last tunnel fronted, or null when absent. */
-export function loadRecordedAssistantId(workspaceDir: string): string | null {
-  const assistantId = loadIngressSection(workspaceDir)?.assistantId;
-  return typeof assistantId === "string" && assistantId.trim()
-    ? assistantId
-    : null;
 }
 
 /** Persist a reserved ngrok domain under `ingress.ngrok.domain`; null clears it. */

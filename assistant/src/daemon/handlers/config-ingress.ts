@@ -1,4 +1,10 @@
-import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
+import {
+  INGRESS_ASSISTANT_ID_KEY,
+  INGRESS_LAST_TUNNEL_KEY,
+  type LastTunnelRecord,
+  parseLastTunnelRecord,
+  parseRecordedAssistantId,
+} from "@vellumai/service-contracts/ingress";
 
 import { updatePhoneNumberWebhooks } from "../../calls/twilio-rest.js";
 import {
@@ -24,46 +30,19 @@ export function computeGatewayTarget(): string {
 /**
  * The `ingress` section of the raw workspace config.
  *
- * `vellum tunnel` writes this section (`cli/src/lib/ingress-config.ts`), so
- * the field names below are the contract between the two packages: the CLI is
- * a separate build unit the assistant does not depend on, so the assistant
- * reads the same keys rather than importing the CLI's readers.
+ * `vellum tunnel` writes this section (`cli/src/lib/ingress-config.ts`). The
+ * CLI is a separate build unit the assistant does not depend on, so the key
+ * names and the record validation are shared through
+ * `@vellumai/service-contracts/ingress` instead.
  */
 function readIngressSection(): Record<string, unknown> {
   const ingress = loadRawConfig().ingress;
   return isPlainObject(ingress) ? ingress : {};
 }
 
-function readNonEmptyString(value: unknown): string | null {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-/** The tunnel that most recently ran; the CLI keeps it across teardown. */
-export interface LastTunnelRecord {
-  /** Provider name as the CLI wrote it, opaque here. */
-  provider: string;
-  publicBaseUrl: string;
-}
-
 /** Read the last tunnel that ran, or null when it is absent or malformed. */
 export function loadLastTunnelRecord(): LastTunnelRecord | null {
-  const record = readIngressSection().lastTunnel;
-  if (!isPlainObject(record)) {
-    return null;
-  }
-  const provider = readNonEmptyString(record.provider);
-  const publicBaseUrl = readNonEmptyString(record.publicBaseUrl);
-  // A hand-edited config must not hand callers an unusable address, so the
-  // URL faces the same absolute HTTP(S) constraint the CLI applies to it.
-  if (
-    !provider ||
-    !publicBaseUrl ||
-    !normalizeHttpPublicBaseUrl(publicBaseUrl)
-  ) {
-    return null;
-  }
-  return { provider, publicBaseUrl };
+  return parseLastTunnelRecord(readIngressSection()[INGRESS_LAST_TUNNEL_KEY]);
 }
 
 /**
@@ -71,7 +50,9 @@ export function loadLastTunnelRecord(): LastTunnelRecord | null {
  * daemon cannot derive it: it scopes itself as `self` internally.
  */
 export function loadRecordedAssistantId(): string | null {
-  return readNonEmptyString(readIngressSection().assistantId);
+  return parseRecordedAssistantId(
+    readIngressSection()[INGRESS_ASSISTANT_ID_KEY],
+  );
 }
 
 /**

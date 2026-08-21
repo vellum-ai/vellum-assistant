@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   normalizeHttpPublicBaseUrl,
   normalizePublicBaseUrl,
+  parseLastTunnelRecord,
+  parseRecordedAssistantId,
+  TUNNEL_PROVIDERS,
   velayHostForPlatformHost,
 } from "../ingress.js";
 import {
@@ -121,5 +124,75 @@ describe("Twilio ingress helpers", () => {
       statusCallbackUrl: "https://example.test/webhooks/twilio/status",
       voiceUrl: "https://example.test/webhooks/twilio/voice",
     });
+  });
+});
+
+describe("parseLastTunnelRecord", () => {
+  const TUNNEL_URL = "https://assistant-1.example.ts.net";
+
+  test("accepts every provider in the registry", () => {
+    for (const provider of TUNNEL_PROVIDERS) {
+      expect(
+        parseLastTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
+      ).toEqual({ provider, publicBaseUrl: TUNNEL_URL });
+    }
+  });
+
+  test("trims the recorded URL", () => {
+    expect(
+      parseLastTunnelRecord({
+        provider: "ngrok",
+        publicBaseUrl: ` ${TUNNEL_URL} `,
+      }),
+    ).toEqual({ provider: "ngrok", publicBaseUrl: TUNNEL_URL });
+  });
+
+  test("rejects values that are not a record", () => {
+    for (const value of [undefined, null, "nonsense", 42, []]) {
+      expect(parseLastTunnelRecord(value)).toBeNull();
+    }
+  });
+
+  test("rejects a record missing either field", () => {
+    expect(parseLastTunnelRecord({ provider: "ngrok" })).toBeNull();
+    expect(parseLastTunnelRecord({ publicBaseUrl: TUNNEL_URL })).toBeNull();
+  });
+
+  test("rejects a provider outside the registry", () => {
+    // Readers render the provider into a `vellum tunnel --provider <name>`
+    // command, so a hand-edited config must not reach a terminal.
+    for (const provider of ["wireguard", "; rm -rf /", "", 42]) {
+      expect(
+        parseLastTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
+      ).toBeNull();
+    }
+  });
+
+  test("rejects a URL that is not absolute HTTP(S)", () => {
+    for (const publicBaseUrl of [
+      "",
+      "   ",
+      "not-a-url",
+      "example.ts.net",
+      "ftp://x.test",
+      "https://one.ngrok.app?token=x",
+      42,
+    ]) {
+      expect(
+        parseLastTunnelRecord({ provider: "ngrok", publicBaseUrl }),
+      ).toBeNull();
+    }
+  });
+});
+
+describe("parseRecordedAssistantId", () => {
+  test("trims a recorded id", () => {
+    expect(parseRecordedAssistantId(" assistant-1 ")).toBe("assistant-1");
+  });
+
+  test("rejects blank and non-string values", () => {
+    for (const value of ["", "   ", undefined, null, 42]) {
+      expect(parseRecordedAssistantId(value)).toBeNull();
+    }
   });
 });
