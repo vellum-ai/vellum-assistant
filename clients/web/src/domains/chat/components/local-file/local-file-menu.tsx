@@ -18,7 +18,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 
 import { Button, cn, Menu, toast } from "@vellumai/design-library";
 
-import { t } from "@/i18n";
+import { t, useTranslation } from "@/i18n";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
@@ -45,6 +45,7 @@ export function LocalFileMenu({
   onPictureInPicture,
   className,
 }: LocalFileMenuProps) {
+  const { t: tChat } = useTranslation("chat");
   const isDisabled = disabled === true || workspacePath === null;
 
   const handleGoToFile = useCallback(() => {
@@ -77,7 +78,7 @@ export function LocalFileMenu({
           size="compact"
           expandOnMobile={false}
           iconOnly={<Ellipsis />}
-          aria-label="File actions"
+          aria-label={tChat("localFileMenu.fileActionsAria")}
           className={cn("shrink-0", className)}
           onClick={(event: MouseEvent) => event.stopPropagation()}
           onKeyDown={(event: KeyboardEvent) => {
@@ -94,7 +95,7 @@ export function LocalFileMenu({
           onSelect={handleGoToFile}
           className="whitespace-nowrap"
         >
-          Go to file
+          {tChat("localFileMenu.goToFile")}
         </Menu.Item>
         {onPictureInPicture !== undefined && (
           <Menu.Item
@@ -102,7 +103,7 @@ export function LocalFileMenu({
             onSelect={onPictureInPicture}
             className="whitespace-nowrap"
           >
-            Picture in Picture
+            {tChat("localFileMenu.pictureInPicture")}
           </Menu.Item>
         )}
         <Menu.Item
@@ -111,7 +112,7 @@ export function LocalFileMenu({
           onSelect={() => void handleDownload()}
           className="whitespace-nowrap"
         >
-          Download
+          {tChat("localFileMenu.download")}
         </Menu.Item>
       </Menu.Content>
     </Menu.Root>

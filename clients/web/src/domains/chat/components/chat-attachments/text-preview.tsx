@@ -1,6 +1,8 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
@@ -82,6 +84,7 @@ export function TextPreview({
   mimeType,
   sizeBytes,
 }: TextPreviewProps) {
+  const { t } = useTranslation("chat");
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   // Read the local URL straight into component state. This is deliberately not
@@ -134,8 +137,8 @@ export function TextPreview({
       <PreviewMessageCard
         message={
           state.tooLarge
-            ? "File too large to preview inline."
-            : "Failed to load preview."
+            ? t("textPreview.tooLarge")
+            : t("textPreview.loadFailed")
         }
         filename={filename}
         onDownload={handleDownload}

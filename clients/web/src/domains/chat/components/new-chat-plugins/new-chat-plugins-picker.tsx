@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
 import { Link } from "react-router";
 
@@ -12,9 +14,6 @@ import type { UseNewChatPluginsResult } from "./use-new-chat-plugins";
 
 /** Pills shown before the "Show all (+N)" expander reveals the rest. */
 const COLLAPSED_PILL_COUNT = 12;
-
-const TOOLTIP_COPY =
-  "Choose which plugins this chat can use. Your selection is applied when you send your first message and stays with this conversation.";
 
 type NewChatPluginsPickerProps = Pick<
   UseNewChatPluginsResult,
@@ -33,6 +32,7 @@ export function NewChatPluginsPicker({
   isSelected,
   toggle,
 }: NewChatPluginsPickerProps) {
+  const { t } = useTranslation("chat");
   const [showAll, setShowAll] = useState(false);
 
   const hiddenCount = plugins.length - COLLAPSED_PILL_COUNT;
@@ -45,8 +45,8 @@ export function NewChatPluginsPicker({
     <section className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-title-small text-[var(--content-default)]">
-          <span>Add plugins for new chat</span>
-          <Tooltip content={TOOLTIP_COPY} side="top">
+          <span>{t("newChatPluginsPicker.heading")}</span>
+          <Tooltip content={t("newChatPluginsPicker.tooltip")} side="top">
             <span className="inline-flex cursor-help items-center">
               <Info
                 className="h-3.5 w-3.5 text-[var(--content-tertiary)]"
@@ -59,7 +59,7 @@ export function NewChatPluginsPicker({
           to={`${routes.superpowers}?filter=plugins`}
           className="text-body-medium-default text-[var(--primary-base)] hover:text-[var(--primary-hover)]"
         >
-          Manage Plugins
+          {t("newChatPluginsPicker.managePlugins")}
         </Link>
       </div>
 
@@ -82,12 +82,12 @@ export function NewChatPluginsPicker({
         >
           {showAll ? (
             <>
-              Show less
+              {t("newChatPluginsPicker.showLess")}
               <ChevronUp className="h-3.5 w-3.5" aria-hidden />
             </>
           ) : (
             <>
-              {`Show all (+${hiddenCount})`}
+              {t("newChatPluginsPicker.showAll", { count: hiddenCount })}
               <ChevronDown className="h-3.5 w-3.5" aria-hidden />
             </>
           )}

@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 
@@ -63,6 +65,7 @@ function CommentBubble({
   comment: DocumentsByIdCommentsPostResponse;
   onCommentSelect?: (comment: DocumentsByIdCommentsPostResponse) => void;
 }) {
+  const { t } = useTranslation("chat");
   const isInline = comment.anchorText != null;
   return (
     <div className="flex gap-2">
@@ -109,7 +112,7 @@ function CommentBubble({
             type="button"
             className="mt-1 cursor-pointer border-none bg-transparent p-0"
             onClick={() => onCommentSelect?.(comment)}
-            title="Jump to highlighted text"
+            title={t("documentCommentThread.jumpToHighlight")}
           >
             <Tag tone="neutral" leftIcon={<Quote />}>
               <span className="max-w-[200px] truncate">
@@ -158,6 +161,7 @@ export function DocumentCommentThread({
   onReply,
   onCommentSelect,
 }: DocumentCommentThreadProps) {
+  const { t } = useTranslation("chat");
   const [replyOpen, setReplyOpen] = useState(false);
   const isResolved = comment.status === "resolved";
 
@@ -181,11 +185,11 @@ export function DocumentCommentThread({
       <div className="flex items-center justify-between">
         {isResolved ? (
           <Tag tone="positive" leftIcon={<CheckCircle />}>
-            Resolved
+            {t("documentCommentThread.resolved")}
           </Tag>
         ) : (
           <Tag tone="neutral" leftIcon={<CircleDot />}>
-            Open
+            {t("documentCommentThread.open")}
           </Tag>
         )}
 
@@ -197,7 +201,7 @@ export function DocumentCommentThread({
               leftIcon={<CircleDot />}
               onClick={() => void onReopen(comment.id)}
             >
-              Reopen
+              {t("documentCommentThread.reopen")}
             </Button>
           ) : (
             <Button
@@ -206,14 +210,14 @@ export function DocumentCommentThread({
               leftIcon={<CheckCircle />}
               onClick={() => void onResolve(comment.id)}
             >
-              Resolve
+              {t("documentCommentThread.resolve")}
             </Button>
           )}
           <Button
             variant="dangerGhost"
             size="compact"
             iconOnly={<Trash2 />}
-            aria-label="Delete comment"
+            aria-label={t("documentCommentThread.deleteCommentAria")}
             onClick={() => void onDelete(comment.id)}
           />
         </div>
@@ -237,7 +241,7 @@ export function DocumentCommentThread({
         <div className="ml-8">
           <DocumentCommentForm
             onSubmit={handleReply}
-            placeholder="Write a reply…"
+            placeholder={t("documentCommentThread.replyPlaceholder")}
             autoFocus
           />
         </div>
@@ -249,7 +253,7 @@ export function DocumentCommentThread({
           onClick={() => setReplyOpen(true)}
           className="self-start"
         >
-          Reply
+          {t("documentCommentThread.reply")}
         </Button>
       )}
     </div>

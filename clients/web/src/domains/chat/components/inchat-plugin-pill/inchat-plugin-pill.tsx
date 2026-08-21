@@ -2,6 +2,8 @@ import { Cog, Plug } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { useTranslation } from "@/i18n";
+
 import {
   BottomSheet,
   Button,
@@ -21,8 +23,6 @@ export interface InChatPluginPillProps {
 }
 
 /** Warns that per-chat plugin changes (made on the plugins page) can be costly. */
-const COST_CAPTION = "Changing plugin settings can incur high costs.";
-
 /**
  * Top-right chat pill summarizing the conversation's active plugins. Clicking it
  * opens a read-only list of those plugins plus a "Manage" shortcut to the
@@ -34,6 +34,7 @@ export function InChatPluginPill({
   assistantId,
   conversationId,
 }: InChatPluginPillProps) {
+  const { t } = useTranslation("chat");
   const { plugins, selectedCount, total, isResolved } = useEffectiveChatPlugins(
     assistantId,
     conversationId,
@@ -58,8 +59,8 @@ export function InChatPluginPill({
   }
 
   const active = plugins.filter((plugin) => plugin.selected);
-  const label = selectedCount === 1 ? "1 plugin" : `${selectedCount} plugins`;
-  const ariaLabel = `Chat plugins, ${selectedCount} active`;
+  const label = t("inChatPluginPill.countLabel", { count: selectedCount });
+  const ariaLabel = t("inChatPluginPill.ariaLabel", { count: selectedCount });
 
   // Read-only rows — the chat's active plugins, no toggle affordance. Rounded
   // pills with the plugin name in body-medium-default / content-default (per
@@ -85,13 +86,13 @@ export function InChatPluginPill({
   const manageFooter = (
     <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
       <Button variant="primary" leftIcon={<Cog />} onClick={handleManage}>
-        Manage
+        {t("inChatPluginPill.manage")}
       </Button>
       <Typography
         variant="label-small-default"
         className="text-[var(--content-tertiary)]"
       >
-        {COST_CAPTION}
+        {t("inChatPluginPill.costCaption")}
       </Typography>
     </div>
   );
@@ -123,7 +124,7 @@ export function InChatPluginPill({
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
         <BottomSheet.Content>
           <BottomSheet.Header>
-            <BottomSheet.Title>Plugins</BottomSheet.Title>
+            <BottomSheet.Title>{t("inChatPluginPill.plugins")}</BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">
             {pluginRows}
@@ -148,7 +149,7 @@ export function InChatPluginPill({
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            Plugins
+            {t("inChatPluginPill.plugins")}
           </Typography>
         </div>
         {pluginRows.length > 0 ? (

@@ -2,6 +2,8 @@ import { ConversationStarterChip } from "@/domains/chat/components/conversation-
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 
+import { useTranslation } from "@/i18n";
+
 export interface ConversationStarterGridProps {
   /**
    * Starters to render. Server returns these in strongest-first order; we
@@ -28,6 +30,7 @@ export function ConversationStarterGrid({
   onSelect,
   maxVisible = MAX_CONVERSATION_STARTER_CHIPS,
 }: ConversationStarterGridProps) {
+  const { t } = useTranslation("chat");
   const visible = starters.slice(0, maxVisible);
   if (visible.length === 0) {
     return null;
@@ -39,7 +42,7 @@ export function ConversationStarterGrid({
           key={starter.id}
           label={starter.label}
           onSelect={() => onSelect(starter)}
-          aria-label={`Send: ${starter.label}`}
+          aria-label={t("conversationStarterGrid.sendAria", { label: starter.label })}
         />
       ))}
     </div>

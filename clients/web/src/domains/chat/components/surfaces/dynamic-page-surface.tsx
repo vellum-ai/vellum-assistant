@@ -1,6 +1,11 @@
 import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
+const IFRAME_SANDBOX =
+  "allow-scripts allow-popups allow-popups-to-escape-sandbox";
+
 import { AppCard } from "@/components/app-card";
 import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
@@ -97,6 +102,7 @@ export function DynamicPageSurface({
   toolCalls,
   onVellumLinkClick,
 }: DynamicPageSurfaceProps) {
+  const { t } = useTranslation("chat");
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
   const data = surface.data as unknown as DynamicPageSurfaceData;
@@ -238,9 +244,9 @@ export function DynamicPageSurface({
           ref={iframeRef}
           key={iframeKey}
           srcDoc={srcdoc}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          sandbox={IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
-          title={surface.title || "Dynamic content"}
+          title={surface.title || t("dynamicPageSurface.titleFallback")}
           style={{
             width,
             height,

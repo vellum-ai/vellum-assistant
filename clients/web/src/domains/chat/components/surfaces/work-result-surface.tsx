@@ -25,6 +25,8 @@ import {
 import { type ReactNode, useMemo } from "react";
 import { Link } from "react-router";
 
+import { useTranslation } from "@/i18n";
+
 import type { Surface } from "@/domains/chat/types/types";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
@@ -337,6 +339,7 @@ function ItemList({ items }: { items: WorkResultItem[] }) {
 }
 
 function DiffBlock({ diffs }: { diffs: WorkResultDiff[] }) {
+  const { t } = useTranslation("chat");
   if (diffs.length === 0) {
     return null;
   }
@@ -352,10 +355,10 @@ function DiffBlock({ diffs }: { diffs: WorkResultDiff[] }) {
           <div className="grid gap-px overflow-hidden rounded-md border border-[var(--border-base)] bg-[var(--border-base)] sm:grid-cols-[1fr_auto_1fr]">
             <div className="min-w-0 bg-[var(--surface-base)] p-3">
               <div className="mb-1 text-label-small-default text-[var(--content-tertiary)]">
-                Before
+                {t("workResultSurface.before")}
               </div>
               <p className="whitespace-pre-wrap text-body-small-default text-[var(--content-secondary)]">
-                {hasText(diff.before) ? diff.before : "Not set"}
+                {hasText(diff.before) ? diff.before : t("workResultSurface.notSet")}
               </p>
             </div>
             <div className="hidden items-center bg-[var(--surface-base)] px-2 text-[var(--content-tertiary)] sm:flex">
@@ -363,10 +366,10 @@ function DiffBlock({ diffs }: { diffs: WorkResultDiff[] }) {
             </div>
             <div className="min-w-0 bg-[var(--surface-base)] p-3">
               <div className="mb-1 text-label-small-default text-[var(--content-tertiary)]">
-                After
+                {t("workResultSurface.after")}
               </div>
               <p className="whitespace-pre-wrap text-body-small-default text-[var(--content-strong)]">
-                {hasText(diff.after) ? diff.after : "Removed"}
+                {hasText(diff.after) ? diff.after : t("workResultSurface.removed")}
               </p>
             </div>
           </div>

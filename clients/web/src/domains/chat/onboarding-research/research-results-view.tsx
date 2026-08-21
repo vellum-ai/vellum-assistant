@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Pure presentational layout for the research-onboarding results step.
  *
@@ -58,6 +60,7 @@ export function ResearchResultsView({
   onSuggestionClick,
   onContinue,
 }: ResearchResultsViewProps) {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto bg-[var(--surface-base)]">
       <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-8 px-6 py-12">
@@ -83,11 +86,10 @@ export function ResearchResultsView({
           ) : mode === "empty" ? (
             <div className="flex flex-col items-center gap-3 text-center text-[var(--content-secondary)]">
               <p className="text-lg text-[var(--content-default)]">
-                Let&apos;s just dive in.
+                {t("researchResultsView.emptyTitle")}
               </p>
               <p className="text-body-medium-lighter">
-                I couldn&apos;t pull together a clean profile this time — we can
-                get to know each other as we go.
+                {t("researchResultsView.emptyBody")}
               </p>
             </div>
           ) : (
@@ -103,7 +105,7 @@ export function ResearchResultsView({
             disabled={!canContinue}
             className="h-11 px-6 text-base"
           >
-            Continue
+            {t("researchResultsView.continue")}
           </Button>
         </div>
       </div>

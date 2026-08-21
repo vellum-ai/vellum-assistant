@@ -1,5 +1,7 @@
 import { ArrowRight } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
+
 import { SuggestionIcon } from "@/domains/chat/suggestions/suggestion-icon";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { cn } from "@/utils/misc";
@@ -16,11 +18,12 @@ export interface SuggestionCardProps {
 }
 
 export function SuggestionCard({ suggestion, onSelect }: SuggestionCardProps) {
+  const { t } = useTranslation("chat");
   return (
     <button
       type="button"
       data-slot="suggestion-card"
-      aria-label={`Open suggestion: ${suggestion.title}`}
+      aria-label={t("suggestionCard.openAria", { title: suggestion.title })}
       onClick={() => onSelect(suggestion)}
       className={cn(
         "flex cursor-pointer flex-col items-center justify-center gap-4 text-center",

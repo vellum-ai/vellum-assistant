@@ -1,5 +1,7 @@
 import { ChevronDown } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
+
 import { ChatPill } from "@/domains/chat/components/chat-pill";
 
 /**
@@ -20,10 +22,11 @@ export function ScrollToLatestButton({
   onClick: () => void;
   isAssistantBusy?: boolean;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <ChatPill
       onClick={onClick}
-      ariaLabel="Go to newest message"
+      ariaLabel={t("scrollToLatestButton.aria")}
       size="regular"
       // `max-md:shadow-lg`: the pill needs a stronger shadow on mobile to
       // lift off the busy chat background. The shared ChatPill chrome keeps
@@ -44,7 +47,7 @@ export function ScrollToLatestButton({
           ))}
         </span>
       )}
-      Go to Newest
+      {t("scrollToLatestButton.label")}
       <ChevronDown className="h-3 w-3" />
     </ChatPill>
   );

@@ -17,6 +17,8 @@ import { resolveLocalFileType } from "@/domains/chat/utils/mime-sniff";
 /** The playable subset of the drawer's preview kinds. */
 export type MediaPreviewKind = "image" | "audio" | "video";
 
+const MEDIA_CONTROLS_LIST = "nodownload noplaybackrate";
+
 interface MediaPreviewProps {
   blob: Blob;
   filename: string;
@@ -62,7 +64,7 @@ export function MediaPreview({
       <audio
         src={url}
         controls
-        controlsList="nodownload noplaybackrate"
+        controlsList={MEDIA_CONTROLS_LIST}
         preload="metadata"
         aria-label={filename}
         className="w-full"
@@ -74,7 +76,7 @@ export function MediaPreview({
     <video
       src={url}
       controls
-      controlsList="nodownload noplaybackrate"
+      controlsList={MEDIA_CONTROLS_LIST}
       playsInline
       preload="metadata"
       aria-label={filename}

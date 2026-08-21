@@ -16,7 +16,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { t } from "@/i18n";
+import { t, useTranslation } from "@/i18n";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import {
   profilePickerLabel,
@@ -98,6 +98,7 @@ export function ComposerSettingsMenu({
 }: Props) {
   const isMobile = useIsMobile();
   const isTouchMobile = useTouchMobile();
+  const { t: tChat } = useTranslation("chat");
   // A composer too narrow for two labelled triggers folds both segments into
   // one hamburger menu. The composer mounts a single instance in that mode
   // (see `ChatComposer`'s action row), so `segments` is ignored here: the one
@@ -638,7 +639,7 @@ export function ComposerSettingsMenu({
       variant="ghost"
       size="compact"
       iconOnly={<Plus className="h-3.5 w-3.5" />}
-      aria-label="New Profile"
+      aria-label={tChat("composerSettingsMenu.newProfile")}
       disabled={!profilesLoaded}
       aria-disabled={!profilesLoaded}
       onClick={() => {
@@ -680,7 +681,11 @@ export function ComposerSettingsMenu({
     quickAddControl
   ) : (
     <Tooltip
-      content={profilesLoaded ? "New Profile" : "Loading profiles…"}
+      content={
+        profilesLoaded
+          ? tChat("composerSettingsMenu.newProfile")
+          : tChat("composerSettingsMenu.loadingProfiles")
+      }
       side="top"
     >
       {quickAddControl}
@@ -812,7 +817,9 @@ export function ComposerSettingsMenu({
   // Access trigger: the active preset's name beside its icon, as a floating
   // pill on mobile (Figma 7840-8819) and as an action-row button on desktop
   // (Figma 7471-25243).
-  const accessLabel = `Assistant access: ${activePreset.label}`;
+  const accessLabel = tChat("composerSettingsMenu.accessAria", {
+    label: activePreset.label,
+  });
   const accessTrigger = isMobile ? (
     <Button
       variant="ghost"
@@ -851,8 +858,10 @@ export function ComposerSettingsMenu({
   // the selection a labelled trigger shows, or the name says nothing about it
   // and voice control can't reach the control by what it reads.
   const profileLabel = displayProfileLabel
-    ? `Model profile: ${displayProfileLabel}`
-    : "Model profile";
+    ? tChat("composerSettingsMenu.profileAria", {
+        label: displayProfileLabel,
+      })
+    : tChat("composerSettingsMenu.profileAriaFallback");
   // min-w-0 + truncate keeps a long label from pushing the composer's action
   // buttons off-screen on narrow viewports. leading-snug: text-body-small-default
   // is line-height:1, so truncate clips descenders (e.g. the "g" in profile
@@ -936,7 +945,9 @@ export function ComposerSettingsMenu({
       >
         {preset.label}
         {isDefault && (
-          <span className="ml-1 text-[var(--content-tertiary)]">(default)</span>
+          <span className="ml-1 text-[var(--content-tertiary)]">
+            {tChat("composerSettingsMenu.defaultSuffix")}
+          </span>
         )}
       </Menu.Item>
     );
@@ -971,7 +982,7 @@ export function ComposerSettingsMenu({
     <Menu.Label
       className={`${menuLabelClass} flex items-center justify-between gap-2`}
     >
-      <span>Model Profile</span>
+      <span>{tChat("composerSettingsMenu.modelProfile")}</span>
       {/* The compact quick-add button (h-6/24px) is taller than the label
           text's own line box (10px); items-center would otherwise stretch the
           row to fit it and nudge the text down relative to the icon-less
@@ -994,7 +1005,7 @@ export function ComposerSettingsMenu({
     ]
       .filter(Boolean)
       .join(" · ");
-    const compactLabel = "Assistant access and model profile";
+    const compactLabel = tChat("composerSettingsMenu.compactAria");
     return (
       <Menu.Root open={compactOpen} onOpenChange={setCompactOpen}>
         <Menu.Trigger asChild>
@@ -1003,7 +1014,11 @@ export function ComposerSettingsMenu({
             iconOnly={<HamburgerIcon />}
             aria-label={compactLabel}
             title={
-              activeSummary ? `${compactLabel}: ${activeSummary}` : compactLabel
+              activeSummary
+                ? tChat("composerSettingsMenu.compactAriaWithSummary", {
+                    summary: activeSummary,
+                  })
+                : compactLabel
             }
             className={triggerClass}
           />
@@ -1012,7 +1027,7 @@ export function ComposerSettingsMenu({
           {accessSettled && (
             <>
               <Menu.Label className={menuLabelClass}>
-                Assistant Access
+                {tChat("composerSettingsMenu.assistantAccess")}
               </Menu.Label>
               {accessMenuItems}
               <Menu.Separator />
@@ -1036,16 +1051,24 @@ export function ComposerSettingsMenu({
                 hidden one (matches BottomSheet.gallery.tsx → "NoTitle"). */}
             <BottomSheet.Content aria-describedby={undefined}>
               <BottomSheet.Header className="sr-only">
-                <BottomSheet.Title>Assistant access</BottomSheet.Title>
+                <BottomSheet.Title>
+                  {tChat("composerSettingsMenu.assistantAccessTitle")}
+                </BottomSheet.Title>
               </BottomSheet.Header>
               <BottomSheet.Body className="pt-0">
-                <SectionLabel>Assistant Access</SectionLabel>
+                <SectionLabel>
+                  {tChat("composerSettingsMenu.assistantAccess")}
+                </SectionLabel>
                 {accessItems.map(({ preset, isActive, isDefault }) => (
                   <PanelItem
                     key={preset.id}
                     icon={preset.icon}
                     label={
-                      isDefault ? `${preset.label} (default)` : preset.label
+                      isDefault
+                        ? tChat("composerSettingsMenu.defaultLabel", {
+                            label: preset.label,
+                          })
+                        : preset.label
                     }
                     active={isActive}
                     className="max-md:[&>span:first-child]:gap-[11px]"
@@ -1069,13 +1092,15 @@ export function ComposerSettingsMenu({
             <BottomSheet.Trigger asChild>{profileTrigger}</BottomSheet.Trigger>
             <BottomSheet.Content aria-describedby={undefined}>
               <BottomSheet.Header className="sr-only">
-                <BottomSheet.Title>Model profile</BottomSheet.Title>
+                <BottomSheet.Title>
+                  {tChat("composerSettingsMenu.modelProfileTitle")}
+                </BottomSheet.Title>
               </BottomSheet.Header>
               {/* Wrap in Body so a long profile list scrolls when the sheet
                 hits its 50dvh cap. `pt-0` because the Header is sr-only. */}
               <BottomSheet.Body className="pt-0">
                 <SectionLabel trailingAction={quickAddButton}>
-                  Model Profile
+                  {tChat("composerSettingsMenu.modelProfile")}
                 </SectionLabel>
                 {visibleProfileEntries.map((entry) => {
                   const isActive = entry.name === profileActiveKey;
@@ -1112,7 +1137,9 @@ export function ComposerSettingsMenu({
         <Menu.Root open={accessOpen} onOpenChange={setAccessOpen}>
           <Menu.Trigger asChild>{accessTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className={menuLabelClass}>Assistant Access</Menu.Label>
+            <Menu.Label className={menuLabelClass}>
+              {tChat("composerSettingsMenu.assistantAccess")}
+            </Menu.Label>
             {accessMenuItems}
           </Menu.Content>
         </Menu.Root>

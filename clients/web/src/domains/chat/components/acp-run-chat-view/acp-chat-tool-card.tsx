@@ -24,6 +24,8 @@ import { useMemo, useState } from "react";
 
 import { Tag, Typography, type TagTone } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 import {
   formatRawValue,
   getAcpFileChanges,
@@ -152,6 +154,7 @@ export function AcpChatToolCard({
   onOpenDiff,
   onOpenOutput,
 }: AcpChatToolCardProps) {
+  const { t } = useTranslation("chat");
   const [expandedRaw, setExpandedRaw] = useState(false);
 
   const parsed = useMemo(
@@ -321,21 +324,23 @@ export function AcpChatToolCard({
               <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
             )}
             <span>
-              {expandedRaw ? "Hide raw input/output" : "Show raw input/output"}
+              {expandedRaw
+                ? t("acpChatToolCard.hideRaw")
+                : t("acpChatToolCard.showRaw")}
             </span>
           </button>
           {expandedRaw && (
             <div className="mt-1.5 flex flex-col gap-2">
               {rawInputText !== undefined && (
                 <RawBlock
-                  label="Raw input"
+                  label={t("acpChatToolCard.rawInput")}
                   value={rawInputText}
                   testId="acp-chat-tool-raw-input"
                 />
               )}
               {rawOutputText !== undefined && (
                 <RawBlock
-                  label="Raw output"
+                  label={t("acpChatToolCard.rawOutput")}
                   value={rawOutputText}
                   testId="acp-chat-tool-raw-output"
                 />

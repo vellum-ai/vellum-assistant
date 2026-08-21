@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import type { FC, ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Button } from "@vellumai/design-library";
 
 import {
@@ -53,6 +55,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
   onRemove,
   onPreview,
 }) => {
+  const { t } = useTranslation("chat");
   const kind = classifyAttachment(mimeType, filename);
   const displayName = middleTruncate(filename);
   const hasPreview = kind === "image" && previewUrl !== null;
@@ -103,7 +106,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
               e.stopPropagation();
               onRemove(id);
             }}
-            aria-label={`Remove ${filename}`}
+            aria-label={t("attachmentChip.removeAria", { filename })}
           />
         </div>
       ) : null}
