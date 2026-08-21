@@ -112,7 +112,10 @@ vellum tunnel --provider tailscale
 ```
 
 `tailscale` is the default provider, so a bare `vellum tunnel` does the same
-thing. `vellum tunnel --help` lists the other providers and options.
+thing, unless a webhook integration (a phone number, a chat channel) is
+already configured: a tailnet-only front cannot carry its callbacks, so the
+bare command asks you to name a provider explicitly rather than let you fall
+into one. `vellum tunnel --help` lists the other providers and options.
 
 `vellum tunnel` manages the nginx edge for you: it starts the edge on
 `http://127.0.0.1:7840` (or reuses one already running) and fronts it, so a
@@ -132,8 +135,11 @@ The tunnel records the public URL in your workspace config
 (`ingress.publicBaseUrl`). A `ts.net` address is reachable only from inside
 your own tailnet, so channel integrations that call in from the public
 internet (Telegram, Twilio, …) need one of the public providers below
-instead: `--provider ngrok` or `--provider cloudflare`. The tunnel prints the
-address it established:
+instead: `--provider ngrok` or `--provider cloudflare`. With one of those
+integrations already configured, an explicit `--provider tailscale` leaves
+`ingress.publicBaseUrl` as it is and records the tailnet address for device
+pairing only, so inbound calls and messages keep reaching the public URL you
+set up for them. The tunnel prints the address it established:
 
 ```
 Tunnel established: https://your-machine.your-tailnet.ts.net
@@ -164,10 +170,11 @@ tailscale serve status   # prints your https://<host>.<tailnet>.ts.net URL
 ```
 
 That URL fronts the nginx edge over your tailnet with automatic HTTPS. Use it
-as the `--url` value in [Step 4](#4-pair-your-devices). To let channel
-integrations use it as well, run `vellum tunnel --provider tailscale` instead,
-which manages the edge itself and also writes the URL to
-`ingress.publicBaseUrl`.
+as the `--url` value in [Step 4](#4-pair-your-devices). To skip that step, run
+`vellum tunnel --provider tailscale` instead: it manages the edge itself and
+saves the address for pairing to reuse (as `ingress.publicBaseUrl`, or, when a
+webhook integration is configured, on its own so that integration's public
+callback URL stays put).
 
 </details>
 

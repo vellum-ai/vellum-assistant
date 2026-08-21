@@ -203,10 +203,13 @@ export function hasWebhookIntegrations(
 }
 
 /**
- * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
- * configured that require a public ingress URL.
+ * Check whether the workspace at `workspaceDir` configures any webhook-based
+ * integrations that require a public ingress URL. False when the config cannot
+ * be read, so an unreadable workspace never blocks a caller.
  */
-function hasWebhookIntegrationsConfigured(workspaceDir: string): boolean {
+export function hasWebhookIntegrationsConfigured(
+  workspaceDir: string,
+): boolean {
   try {
     return hasWebhookIntegrations(loadRawConfig(workspaceDir));
   } catch {

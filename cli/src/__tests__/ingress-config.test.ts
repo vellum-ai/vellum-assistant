@@ -7,13 +7,12 @@ import { join } from "node:path";
 const testDir = mkdtempSync(join(tmpdir(), "ingress-config-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
-import { parseLastTunnelRecord } from "@vellumai/service-contracts/ingress";
-
 import {
-  clearIngressUrl,
-  saveIngressUrl,
+  parseLastTunnelRecord,
   TUNNEL_PROVIDERS,
-} from "../lib/ingress-config.js";
+} from "@vellumai/service-contracts/ingress";
+
+import { clearIngressUrl, saveIngressUrl } from "../lib/ingress-config.js";
 
 function writeLockfile(entry: Record<string, unknown>): void {
   writeFileSync(

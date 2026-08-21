@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +18,7 @@ import {
   type TailscaleCommandResult,
   type TailscaleDeps,
 } from "../lib/tailscale-tunnel.js";
+import { snapshotEnv } from "./helpers/env.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -55,7 +62,34 @@ function makeDeps(opts: {
   return { deps, calls };
 }
 
+/** Point the lockfile at a temp dir holding one entry; returns its path. */
+function useTempLockfile(assistantId: string): string {
+  const lockfileDir = makeWorkspace();
+  process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
+  const lockfilePath = join(lockfileDir, ".vellum.lock.json");
+  writeFileSync(
+    lockfilePath,
+    JSON.stringify({
+      activeAssistant: assistantId,
+      assistants: [
+        { assistantId, runtimeUrl: "http://127.0.0.1:7830", cloud: "local" },
+      ],
+    }),
+  );
+  return lockfilePath;
+}
+
+function readLockfileEntry(lockfilePath: string): Record<string, unknown> {
+  const data = JSON.parse(readFileSync(lockfilePath, "utf-8")) as {
+    assistants: Record<string, unknown>[];
+  };
+  return data.assistants[0];
+}
+
+const restoreEnv = snapshotEnv(["VELLUM_LOCKFILE_DIR"]);
+
 afterEach(() => {
+  restoreEnv();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -169,6 +203,50 @@ describe("startTailscaleServe", () => {
       "https://my-host.tail-scale.ts.net",
     );
     expect(config.ingress.enabled).toBe(true);
+  });
+
+  test("preserveIngressUrl publishes to the lockfile and leaves the ingress record", async () => {
+    const workspaceDir = makeWorkspace();
+    const webhookBase = "https://existing.ngrok.app";
+    writeFileSync(
+      join(workspaceDir, "config.json"),
+      JSON.stringify({
+        ingress: {
+          enabled: true,
+          publicBaseUrl: webhookBase,
+          lastTunnel: { provider: "ngrok", publicBaseUrl: webhookBase },
+        },
+      }),
+    );
+    const lockfilePath = useTempLockfile("ts-1");
+    const { deps } = makeDeps({
+      responses: {
+        "status --json": ok(RUNNING_STATUS),
+        "serve --bg 7840": ok(),
+      },
+    });
+
+    await startTailscaleServe(
+      {
+        port: 7840,
+        workspaceDir,
+        assistantId: "ts-1",
+        preserveIngressUrl: true,
+      },
+      deps,
+    );
+
+    // The webhook callback base and the tunnel it names survive untouched...
+    const config = JSON.parse(
+      readFileSync(join(workspaceDir, "config.json"), "utf-8"),
+    );
+    expect(config.ingress.publicBaseUrl).toBe(webhookBase);
+    expect(config.ingress.lastTunnel.provider).toBe("ngrok");
+    // ...while the tailnet URL lands on the lockfile entry, where pairing
+    // reads its advertised default.
+    expect(readLockfileEntry(lockfilePath).ingressUrl).toBe(
+      "https://my-host.tail-scale.ts.net",
+    );
   });
 
   test("surfaces tailscale's enable-URL guidance when serve is not enabled", async () => {

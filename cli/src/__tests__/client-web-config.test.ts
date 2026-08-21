@@ -1,13 +1,14 @@
 /**
  * Tests for the config `vellum client --interface web` serves at
- * `/assistant/__config`. It is the same document the nginx tunnel edge serves,
- * and a caller probes it to learn which assistant an origin fronts, so the two
- * producers must agree on carrying `assistantId`.
+ * `/assistant/__config`, the document a caller probes to learn which assistant
+ * an origin fronts. This host also serves the `__local` endpoints, so its SPA
+ * switches between every assistant in the lockfile and the origin has no single
+ * identity to report: the config must stay free of an `assistantId`, matching
+ * the Vite dev server's local-mode plugin.
  */
 import { describe, expect, test } from "bun:test";
 
 import { buildWebInterfaceConfig } from "../commands/client.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../lib/constants.js";
 
 const BASE = {
   webUrl: "https://app.example.com",
@@ -16,22 +17,12 @@ const BASE = {
 };
 
 describe("vellum client web __config", () => {
-  test("stamps the assistant the front is bound to", () => {
-    expect(
-      buildWebInterfaceConfig({ ...BASE, assistantId: "assistant-1" }),
-    ).toEqual({ ...BASE, assistantId: "assistant-1" });
-  });
+  test("reports no assistant identity for the multi-assistant origin", () => {
+    const config = buildWebInterfaceConfig(BASE);
 
-  test("omits the daemon-internal placeholder so a probe reads an unknown identity", () => {
-    expect(
-      buildWebInterfaceConfig({
-        ...BASE,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      }),
-    ).toEqual(BASE);
-  });
-
-  test("omits an absent assistant id", () => {
-    expect(buildWebInterfaceConfig(BASE)).toEqual(BASE);
+    expect(config).toEqual(BASE);
+    // A stamped id would be the launch-time one, so a probe for any other
+    // assistant this origin serves would read a false `foreign`.
+    expect(config).not.toHaveProperty("assistantId");
   });
 });

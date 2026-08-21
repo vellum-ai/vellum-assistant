@@ -1211,24 +1211,22 @@ async function spawnBackgroundWebInterface(
 /**
  * Config the local web host injects as `window.__VELLUM_CONFIG__` and serves at
  * `/assistant/__config`, the document a caller probes to learn which assistant
- * an origin fronts. `assistantId` is omitted when only the daemon-internal
- * placeholder is known, so the probe reads an unknown identity rather than a
- * mismatch (same contract as the nginx edge's served config).
+ * an origin fronts.
+ *
+ * It carries no `assistantId`: this host also serves `handleLocalEndpoints`, so
+ * the SPA on it switches between every assistant in the lockfile, exactly like
+ * the Vite dev server (`clients/web/vite-plugin-local-mode.ts`, which omits the
+ * id for the same reason). An id here would be the launch-time one, and a probe
+ * for any other assistant this origin serves would read it as a mismatch and
+ * report a false `foreign`. An absent id is deliberately benign to the probe.
  */
 export function buildWebInterfaceConfig(opts: {
   webUrl: string;
   platformUrl: string;
   disablePlatform: boolean;
-  assistantId?: string;
 }): Record<string, unknown> {
-  const { webUrl, platformUrl, disablePlatform, assistantId } = opts;
-  const named = assistantId && assistantId !== DAEMON_INTERNAL_ASSISTANT_ID;
-  return {
-    webUrl,
-    platformUrl,
-    disablePlatform,
-    ...(named ? { assistantId } : {}),
-  };
+  const { webUrl, platformUrl, disablePlatform } = opts;
+  return { webUrl, platformUrl, disablePlatform };
 }
 
 async function runWebInterface(
@@ -1237,7 +1235,6 @@ async function runWebInterface(
   disablePlatform: boolean,
   openInBrowser: boolean,
   webPort: number | undefined,
-  assistantId: string,
 ): Promise<void> {
   // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
   Object.assign(process.env, flagEnvVars);
@@ -1272,12 +1269,7 @@ async function runWebInterface(
   const safeJson = (v: unknown) =>
     JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
   const configJson = safeJson(
-    buildWebInterfaceConfig({
-      webUrl,
-      platformUrl,
-      disablePlatform,
-      assistantId,
-    }),
+    buildWebInterfaceConfig({ webUrl, platformUrl, disablePlatform }),
   );
   const hasOverrides = Object.keys(parsedFlagOverrides).length > 0;
   const flagOverridesSnippet = hasOverrides
@@ -1575,7 +1567,6 @@ export async function client(): Promise<void> {
       disablePlatform,
       openInBrowser,
       webPort,
-      assistantId,
     );
     return;
   }
