@@ -18,18 +18,24 @@ function setMatchMedia(impl: typeof window.matchMedia) {
   });
 }
 
+let leases = 0;
+let realMatchMedia: typeof window.matchMedia | null = null;
+
 /**
- * Installed from a `useState` initializer, which runs during this component's
- * render and so before any child samples the query. An identity check against
- * the saved original would not work as the teardown condition: `bind` returns a
- * new function object, so it never compares equal to the global.
+ * Install the no-hover `matchMedia` and get the matching release back. The
+ * override is shared and counted because several stories mount together on an
+ * autodocs page: a per-instance save/restore would capture a sibling's wrapper
+ * as its "original" and reinstall it after the last unmount, leaving every
+ * later story reporting no hover. Only the first acquire saves the real
+ * function, and only the last release puts it back.
  *
  * Only the hover query is answered here; everything else is passed to the real
  * `matchMedia`, so a story stays truthful about its width and its pointer.
  */
-export function WithoutHover({ children }: { children: ReactNode }) {
-  const [original] = useState(() => {
+export function acquireNoHoverMatchMedia(): () => void {
+  if (leases === 0) {
     const saved = window.matchMedia.bind(window);
+    realMatchMedia = saved;
     setMatchMedia(((query: string) => {
       const result = saved(query);
       if (query !== HOVER_ABSENT_MEDIA_QUERY) {
@@ -47,12 +53,28 @@ export function WithoutHover({ children }: { children: ReactNode }) {
         dispatchEvent: () => false,
       } as MediaQueryList;
     }) as typeof window.matchMedia);
-    return saved;
-  });
+  }
+  leases += 1;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    leases -= 1;
+    if (leases === 0 && realMatchMedia !== null) {
+      setMatchMedia(realMatchMedia);
+      realMatchMedia = null;
+    }
+  };
+}
 
-  useEffect(() => {
-    return () => setMatchMedia(original);
-  }, [original]);
-
+/**
+ * Acquired from a `useState` initializer, which runs during this component's
+ * render and so before any child samples the query.
+ */
+export function WithoutHover({ children }: { children: ReactNode }) {
+  const [release] = useState(() => acquireNoHoverMatchMedia());
+  useEffect(() => release, [release]);
   return <>{children}</>;
 }
