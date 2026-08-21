@@ -23,8 +23,9 @@
 //
 // APP_GROUP_ID: a container is shared only between bundles naming the
 // identical group, so the appex restates the app's value verbatim. It
-// reaches the entitlement below and, so Swift can resolve it at runtime,
-// the VellumAppGroupId Info.plist key read via AppGroupID.
+// reaches the entitlement below and, so Swift can read it at runtime,
+// the VellumAppGroupId Info.plist key, which exists because the
+// entitlement itself is not readable from Swift.
 //
 // BUNDLE_URL_SCHEME: the Live Activity's widgetURL has to deep-link into
 // its *own* containing app — a mismatch sends a Dev build's island tap

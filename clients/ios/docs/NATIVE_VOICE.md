@@ -610,11 +610,10 @@ activity rather than degrading the image.
 the app and its widget extension both reach, since a widget draws from storage
 rather than from an ActivityKit payload. `App/App/Extension.entitlements`
 declares that group and nothing else, `APP_GROUP_ID` names it per environment
-in every app and extension xcconfig, and both bundles resolve the identifier at
-runtime from the `VellumAppGroupId` Info.plist key through `AppGroupID`
-(`App/App/Shared/AppGroupID.swift`), because the entitlement that grants access
-is not readable from Swift. Enabling the capability on the six App IDs is
-portal work; see `clients/ios/README.md`.
+in every app and extension xcconfig, and the `VellumAppGroupId` Info.plist key
+carries the identifier into both bundles, because the entitlement that grants
+access is not readable from Swift. Enabling the capability on the six App IDs
+is portal work; see `clients/ios/README.md`.
 
 Nothing else joins that entitlements file, push included: only a capability the
 build satisfies ships. And the container takes **non-secret display data only**

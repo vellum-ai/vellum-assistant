@@ -37,7 +37,7 @@
 	     here can open the shared container. The entitlement grants access
 	     but is not readable from Swift, so the identifier travels as this
 	     plain string, populated from the same $(APP_GROUP_ID) variable that
-	     fills the entitlement. Read via AppGroupID. -->
+	     fills the entitlement. -->
 	<key>VellumAppGroupId</key>
 	<string>$(APP_GROUP_ID)</string>
 	<!-- The containing app's URL scheme, so the Live Activity's widgetURL
