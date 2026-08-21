@@ -761,7 +761,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T15:31:03.000Z"
+      "updatedAt": "2026-08-21T15:44:11.000Z"
     },
     {
       "id": "public-ingress",
@@ -1167,6 +1167,7 @@
             "how Vellum works or its architecture",
             "its current configuration or settings",
             "what it can do, or what skills/tools are available",
+            "asked to use the user's current location, GPS, or a device sensor or permission",
             "whether a service is connected, and in which sense",
             "how to self-host a Vellum assistant",
             "how to configure your own model API key"
@@ -1177,7 +1178,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T07:15:43.000Z"
+      "updatedAt": "2026-08-21T23:31:08.000Z"
     },
     {
       "id": "vellum-skills-catalog",
