@@ -655,11 +655,11 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
   });
 
-  test("a recorded edge with a stale config fingerprint is restarted, not adopted", async () => {
+  test("a running edge is rebuilt through ensureTunnelEdge, never adopted at its recorded port", async () => {
     // Recorded mode and gateway port are not a licence to reuse: only
     // ensureTunnelEdge compares the injected-config fingerprint, so an edge
     // predating the current edge template (one serving no assistantId, which
-    // makes the identity probe degrade to always-healthy) must be restarted
+    // makes the identity probe degrade to always-healthy) must be rebuilt
     // rather than carried across the wake at its recorded listen port.
     loadRawConfigMock.mockReturnValue(webhookConfig);
     isIngressRunningMock.mockReturnValue(true);
@@ -679,6 +679,82 @@ describe("vellum wake — tunnel edge restore", () => {
     });
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
+      workspaceDirOf(tempDir),
+      "local-assistant",
+    );
+  });
+
+  test("a failed rebuild keeps tunneling the SPA edge that is still running", async () => {
+    // web-dist-missing bails before the running edge is stopped, and a drifted
+    // edge whose stop fails reports staleRemoteWebConfig; both throw while the
+    // edge keeps serving. Tunneling the gateway directly would put the
+    // sensitive-route denylist behind the tunnel instead of in front of it.
+    loadRawConfigMock.mockReturnValue(webhookConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: "fingerprint-of-an-older-edge-template",
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error(
+        "The nginx edge is still serving an outdated remote web config and could not be restarted with the updated one. Run `vellum nginx-ingress down` and retry.",
+      ),
+    );
+
+    await wake();
+
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7845,
+      workspaceDirOf(tempDir),
+      "local-assistant",
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("127.0.0.1:7845"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("vellum nginx-ingress down"),
+    );
+  });
+
+  test("a failed rebuild falls back to the gateway port when the running edge fronts another gateway", async () => {
+    loadRawConfigMock.mockReturnValue(webhookConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7831,
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error("The nginx edge is still proxying gateway port 7831."),
+    );
+
+    await wake();
+
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
+      workspaceDirOf(tempDir),
+      "local-assistant",
+    );
+  });
+
+  test("a failed rebuild falls back to the gateway port when only a webhooks-only edge survives", async () => {
+    loadRawConfigMock.mockReturnValue(webhookConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7845,
+      includeWebApp: false,
+      gatewayPort: 7830,
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error("The nginx edge is still running in webhooks-only mode."),
+    );
+
+    await wake();
+
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
       workspaceDirOf(tempDir),
       "local-assistant",
     );

@@ -4,6 +4,8 @@ import { loadRawConfig } from "./ingress-config.js";
 import {
   ensureTunnelEdge,
   formatEdgeMode,
+  isIngressRunning,
+  readIngressState,
   type TunnelEdge,
 } from "./nginx-ingress.js";
 import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
@@ -38,6 +40,27 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
 }
 
 /**
+ * Listen port of an SPA edge still serving in front of `gatewayPort`, or null
+ * when nothing verifiably fronts that gateway (an unrecorded upstream port is
+ * unverified, see `IngressState`).
+ */
+function survivingSpaEdgePort(
+  workspaceDir: string,
+  gatewayPort: number,
+): number | null {
+  try {
+    const recorded = isIngressRunning(workspaceDir)
+      ? readIngressState(workspaceDir)
+      : null;
+    return recorded?.includeWebApp && recorded.gatewayPort === gatewayPort
+      ? recorded.listenPort
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Bring the nginx edge back up after a wake or local upgrade and point the
  * webhook auto-tunnel at it. The edge is wanted when webhook integrations are
  * configured or the workspace ingress config is enabled with a saved public
@@ -47,11 +70,15 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
  * respects (a renamed assistant, a changed hub URL, an older edge template) is
  * restarted rather than adopted, which is what keeps a wake from serving a
  * config the current CLI would never generate.
- * Edge failures warn
- * (with the error's install or diagnostic text) and fall back to tunneling the
- * gateway port directly, which `maybeStartNgrokTunnel` only does when webhook
- * integrations are configured, so webhook channels on nginx-less machines
- * keep working, and the caller never fails because of edge problems.
+ *
+ * Several of those failures leave the old edge serving (the web-dist preflight
+ * bails before it is stopped; a drifted edge whose stop fails is reported as
+ * stale), and tunneling the gateway directly would take the edge's
+ * sensitive-route denylist out from in front of the tunnel. So a failure warns
+ * and keeps a surviving SPA edge as the target; the gateway port is the target
+ * only when nothing fronts it, which `maybeStartNgrokTunnel` tunnels only when
+ * webhook integrations are configured, so webhook channels on nginx-less
+ * machines keep working and the caller never fails because of edge problems.
  *
  * Returns the spawned ngrok child (for PID tracking) or null.
  */
@@ -70,11 +97,16 @@ export async function restoreTunnelEdgeAndAutoTunnel(
         gatewayPort,
       });
     } catch (err) {
-      console.warn(
-        `   Could not restore the tunnel edge: ${
-          err instanceof Error ? err.message : String(err)
-        } Bring it up manually with \`vellum nginx-ingress up\`.`,
-      );
+      const detail = err instanceof Error ? err.message : String(err);
+      const survivingPort = survivingSpaEdgePort(workspaceDir, gatewayPort);
+      if (survivingPort !== null) {
+        tunnelTargetPort = survivingPort;
+      }
+      const hint =
+        survivingPort === null
+          ? "Bring it up manually with `vellum nginx-ingress up`."
+          : `The edge already running on 127.0.0.1:${survivingPort} stays in front of the gateway, serving an outdated config until \`vellum nginx-ingress down\` then \`vellum nginx-ingress up\` rebuilds it.`;
+      console.warn(`   Could not restore the tunnel edge: ${detail} ${hint}`);
     }
     if (edge) {
       tunnelTargetPort = edge.port;
