@@ -141,8 +141,8 @@ describe("AcpConnectAffordance", () => {
     expect(
       screen.getByText("Use your Claude Code subscription"),
     ).not.toBeNull();
-    // The card has no manual dismissal; it retires via connect, self-heal, or
-    // the implicit dismiss-on-send.
+    // The card has no manual dismissal; it retires via the connect flow's
+    // auto-continue or the already-connected self-heal.
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 

@@ -78,7 +78,7 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // Skipped for an `auth_required` prompt: that check asks "is a token
   // stored", the wrong question when the stored token itself was rejected. A
   // "yes" would retire the card over the failure it exists to repair; those
-  // prompts clear only via the flow or the implicit dismiss-on-send.
+  // prompts clear only by completing the connect flow.
   useEffect(() => {
     if (reason === "auth_required") {
       return;
