@@ -1,6 +1,6 @@
 import type { ChildProcess } from "child_process";
 
-import type { AssistantEntry } from "./assistant-config.js";
+import { loadAllAssistants, type AssistantEntry } from "./assistant-config.js";
 
 import {
   getDefaultWorkspaceDir,
@@ -158,7 +158,19 @@ function ownsSharedIngress(
   if (typeof publicBaseUrl !== "string" || !publicBaseUrl.trim()) {
     return true;
   }
-  return entry.ingressUrl === publicBaseUrl;
+  if (entry.ingressUrl === publicBaseUrl) {
+    return true;
+  }
+  // The mirror is optional and predates this check, so its absence is not proof
+  // of non-ownership: a workspace tunneled before mirroring, or through a
+  // caller that omits `assistantId`, has a saved URL that no entry claims.
+  // Only another container actually claiming this URL disproves ownership.
+  return !loadAllAssistants().some(
+    (other) =>
+      other.assistantId !== entry.assistantId &&
+      isLocalContainerEntry(other) &&
+      other.ingressUrl === publicBaseUrl,
+  );
 }
 
 /**
