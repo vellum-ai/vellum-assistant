@@ -550,6 +550,9 @@
     "title": "Comments"
   },
   "documentCommentThread": {
+    "assistantMonogram": "V",
+    "authorAssistant": "Assistant",
+    "authorYou": "You",
     "deleteCommentAria": "Delete comment",
     "jumpToHighlight": "Jump to highlighted text",
     "open": "Open",

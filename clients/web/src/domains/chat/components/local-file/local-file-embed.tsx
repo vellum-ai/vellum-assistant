@@ -246,6 +246,8 @@ export function LocalFileEmbed({
           ref={videoRef}
           src={url}
           controls
+          // Browser media-control tokens, not user-facing copy.
+          // eslint-disable-next-line local/no-untranslated-strings -- HTML controlsList tokens
           controlsList="nodownload noplaybackrate"
           disablePictureInPicture
           playsInline
@@ -263,6 +265,7 @@ export function LocalFileEmbed({
         <audio
           src={url}
           controls
+          // eslint-disable-next-line local/no-untranslated-strings -- HTML controlsList tokens
           controlsList="nodownload noplaybackrate"
           preload="metadata"
           aria-label={mediaLabel}

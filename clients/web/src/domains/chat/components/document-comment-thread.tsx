@@ -9,49 +9,21 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { useTranslation } from "@/i18n";
+import { currentLocale, useTranslation } from "@/i18n";
+import { formatRelativeTime } from "@/lib/relative-time";
 
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatTimestamp(epoch: number): string {
-  const date = new Date(epoch);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-
-  if (diffMins < 1) {
-    return "just now";
-  }
-  if (diffMins < 60) {
-    return `${diffMins}m ago`;
-  }
-
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) {
-    return `${diffHours}h ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) {
-    return `${diffDays}d ago`;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: now.getFullYear() !== date.getFullYear() ? "numeric" : undefined,
-  });
-}
+type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 function authorLabel(
   author: DocumentsByIdCommentsPostResponse["author"],
+  t: ChatTranslate,
 ): string {
-  return author === "assistant" ? "Assistant" : "You";
+  return author === "assistant"
+    ? t("documentCommentThread.authorAssistant")
+    : t("documentCommentThread.authorYou");
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +56,7 @@ function CommentBubble({
             variant="label-small-default"
             className="text-[var(--primary-base)]"
           >
-            V
+            {t("documentCommentThread.assistantMonogram")}
           </Typography>
         ) : (
           <User size={12} style={{ color: "var(--content-secondary)" }} />
@@ -97,13 +69,16 @@ function CommentBubble({
             variant="body-small-emphasised"
             className="text-[var(--content-emphasised)]"
           >
-            {authorLabel(comment.author)}
+            {authorLabel(comment.author, t)}
           </Typography>
           <Typography
             variant="label-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            {formatTimestamp(comment.createdAt)}
+            {formatRelativeTime(comment.createdAt, {
+              locale: currentLocale(),
+              minimumUnit: "minute",
+            })}
           </Typography>
         </div>
 

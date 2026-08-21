@@ -550,6 +550,9 @@
     "title": "Comentarios"
   },
   "documentCommentThread": {
+    "assistantMonogram": "V",
+    "authorAssistant": "Asistente",
+    "authorYou": "Tú",
     "deleteCommentAria": "Eliminar comentario",
     "jumpToHighlight": "Ir al texto resaltado",
     "open": "Abierto",

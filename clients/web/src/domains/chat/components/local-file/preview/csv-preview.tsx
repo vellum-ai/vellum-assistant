@@ -49,6 +49,7 @@ interface CsvPreviewProps {
 }
 
 export function CsvPreview({ blob, filename }: CsvPreviewProps): ReactNode {
+  const { t } = useTranslation("chat");
   const [text, setText] = useState<string | null>(null);
   const [decodeFailed, setDecodeFailed] = useState(false);
 
@@ -61,7 +62,6 @@ export function CsvPreview({ blob, filename }: CsvPreviewProps): ReactNode {
     blob.text().then(
       (decoded) => {
         if (!cancelled) {
-  const { t } = useTranslation("chat");
           setText(decoded);
         }
       },

@@ -26,6 +26,7 @@ export function OnboardingChoiceCard({
   onSelectSpecific,
   onSubmitTasks,
 }: OnboardingChoiceCardProps): ReactNode {
+  const { t } = useTranslation("chat");
   const [phase, setPhase] = useState<"choice" | "taskSelection">("choice");
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
     new Set<string>(),
@@ -38,7 +39,6 @@ export function OnboardingChoiceCard({
     setSelectedTasks((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
-  const { t } = useTranslation("chat");
         next.delete(id);
       } else {
         next.add(id);
