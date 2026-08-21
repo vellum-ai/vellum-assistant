@@ -49,13 +49,17 @@ export function readWidgetSnapshotAssistantId(): string | null {
  */
 export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
 
+/**
+ * One row as a widget draws it. No timestamp: the producer sends the rows in
+ * the order they are meant to appear, so nothing on the Swift side has to sort
+ * or date them, and a field no surface renders is bridge traffic and App Group
+ * space for nothing.
+ */
 export interface WidgetSnapshotConversation {
   id: string;
   title: string;
   /** The conversation's group name; omitted when it is ungrouped. */
   subtitle?: string;
-  /** ISO 8601 UTC; omitted when the conversation has no timestamp yet. */
-  lastMessageAt?: string;
   hasUnseen: boolean;
   isProcessing: boolean;
 }
@@ -82,15 +86,63 @@ export function isWidgetSnapshotSyncAvailable(): boolean {
 }
 
 /**
+ * How long a bridge call is given before the caller stops waiting on it.
+ *
+ * Both calls below are awaited on session-ending paths before the state write
+ * that flips the app to its signed-out surfaces (`endSession` in
+ * `stores/auth-store.ts`), and before an origin swap hands the shell to
+ * another deployment. A bridge that accepts the call and never settles would
+ * hang those, so the wait is bounded rather than open. Two seconds is far
+ * longer than a UserDefaults write and a widget timeline reload take, and far
+ * shorter than anyone waits on a sign-out.
+ */
+const BRIDGE_TIMEOUT_MS = 2_000;
+
+/**
+ * Run one bridge call, reporting whether it landed.
+ *
+ * A rejection is the expected older shell (see the skew convention in
+ * `apns-environment.ts`), and a call that never settles is that same skew one
+ * step further along: the plugin answered its registration but not the call.
+ * Both degrade the same way, silently and to a debug log, because a caller on
+ * a session seam has nothing better to do with either answer.
+ */
+async function callBridge(
+  method: "sync" | "clear",
+  call: () => Promise<unknown>,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const landed = await Promise.race([
+      call().then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), BRIDGE_TIMEOUT_MS);
+      }),
+    ]);
+    if (!landed) {
+      console.debug(
+        `[widget-snapshot] WidgetSnapshot.${method} did not answer in ${BRIDGE_TIMEOUT_MS}ms`,
+      );
+    }
+    return landed;
+  } catch (err) {
+    console.debug("[widget-snapshot] WidgetSnapshot bridge unavailable:", err);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Replace the native snapshot with `snapshot` (the caller owns membership,
- * ordering and the counts). Swallows bridge failures with a debug log per
- * the skew convention (see `apns-environment.ts`): an older installed shell
- * without the plugin is an expected state on every web deploy, not a fault.
+ * ordering and the counts). Swallows a bridge that fails or never answers per
+ * {@link callBridge}: an older installed shell without the plugin is an
+ * expected state on every web deploy, not a fault.
  *
  * `assistantId` is the assistant the snapshot was built from, recorded once
  * the write lands so a later cold launch can recognize a snapshot it did not
- * produce. A rejected sync leaves whatever the last successful one wrote, and
- * so leaves the recorded producer with it.
+ * produce. A sync that did not land leaves whatever the last successful one
+ * wrote, and so leaves the recorded producer with it.
  */
 export async function syncWidgetSnapshot(
   snapshot: WidgetSnapshotPayload,
@@ -99,10 +151,7 @@ export async function syncWidgetSnapshot(
   if (!isWidgetSnapshotSyncAvailable()) {
     return;
   }
-  try {
-    await WidgetSnapshot.sync(snapshot);
-  } catch (err) {
-    console.debug("[widget-snapshot] WidgetSnapshot bridge unavailable:", err);
+  if (!(await callBridge("sync", () => WidgetSnapshot.sync(snapshot)))) {
     return;
   }
   if (assistantId === null) {
@@ -123,16 +172,16 @@ export async function syncWidgetSnapshot(
  * platform-neutral session seams rather than the iOS-only producer hook.
  *
  * Drops the recorded producer with the snapshot, so every caller (sign-out,
- * assistant switch, the producer hook) leaves the two consistent.
+ * assistant switch, an origin swap, the producer hook) leaves the two
+ * consistent. The origin swap is the one that cannot be caught later: the
+ * producer id lives in localStorage, which is per-origin, so the new
+ * deployment starts with no record of the snapshot the old one left behind.
  */
 export async function clearWidgetSnapshot(): Promise<void> {
   if (!isWidgetSnapshotSyncAvailable()) {
     return;
   }
-  try {
-    await WidgetSnapshot.clear();
-  } catch (err) {
-    console.debug("[widget-snapshot] WidgetSnapshot bridge unavailable:", err);
+  if (!(await callBridge("clear", () => WidgetSnapshot.clear()))) {
     return;
   }
   removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);

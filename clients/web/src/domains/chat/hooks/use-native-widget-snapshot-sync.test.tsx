@@ -384,12 +384,13 @@ describe("useNativeWidgetSnapshotSync", () => {
     // Both processing sources count, and the archived row is excluded from
     // the count as well as from the rows.
     expect(snapshot?.inProgressCount).toBe(2);
+    // Newest first, and no timestamp on a row: the order the widgets draw is
+    // the order they are sent in, so nothing on the Swift side dates a row.
     expect(snapshot?.conversations).toEqual([
       {
         id: "c-client-turn",
         title: "Client turn",
         subtitle: undefined,
-        lastMessageAt: "2026-08-04T00:00:00.000Z",
         hasUnseen: false,
         isProcessing: true,
       },
@@ -397,7 +398,6 @@ describe("useNativeWidgetSnapshotSync", () => {
         id: "c-server-turn",
         title: "Server turn",
         subtitle: "Errands",
-        lastMessageAt: "2026-08-03T00:00:00.000Z",
         hasUnseen: false,
         isProcessing: true,
       },
@@ -405,7 +405,6 @@ describe("useNativeWidgetSnapshotSync", () => {
         id: "c-unseen",
         title: "Untitled",
         subtitle: undefined,
-        lastMessageAt: "2026-08-02T00:00:00.000Z",
         hasUnseen: true,
         isProcessing: false,
       },

@@ -24,6 +24,7 @@
 import { registerPlugin } from "@capacitor/core";
 
 import { isNativeMobile } from "@/runtime/platform-detection";
+import { clearWidgetSnapshot } from "@/runtime/widget-snapshot";
 import {
   localStorageProvider,
   normalizeOriginUrl,
@@ -235,6 +236,16 @@ export function installNativeRememberedOrigins(): void {
  * Swap the shell's origin in place, `null` meaning "back to the baked Vellum
  * Cloud origin". Resolves whether the shell took the switch, so a caller on an
  * older shell (or off native mobile) can fall back to a plain navigation.
+ *
+ * Drops the iOS widget snapshot first. The target origin is a different
+ * deployment with its own conversations, so the snapshot the running one
+ * produced is about to describe an account the widgets are no longer showing,
+ * and the producer id that catches a stale snapshot elsewhere cannot help
+ * here: it lives in localStorage, which is per-origin and does not survive the
+ * swap. The clear belongs to this function rather than to its callers so that
+ * no way of leaving an origin can forget it. The widgets sit empty until the
+ * new origin resolves its own list, which beats the previous deployment's
+ * titles on a Home Screen that never reloads on its own.
  */
 export async function nativeSwitchToOrigin(
   url: string | null,
@@ -242,6 +253,7 @@ export async function nativeSwitchToOrigin(
   if (!isNativeMobile()) {
     return false;
   }
+  await clearWidgetSnapshot();
   try {
     await SelfHostedServers.switchTo(url === null ? {} : { url });
     return true;
@@ -254,6 +266,9 @@ export async function nativeSwitchToOrigin(
 /**
  * Switch the shell to an origin and load a route atomically. A separate bridge
  * method preserves the skew fallback when an older shell lacks path support.
+ *
+ * Drops the widget snapshot first, for the reason spelled out on
+ * {@link nativeSwitchToOrigin}.
  */
 export async function nativeSwitchToOriginPath(
   url: string | null,
@@ -262,6 +277,7 @@ export async function nativeSwitchToOriginPath(
   if (!isNativeMobile()) {
     return false;
   }
+  await clearWidgetSnapshot();
   try {
     await SelfHostedServers.switchToPath({
       ...(url === null ? {} : { url }),

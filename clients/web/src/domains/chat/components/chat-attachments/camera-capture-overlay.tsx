@@ -102,18 +102,24 @@ export function CameraCaptureOverlay({
       : null,
   );
 
-  // Once per mount, guarded rather than run off `openCamera`'s identity: that
-  // callback is reminted whenever the camera flips, and reopening the camera
-  // from underneath a flip is how a viewfinder ends up pointing back the way
-  // the user just turned it away from.
-  const openedRef = useRef(false);
+  // Read through a ref rather than depended on: `openCamera` is reminted
+  // whenever the camera flips, and reopening the camera from underneath a flip
+  // is how a viewfinder ends up pointing back the way the user just turned it
+  // away from.
+  const openCameraRef = useRef(openCamera);
   useEffect(() => {
-    if (openedRef.current) {
-      return;
-    }
-    openedRef.current = true;
-    void openCamera();
+    openCameraRef.current = openCamera;
   }, [openCamera]);
+
+  // Once per mount, and that includes the second half of StrictMode's
+  // simulated remount. The cleanup between the two passes releases the camera
+  // (`useVoiceCamera` stops the capture in its own teardown) and cancels the
+  // acquisition still in flight, so a latch that only ever opened once leaves
+  // a development build looking at a dead viewfinder with the shutter disabled
+  // behind it.
+  useEffect(() => {
+    void openCameraRef.current();
+  }, []);
 
   // Every exit routes through here, so anything still in flight has one flag to
   // read. Set before the parent is told, since `onClose` only asks it to
@@ -124,8 +130,12 @@ export function CameraCaptureOverlay({
     onClose();
   }, [onClose]);
 
-  // The composer can also take this surface down without going through `close`.
+  // The composer can also take this surface down without going through
+  // `close`. Cleared on the way in as well as set on the way out: refs survive
+  // StrictMode's simulated unmount, so a flag left standing from it would bail
+  // the shutter out for the whole life of the surface.
   useEffect(() => {
+    closedRef.current = false;
     return () => {
       closedRef.current = true;
     };

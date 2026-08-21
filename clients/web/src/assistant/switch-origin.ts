@@ -9,7 +9,6 @@ import { remoteGatewayPublicBaseUrl } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { nativeSwitchToOrigin } from "@/runtime/self-hosted-servers";
-import { clearWidgetSnapshot } from "@/runtime/widget-snapshot";
 import {
   normalizeOriginUrl,
   type RememberedOrigin,
@@ -30,22 +29,21 @@ import { routes } from "@/utils/routes";
  * In Electron the navigation does not land in the app window either: the
  * main process's same-origin guard (`clients/macos/src/main/main-window.ts`)
  * ejects a cross-origin https target to the system browser.
+ *
+ * Everything the swap has to do before the shell leaves the origin, dropping
+ * the iOS widget snapshot included, belongs to `nativeSwitchToOrigin`, so no
+ * caller can leave one of them out.
  */
 export async function switchToOrigin(origin: RememberedOrigin): Promise<void> {
   const navigate = () =>
     window.location.assign(`${origin.url}${routes.assistant}`);
+  // Nothing is awaited ahead of the web navigation: it is issued in the same
+  // tick as the call, and the preparation the native swap needs lives behind
+  // the fork, in `nativeSwitchToOrigin`.
   if (!isNativeMobile()) {
     navigate();
     return;
   }
-  // The target origin is a different deployment with its own conversations,
-  // so the iOS widget snapshot the running one produced is about to be wrong.
-  // Clearing before the swap leaves the widgets empty until the new origin
-  // resolves its own list, which beats showing the old deployment's titles on
-  // a Home Screen that never reloads on its own. Inside the native branch
-  // rather than above it because the web path has to reach its navigation
-  // synchronously, and the snapshot only exists on a native shell anyway.
-  await clearWidgetSnapshot();
   if (!(await nativeSwitchToOrigin(origin.url))) {
     navigate();
   }

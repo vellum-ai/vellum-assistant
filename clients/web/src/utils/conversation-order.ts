@@ -40,6 +40,25 @@ export function byTimestampDesc(
 export const compareByRecency = byTimestampDesc("lastMessageAt");
 
 /**
+ * The non-archived conversations in recency order, newest first.
+ *
+ * The shape both native mirrors want: the Shortcuts picker
+ * (`useNativeRecentChatsSync`) and the Home Screen widgets
+ * (`useNativeWidgetSnapshotSync`) each show "recent chats", and they share
+ * this so the two cannot drift into showing different ones. Archived rows are
+ * out for the same reason they are out of the sidebar.
+ *
+ * Returns a new array; the caller's list is left alone.
+ */
+export function activeConversationsByRecency(
+  conversations: readonly Conversation[],
+): Conversation[] {
+  return conversations
+    .filter((conversation) => conversation.archivedAt === undefined)
+    .sort(compareByRecency);
+}
+
+/**
  * `conversations` with `conversation` inserted at its recency position.
  *
  * Insertion rather than append-and-sort: the list is already ordered, and

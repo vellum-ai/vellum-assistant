@@ -25,10 +25,12 @@ interface UseCameraDeepLinkOptions {
   /** Receives the photo. Not called when the camera closes empty. */
   onFiles: (files: File[]) => void;
   /**
-   * Whether this composer is the one that answers the command. Only the main
-   * composer is: the app-editing panel and the onboarding tour render their
-   * own, and a one-shot park would otherwise be spent by whichever mounted
-   * first.
+   * Whether this composer is the one that answers the command. Only
+   * `ChatMainPanel`'s is: the onboarding tour renders a composer of its own,
+   * and a one-shot park would otherwise be spent by whichever mounted first.
+   * One `ChatMainPanel` is on screen at a time (its two layout branches, the
+   * app-editing split and the plain chat, are mutually exclusive), so that
+   * gate leaves exactly one taker.
    */
   enabled: boolean;
 }
