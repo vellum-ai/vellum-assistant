@@ -78,10 +78,9 @@ export interface InteractionState {
    * prompt, anchored to the failed tool call. Unlike the other prompts this is
    * NOT a turn-blocking interaction — the turn already ended in error; it is a
    * remediation CTA. It is restored on a `/messages` reseed from the failed
-   * tool call's persisted `errorCode` marker (so a reload/reconnect no longer
-   * loses it), but to avoid nagging from history (the reason it was originally
-   * kept off the reseed path), a dismissal (the connect flow's auto-continue,
-   * or the already-connected self-heal) is recorded in
+   * tool call's persisted `errorCode` marker, so a reload or reconnect does
+   * not lose it. To avoid nagging from history, a dismissal (the connect
+   * flow's auto-continue, or the already-connected self-heal) is recorded in
    * `dismissedAcpConnectToolUseIds` and suppresses any later restore of that
    * same failed spawn.
    */
