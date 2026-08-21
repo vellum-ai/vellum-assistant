@@ -96,13 +96,17 @@ export function useAssistantChannels({
     [readinessQuery.data],
   );
 
-  const slackConnected = channels.some(
-    (ch) => ch.key === "slack" && ch.status === "ready",
+  // Setup, not health: the connection card stays mounted through a socket
+  // outage, and its thread-mode control renders a default when this has no
+  // data, so a query gated on delivery would show a setting the assistant is
+  // not using and let the user save over the stored one.
+  const slackConfigured = channels.some(
+    (ch) => ch.key === "slack" && ch.configured,
   );
 
   const slackConfigQuery = useQuery({
     ...integrationsSlackChannelConfigGetOptions(pathOpts),
-    enabled: slackConnected,
+    enabled: slackConfigured,
     select: (data: IntegrationsSlackChannelConfigGetResponse) =>
       data.threadMode,
   });
