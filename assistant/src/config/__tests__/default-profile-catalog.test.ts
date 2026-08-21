@@ -268,6 +268,40 @@ describe("resolver integration", () => {
       }),
     ).not.toThrow();
   });
+
+  test("a user profile cannot shadow a managed backup profile", () => {
+    // Every backup is code-owned for the same reason `latency-optimized` is:
+    // a backup earns its place by pinning a different upstream than the
+    // primary it backs, and a user shadow can repoint it at the primary's
+    // own provider, so the fallback re-sends into the outage it exists to
+    // route around. `latency-optimized-backup` additionally serves the
+    // live-voice path whenever that primary falls back.
+    for (const key of BACKUP_PROFILE_KEYS) {
+      const llm = LLMSchema.parse({
+        profiles: {
+          [key]: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-6",
+            provider_connection: "anthropic-personal",
+            maxTokens: 32000,
+            effort: "high",
+          },
+        },
+      });
+      const body = CODE_DEFAULT_PROFILE_ENTRIES[key]!;
+      const effective = getEffectiveProfiles(llm.profiles)[key];
+      expect(effective?.model).toBe(body.model);
+      expect(effective?.model).not.toBe("claude-opus-4-6");
+      expect(String(effective?.provider)).toBe("vellum");
+      expect(effective?.provider_connection).toBeUndefined();
+      // Resolution through the managed column agrees with the listing.
+      const resolved = resolveDefaultProfileForProvider(llm.profiles, key, {
+        provider: "vellum",
+      });
+      expect(resolved?.model).toBe(body.model);
+    }
+  });
 });
 
 describe("schema validation", () => {
@@ -300,6 +334,27 @@ describe("schema validation", () => {
     expect(() =>
       LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
     ).toThrow();
+  });
+
+  test("managed backup names are valid references without being materialized", () => {
+    // Backups are listed in the effective catalog and are selectable, but
+    // selecting one persists only the reference: nothing lands in
+    // `llm.profiles`. Unless the schema treats the keys as always-available,
+    // the next load strips the selection and silently reverts it.
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(() => LLMSchema.parse({ activeProfile: key })).not.toThrow();
+      expect(() => LLMSchema.parse({ advisorProfile: key })).not.toThrow();
+      expect(() =>
+        LLMSchema.parse({ callSites: { mainAgent: { profile: key } } }),
+      ).not.toThrow();
+    }
+    // The keys stay out of `DEFAULT_PROFILE_KEYS`: that array drives picker
+    // order and the intent x provider matrix.
+    expect(
+      BACKUP_PROFILE_KEYS.some((key) =>
+        (DEFAULT_PROFILE_KEYS as readonly string[]).includes(key),
+      ),
+    ).toBe(false);
   });
 
   test("defaultProvider accepts any default-capable API-key provider and drops the rest", () => {

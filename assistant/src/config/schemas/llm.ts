@@ -11,6 +11,7 @@ import {
   parseVellumModel,
 } from "../../providers/vellum-model-routing.js";
 import {
+  BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
 } from "../default-profile-names.js";
@@ -706,10 +707,12 @@ export function collectFallbackProfileIssues(
   // The always-available default profiles are code-defined
   // (`default-profile-catalog.ts`) and resolve whether or not they are
   // materialized in `llm.profiles`, so their names are always valid
-  // fallback targets (same rule as call-site `profile` references).
+  // fallback targets (same rule as call-site `profile` references). The
+  // managed backups resolve the same way, so they are valid targets too.
   const profileNames = new Set([
     ...entries.map(([name]) => name),
     ...DEFAULT_PROFILE_KEYS,
+    ...BACKUP_PROFILE_KEYS,
   ]);
   const mixProfileNames = new Set(
     entries
@@ -837,12 +840,17 @@ export const LLMSchema = z
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid
-    // reference targets. The flag-gated `os-beta` is excluded: it resolves
+    // reference targets. The managed backups (`BACKUP_PROFILE_KEYS`) are
+    // code-defined on the same terms and are listed in the effective
+    // catalog, so a selection naming one (`activeProfile`, `advisorProfile`,
+    // a call-site pin) must survive the next load rather than being stripped
+    // back to a default. The flag-gated `os-beta` is excluded: it resolves
     // only while a workspace entry exists, so a reference to it is valid
     // only when that entry is present in `config.profiles`.
     const profileNames = new Set([
       ...Object.keys(config.profiles ?? {}),
       ...DEFAULT_PROFILE_KEYS,
+      ...BACKUP_PROFILE_KEYS,
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) {

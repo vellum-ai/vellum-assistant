@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { z } from "zod";
 
-import { DEFAULT_PROFILE_KEYS } from "../config/default-profile-names.js";
+import {
+  BACKUP_PROFILE_KEYS,
+  DEFAULT_PROFILE_KEYS,
+} from "../config/default-profile-names.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 
 describe("LLMSchema fallbackProfile", () => {
@@ -27,6 +30,19 @@ describe("LLMSchema fallbackProfile", () => {
     const result = LLMSchema.safeParse({
       profiles: {
         primary: { fallbackProfile: defaultKey },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("fallbackProfile may reference a managed backup profile key", () => {
+    // Backups resolve from the code catalog without being materialized in
+    // llm.profiles, exactly like the always-available defaults, so a pointer
+    // at one is a valid reference.
+    const backupKey = BACKUP_PROFILE_KEYS[0];
+    const result = LLMSchema.safeParse({
+      profiles: {
+        primary: { fallbackProfile: backupKey },
       },
     });
     expect(result.success).toBe(true);

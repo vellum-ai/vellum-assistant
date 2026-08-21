@@ -201,29 +201,34 @@ describe("effective-profile machinery", () => {
     }
   });
 
-  test("a managed-source stub overlays only label/status/topP on a backup", () => {
-    const workspace: Record<string, ProfileEntry> = {
-      "balanced-backup": {
-        source: "managed",
-        label: "My Backup",
-        status: "disabled",
-        topP: 0.7,
-        // Stale content drift on disk must lose to the code default body.
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 1,
-      },
-    };
-    const entry = getEffectiveProfile(workspace, "balanced-backup");
-    expect(entry?.label).toBe("My Backup");
-    expect(entry?.status).toBe("disabled");
-    expect(entry?.topP).toBe(0.7);
-    expect(entry?.model).toBe(
-      CODE_DEFAULT_PROFILE_ENTRIES["balanced-backup"].model,
-    );
-    expect(entry?.maxTokens).toBe(
-      CODE_DEFAULT_PROFILE_ENTRIES["balanced-backup"].maxTokens,
-    );
+  test("a workspace entry never overlays a backup, whatever its source", () => {
+    // Backups are code-owned (`CODE_OWNED_PROFILE_NAMES`), so unlike the
+    // primaries they take no workspace overlay at all: not the usual
+    // label/status/topP whitelist from a managed stub, and not a user-owned
+    // shadow. Disabling a backup through a hand-edited config would strand
+    // the primary's fallback exactly when it is needed.
+    for (const source of ["managed", "user"] as const) {
+      const workspace: Record<string, ProfileEntry> = {
+        "balanced-backup": {
+          source,
+          label: "My Backup",
+          status: "disabled",
+          topP: 0.7,
+          // Stale content drift on disk must lose to the code default body.
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          maxTokens: 1,
+        },
+      };
+      const entry = getEffectiveProfile(workspace, "balanced-backup");
+      const body = CODE_DEFAULT_PROFILE_ENTRIES["balanced-backup"];
+      expect(entry?.label).toBe(body.label);
+      expect(entry?.status).toBeUndefined();
+      expect(entry?.topP).toBe(body.topP);
+      expect(entry?.model).toBe(body.model);
+      expect(entry?.maxTokens).toBe(body.maxTokens);
+      expect(String(entry?.provider)).toBe("vellum");
+    }
   });
 
   test("backup profiles are delete-protected like the other managed defaults", () => {

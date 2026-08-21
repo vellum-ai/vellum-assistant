@@ -1743,6 +1743,18 @@ async function handleReplaceInferenceProfile({
   const isManaged =
     MANAGED_PROFILE_NAMES.has(name) &&
     (existingProfile == null || existingProfile.source === "managed");
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    // A code-owned profile resolves from the catalog whatever the workspace
+    // holds, so even a status re-enable would persist a stub that never
+    // governs anything. Reject the write rather than accept a silent no-op.
+    // Checked ahead of the availability gate below so the code-owned backups,
+    // which are always available yet are not `DEFAULT_PROFILE_KEYS` members,
+    // report why the write is refused rather than claiming they do not exist.
+    throw new BadRequestError(
+      `Profile "${name}" is code-owned and cannot be edited. ` +
+        `Duplicate it to a custom profile to customize.`,
+    );
+  }
   // A flag-gated managed name (`os-beta`) with no materialized entry cannot
   // be patched: it only resolves while the flag reconcile has created its
   // stub, so writing status here would persist an entry that fights the
@@ -1755,15 +1767,6 @@ async function handleReplaceInferenceProfile({
   ) {
     throw new BadRequestError(
       `Profile "${name}" is not currently available and cannot be edited.`,
-    );
-  }
-  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
-    // A code-owned profile resolves from the catalog whatever the workspace
-    // holds, so even a status re-enable would persist a stub that never
-    // governs anything. Reject the write rather than accept a silent no-op.
-    throw new BadRequestError(
-      `Profile "${name}" is code-owned and cannot be edited. ` +
-        `Duplicate it to a custom profile to customize.`,
     );
   }
   if (isManaged) {

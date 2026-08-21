@@ -506,8 +506,23 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
  * audible dead air rather than a slow reply. A same-named
  * workspace entry stays on disk and stays listed; it just never governs what
  * this name resolves to.
+ *
+ * All four backups carry the same protection rather than only
+ * `latency-optimized-backup`. The narrow argument covers that one alone: it
+ * serves the live-voice path whenever the primary falls back, so a shadow
+ * reintroduces exactly the dead-air risk the primary's protection exists to
+ * prevent. The broader argument covers all four, and is why the whole set is
+ * here: a backup only earns its place by pinning a model at a different
+ * upstream than the primary it backs (see `BACKUP_PROFILE_IMPLS`), and a
+ * user-owned shadow can silently repoint it at the primary's own provider,
+ * so the fallback re-sends into the outage it exists to route around. A
+ * backup also has no per-provider matrix column, so there is nothing a
+ * workspace overlay could legitimately own on it.
  */
-export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
+export const CODE_OWNED_PROFILE_NAMES = new Set<string>([
+  "latency-optimized",
+  ...BACKUP_PROFILE_KEYS,
+]);
 
 // All managed profiles, including the flag-gated os-beta, are invariant:
 // their MANAGED-SOURCE entries are read-only to user-facing writes except
