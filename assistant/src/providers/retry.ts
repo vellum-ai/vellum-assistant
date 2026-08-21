@@ -998,18 +998,28 @@ export class RetryProvider implements Provider {
       connectionName?: string;
       refreshCredentialProvider?: () => Promise<Provider | null>;
       /**
-       * Escalation hook: resolve a backup route (a ready adapter plus the
-       * backup profile key) for a request whose primary route failed with an
+       * Escalation hook: resolve a backup route (a ready adapter, the backup
+       * profile key, and the backup route's usage-attribution forwarding
+       * policy) for a request whose primary route failed with an
        * outage-shaped error (see {@link isFallbackEligibleError}). The
        * callback owns all profile knowledge: it inspects the failed call's
        * winning profile and returns null when that profile declares no
        * `fallbackProfile`, mirroring how `refreshCredentialProvider` keeps
-       * this wrapper ignorant of credential storage. One hop max; the
-       * fallback attempt itself gets no retry loop.
+       * this wrapper ignorant of credential storage.
+       * `forwardUsageAttributionHeaders` must describe the BACKUP route, not
+       * the primary: managed-proxy routes pass true, BYOK and other
+       * third-party routes pass false. The fallback send normalizes with the
+       * returned policy so `X-Vellum-*` billing metadata never leaks to a
+       * third party and is never omitted from the managed proxy. One hop
+       * max; the fallback attempt itself gets no retry loop.
        */
       resolveFallbackRoute?: (
         failedOptions: SendMessageOptions | undefined,
-      ) => Promise<{ provider: Provider; overrideProfile: string } | null>;
+      ) => Promise<{
+        provider: Provider;
+        overrideProfile: string;
+        forwardUsageAttributionHeaders: boolean;
+      } | null>;
     } = {},
   ) {
     this.inner = inner;
@@ -1206,7 +1216,11 @@ export class RetryProvider implements Provider {
     originalError: unknown,
     retriesExhausted: boolean,
   ): Promise<ProviderResponse | null> {
-    let route: { provider: Provider; overrideProfile: string } | null;
+    let route: {
+      provider: Provider;
+      overrideProfile: string;
+      forwardUsageAttributionHeaders: boolean;
+    } | null;
     try {
       route = (await this.options.resolveFallbackRoute?.(options)) ?? null;
     } catch (resolveError) {
@@ -1262,7 +1276,11 @@ export class RetryProvider implements Provider {
     // in `canReRouteToFallbackProfile` already excluded explicit
     // `config.model`. Re-normalizing on a callSite-bearing config also
     // restamps the usage-attribution headers from the backup resolution, so
-    // platform usage events attribute degraded traffic to the backup profile.
+    // platform usage events attribute degraded traffic to the backup
+    // profile. Whether those headers are forwarded at all follows the
+    // FALLBACK route's policy, not the primary's: a managed primary falling
+    // back to a third-party adapter must not leak billing metadata, and a
+    // non-managed primary falling back to the managed proxy must include it.
     const fallbackConfig: Record<string, unknown> = { ...options?.config };
     delete fallbackConfig.max_tokens;
     delete fallbackConfig.effort;
@@ -1274,7 +1292,7 @@ export class RetryProvider implements Provider {
       { ...options, config: fallbackConfig },
       {
         forwardUsageAttributionHeaders:
-          this.options.forwardUsageAttributionHeaders === true,
+          route.forwardUsageAttributionHeaders === true,
       },
     );
 
@@ -1295,7 +1313,19 @@ export class RetryProvider implements Provider {
 
     try {
       // One hop, one attempt: the fallback send gets no retry loop in v1.
-      return await route.provider.sendMessage(messages, fallbackOptions);
+      const response = await route.provider.sendMessage(
+        messages,
+        fallbackOptions,
+      );
+      // Stamp the provider that actually served the response. Without this,
+      // a backup adapter that does not set `actualProvider` leaves the outer
+      // call-site router recording the success under the failed primary
+      // provider (wrong provider, wrong pricing attribution). Never
+      // overwrite a more specific value the adapter already set.
+      if (response.actualProvider === undefined) {
+        response.actualProvider = route.provider.name;
+      }
+      return response;
     } catch (fallbackError) {
       if (fallbackError instanceof Error && fallbackError.cause === undefined) {
         fallbackError.cause = originalError;

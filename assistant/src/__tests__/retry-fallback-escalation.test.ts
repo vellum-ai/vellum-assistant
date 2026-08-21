@@ -104,18 +104,28 @@ function backupProvider(name = "anthropic"): {
 
 function makeRoute(
   provider: Provider,
-  overrideProfile = "backup-profile",
+  {
+    overrideProfile = "backup-profile",
+    forwardUsageAttributionHeaders = true,
+  }: {
+    overrideProfile?: string;
+    forwardUsageAttributionHeaders?: boolean;
+  } = {},
 ): {
   resolveFallbackRoute: (
     failedOptions: SendMessageOptions | undefined,
-  ) => Promise<{ provider: Provider; overrideProfile: string } | null>;
+  ) => Promise<{
+    provider: Provider;
+    overrideProfile: string;
+    forwardUsageAttributionHeaders: boolean;
+  } | null>;
   calls: () => number;
 } {
   let calls = 0;
   return {
     resolveFallbackRoute: async () => {
       calls += 1;
-      return { provider, overrideProfile };
+      return { provider, overrideProfile, forwardUsageAttributionHeaders };
     },
     calls: () => calls,
   };
@@ -500,5 +510,105 @@ describe("RetryProvider fallback-route escalation", () => {
     // maxTokens applies instead.
     expect(config.max_tokens).toBe(2222);
     expect(config.effort).not.toBe("low");
+  });
+
+  test("route with forwardUsageAttributionHeaders false → no X-Vellum-* headers reach the backup adapter, even when the primary forwards them", async () => {
+    // A managed primary (forwarding enabled) falling back to a BYOK or other
+    // third-party adapter must not leak billing metadata: the fallback
+    // normalization follows the ROUTE's policy, not the primary's.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider, {
+      forwardUsageAttributionHeaders: false,
+    });
+    const wrapped = new RetryProvider(primary.provider, {
+      forwardUsageAttributionHeaders: true,
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("backup-model");
+    expect(backup.seenConfig().usageAttributionHeaders).toBeUndefined();
+  });
+
+  test("route with forwardUsageAttributionHeaders true → headers present and reflect the backup profile, even when the primary does not forward them", async () => {
+    // A non-managed primary (forwarding disabled) falling back to the
+    // managed proxy must include the required attribution headers.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider, {
+      forwardUsageAttributionHeaders: true,
+    });
+    const wrapped = new RetryProvider(primary.provider, {
+      forwardUsageAttributionHeaders: false,
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("backup-model");
+    const headers = backup.seenConfig().usageAttributionHeaders as Record<
+      string,
+      string
+    >;
+    expect(headers["X-Vellum-Inference-Profile"]).toBe("backup-profile");
+    expect(headers["X-Vellum-Resolved-Model"]).toBe("backup-model");
+    expect(headers["X-Vellum-Resolved-Provider"]).toBe("anthropic");
+  });
+
+  test("fallback response without actualProvider → stamped with the backup provider's name", async () => {
+    // The outer call-site router attributes success by `actualProvider`;
+    // without the stamp it would record the fallback under the failed
+    // primary provider and apply the wrong pricing.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.actualProvider).toBe("anthropic");
+  });
+
+  test("fallback response with adapter-set actualProvider → preserved, not overwritten", async () => {
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup: Provider = {
+      name: "anthropic",
+      sendMessage: async () => ({
+        ...okResponse("backup-model"),
+        actualProvider: "openrouter/anthropic",
+      }),
+    };
+    const route = makeRoute(backup);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.actualProvider).toBe("openrouter/anthropic");
   });
 });
