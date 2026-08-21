@@ -80,11 +80,13 @@ export function PairDeviceCard() {
   useBusSubscription("app.resume", () => {
     tunnel.refresh();
   });
+  // The address the daemon's current answer carries, if any. `null` while the
+  // probe is still checking, so nothing downstream mistakes a fallback for a
+  // reported address.
+  const statusAddress = statusPublicBaseUrl(tunnel.status);
   const pair = usePairDevice(
     target?.base ?? null,
-    probeAnswered
-      ? statusPublicBaseUrl(tunnel.status)
-      : (target?.ingressUrl ?? null),
+    probeAnswered ? statusAddress : (target?.ingressUrl ?? null),
   );
   // Bumped when the pending-request flow pairs a device, so the device list
   // below refetches without waiting for a live-code poll.
@@ -126,14 +128,12 @@ export function PairDeviceCard() {
       : tunnelWarns
         ? t("pairDeviceCard.generateButtonWarned")
         : t("pairDeviceCard.generateButton");
-  // The URL field sits behind a disclosure wherever the daemon has an address
-  // for this assistant, or is still finding one, and stays in the open where
-  // it has none (no tunnel, a stopped one, no verdict at all): typing one is
-  // then the only way through.
+  // The URL field only hides behind its disclosure once the address it would
+  // advertise is the one the daemon just reported. Until then it leads, so a
+  // click can never mint a stale stored address the user never saw. A stopped
+  // tunnel's recorded address serves nothing, so its field leads too.
   const daemonHasAddress =
-    probeAnswered &&
-    tunnel.status.kind !== "unconfigured" &&
-    tunnel.status.kind !== "stopped";
+    probeAnswered && statusAddress !== null && tunnel.status.kind !== "stopped";
   // A rejected address opens the field too, or its error would report from
   // inside a closed disclosure.
   const urlFieldOpen = urlFieldOpened || pair.inputError !== null;
@@ -214,9 +214,10 @@ export function PairDeviceCard() {
           onRefresh={tunnel.refresh}
           isRefreshing={tunnel.isRefreshing}
         />
-        {/* With an address in hand the action leads and the field hides
-            behind its disclosure. Without one the field leads and the action
-            follows it, which is the card's whole layout before the probe. */}
+        {/* With a reported address in hand the action leads and the field
+            hides behind its disclosure. Without one the field leads and the
+            action follows it, which is the card's layout until the probe
+            answers with an address, and its whole layout before the probe. */}
         <div className="flex flex-col gap-3">
           {daemonHasAddress ? (
             <>
