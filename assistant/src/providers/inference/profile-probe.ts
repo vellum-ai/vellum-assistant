@@ -26,11 +26,9 @@ import {
 } from "../provider-send-message.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "./auth.js";
 import { getConnection } from "./connections.js";
+import { PROBE_TIMEOUT_MS } from "./endpoint-probe.js";
 
 const log = getLogger("inference-profile-probe");
-
-/** Matches the connection endpoint probe so a dead upstream can't hang the save flow. */
-const PROBE_TIMEOUT_MS = 10_000;
 
 /** Which object the user should fix when the probe fails. */
 export type ProfileCheckBlame =
