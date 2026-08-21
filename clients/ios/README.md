@@ -43,11 +43,12 @@ which URL is baked into the build.
   process. With `server.url`, only native shell changes (Swift code,
   entitlements, Capacitor plugin updates) require a store submission.
 - **Thin native surface** - the IPC bridge between the WKWebView and
-  native code is minimal (seven app-local plugins: `NativeAuthPlugin`,
+  native code is minimal (eight app-local plugins: `NativeAuthPlugin`,
   `NativeBiometricPlugin`, `VoiceAudioSessionPlugin`,
   `VoiceLiveActivityPlugin`, `ApnsEnvironmentPlugin`,
-  `SelfHostedServersPlugin`, and `RecentChatsPlugin`, plus the
-  auto-discovered community camera preview dependency), so version skew risk between the web app and native
+  `SelfHostedServersPlugin`, `RecentChatsPlugin`, and
+  `WidgetSnapshotPlugin`, plus the auto-discovered community camera
+  preview dependency), so version skew risk between the web app and native
   shell is low. Every plugin call from the web side must still have a
   working missing-plugin fallback because a new web bundle always ships
   ahead of the shell that hosts it. Contrast
@@ -152,7 +153,7 @@ Apple's reference for the toolbar controls:
 
 The app has two layers: the **WKWebView contents** (the React app loaded
 from the configured server URL) and the **native Swift shell** (Capacitor
-bridge, `MyViewController`, the seven app-local plugins, and linked package
+bridge, `MyViewController`, the eight app-local plugins, and linked package
 plugins such as `CameraPreview`). Each has its own
 debugger.
 
