@@ -54,12 +54,14 @@ function setMockWindow({
 }
 
 function setElectronPermissionsWindow(
+  hostOS: "macos" | "windows",
   openSettings: (kind: string) => Promise<unknown>,
 ): void {
   setMockWindow({
     open: null,
     vellum: {
       platform: "electron",
+      hostOS,
       permissions: {
         getState: () => Promise.resolve({}),
         request: () => Promise.resolve({}),
@@ -225,7 +227,7 @@ describe("oauth popup links", () => {
   describe("dispatchOpenUrl", () => {
     test("routes allowlisted settings URLs through the Electron permissions bridge", () => {
       const openSettings = mock((_kind: string) => Promise.resolve({}));
-      setElectronPermissionsWindow(openSettings);
+      setElectronPermissionsWindow("windows", openSettings);
 
       expect(
         dispatchOpenUrl("ms-settings:privacy-microphone", {
@@ -238,10 +240,23 @@ describe("oauth popup links", () => {
 
     test("rejects arbitrary settings URLs", () => {
       const openSettings = mock((_kind: string) => Promise.resolve({}));
-      setElectronPermissionsWindow(openSettings);
+      setElectronPermissionsWindow("windows", openSettings);
 
       expect(
         dispatchOpenUrl("ms-settings:privacy-location", {
+          isNative: false,
+          push: () => undefined,
+        }),
+      ).toEqual({ kind: "invalid" });
+      expect(openSettings).not.toHaveBeenCalled();
+    });
+
+    test("ignores settings URLs for another Electron host OS", () => {
+      const openSettings = mock((_kind: string) => Promise.resolve({}));
+      setElectronPermissionsWindow("macos", openSettings);
+
+      expect(
+        dispatchOpenUrl("ms-settings:privacy-microphone", {
           isNative: false,
           push: () => undefined,
         }),

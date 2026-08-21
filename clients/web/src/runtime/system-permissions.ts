@@ -6,6 +6,7 @@ import {
   type SystemPermissionStateItem,
   type SystemPermissionsState,
 } from "@/runtime/is-electron";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 
 export type {
   SystemPermissionKind,
@@ -25,14 +26,23 @@ export const SYSTEM_PERMISSION_KINDS: SystemPermissionKind[] = [
 ];
 
 const SYSTEM_PERMISSION_SETTINGS_URLS: Readonly<
-  Record<string, SystemPermissionKind>
+  Record<
+    string,
+    { hostOS: "macos" | "windows"; kind: SystemPermissionKind }
+  >
 > = {
-  "ms-settings:privacy-microphone": "microphone",
-  "ms-settings:privacy-speech": "speechRecognition",
+  "ms-settings:privacy-microphone": {
+    hostOS: "windows",
+    kind: "microphone",
+  },
+  "ms-settings:privacy-speech": {
+    hostOS: "windows",
+    kind: "speechRecognition",
+  },
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone":
-    "microphone",
+    { hostOS: "macos", kind: "microphone" },
   "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition":
-    "speechRecognition",
+    { hostOS: "macos", kind: "speechRecognition" },
 };
 
 export function supportsSystemPermissions(): boolean {
@@ -67,11 +77,15 @@ export async function openSystemPermissionSettings(
 }
 
 export function openSystemPermissionSettingsUrl(url: string): boolean {
-  const kind = SYSTEM_PERMISSION_SETTINGS_URLS[url];
-  if (!kind || !supportsSystemPermissions()) {
+  const target = SYSTEM_PERMISSION_SETTINGS_URLS[url];
+  if (
+    !target ||
+    detectElectronHostOS() !== target.hostOS ||
+    !supportsSystemPermissions()
+  ) {
     return false;
   }
-  void openSystemPermissionSettings(kind);
+  void openSystemPermissionSettings(target.kind);
   return true;
 }
 
