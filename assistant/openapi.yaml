@@ -5080,6 +5080,10 @@ paths:
                     required:
                       - profile
                       - weight
+                provider_connection:
+                  anyOf:
+                    - type: string
+                    - type: "null"
       responses:
         "200":
           description: Successful response
@@ -34430,6 +34434,10 @@ components:
                   - profile
                   - weight
             - type: "null"
+        provider_connection:
+          anyOf:
+            - type: string
+            - type: "null"
       additionalProperties: {}
     ProfileStatus:
       type: string
@@ -35193,6 +35201,8 @@ components:
           type: boolean
         invariant:
           type: boolean
+        provider_connection:
+          type: string
       additionalProperties: {}
     DefaultProviderStatus:
       type: object
@@ -35437,6 +35447,8 @@ components:
           enum:
             - managed
             - user
+        provider_connection:
+          type: string
         availability:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"

@@ -642,12 +642,37 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
   );
 }
 
+/**
+ * Deprecated wire shim: pre-0.11.4 web clients still send/read
+ * `provider_connection` from their fleet-telemetry-gated legacy paths.
+ * The field is accepted and ignored on writes (the stored `ProfileEntry`
+ * schema strips it at parse; the write variant is nullable because edit
+ * mode sends `null` for a cleared binding) and never populated in
+ * responses; it exists on WIRE schemas only so client typegen stays
+ * stable. Delete together with the fleet-telemetry-gated legacy shims in
+ * clients/web.
+ */
+const DEPRECATED_PROVIDER_CONNECTION_WRITE_SHIM = {
+  provider_connection: z.string().nullable().optional(),
+};
+
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
   invariant: z.boolean().optional(),
+  // Deprecated read shim (see DEPRECATED_PROVIDER_CONNECTION_WRITE_SHIM).
+  provider_connection: z.string().optional(),
 })
   .passthrough()
   .meta({ id: "ProfileEntry" });
+
+/**
+ * Request body for the profile replace route: the stored entry shape plus
+ * the deprecated `provider_connection` wire shim. The handler parses the
+ * stored `ProfileEntry`, which strips the shim field.
+ */
+const ProfileReplaceRequestSchema = ProfileEntry.extend(
+  DEPRECATED_PROVIDER_CONNECTION_WRITE_SHIM,
+);
 
 /**
  * Wire shape of the `memory` section in config responses. Passthrough
@@ -754,6 +779,7 @@ function nullablePartial(schema: z.ZodObject<z.ZodRawShape>) {
  * export in the SDK.
  */
 const ProfilePatchEntrySchema = nullablePartial(ProfileEntry)
+  .extend(DEPRECATED_PROVIDER_CONNECTION_WRITE_SHIM)
   .passthrough()
   .meta({ id: "ProfilePatchEntry" });
 
@@ -2439,7 +2465,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
     tags: ["config"],
-    requestBody: ProfileEntry,
+    requestBody: ProfileReplaceRequestSchema,
     handler: handleReplaceInferenceProfile,
   },
   {

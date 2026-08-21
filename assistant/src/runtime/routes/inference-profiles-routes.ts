@@ -90,6 +90,12 @@ const profileSummarySchema = z
     model: z.string().nullable(),
     status: z.enum(["active", "disabled"]),
     source: z.enum(["managed", "user"]),
+    /**
+     * Deprecated wire shim: pre-0.11.4 web clients still project this
+     * field from the summary; never populated by the daemon. Delete with
+     * the fleet-telemetry-gated legacy shims in clients/web.
+     */
+    provider_connection: z.string().optional(),
     /** Null when the profile has no provider to judge (e.g. mix profiles). */
     availability: availabilitySchema.nullable(),
   })
