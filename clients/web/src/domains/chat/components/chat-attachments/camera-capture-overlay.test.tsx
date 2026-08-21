@@ -5,7 +5,8 @@
  * from outside the web view, so there is no DOM user activation and a hidden
  * `<input capture>` would never present anything on iOS. These tests hold that
  * contract from both ends (the acquisition runs on mount, and no file input
- * exists on the path at all) and cover the ways a photo can fail to arrive.
+ * exists on the path at all) and cover the ways a photo can fail to arrive,
+ * including the frame that finishes encoding after the user has already left.
  *
  * The same absence of a tap is why the modality is covered here: a surface that
  * arrives on its own has to move focus in, hold it, hand it back, and take the
@@ -24,11 +25,24 @@ let cameraOpen = true;
 let cameraNative = true;
 let cameraError: string | null = null;
 let capturedFrame: File | null = null;
+/** Set by {@link holdFrame} to keep a capture in flight across a close. */
+let heldFrame: Promise<File | null> | null = null;
 
 const openCameraMock = mock(async () => {});
 const flipCameraMock = mock(async () => {});
 const closeCameraMock = mock(() => {});
-const captureFrameMock = mock(async () => capturedFrame);
+const captureFrameMock = mock(() =>
+  heldFrame ? heldFrame : Promise.resolve(capturedFrame),
+);
+
+/** Leaves the shutter's await pending until the returned resolver is called. */
+function holdFrame() {
+  let land: (file: File | null) => void = () => {};
+  heldFrame = new Promise<File | null>((resolve) => {
+    land = resolve;
+  });
+  return land;
+}
 
 mock.module("@/domains/chat/voice/voice-room/voice-camera", () => ({
   useVoiceCamera: () => ({
@@ -72,6 +86,7 @@ beforeEach(() => {
   cameraNative = true;
   cameraError = null;
   capturedFrame = null;
+  heldFrame = null;
   openCameraMock.mockClear();
   flipCameraMock.mockClear();
   closeCameraMock.mockClear();
@@ -144,6 +159,45 @@ describe("CameraCaptureOverlay", () => {
     });
 
     expect(onCapture).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("drops a frame that lands after the user closed the surface", async () => {
+    const land = holdFrame();
+    const { onCapture, onClose, unmount } = renderOverlay();
+
+    fireEvent.click(shutter());
+    fireEvent.click(closeControl());
+    unmount();
+
+    await act(async () => {
+      land(
+        new File([new Uint8Array([1, 2, 3])], "photo-2.jpg", {
+          type: "image/jpeg",
+        }),
+      );
+    });
+
+    // The frame belongs to a surface the user dismissed, so nothing about it
+    // reaches the composer.
+    expect(onCapture).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("a frame that fails after an intentional close stays quiet", async () => {
+    const land = holdFrame();
+    const { onCapture, onClose } = renderOverlay();
+
+    fireEvent.click(shutter());
+    fireEvent.keyDown(surface(), { key: "Escape" });
+
+    await act(async () => {
+      land(null);
+    });
+
+    expect(onCapture).not.toHaveBeenCalled();
+    // The close the user pressed Escape for, not a second one carrying a
+    // failure toast over a camera they already left.
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

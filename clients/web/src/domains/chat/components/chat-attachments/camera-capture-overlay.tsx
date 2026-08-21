@@ -33,6 +33,12 @@
  * failure, the composer going away) turns the hardware off without anything
  * having to remember to.
  *
+ * What teardown does not release is a frame already being encoded, so leaving
+ * is recorded on a ref that the shutter rechecks on the far side of its await.
+ * A frame that lands after the user is gone is dropped rather than attached,
+ * and a frame that failed by then is a close the user asked for rather than an
+ * error worth a toast.
+ *
  * ## Modality
  *
  * `@radix-ui/react-dialog`, the primitive the design library's `Modal` is built
@@ -109,35 +115,69 @@ export function CameraCaptureOverlay({
     void openCamera();
   }, [openCamera]);
 
+  // Every exit routes through here, so anything still in flight has one flag to
+  // read. Set before the parent is told, since `onClose` only asks it to
+  // unmount and a frame can resolve in between.
+  const closedRef = useRef(false);
+  const close = useCallback(() => {
+    closedRef.current = true;
+    onClose();
+  }, [onClose]);
+
+  // The composer can also take this surface down without going through `close`.
+  useEffect(() => {
+    return () => {
+      closedRef.current = true;
+    };
+  }, []);
+
   // Closed before the toast, so the message is not raised behind a native
   // preview that has already covered the app.
   useEffect(() => {
     if (error === null) {
       return;
     }
-    onClose();
+    close();
     toast.error(t("cameraDeepLink.openFailed"));
-  }, [error, onClose, t]);
+  }, [close, error, t]);
 
+  // Read in the same tick the shutter fires in, unlike `capturing`, which only
+  // disables the button on the render after it.
+  const capturingRef = useRef(false);
   const takePhoto = useCallback(async () => {
+    if (capturingRef.current || closedRef.current) {
+      return;
+    }
+    capturingRef.current = true;
     setCapturing(true);
+
     const file = await captureFrame();
+    capturingRef.current = false;
+
+    // The user left while the frame was encoding: no attachment from a surface
+    // they dismissed, and no failure toast for a close they meant.
+    if (closedRef.current) {
+      setCapturing(false);
+      return;
+    }
+
     if (!file) {
-      onClose();
+      setCapturing(false);
+      close();
       toast.error(t("cameraDeepLink.captureFailed"));
       return;
     }
     onCapture([file]);
-    onClose();
-  }, [captureFrame, onCapture, onClose, t]);
+    close();
+  }, [captureFrame, close, onCapture, t]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
       if (!next) {
-        onClose();
+        close();
       }
     },
-    [onClose],
+    [close],
   );
 
   return createPortal(
@@ -200,7 +240,7 @@ export function CameraCaptureOverlay({
         >
           <VoiceRoomControl
             label={t("cameraDeepLink.close")}
-            onClick={onClose}
+            onClick={close}
             overMedia
             data-testid="camera-deep-link-close"
           >
