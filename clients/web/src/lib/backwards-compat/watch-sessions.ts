@@ -22,16 +22,13 @@
  * outgoing assistant must never authorize a capture against the incoming one.
  *
  * MIN_VERSION is a dev floor rather than a predicted release number, per the
- * guidance in `docs/BACKWARDS_COMPAT.md`. It names the commit that added the
- * route, `7a51a0f` (PR #40984, merged 2026-08-19 23:48 UTC), on top of the
- * then-current base `0.11.4`. Every later release satisfies it without anyone
- * having to guess a number, and dev builds cut after that commit light up.
- *
- * It names the merge of the feature branch into `main` (#41133), not the
- * commit that first wrote the route. Those differ, and the merge is the one
- * that matters: dev builds are cut from `main`, so a build carrying a
- * timestamp from the feature branch would satisfy a floor for code `main` did
- * not yet have. Every dev build after this instant has the route.
+ * guidance in `docs/BACKWARDS_COMPAT.md`. It names the merge that puts the
+ * route on `main` (#41133, 2026-08-21 20:20 UTC) on top of the then-current
+ * base `0.11.4`. The merge is the instant that matters rather than the commit
+ * that writes the route, because dev builds are cut from `main`: a build
+ * carrying a feature-branch timestamp satisfies a floor for code `main` does
+ * not hold. Every dev build from this instant on serves the route, and every
+ * later release clears the floor without anyone having to guess a number.
  */
 
 import {

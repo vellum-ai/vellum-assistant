@@ -2,15 +2,13 @@
  * Backwards-compat gate: the announcement that a watch session's summary is
  * finished.
  *
- * Watching itself is gated separately, by `watch-sessions.ts`, and the two
- * floors are not the same instant. The `/v1/watch/stream` route landed first;
- * the `watch_retro_completed` event that settles the wait afterwards landed on
- * a later commit. So there is a real band of assistant versions that run
- * sessions perfectly well and never say anything when the retrospective is
- * done, and the newest web bundle talks to all of them.
+ * Watching itself is gated separately, by `watch-sessions.ts`. This gate
+ * answers a different question at a different edge: whether the assistant a
+ * session belongs to emits the `watch_retro_completed` event that settles the
+ * wait a deliberate stop opens.
  *
- * Without a floor of its own, every deliberate stop against such an assistant
- * opens a wait nothing can end. The companion surface stays expanded on
+ * If an assistant serves sessions without announcing their retrospectives, a
+ * stop opens a wait nothing can end. The companion surface stays expanded on
  * "Summarizing" until the give-up timer in `watch/watch-retro.ts` runs out, and
  * that timer is three minutes because it is sized for a turn that reads a whole
  * session, not for a routine ending. A floating window sitting over the user's
@@ -30,22 +28,18 @@
  * for the outgoing assistant must not authorize a wait on the incoming one's.
  *
  * MIN_VERSION is the watch stream's own floor, imported rather than stamped
- * again. The route and this event landed on `main` in the same merge
- * (#41133), so there is no build that serves a session and cannot announce
- * its retrospective, and a second constant would only be a second thing to
- * keep in step.
+ * again. The route and this event reach `main` in the same merge (#41133), so
+ * no shipped build serves a session it cannot announce the retrospective for,
+ * and a second constant would only be a second thing to keep in step.
  *
- * **It cannot refuse while the two share a floor.** A stop edge only exists
- * for a session that started, and a session only starts for an assistant that
- * cleared the stream's floor, which is this one. So the gate reads true
- * wherever it is currently reachable. It is kept for the moment the two part,
- * and because a caller should not have to know they are the same today.
- *
- * This stays its own gate rather than folding into that one because the two
- * answer different questions, and a caller reading `supportsWatchRetroCompletion`
- * at the stop edge should not have to know they currently share a number. If
- * the announcement ever moves to a later build, stamp this from the commit
- * that moves it and the two part ways without touching a call site.
+ * **While the two share a floor this gate cannot refuse.** A stop edge only
+ * exists for a session that started, and a session only starts for an
+ * assistant that cleared the stream's floor, which is this one, so the gate
+ * reads true wherever it is reachable. It stays its own gate because it
+ * answers its own question, and a caller reading
+ * `supportsWatchRetroCompletion` at the stop edge should not have to know the
+ * two share a number today. If the announcement ever moves to a later build,
+ * stamping this from that build parts them without touching a call site.
  */
 
 import { assistantScopedSupports } from "@/lib/backwards-compat/utils";
