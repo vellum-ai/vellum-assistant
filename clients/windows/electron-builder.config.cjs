@@ -24,6 +24,13 @@ const schemes =
     ? ["vellum", "vellum-assistant"]
     : [`vellum-assistant-${env}`];
 
+const iconEnvironment = ["local", "dev", "staging", "production"].includes(
+  env,
+)
+  ? env
+  : "production";
+const appIcon = `build-resources/icons/${iconEnvironment}/icon.ico`;
+
 const requireEnv = (name) => {
   const value = process.env[name];
   if (!value) {
@@ -142,6 +149,7 @@ module.exports = {
     },
   ],
   win: {
+    icon: appIcon,
     target: [
       {
         target: "nsis",
@@ -154,6 +162,8 @@ module.exports = {
     ...resolveSigning(),
   },
   nsis: {
+    installerIcon: appIcon,
+    uninstallerIcon: appIcon,
     oneClick: false,
     perMachine: false,
     allowToChangeInstallationDirectory: true,

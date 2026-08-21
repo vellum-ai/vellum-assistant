@@ -119,6 +119,10 @@ verifies every manifest binary and the installer with
 `vellum-ai-<env>-releases/win-electron/<arch>/` feed: installer and blockmap
 first, then the `<env>.yml` channel manifest.
 
+The executable, installer, and uninstaller use the environment-specific icon
+from `build-resources/icons/<environment>/icon.ico`, matching the local, dev,
+staging, and production desktop identities.
+
 Signing is provider-neutral and an explicit gate on each GitHub environment
 (`electron-builder.config.cjs`, `WINDOWS_SIGNING_PROVIDER`):
 
@@ -131,9 +135,11 @@ Signing is provider-neutral and an explicit gate on each GitHub environment
   invocation with a `{file}` placeholder, plus `WINDOWS_SIGNING_PUBLISHER_NAME`
   so the updater can verify downloaded installers.
 
-Optional: `WINDOWS_SIGNING_TIMESTAMP_URL`, `SENTRY_DSN_WINDOWS` (main
-process), and `SENTRY_AUTH_TOKEN` + `SENTRY_PROJECT_WINDOWS` (renderer source
-maps). Unsigned Windows releases are never published.
+Production also requires `SENTRY_DSN_WINDOWS` and `SENTRY_AUTH_TOKEN` secrets
+plus `VITE_SENTRY_DSN` and `SENTRY_PROJECT_WINDOWS` variables. These enable
+main-process reporting and renderer source-map uploads. Non-production builds
+warn and continue when Sentry is not configured. `WINDOWS_SIGNING_TIMESTAMP_URL`
+is optional. Unsigned Windows releases are never published.
 
 ## Checks
 
