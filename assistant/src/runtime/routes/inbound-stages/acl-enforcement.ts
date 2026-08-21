@@ -19,6 +19,7 @@ import {
   getPendingSession,
   resolveBootstrapToken,
 } from "../../../channels/gateway-verification-sessions.js";
+import { audienceForReader } from "../../../channels/message-audience.js";
 import type { ChannelId } from "../../../channels/types.js";
 import {
   channelStatusToMemberStatus,
@@ -595,13 +596,11 @@ export async function enforceIngressAcl(
             text: replyText,
             assistantId,
           };
-          // On Slack, send as ephemeral so only the requester sees the rejection
-          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-            replyPayload.audience = {
-              kind: "oneReader",
-              userId: (canonicalSenderId ?? rawSenderId)!,
-            };
-          }
+          replyPayload.audience = audienceForReader(
+            sourceChannel,
+            conversationExternalId,
+            canonicalSenderId ?? rawSenderId,
+          );
           try {
             await deliverChannelReply(replyCallbackUrl, replyPayload);
             replyDelivered = true;
@@ -849,16 +848,11 @@ export async function enforceIngressAcl(
               text: inactiveReplyText,
               assistantId,
             };
-            // On Slack, send as ephemeral so only the requester sees the rejection
-            if (
-              sourceChannel === "slack" &&
-              (canonicalSenderId ?? rawSenderId)
-            ) {
-              inactiveReplyPayload.audience = {
-                kind: "oneReader",
-                userId: (canonicalSenderId ?? rawSenderId)!,
-              };
-            }
+            inactiveReplyPayload.audience = audienceForReader(
+              sourceChannel,
+              conversationExternalId,
+              canonicalSenderId ?? rawSenderId,
+            );
             try {
               await deliverChannelReply(replyCallbackUrl, inactiveReplyPayload);
               inactiveReplyDelivered = true;
@@ -895,12 +889,11 @@ export async function enforceIngressAcl(
             text: denyReplyText,
             assistantId,
           };
-          if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-            denyPayload.audience = {
-              kind: "oneReader",
-              userId: (canonicalSenderId ?? rawSenderId)!,
-            };
-          }
+          denyPayload.audience = audienceForReader(
+            sourceChannel,
+            conversationExternalId,
+            canonicalSenderId ?? rawSenderId,
+          );
           try {
             await deliverChannelReply(replyCallbackUrl, denyPayload);
             denyReplyDelivered = true;

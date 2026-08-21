@@ -17,6 +17,7 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
+import { audienceForReader } from "../../channels/message-audience.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -909,12 +910,11 @@ export async function handleChannelInbound({
         text: replyText,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.audience = {
-          kind: "oneReader",
-          userId: (canonicalSenderId ?? rawSenderId)!,
-        };
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
         replyDelivered = true;
@@ -973,12 +973,11 @@ export async function handleChannelInbound({
         text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        replyPayload.audience = {
-          kind: "oneReader",
-          userId: (canonicalSenderId ?? rawSenderId)!,
-        };
-      }
+      replyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, replyPayload);
       } catch (err) {
@@ -1196,7 +1195,7 @@ export async function handleChannelInbound({
       }
 
       // Edit the original approval message to remove stale buttons
-      // and deliver an ephemeral error so the user gets visible feedback
+      // and reply so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
       // No channel check: a transport without `edit` declines the call, so a
       // channel gains this the moment it can revise a sent message.
