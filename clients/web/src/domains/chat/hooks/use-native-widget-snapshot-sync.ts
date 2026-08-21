@@ -15,7 +15,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import { compareByRecency } from "@/utils/conversation-order";
+import { activeConversationsByRecency } from "@/utils/conversation-order";
 
 /**
  * How many conversations the Home Screen widgets get. The Catch Up medium
@@ -149,12 +149,9 @@ export function useNativeWidgetSnapshotSync(
     const groupNames = new Map(
       conversationGroups.map((group) => [group.id, group.name]),
     );
-    const active = conversations.filter(
-      (conversation) => conversation.archivedAt === undefined,
-    );
+    const active = activeConversationsByRecency(conversations);
     const inProgressCount = active.filter(isProcessing).length;
     const rows: WidgetSnapshotConversation[] = active
-      .sort(compareByRecency)
       .slice(0, MAX_SNAPSHOT_CONVERSATIONS)
       .map((conversation) => ({
         id: conversation.conversationId,
@@ -163,10 +160,6 @@ export function useNativeWidgetSnapshotSync(
           conversation.groupId === undefined
             ? undefined
             : groupNames.get(conversation.groupId),
-        lastMessageAt:
-          conversation.lastMessageAt === undefined
-            ? undefined
-            : new Date(conversation.lastMessageAt).toISOString(),
         hasUnseen: conversation.hasUnseenLatestAssistantMessage === true,
         isProcessing: isProcessing(conversation),
       }));

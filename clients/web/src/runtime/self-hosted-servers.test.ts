@@ -42,6 +42,21 @@ function bridgeFailure(method: string): Error {
   return new Error(`SelfHostedServers.${method}() is not implemented on ios`);
 }
 
+/**
+ * What the shell was asked to do, in order. The widget snapshot has to be
+ * dropped BEFORE the shell leaves for another origin: after the swap the page
+ * is gone, and the localStorage producer id that catches a stale snapshot
+ * anywhere else is per-origin and does not travel with it.
+ */
+const bridgeOrder: string[] = [];
+
+const clearWidgetSnapshotMock = mock(async () => {
+  bridgeOrder.push("clearWidgetSnapshot");
+});
+mock.module("@/runtime/widget-snapshot", () => ({
+  clearWidgetSnapshot: clearWidgetSnapshotMock,
+}));
+
 const listMock = mock(async (): Promise<NativeList> => {
   if (bridgeRejects) {
     throw bridgeFailure("list");
@@ -61,6 +76,7 @@ const removeMock = mock(async (_options: { url: string }) => {
   return { ok: true };
 });
 const switchToMock = mock(async (_options: { url?: string }) => {
+  bridgeOrder.push("switchTo");
   if (bridgeRejects) {
     throw bridgeFailure("switchTo");
   }
@@ -68,6 +84,7 @@ const switchToMock = mock(async (_options: { url?: string }) => {
 });
 const switchToPathMock = mock(
   async (_options: { url?: string; path: string }) => {
+    bridgeOrder.push("switchToPath");
     if (bridgeRejects) {
       throw bridgeFailure("switchToPath");
     }
@@ -118,6 +135,8 @@ beforeEach(() => {
   removeMock.mockClear();
   switchToMock.mockClear();
   switchToPathMock.mockClear();
+  clearWidgetSnapshotMock.mockClear();
+  bridgeOrder.length = 0;
   consoleDebugSpy.mockClear();
   window.localStorage.clear();
 });
@@ -368,6 +387,40 @@ describe("nativeSwitchToOrigin", () => {
 
     expect(await nativeSwitchToOrigin("https://host.example")).toBe(false);
     expect(switchToMock).not.toHaveBeenCalled();
+    expect(clearWidgetSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  test("drops the widget snapshot before the shell leaves the origin", async () => {
+    // The target is a different deployment with its own conversations, and
+    // once the swap lands there is no page left to clean up from. The clear
+    // lives here rather than at the call sites so that no way of leaving an
+    // origin can forget it.
+    await nativeSwitchToOrigin("https://host.example");
+
+    expect(bridgeOrder).toEqual(["clearWidgetSnapshot", "switchTo"]);
+  });
+
+  test("drops the widget snapshot before a path switch too", async () => {
+    await nativeSwitchToOriginPath(null, "select-assistant?noAutoSkip=1");
+
+    expect(bridgeOrder).toEqual(["clearWidgetSnapshot", "switchToPath"]);
+  });
+
+  test("returning to the baked origin drops the snapshot as well", async () => {
+    // The way back to Vellum Cloud is an origin swap like any other, and it
+    // is the one the assistant chooser and the pair page take.
+    await nativeSwitchToOrigin(null);
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("drops the snapshot even when the shell is too old to switch", async () => {
+    // A rejected switch leaves the caller to navigate out of the origin
+    // instead, which loses the page just the same.
+    bridgeRejects = true;
+
+    expect(await nativeSwitchToOrigin("https://host.example")).toBe(false);
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
   });
 });
 

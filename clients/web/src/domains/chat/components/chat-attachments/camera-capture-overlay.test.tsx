@@ -20,6 +20,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 
 let cameraOpen = true;
 let cameraNative = true;
@@ -70,6 +71,18 @@ function renderOverlay() {
   return { ...result, onCapture, onClose };
 }
 
+/** The tree the app actually mounts under (`main.tsx`). */
+function renderOverlayStrict() {
+  const onCapture = mock((_files: File[]) => {});
+  const onClose = mock(() => {});
+  const result = render(
+    <StrictMode>
+      <CameraCaptureOverlay onCapture={onCapture} onClose={onClose} />
+    </StrictMode>,
+  );
+  return { ...result, onCapture, onClose };
+}
+
 const shutter = () => screen.getByTestId("camera-deep-link-shutter");
 const closeControl = () => screen.getByTestId("camera-deep-link-close");
 /** Portalled out of the caller's tree, so it is never in `container`. */
@@ -102,6 +115,37 @@ describe("CameraCaptureOverlay", () => {
     renderOverlay();
 
     expect(openCameraMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("reacquires the camera after StrictMode's simulated remount", () => {
+    // The app mounts under StrictMode, which runs mount effects setup,
+    // cleanup, setup with the refs preserved. The cleanup half is a real
+    // teardown of `useVoiceCamera`: it releases the camera and cancels the
+    // acquisition still in flight, so the surface has to ask for another one.
+    // A latch that only answered "have I opened before" said yes on the second
+    // pass and left every development build with a dead viewfinder.
+    renderOverlayStrict();
+
+    expect(openCameraMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("the shutter still works after StrictMode's simulated remount", async () => {
+    // The exit flag lives on a ref, and refs survive the simulated unmount
+    // that sets it. Left standing, it bails the shutter out on the far side of
+    // a remount the user never saw, for as long as the surface is up.
+    const photo = new File([new Uint8Array([1, 2, 3])], "photo-1.jpg", {
+      type: "image/jpeg",
+    });
+    capturedFrame = photo;
+    const { onCapture, onClose } = renderOverlayStrict();
+
+    await act(async () => {
+      fireEvent.click(shutter());
+    });
+
+    expect(onCapture).toHaveBeenCalledTimes(1);
+    expect(onCapture.mock.calls[0]?.[0]).toEqual([photo]);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   test("reaches the camera through the bridge, never a file input", () => {

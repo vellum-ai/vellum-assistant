@@ -752,8 +752,9 @@ export function ChatComposer({
 
   // Mobile lifts the access and profile triggers out of the action row into a
   // row that floats above the card while the composer is in use, and hangs a
-  // caption under the card while it rests. A variant that passes neither
-  // settings slot is the app-editing panel, which gets neither.
+  // caption under the card while it rests. Only `ChatMainPanel` fills the
+  // settings slots, and only once it has an assistant to point them at, so a
+  // variant that passes neither (the onboarding tour's composer) gets neither.
   const isMainComposer = Boolean(thresholdPickerSlot || modelPickerSlot);
   const isMobileMainComposer = isMobile && isMainComposer;
 
@@ -842,8 +843,10 @@ export function ChatComposer({
   });
 
   // The camera a Home Screen widget's button asks for. Owned here for the same
-  // reason as the picker above, and gated to the main composer so a one-shot
-  // park is never spent by the app-editing panel or the onboarding tour.
+  // reason as the picker above, and gated to the `ChatMainPanel` composer so a
+  // one-shot park is never spent by the onboarding tour's. That gate leaves
+  // exactly one taker: `ChatMainPanel` renders on either the app-editing
+  // branch or the plain chat branch, never both.
   const {
     overlayNode: cameraDeepLinkOverlay,
     captureOpen: cameraDeepLinkCaptureOpen,

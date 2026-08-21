@@ -1,9 +1,12 @@
 /**
- * The bridge's two safety properties: it never touches the plugin off
- * Capacitor iOS, and a shell too old to carry `WidgetSnapshot` is an expected
- * state rather than a fault. Every web deploy reaches installed shells that
- * predate the plugin, so a rejection there has to resolve as a silent debug
- * no-op; a caller that awaited a throw would break sign-out.
+ * The bridge's three safety properties: it never touches the plugin off
+ * Capacitor iOS, a shell too old to carry `WidgetSnapshot` is an expected
+ * state rather than a fault, and a call that is accepted but never answered
+ * gives up rather than waiting forever. Every web deploy reaches installed
+ * shells that predate the plugin, so a rejection there has to resolve as a
+ * silent debug no-op; and every session-ending path awaits these calls before
+ * the state write that signs the user out, so a caller that awaited a throw
+ * (or a promise that never settles) would break sign-out.
  *
  * Plus the producer id the bridge records beside the snapshot. The App Group
  * cache outlives the page, so it is the only thing a cold launch can use to
@@ -11,12 +14,14 @@
  * actually landed.
  */
 
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 import type { WidgetSnapshotPayload } from "./widget-snapshot";
 
 let platform = "ios";
 let pluginRejects = false;
+/** Simulates a shell that accepts the call and never answers it. */
+let pluginHangs = false;
 const syncCalls: unknown[] = [];
 let clearCalls = 0;
 
@@ -30,6 +35,9 @@ mock.module("@capacitor/core", () => ({
       if (pluginRejects) {
         throw new Error("WidgetSnapshot does not have an implementation");
       }
+      if (pluginHangs) {
+        await new Promise(() => {});
+      }
       return { ok: true };
     },
     clear: async () => {
@@ -37,10 +45,51 @@ mock.module("@capacitor/core", () => ({
       if (pluginRejects) {
         throw new Error("WidgetSnapshot does not have an implementation");
       }
+      if (pluginHangs) {
+        await new Promise(() => {});
+      }
       return { ok: true };
     },
   }),
 }));
+
+// bun:test ships no `vi.useFakeTimers()` equivalent, so the module's own
+// timeout is driven by swapping the global: the wait is captured and fired on
+// demand instead of costing the suite its real two seconds.
+let scheduled: (() => void)[] = [];
+let captured = false;
+let realSetTimeout: typeof globalThis.setTimeout;
+let realClearTimeout: typeof globalThis.clearTimeout;
+
+/** Fire every pending wait, which is what the bridge timing out looks like. */
+function elapse(): void {
+  const due = scheduled;
+  scheduled = [];
+  for (const fire of due) {
+    fire();
+  }
+}
+
+function captureTimeouts(): void {
+  realSetTimeout = globalThis.setTimeout;
+  realClearTimeout = globalThis.clearTimeout;
+  captured = true;
+  globalThis.setTimeout = ((fn: () => void) => {
+    scheduled.push(fn);
+    return scheduled.length as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = (() => {}) as typeof globalThis.clearTimeout;
+}
+
+function releaseTimeouts(): void {
+  if (!captured) {
+    return;
+  }
+  captured = false;
+  globalThis.setTimeout = realSetTimeout;
+  globalThis.clearTimeout = realClearTimeout;
+  scheduled = [];
+}
 
 const {
   clearWidgetSnapshot,
@@ -61,9 +110,14 @@ const SNAPSHOT: WidgetSnapshotPayload = {
 beforeEach(() => {
   platform = "ios";
   pluginRejects = false;
+  pluginHangs = false;
   syncCalls.length = 0;
   clearCalls = 0;
   localStorage.clear();
+});
+
+afterEach(() => {
+  releaseTimeouts();
 });
 
 describe("widget-snapshot bridge", () => {
@@ -91,6 +145,36 @@ describe("widget-snapshot bridge", () => {
       syncWidgetSnapshot(SNAPSHOT, "asst-1"),
     ).resolves.toBeUndefined();
     await expect(clearWidgetSnapshot()).resolves.toBeUndefined();
+  });
+
+  it("gives up on a bridge call that is accepted and never answered", async () => {
+    // Sign-out awaits the clear before it writes the signed-out state, so a
+    // call that never settles would hang the sign-out itself.
+    pluginHangs = true;
+    captureTimeouts();
+
+    const cleared = clearWidgetSnapshot();
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    elapse();
+
+    await expect(cleared).resolves.toBeUndefined();
+    await expect(synced).resolves.toBeUndefined();
+    expect(clearCalls).toBe(1);
+    expect(syncCalls).toHaveLength(1);
+  });
+
+  it("leaves the recorded producer alone when a call times out", async () => {
+    // Nothing is known to have changed in the App Group, so the snapshot
+    // there still belongs to whoever last wrote one.
+    await syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    pluginHangs = true;
+    captureTimeouts();
+
+    const cleared = clearWidgetSnapshot();
+    elapse();
+    await cleared;
+
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
   });
 });
 
