@@ -21,6 +21,7 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { PageProgress } from "@/domains/chat/components/surfaces/page-progress";
 import { PageTabs } from "@/domains/chat/components/surfaces/page-tabs";
 import { cn } from "@/utils/misc";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,12 +46,18 @@ interface FormSurfaceProps {
 // Field rendering
 // ---------------------------------------------------------------------------
 
-function renderField(
-  field: FormField,
-  value: string | number | boolean,
-  onChange: (id: string, value: string | number | boolean) => void,
-  validationErrors: Record<string, string>,
-) {
+function FormFieldInput({
+  field,
+  value,
+  onChange,
+  validationErrors,
+}: {
+  field: FormField;
+  value: string | number | boolean;
+  onChange: (id: string, value: string | number | boolean) => void;
+  validationErrors: Record<string, string>;
+}) {
+  const { t } = useTranslation("chat");
   const errorMsg = validationErrors[field.id];
   const inputClasses =
     "w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] focus:border-[var(--primary-base)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-base)]";
@@ -82,8 +89,7 @@ function renderField(
           />
           <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
-            This value will be sent securely and will not be stored in your
-            browser.
+            {t("formSurface.secureHint")}
           </p>
         </div>
       );
@@ -106,7 +112,7 @@ function renderField(
           onChange={(e) => onChange(field.id, e.target.value)}
           className={cn(inputClasses, errorClasses)}
         >
-          <option value="">{field.placeholder || "Select..."}</option>
+          <option value="">{field.placeholder || t("formSurface.selectPlaceholder")}</option>
           {(field.options ?? []).map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
@@ -359,12 +365,12 @@ export function FormSurface({
                 </span>
               )}
             </label>
-            {renderField(
-              field,
-              values[field.id] ?? "",
-              handleChange,
-              validationErrors,
-            )}
+            <FormFieldInput
+              field={field}
+              value={values[field.id] ?? ""}
+              onChange={handleChange}
+              validationErrors={validationErrors}
+            />
             {validationErrors[field.id] && (
               <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
                 {validationErrors[field.id]}

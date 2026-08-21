@@ -26,7 +26,7 @@ import { Check, Copy, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 import { credentialsRevealPost } from "@/generated/daemon/sdk.gen";
-import { t } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -74,6 +74,7 @@ export function RedactedCredentialChip({
   assistantId: assistantIdProp,
   neutralized,
 }: RedactedCredentialChipProps) {
+  const { t } = useTranslation("chat");
   // Raw nullable read on purpose: transcripts render on pre-active paths
   // (ChatPage loading/connecting) outside `ActiveAssistantGate`, where the
   // throwing `useActiveAssistantId()` would crash the view. A null id simply
@@ -126,14 +127,14 @@ export function RedactedCredentialChip({
       }
     } catch {
       if (revealVersionRef.current === myVersion) {
-        toast.error(t("chat:redactedCredentialChip.revealFailed", { name }));
+        toast.error(t("redactedCredentialChip.revealFailed", { name }));
       }
     } finally {
       if (revealVersionRef.current === myVersion) {
         setIsRevealing(false);
       }
     }
-  }, [revealable, assistantId, service, field, name]);
+  }, [revealable, assistantId, service, field, name, t]);
 
   const copy = useCallback(() => {
     if (revealed == null) {
@@ -162,10 +163,10 @@ export function RedactedCredentialChip({
     return (
       <span
         className={CHIP_CLASS}
-        title="Redaction marker — not verified by the assistant"
+        title={t("redactedCredentialChip.redactionMarkerTitle")}
       >
         <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span className="truncate">Redacted</span>
+        <span className="truncate">{t("redactedCredentialChip.redacted")}</span>
       </span>
     );
   }
@@ -176,7 +177,7 @@ export function RedactedCredentialChip({
     return (
       <span
         className={CHIP_CLASS}
-        title="Redacted — this value is not linked to a stored credential"
+        title={t("redactedCredentialChip.redactedTitle")}
       >
         <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="truncate">{label}</span>
@@ -198,8 +199,8 @@ export function RedactedCredentialChip({
           type="button"
           onClick={() => void reveal()}
           disabled={isRevealing}
-          aria-label={`Reveal value for ${name}`}
-          title={`${label} · click to reveal`}
+          aria-label={t("redactedCredentialChip.revealValueAria", { name })}
+          title={t("redactedCredentialChip.clickToRevealTitle", { label })}
           className="min-w-0 select-none truncate rounded-sm text-left blur-[3px] transition-[filter] hover:blur-[2px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
         >
           {name}
@@ -212,8 +213,8 @@ export function RedactedCredentialChip({
           <button
             type="button"
             onClick={copy}
-            aria-label={`Copy value for ${name}`}
-            title="Copy value"
+            aria-label={t("redactedCredentialChip.copyValueAria", { name })}
+            title={t("redactedCredentialChip.copyValue")}
             className={ICON_BUTTON_CLASS}
           >
             {justCopied ? (
@@ -225,8 +226,8 @@ export function RedactedCredentialChip({
           <button
             type="button"
             onClick={hide}
-            aria-label={`Hide value for ${name}`}
-            title="Hide value"
+            aria-label={t("redactedCredentialChip.hideValueAria", { name })}
+            title={t("redactedCredentialChip.hideValue")}
             className={ICON_BUTTON_CLASS}
           >
             <EyeOff className="h-3.5 w-3.5" aria-hidden />
@@ -237,8 +238,8 @@ export function RedactedCredentialChip({
           type="button"
           onClick={() => void reveal()}
           disabled={isRevealing}
-          aria-label={`Reveal value for ${name}`}
-          title="Click to reveal"
+          aria-label={t("redactedCredentialChip.revealValueAria", { name })}
+          title={t("redactedCredentialChip.clickToReveal")}
           className={ICON_BUTTON_CLASS}
         >
           <Eye className="h-3.5 w-3.5" aria-hidden />

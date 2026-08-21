@@ -20,7 +20,7 @@ import { localFileKindFromFilename } from "@/domains/chat/components/local-file/
 import { MAX_INLINE_MEDIA_BYTES } from "@/domains/chat/components/local-file/local-file-limits";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
-import { t } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import {
   useLocalFileInfo,
   useLocalFileObjectUrl,
@@ -74,6 +74,7 @@ export function LocalFileEmbed({
   alt,
   assistantId,
 }: LocalFileEmbedProps): ReactNode {
+  const { t } = useTranslation("chat");
   const target = useMemo(() => resolveLocalFileTarget(href), [href]);
   const info = useLocalFileInfo(target.workspacePath, assistantId);
   // Keyed by href so a reference that changes underneath the same tree
@@ -101,7 +102,7 @@ export function LocalFileEmbed({
       await el.requestPictureInPicture();
     } catch {
       el.disablePictureInPicture = true;
-      toast.error(t("chat:localFileEmbed.pictureInPictureUnavailable"));
+      toast.error(t("localFileEmbed.pictureInPictureUnavailable"));
       return;
     }
     el.addEventListener(
@@ -111,7 +112,7 @@ export function LocalFileEmbed({
       },
       { once: true },
     );
-  }, []);
+  }, [t]);
 
   const ready = info.status === "ready" ? info : null;
   const filename = ready?.filename ?? target.filename;
@@ -150,7 +151,7 @@ export function LocalFileEmbed({
     <Skeleton
       as="span"
       role="status"
-      aria-label={`Loading ${mediaLabel}`}
+      aria-label={t("localFileEmbed.loadingAria", { label: mediaLabel })}
       className="my-2 inline-block h-7 w-40 rounded-lg align-middle"
     />
   );
@@ -241,6 +242,7 @@ export function LocalFileEmbed({
       >
         {/* Native download/speed/PiP items are suppressed so the browser hides
             its own overflow menu; ours is the single menu on the embed. */}
+        {/* eslint-disable-next-line local/no-untranslated-strings -- HTML media controlsList tokens */}
         <video
           ref={videoRef}
           src={url}
@@ -259,6 +261,7 @@ export function LocalFileEmbed({
   if (kind === "audio") {
     return (
       <span className="my-2 flex w-full max-w-md items-center gap-2">
+        {/* eslint-disable-next-line local/no-untranslated-strings -- HTML media controlsList tokens */}
         <audio
           src={url}
           controls

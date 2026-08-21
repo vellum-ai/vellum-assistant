@@ -4,6 +4,7 @@ import {
 } from "@/components/diff-rows";
 
 import { computeLineDiff, type DiffRow } from "./compute-line-diff";
+import { useTranslation } from "@/i18n";
 
 export interface FileDiffViewProps {
   /** Repo-relative path of the file being diffed (used for the a11y label). */
@@ -31,12 +32,13 @@ function isDiffRow(row: DiffRow): row is DiffRow & SharedDiffRow {
  * header.
  */
 export function FileDiffView({ path, oldText, newText }: FileDiffViewProps) {
+  const { t } = useTranslation("chat");
   const rows = computeLineDiff(oldText ?? "", newText ?? "");
   const tooLarge = rows.find((row) => row.type === "too-large");
 
   return (
     <div
-      aria-label={`Diff for ${path}`}
+      aria-label={t("fileDiffView.diffForAria", { path })}
       data-testid="acp-chat-file-diff"
       className="flex flex-col overflow-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]"
     >

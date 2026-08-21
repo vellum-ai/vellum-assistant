@@ -20,6 +20,7 @@ import {
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 import { DocumentCommentThread } from "./document-comment-thread";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -58,6 +59,7 @@ export function DocumentCommentPanel({
   onSubmitFeedback,
   handleRef,
 }: DocumentCommentPanelProps) {
+  const { t } = useTranslation("chat");
   const [comments, setComments] = useState<DocumentsByIdCommentsPostResponse[]>(
     [],
   );
@@ -180,7 +182,7 @@ export function DocumentCommentPanel({
           variant="title-small"
           className="flex-1 text-[var(--content-emphasised)]"
         >
-          Comments
+          {t("documentCommentPanel.title")}
         </Typography>
         {!loading && commentCount > 0 ? (
           <Tag tone="neutral">{commentCount}</Tag>
@@ -189,7 +191,7 @@ export function DocumentCommentPanel({
           variant="ghost"
           size="compact"
           iconOnly={<X />}
-          aria-label="Close comments panel"
+          aria-label={t("documentCommentPanel.closeAria")}
           onClick={onClose}
         />
       </div>
@@ -201,7 +203,7 @@ export function DocumentCommentPanel({
               variant="body-small-default"
               className="text-[var(--content-tertiary)]"
             >
-              Loading comments…
+              {t("documentCommentPanel.loading")}
             </Typography>
           </div>
         ) : topLevelComments.length === 0 ? (
@@ -214,7 +216,7 @@ export function DocumentCommentPanel({
               variant="body-small-default"
               className="text-[var(--content-tertiary)]"
             >
-              No comments yet
+              {t("documentCommentPanel.empty")}
             </Typography>
           </div>
         ) : (
@@ -238,7 +240,7 @@ export function DocumentCommentPanel({
       <div className="flex shrink-0 flex-col gap-3 border-t border-[var(--border-base)] p-4">
         <DocumentCommentForm
           onSubmit={handleCreate}
-          placeholder="Add a comment…"
+          placeholder={t("documentCommentPanel.addCommentPlaceholder")}
         />
         {onSubmitFeedback && hasOpenComments ? (
           <Button
@@ -248,7 +250,7 @@ export function DocumentCommentPanel({
             onClick={onSubmitFeedback}
             className="w-full"
           >
-            Submit Feedback
+            {t("documentCommentPanel.submitFeedback")}
           </Button>
         ) : null}
       </div>

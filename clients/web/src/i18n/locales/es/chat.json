@@ -1,30 +1,38 @@
 {
+  "acpChatTerminalBlock": {
+    "atTime": "a las {time}",
+    "cancelled": "Cancelado",
+    "completed": "Completado",
+    "refused": "Rechazado",
+    "runFailed": "La ejecución falló",
+    "stoppedLimitReached": "Detenido: se alcanzó el límite"
+  },
   "acpRunChatView": {
-    "inputLabel": "Entrada",
-    "outputLabel": "Salida",
-    "goToNewest": "Ir al más reciente",
     "backToConversationAria": "Volver a la conversación",
     "backTooltip": "Volver",
-    "stopRunAria": "Detener la ejecución",
     "closeRunDetail": "Cerrar el detalle de la ejecución",
+    "goToNewest": "Ir al más reciente",
+    "inputLabel": "Entrada",
     "objective": "Objetivo",
-    "steerPlaceholder": "Orientar la ejecución…",
+    "outputLabel": "Salida",
+    "sendSteerAria": "Enviar instrucción de orientación",
     "steerAria": "Instrucción de orientación",
-    "sendSteerAria": "Enviar instrucción de orientación"
+    "steerPlaceholder": "Orientar la ejecución…",
+    "stopRunAria": "Detener la ejecución"
   },
   "activityStepsPanel": {
     "backAria": "Volver a todos los pasos",
     "backTooltip": "Todos los pasos"
   },
   "addToChatSheet": {
-    "title": "Añadir al chat",
-    "closeAriaLabel": "Cerrar",
     "camera": "Cámara",
-    "gallery": "Fototeca",
+    "closeAriaLabel": "Cerrar",
     "files": "Archivos",
+    "gallery": "Fototeca",
     "pickFailed": "No se pudo añadir ese archivo. Inténtalo de nuevo.",
-    "tooLarge": "{count, plural, one {# archivo es demasiado grande para adjuntarlo} other {# archivos son demasiado grandes para adjuntarlos}}",
-    "pickFull": "{count, plural, one {# archivo no cupo en este lote. Añádelo por separado.} other {# archivos no cupieron en este lote. Añádelos por separado.}}"
+    "pickFull": "{count, plural, one {# archivo no cupo en este lote. Añádelo por separado.} other {# archivos no cupieron en este lote. Añádelos por separado.}}",
+    "title": "Añadir al chat",
+    "tooLarge": "{count, plural, one {# archivo es demasiado grande para adjuntarlo} other {# archivos son demasiado grandes para adjuntarlos}}"
   },
   "allowOptionsMenu": {
     "allowAndCreateRule": "Permitir y crear regla",
@@ -47,6 +55,18 @@
     "switchFailed": "No se pudo cambiar de asistente. Inténtalo de nuevo.",
     "switchTo": "Cambiar a {name}",
     "unnamedAssistant": "Asistente sin nombre"
+  },
+  "attachmentLoadingChip": {
+    "cancelUploadAria": "Cancelar la carga de {filename}",
+    "uploadingTitle": "Subiendo {filename}"
+  },
+  "attachmentPreviewModal": {
+    "closePreviewAria": "Cerrar vista previa",
+    "downloadAria": "Descargar {filename}",
+    "downloadLabel": "Descargar",
+    "nextAttachmentAria": "Adjunto siguiente",
+    "previewAria": "Vista previa de {filename}",
+    "previousAttachmentAria": "Adjunto anterior"
   },
   "billingErrorBanner": {
     "dismiss": "Descartar"
@@ -146,9 +166,12 @@
     "eventsRecorded": "{count, plural, one {# evento} other {# eventos}} registrados."
   },
   "chatAttachments": {
-    "removeAria": "Quitar {filename}",
+    "attachFileAria": "Adjuntar archivo",
     "dismiss": "Descartar",
-    "attachFileAria": "Adjuntar archivo"
+    "removeAria": "Quitar {filename}"
+  },
+  "chatBody": {
+    "dropFiles": "Suelta archivos para adjuntarlos"
   },
   "chatComposer": {
     "addToChat": "Añadir al chat",
@@ -163,16 +186,52 @@
     "uploadingAttachments": "Subiendo archivos adjuntos…"
   },
   "chatConversationHeader": {
-    "newChat": "Chat nuevo",
     "archived": "[Archivado]",
+    "newChat": "Chat nuevo",
     "untitled": "Sin título"
   },
+  "chatLayoutHeader": {
+    "backAria": "Atrás (Ctrl+[)",
+    "forwardAria": "Adelante (Ctrl+])",
+    "openNavigationAria": "Abrir navegación",
+    "searchAria": "Buscar (Ctrl+K)",
+    "toggleSidebarAria": "Mostrar u ocultar la barra lateral"
+  },
+  "chatMarkdownMessage": {
+    "expandImageAria": "Ampliar imagen",
+    "expandImageAriaWithAlt": "Ampliar imagen: {alt}",
+    "imageFailed": "No se pudo cargar la imagen",
+    "imageFailedWithAlt": "No se pudo cargar la imagen ({alt})",
+    "loadingImage": "Cargando imagen…",
+    "loadingImageWithAlt": "Cargando imagen… ({alt})"
+  },
   "chatRouteContent": {
-    "goToDoctor": "Ir al Doctor",
     "askTheDoctor": "Preguntar al Doctor",
     "copyCliFix": "Copiar corrección de CLI",
+    "goToDoctor": "Ir al Doctor",
     "openPage": "Abrir página",
     "suggestionFallback": "Sugerencia"
+  },
+  "chatRuleEditorModal": {
+    "applyTo": "Aplicar a",
+    "cancel": "Cancelar",
+    "createTitle": "Crear regla de confianza",
+    "description": "Las llamadas a herramientas que coincidan usan el nivel de riesgo de esta regla, para que tu tolerancia de aprobación pueda autoaprobarlas.",
+    "editTitle": "Editar regla de confianza",
+    "everywhere": "En todas partes",
+    "narrowerScopeAria": "Alcance más estrecho",
+    "orNarrowScope": "O reduce el alcance:",
+    "save": "Guardar",
+    "saveAsNew": "Guardar como nueva",
+    "saveRule": "Guardar regla",
+    "saving": "Guardando…",
+    "suggested": "Sugerido: {risk}",
+    "treatAs": "Tratar como",
+    "where": "Dónde"
+  },
+  "compactionCircuitOpenBanner": {
+    "ariaLabel": "Compactación automática en pausa",
+    "message": "Compactación automática en pausa: una conversación larga puede desbordarse. Usa /compact para compactar manualmente."
   },
   "compactionTab": {
     "compactedMessages": "{count} compactados",
@@ -205,6 +264,10 @@
     "tokenRange": "{before} → {after}",
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
+  },
+  "composerNotices": {
+    "allowMicrophone": "Permitir micrófono",
+    "openSettings": "Abrir configuración"
   },
   "composerSettingsMenu": {
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
@@ -265,12 +328,15 @@
     "balanceShort": "{balance} c",
     "credits": "Créditos"
   },
+  "creditsUpsellCard": {
+    "loginToAddCredits": "Inicia sesión en la plataforma Vellum para agregar créditos."
+  },
   "dailyLimitBanner": {
-    "title": "Límite diario de créditos alcanzado",
-    "subtitle": "El gasto de créditos de Vellum está pausado hasta que tu límite se reinicie a las {resetPhrase}.",
     "skipConfirmTitle": "¿Omitir el límite de créditos de hoy?",
     "skipError": "No se pudo omitir el límite de hoy. Inténtalo de nuevo.",
-    "skipForToday": "Omitir por hoy"
+    "skipForToday": "Omitir por hoy",
+    "subtitle": "El gasto de créditos de Vellum está pausado hasta que tu límite se reinicie a las {resetPhrase}.",
+    "title": "Límite diario de créditos alcanzado"
   },
   "detailPanelStopButton": {
     "tooltip": "Detener"
@@ -278,7 +344,18 @@
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
   },
+  "documentCommentPanel": {
+    "addCommentPlaceholder": "Agregar un comentario…",
+    "closeAria": "Cerrar el panel de comentarios",
+    "empty": "Aún no hay comentarios",
+    "loading": "Cargando comentarios…",
+    "submitFeedback": "Enviar comentarios",
+    "title": "Comentarios"
+  },
   "documentPreviewSurface": {
+    "openAria": "Abrir {name}"
+  },
+  "documentReopenLink": {
     "openAria": "Abrir {name}"
   },
   "exportProgressModal": {
@@ -298,18 +375,32 @@
     "titleError": "Error al exportar",
     "titleRunning": "Exportando datos del inspector"
   },
+  "fileDiffView": {
+    "diffForAria": "Diferencias de {path}"
+  },
   "fileDownload": {
     "failed": "No se pudo descargar el archivo"
   },
   "filePreviewContainer": {
-    "loadError": "No se pudo cargar este archivo",
-    "tryAgain": "Reintentar",
-    "tooLarge": "Este archivo es demasiado grande para previsualizar",
-    "overLimit": "{size}, por encima del límite de previsualización de {limit}",
+    "closePreviewAria": "Cerrar previsualización",
+    "closeTooltip": "Cerrar",
     "download": "Descargar",
     "downloadAria": "Descargar {name}",
-    "closePreviewAria": "Cerrar previsualización",
-    "closeTooltip": "Cerrar"
+    "loadError": "No se pudo cargar este archivo",
+    "overLimit": "{size}, por encima del límite de previsualización de {limit}",
+    "tooLarge": "Este archivo es demasiado grande para previsualizar",
+    "tryAgain": "Reintentar"
+  },
+  "fileUploadSurface": {
+    "accepted": "Aceptados: {types}",
+    "dropHint": "Arrastra y suelta archivos aquí, o haz clic para explorar",
+    "maxSize": "Tamaño máximo: {size}",
+    "upload": "Subir",
+    "uploading": "Subiendo..."
+  },
+  "formSurface": {
+    "secureHint": "Este valor se enviará de forma segura y no se guardará en tu navegador.",
+    "selectPlaceholder": "Seleccionar..."
   },
   "groupActions": {
     "archiveAll": "Archivar todas…",
@@ -378,15 +469,16 @@
     "title": "Llamada fallida"
   },
   "localFileEmbed": {
+    "loadingAria": "Cargando {label}",
     "pictureInPictureUnavailable": "Imagen sobre imagen no está disponible"
   },
   "localFileLink": {
     "unavailable": "Este archivo no está disponible aquí"
   },
   "maintenanceRecoveryCard": {
-    "title": "El asistente está en modo de recuperación",
     "body": "El chat no está disponible mientras el mantenimiento está activo.",
-    "goToDebug": "Ir a ajustes de depuración"
+    "goToDebug": "Ir a ajustes de depuración",
+    "title": "El asistente está en modo de recuperación"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Añadir par más antiguo",
@@ -566,11 +658,28 @@
     "v3SourceNeedle": "aguja",
     "yes": "Sí"
   },
-  "messageLongPressActions": {
+  "messageHoverActions": {
+    "bookmark": "Marcador",
     "copied": "Copiado",
-    "title": "Acciones del mensaje",
+    "copy": "Copiar",
+    "forkFromHere": "Bifurcar desde aquí",
+    "inspect": "Inspeccionar",
+    "openInSlack": "Abrir en Slack",
     "removeBookmark": "Quitar marcador",
-    "bookmark": "Marcar"
+    "retry": "Reintentar",
+    "summarizeUpToHere": "Resumir hasta aquí"
+  },
+  "messageLongPressActions": {
+    "bookmark": "Marcar",
+    "copied": "Copiado",
+    "removeBookmark": "Quitar marcador",
+    "title": "Acciones del mensaje"
+  },
+  "micPermissionPrimer": {
+    "cancel": "Cancelar",
+    "continue": "Continuar",
+    "description": "La entrada de voz requiere acceso al micrófono. El audio lo transcribe tu proveedor de voz a texto configurado, o el dictado integrado del dispositivo cuando no hay proveedor.",
+    "title": "Acceso al micrófono"
   },
   "mobileCallSelector": {
     "callOfTotal": "Llamada {number} de {total}",
@@ -578,18 +687,23 @@
     "selectCallAria": "Seleccionar una llamada LLM para inspeccionar",
     "sheetTitle": "Seleccionar una llamada"
   },
+  "multiActivityGroup": {
+    "dismissAria": "Descartar",
+    "unknownCommandNudge": "Este comando no se reconoció. <ruleLink>Crea una regla</ruleLink> para clasificarlo la próxima vez.",
+    "viewSteps": "Ver pasos"
+  },
   "newChatPluginsSection": {
     "managePlugins": "Gestionar plugins"
   },
   "onboardingChoiceCard": {
-    "specific": "Tengo algo concreto",
-    "letsChat": "Hablemos",
+    "continue": "Continuar",
     "helpWithHeading": "¿En qué puedo ayudarte?",
-    "selectAll": "Selecciona todas las que correspondan",
-    "otherPlaceholder": "¿Con qué necesitas ayuda?",
+    "letsChat": "Hablemos",
     "other": "Otro",
+    "otherPlaceholder": "¿Con qué necesitas ayuda?",
+    "selectAll": "Selecciona todas las que correspondan",
     "somethingElse": "otra cosa",
-    "continue": "Continuar"
+    "specific": "Tengo algo concreto"
   },
   "overviewTab": {
     "cacheTokensLabel": "Tokens de caché",
@@ -641,6 +755,10 @@
     "unpin": "Dejar de fijar",
     "unpinAria": "Dejar de fijar {name}"
   },
+  "pluginPill": {
+    "disableAria": "Desactivar {name} para este chat",
+    "enableAria": "Activar {name} para este chat"
+  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
     "exhausted": "Añade créditos para continuar.",
@@ -650,8 +768,12 @@
     "title": "Uso"
   },
   "previewMessageCard": {
-    "downloadAria": "Descargar {filename}",
-    "download": "Descargar"
+    "download": "Descargar",
+    "downloadAria": "Descargar {filename}"
+  },
+  "previewUnsupported": {
+    "downloadFile": "Descargar archivo",
+    "goToFile": "Ir al archivo"
   },
   "promptTab": {
     "availableTools": "Herramientas disponibles",
@@ -669,20 +791,34 @@
     "noContentAvailable": "No hay contenido disponible.",
     "promptSectionsTitle": "Secciones del prompt"
   },
+  "questionPromptCard": {
+    "closeQuestionAria": "Cerrar pregunta",
+    "nextQuestionAria": "Pregunta siguiente",
+    "optionAria": "Opción {number}: {label}",
+    "position": "{current} de {total}",
+    "previousQuestionAria": "Pregunta anterior",
+    "sendResponseAria": "Enviar respuesta",
+    "skip": "Omitir",
+    "skipAria": "Omitir esta pregunta",
+    "skipped": "Omitida",
+    "skippedHint": "Omitida: elige una opción para anular",
+    "typeDifferentAnswerAria": "Escribe una respuesta diferente",
+    "typeSomethingElsePlaceholder": "Escribe algo más"
+  },
   "queuedMessagesDrawer": {
-    "showActionsAria": "Mostrar acciones del mensaje en cola",
-    "pushToAgentAria": "Enviar al agente",
-    "editAria": "Editar mensaje en cola",
-    "cancelAria": "Cancelar mensaje en cola",
-    "queueHeading": "Cola · {count}",
+    "cancelAll": "Cancelar todos",
     "cancelAllAria": "Cancelar todos los mensajes en cola",
-    "cancelAll": "Cancelar todos"
+    "cancelAria": "Cancelar mensaje en cola",
+    "editAria": "Editar mensaje en cola",
+    "pushToAgentAria": "Enviar al agente",
+    "queueHeading": "Cola · {count}",
+    "showActionsAria": "Mostrar acciones del mensaje en cola"
   },
   "quoteReplyBubble": {
-    "placeholder": "Escribe tu respuesta…",
-    "cancel": "Cancelar",
     "addToChat": "Añadir al chat",
-    "ariaLabel": "Citar y responder"
+    "ariaLabel": "Citar y responder",
+    "cancel": "Cancelar",
+    "placeholder": "Escribe tu respuesta…"
   },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copiar carga de la solicitud",
@@ -700,26 +836,46 @@
     "retry": "Reintentar"
   },
   "redactedCredentialChip": {
-    "revealFailed": "No se pudo revelar {name}."
+    "clickToReveal": "Haz clic para revelar",
+    "clickToRevealTitle": "{label} · haz clic para revelar",
+    "copyValue": "Copiar valor",
+    "copyValueAria": "Copiar valor de {name}",
+    "hideValue": "Ocultar valor",
+    "hideValueAria": "Ocultar valor de {name}",
+    "redacted": "Redactado",
+    "redactedTitle": "Redactado: este valor no está vinculado a una credencial guardada",
+    "redactionMarkerTitle": "Marcador de redacción: no verificado por el asistente",
+    "revealFailed": "No se pudo revelar {name}.",
+    "revealValueAria": "Revelar valor de {name}"
   },
   "refreshFeedbackPill": {
     "retryAria": "Reintentar actualización"
   },
   "renameDialogFromStore": {
-    "title": "Renombrar conversación",
-    "save": "Guardar"
+    "save": "Guardar",
+    "title": "Renombrar conversación"
   },
   "researchActivityFeed": {
-    "heading": "Conociéndote…",
     "defaultStatus": "Buscando en la web para conocerte.",
-    "warmingUp": "Preparando la búsqueda…",
+    "heading": "Conociéndote…",
+    "reading": "Leyendo <title>{title}</title><domain> · {domain}</domain>",
     "searchingFor": "Buscando <query>“{query}”</query>",
-    "reading": "Leyendo <title>{title}</title><domain> · {domain}</domain>"
+    "warmingUp": "Preparando la búsqueda…"
+  },
+  "researchFactsCard": {
+    "editRemovalAria": "Editar eliminación",
+    "keepIt": "Conservarlo",
+    "removeAria": "Eliminar",
+    "sources": "Fuentes",
+    "whyRemove": "¿Por qué eliminar esto?"
   },
   "researchMockPage": {
     "heading": "Conociéndote…",
     "mockNote": "(mock: el flujo en vivo muestra aquí el feed de actividad de búsqueda)",
     "resultsTitle": "Esto es lo que sé de ti. Puedes quitar lo que no sea cierto:"
+  },
+  "researchSuggestions": {
+    "heading": "Así podría ayudarte para empezar:"
   },
   "responseTab": {
     "argumentsPreview": "Vista previa de argumentos",
@@ -743,9 +899,12 @@
     "toolChip": "Herramienta: {name}"
   },
   "selfHostedScreen": {
-    "title": "Asistente autoalojado",
     "body": "Las conversaciones de asistentes autoalojados aún no están disponibles desde la web. Gestiona tu asistente desde ajustes.",
-    "openSettings": "Abrir ajustes"
+    "openSettings": "Abrir ajustes",
+    "title": "Asistente autoalojado"
+  },
+  "setupScreen": {
+    "settingUp": "Configurando tu asistente…"
   },
   "sideMenuOverlayBottomColumn": {
     "newChat": "Chat nuevo"
@@ -754,14 +913,31 @@
     "message": "No se pudieron cargar tus conversaciones.",
     "retry": "Reintentar"
   },
+  "sidebarConversationSkeleton": {
+    "loadingAria": "Cargando conversaciones"
+  },
   "skillDetailPanel": {
     "actionsAria": "Acciones de habilidad",
     "moreTooltip": "Más"
+  },
+  "skillExecuteDetail": {
+    "parameters": "Parámetros",
+    "rawInput": "Entrada sin procesar",
+    "runningSuffix": " · en ejecución"
+  },
+  "skillLoadCard": {
+    "view": "Ver"
   },
   "skillLoadDetail": {
     "loadingAria": "Cargando habilidad",
     "provides": "Proporciona",
     "usedSkill": "Habilidad usada"
+  },
+  "skillLoadOutput": {
+    "output": "Salida",
+    "outputFormatAria": "Formato de salida",
+    "showLess": "Mostrar menos",
+    "showMore": "Mostrar más"
   },
   "skillsTab": {
     "callLink": "Llamada {number}",
@@ -771,35 +947,53 @@
     "summaryStats": "{uniqueCount, plural, one {# habilidad única} other {# habilidades únicas}} · {totalLoads, plural, one {# llamada de carga} other {# llamadas de carga}}",
     "summaryTitle": "Habilidades cargadas en esta conversación"
   },
+  "stagedQuotesStrip": {
+    "editReplyAria": "Editar respuesta",
+    "removeQuoteAria": "Quitar cita",
+    "typeReplyPlaceholder": "Escribe tu respuesta…"
+  },
   "storeCredentialDialog": {
     "successToast": "Guardado de forma segura. La clave nunca entró en el chat."
   },
+  "subagentAvatarRow": {
+    "details": "Detalles",
+    "showDetailsAria": "Mostrar detalles del subagente"
+  },
   "subagentPhaseTimeline": {
-    "workedFor": "Trabajó durante {duration}",
-    "viewToolDetails": "Ver detalles de la herramienta",
     "viewReasoning": "Ver el razonamiento",
     "viewSearchDetails": "Ver detalles de la búsqueda",
-    "viewSearchError": "Ver error de la búsqueda"
+    "viewSearchError": "Ver error de la búsqueda",
+    "viewToolDetails": "Ver detalles de la herramienta",
+    "workedFor": "Trabajó durante {duration}"
+  },
+  "suggestionDetailPanel": {
+    "closeAria": "Cerrar",
+    "letsDoIt": "¡Hagámoslo!",
+    "thingsWeCanDo": "Cosas que podemos hacer:",
+    "whatWellNeed": "Esto es lo que necesitaremos:"
+  },
+  "suggestionLibrary": {
+    "scrollForMore": "Desplázate hacia abajo para ver más"
   },
   "taskPreferencesSurface": {
+    "continue": "Continuar",
     "defaultTitle": "¿En qué puedo ayudarte?",
-    "selectAll": "Selecciona todas las que correspondan",
-    "otherPlaceholder": "Describe con qué necesitas ayuda...",
     "other": "Otro",
-    "somethingElse": "otra cosa distinta",
-    "continue": "Continuar"
+    "otherPlaceholder": "Describe con qué necesitas ayuda...",
+    "selectAll": "Selecciona todas las que correspondan",
+    "somethingElse": "otra cosa distinta"
   },
   "toolCallChip": {
-    "confirmationRequired": "Se requiere confirmación",
     "allow": "Permitir",
+    "confirmationRequired": "Se requiere confirmación",
+    "copyOutput": "Copiar salida",
     "deny": "Denegar",
     "hideDetails": "Ocultar detalles",
+    "output": "Salida",
     "showDetails": "Mostrar detalles",
     "technicalDetails": "Detalles técnicos",
-    "toolName": "Nombre de la herramienta",
     "toolLatency": "Latencia de la herramienta:",
-    "output": "Salida",
-    "copyOutput": "Copiar salida"
+    "toolName": "Nombre de la herramienta"
   },
   "toolDefinitionsContent": {
     "defaultValue": "predeterminado: {value}",
@@ -815,7 +1009,10 @@
   },
   "transcriptMessageBody": {
     "fileUnavailable": "El archivo no está disponible para descargar",
-    "fileUnavailableHostTimeout": "El archivo no está disponible para descargar (puede que la aprobación del archivo en el host haya caducado)"
+    "fileUnavailableHostTimeout": "El archivo no está disponible para descargar (puede que la aprobación del archivo en el host haya caducado)",
+    "stopCommand": "Detener comando",
+    "stopRun": "Detener ejecución",
+    "stopWorkflow": "Detener flujo de trabajo"
   },
   "transcriptRow": {
     "thinking": "Pensando"
@@ -832,34 +1029,71 @@
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
     "doctorUnavailable": "El Doctor no está disponible en este asistente."
   },
+  "visualPlaceholder": {
+    "sketching": "Bocetando un visual..."
+  },
   "voiceComposerBar": {
     "ariaLabel": "Sesión de voz",
-    "unmuteMicrophone": "Activar el micrófono",
-    "muteMicrophone": "Silenciar el micrófono",
-    "openVoiceRoom": "Abrir la sala de voz",
-    "muted": "Silenciado",
-    "unmuteAssistant": "Activar el audio del asistente",
+    "endSession": "Finalizar la sesión de voz",
     "muteAssistant": "Silenciar el asistente",
-    "endSession": "Finalizar la sesión de voz"
+    "muteMicrophone": "Silenciar el micrófono",
+    "muted": "Silenciado",
+    "openVoiceRoom": "Abrir la sala de voz",
+    "unmuteAssistant": "Activar el audio del asistente",
+    "unmuteMicrophone": "Activar el micrófono"
   },
   "voicePickerSurface": {
     "unavailable": "Elegir una voz no está disponible para este asistente ahora mismo."
   },
   "voiceRoom": {
     "ariaLabel": "Sesión de voz",
-    "minimizeAria": "Minimizar la sala de voz",
-    "minimizeTooltip": "Minimizar (la sesión sigue activa)",
-    "takePhoto": "Tomar una foto",
-    "flipCamera": "Voltear la cámara",
-    "unmuteMicrophone": "Activar el micrófono",
-    "muteMicrophone": "Silenciar el micrófono",
-    "unmuteAssistant": "Activar el audio del asistente",
-    "muteAssistant": "Silenciar el asistente",
     "closeCamera": "Cerrar la cámara",
-    "showCamera": "Mostrar la cámara",
     "endSessionAria": "Finalizar la sesión de voz",
     "endSessionTooltip": "Finalizar sesión",
-    "mutedState": "Silenciado. {state}"
+    "flipCamera": "Voltear la cámara",
+    "minimizeAria": "Minimizar la sala de voz",
+    "minimizeTooltip": "Minimizar (la sesión sigue activa)",
+    "muteAssistant": "Silenciar el asistente",
+    "muteMicrophone": "Silenciar el micrófono",
+    "mutedState": "Silenciado. {state}",
+    "showCamera": "Mostrar la cámara",
+    "takePhoto": "Tomar una foto",
+    "unmuteAssistant": "Activar el audio del asistente",
+    "unmuteMicrophone": "Activar el micrófono"
+  },
+  "voiceSessionPillHost": {
+    "muted": "Silenciado"
+  },
+  "weatherForecastDisplay": {
+    "celsius": "°C",
+    "fahrenheit": "°F",
+    "feelsLike": "Sensación térmica {temp}°",
+    "highLow": "Máx:{high}° Mín:{low}°",
+    "now": "Ahora"
+  },
+  "webFetchDetailView": {
+    "content": "Contenido",
+    "fetchFailed": "La obtención falló.",
+    "fetching": "Obteniendo…",
+    "noContent": "No se extrajo contenido.",
+    "rawResult": "Resultado sin procesar",
+    "viewExtracted": "Ver extraído",
+    "viewRaw": "Ver sin procesar"
+  },
+  "workflowDetailPanel": {
+    "agents": "Agentes",
+    "back": "Atrás",
+    "backToSubagentsAria": "Volver a los subagentes",
+    "closeDetail": "Cerrar el detalle del flujo de trabajo",
+    "input": "Entrada",
+    "noSubagentsYet": "Aún no hay subagentes",
+    "output": "Salida",
+    "stopWorkflow": "Detener flujo de trabajo",
+    "subagents": "Subagentes"
+  },
+  "workflowSubagentRow": {
+    "cancelledAria": "Cancelado",
+    "openDetailsAria": "Abrir detalles de {title}"
   },
   "workspacePathLink": {
     "openTitle": "Abrir {path}"

@@ -54,7 +54,7 @@ import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-poi
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
-import { t } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
@@ -159,6 +159,7 @@ export function TranscriptMessageBody({
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
+  const { t } = useTranslation("chat");
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -529,18 +530,18 @@ export function TranscriptMessageBody({
           }
           await saveFile(data, filename);
         } catch {
-          toast.error(t("chat:fileDownload.failed"), { description: filename });
+          toast.error(t("fileDownload.failed"), { description: filename });
         }
       })();
     } else {
       toast.error(
         pending.isHost
-          ? t("chat:transcriptMessageBody.fileUnavailableHostTimeout")
-          : t("chat:transcriptMessageBody.fileUnavailable"),
+          ? t("transcriptMessageBody.fileUnavailableHostTimeout")
+          : t("transcriptMessageBody.fileUnavailable"),
         { description: pending.filename },
       );
     }
-  }, [pendingVellumFile, assistantId]);
+  }, [pendingVellumFile, assistantId, t]);
 
   const vellumFileModal = (
     <VellumFileActionModal
@@ -663,7 +664,7 @@ export function TranscriptMessageBody({
             id={runId}
             onOpen={onWorkflowClick ? () => onWorkflowClick(runId) : undefined}
             onStop={onStopWorkflow ? () => onStopWorkflow(runId) : undefined}
-            stopAriaLabel="Stop workflow"
+            stopAriaLabel={t("transcriptMessageBody.stopWorkflow")}
             testId="inline-process-card"
           />
         ))}
@@ -695,7 +696,7 @@ export function TranscriptMessageBody({
                 });
               })
             }
-            stopAriaLabel="Stop run"
+            stopAriaLabel={t("transcriptMessageBody.stopRun")}
             testId="inline-process-card"
           />
         ))}
@@ -762,7 +763,7 @@ export function TranscriptMessageBody({
                 });
               })
             }
-            stopAriaLabel="Stop command"
+            stopAriaLabel={t("transcriptMessageBody.stopCommand")}
             testId="inline-process-card"
           />
         ))}

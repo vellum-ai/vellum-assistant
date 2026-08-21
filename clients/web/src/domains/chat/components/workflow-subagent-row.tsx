@@ -10,12 +10,14 @@ import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 import type { CharacterComponents } from "@/types/avatar";
 import { subagentTraits } from "@/utils/avatar-subagent";
+import { useTranslation } from "@/i18n";
 
 /**
  * Lead glyph for a subagent row: the pulsing three-dot "running" indicator
  * while the leaf is in flight, otherwise a compact terminal status icon.
  */
 function LeadIndicator({ status }: { status: WorkflowLeaf["status"] }) {
+  const { t } = useTranslation("chat");
   const reduce = useReducedMotion();
   const baseClass = "h-3.5 w-3.5 shrink-0";
 
@@ -42,7 +44,7 @@ function LeadIndicator({ status }: { status: WorkflowLeaf["status"] }) {
         className={baseClass}
         style={{ color: "var(--content-secondary)" }}
         role="img"
-        aria-label="Cancelled"
+        aria-label={t("workflowSubagentRow.cancelledAria")}
       />
     );
   }
@@ -93,6 +95,7 @@ export function WorkflowSubagentRow({
   components,
   onSelect,
 }: WorkflowSubagentRowProps) {
+  const { t } = useTranslation("chat");
   const title = leaf.label ?? `Subagent ${leaf.seq}`;
   const activity = leaf.promptSummary;
   // Seed the avatar off the run + seq (leaves have no subagent id); the same
@@ -103,7 +106,7 @@ export function WorkflowSubagentRow({
     <button
       type="button"
       onClick={onSelect}
-      aria-label={`Open ${title} details`}
+      aria-label={t("workflowSubagentRow.openDetailsAria", { title })}
       className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[6px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--surface-overlay)]"
     >
       <div className="flex min-w-0 items-center gap-1.5">

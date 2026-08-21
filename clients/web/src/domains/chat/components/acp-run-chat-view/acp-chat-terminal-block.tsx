@@ -10,6 +10,7 @@
 import { AlertTriangle, CheckCircle2, MinusCircle } from "lucide-react";
 
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
+import { t, useTranslation } from "@/i18n";
 
 export interface AcpChatTerminalBlockProps {
   /** Terminal status of the run. Active statuses render nothing. */
@@ -27,14 +28,14 @@ function completedLabel(stopReason: string | undefined): string {
   switch (stopReason) {
     case "max_tokens":
     case "max_turn_requests":
-      return "Stopped: limit reached";
+      return t("chat:acpChatTerminalBlock.stoppedLimitReached");
     case "refusal":
-      return "Refused";
+      return t("chat:acpChatTerminalBlock.refused");
     case "cancelled":
-      return "Cancelled";
+      return t("chat:acpChatTerminalBlock.cancelled");
     case "end_turn":
     default:
-      return "Completed";
+      return t("chat:acpChatTerminalBlock.completed");
   }
 }
 
@@ -48,12 +49,15 @@ function formatTerminalTime(ms: number): string {
 
 /** De-emphasized "at {time}" suffix shown beside a terminal label. */
 function TerminalTime({ completedAt }: { completedAt: number | undefined }) {
+  const { t } = useTranslation("chat");
   if (completedAt === undefined) {
     return null;
   }
   return (
     <span data-testid="acp-chat-terminal-time">
-      at {formatTerminalTime(completedAt)}
+      {t("acpChatTerminalBlock.atTime", {
+        time: formatTerminalTime(completedAt),
+      })}
     </span>
   );
 }
@@ -64,6 +68,7 @@ export function AcpChatTerminalBlock({
   error,
   completedAt,
 }: AcpChatTerminalBlockProps) {
+  const { t } = useTranslation("chat");
   if (isActiveAcpStatus(status)) {
     return null;
   }
@@ -85,7 +90,7 @@ export function AcpChatTerminalBlock({
         >
           <AlertTriangle className="h-4 w-4" />
         </span>
-        <span>{error ?? "Run failed"}</span>
+        <span>{error ?? t("acpChatTerminalBlock.runFailed")}</span>
       </div>
     );
   }
@@ -99,7 +104,7 @@ export function AcpChatTerminalBlock({
         className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]"
       >
         <MinusCircle aria-hidden className="h-4 w-4 shrink-0" />
-        <span>Cancelled</span>
+        <span>{t("acpChatTerminalBlock.cancelled")}</span>
         <TerminalTime completedAt={completedAt} />
       </div>
     );

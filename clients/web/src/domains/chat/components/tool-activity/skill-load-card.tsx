@@ -18,6 +18,7 @@ import { Button, Typography } from "@vellumai/design-library";
 import { SkillIcon } from "@/components/skill-icon";
 import { skillsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useViewerStore } from "@/stores/viewer-store";
+import { useTranslation } from "@/i18n";
 
 export function SkillLoadCard({
   skillId,
@@ -31,6 +32,7 @@ export function SkillLoadCard({
   secondary: string;
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   const openSkillDetail = useViewerStore.use.openSkillDetail();
 
   const { data: skill } = useQuery({
@@ -72,7 +74,7 @@ export function SkillLoadCard({
           className="shrink-0"
           expandOnMobile={false}
         >
-          View
+          {t("skillLoadCard.view")}
         </Button>
       )}
     </div>

@@ -29,6 +29,7 @@ import {
   type StagedQuote,
   useQuoteReplyStore,
 } from "@/domains/chat/quote-reply-store";
+import { useTranslation } from "@/i18n";
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) {
@@ -38,6 +39,7 @@ function truncate(text: string, maxLen: number): string {
 }
 
 function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
+  const { t } = useTranslation("chat");
   const removeStagedQuote = useQuoteReplyStore.use.removeStagedQuote();
   const updateStagedQuoteReply =
     useQuoteReplyStore.use.updateStagedQuoteReply();
@@ -76,8 +78,8 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
           value={quote.replyText}
           onChange={(e) => updateStagedQuoteReply(quote.id, e.target.value)}
           rows={1}
-          placeholder="Type your reply…"
-          aria-label="Edit reply"
+          placeholder={t("stagedQuotesStrip.typeReplyPlaceholder")}
+          aria-label={t("stagedQuotesStrip.editReplyAria")}
           className="w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
         />
         <Button
@@ -88,7 +90,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
           onClick={() => removeStagedQuote(quote.id)}
           data-reveal=""
           className="absolute right-1 top-1 shrink-0"
-          aria-label="Remove quote"
+          aria-label={t("stagedQuotesStrip.removeQuoteAria")}
         />
       </Card.Body>
     </Card.Root>

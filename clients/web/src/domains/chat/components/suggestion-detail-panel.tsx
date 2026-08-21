@@ -7,6 +7,7 @@ import type {
   ThreadSuggestion,
 } from "@/domains/chat/suggestions/types";
 import { cn } from "@/utils/misc";
+import { useTranslation } from "@/i18n";
 
 interface SuggestionDetailPanelProps {
   suggestion: ThreadSuggestion;
@@ -28,6 +29,7 @@ export function SuggestionDetailPanel({
   onClose,
   onConfirm,
 }: SuggestionDetailPanelProps) {
+  const { t } = useTranslation("chat");
   const { iconKey, detail } = suggestion;
 
   return (
@@ -46,7 +48,7 @@ export function SuggestionDetailPanel({
           variant="outlined"
           size="compact"
           iconOnly={<X aria-hidden />}
-          aria-label="Close"
+          aria-label={t("suggestionDetailPanel.closeAria")}
           onClick={onClose}
         />
       </header>
@@ -58,7 +60,7 @@ export function SuggestionDetailPanel({
 
         <section className="space-y-3">
           <h3 className="text-title-small text-[var(--content-default)]">
-            Here&apos;s what we&apos;ll need:
+            {t("suggestionDetailPanel.whatWellNeed")}
           </h3>
           <ul className="flex flex-col items-start gap-2">
             {detail.requirements.map((requirement) => (
@@ -69,7 +71,7 @@ export function SuggestionDetailPanel({
 
         <section className="space-y-3">
           <h3 className="text-title-small text-[var(--content-default)]">
-            Things we can do:
+            {t("suggestionDetailPanel.thingsWeCanDo")}
           </h3>
           <ul className="list-disc space-y-1.5 pl-5 text-body-medium-default text-[var(--content-secondary)]">
             {detail.capabilities.map((capability) => (
@@ -87,7 +89,7 @@ export function SuggestionDetailPanel({
           }
           onClick={() => onConfirm(suggestion)}
         >
-          Let&apos;s do it!
+          {t("suggestionDetailPanel.letsDoIt")}
         </Button>
       </footer>
     </div>

@@ -27,6 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DocumentCard } from "@/domains/chat/components/document-card";
 import { documentsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { DocumentsGetResponse } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 
 /** Label for a document the documents query lists under an empty title. */
 const FALLBACK_DOCUMENT_NAME = "Untitled document";
@@ -124,6 +125,7 @@ export function DocumentReopenLink({
   conversationId,
   onOpenDocument,
 }: DocumentReopenLinkProps) {
+  const { t } = useTranslation("chat");
   const displayName = useDocumentDisplayName(
     surfaceId,
     assistantId,
@@ -138,7 +140,7 @@ export function DocumentReopenLink({
     <DocumentCard
       documentName={displayName}
       onOpen={() => onOpenDocument(surfaceId)}
-      ariaLabel={`Open ${displayName}`}
+      ariaLabel={t("documentReopenLink.openAria", { name: displayName })}
       testId="document-reopen-link"
     />
   );

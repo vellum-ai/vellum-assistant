@@ -16,6 +16,7 @@ import { SegmentControl, Typography } from "@vellumai/design-library";
 
 import { CopyButton, SectionLabel } from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { useTranslation } from "@/i18n";
 
 type OutputMode = "clean" | "raw";
 
@@ -45,6 +46,7 @@ export function SkillLoadOutput({
   raw: string;
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   const [mode, setMode] = useState<OutputMode>("clean");
   const [expanded, setExpanded] = useState(false);
 
@@ -66,13 +68,13 @@ export function SkillLoadOutput({
       <div className="mb-2 flex items-center justify-between gap-3">
         {/* The row owns the spacing under the header, so the label drops its
             own bottom margin — otherwise it sits off-centre from the switch. */}
-        <SectionLabel className="mb-0">Output</SectionLabel>
+        <SectionLabel className="mb-0">{t("skillLoadOutput.output")}</SectionLabel>
         {hasClean && hasRaw && (
           <SegmentControl
             items={MODES}
             value={activeMode}
             onChange={setMode}
-            ariaLabel="Output format"
+            ariaLabel={t("skillLoadOutput.outputFormatAria")}
             // The control defaults to `w-full` for full-width pickers; here it
             // trails the section label, so it hugs its two segments instead.
             // The segments keep `flex-1`, so they stay equal width.
@@ -115,7 +117,7 @@ export function SkillLoadOutput({
               as="span"
               className="text-[var(--content-default)]"
             >
-              {expanded ? "Show less" : "Show more"}
+              {expanded ? t("skillLoadOutput.showLess") : t("skillLoadOutput.showMore")}
             </Typography>
           </button>
         )}

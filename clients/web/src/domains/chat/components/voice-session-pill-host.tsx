@@ -93,6 +93,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-surface-paint";
+import { useTranslation } from "@/i18n";
 
 export interface VoiceSessionPillHostProps {
   /**
@@ -130,6 +131,7 @@ function useVoiceSessionPillPresence(): {
 export function VoiceSessionPillHost({
   variant = "header",
 }: VoiceSessionPillHostProps) {
+  const { t } = useTranslation("chat");
   const state = useLiveVoiceStore.use.state();
   const error = useLiveVoiceStore.use.error();
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
@@ -179,7 +181,7 @@ export function VoiceSessionPillHost({
   } else if (visible) {
     content = (
       <VoiceSessionPill
-        primaryLabel={muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
+        primaryLabel={muted ? t("voiceSessionPillHost.muted") : LIVE_VOICE_STATE_LABELS[state]}
         state={state}
         getAmplitude={getLiveVoiceInputAmplitude}
         getOutputAmplitude={getLiveVoiceOutputAmplitude}
