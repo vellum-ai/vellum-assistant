@@ -478,15 +478,18 @@ export async function sleepLocalAssistantHost(
 }
 
 /**
- * Wake (start/restart) a local assistant's daemon and gateway, re-seeding its
- * guardian token. Both hosts drive the Vellum CLI's `wake` in a trusted
- * process and return the same `{ ok, error }` contract.
+ * Wake (start/restart) a local assistant's daemon and gateway. Both hosts
+ * drive the Vellum CLI's `wake` in a trusted process and return the same
+ * `{ ok, error }` contract.
  *
  * This is the non-destructive repair primitive: it revives a stopped or
- * mis-seeded assistant in place without touching its data or identity, the
+ * unresolved assistant in place without touching its data or identity, the
  * counterpart to {@link retireLocalAssistantHost}'s destructive removal.
- * A plain wake (no options) is the safe auto-repair primitive. Passing
- * `repairGuardian: true` re-provisions the guardian token and revokes the
+ * A plain wake (no options) is the safe auto-repair primitive. It restores a
+ * guardian token only when the current environment's config dir has none
+ * (copied from a sibling environment); a token the gateway rejects at the
+ * `/auth/token` mint survives it untouched, and only `repairGuardian: true`
+ * clears that. That option re-provisions the guardian token and revokes the
  * assistant's other device-bound tokens, so it must only be passed from
  * explicitly user-confirmed flows — never from silent auto-repair paths.
  * Older Electron hosts that predate this IPC channel resolve `wake` as

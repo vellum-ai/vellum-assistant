@@ -148,6 +148,7 @@ mock.module("@/lib/telemetry/resume-request-counter", () => ({
   noteDaemonApiRequest: noteDaemonApiRequestMock,
 }));
 
+import { subscribeGatewayRepairRequired } from "@/assistant/gateway-repair-bus";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
@@ -163,6 +164,7 @@ import {
   resetPlatformAuthRecoveryFlag,
   rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
+import { GatewayTokenError, getGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError } from "@/utils/api-errors";
 import {
   getSelfHostedActorToken,
@@ -1478,6 +1480,84 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     expect(replayedRequests).toHaveLength(0);
     expect(reloadCalls).toBe(0);
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("hands a session needing a guardian repair to the chooser", async () => {
+    /**
+     * A mint the gateway still answers with 401 after the wake the repair
+     * ran needs a guardian re-provision, which no automatic path performs.
+     * Leaving the cached token in place is what makes it survive a
+     * relaunch: its local expiry still looks fine, so the reconnect reuses
+     * it instead of minting and lands straight back in the dead session.
+     */
+
+    // GIVEN a cached token the gateway refuses past the wake
+    seedGatewayTokens();
+    primeGatewayWithRepairImpl = async () => {
+      throw new GatewayTokenError(401, "Gateway token request failed: 401");
+    };
+    let repairRequests = 0;
+    const unsubscribe = subscribeGatewayRepairRequired(() => {
+      repairRequests += 1;
+    });
+
+    try {
+      // WHEN a 401 reaches the interceptor
+      const response = gatewayResponse(401);
+      const result = await localGatewayAuthRecoveryInterceptor(
+        response,
+        gatewayGet(),
+      );
+
+      // THEN nothing is left for the reconnect to replay
+      expect(getGatewayToken()).toBeNull();
+      // AND the chooser is asked for the repair it alone offers
+      expect(repairRequests).toBe(1);
+      // AND the 401 still flows to the caller's error path, no reload
+      expect(result).toBe(response);
+      expect(reloadCalls).toBe(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("stops recovering once a guardian repair is required", async () => {
+    /**
+     * The budget alone does not bound this: any 2xx from the ingress
+     * refunds it, so a gateway serving its own routes while rejecting a
+     * proxied one re-arms recovery indefinitely and the health poll
+     * re-enters a repair that cannot succeed, every few seconds, for the
+     * life of the session.
+     */
+
+    // GIVEN a session that needs a repair the renderer cannot run
+    primeGatewayWithRepairImpl = async () => {
+      throw new GatewayTokenError(401, "Gateway token request failed: 401");
+    };
+    let repairRequests = 0;
+    const unsubscribe = subscribeGatewayRepairRequired(() => {
+      repairRequests += 1;
+    });
+
+    try {
+      // WHEN a 401 gives up, an ingress 2xx refunds the budget, and
+      // another 401 arrives
+      await localGatewayAuthRecoveryInterceptor(
+        gatewayResponse(401),
+        gatewayGet(),
+      );
+      await localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
+      await localGatewayAuthRecoveryInterceptor(
+        gatewayResponse(401),
+        gatewayGet(),
+      );
+
+      // THEN the repair ran once and was asked for once
+      expect(primeGatewayWithRepairMock).toHaveBeenCalledTimes(1);
+      expect(repairRequests).toBe(1);
+    } finally {
+      unsubscribe();
+    }
   });
 
   test("a failed recovery restores the connection slot the prime nulled", async () => {

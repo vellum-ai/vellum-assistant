@@ -10,25 +10,18 @@
  * not on the main SSE `/events` stream.
  */
 
-type Listener = () => void;
+import { createNotifier } from "@/lib/create-notifier";
 
-const listeners = new Set<Listener>();
+const channel = createNotifier();
 
-export function subscribeAssistantUnreachable(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+export function subscribeAssistantUnreachable(
+  listener: () => void,
+): () => void {
+  return channel.subscribe(listener);
 }
 
 export function notifyAssistantUnreachable(): void {
-  for (const listener of listeners) {
-    try {
-      listener();
-    } catch {
-      // Listeners must not break the notifier; swallow.
-    }
-  }
+  channel.notify();
 }
 
 /**

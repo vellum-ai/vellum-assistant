@@ -27,6 +27,7 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
+import { notifyGatewayRepairRequired } from "@/assistant/gateway-repair-bus";
 import {
   UNREACHABLE_STATUS_CODES,
   notifyAssistantUnreachable,
@@ -36,7 +37,10 @@ import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import {
+  clearGatewayToken,
+  isRepairableGatewayTokenError,
+} from "@/lib/auth/gateway-session";
 import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
@@ -491,11 +495,11 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * token), re-establishes the session **in place**. Local and paired
  * assistants re-run {@link primeLocalGatewayConnectionWithRepair} with
  * `forceMint`, which mints a fresh renderer token over the rejected one,
- * wakes and re-seeds a stopped or mis-seeded local assistant when the
- * mint is repairably rejected, and re-primes the self-hosted connection
- * slot the request interceptor reads. Remote-gateway (paired browser)
- * sessions run {@link refreshRemoteGatewaySession} with `force`, which
- * exchanges the refresh cookie for a new access token. Neither path
+ * wakes a stopped local assistant when the mint is repairably rejected,
+ * and re-primes the self-hosted connection slot the request interceptor
+ * reads. Remote-gateway (paired browser) sessions run
+ * {@link refreshRemoteGatewaySession} with `force`, which exchanges the
+ * refresh cookie for a new access token. Neither path
  * clears the rejected token first: it is replaced atomically by its
  * successor, so `getGatewayToken()` never reads null and predicates such
  * as `isGatewayAuthMode()` hold steady across the mint. A session refresh
@@ -518,6 +522,14 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * itself rejected, a session nothing in the renderer can revive; there
  * the page reloads under the same budget and boot lands on the pairing
  * flow.
+ *
+ * A local session has its own dead end: a mint the gateway still answers
+ * with 401 after the wake, which only a guardian re-provision clears and
+ * this path must never run silently. That drops the rejected token and
+ * announces on {@link notifyGatewayRepairRequired}, whose app-root
+ * subscriber routes to the chooser and its repair dialog. Recovery is
+ * latched off for the rest of the page lifecycle, so the health poll that
+ * discovered the 401 stops re-entering a repair that cannot succeed.
  *
  * A sessionStorage cooldown spaces the attempts, and a sessionStorage
  * attempt budget stops them. The cooldown alone only paces a gateway
@@ -546,10 +558,11 @@ const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
 const GW_401_MAX_ATTEMPTS = 3;
 
-// In-memory latch for the remote-gateway reload: once the reload fires,
-// all subsequent 401s in the same page lifecycle are no-ops. Resets
-// naturally on reload.
-let gw401ReloadFired = false;
+// In-memory latch for a recovery that has run out of moves: the
+// remote-gateway reload, or the local hand-off to the chooser's guardian
+// repair. Once either fires, all subsequent 401s in the same page lifecycle
+// are no-ops. Resets naturally on reload.
+let gw401RecoveryAbandoned = false;
 
 // Single-flight slot: a burst of concurrent 401s (a resume refetch, say)
 // funds one in-place recovery; every caller awaits the same attempt and
@@ -559,7 +572,7 @@ let gw401RecoveryInFlight: Promise<boolean> | null = null;
 
 /** @internal Exposed for test teardown only. */
 export function resetGw401RecoveryState(): void {
-  gw401ReloadFired = false;
+  gw401RecoveryAbandoned = false;
   gw401RecoveryInFlight = null;
 }
 
@@ -572,7 +585,7 @@ async function recoverRemoteGatewaySessionInPlace(): Promise<boolean> {
   // The refresh cookie is rejected too: nothing in the renderer can revive
   // this session, so boot into the pairing flow.
   recordLifecycleDiagnostic("gw_401_recovery", { outcome: "reload" });
-  gw401ReloadFired = true;
+  gw401RecoveryAbandoned = true;
   clearGatewayToken();
   window.location.reload();
   return false;
@@ -608,8 +621,23 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     ) {
       setSelfHostedConnection(previous);
     }
-    recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
-    captureError(err, { context: "gw_401_recovery" });
+    // A mint that still refuses the guardian token after the `wake` the repair
+    // just ran needs a guardian re-provision, which a plain wake never
+    // performs, so no amount of retrying here revives this session. Drop the
+    // rejected token so the reconnect mints one rather than replaying a token
+    // whose local expiry still looks fine, and hand the session to the
+    // chooser, which owns the re-provision.
+    const repairRequired = isRepairableGatewayTokenError(err);
+    if (repairRequired) {
+      gw401RecoveryAbandoned = true;
+      clearGatewayToken();
+    }
+    const outcome = repairRequired ? "repair_required" : "failed";
+    recordLifecycleDiagnostic("gw_401_recovery", { outcome });
+    captureError(err, { context: "gw_401_recovery", tags: { outcome } });
+    if (repairRequired) {
+      notifyGatewayRepairRequired();
+    }
     return false;
   }
 }
@@ -698,7 +726,7 @@ export async function localGatewayAuthRecoveryInterceptor(
   if (response.status !== 401) {
     return response;
   }
-  if (gw401ReloadFired) {
+  if (gw401RecoveryAbandoned) {
     return response;
   }
 
