@@ -15,6 +15,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useTranslation } from "@/i18n";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -22,6 +23,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export function AssistantLifecyclePanel() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const [hatching, setHatching] = useState(false);
   const [hatchConfirmOpen, setHatchConfirmOpen] = useState(false);
@@ -77,8 +79,8 @@ export function AssistantLifecyclePanel() {
         // instead of always claiming a new one was made.
         toast.success(
           result.status === 201
-            ? "New assistant hatched successfully."
-            : "You already have an assistant. Nothing new was created.",
+            ? t("assistantLifecyclePanel.hatchSuccessToast")
+            : t("assistantLifecyclePanel.hatchExistingToast"),
         );
         // Invalidate the panel's own queries by their real generated keys so
         // the info + list cards refresh (the previous `["assistants"]` key
@@ -94,11 +96,11 @@ export function AssistantLifecyclePanel() {
         const detail =
           typeof result.error?.detail === "string"
             ? result.error.detail
-            : "Failed to hatch assistant.";
+            : t("assistantLifecyclePanel.hatchFailedToast");
         toast.error(detail);
       }
     } catch {
-      toast.error("Failed to hatch assistant.");
+      toast.error(t("assistantLifecyclePanel.hatchFailedToast"));
     } finally {
       setHatching(false);
     }
@@ -115,12 +117,12 @@ export function AssistantLifecyclePanel() {
       />
 
       <DetailCard
-        title="Hatch New Assistant"
-        subtitle="Create a new assistant instance."
+        title={t("assistantLifecyclePanel.hatchTitle")}
+        subtitle={t("assistantLifecyclePanel.hatchSubtitle")}
       >
         <div className="flex items-center justify-between gap-4">
           <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Provision a new assistant. This may take a moment.
+            {t("assistantLifecyclePanel.hatchDescription")}
           </p>
           <Button
             variant="outlined"
@@ -131,14 +133,14 @@ export function AssistantLifecyclePanel() {
             disabled={hatching}
             className="shrink-0"
           >
-            Hatch
+            {t("assistantLifecyclePanel.hatch")}
           </Button>
         </div>
         <ConfirmDialog
           open={hatchConfirmOpen}
-          title="Hatch New Assistant"
-          message="Are you sure you want to create a new assistant? This will provision new infrastructure."
-          confirmLabel="Hatch"
+          title={t("assistantLifecyclePanel.hatchConfirmTitle")}
+          message={t("assistantLifecyclePanel.hatchConfirmMessage")}
+          confirmLabel={t("assistantLifecyclePanel.hatch")}
           onConfirm={handleHatch}
           onCancel={() => setHatchConfirmOpen(false)}
         />
@@ -153,12 +155,14 @@ interface AssistantInfoCardProps {
 }
 
 function AssistantInfoCard({ assistant, loading }: AssistantInfoCardProps) {
+  const { t } = useTranslation("settings");
+
   if (loading) {
     return (
-      <DetailCard title="Assistant Info">
+      <DetailCard title={t("assistantLifecyclePanel.infoTitle")}>
         <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading assistant info...
+          {t("assistantLifecyclePanel.infoLoading")}
         </div>
       </DetailCard>
     );
@@ -166,54 +170,59 @@ function AssistantInfoCard({ assistant, loading }: AssistantInfoCardProps) {
 
   if (!assistant) {
     return (
-      <DetailCard title="Assistant Info">
+      <DetailCard title={t("assistantLifecyclePanel.infoTitle")}>
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          No assistant found. Hatch an assistant to get started.
+          {t("assistantLifecyclePanel.infoEmpty")}
         </p>
       </DetailCard>
     );
   }
 
   return (
-    <DetailCard title="Assistant Info" subtitle="Current assistant details.">
+    <DetailCard
+      title={t("assistantLifecyclePanel.infoTitle")}
+      subtitle={t("assistantLifecyclePanel.infoSubtitle")}
+    >
       <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
-        <InfoLabel>Name</InfoLabel>
-        <InfoValue>{assistant.name ?? "Unnamed"}</InfoValue>
+        <InfoLabel>{t("assistantLifecyclePanel.name")}</InfoLabel>
+        <InfoValue>
+          {assistant.name ?? t("assistantLifecyclePanel.unnamed")}
+        </InfoValue>
 
-        <InfoLabel>Status</InfoLabel>
+        <InfoLabel>{t("assistantLifecyclePanel.status")}</InfoLabel>
         <div>
           <Tag tone={assistant.status === "active" ? "positive" : "neutral"}>
             {assistant.status}
           </Tag>
         </div>
 
-        <InfoLabel>Assistant ID</InfoLabel>
+        <InfoLabel>{t("assistantLifecyclePanel.assistantId")}</InfoLabel>
         <span className="break-all font-mono text-body-small-default text-[var(--content-tertiary)]">
           {assistant.id}
         </span>
 
         {assistant.machine_id && (
           <>
-            <InfoLabel>Machine ID</InfoLabel>
+            <InfoLabel>{t("assistantLifecyclePanel.machineId")}</InfoLabel>
             <span className="break-all font-mono text-body-small-default text-[var(--content-tertiary)]">
               {assistant.machine_id}
             </span>
           </>
         )}
 
-        <InfoLabel>Created</InfoLabel>
+        <InfoLabel>{t("assistantLifecyclePanel.created")}</InfoLabel>
         <InfoValue>
           {new Date(assistant.created).toLocaleDateString()}
         </InfoValue>
 
-        <InfoLabel>Last Modified</InfoLabel>
+        <InfoLabel>{t("assistantLifecyclePanel.lastModified")}</InfoLabel>
         <InfoValue>
           {new Date(assistant.modified).toLocaleDateString()}
         </InfoValue>
 
         {assistant.current_release_version && (
           <>
-            <InfoLabel>Version</InfoLabel>
+            <InfoLabel>{t("assistantLifecyclePanel.version")}</InfoLabel>
             <InfoValue>{assistant.current_release_version}</InfoValue>
           </>
         )}
@@ -233,14 +242,18 @@ function AssistantListCard({
   activeAssistantId,
   loading,
 }: AssistantListCardProps) {
+  const { t } = useTranslation("settings");
+
   if (loading || assistants.length === 0) {
     return null;
   }
 
   return (
     <DetailCard
-      title="All Assistants"
-      subtitle={`${assistants.length} assistant${assistants.length === 1 ? "" : "s"} found.`}
+      title={t("assistantLifecyclePanel.allAssistantsTitle")}
+      subtitle={t("assistantLifecyclePanel.allAssistantsSubtitle", {
+        count: assistants.length,
+      })}
     >
       <div className="max-h-[300px] space-y-2 overflow-y-auto">
         {assistants.map((a) => {
@@ -257,12 +270,16 @@ function AssistantListCard({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-body-medium-default text-[var(--content-default)]">
-                    {a.name || "Unnamed"}
+                    {a.name || t("assistantLifecyclePanel.unnamed")}
                   </span>
                   <Tag tone={a.status === "active" ? "positive" : "neutral"}>
                     {a.status}
                   </Tag>
-                  {isActive && <Tag tone="warning">Current</Tag>}
+                  {isActive && (
+                    <Tag tone="warning">
+                      {t("assistantLifecyclePanel.current")}
+                    </Tag>
+                  )}
                 </div>
                 <span className="font-mono text-body-small-default text-[var(--content-tertiary)]">
                   {a.id}

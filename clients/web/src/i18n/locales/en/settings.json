@@ -8,6 +8,26 @@
     "toastEnabled": "Admin data access enabled.",
     "toastUpdateFailed": "Failed to update log access consent."
   },
+  "adjustPlanModal": {
+    "alreadyOnPro": "You're already on Pro.",
+    "back": "Back",
+    "cancel": "Cancel",
+    "confirmDowngrade": "Confirm Downgrade",
+    "creditBundleUpdated": "Credit bundle updated.",
+    "downgradeIntro": "Downgrading removes the following Pro features:",
+    "downgradeTitle": "Downgrade to Base?",
+    "footerNote": "You can change or cancel your plan at any time from billing settings.",
+    "heroSubtitle": "Choose the plan that works best for you and your assistant.",
+    "heroTitle": "Your Assistant, Your Way",
+    "loadPlansError": "Failed to load plans. Please try again later.",
+    "loadingPlans": "Loading plans...",
+    "machineDowngradeFeature": "Reduced CPU and memory for your assistant - it will resize to the smaller compute profile.",
+    "pickTiersError": "Pick a machine and storage tier to continue.",
+    "planUpdated": "Plan updated.",
+    "updateFailed": "Failed to update plan. Please try again.",
+    "upgradeFailed": "Failed to start upgrade. Please try again.",
+    "upgradePlanTitle": "Upgrade Plan"
+  },
   "advisorProfileRow": {
     "chooseProfilePlaceholder": "Choose profile…",
     "description": "The profile your assistant consults for a second opinion when it wants to check a plan or review its own work.",
@@ -16,6 +36,53 @@
   "aiProviderPicker": {
     "defaultEntryMeta": "Default"
   },
+  "allConversationsView": {
+    "archive": "Archive",
+    "archiveFailed": "Failed to archive conversation.",
+    "archiving": "Archiving",
+    "emptyActive": "No active conversations",
+    "emptyAll": "No conversations yet",
+    "emptyArchived": "No archived conversations",
+    "filterActive": "Active",
+    "filterAll": "All",
+    "filterArchived": "Archived",
+    "filterAria": "Filter conversations",
+    "loadError": "Failed to load conversations",
+    "loading": "Loading conversations",
+    "noMatch": "No conversations matched “{query}”",
+    "retry": "Retry",
+    "searchPlaceholder": "Search conversations",
+    "unarchive": "Unarchive",
+    "unarchiveFailed": "Failed to unarchive conversation.",
+    "unarchiving": "Unarchiving",
+    "untitled": "Untitled conversation"
+  },
+  "assistantLifecyclePanel": {
+    "allAssistantsSubtitle": "{count, plural, one {# assistant found.} other {# assistants found.}}",
+    "allAssistantsTitle": "All Assistants",
+    "assistantId": "Assistant ID",
+    "created": "Created",
+    "current": "Current",
+    "hatch": "Hatch",
+    "hatchConfirmMessage": "Are you sure you want to create a new assistant? This will provision new infrastructure.",
+    "hatchConfirmTitle": "Hatch New Assistant",
+    "hatchDescription": "Provision a new assistant. This may take a moment.",
+    "hatchExistingToast": "You already have an assistant. Nothing new was created.",
+    "hatchFailedToast": "Failed to hatch assistant.",
+    "hatchSubtitle": "Create a new assistant instance.",
+    "hatchSuccessToast": "New assistant hatched successfully.",
+    "hatchTitle": "Hatch New Assistant",
+    "infoEmpty": "No assistant found. Hatch an assistant to get started.",
+    "infoLoading": "Loading assistant info...",
+    "infoSubtitle": "Current assistant details.",
+    "infoTitle": "Assistant Info",
+    "lastModified": "Last Modified",
+    "machineId": "Machine ID",
+    "name": "Name",
+    "status": "Status",
+    "unnamed": "Unnamed",
+    "version": "Version"
+  },
   "assistantPicker": {
     "active": "Active",
     "subtitle": "Choose which assistant is active for this account.",
@@ -23,6 +90,33 @@
     "switchedToast": "Switched active assistant.",
     "title": "Switch Assistant",
     "unnamed": "Unnamed"
+  },
+  "assistantSleepPolicy": {
+    "cancel": "Cancel",
+    "current": "Current: {duration}",
+    "days": "{days, plural, one {# day} other {# days}}",
+    "daysHours": "{days}d {hours}h",
+    "hours": "{hours, plural, one {# hour} other {# hours}}",
+    "idleTimeout": "Idle timeout",
+    "idleTimeoutDescription": "How long the assistant can be idle before it is put to sleep. \"Never\" disables idle sleep entirely.",
+    "loadError": "Failed to load sleep policy. Refresh the page to try again.",
+    "loading": "Loading sleep settings...",
+    "minutes": "{minutes, plural, one {# minute} other {# minutes}}",
+    "neverSleep": "Never (sleep disabled)",
+    "preset10Min": "10 min",
+    "preset14Days": "14 days",
+    "preset1Day": "1 day",
+    "preset1Hour": "1 hour",
+    "preset30Days": "30 days",
+    "preset3Days": "3 days",
+    "preset3Hours": "3 hours",
+    "preset5Min": "5 min",
+    "preset7Days": "7 days",
+    "presetNever": "Never",
+    "save": "Save",
+    "saveErrorToast": "Failed to save sleep policy. Please try again.",
+    "savedToast": "Sleep policy saved.",
+    "seconds": "{seconds}s"
   },
   "assistantStatusPanel": {
     "account": "Account",
@@ -46,6 +140,15 @@
     "usedOf": "{used} used of {total}",
     "version": "Version"
   },
+  "assistantTerminalPanel": {
+    "loadErrorToast": "Failed to load assistant info",
+    "loading": "Loading terminal...",
+    "loginNotice": "Log in to the Vellum platform to open a terminal session.",
+    "noAssistant": "No assistant found. Hatch an assistant to use the terminal.",
+    "subtitle": "Interactive shell session on your assistant machine",
+    "targetContainer": "Target container",
+    "title": "Terminal"
+  },
   "autoTopUpCard": {
     "connectCardBanner": "Auto-reload requires you to connect a credit card.",
     "disableError": "Failed to disable auto-reload. Please try again.",
@@ -56,6 +159,18 @@
   "autoTopUpDisableConfirm": {
     "message": "Auto-reload will stop. Any saved payment method stays on file.",
     "title": "Disable auto-reload?"
+  },
+  "autoTopUpPaymentMethodModal": {
+    "addressFormLoadError": "Failed to load the billing address form. Please close and reopen this dialog.",
+    "cancel": "Cancel",
+    "confirmFailed": "Failed to save payment method.",
+    "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
+    "save": "Save",
+    "savedToast": "Payment method saved.",
+    "setupError": "Failed to start card setup. Please try again.",
+    "title": "Save Payment Method",
+    "tryAgain": "Try again",
+    "unavailable": "Payment method setup is currently unavailable. Please try again later."
   },
   "billingOnboardingModal": {
     "backgroundConfirmContinue": "Continue",
@@ -90,6 +205,29 @@
     "successToast": "Payment received! Your credit balance will update shortly.",
     "topUpCancelToast": "Checkout was cancelled. No credits were added.",
     "upgradeCancelToast": "Upgrade canceled. No changes to your plan."
+  },
+  "billingUsageChart": {
+    "empty": "No usage data for this period"
+  },
+  "billingUsagePanel": {
+    "backToAllUsage": "Back to all usage",
+    "chartMetricAria": "Chart metric",
+    "eventsLabel": "Events",
+    "llmDimensionAria": "LLM spend dimension",
+    "llmSpend": "LLM Spend",
+    "loadError": "Failed to load usage data.",
+    "metricEvents": "Events",
+    "metricSpend": "Spend ($)",
+    "oauthSpend": "OAuth Spend",
+    "spendLabel": "Spend",
+    "subtitle": "Overview of your spending habits.",
+    "title": "Credit Usage"
+  },
+  "biometricSettingsCard": {
+    "description": "When your session expires, verify with {label} instead of signing in again.",
+    "descriptionWithPasscode": "When your session expires, verify with {label} or your device passcode instead of signing in again.",
+    "title": "Security",
+    "useForSignIn": "Use {label} for sign-in"
   },
   "bookmarksPage": {
     "emptyDescription": "Hover any message and click the bookmark icon to save it here.",
@@ -338,6 +476,33 @@
     "tabLifecycle": "Assistant Lifecycle",
     "tabMemory": "Memory",
     "tabSentry": "Sentry Testing"
+  },
+  "doctorPanel": {
+    "beta": "Beta",
+    "betaTitle": "Doctor is in beta - use the Settings menu to submit feedback",
+    "connecting": "Connecting...",
+    "copied": "Copied!",
+    "copiedAria": "Copied",
+    "copiedTooltip": "Copied!",
+    "copyFailed": "Couldn't copy the session.",
+    "copySession": "Copy Session",
+    "copySessionAria": "Copy session to clipboard",
+    "copySessionTooltip": "Copy session to clipboard",
+    "endSession": "End Session",
+    "goToNewest": "Go to Newest",
+    "goToNewestAria": "Go to newest message",
+    "idleDescription": "Start a diagnostic session to have the Doctor analyze your assistant, identify issues, and suggest or apply fixes. The Doctor is free to use. Doctor logs may be temporarily stored.",
+    "idleTitle": "Assistant Doctor",
+    "loading": "Loading...",
+    "newSession": "New Session",
+    "noAssistant": "No assistant found. Hatch an assistant to use the Doctor.",
+    "placeholderApproval": "Type \"approve\" or \"deny\", or send a message...",
+    "placeholderMessage": "Type a message...",
+    "sendMessageAria": "Send message",
+    "shareFeedback": "Share Feedback",
+    "startSession": "Start Doctor Session",
+    "thinking": "Thinking…",
+    "title": "Doctor"
   },
   "domainField": {
     "subdomainAriaLabel": "Subdomain"
@@ -719,6 +884,13 @@
     "toastFailed": "Failed to update background worker.",
     "toastStarted": "Background worker started.",
     "toastStopped": "Background worker stopped."
+  },
+  "modelProfileRow": {
+    "customCallSiteModel": "Custom call-site model",
+    "defaultMainAgent": "Default (assistant's main model)",
+    "defaultNamed": "Default ({name})",
+    "label": "Model profile",
+    "override": "Override ({name})"
   },
   "nativeAppCard": {
     "benefitBiometric": "Biometric login",
@@ -1127,6 +1299,17 @@
     "waitingCaptionLong": "Still working. This can take a minute or two.",
     "waitingCaptionShort": "This might take a couple seconds."
   },
+  "recoveryModeControls": {
+    "activeDescription": "Active - connected to the debug terminal",
+    "enter": "Enter Recovery Mode",
+    "enterError": "Failed to enter Recovery Mode. Please try again.",
+    "exitError": "Failed to exit Recovery Mode. Please try again.",
+    "inactiveDescription": "Pause the assistant and connect directly to its workspace via the debug terminal",
+    "loginNoticeEnter": "Log in to the Vellum platform to enter Recovery Mode.",
+    "loginNoticeExit": "Log in to the Vellum platform to exit Recovery Mode.",
+    "resumeAssistant": "Resume Assistant",
+    "title": "Recovery Mode"
+  },
   "resizeCard": {
     "apply": "Apply",
     "applyingResize": "Applying resize…",
@@ -1176,6 +1359,13 @@
   "retireAssistant": {
     "button": "Retire Assistant"
   },
+  "scheduleSharedUi": {
+    "costFor": "Cost for {name} in the last 7 days: {cost}",
+    "loadingUsage": "Loading schedule usage",
+    "runsFor": "Runs for {name} in the last 7 days: {runs}",
+    "unknownStatus": "unknown",
+    "viewUsageFor": "View usage for {name}"
+  },
   "sharedUi": {
     "checkingDomain": "Checking domain…",
     "domainVerified": "Domain verified",
@@ -1208,6 +1398,11 @@
     "removeBindingAriaLabel": "Remove {label} binding",
     "resetShortcutAriaLabel": "Reset {label} to default"
   },
+  "showTipsRow": {
+    "ariaLabel": "Show tips",
+    "description": "Occasional tips in the sidebar that highlight features you haven't tried yet.",
+    "label": "Show tips"
+  },
   "soundsSections": {
     "addSound": "Add sound",
     "allSoundsAdded": "All sounds added",
@@ -1237,6 +1432,24 @@
     "subtitle": "Configure how your assistant transcribes speech",
     "title": "Speech-to-Text"
   },
+  "systemTasksSection": {
+    "consolidationName": "Consolidation",
+    "consolidationPausedHelper": "Memory is off, so consolidation is paused.",
+    "cost7d": "{cost} (7d)",
+    "disabled": "disabled",
+    "enabled": "enabled",
+    "heartbeatName": "Heartbeat",
+    "lastRun": "Last: {time}",
+    "loadError": "Failed to load system jobs. <retryButton>Retry</retryButton>",
+    "nextRun": "Next: {time}",
+    "openAriaLabel": "Open {name}",
+    "partialLoadError": "Some system jobs failed to load. <retryButton>Retry</retryButton>",
+    "paused": "Paused",
+    "retrospectiveName": "Memory retrospective",
+    "retrospectivePausedHelper": "Retrospectives are turned off in Memory settings.",
+    "subtitle": "Built-in jobs managed by the assistant runtime",
+    "title": "System"
+  },
   "teleportCard": {
     "cancel": "Cancel",
     "confirmAndSwitch": "Confirm & Switch",
@@ -1259,6 +1472,18 @@
     "system": "System",
     "title": "Theme",
     "velvet": "Velvet"
+  },
+  "timezonePicker": {
+    "citiesAriaLabel": "Cities",
+    "closestCity": "Closest city",
+    "noMatchingCities": "No matching cities",
+    "notSet": "Not set",
+    "searchPlaceholder": "Search city or country...",
+    "timeZone": "Time zone"
+  },
+  "timezoneSection": {
+    "description": "Used when displaying times and scheduling reminders.",
+    "title": "Timezone"
   },
   "trustRuleFormModal": {
     "cancel": "Cancel",
@@ -1362,6 +1587,9 @@
     "noUsageInRange": "No usage recorded in this time range",
     "total": "Total"
   },
+  "useBillingPortalSession": {
+    "openError": "Couldn't open the billing portal. Please try again."
+  },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
     "saveApiKeyFailedToast": "Failed to save {providerName} API key. Please try again."
@@ -1381,6 +1609,17 @@
     "deleteFailedToast": "Failed to delete the provider. Please try again.",
     "deleteInUseToast": "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
     "setDefaultFailedToast": "Failed to set the default provider. Please try again."
+  },
+  "useSystemTasks": {
+    "consolidationAlreadyQueued": "Consolidation already queued or running.",
+    "consolidationQueued": "Consolidation queued.",
+    "consolidationRunFailed": "Failed to run consolidation.",
+    "heartbeatDisabled": "Heartbeat disabled.",
+    "heartbeatEnabled": "Heartbeat enabled.",
+    "heartbeatRunFailed": "Failed to run heartbeat.",
+    "heartbeatSkipped": "Heartbeat skipped.",
+    "heartbeatStarted": "Heartbeat started.",
+    "heartbeatToggleFailed": "Failed to toggle heartbeat."
   },
   "voicePage": {
     "activationKeyLabel": "Activation Key:",
@@ -1456,5 +1695,42 @@
     "subtitle": "Configure how your assistant should search the web",
     "title": "Web Search",
     "vellumNote": "Search runs through your Vellum account."
+  },
+  "yourOwnOauthTab": {
+    "accountFallback": "{name} Account",
+    "addAnotherApp": "Add another {name} OAuth app",
+    "addAnotherAppButton": "Add Another App",
+    "addApp": "Add App",
+    "addOwnApp": "Add your own {name} OAuth app",
+    "addedOn": "Added {date}",
+    "appAddedToast": "{name} OAuth app added.",
+    "appDeletedToast": "OAuth app deleted.",
+    "cancel": "Cancel",
+    "clientId": "Client ID",
+    "clientIdPlaceholder": "Enter your client ID",
+    "clientSecret": "Client Secret",
+    "clientSecretPlaceholder": "Enter your client secret",
+    "connectAccount": "Connect account",
+    "connectFailedToast": "Failed to start OAuth flow",
+    "copiedAria": "Copied",
+    "copiedToast": "Copied to clipboard!",
+    "copyFailedToast": "Couldn't copy the redirect URL.",
+    "copyRedirectAria": "Copy redirect URL",
+    "createFailedToast": "Failed to create OAuth app",
+    "credentialsNote": "Credentials are stored encrypted on the assistant and are never sent to Vellum.",
+    "delete": "Delete",
+    "deleteAppAria": "Delete OAuth app {id}",
+    "deleteAppMessage": "Delete OAuth app '{id}'? This will disconnect all linked accounts.",
+    "deleteAppTitle": "Delete OAuth app",
+    "deleteFailedToast": "Failed to delete OAuth app",
+    "disconnect": "Disconnect",
+    "disconnectAria": "Disconnect {account}",
+    "disconnectFailedToast": "Failed to disconnect account",
+    "disconnectMessage": "Disconnect {account}? You can reconnect later.",
+    "disconnectTitle": "Disconnect {name}?",
+    "disconnectedToast": "{name} account disconnected.",
+    "redirectHint": "Add this URL to your OAuth app's redirect settings.",
+    "redirectUrl": "Redirect URL",
+    "waitingAuthorization": "Waiting for authorization..."
   }
 }
