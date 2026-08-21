@@ -10,8 +10,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
-  RESTORE_STAGING_DIRNAME,
   resolveStagedImportPath,
+  RESTORE_STAGING_DIRNAME,
   StagedImportPathError,
 } from "../staged-import-path.js";
 

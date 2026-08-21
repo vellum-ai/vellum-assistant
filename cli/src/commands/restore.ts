@@ -583,7 +583,7 @@ export async function restore(): Promise<void> {
 
   // Obtain auth token (acquired before dry-run or before data import;
   // re-acquired after version rollback since containers restart).
-  let accessToken = await getAccessToken(
+  const accessToken = await getAccessToken(
     entry.runtimeUrl,
     entry.assistantId,
     name,
@@ -611,9 +611,6 @@ export async function restore(): Promise<void> {
       accessToken,
       stagedRelativePath,
       bundleData,
-      setAccessToken: (token) => {
-        accessToken = token;
-      },
     });
   } finally {
     if (cleanupStaged) {
@@ -630,7 +627,6 @@ async function runLocalRestore(opts: {
   accessToken: string;
   stagedRelativePath: string | undefined;
   bundleData: Buffer | undefined;
-  setAccessToken: (token: string) => void;
 }): Promise<void> {
   const {
     entry,
@@ -639,7 +635,6 @@ async function runLocalRestore(opts: {
     dryRun,
     stagedRelativePath,
     bundleData,
-    setAccessToken,
   } = opts;
   let accessToken = opts.accessToken;
 
@@ -754,7 +749,6 @@ async function runLocalRestore(opts: {
         name,
         entry.guardianBootstrapSecret,
       );
-      opts.setAccessToken(accessToken);
     }
 
     // Data import

@@ -60,6 +60,10 @@ import {
   migrationJobs,
 } from "../migrations/job-registry.js";
 import { getOriginMode } from "../migrations/origin-mode.js";
+import {
+  resolveStagedImportPath,
+  StagedImportPathError,
+} from "../migrations/staged-import-path.js";
 import type {
   VBundleAssistantInfo,
   VBundleCompatibility,
@@ -82,10 +86,6 @@ import {
   type ImportCommitReport,
   type ImportCommitResult,
 } from "../migrations/vbundle-importer.js";
-import {
-  resolveStagedImportPath,
-  StagedImportPathError,
-} from "../migrations/staged-import-path.js";
 import { streamCommitImport } from "../migrations/vbundle-streaming-importer.js";
 import {
   readAndValidateManifest,

@@ -140,7 +140,7 @@ export async function importStagedBundle(
       signal: AbortSignal.timeout(120_000),
     });
 
-  let response = await postImport();
+  const response = await postImport();
 
   if (response.status === 202) {
     const accepted = (await response.json()) as { job_id?: string };
