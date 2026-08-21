@@ -18,6 +18,7 @@ import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
+import type { HostShell } from "../tools/host-shell.js";
 import { getTool, getToolOwner, resolveTool } from "../tools/registry.js";
 import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
@@ -420,8 +421,8 @@ function buildClassifyRiskParams(
   input: Record<string, unknown>,
   workingDir?: string,
   manifestOverride?: ManifestOverride,
-  shell?: ClassifyRiskIpcParams["shell"],
-): ClassifyRiskIpcParams {
+  shell?: HostShell,
+): ClassifyRiskIpcParams & { shell?: HostShell } {
   // ── Bash/host_bash ──
   if (toolName === "bash" || toolName === "host_bash") {
     // Count credential references attached to this invocation.
@@ -579,7 +580,7 @@ export async function classifyRisk(
   _preParsed?: unknown,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
-  shell?: ClassifyRiskIpcParams["shell"],
+  shell?: HostShell,
 ): Promise<RiskClassificationWithMeta> {
   signal?.throwIfAborted();
 

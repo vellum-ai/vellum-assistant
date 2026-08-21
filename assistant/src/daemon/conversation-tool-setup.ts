@@ -9,6 +9,7 @@
 import type { AssistantEvent } from "../api/index.js";
 import {
   type HostProxyCapability,
+  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
@@ -431,7 +432,8 @@ export function createToolExecutor(
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
-      clientOs: ctx.currentTurnClientOs ?? ctx.clientOs,
+      clientOs:
+        parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ?? undefined,
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
@@ -732,8 +734,7 @@ export function isToolActiveForContext(
     ? pin.transportInterface
     : ctx.transportInterface;
   const clientOs =
-    ctx.currentTurnClientOs ??
-    ctx.clientOs ??
+    parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
     (transportInterface === "macos" || transportInterface === "windows"
       ? transportInterface
       : undefined);

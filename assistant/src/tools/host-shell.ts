@@ -1,10 +1,10 @@
-import type { ClassifyRiskIpcParams } from "@vellumai/gateway-client";
-
 import type { ToolContext } from "./types.js";
+
+export type HostShell = "bash" | "powershell";
 
 export function getHostShell(
   context: Pick<ToolContext, "clientOs" | "transportInterface">,
-): ClassifyRiskIpcParams["shell"] {
+): HostShell | undefined {
   return context.clientOs === "windows" ||
     context.transportInterface === "windows"
     ? "powershell"
