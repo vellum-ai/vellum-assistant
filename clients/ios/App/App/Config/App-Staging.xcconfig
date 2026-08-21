@@ -2,6 +2,9 @@
 
 #include "Base.xcconfig"
 
+// Generated; supplies ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES.
+#include "AvatarIcons.xcconfig"
+
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging
 ASSOCIATED_DOMAIN = staging-assistant.vellum.ai
 BUNDLE_DISPLAY_NAME = Vellum Staging

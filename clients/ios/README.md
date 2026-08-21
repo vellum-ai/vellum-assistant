@@ -320,10 +320,42 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   `cd clients/ios && bun test scripts/__tests__/generate-avatar-icons.test.ts`.
   `pr-ios.yaml` and `ci-main-ios.yaml` run that same check, and both watch
   `assistant/src/avatar/**`, so a catalog edit without a regeneration fails
-  CI. No target builds them yet, so `project.yml` excludes the directory.
+  CI.
+- All three app targets ship the whole avatar set. `project.yml` sweeps
+  `AvatarIcons/` up through the shared `AppEnvironment` source path, and
+  `App.xcconfig`, `App-Staging.xcconfig`, and `App-Dev.xcconfig` each
+  `#include "AvatarIcons.xcconfig"` for
+  `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES` while keeping their own
+  `ASSETCATALOG_COMPILER_APPICON_NAME`. `AppIconPlugin.swift` reads the
+  resulting `CFBundleIcons` / `CFBundleAlternateIcons` back out of the
+  built `Info.plist`, so that xcconfig is what the web side sees as the
+  available set.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.
+
+### Alternate icon size cost
+
+Each Icon Composer alternate compiles into `Assets.car` as eight
+1024x1024 pre-rendered ARGB images: light, dark, and two tintable
+variants, every one of them duplicated for the `phone` and `pad` idioms.
+That is about **1.30 MiB per alternate icon**, measured on an unsigned
+`App Dev` build:
+
+| Build                      | `.app` total | `Assets.car` |
+| -------------------------- | ------------ | ------------ |
+| Without `AvatarIcons`      | 11.9 MiB     | 1.67 MiB     |
+| With the 24-icon pilot set | 43.1 MiB     | 32.9 MiB     |
+
+`Assets.car` is byte-identical between Debug and Release, so the cost is
+not a debug artifact, and it does not amortize across icons. None of the
+obvious levers move it much: passing only `--target-device iphone`, or
+naming iOS alone in the bundle's `supported-platforms`, still emits the
+duplicate `pad` renditions; zeroing the group `shadow` saves about 16
+percent; clearing `specular` saves nothing. Budget against this number
+before widening the generated set. The full trait catalog is 540
+combinations, which at this rate is on the order of 700 MiB of app icon
+and would need a different icon format rather than more `.icon` bundles.
 
 ### Bundle ID vs capacitor.config appId
 
@@ -453,7 +485,9 @@ On first build after pulling:
   `App/App/AppIcon.icon/` (alongside `Info.plist`), _not_ inside
   `Assets.xcassets/`. It's wired into `project.yml` as a per-target
   resource and shows up in the regenerated `project.pbxproj` as a
-  `folder.iconcomposer.icon` reference.
+  `folder.iconcomposer.icon` reference. Only `Assets.xcassets/` is off
+  limits, not nesting as such: the alternates under `App/App/AvatarIcons/`
+  compile fine from that subdirectory.
 - **Splash looks stretched** — the storyboard uses `scaleAspectFill`
   on a 2732×2732 square. On phones this crops horizontally; the
   centered V stays visible.
@@ -718,7 +752,7 @@ clients/
     │   │   ├── AppIcon.icon/         # Production icon (green)
     │   │   ├── AppIcon-Staging.icon/  # Staging icon (yellow)
     │   │   ├── AppIcon-Dev.icon/      # Dev icon (pink)
-    │   │   ├── AvatarIcons/          # Generated avatar alternate icons (not in any target yet)
+    │   │   ├── AvatarIcons/          # Generated avatar alternate icons (all 3 app targets)
     │   │   ├── Assets.xcassets/      # Splash imageset lives here
     │   │   ├── Base.lproj/           # LaunchScreen.storyboard, Main.storyboard
     │   │   ├── AppDelegate.swift     # Universal Links + APNs token forwarding
