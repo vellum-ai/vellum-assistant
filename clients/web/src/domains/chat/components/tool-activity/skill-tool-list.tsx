@@ -16,6 +16,7 @@
 import { Typography } from "@vellumai/design-library";
 
 import type { SkillToolSummary } from "@/domains/chat/utils/skill-activity";
+import { useTranslation } from "@/i18n";
 
 function SkillToolRow({ tool }: { tool: SkillToolSummary }) {
   return (
@@ -46,6 +47,7 @@ function SkillToolRow({ tool }: { tool: SkillToolSummary }) {
  * follow under a "From <skill>" label.
  */
 export function SkillToolList({ tools }: { tools: SkillToolSummary[] }) {
+  const { t } = useTranslation("chat");
   if (tools.length === 0) {
     return null;
   }
@@ -75,7 +77,7 @@ export function SkillToolList({ tools }: { tools: SkillToolSummary[] }) {
             as="div"
             className="mb-3 text-[var(--content-tertiary)]"
           >
-            From {skillName}
+            {t("skillToolList.fromSkill", { name: skillName })}
           </Typography>
           <ul className="flex flex-col gap-4">
             {tools

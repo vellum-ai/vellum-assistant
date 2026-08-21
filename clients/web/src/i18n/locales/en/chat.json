@@ -1,7 +1,9 @@
 {
   "activityStepsPanel": {
     "backAria": "Back to all steps",
-    "backTooltip": "All steps"
+    "backTooltip": "All steps",
+    "closeSteps": "Close steps",
+    "viewThinkingAria": "View thinking"
   },
   "addToChatSheet": {
     "title": "Add to chat",
@@ -22,7 +24,10 @@
     "shareFailed": "Failed to share app"
   },
   "assistantSideMenu": {
-    "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again."
+    "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
+    "searchShortcut": "Search (⌘K)",
+    "navAria": "Assistant navigation",
+    "closeNavAria": "Close navigation"
   },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
@@ -31,6 +36,17 @@
     "switchFailed": "Couldn't switch assistants. Try again.",
     "switchTo": "Switch to {name}",
     "unnamedAssistant": "Unnamed assistant"
+  },
+  "attachmentOverflowSquare": {
+    "showAllAria": "Show all files ({count} more)",
+    "moreTitle": "{count} more"
+  },
+  "backgroundTaskDetailPanel": {
+    "stopCommandAria": "Stop command",
+    "closeDetail": "Close task detail",
+    "command": "Command",
+    "output": "Output",
+    "exitCode": "Exit code: {code}"
   },
   "cacheBreakpointMapCard": {
     "description": "Where the {count, plural, one {# cache breakpoint} other {# cache breakpoints}} fell across this request's prefix, and which segments were read versus re-created.",
@@ -123,9 +139,29 @@
     "syntheticYield": "Yield · compaction couldn't fit next step",
     "unrecognizedCall": "Unrecognized call"
   },
+  "cardSurface": {
+    "tasksProgress": "{completed} / {total} tasks"
+  },
   "chatComposer": {
     "addToChat": "Add to chat",
     "askAssistantPlaceholder": "Ask {assistantName}"
+  },
+  "chatLayout": {
+    "navigationAria": "Navigation"
+  },
+  "chatPage": {
+    "connectingStuck": "Still connecting to your assistant - something seems stuck. Try again, or refresh the page if this keeps happening.",
+    "tryAgain": "Try again",
+    "connecting": "Connecting…",
+    "retryNow": "Retry now",
+    "selfHostedUnreachable": "Couldn't reach your self-hosted assistant. Make sure your assistant is running, then try again."
+  },
+  "choiceSurface": {
+    "recommended": "Recommended",
+    "continue": "Continue"
+  },
+  "collapsedGroupIcon": {
+    "noConversations": "No conversations"
   },
   "compactionTab": {
     "compactedMessages": "{count} compacted",
@@ -159,9 +195,26 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "composerSecretNotice": {
+    "storeSecurely": "Store securely",
+    "blockedTitle": "Message not sent. It looks like it contains an API key.",
+    "warningTitle": "This looks like an API key",
+    "sendAnyway": "Send anyway",
+    "dismiss": "Dismiss",
+    "body": "Credentials sent in chat are visible in the transcript. Store it securely instead."
+  },
   "composerSettingsMenu": {
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
     "profileSwitchFallback": "Failed to switch profile. Please try again."
+  },
+  "contactPromptCard": {
+    "addContact": "Add a contact",
+    "dismiss": "Dismiss",
+    "contactSaved": "Contact saved",
+    "enterAddress": "Enter {channel} address",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save"
   },
   "conversationActions": {
     "archive": "Archive",
@@ -187,6 +240,21 @@
     "closeAriaLabel": "Close",
     "title": "Conversation Actions"
   },
+  "conversationActivityPill": {
+    "running": "Running",
+    "recent": "Recent",
+    "activity": "Activity"
+  },
+  "conversationAssetActions": {
+    "optionsFor": "Options for {name}",
+    "unpin": "Unpin",
+    "pin": "Pin",
+    "share": "Share",
+    "exportAsVellum": "Export as .vellum file",
+    "delete": "Delete",
+    "open": "Open",
+    "downloadPdf": "Download PDF"
+  },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
@@ -206,11 +274,20 @@
     "groupCopied": "Group ID copied to clipboard.",
     "groupFailed": "Couldn't copy the group ID."
   },
+  "csvPreview": {
+    "emptyFile": "This file is empty",
+    "summary": "{rows} rows x {columns} columns",
+    "summaryTruncated": "{rows} rows x {columns} columns (truncated)"
+  },
   "detailPanelStopButton": {
     "tooltip": "Stop"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
+  },
+  "documentCommentForm": {
+    "sending": "Sending…",
+    "send": "Send"
   },
   "exportProgressModal": {
     "cancel": "Cancel",
@@ -246,6 +323,20 @@
   },
   "groupActionsSheet": {
     "title": "{name} actions"
+  },
+  "groupNameDialogFromStore": {
+    "renameTitle": "Rename group",
+    "newTitle": "New group",
+    "save": "Save",
+    "create": "Create"
+  },
+  "inChatOnboardingController": {
+    "skipTour": "Skip tour",
+    "showMeAround": "Show me around",
+    "next": "Next"
+  },
+  "inlineProcessCard": {
+    "stop": "Stop"
   },
   "inspectPage": {
     "accessDenied": "Inspector is available when the Internal Thread Actions feature flag is enabled.",
@@ -300,6 +391,18 @@
   },
   "localFileLink": {
     "unavailable": "This file isn't available here"
+  },
+  "lowBalanceBanner": {
+    "ariaLabel": "Your credits are running low. {detail}",
+    "title": "Your credits are running low",
+    "subtitle": "Add credits to avoid an interruption.",
+    "addCredits": "Add credits"
+  },
+  "maintenanceModeBanner": {
+    "title": "Assistant in Recovery Mode",
+    "body": "Your assistant workspace is currently connected to a debug terminal. Chat is unavailable while in Recovery Mode.",
+    "loginHint": "Log in to the Vellum platform to exit Recovery Mode.",
+    "resume": "Resume Assistant"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Add older pair",
@@ -485,6 +588,19 @@
     "selectCallAria": "Select an LLM call to inspect",
     "sheetTitle": "Select a call"
   },
+  "oauthConnectSurface": {
+    "approvalTooltip": "{name} never acts on your behalf without your approval",
+    "yourAssistant": "Your assistant",
+    "approvalAria": "About assistant approval",
+    "thisAccount": "this account",
+    "connectTitle": "Connect {name}",
+    "defaultDescription": "Connect {name} so I can use it for this task.",
+    "connect": "Connect",
+    "missingDetails": "Missing assistant or provider details.",
+    "connected": "Connected",
+    "dismiss": "Dismiss",
+    "waiting": "Waiting..."
+  },
   "overviewTab": {
     "cacheTokensLabel": "Cache tokens",
     "conversationSubtitle": "Running totals across every priced LLM call so far.",
@@ -528,6 +644,12 @@
     },
     "noColor": "No color"
   },
+  "preferencesMenu": {
+    "preferences": "Preferences",
+    "shareFeedback": "Share Feedback",
+    "admin": "Admin",
+    "settings": "Settings"
+  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Add credits",
     "exhausted": "Add credits to continue.",
@@ -535,6 +657,9 @@
     "resets": "Resets {date}",
     "settingsAriaLabel": "Usage and billing settings",
     "title": "Usage"
+  },
+  "previewSkeleton": {
+    "loadingPreview": "Loading preview"
   },
   "promptTab": {
     "availableTools": "Available tools",
@@ -551,6 +676,13 @@
     "formatTypeScript": "TypeScript",
     "noContentAvailable": "No content available.",
     "promptSectionsTitle": "Prompt sections"
+  },
+  "providerBillingBanner": {
+    "title": "Your API key needs credits",
+    "body": "Add funds with your provider or lower the model token limit."
+  },
+  "pullRefreshSpinner": {
+    "refreshing": "Refreshing"
   },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copy request payload",
@@ -569,6 +701,10 @@
   },
   "redactedCredentialChip": {
     "revealFailed": "Couldn't reveal {name}."
+  },
+  "researchResultsOverlay": {
+    "body": "Here's what I know about you. You can remove any that aren't true:",
+    "loading": "Getting to know you…"
   },
   "responseTab": {
     "argumentsPreview": "Arguments preview",
@@ -591,13 +727,45 @@
     "stopReasonChip": "Stop reason: {reason}",
     "toolChip": "Tool: {name}"
   },
+  "secretPromptCard": {
+    "title": "Secure Credential",
+    "tools": "Tools: {list}",
+    "domains": "Domains: {list}",
+    "placeholder": "Enter secret value...",
+    "secretValueFallback": "Secret value",
+    "storedSecurelyNote": "This information is stored securely on your device and not sent to any server. AI never sees this value.",
+    "savedSecurely": "Saved securely",
+    "cancel": "Cancel",
+    "saving": "Saving...",
+    "save": "Save",
+    "sending": "Sending...",
+    "sendOnce": "Send Once (not saved)"
+  },
+  "sideMenuBuiltInNav": {
+    "yourAssistant": "Your Assistant"
+  },
   "sidebarConversationError": {
     "message": "Your conversations failed to load.",
     "retry": "Try again"
   },
+  "sidebarListContextMenu": {
+    "newGroup": "New group…"
+  },
+  "skillCreatedCard": {
+    "view": "View",
+    "viewAria": "View {name}"
+  },
   "skillDetailPanel": {
     "actionsAria": "Skill actions",
-    "moreTooltip": "More"
+    "moreTooltip": "More",
+    "titleFallback": "Skill",
+    "closeDetails": "Close skill details",
+    "removeSkill": "Remove skill",
+    "goToSkill": "Go to Skill",
+    "loadError": "This skill could not be loaded. It may have been removed."
+  },
+  "skillToolList": {
+    "fromSkill": "From {name}"
   },
   "skillsTab": {
     "callLink": "Call {number}",
@@ -606,6 +774,37 @@
     "loadCount": "{count, plural, one {1 load} other {# loads}}",
     "summaryStats": "{uniqueCount, plural, one {# unique skill} other {# unique skills}} · {totalLoads, plural, one {# load call} other {# load calls}}",
     "summaryTitle": "Skills loaded in this conversation"
+  },
+  "subagentDetailPanel": {
+    "backToTimelineAria": "Back to timeline",
+    "backTooltip": "Back",
+    "stopSubagentAria": "Stop subagent",
+    "closeDetail": "Close subagent detail",
+    "input": "Input",
+    "output": "Output",
+    "objective": "Objective",
+    "showLess": "Show less",
+    "showMore": "Show more",
+    "timeline": "Timeline",
+    "noEventsYet": "No events yet"
+  },
+  "subagentSpawnGroup": {
+    "stopSubagentAria": "Stop subagent",
+    "collapseDetailsAria": "Collapse subagent details",
+    "collapse": "Collapse"
+  },
+  "surfaceRouter": {
+    "cancelled": "Cancelled",
+    "done": "Done",
+    "unsupportedType": "Unsupported surface type: {type}",
+    "unknownSurface": "Unknown surface",
+    "displayFailedNamed": "\"{title}\" couldn't be displayed.",
+    "displayFailed": "This content couldn't be displayed."
+  },
+  "tiptapDocumentEditor": {
+    "comment": "Comment",
+    "feedbackPlaceholder": "Add your feedback…",
+    "adding": "Adding…"
   },
   "toolDefinitionsContent": {
     "defaultValue": "default: {value}",
@@ -630,5 +829,43 @@
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",
     "doctorUnavailable": "The Doctor isn't available on this assistant."
+  },
+  "visualSurface": {
+    "visual": "Visual"
+  },
+  "voiceFirstRunCard": {
+    "title": "Voice mode",
+    "description": "A hands-free, spoken conversation with {name}.",
+    "yourAssistant": "your assistant",
+    "speakNaturally": "Speak naturally and {name} replies out loud.",
+    "muteMic": "Mute the mic without ending the session.",
+    "liveCaptions": "Turn on live captions anytime.",
+    "listeningLanguage": "Listening language",
+    "voiceSettings": "Voice settings",
+    "startTalking": "Start talking",
+    "listeningLanguageApplies": "Applies from your next spoken turn.",
+    "backAria": "Back"
+  },
+  "voiceSessionPill": {
+    "groupAria": "Voice session",
+    "unmuteMic": "Unmute microphone",
+    "muteMic": "Mute microphone",
+    "goToThreadAria": "Go to voice session thread",
+    "unmuteAssistant": "Unmute assistant",
+    "muteAssistant": "Mute assistant",
+    "endSession": "End voice session",
+    "dismiss": "Dismiss"
+  },
+  "webSearchStepRow": {
+    "moreCount": "+{count} more"
+  },
+  "workflowLeafDetail": {
+    "input": "Input",
+    "output": "Output",
+    "prompt": "Prompt",
+    "noPromptSummary": "No prompt summary",
+    "result": "Result",
+    "running": "Running…",
+    "noResultSummary": "No result summary"
   }
 }

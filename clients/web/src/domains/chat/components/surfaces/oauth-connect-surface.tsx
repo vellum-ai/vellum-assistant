@@ -24,6 +24,7 @@ import {
 import type { Surface } from "@/domains/chat/types/types";
 import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
+import { useTranslation } from "@/i18n";
 
 interface OAuthConnectSurfaceProps {
   surface: Surface;
@@ -50,11 +51,12 @@ function titleizeProviderKey(providerKey: string): string {
 function getProviderLabel(
   data: OAuthConnectSurfaceData,
   provider: ManagedOAuthProviderSummary | null,
+  thisAccountLabel: string,
 ): string {
   const raw =
     data.displayName ||
     provider?.display_name ||
-    (data.providerKey ? titleizeProviderKey(data.providerKey) : "this account");
+    (data.providerKey ? titleizeProviderKey(data.providerKey) : thisAccountLabel);
   // Normalize once at the resolver so the title, description, icon, and
   // action payloads never double the verb (e.g. "Connect Connect Gmail")
   // when a caller-supplied displayName already begins with "Connect ".
@@ -75,16 +77,18 @@ function OAuthApprovalInfo({
 }: {
   assistantDisplayName?: string | null;
 }) {
-  const assistantLabel = assistantDisplayName?.trim() || "Your assistant";
+  const { t } = useTranslation("chat");
+  const assistantLabel =
+    assistantDisplayName?.trim() || t("oauthConnectSurface.yourAssistant");
   return (
     <Tooltip
-      content={`${assistantLabel} never acts on your behalf without your approval`}
+      content={t("oauthConnectSurface.approvalTooltip", { name: assistantLabel })}
       side="top"
       align="end"
     >
       <button
         type="button"
-        aria-label="About assistant approval"
+        aria-label={t("oauthConnectSurface.approvalAria")}
         className="inline-flex h-5 w-5 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
       >
         <Info className="h-3.5 w-3.5" />
@@ -100,6 +104,7 @@ export function OAuthConnectSurface({
   assistantDisplayName,
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
+  const { t } = useTranslation("chat");
   const queryClient = useQueryClient();
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
@@ -141,12 +146,16 @@ export function OAuthConnectSurface({
     };
   }, [assistantId, oauthClient, providerKey]);
 
-  const providerLabel = getProviderLabel(data, provider);
+  const providerLabel = getProviderLabel(
+    data,
+    provider,
+    t("oauthConnectSurface.thisAccount"),
+  );
   const logoUrl = data.logoUrl ?? provider?.logo_url ?? null;
   const description =
     data.description ??
     provider?.description ??
-    `Connect ${providerLabel} so I can use it for this task.`;
+    t("oauthConnectSurface.defaultDescription", { name: providerLabel });
 
   const submitCancel = () => {
     onAction(surface.surfaceId, "cancel", {
@@ -234,7 +243,7 @@ export function OAuthConnectSurface({
 
           <div className="min-w-0 flex-1">
             <div className="text-title-small text-[var(--content-strong)]">
-              {surface.title ?? `Connect ${providerLabel}`}
+              {surface.title ?? t("oauthConnectSurface.connectTitle", { name: providerLabel })}
             </div>
             <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
               <span>{description}</span>
@@ -248,7 +257,7 @@ export function OAuthConnectSurface({
             {missingConfiguration && (
               <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-negative-strong)]">
                 <XCircle className="h-4 w-4 shrink-0" />
-                Missing assistant or provider details.
+                {t("oauthConnectSurface.missingDetails")}
               </div>
             )}
 
@@ -262,7 +271,7 @@ export function OAuthConnectSurface({
             {state === "connected" && (
               <div className="mt-3 flex items-center gap-2 text-body-small-default text-[var(--system-positive-strong)]">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
-                Connected
+                {t("oauthConnectSurface.connected")}
               </div>
             )}
           </div>
@@ -271,8 +280,8 @@ export function OAuthConnectSurface({
         <div className="flex shrink-0 items-center justify-end gap-2">
           <button
             type="button"
-            aria-label="Dismiss"
-            title="Dismiss"
+            aria-label={t("oauthConnectSurface.dismiss")}
+            title={t("oauthConnectSurface.dismiss")}
             onClick={submitCancel}
             disabled={state === "connecting"}
             className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-strong)] disabled:opacity-50"
@@ -290,7 +299,7 @@ export function OAuthConnectSurface({
             ) : (
               <ExternalLink className="h-4 w-4" />
             )}
-            {state === "connecting" ? "Waiting..." : "Connect"}
+            {state === "connecting" ? t("oauthConnectSurface.waiting") : t("oauthConnectSurface.connect")}
           </button>
         </div>
       </div>

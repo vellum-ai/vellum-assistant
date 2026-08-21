@@ -8,6 +8,7 @@ import {
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { Button } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;
@@ -20,6 +21,7 @@ export function MaintenanceModeBanner({
   onExited,
   showExitAction = true,
 }: MaintenanceModeBannerProps) {
+  const { t } = useTranslation("chat");
   const [isExiting, setIsExiting] = useState(false);
   const [exitError, setExitError] = useState<string | null>(null);
   // Self-hosted assistants don't run platform-managed Recovery Mode, so the
@@ -79,11 +81,10 @@ export function MaintenanceModeBanner({
       />
       <div className="flex flex-col items-center gap-1 text-center">
         <p className="text-body-small-emphasised text-[var(--content-emphasised)]">
-          Assistant in Recovery Mode
+          {t("maintenanceModeBanner.title")}
         </p>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Your assistant workspace is currently connected to a debug terminal.
-          Chat is unavailable while in Recovery Mode.
+          {t("maintenanceModeBanner.body")}
         </p>
         {exitError ? (
           <p className="mt-1 text-body-medium-default text-[var(--system-negative-strong)]">
@@ -94,7 +95,7 @@ export function MaintenanceModeBanner({
       {showExitAction ? (
         platformGate === "disabled" ? (
           <PlatformLoginNotice>
-            Log in to the Vellum platform to exit Recovery Mode.
+            {t("maintenanceModeBanner.loginHint")}
           </PlatformLoginNotice>
         ) : (
           <Button
@@ -109,7 +110,7 @@ export function MaintenanceModeBanner({
             disabled={isExiting || isResolving}
             data-testid="resume-assistant-button"
           >
-            Resume Assistant
+            {t("maintenanceModeBanner.resume")}
           </Button>
         )
       ) : null}

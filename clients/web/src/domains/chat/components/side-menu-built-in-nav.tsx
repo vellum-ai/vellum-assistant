@@ -3,6 +3,7 @@ import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher"
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { cn } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 export interface SideMenuBuiltInNavProps {
   assistantId: string | null;
@@ -41,6 +42,7 @@ export function SideMenuBuiltInNav({
   onOpenApp,
   onClose,
 }: SideMenuBuiltInNavProps) {
+  const { t } = useTranslation("chat");
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   /* One column at a single gap, rather than each cluster spacing itself.
@@ -63,7 +65,7 @@ export function SideMenuBuiltInNav({
       <div>
         <AssistantSwitcher
           assistantId={assistantId}
-          label={assistantName || "Your Assistant"}
+          label={assistantName || t("sideMenuBuiltInNav.yourAssistant")}
           active={isIntelligenceActive}
           collapsed={collapsed}
           onSelect={

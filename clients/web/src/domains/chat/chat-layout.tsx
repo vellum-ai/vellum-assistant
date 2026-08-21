@@ -108,6 +108,7 @@ import {
 } from "./components/archive-all-confirm-dialog";
 import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
+import { useTranslation } from "@/i18n";
 
 const CommandPalette = lazy(() =>
   import("@/components/command-palette/command-palette").then((m) => ({
@@ -164,6 +165,7 @@ export function ChatLayout({
    */
   topBarAccessory?: ReactNode;
 } = {}) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -1143,7 +1145,7 @@ export function ChatLayout({
               onTouchCancel={drawerGestures.onTouchCancel}
               role="dialog"
               aria-modal="true"
-              aria-label="Navigation"
+              aria-label={t("chatLayout.navigationAria")}
               data-state={drawerOpen ? "open" : "closed"}
             >
               {/* The aside is the drawer's only painted surface: the menu it
@@ -1209,7 +1211,7 @@ export function ChatLayout({
             // this element imperatively; overflow-hidden clips the nav
             // mid-slide.
             className="w-fit shrink-0 overflow-hidden"
-            aria-label="Navigation"
+            aria-label={t("chatLayout.navigationAria")}
           >
             {renderSideMenu({
               collapsed: effectiveCollapsed,

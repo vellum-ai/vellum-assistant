@@ -1,7 +1,9 @@
 {
   "activityStepsPanel": {
     "backAria": "Volver a todos los pasos",
-    "backTooltip": "Todos los pasos"
+    "backTooltip": "Todos los pasos",
+    "closeSteps": "Cerrar pasos",
+    "viewThinkingAria": "Ver razonamiento"
   },
   "addToChatSheet": {
     "title": "Añadir al chat",
@@ -22,7 +24,10 @@
     "shareFailed": "No se pudo compartir la aplicación"
   },
   "assistantSideMenu": {
-    "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo."
+    "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo.",
+    "searchShortcut": "Buscar (⌘K)",
+    "navAria": "Navegación del asistente",
+    "closeNavAria": "Cerrar navegación"
   },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
@@ -31,6 +36,17 @@
     "switchFailed": "No se pudo cambiar de asistente. Inténtalo de nuevo.",
     "switchTo": "Cambiar a {name}",
     "unnamedAssistant": "Asistente sin nombre"
+  },
+  "attachmentOverflowSquare": {
+    "showAllAria": "Mostrar todos los archivos ({count} más)",
+    "moreTitle": "{count} más"
+  },
+  "backgroundTaskDetailPanel": {
+    "stopCommandAria": "Detener comando",
+    "closeDetail": "Cerrar detalle de la tarea",
+    "command": "Comando",
+    "output": "Salida",
+    "exitCode": "Código de salida: {code}"
   },
   "cacheBreakpointMapCard": {
     "description": "Dónde {count, plural, one {cayó # punto de corte de caché} other {cayeron # puntos de corte de caché}} en el prefijo de esta solicitud, y qué segmentos se leyeron frente a los que se volvieron a crear.",
@@ -123,9 +139,29 @@
     "syntheticYield": "Rendimiento · la compactación no cupo en el siguiente paso",
     "unrecognizedCall": "Llamada no reconocida"
   },
+  "cardSurface": {
+    "tasksProgress": "{completed} / {total} tareas"
+  },
   "chatComposer": {
     "addToChat": "Añadir al chat",
     "askAssistantPlaceholder": "Pregunta a {assistantName}"
+  },
+  "chatLayout": {
+    "navigationAria": "Navegación"
+  },
+  "chatPage": {
+    "connectingStuck": "Todavía se está conectando a tu asistente; parece que algo se ha quedado atascado. Inténtalo de nuevo, o actualiza la página si sigue ocurriendo.",
+    "tryAgain": "Intentar de nuevo",
+    "connecting": "Conectando…",
+    "retryNow": "Reintentar ahora",
+    "selfHostedUnreachable": "No se pudo contactar con tu asistente autoalojado. Asegúrate de que el asistente esté en ejecución e inténtalo de nuevo."
+  },
+  "choiceSurface": {
+    "recommended": "Recomendado",
+    "continue": "Continuar"
+  },
+  "collapsedGroupIcon": {
+    "noConversations": "No hay conversaciones"
   },
   "compactionTab": {
     "compactedMessages": "{count} compactados",
@@ -159,9 +195,26 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
   },
+  "composerSecretNotice": {
+    "storeSecurely": "Guardar de forma segura",
+    "blockedTitle": "Mensaje no enviado. Parece que contiene una clave de API.",
+    "warningTitle": "Esto parece una clave de API",
+    "sendAnyway": "Enviar de todos modos",
+    "dismiss": "Descartar",
+    "body": "Las credenciales enviadas en el chat son visibles en la transcripción. Guárdala de forma segura en su lugar."
+  },
   "composerSettingsMenu": {
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
     "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+  },
+  "contactPromptCard": {
+    "addContact": "Añadir un contacto",
+    "dismiss": "Descartar",
+    "contactSaved": "Contacto guardado",
+    "enterAddress": "Introduce la dirección de {channel}",
+    "cancel": "Cancelar",
+    "saving": "Guardando…",
+    "save": "Guardar"
   },
   "conversationActions": {
     "archive": "Archivar",
@@ -187,6 +240,21 @@
     "closeAriaLabel": "Cerrar",
     "title": "Acciones de conversación"
   },
+  "conversationActivityPill": {
+    "running": "En ejecución",
+    "recent": "Recientes",
+    "activity": "Actividad"
+  },
+  "conversationAssetActions": {
+    "optionsFor": "Opciones para {name}",
+    "unpin": "Desanclar",
+    "pin": "Anclar",
+    "share": "Compartir",
+    "exportAsVellum": "Exportar como archivo .vellum",
+    "delete": "Eliminar",
+    "open": "Abrir",
+    "downloadPdf": "Descargar PDF"
+  },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
     "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)",
@@ -206,11 +274,20 @@
     "groupCopied": "ID de grupo copiado al portapapeles.",
     "groupFailed": "No se pudo copiar el ID de grupo."
   },
+  "csvPreview": {
+    "emptyFile": "Este archivo está vacío",
+    "summary": "{rows} filas x {columns} columnas",
+    "summaryTruncated": "{rows} filas x {columns} columnas (truncado)"
+  },
   "detailPanelStopButton": {
     "tooltip": "Detener"
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
+  },
+  "documentCommentForm": {
+    "sending": "Enviando…",
+    "send": "Enviar"
   },
   "exportProgressModal": {
     "cancel": "Cancelar",
@@ -246,6 +323,20 @@
   },
   "groupActionsSheet": {
     "title": "Acciones de {name}"
+  },
+  "groupNameDialogFromStore": {
+    "renameTitle": "Renombrar grupo",
+    "newTitle": "Grupo nuevo",
+    "save": "Guardar",
+    "create": "Crear"
+  },
+  "inChatOnboardingController": {
+    "skipTour": "Omitir recorrido",
+    "showMeAround": "Muéstrame cómo funciona",
+    "next": "Siguiente"
+  },
+  "inlineProcessCard": {
+    "stop": "Detener"
   },
   "inspectPage": {
     "accessDenied": "El inspector está disponible cuando la marca Internal Thread Actions está habilitada.",
@@ -300,6 +391,18 @@
   },
   "localFileLink": {
     "unavailable": "Este archivo no está disponible aquí"
+  },
+  "lowBalanceBanner": {
+    "ariaLabel": "Tus créditos se están agotando. {detail}",
+    "title": "Tus créditos se están agotando",
+    "subtitle": "Añade créditos para evitar una interrupción.",
+    "addCredits": "Añadir créditos"
+  },
+  "maintenanceModeBanner": {
+    "title": "Asistente en modo de recuperación",
+    "body": "El espacio de trabajo de tu asistente está conectado actualmente a un terminal de depuración. El chat no está disponible en el modo de recuperación.",
+    "loginHint": "Inicia sesión en la plataforma Vellum para salir del modo de recuperación.",
+    "resume": "Reanudar asistente"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Añadir par más antiguo",
@@ -485,6 +588,19 @@
     "selectCallAria": "Seleccionar una llamada LLM para inspeccionar",
     "sheetTitle": "Seleccionar una llamada"
   },
+  "oauthConnectSurface": {
+    "approvalTooltip": "{name} nunca actúa en tu nombre sin tu aprobación",
+    "yourAssistant": "Tu asistente",
+    "approvalAria": "Acerca de la aprobación del asistente",
+    "thisAccount": "esta cuenta",
+    "connectTitle": "Conectar {name}",
+    "defaultDescription": "Conecta {name} para que pueda usarlo en esta tarea.",
+    "connect": "Conectar",
+    "missingDetails": "Faltan detalles del asistente o del proveedor.",
+    "connected": "Conectado",
+    "dismiss": "Descartar",
+    "waiting": "Esperando..."
+  },
   "overviewTab": {
     "cacheTokensLabel": "Tokens de caché",
     "conversationSubtitle": "Totales acumulados de cada llamada LLM con precio hasta ahora.",
@@ -528,6 +644,12 @@
     },
     "noColor": "Sin color"
   },
+  "preferencesMenu": {
+    "preferences": "Preferencias",
+    "shareFeedback": "Compartir comentarios",
+    "admin": "Admin",
+    "settings": "Ajustes"
+  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
     "exhausted": "Añade créditos para continuar.",
@@ -535,6 +657,9 @@
     "resets": "Se restablece el {date}",
     "settingsAriaLabel": "Ajustes de uso y facturación",
     "title": "Uso"
+  },
+  "previewSkeleton": {
+    "loadingPreview": "Cargando vista previa"
   },
   "promptTab": {
     "availableTools": "Herramientas disponibles",
@@ -551,6 +676,13 @@
     "formatTypeScript": "TypeScript",
     "noContentAvailable": "No hay contenido disponible.",
     "promptSectionsTitle": "Secciones del prompt"
+  },
+  "providerBillingBanner": {
+    "title": "Tu clave de API necesita créditos",
+    "body": "Añade fondos con tu proveedor o baja el límite de tokens del modelo."
+  },
+  "pullRefreshSpinner": {
+    "refreshing": "Actualizando"
   },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copiar carga de la solicitud",
@@ -569,6 +701,10 @@
   },
   "redactedCredentialChip": {
     "revealFailed": "No se pudo revelar {name}."
+  },
+  "researchResultsOverlay": {
+    "body": "Esto es lo que sé de ti. Puedes quitar lo que no sea cierto:",
+    "loading": "Conociéndote…"
   },
   "responseTab": {
     "argumentsPreview": "Vista previa de argumentos",
@@ -591,13 +727,45 @@
     "stopReasonChip": "Motivo de parada: {reason}",
     "toolChip": "Herramienta: {name}"
   },
+  "secretPromptCard": {
+    "title": "Credencial segura",
+    "tools": "Herramientas: {list}",
+    "domains": "Dominios: {list}",
+    "placeholder": "Introduce el valor secreto...",
+    "secretValueFallback": "Valor secreto",
+    "storedSecurelyNote": "Esta información se guarda de forma segura en tu dispositivo y no se envía a ningún servidor. La IA nunca ve este valor.",
+    "savedSecurely": "Guardado de forma segura",
+    "cancel": "Cancelar",
+    "saving": "Guardando...",
+    "save": "Guardar",
+    "sending": "Enviando...",
+    "sendOnce": "Enviar una vez (sin guardar)"
+  },
+  "sideMenuBuiltInNav": {
+    "yourAssistant": "Tu asistente"
+  },
   "sidebarConversationError": {
     "message": "No se pudieron cargar tus conversaciones.",
     "retry": "Reintentar"
   },
+  "sidebarListContextMenu": {
+    "newGroup": "Grupo nuevo…"
+  },
+  "skillCreatedCard": {
+    "view": "Ver",
+    "viewAria": "Ver {name}"
+  },
   "skillDetailPanel": {
     "actionsAria": "Acciones de habilidad",
-    "moreTooltip": "Más"
+    "moreTooltip": "Más",
+    "titleFallback": "Habilidad",
+    "closeDetails": "Cerrar detalles de la habilidad",
+    "removeSkill": "Eliminar habilidad",
+    "goToSkill": "Ir a la habilidad",
+    "loadError": "No se pudo cargar esta habilidad. Puede que se haya eliminado."
+  },
+  "skillToolList": {
+    "fromSkill": "De {name}"
   },
   "skillsTab": {
     "callLink": "Llamada {number}",
@@ -606,6 +774,37 @@
     "loadCount": "{count, plural, one {1 carga} other {# cargas}}",
     "summaryStats": "{uniqueCount, plural, one {# habilidad única} other {# habilidades únicas}} · {totalLoads, plural, one {# llamada de carga} other {# llamadas de carga}}",
     "summaryTitle": "Habilidades cargadas en esta conversación"
+  },
+  "subagentDetailPanel": {
+    "backToTimelineAria": "Volver a la línea de tiempo",
+    "backTooltip": "Atrás",
+    "stopSubagentAria": "Detener subagente",
+    "closeDetail": "Cerrar detalle del subagente",
+    "input": "Entrada",
+    "output": "Salida",
+    "objective": "Objetivo",
+    "showLess": "Mostrar menos",
+    "showMore": "Mostrar más",
+    "timeline": "Línea de tiempo",
+    "noEventsYet": "Aún no hay eventos"
+  },
+  "subagentSpawnGroup": {
+    "stopSubagentAria": "Detener subagente",
+    "collapseDetailsAria": "Contraer detalles del subagente",
+    "collapse": "Contraer"
+  },
+  "surfaceRouter": {
+    "cancelled": "Cancelado",
+    "done": "Hecho",
+    "unsupportedType": "Tipo de superficie no admitido: {type}",
+    "unknownSurface": "Superficie desconocida",
+    "displayFailedNamed": "No se pudo mostrar \"{title}\".",
+    "displayFailed": "No se pudo mostrar este contenido."
+  },
+  "tiptapDocumentEditor": {
+    "comment": "Comentar",
+    "feedbackPlaceholder": "Añade tu comentario…",
+    "adding": "Añadiendo…"
   },
   "toolDefinitionsContent": {
     "defaultValue": "predeterminado: {value}",
@@ -630,5 +829,43 @@
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
     "doctorUnavailable": "El Doctor no está disponible en este asistente."
+  },
+  "visualSurface": {
+    "visual": "Visual"
+  },
+  "voiceFirstRunCard": {
+    "title": "Modo de voz",
+    "description": "Una conversación hablada, manos libres, con {name}.",
+    "yourAssistant": "tu asistente",
+    "speakNaturally": "Habla con naturalidad y {name} responde en voz alta.",
+    "muteMic": "Silencia el micrófono sin terminar la sesión.",
+    "liveCaptions": "Activa los subtítulos en vivo cuando quieras.",
+    "listeningLanguage": "Idioma de escucha",
+    "voiceSettings": "Ajustes de voz",
+    "startTalking": "Empezar a hablar",
+    "listeningLanguageApplies": "Se aplica a partir de tu próximo turno hablado.",
+    "backAria": "Atrás"
+  },
+  "voiceSessionPill": {
+    "groupAria": "Sesión de voz",
+    "unmuteMic": "Activar micrófono",
+    "muteMic": "Silenciar micrófono",
+    "goToThreadAria": "Ir al hilo de la sesión de voz",
+    "unmuteAssistant": "Activar sonido del asistente",
+    "muteAssistant": "Silenciar asistente",
+    "endSession": "Terminar sesión de voz",
+    "dismiss": "Descartar"
+  },
+  "webSearchStepRow": {
+    "moreCount": "+{count} más"
+  },
+  "workflowLeafDetail": {
+    "input": "Entrada",
+    "output": "Salida",
+    "prompt": "Prompt",
+    "noPromptSummary": "Sin resumen del prompt",
+    "result": "Resultado",
+    "running": "En ejecución…",
+    "noResultSummary": "Sin resumen del resultado"
   }
 }

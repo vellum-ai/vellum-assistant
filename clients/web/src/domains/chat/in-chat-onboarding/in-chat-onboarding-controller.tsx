@@ -20,6 +20,7 @@ import {
   emitInChatTourCompleted,
   emitInChatTourSkipped,
 } from "./tour-telemetry";
+import { useTranslation } from "@/i18n";
 
 /**
  * SPIKE — orchestrator for the in-chat onboarding UI prototype, mounted
@@ -36,6 +37,7 @@ import {
  * tour.
  */
 export function InChatOnboardingController() {
+  const { t } = useTranslation("chat");
   const prototypeActive = useInChatOnboardingStore.use.prototypeActive();
   const stage = useInChatOnboardingStore.use.stage();
   const tourRun = useInChatOnboardingStore.use.tourRun();
@@ -109,7 +111,7 @@ export function InChatOnboardingController() {
       // Contrast-toned over the intro's avatar-colored flood.
       style={{ color: introFg }}
     >
-      Skip tour
+      {t("inChatOnboardingController.skipTour")}
     </Button>
   );
 
@@ -128,7 +130,7 @@ export function InChatOnboardingController() {
           className="h-11 w-[234px] text-base"
           onClick={() => tourRef.current?.next()}
         >
-          Show me around
+          {t("inChatOnboardingController.showMeAround")}
         </Button>
         {skipButton}
       </div>
@@ -138,7 +140,7 @@ export function InChatOnboardingController() {
         rightIcon={<ArrowRight size={16} />}
         onClick={() => tourRef.current?.next()}
       >
-        Next
+        {t("inChatOnboardingController.next")}
       </Button>
     )
   ) : null;
