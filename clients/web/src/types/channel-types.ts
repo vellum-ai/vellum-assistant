@@ -30,15 +30,14 @@ export interface AssistantChannelState {
   /** Whether the channel is working right now. Lists render this directly. */
   status: ChannelStatus;
   /**
-   * Whether setup is finished, regardless of whether it is working. Only the
-   * wizard-versus-card decision reads this: a configured channel that is
-   * momentarily down must not be sent back to re-enter correct credentials.
+   * Whether setup is finished, regardless of whether it is working.
    *
-   * Optional because a caller that does not distinguish the two has nothing to
-   * say here. Absent means "assume configured exactly when it is working",
-   * which is what every consumer did before the distinction existed.
+   * Separate from {@link AssistantChannelState.status} because the two answer
+   * different questions and a channel can be configured while down. Required,
+   * so a caller that means "is this set up" cannot reach for the working state
+   * by omission: which one a decision wants has to be stated.
    */
-  configured?: boolean;
+  configured: boolean;
   /** Absent when the channel measures nothing operational. */
   health?: ChannelReadinessSnapshot["health"];
   address?: string;

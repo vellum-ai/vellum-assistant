@@ -441,9 +441,7 @@ export function ContactsPage({
   // the inbound Socket Mode connection is down, and gating on the connection
   // state would hide a working action during a reconnect.
   const slackReady = channelsController.channels.some(
-    (channel) =>
-      channel.key === "slack" &&
-      (channel.configured ?? channel.status === "ready"),
+    (channel) => channel.key === "slack" && channel.configured,
   );
 
   const handleLinkAccount = useCallback(
