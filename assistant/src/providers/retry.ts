@@ -1,4 +1,7 @@
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import {
   resolveUsageAttribution,
@@ -334,7 +337,7 @@ function isRetryableError(error: unknown): boolean {
  * The managed proxy's preflight guard rejects a model with no billing rate
  * card using a 400 whose body carries this phrase (django
  * `app/runtime_proxy/views.py`). It marks a model rename/retirement incident
- * — a route problem, not a request problem — so it is fallback-eligible even
+ * (a route problem, not a request problem), so it is fallback-eligible even
  * though 400s are otherwise final.
  */
 const MANAGED_PROXY_UNSUPPORTED_MODEL_PATTERN =
@@ -343,7 +346,10 @@ const MANAGED_PROXY_UNSUPPORTED_MODEL_PATTERN =
 /** Outage-shaped failures that justify switching to a backup profile. */
 function isFallbackEligibleError(
   error: unknown,
-  opts: { retriesExhausted: boolean },
+  opts: {
+    retriesExhausted: boolean;
+    credentialSource?: ProviderCredentialSource;
+  },
 ): boolean {
   // Deterministic request failures and caller-initiated aborts never justify
   // a different route (same short-circuits as `isRetryableError`): the same
@@ -356,18 +362,23 @@ function isFallbackEligibleError(
     return false;
   }
   // (a) The retry loop burned its whole budget on a transient error
-  // (429/5xx/overloaded/network/transport-abort) — the primary route is down.
+  // (429/5xx/overloaded/network/transport-abort): the primary route is down.
   if (opts.retriesExhausted && isRetryableError(error)) {
     return true;
   }
   if (!(error instanceof ProviderError)) {
     return false;
   }
-  // (b) Invalid managed credential (the invalid-key incident). Only reached
-  // after `sendMessage`'s credential-refresh path has already been attempted
-  // for managed routes — same status/reason gate as
+  // (b) Invalid managed credential (the invalid-key incident). Applies only
+  // to `vellum-managed` routes, where the platform owns the credential and a
+  // broken key is a platform incident. A BYOK or OAuth-subscription route
+  // with a broken personal credential must surface the auth error so the
+  // user can fix it, not silently reroute to a differently billed backup.
+  // Only reached after `sendMessage`'s credential-refresh path has already
+  // been attempted for managed routes: same status/reason gate as
   // `shouldRefreshManagedCredential`.
   if (
+    opts.credentialSource === "vellum-managed" &&
     (error.statusCode === 401 || error.statusCode === 403) &&
     (error.reason === undefined ||
       error.reason === "unknown" ||
@@ -412,7 +423,7 @@ function fallbackErrorType(error: unknown, retriesExhausted: boolean): string {
  * `config.model` pin (the live per-conversation `modelOverride` feature)
  * disqualifies the request: the pin wins over any resolved profile model in
  * `normalizeSendMessageOptions`, and silently serving a different model
- * against an explicit pin would violate user intent — a profile user asked
+ * against an explicit pin would violate user intent: a profile user asked
  * for a tier, a pinning user asked for that exact model. Pinned conversations
  * keep today's retry-then-error behavior.
  */
@@ -990,9 +1001,9 @@ export class RetryProvider implements Provider {
        * Escalation hook: resolve a backup route (a ready adapter plus the
        * backup profile key) for a request whose primary route failed with an
        * outage-shaped error (see {@link isFallbackEligibleError}). The
-       * callback owns all profile knowledge — it inspects the failed call's
+       * callback owns all profile knowledge: it inspects the failed call's
        * winning profile and returns null when that profile declares no
-       * `fallbackProfile` — mirroring how `refreshCredentialProvider` keeps
+       * `fallbackProfile`, mirroring how `refreshCredentialProvider` keeps
        * this wrapper ignorant of credential storage. One hop max; the
        * fallback attempt itself gets no retry loop.
        */
@@ -1160,7 +1171,10 @@ export class RetryProvider implements Provider {
           !fallbackAttempted &&
           this.options.resolveFallbackRoute !== undefined &&
           canReRouteToFallbackProfile(options) &&
-          isFallbackEligibleError(error, { retriesExhausted })
+          isFallbackEligibleError(error, {
+            retriesExhausted,
+            credentialSource: this.options.credentialSource,
+          })
         ) {
           fallbackAttempted = true;
           const fallbackResult = await this.sendOnFallbackRoute(
@@ -1183,7 +1197,7 @@ export class RetryProvider implements Provider {
    * Attempt the failed request once on the backup route resolved by
    * `resolveFallbackRoute`. Returns null when no backup route applies (the
    * caller rethrows the original error unchanged); throws the fallback
-   * error — with the original error attached as `cause` — when the backup
+   * error (with the original error attached as `cause`) when the backup
    * attempt itself fails.
    */
   private async sendOnFallbackRoute(
@@ -1206,10 +1220,45 @@ export class RetryProvider implements Provider {
       return null;
     }
 
+    // Guard against a backup profile that does not actually apply: the
+    // resolver skips a disabled, incomplete, or missing override profile and
+    // falls through to the next rung (often the failed primary), while the
+    // request would still dispatch on the backup adapter, producing a
+    // provider/model mismatch. Verify the backup profile wins the winner
+    // selection the re-normalization below will perform; if it does not,
+    // surface the original error instead of sending a mismatched request.
+    const failedConfig = options?.config;
+    const callSite = failedConfig?.callSite;
+    const selectionSeed = failedConfig?.selectionSeed;
+    const selection =
+      callSite === undefined
+        ? null
+        : selectWinningProfile(callSite, getConfig().llm, {
+            overrideProfile: route.overrideProfile,
+            ...(selectionSeed !== undefined ? { selectionSeed } : {}),
+          });
+    if (
+      selection === null ||
+      selection.source !== "override" ||
+      selection.profileName !== route.overrideProfile
+    ) {
+      log.warn(
+        {
+          provider: this.name,
+          connectionName: this.options.connectionName,
+          overrideProfile: route.overrideProfile,
+          selectionSource: selection?.source,
+          selectedProfile: selection?.profileName,
+        },
+        "Backup profile did not apply on re-resolution; rethrowing the original error",
+      );
+      return null;
+    }
+
     // Re-resolve the ORIGINAL caller options with the backup profile forced
     // (`resolveCallSiteConfig` floats a forced override to the top of the
     // selection chain). Explicit per-call `max_tokens`/`effort`/`thinking`
-    // are cleared so the backup profile's resolved values win — the pin gate
+    // are cleared so the backup profile's resolved values win; the pin gate
     // in `canReRouteToFallbackProfile` already excluded explicit
     // `config.model`. Re-normalizing on a callSite-bearing config also
     // restamps the usage-attribution headers from the backup resolution, so

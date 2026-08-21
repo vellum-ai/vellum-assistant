@@ -132,7 +132,7 @@ async function captureError(promise: Promise<unknown>): Promise<unknown> {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-describe("RetryProvider — fallback-route escalation", () => {
+describe("RetryProvider fallback-route escalation", () => {
   test("retries exhaust on 503 → callback invoked once, backup serves, headers restamped", async () => {
     const primary = failingProvider(
       "openai",
@@ -202,6 +202,32 @@ describe("RetryProvider — fallback-route escalation", () => {
     expect(route.calls()).toBe(1);
     expect(result.model).toBe("backup-model");
   });
+
+  test.each(["byok", "oauth-subscription", "no-auth", undefined] as const)(
+    "401 invalid_credentials on a %s route → callback never invoked, auth error surfaces",
+    async (credentialSource) => {
+      // The credential eligibility case is restricted to `vellum-managed`
+      // routes. A broken personal credential must surface so the user can
+      // fix it, not silently reroute to a differently billed backup.
+      const authError = new ProviderError("Unauthorized", "openai", 401, {
+        reason: "invalid_credentials",
+      });
+      const primary = failingProvider("openai", () => authError);
+      const route = makeRoute(backupProvider().provider);
+      const wrapped = new RetryProvider(primary.provider, {
+        ...(credentialSource !== undefined ? { credentialSource } : {}),
+        resolveFallbackRoute: route.resolveFallbackRoute,
+      });
+
+      const thrown = await captureError(
+        wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+      );
+
+      expect(thrown).toBe(authError);
+      expect(primary.calls()).toBe(1);
+      expect(route.calls()).toBe(0);
+    },
+  );
 
   test("404 model-not-found (non-retryable) → falls back immediately", async () => {
     const primary = failingProvider(
@@ -311,7 +337,7 @@ describe("RetryProvider — fallback-route escalation", () => {
 
   test("explicit config.model pin + outage-shaped error → callback never invoked, original error rethrown", async () => {
     // Per-conversation `modelOverride` is a live feature; a pinned
-    // conversation keeps today's retry-then-error behavior — the fallback
+    // conversation keeps today's retry-then-error behavior. The fallback
     // must never silently serve a different model against an explicit pin.
     const finalError = new ProviderError("Service Unavailable", "openai", 503);
     const primary = failingProvider("openai", () => finalError);
@@ -353,6 +379,66 @@ describe("RetryProvider — fallback-route escalation", () => {
     expect((thrown as { retriesExhausted?: boolean }).retriesExhausted).toBe(
       true,
     );
+  });
+
+  test("route returned for a disabled backup profile → no send on the backup adapter, original error rethrown", async () => {
+    // A disabled override profile is skipped by winner selection, which
+    // would resolve back to the primary profile while the request still
+    // dispatches on the backup adapter (provider/model mismatch). The guard
+    // must refuse the fallback send and surface the original error.
+    setConfig("llm", {
+      ...LLM_FIXTURE,
+      profiles: {
+        ...LLM_FIXTURE.profiles,
+        "backup-profile": {
+          ...LLM_FIXTURE.profiles["backup-profile"],
+          status: "disabled",
+        },
+      },
+    });
+    const originalError = new ProviderError("model not found", "openai", 404);
+    const primary = failingProvider("openai", () => originalError);
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(thrown).toBe(originalError);
+    expect(route.calls()).toBe(1);
+    expect(backup.calls()).toBe(0);
+  });
+
+  test("route returned for an incomplete backup profile (no model) → no send on the backup adapter, original error rethrown", async () => {
+    setConfig("llm", {
+      ...LLM_FIXTURE,
+      profiles: {
+        ...LLM_FIXTURE.profiles,
+        "backup-profile": {
+          source: "user",
+          provider: "anthropic",
+        },
+      },
+    });
+    const originalError = new ProviderError("model not found", "openai", 404);
+    const primary = failingProvider("openai", () => originalError);
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(thrown).toBe(originalError);
+    expect(route.calls()).toBe(1);
+    expect(backup.calls()).toBe(0);
   });
 
   test("backup also fails → fallback error rethrown with original as cause, no second fallback attempt", async () => {
