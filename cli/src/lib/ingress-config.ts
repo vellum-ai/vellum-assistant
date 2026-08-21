@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
+
 import {
   lookupAssistantByIdentifier,
   saveAssistantEntry,
@@ -138,14 +140,16 @@ export function loadLastTunnel(workspaceDir: string): LastTunnelRecord | null {
     | undefined;
   const provider = record?.provider;
   const publicBaseUrl = record?.publicBaseUrl;
+  // A hand-edited config must not hand callers an unusable address, so the URL
+  // faces the same absolute HTTP(S) constraint as every other public base URL.
   if (
     !isTunnelProviderName(provider) ||
     typeof publicBaseUrl !== "string" ||
-    !publicBaseUrl.trim()
+    !normalizeHttpPublicBaseUrl(publicBaseUrl)
   ) {
     return null;
   }
-  return { provider, publicBaseUrl };
+  return { provider, publicBaseUrl: publicBaseUrl.trim() };
 }
 
 /** Read the assistant ID the last tunnel fronted, or null when absent. */

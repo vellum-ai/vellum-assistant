@@ -203,6 +203,24 @@ describe("last-tunnel record", () => {
     expect(loadLastTunnel(emptyUrl)).toBeNull();
   });
 
+  test("loadLastTunnel rejects a URL that is not absolute HTTP(S)", () => {
+    for (const publicBaseUrl of [
+      "not-a-url",
+      "one.ngrok.app",
+      "ftp://one.ngrok.app",
+      "https://one.ngrok.app?token=x",
+    ]) {
+      const ws = makeWorkspace();
+      writeFileSync(
+        join(ws, "config.json"),
+        JSON.stringify({
+          ingress: { lastTunnel: { provider: "ngrok", publicBaseUrl } },
+        }),
+      );
+      expect(loadLastTunnel(ws)).toBeNull();
+    }
+  });
+
   test("every provider in the shared registry round-trips", () => {
     for (const provider of TUNNEL_PROVIDERS) {
       const ws = makeWorkspace();
