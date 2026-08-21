@@ -17,7 +17,7 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getDeviceId } from "@/runtime/device-id";
-import { detectElectronHostOS } from "@/runtime/platform-detection";
+import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import {
   getActiveOrganizationIdForRequests,
@@ -449,7 +449,9 @@ async function platformPost<T>(
   });
 
   const sessionToken = getElectronSessionToken();
-  const electronHostOS = detectElectronHostOS();
+  const electronHostOS = isElectron()
+    ? (window.vellum?.hostOS ?? "macos")
+    : null;
   if (electronHostOS) {
     if (!sessionToken) {
       throw new Error("Sign in to Vellum to register this local assistant.");

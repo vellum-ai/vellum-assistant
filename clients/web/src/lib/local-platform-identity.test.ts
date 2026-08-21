@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ElectronHostOS } from "@/runtime/platform-detection";
-
 const RUNTIME_ASSISTANT_ID = "qa-loopback-auth";
 const PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3c";
 const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
@@ -34,7 +32,8 @@ let reprovisionApiKeyBody: unknown;
 let requests: RecordedRequest[] = [];
 let secretsUnavailable = false;
 let storedSecrets: string[] = [];
-let electronHostOS: ElectronHostOS | null = null;
+let isElectronValue = false;
+let electronHostOS: "macos" | "windows" | undefined;
 let electronSessionToken: string | null = null;
 
 const buildVellumMutatingHeadersMock = mock(
@@ -78,11 +77,17 @@ mock.module("@/runtime/device-id", () => ({
   getDeviceId: () => browserDeviceId,
 }));
 
-const platformDetection = await import("@/runtime/platform-detection");
-mock.module("@/runtime/platform-detection", () => ({
-  ...platformDetection,
-  detectElectronHostOS: () => electronHostOS,
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => isElectronValue,
 }));
+
+Object.defineProperty(window, "vellum", {
+  configurable: true,
+  get: () =>
+    electronHostOS
+      ? { platform: "electron", hostOS: electronHostOS }
+      : undefined,
+});
 
 mock.module("@/runtime/session-token", () => ({
   getElectronSessionToken: () => electronSessionToken,
@@ -160,7 +165,8 @@ beforeEach(() => {
   requests = [];
   secretsUnavailable = false;
   storedSecrets = [];
-  electronHostOS = null;
+  isElectronValue = false;
+  electronHostOS = undefined;
   electronSessionToken = null;
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
@@ -329,6 +335,7 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
   });
 
   test("reports the Windows Electron host during platform registration", async () => {
+    isElectronValue = true;
     electronHostOS = "windows";
     electronSessionToken = "electron-session-token";
     statusBody = {
