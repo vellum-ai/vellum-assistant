@@ -7,30 +7,19 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AssistantEntry } from "../lib/assistant-config.js";
-import * as loopbackFetch from "../lib/loopback-fetch.js";
-import * as stepRunner from "../lib/step-runner.js";
-
-const realLoopbackFetch = { ...loopbackFetch };
-const realStepRunner = { ...stepRunner };
-
-const loopbackSafeFetchMock = mock<typeof loopbackFetch.loopbackSafeFetch>();
-const execMock = mock<typeof stepRunner.exec>(async () => {});
-
-mock.module("../lib/loopback-fetch.js", () => ({
-  ...realLoopbackFetch,
-  loopbackSafeFetch: loopbackSafeFetchMock,
-}));
-
-mock.module("../lib/step-runner.js", () => ({
-  ...realStepRunner,
-  exec: execMock,
-}));
-
+import { restoreBackup } from "../lib/backup-ops.js";
 import {
   bundleFileSizeBytes,
   formatBundleSizeMb,
@@ -39,12 +28,11 @@ import {
   stageBundleForRestore,
   stagingTargetFromEntry,
 } from "../lib/bundle-staging.js";
-import { restoreBackup } from "../lib/backup-ops.js";
 import * as guardianToken from "../lib/guardian-token.js";
+import * as loopbackFetch from "../lib/loopback-fetch.js";
+import * as stepRunner from "../lib/step-runner.js";
 
-function makeEntry(
-  overrides: Partial<AssistantEntry> = {},
-): AssistantEntry {
+function makeEntry(overrides: Partial<AssistantEntry> = {}): AssistantEntry {
   return {
     assistantId: "assistant-123",
     runtimeUrl: "http://127.0.0.1:7831",
@@ -56,23 +44,27 @@ function makeEntry(
 }
 
 let tmpRoot: string;
+let fetchSpy: ReturnType<typeof spyOn<typeof loopbackFetch, "loopbackSafeFetch">>;
+let execSpy: ReturnType<typeof spyOn<typeof stepRunner, "exec">>;
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "cli-bundle-staging-"));
-  loopbackSafeFetchMock.mockReset();
-  execMock.mockReset();
-  execMock.mockResolvedValue(undefined);
+  fetchSpy = spyOn(loopbackFetch, "loopbackSafeFetch");
+  execSpy = spyOn(stepRunner, "exec").mockResolvedValue(undefined);
 });
 
 afterEach(() => {
+  fetchSpy.mockRestore();
+  execSpy.mockRestore();
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
 describe("stagingTargetFromEntry", () => {
   test("returns docker staging for docker topology", () => {
-    expect(
-      stagingTargetFromEntry(makeEntry({ cloud: "docker" })),
-    ).toEqual({ kind: "docker", assistantId: "assistant-123" });
+    expect(stagingTargetFromEntry(makeEntry({ cloud: "docker" }))).toEqual({
+      kind: "docker",
+      assistantId: "assistant-123",
+    });
   });
 
   test("returns local staging when instanceDir is present", () => {
@@ -80,7 +72,9 @@ describe("stagingTargetFromEntry", () => {
       stagingTargetFromEntry(
         makeEntry({
           cloud: "local",
-          resources: { instanceDir: "/tmp/instance" } as AssistantEntry["resources"],
+          resources: {
+            instanceDir: "/tmp/instance",
+          } as AssistantEntry["resources"],
         }),
       ),
     ).toEqual({ kind: "local", instanceDir: "/tmp/instance" });
@@ -115,6 +109,7 @@ describe("stageBundleForRestore", () => {
     );
     expect(staged.relativePath.endsWith(".vbundle")).toBe(true);
     expect(readFileSync(dest, "utf8")).toBe("bundle-bytes");
+    expect(execSpy).not.toHaveBeenCalled();
 
     await staged.cleanup();
     expect(existsSync(dest)).toBe(false);
@@ -129,21 +124,21 @@ describe("stageBundleForRestore", () => {
       hostBundle,
     );
 
-    expect(execMock).toHaveBeenCalledWith("docker", [
+    expect(execSpy).toHaveBeenCalledWith("docker", [
       "exec",
       "assistant-123-assistant",
       "mkdir",
       "-p",
       `/workspace/${RESTORE_STAGING_DIRNAME}`,
     ]);
-    expect(execMock).toHaveBeenCalledWith("docker", [
+    expect(execSpy).toHaveBeenCalledWith("docker", [
       "cp",
       hostBundle,
       `assistant-123-assistant:/workspace/${staged.relativePath}`,
     ]);
 
     await staged.cleanup();
-    expect(execMock).toHaveBeenCalledWith("docker", [
+    expect(execSpy).toHaveBeenCalledWith("docker", [
       "exec",
       "assistant-123-assistant",
       "rm",
@@ -154,9 +149,9 @@ describe("stageBundleForRestore", () => {
 });
 
 describe("importStagedBundle", () => {
-  test("returns a direct 200 daemon response", async () => {
+  test("returns a direct 200 assistant response", async () => {
     const payload = { success: true, summary: { total_files: 1 } };
-    loopbackSafeFetchMock.mockResolvedValue(
+    fetchSpy.mockResolvedValue(
       new Response(JSON.stringify(payload), { status: 200 }),
     );
 
@@ -168,8 +163,8 @@ describe("importStagedBundle", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(payload);
-    expect(loopbackSafeFetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = loopbackSafeFetchMock.mock.calls[0];
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("http://127.0.0.1:7831/v1/migrations/import");
     expect(init?.headers).toMatchObject({
       Authorization: "Bearer token",
@@ -190,7 +185,7 @@ describe("importStagedBundle", () => {
     globalThis.setTimeout = timeoutSpy as unknown as typeof setTimeout;
 
     try {
-      loopbackSafeFetchMock
+      fetchSpy
         .mockResolvedValueOnce(
           new Response(JSON.stringify({ job_id: "job-1", status: "pending" }), {
             status: 202,
@@ -222,8 +217,8 @@ describe("importStagedBundle", () => {
         success: true,
         summary: { total_files: 2 },
       });
-      expect(loopbackSafeFetchMock).toHaveBeenCalledTimes(3);
-      expect(String(loopbackSafeFetchMock.mock.calls[1][0])).toBe(
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(String(fetchSpy.mock.calls[1][0])).toBe(
         "http://127.0.0.1:7831/v1/migrations/import/job-1/status",
       );
     } finally {
@@ -244,7 +239,7 @@ describe("restoreBackup staged path", () => {
       accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     } as ReturnType<typeof guardianToken.loadGuardianToken>);
 
-    loopbackSafeFetchMock.mockResolvedValue(
+    fetchSpy.mockResolvedValue(
       new Response(JSON.stringify({ success: true }), { status: 200 }),
     );
 
@@ -256,8 +251,8 @@ describe("restoreBackup staged path", () => {
         { kind: "local", instanceDir },
       );
       expect(ok).toBe(true);
-      expect(loopbackSafeFetchMock).toHaveBeenCalledTimes(1);
-      const init = loopbackSafeFetchMock.mock.calls[0][1];
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const init = fetchSpy.mock.calls[0][1];
       expect(init?.headers).toMatchObject({
         "Content-Type": "application/json",
       });
