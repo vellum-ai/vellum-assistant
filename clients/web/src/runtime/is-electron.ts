@@ -23,9 +23,11 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -72,9 +74,11 @@ export type {
   BundleScanData,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -307,6 +311,7 @@ declare global {
         requestStop(): void;
         onStopRequested(callback: () => void): () => void;
         setInteractive(interactive: boolean): void;
+        setHitRegion?(region: DictationOverlayHitRegion | null): void;
       };
       notifications?: {
         show(
@@ -349,6 +354,9 @@ declare global {
         setComposing?(composing: boolean): void;
         submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
+        advanceIntro?(action: CompanionIntroAction): void;
+        showContextMenu?(): void;
+        openLink?(url: string): void;
       };
     };
   }

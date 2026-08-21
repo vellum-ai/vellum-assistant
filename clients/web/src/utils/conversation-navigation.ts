@@ -7,7 +7,7 @@ import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isAppMainView } from "@/stores/pane-presentation";
+import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
@@ -88,9 +88,7 @@ export function navigateToConversation(
   // a same-conversation navigation kills the inline cards for subagents
   // that are still running: the store repopulates only from live SSE
   // events, so the spawned entries can't come back mid-run (LUM-2875).
-  if (
-    conversationId !== useConversationStore.getState().activeConversationId
-  ) {
+  if (conversationId !== useConversationStore.getState().activeConversationId) {
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();
     useViewerStore.getState().clearTranscriptPanelPayloads();

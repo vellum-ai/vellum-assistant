@@ -20,9 +20,13 @@ import {
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ThemeToggle } from "@/components/theme-toggle";
+import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
@@ -30,6 +34,7 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
+import { PreferencesUsagePanel } from "./preferences-usage-panel";
 
 // Modal only opens when the user clicks "Share Feedback" — defer loading
 // until then to keep the modal's form deps (markdown editor, etc.) out of
@@ -40,12 +45,45 @@ const ShareFeedbackModal = lazy(() =>
   })),
 );
 
+// Same treatment for the top-up checkout, which only the usage panel's
+// exhausted strip opens.
+const AddCreditsModal = lazy(() =>
+  import("@/components/add-credits-modal").then((m) => ({
+    default: m.AddCreditsModal,
+  })),
+);
+
 /**
  * The trigger names the menu it opens, never the signed-in account. This is a
  * settings entry point rather than a profile row, and the account's identity
  * belongs on the Settings page the menu links to.
  */
 const PREFERENCES_LABEL = "Preferences";
+
+/**
+ * Whether the credits row belongs below the usage panel.
+ *
+ * Under `obscure-credits` the dollar balance stays hidden while the included
+ * bundle still has room: the bar is the reading that matters there, and a
+ * second number beside it only invites the arithmetic the flag exists to
+ * avoid. Once the bundle is spent the next turn draws on the wallet instead,
+ * so the row that names it comes back, unless the wallet is empty too and the
+ * panel's add-credits strip is already saying so.
+ *
+ * With no reading to hide behind, the row stays: the panel renders nothing
+ * without one, and hiding the row too would leave the menu with no balance and
+ * no way to buy more. With the flag off the row is whatever it has always
+ * been.
+ */
+export function showsMenuCredits(
+  obscureCredits: boolean,
+  usage: PreferencesUsage | null,
+): boolean {
+  if (!obscureCredits || usage == null) {
+    return true;
+  }
+  return usage.spent && !usage.exhausted;
+}
 
 export interface PreferencesMenuProps {
   assistantId?: string | null;
@@ -74,6 +112,10 @@ export function PreferencesMenu({
   const isTouchMobile = useTouchMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  /* Held here rather than in the menu body: the popover and the bottom sheet
+     both unmount their content on close, and the strip closes the menu as it
+     opens the checkout. */
+  const [isAddCreditsOpen, setIsAddCreditsOpen] = useState(false);
 
   if (!isAuthenticated) {
     return null;
@@ -144,6 +186,8 @@ export function PreferencesMenu({
     <PreferencesMenuContent
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
+      onAddCredits={() => setIsAddCreditsOpen(true)}
+      activeConversationId={activeConversationId}
     />
   );
 
@@ -190,6 +234,15 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
+
+      {isAddCreditsOpen ? (
+        <LazyBoundary>
+          <AddCreditsModal
+            open={isAddCreditsOpen}
+            onOpenChange={setIsAddCreditsOpen}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }
@@ -197,18 +250,30 @@ export function PreferencesMenu({
 interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
+  onAddCredits: () => void;
+  activeConversationId?: string | null;
 }
 
 function PreferencesMenuContent({
   onClose,
   onShareFeedback,
+  onAddCredits,
+  activeConversationId,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const platformGate = usePlatformGate();
-  const { enabled: showBillingRows, balance: effectiveBalance } =
-    useBillingBalanceStatus();
+  const {
+    enabled: showBillingRows,
+    balance: effectiveBalance,
+    availableUsageBalance,
+  } = useBillingBalanceStatus();
   const isNativeAndroid = useIsNativeAndroid();
+  /* The same reading the usage panel below draws, composed once so the row and
+     the bar can never disagree about how much of the bundle is left. */
+  const obscureCredits = useObscureCredits();
+  const usage = usePreferencesUsage({ conversationId: activeConversationId });
+  const showCredits = showsMenuCredits(obscureCredits, usage);
 
   return (
     <>
@@ -216,10 +281,32 @@ function PreferencesMenuContent({
 
       <div className="my-2 border-t border-[var(--border-subtle)]" />
 
-      {showBillingRows && effectiveBalance !== null ? (
+      <PreferencesUsagePanel
+        conversationId={activeConversationId}
+        onOpenBilling={() => {
+          onClose();
+          navigate(routes.settings.usageBilling);
+        }}
+        onAddCredits={
+          isNativeAndroid
+            ? undefined
+            : () => {
+                onClose();
+                onAddCredits();
+              }
+        }
+      />
+
+      {showBillingRows && effectiveBalance !== null && showCredits ? (
         <div className="my-2">
           <CreditsCard
-            balance={formatWholeCredits(effectiveBalance)}
+            balance={formatWholeCredits(
+              displayedCreditsUsd(
+                obscureCredits,
+                effectiveBalance,
+                availableUsageBalance,
+              ),
+            )}
             onAddCredits={
               isNativeAndroid
                 ? undefined

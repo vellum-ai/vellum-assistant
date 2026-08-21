@@ -467,7 +467,9 @@ describe("the companion surface's Watch action", () => {
   };
 
   test("sits on the idle pill beside Talk and Type", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
+    const { container } = render(
+      <CompanionSurface phase="hover" watchEnabled />,
+    );
     expect(watchOf(container).textContent).toBe("Watch");
   });
 
@@ -476,6 +478,7 @@ describe("the companion surface's Watch action", () => {
     const { container } = render(
       <CompanionSurface
         phase="hover"
+        watchEnabled
         onWatch={() => {
           presses += 1;
         }}
@@ -492,12 +495,16 @@ describe("the companion surface's Watch action", () => {
    * they are on will end it.
    */
   test("reports its pressed state while the session runs", () => {
-    const { container } = render(<CompanionSurface phase="hover" watching />);
+    const { container } = render(
+      <CompanionSurface phase="hover" watching watchEnabled />,
+    );
     expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
   });
 
   test("reports the state it is actually in while nothing runs", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
+    const { container } = render(
+      <CompanionSurface phase="hover" watchEnabled />,
+    );
     expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
   });
 
@@ -508,13 +515,15 @@ describe("the companion surface's Watch action", () => {
    */
   test("reads as held down while the session runs", () => {
     const { container } = render(
-      <CompanionSurface phase="watching" watching />,
+      <CompanionSurface phase="watching" watching watchEnabled />,
     );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
   });
 
   test("reads as idle while no session runs", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
+    const { container } = render(
+      <CompanionSurface phase="hover" watchEnabled />,
+    );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(false);
   });
 
@@ -524,8 +533,104 @@ describe("the companion surface's Watch action", () => {
    * session is running.
    */
   test("reads as held down on the idle pill while the session runs", () => {
-    const { container } = render(<CompanionSurface phase="hover" watching />);
+    const { container } = render(
+      <CompanionSurface phase="hover" watching watchEnabled />,
+    );
     expect(watchOf(container).classList.contains("bg-white/15")).toBe(true);
+  });
+});
+
+/**
+ * The flag Watch is behind, as the surface draws it.
+ *
+ * The surface has no way of evaluating it: the window it lives in never
+ * hydrates a flag store, so the answer arrives on the pushed state and this
+ * prop is where it lands. What a case can hold is that the way into a session
+ * is absent without a positive answer, and that a session already running is
+ * still drawn and still stoppable when the answer goes away, because a capture
+ * the user can neither see nor end is the failure this surface exists to
+ * prevent.
+ */
+describe("the companion surface's Watch flag", () => {
+  const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Watch"]');
+
+  test("draws no way in when the answer has not arrived", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws no way in when the answer is no", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" watchEnabled={false} />,
+    );
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("leaves Talk and Type where they were", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(container.querySelector('button[aria-label="Talk"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Type"]')).not.toBeNull();
+  });
+
+  /**
+   * The flag hides the door, never the exit. A session that outlives the
+   * answer is one the user has to be able to see and to end.
+   */
+  test("still draws the running session's ring", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
+    );
+    expect(container.querySelector(".companion-working-ring")).not.toBeNull();
+  });
+
+  test("still draws the stop control on the card", () => {
+    const { container } = render(<CompanionSurface phase="typing" watching />);
+    expect(
+      container.querySelector('button[aria-label="Stop watching"]'),
+    ).not.toBeNull();
+  });
+
+  /**
+   * The idle row is where Watch itself is the stop, so hiding Watch there would
+   * leave a running session with nothing that ends it. The stop takes its
+   * place instead.
+   */
+  test("puts the stop where the way in would have been", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
+    );
+    expect(
+      container.querySelector('button[aria-label="Stop watching"]'),
+    ).not.toBeNull();
+  });
+
+  test("reports that press as the toggle it is", () => {
+    let presses = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="watching"
+        watching
+        onWatch={() => {
+          presses += 1;
+        }}
+      />,
+    );
+    const stop = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop watching"]',
+    );
+    if (!stop) {
+      throw new Error("Expected the stop control to render");
+    }
+    fireEvent.click(stop);
+    expect(presses).toBe(1);
+  });
+
+  test("draws no stop while nothing is running", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(
+      container.querySelector('button[aria-label="Stop watching"]'),
+    ).toBeNull();
   });
 });
 

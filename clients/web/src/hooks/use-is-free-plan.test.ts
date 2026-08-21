@@ -47,6 +47,7 @@ function subscription(
     plan_id: "pro",
     status: "active",
     renewal_date: null,
+    current_period_start: null,
     current_period_end: "2026-07-10T00:00:00Z",
     cancel_at_period_end: false,
     cancel_at: null,

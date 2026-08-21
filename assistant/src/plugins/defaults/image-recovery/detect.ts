@@ -13,6 +13,14 @@
  * classification matters because retrying with the same image is futile — the
  * recovery path must resize, relabel, or note it instead.
  *
+ * OpenAI-compatible providers reject the same class of input in their own
+ * wording ("The image data you provided does not represent a valid image.
+ * Please check your input and try again with one of the supported image
+ * formats: [image/jpeg, image/png, image/gif, image/webp]"), so the
+ * unsupported-format patterns carry that shape. Without them an OpenAI-family
+ * 400 falls through to the generic provider-error copy and takes the whole
+ * turn down with no hint that an attachment is what broke it.
+ *
  * Exported as the single source of truth: the image-recovery hook reads these
  * to recognize the rejections it can recover, and `daemon/conversation-error`
  * imports them so the user-facing classification stays in lockstep with what
@@ -30,6 +38,11 @@ export const IMAGE_UNPROCESSABLE_PATTERNS: readonly RegExp[] = [
 
 export const IMAGE_MEDIA_TYPE_MISMATCH_PATTERNS: readonly RegExp[] = [
   /image does not match the provided media type/i,
+];
+
+export const IMAGE_UNSUPPORTED_FORMAT_PATTERNS: readonly RegExp[] = [
+  /does not represent a valid image/i,
+  /supported image formats?:/i,
 ];
 
 /** Whether an error message indicates an image-input dimension/payload failure. */
@@ -53,11 +66,21 @@ export function isImageMediaTypeMismatchError(message: string): boolean {
   return IMAGE_MEDIA_TYPE_MISMATCH_PATTERNS.some((p) => p.test(message));
 }
 
+/**
+ * Whether an error message indicates the image's bytes are not in a format the
+ * provider accepts at all, rather than merely mislabeled: an unsupported
+ * codec (HEIC, AVIF, BMP), or a truncated or corrupt payload.
+ */
+export function isImageUnsupportedFormatError(message: string): boolean {
+  return IMAGE_UNSUPPORTED_FORMAT_PATTERNS.some((p) => p.test(message));
+}
+
 /** Any image-input rejection the recovery hook knows how to act on. */
 export function isRecoverableImageError(message: string): boolean {
   return (
     isImageDimensionsTooLargeError(message) ||
     isImageUnprocessableError(message) ||
-    isImageMediaTypeMismatchError(message)
+    isImageMediaTypeMismatchError(message) ||
+    isImageUnsupportedFormatError(message)
   );
 }

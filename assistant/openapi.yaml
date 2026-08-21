@@ -9886,7 +9886,10 @@ paths:
     post:
       operationId: credentials_delete_post
       summary: Delete a credential
-      description: Remove a secret, its metadata, and any associated OAuth connection from the vault.
+      description:
+        Remove a secret, its metadata, and any associated OAuth connection from the vault. Refused with
+        CREDENTIAL_IN_USE while an LLM provider connection resolves its auth through the credential, unless `force` is
+        set.
       tags:
         - credentials
       requestBody:
@@ -9902,6 +9905,9 @@ paths:
                 field:
                   type: string
                   description: Field name
+                force:
+                  description: Delete even when provider connections depend on the credential
+                  type: boolean
               required:
                 - service
                 - field
@@ -9917,9 +9923,15 @@ paths:
                     type: string
                   field:
                     type: string
+                  affectedConnections:
+                    type: array
+                    items:
+                      type: string
+                    description: Provider connections that depended on the deleted credential
                 required:
                   - service
                   - field
+                  - affectedConnections
                 additionalProperties: false
   /v1/credentials/inspect:
     post:
@@ -27991,7 +28003,9 @@ paths:
     delete:
       operationId: secrets_delete
       summary: Delete a secret
-      description: Remove a secret from the credential vault by name.
+      description:
+        Remove a secret from the credential vault by name. Refused with CREDENTIAL_IN_USE while an LLM provider
+        connection resolves its auth through the credential, unless `force` is set.
       tags:
         - secrets
       requestBody:
@@ -28007,6 +28021,9 @@ paths:
                 name:
                   type: string
                   description: Name of the secret to delete
+                force:
+                  description: Delete even when provider connections depend on the credential
+                  type: boolean
               required:
                 - type
                 - name

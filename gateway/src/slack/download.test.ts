@@ -15,6 +15,7 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { downloadSlackFile } = await import("./download.js");
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 function makeSlackFile(overrides?: Partial<SlackFile>): SlackFile {
   return {
@@ -64,7 +65,11 @@ describe("downloadSlackFile", () => {
     fetchMock = mock(async () => new Response(fileBuffer));
 
     const file = makeSlackFile();
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.filename).toBe("test-image.png");
     expect(result.mimeType).toBe("image/png");
@@ -86,7 +91,11 @@ describe("downloadSlackFile", () => {
     const file = makeSlackFile({
       url_private_download: undefined,
     });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.filename).toBe("test-image.png");
 
@@ -100,9 +109,9 @@ describe("downloadSlackFile", () => {
       url_private: undefined,
     });
 
-    await expect(downloadSlackFile(file, "xoxb-test-token")).rejects.toThrow(
-      "Slack file F12345 has no download URL",
-    );
+    await expect(
+      downloadSlackFile(file, "xoxb-test-token", MAX_ATTACHMENT_BYTES),
+    ).rejects.toThrow("Slack file F12345 has no download URL");
   });
 
   test("uses redirect: manual to prevent auth header stripping", async () => {
@@ -110,7 +119,7 @@ describe("downloadSlackFile", () => {
     fetchMock = mock(async () => new Response(fileBuffer));
 
     const file = makeSlackFile();
-    await downloadSlackFile(file, "xoxb-test-token");
+    await downloadSlackFile(file, "xoxb-test-token", MAX_ATTACHMENT_BYTES);
 
     const [, init] = fetchMock.mock.calls[0];
     expect((init as RequestInit).redirect).toBe("manual");
@@ -131,7 +140,11 @@ describe("downloadSlackFile", () => {
     });
 
     const file = makeSlackFile();
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // Second call should be to the redirect URL without auth
@@ -146,9 +159,9 @@ describe("downloadSlackFile", () => {
 
     const file = makeSlackFile();
 
-    await expect(downloadSlackFile(file, "xoxb-test-token")).rejects.toThrow(
-      "returned 302 redirect with no Location header",
-    );
+    await expect(
+      downloadSlackFile(file, "xoxb-test-token", MAX_ATTACHMENT_BYTES),
+    ).rejects.toThrow("returned 302 redirect with no Location header");
   });
 
   test("throws on HTTP error response", async () => {
@@ -159,9 +172,9 @@ describe("downloadSlackFile", () => {
 
     const file = makeSlackFile();
 
-    await expect(downloadSlackFile(file, "xoxb-test-token")).rejects.toThrow(
-      "Failed to download Slack file F12345: 403 Forbidden",
-    );
+    await expect(
+      downloadSlackFile(file, "xoxb-test-token", MAX_ATTACHMENT_BYTES),
+    ).rejects.toThrow("Failed to download Slack file F12345: 403 Forbidden");
   });
 
   test("file.mimetype wins over detected and Content-Type", async () => {
@@ -175,7 +188,11 @@ describe("downloadSlackFile", () => {
     );
 
     const file = makeSlackFile({ mimetype: "image/webp" });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.mimeType).toBe("image/webp");
   });
@@ -185,7 +202,11 @@ describe("downloadSlackFile", () => {
     fetchMock = mock(async () => new Response(fileBuffer));
 
     const file = makeSlackFile({ mimetype: undefined });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.mimeType).toBe("image/png");
   });
@@ -200,7 +221,11 @@ describe("downloadSlackFile", () => {
     );
 
     const file = makeSlackFile({ mimetype: undefined });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.mimeType).toBe("text/plain");
   });
@@ -210,7 +235,11 @@ describe("downloadSlackFile", () => {
     fetchMock = mock(async () => new Response(fileBuffer));
 
     const file = makeSlackFile({ mimetype: undefined });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.mimeType).toBe("application/octet-stream");
   });
@@ -220,7 +249,11 @@ describe("downloadSlackFile", () => {
     fetchMock = mock(async () => new Response(fileBuffer));
 
     const file = makeSlackFile({ name: undefined, mimetype: "text/plain" });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.filename).toBe("slack_file_F12345");
   });
@@ -234,7 +267,7 @@ describe("downloadSlackFile", () => {
     const file = makeSlackFile({ mimetype: "image/png" });
 
     await expect(
-      downloadSlackFile(file, "xoxb-test-token"),
+      downloadSlackFile(file, "xoxb-test-token", MAX_ATTACHMENT_BYTES),
     ).rejects.toBeInstanceOf(ContentMismatchError);
   });
 
@@ -243,7 +276,11 @@ describe("downloadSlackFile", () => {
     fetchMock = mock(async () => new Response(fileBuffer));
 
     const file = makeSlackFile({ mimetype: "image/png" });
-    const result = await downloadSlackFile(file, "xoxb-test-token");
+    const result = await downloadSlackFile(
+      file,
+      "xoxb-test-token",
+      MAX_ATTACHMENT_BYTES,
+    );
 
     expect(result.filename).toBe("test-image.png");
     expect(result.mimeType).toBe("image/png");

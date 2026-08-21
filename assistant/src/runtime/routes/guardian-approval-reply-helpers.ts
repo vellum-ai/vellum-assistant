@@ -3,6 +3,7 @@
  * identity mismatch notices, reminders, etc.) that were duplicated across
  * guardian-approval-interception.ts.
  */
+import type { MessageAudience } from "@vellumai/gateway-client";
 import type pino from "pino";
 
 import type { ChannelId } from "../../channels/types.js";
@@ -45,7 +46,8 @@ interface DeliverApprovalReplyParams {
    * sees the message. Used to keep approval-related noise out of shared
    * channels.
    */
-  ephemeralUserId?: string;
+  /** Restricts the reply to one reader. Absent means the room. */
+  audience?: MessageAudience;
 }
 
 /**
@@ -61,7 +63,7 @@ async function composeAndDeliver(
     chatId,
     assistantId,
     approvalCopyGenerator,
-    ephemeralUserId,
+    audience,
   } = params;
 
   const text = await composeApprovalMessageGenerative(
@@ -74,9 +76,8 @@ async function composeAndDeliver(
     text,
     assistantId,
   };
-  if (ephemeralUserId) {
-    payload.ephemeral = true;
-    payload.user = ephemeralUserId;
+  if (audience) {
+    payload.audience = audience;
   }
   await deliverChannelReply(replyCallbackUrl, payload);
 }
@@ -120,7 +121,8 @@ export interface DeliverStaleApprovalReplyParams {
    * When set, deliver via `chat.postEphemeral` so only this Slack user
    * sees the message. Keeps approval noise out of shared channels.
    */
-  ephemeralUserId?: string;
+  /** Restricts the reply to one reader. Absent means the room. */
+  audience?: MessageAudience;
 }
 
 /**
@@ -134,12 +136,11 @@ export interface DeliverStaleApprovalReplyParams {
 export async function deliverStaleApprovalReply(
   params: DeliverStaleApprovalReplyParams,
 ): Promise<void> {
-  const { scenario, sourceChannel, extraContext, ephemeralUserId, ...rest } =
-    params;
+  const { scenario, sourceChannel, extraContext, audience, ...rest } = params;
 
   const replyParams: DeliverApprovalReplyParams = {
     ...rest,
-    ephemeralUserId,
+    audience,
     context: {
       scenario,
       channel: sourceChannel,
@@ -190,7 +191,8 @@ export interface DeliverIdentityMismatchReplyParams {
    * When set, deliver via `chat.postEphemeral` so only this Slack user
    * sees the message.
    */
-  ephemeralUserId?: string;
+  /** Restricts the reply to one reader. Absent means the room. */
+  audience?: MessageAudience;
 }
 
 /**
@@ -200,11 +202,11 @@ export interface DeliverIdentityMismatchReplyParams {
 export async function deliverIdentityMismatchReply(
   params: DeliverIdentityMismatchReplyParams,
 ): Promise<void> {
-  const { sourceChannel, ephemeralUserId, ...rest } = params;
+  const { sourceChannel, audience, ...rest } = params;
 
   await deliverApprovalReply({
     ...rest,
-    ephemeralUserId,
+    audience,
     context: {
       scenario: "guardian_identity_mismatch",
       channel: sourceChannel,

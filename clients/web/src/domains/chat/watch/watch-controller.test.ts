@@ -4,23 +4,24 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
-import type * as SelfHostedConnection from "@/lib/self-hosted/connection";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 let ingressUrl: string | null = "http://localhost:8500";
 let actorToken: string | null = "actor-jwt";
 let pcmSupported = true;
 
-mock.module(
-  "@/lib/self-hosted/connection",
-  (): typeof SelfHostedConnection => ({
-    getSelfHostedIngressUrl: () => ingressUrl,
-    getSelfHostedActorToken: () => actorToken,
-    // Unused here, and stubbed rather than omitted: the resolved-assistants
-    // store's own imports reach this module for it, and a missing export is a
-    // load-time failure for the whole file.
-    setSelfHostedConnection: () => undefined,
-  }),
-);
+/**
+ * Publish the two variables above into the real connection module.
+ *
+ * The real module rather than a `mock.module` stand-in, because that
+ * replacement outlives this file: bun shares a process across test files, and
+ * `connection.test.ts` primes the same module through `setSelfHostedConnection`
+ * to test the transport rules. A stand-in here silently turns that call into a
+ * no-op there.
+ */
+const applyConnection = (): void => {
+  setSelfHostedConnection({ url: ingressUrl, token: actorToken });
+};
 
 // The real module imports an AudioWorklet asset via Vite's `?worker&url`
 // suffix, which Bun's test runner can't resolve. The capture itself is
@@ -46,9 +47,8 @@ mock.module("@/domains/chat/voice/live-voice/pcm-capture", () => ({
  * the URLs these tests assert on are the ones the app would actually dial
  * rather than a fake's idea of them.
  */
-const realConnection = await import(
-  "@/domains/chat/voice/live-voice/connection"
-);
+const realConnection =
+  await import("@/domains/chat/voice/live-voice/connection");
 
 /** Assistant ids the mint was called for, in order. */
 let mintCalls: string[] = [];
@@ -56,20 +56,6 @@ let mintCalls: string[] = [];
 let mintedToken: string | null = "velay-token";
 /** Held open by a test that needs a press to land mid-mint. */
 let mintGate: Promise<void> | null = null;
-
-mock.module("@/domains/chat/voice/live-voice/connection", () => ({
-  ...realConnection,
-  mintVelayWsToken: async (assistantId: string) => {
-    mintCalls.push(assistantId);
-    if (mintGate) {
-      await mintGate;
-    }
-    if (mintedToken === null) {
-      throw new realConnection.VelayWsTokenError(403, "mint refused");
-    }
-    return { token: mintedToken, expiresAt: "2026-01-01T00:00:00Z" };
-  },
-}));
 
 /**
  * The active-assistant store, stood in for so the test can see the session's
@@ -97,15 +83,19 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 const { MIN_VERSION } = await import("@/lib/backwards-compat/watch-sessions");
-const { buildWatchStreamWsUrl, stopWatch, toggleWatch, useWatchStore } =
-  await import("./watch-controller");
+const {
+  buildWatchStreamWsUrl,
+  isWatchSessionActive,
+  resolveWatchStreamWsUrl,
+  stopWatch,
+  toggleWatch,
+  useWatchStore,
+} = await import("./watch-controller");
 
 /**
  * Live-voice subscriptions, counted.
@@ -255,6 +245,27 @@ const toggle = ({
       return ws as unknown as WebSocket;
     },
     captureFactory: capture.factory,
+    // Stands in for the mint alone. The self-hosted branch still runs the real
+    // resolver, so the cases about a missing actor token and a paired ingress
+    // exercise the rules rather than this stub's idea of them.
+    resolveWsUrl: async (assistantId: string) => {
+      if (ingressUrl !== null) {
+        return resolveWatchStreamWsUrl(assistantId);
+      }
+      mintCalls.push(assistantId);
+      if (mintGate) {
+        await mintGate;
+      }
+      if (mintedToken === null) {
+        throw new realConnection.VelayWsTokenError(403, "mint refused");
+      }
+      return realConnection.buildVelayWsUrl({
+        assistantId,
+        routePath: "/v1/watch/stream",
+        token: mintedToken,
+        params: { mimeType: "audio/pcm", sampleRate: "16000" },
+      });
+    },
     readyTimeoutMs,
     drainTimeoutMs,
   });
@@ -331,6 +342,7 @@ const HELD = 200;
 beforeEach(() => {
   ingressUrl = "http://localhost:8500";
   actorToken = "actor-jwt";
+  applyConnection();
   pcmSupported = true;
   mintCalls = [];
   mintedToken = "velay-token";
@@ -460,6 +472,7 @@ describe("toggling a watch session", () => {
 
   test("opens nothing without an actor token to authenticate with", async () => {
     actorToken = null;
+    applyConnection();
 
     await toggle();
 
@@ -586,6 +599,7 @@ describe("a watch session on a managed assistant", () => {
   const managed = (): void => {
     ingressUrl = null;
     actorToken = null;
+    applyConnection();
   };
 
   test("mints a velay token and dials velay with it", async () => {
@@ -809,6 +823,53 @@ describe("cancelling a start that has not opened a socket yet", () => {
 
     expect(sockets).toHaveLength(1);
     expect(useWatchStore.getState().watching).toBe(true);
+  });
+});
+
+/**
+ * Which edge a press is, answered before the press.
+ *
+ * `toggleWatch` decides that from its slot, and `handleToggleWatchCommand`
+ * (`src/runtime/watch-command.ts`) has to know the same answer one step
+ * earlier: it gates the start edge on the Watch flag and must let the stop edge
+ * through regardless, so a flag turned off mid-session cannot strand a capture
+ * with nothing that ends it.
+ */
+describe("whether a session is running, from outside the toggle", () => {
+  test("is false with nothing running", () => {
+    expect(isWatchSessionActive()).toBe(false);
+  });
+
+  /**
+   * The reason this is not `useWatchStore`.
+   *
+   * A start is registered in the slot before it resolves its version gate, so
+   * it is already stoppable while the store still says no. A caller reading the
+   * store would call that press a start, and gate it.
+   */
+  test("is true for an attempt the flag has not caught up to", async () => {
+    activate(ASSISTANT_ID, null);
+    const pressed = toggle();
+
+    expect(isWatchSessionActive()).toBe(true);
+    expect(useWatchStore.getState().watching).toBe(false);
+
+    stopWatch();
+    activate(ASSISTANT_ID);
+    await pressed;
+  });
+
+  test("is true while a session is running", async () => {
+    await startRunning();
+
+    expect(isWatchSessionActive()).toBe(true);
+  });
+
+  test("is false once the session has ended", async () => {
+    await startRunning();
+    await stopAndSettle();
+
+    expect(isWatchSessionActive()).toBe(false);
   });
 });
 

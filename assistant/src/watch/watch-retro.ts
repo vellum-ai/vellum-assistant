@@ -5,17 +5,17 @@
  * The session itself is silent. It records narration and screens into
  * `watch-timeline` and never speaks, which is what lets the user work without
  * being interrupted. The retro is where that stops: one turn, in the session's
- * own conversation, reporting the task, the phrase the user would use to ask
- * for it, the steps, and everything the recording left uncertain.
+ * own conversation, asking what the recording could not tell it and showing
+ * what it read.
  *
- * It reports and asks. It does not author a skill. What the timeline shows is
- * one performance of a task by someone who was talking while they worked, and
- * a procedure inferred from that is a guess until the person who did it says
- * otherwise: the trigger phrase especially, because the words a user reaches
- * for are not recoverable from watching them click. So the turn ends inside
- * the `skill-management` flow, whose first step is the alignment pass that
- * asks for exactly those things, rather than in a scaffolded file the user
- * never agreed to.
+ * It asks and reports, in that order. It does not author a skill. What the
+ * timeline shows is one performance of a task by someone who was talking while
+ * they worked, and a procedure inferred from that is a guess until the person
+ * who did it says otherwise: the trigger phrase especially, because the words
+ * a user reaches for are not recoverable from watching them click. So the turn
+ * ends inside the `skill-management` flow, whose first step will not scaffold
+ * until those points are settled, rather than in a file the user never agreed
+ * to.
  *
  * Dispatch is fire-and-forget from a socket teardown, so the retro owns its
  * own failures: a session that cannot run its retro has already recorded
@@ -49,21 +49,42 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
 /**
  * What the retro asks for, and the order it asks in.
  *
- * The four points are the four the `skill-management` alignment pass needs
- * before it will scaffold anything, asked here while the session is still the
- * subject rather than after the user has been handed a skill to react to. The
- * trigger phrase is called out as the user's words because it is the one field
- * the recording cannot supply: the timeline holds what they did, never what
- * they would call it.
+ * **The ask comes first, and it is the shorter half.** What the user owes this
+ * turn is a handful of answers; everything else is the assistant showing its
+ * work. Leading with the report buries the one part that needs them under the
+ * part that does not, and a reader who has to reach the bottom to find the
+ * question has already been asked for more than the question was worth.
+ *
+ * **It asks about what it does not know, not about what it just wrote.** The
+ * `skill-management` skill will not scaffold until four points are settled:
+ * what the skill does, its trigger phrases, its major steps, and its
+ * destructive step and done condition. Its checkpoint is explicit that the
+ * ones to raise are the ones being guessed at. Re-asking all four regardless
+ * turns the report into a questionnaire about itself, where the user confirms
+ * a list of steps printed directly above the question asking whether those are
+ * the steps.
+ *
+ * The trigger phrase is always one of the open ones, because it is the single
+ * field the recording cannot supply: the timeline holds what they did, never
+ * what they would call it. The steps are usually not, because the recording is
+ * exactly the evidence for those.
+ *
+ * A destructive step is the exception, and it is asked about however plainly it
+ * was seen. The recording establishes what someone did once; it establishes
+ * nothing about whether they want it done again without being asked, and the
+ * gap between those two is the whole risk of turning a demonstration into a
+ * skill. `skill-management` will not scaffold until that step is settled
+ * either, so an unasked one stalls the flow it was meant to feed.
  */
-const RETRO_INSTRUCTIONS = `Report back to the user, in your own words, in this order:
+const RETRO_INSTRUCTIONS = `Write back to the user in two sections, in this order, both as level-2 headings.
 
-1. The task. What they were doing from start to finish, and what it is for.
-2. The phrase they would use to ask you to do this for them, in their words rather than yours.
-3. The steps, in order, one line each and concrete enough to follow.
-4. What you are unsure about. Name every place the recording left you guessing: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of.
+First, "What I need from you". The questions you cannot answer from the recording, numbered, most consequential first. Each one concrete enough to answer in a sentence, and each one about something you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Always ask what they would say to start this task, in their own words, because the recording cannot tell you that. Ask about the done condition if it is unclear. Always confirm any destructive or irreversible step, even one the recording showed plainly: watching someone do a thing once is not agreement to have it done again unattended, and this is the one place the rule below does not apply. Otherwise do not ask them to confirm something the recording already showed you.
 
-Then load the \`skill-management\` skill and follow it from its first step, which is the alignment pass that asks the user to confirm the task, the trigger phrases, and the steps. Do not author or scaffold a skill until they have confirmed all of it, and correct your reading against whatever they tell you. If they decide this is not worth keeping, say so and stop.`;
+Second, "What I saw". Open with one sentence naming the task and what it is for, on its own and not as a list item. Then the steps in order beneath it, one line each and concrete enough to follow, carrying no purpose of their own. This is the record your questions sit on top of, so state it rather than asking about it.
+
+Open on the first heading. No preamble, no announcing what you are about to do, no narrating which skills you are loading.
+
+Then load the \`skill-management\` skill and follow it, treating the answers to your questions as the alignment its first step calls for. Do not author or scaffold a skill until the four points that step names are settled. Correct your reading against whatever they tell you. If they decide this is not worth keeping, say so and stop.`;
 
 /**
  * Told to the model whenever the render was bounded, naming the bound that

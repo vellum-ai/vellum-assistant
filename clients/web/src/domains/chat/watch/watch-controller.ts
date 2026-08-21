@@ -196,6 +196,17 @@ interface WatchCapture {
 export interface WatchControllerOptions {
   webSocketFactory?: (url: string) => WebSocket;
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => WatchCapture;
+  /**
+   * Resolves the socket URL. Defaults to {@link resolveWatchStreamWsUrl}.
+   *
+   * A seam rather than something a test reaches around, because the alternative
+   * is replacing the transport module wholesale with `mock.module`, and that
+   * replacement outlives the file that asked for it: bun shares one process
+   * across test files, so the next file to import the real module gets the
+   * stand-in instead. The three seams above exist for the same reason, and
+   * this one covers the only remaining dependency a session start has.
+   */
+  resolveWsUrl?: (assistantId: string) => Promise<string>;
   /** Overrides {@link READY_TIMEOUT_MS}, so a test need not wait it out. */
   readyTimeoutMs?: number;
   /** Overrides {@link STOP_DRAIN_TIMEOUT_MS}, for the same reason. */
@@ -214,6 +225,23 @@ interface WatchSession {
 }
 
 let session: WatchSession | null = null;
+
+/**
+ * Whether {@link toggleWatch} would take its stop edge if it were called now.
+ *
+ * The same slot that edge reads, exposed so a caller that gates the start can
+ * gate only the start. Anything that answers this question from elsewhere would
+ * be answering a different one: {@link useWatchStore} turns true when a session
+ * opens, and a start that is registered but still resolving its version gate is
+ * already stoppable while that store still says no.
+ *
+ * Synchronous and unsubscribed on purpose. It is worth reading only in the
+ * instant before a toggle, and nothing that draws should read it: what to draw
+ * is {@link useWatchStore}.
+ */
+export function isWatchSessionActive(): boolean {
+  return session !== null;
+}
 
 /**
  * Resolves when a session that is still draining has let go of the runtime's
@@ -868,7 +896,9 @@ export async function toggleWatch(
    */
   let wsUrl: string;
   try {
-    wsUrl = await resolveWatchStreamWsUrl(assistantId);
+    wsUrl = await (options.resolveWsUrl ?? resolveWatchStreamWsUrl)(
+      assistantId,
+    );
   } catch (err) {
     releaseAttempt();
     console.info("watch-controller: skipping (no watch transport)", err);

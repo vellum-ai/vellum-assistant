@@ -21,6 +21,7 @@ import {
   documentsByIdPdfGet,
 } from "@/generated/daemon/sdk.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
 import {
@@ -138,9 +139,7 @@ export function DocumentViewerPage() {
     const conversationId =
       doc.conversationId ||
       getEditChatConversationId(assistantId, surfaceId) ||
-      (typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      createDraftConversationId();
 
     setEditChatConversationId(assistantId, surfaceId, conversationId);
 

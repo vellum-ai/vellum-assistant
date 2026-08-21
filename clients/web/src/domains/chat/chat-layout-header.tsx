@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, type ReactNode } from "react";
 
 import { WindowsMenuBar } from "@/components/windows-menu-bar";
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
 import {
   detectElectronHostOS,
@@ -114,6 +115,7 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
+      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;

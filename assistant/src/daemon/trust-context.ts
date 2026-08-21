@@ -113,9 +113,9 @@ export function mapChatTypeToConversationType(
     // it for the axis rather than inventing a native-looking word.
     case "dm":
       return "dm";
-    // "mpim" is Slack's multi-party DM. The gateway normalizer currently
-    // collapses mpim into "channel", so this arm matches nothing from Slack
-    // today; it pins the correct mapping for the raw Slack vocabulary.
+    // "mpim" is Slack's multi-party DM, forwarded under its own name rather
+    // than reported as "im": a room with several people in it takes the
+    // tighter `private` cell and the group-chat etiquette, not the `dm` one.
     case "mpim":
     case "group": // Telegram group
     case "supergroup": // Telegram supergroup

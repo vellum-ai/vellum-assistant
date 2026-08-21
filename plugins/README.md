@@ -876,3 +876,7 @@ inside the stub, run under a stripped environment and a timeout.
 - **Cooperative cancellation.** Long-running tools should check
   `ctx.signal?.aborted` or forward `ctx.signal` to `fetch` / `spawn`
   options.
+- **Setup skill.** A plugin that needs a first-run walkthrough ships
+  `skills/setup/SKILL.md` or `skills/<plugin-name>-setup/SKILL.md`.
+  `assistant plugins install` detects that directory and tells the user
+  to load the skill.

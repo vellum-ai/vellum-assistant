@@ -13,6 +13,7 @@ import {
   listGuardianRequestsOrEmpty,
   listPendingRequestsByDestinationOrEmpty,
 } from "../../../channels/gateway-guardian-requests.js";
+import { audienceForReader } from "../../../channels/message-audience.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
@@ -196,11 +197,13 @@ export async function handleGuardianReplyIntercept(
         assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       };
       // On Slack, send guardian management replies (disambiguation, pending
-      // request lists, etc.) as ephemeral so only the guardian sees them.
-      if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
-        routerReplyPayload.ephemeral = true;
-        routerReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
-      }
+      // request lists, etc.) so only the guardian sees them where a room is
+      // shared.
+      routerReplyPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        canonicalSenderId ?? rawSenderId,
+      );
       try {
         await deliverChannelReply(replyCallbackUrl, routerReplyPayload);
       } catch (err) {

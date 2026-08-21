@@ -239,4 +239,100 @@ describe("useVoiceModeHotkey", () => {
       expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("bare-modifier taps on the Windows desktop host", () => {
+    const setHostOS = (hostOS: string | undefined) => {
+      const w = window as unknown as { vellum?: { hostOS?: string } };
+      if (hostOS === undefined) {
+        delete w.vellum;
+      } else {
+        w.vellum = { hostOS };
+      }
+    };
+
+    afterEach(() => {
+      setHostOS(undefined);
+    });
+
+    test("a clean tap toggles on the release edge; a chord passing through does not", () => {
+      onElectron = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["control"] });
+      renderVoiceModeHotkey();
+
+      // Ctrl+C on its way through: the C keydown disarms the pending tap.
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Control",
+          ctrlKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "c",
+          ctrlKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
+      );
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+
+      // Press and release with nothing in between fires once, on release.
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Control",
+          ctrlKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
+      );
+      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    });
+
+    test("losing window focus mid-hold disarms the tap", () => {
+      onElectron = true;
+      setHostOS("windows");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
+      renderVoiceModeHotkey();
+
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Alt",
+          altKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(new Event("blur"));
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
+      );
+
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    });
+
+    test("stays rejected on the macOS desktop host", () => {
+      onElectron = true;
+      setHostOS("macos");
+      writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["control"] });
+      renderVoiceModeHotkey();
+
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Control",
+          ctrlKey: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
+      );
+
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    });
+  });
 });

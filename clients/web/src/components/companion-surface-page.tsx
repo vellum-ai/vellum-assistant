@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import {
+  CompanionIntro,
+  introPhase,
+  introSpotlight,
+} from "@/components/companion-intro";
+import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
 import {
   activateCompanionApp,
+  advanceCompanionIntro,
   getCompanionState,
   moveCompanionBy,
   setCompanionComposing,
   setCompanionInteractive,
+  showCompanionContextMenu,
   startCompanionVoice,
   submitCompanionMessage,
   subscribeCompanionState,
@@ -20,6 +27,7 @@ import type {
   CompanionCardGrowth,
   CompanionCharacter,
   CompanionGrowth,
+  CompanionIntroBeat,
   CompanionSurfaceState,
   CompanionTurn,
   VoiceActivityState,
@@ -93,7 +101,16 @@ export function CompanionSurfacePage() {
   // rather than derived from it, because the flag is a state that lasts for
   // minutes and this is the only account of the discrete moments inside it.
   const [captureCount, setCaptureCount] = useState(0);
+  // Whether Watch is offered at all, from the only side of this surface that
+  // can know. This window never hydrates a flag store: it has no auth and no
+  // `RootLayout`, so it would sit on registry defaults forever. Main reads the
+  // evaluation the app's window wrote into settings and pushes it here.
+  const [watchEnabled, setWatchEnabled] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // Which beat of the one-time introduction is on screen, or null when none is.
+  // Main's, like the session: this window can reload mid-run, and a beat held
+  // here would reset to the first one when it did.
+  const [intro, setIntro] = useState<CompanionIntroBeat | null>(null);
   // Whether the composer is open. Local to this page rather than pushed from
   // main, because nothing outside this window opens or closes it: main is told
   // about it only so it can lend the window the keyboard.
@@ -108,6 +125,10 @@ export function CompanionSurfacePage() {
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
+  // The introduction's card, hit-tested alongside the pill: it carries the only
+  // two controls in the run, and a click-through window would drop presses on
+  // them onto whatever is behind it.
+  const introRef = useRef<HTMLDivElement | null>(null);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -142,6 +163,12 @@ export function CompanionSurfacePage() {
       // state that cannot say how much of the screen was taken has not
       // established that any of it was.
       setCaptureCount(state.captureCount ?? 0);
+      // Off unless the answer is positively yes, which covers a shell that
+      // predates the field and a window whose flags have not synced yet. The
+      // control this decides starts reading the user's screen, so a state of
+      // not knowing has to read as not offering it.
+      setWatchEnabled(state.watchEnabled === true);
+      setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -198,6 +225,34 @@ export function CompanionSurfacePage() {
    * click-through, which still forwards mouse-move, so a pointer genuinely left
    * on the pill re-expands it on the next pixel of movement.
    */
+  // Whether the introduction's card is actually on screen. The beat alone does
+  // not settle it: a call or the composer withdraws the card while main is
+  // still holding the run.
+  const introShown = intro !== null && !typing && call === null;
+
+  /**
+   * Give the desktop back when the introduction's card goes away.
+   *
+   * The card is hit-tested as part of the surface, so a pointer resting on it
+   * has left the window clickable. Skip and "Got it" both remove the card from
+   * under that pointer, and a call arriving does the same, and none of them are
+   * a mouse-move: the hand is holding still on a card that is gone.
+   * Left alone the window stays clickable across a canvas many times the size
+   * of the pill, swallowing presses meant for whatever the user was working in.
+   *
+   * The same correction `closeComposer` makes, and self-correcting the same
+   * way: a click-through window still receives forwarded mouse-move, so a
+   * pointer genuinely left on the pill re-arms on the next pixel of movement.
+   */
+  const introWasShown = useRef(introShown);
+  useEffect(() => {
+    if (introWasShown.current && !introShown) {
+      setHovered(false);
+      setInteractive(false);
+    }
+    introWasShown.current = introShown;
+  }, [introShown]);
+
   const closeComposer = () => {
     setTyping(false);
     setHovered(false);
@@ -263,14 +318,30 @@ export function CompanionSurfacePage() {
     if (!pill) {
       return;
     }
-    const rect = pill.getBoundingClientRect();
-    const inside =
-      event.clientX >= rect.left &&
-      event.clientX <= rect.right &&
-      event.clientY >= rect.top &&
-      event.clientY <= rect.bottom;
-    setHovered(inside);
-    setInteractive(inside);
+    const within = (element: HTMLElement | null): boolean => {
+      if (!element) {
+        return false;
+      }
+      const rect = element.getBoundingClientRect();
+      return (
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom
+      );
+    };
+    const onPill = within(pill);
+    // The introduction's card is part of the surface for as long as it is
+    // drawn. Testing only the pill would leave the window click-through over
+    // Next and Skip, so the presses meant to end the run would land on whatever
+    // application is behind it instead.
+    const onIntro = within(introRef.current);
+    // Hover is the creature noticing a hand on *it*, so the card does not feed
+    // it: a pointer resting on a paragraph is not a pointer on the avatar, and
+    // widening the eyes for it would be the surface reacting to the wrong
+    // thing.
+    setHovered(onPill);
+    setInteractive(onPill || onIntro);
   };
 
   // **An open composer outranks everything, and a running call outranks the
@@ -289,15 +360,19 @@ export function CompanionSurfacePage() {
   // one runs beside whatever they are doing. Being outranked costs the session
   // nothing, since the phase is only what the pill is drawing and the indicator
   // reads `watching` instead.
+  // The introduction sits above the pointer and below everything the user is in
+  // the middle of. A beat that names a control has to have that control on
+  // screen to name, so it holds the pill open the way a call does; but a run
+  // still going when a call starts or the composer opens must give way, because
+  // those are the user's own business and this is a caption.
+  const introHeld = introPhase(intro);
   const phase: CompanionSurfacePhase = typing
     ? "typing"
     : call !== null
       ? "call"
       : watching
         ? "watching"
-        : hovered
-          ? "hover"
-          : "resting";
+        : (introHeld ?? (hovered ? "hover" : "resting"));
 
   // The avatar's own colour, which arrives with the session. It is `""` until
   // the avatar resolves and the contract makes no promise it parses, so
@@ -382,11 +457,68 @@ export function CompanionSurfacePage() {
           // session into something the user can see happening rather than
           // something they are told is on.
           captureCount={captureCount}
+          // The flag, from main. It hides the way into a session and leaves
+          // everything a running one draws alone, so a session already going
+          // when the flag turns off can still be seen and still be stopped.
+          watchEnabled={watchEnabled}
+          // Draws the control the beat is about as though the pointer were on
+          // it. The pill is open on those beats but the pointer is wherever the
+          // user's hand happens to be, so without this the beat names a control
+          // the user then has to hunt for among the others.
+          spotlight={introSpotlight(intro)}
+          // Beside the pill rather than inside it, on the canvas the typing
+          // card would otherwise use. Null between runs, which is every launch
+          // after the first.
+          //
+          // **Withdrawn, not ended, by a call or the composer.** Those states
+          // rebuild the pill out of different controls, so a beat captioning
+          // Talk would be labelling a control that is not on screen. Main
+          // still holds the beat, so the run resumes where it was once the user
+          // is done with whatever they were actually doing.
+          intro={
+            !introShown || intro === null ? null : (
+              <CompanionIntro
+                beat={intro}
+                growth={growth}
+                cardGrowth={cardGrowth}
+                accentHex={accentHex}
+                cardRef={introRef}
+                onAdvance={advanceCompanionIntro}
+              />
+            )
+          }
           rootRef={pillRef}
           onSurfaceMouseDown={(event) => {
+            // A right-click is a menu, not a grab. Left alone it would arm the
+            // drag and then never be released by a `mouseup` this window sees,
+            // because the menu takes the pointer for as long as it is open.
+            if (event.button !== 0) {
+              return;
+            }
             dragRef.current = { x: event.screenX, y: event.screenY };
             pressOriginRef.current = { x: event.screenX, y: event.screenY };
             draggedRef.current = false;
+          }}
+          onSurfaceContextMenu={(event) => {
+            // **Text keeps its own menu.** A right-click in the composer, or
+            // on a reply the user has selected, wants Cut/Copy/Paste and the
+            // spelling suggestions the host already provides. Swallowing that
+            // to offer "Small / Medium / Large" would take away the only way
+            // to copy something off this card.
+            const target = event.target as HTMLElement | null;
+            const onEditable =
+              target?.closest("input, textarea, [contenteditable='true']") !==
+              null;
+            const onSelection =
+              (window.getSelection()?.toString().trim().length ?? 0) > 0;
+            if (onEditable || onSelection) {
+              return;
+            }
+            event.preventDefault();
+            // Main pops the menu at the pointer, so the window has to still be
+            // clickable when it does. It is: the pointer is on the pill, which
+            // is the only thing that makes this window interactive at all.
+            showCompanionContextMenu();
           }}
           // A press that never became a drag. The window comes forward on the
           // conversation this surface belongs to; main decides what that means.

@@ -19,7 +19,20 @@
  * https://docs.discord.com/developers/events/gateway-events
  */
 
+import type {
+  APIThreadChannel,
+  GatewayHelloData,
+  GatewayMessageCreateDispatchData,
+  GatewayReadyDispatchData,
+  GatewayReceivePayload,
+} from "discord-api-types/v10";
 import { z } from "zod";
+
+import type {
+  Expect,
+  ModeledKeysAreOfficial,
+  OfficialValueSatisfiesOurs,
+} from "../webhook-crosscheck.js";
 
 const optionalString = () => z.string().optional().catch(undefined);
 const optionalNumber = () => z.number().optional().catch(undefined);
@@ -124,5 +137,86 @@ export const DiscordMessageCreateSchema = z.object({
     .array(z.object({ id: idString() }))
     .optional()
     .catch(undefined),
+  attachments: z
+    .array(
+      z.object({
+        id: idString(),
+        filename: optionalString(),
+        size: optionalNumber(),
+        content_type: optionalString(),
+        url: optionalString(),
+      }),
+    )
+    .optional()
+    .catch(undefined),
 });
 export type DiscordMessageCreate = z.infer<typeof DiscordMessageCreateSchema>;
+
+// ---------------------------------------------------------------------------
+// Compile-time cross-check against the official Discord API types.
+//
+// `discord-api-types` is a types-only dev dependency: it contributes nothing at
+// runtime (the `import type` above is erased from the build) and the schemas
+// above stay the sole runtime validators. Its only job is to make TypeScript
+// prove, via the shared `webhook-crosscheck` helpers, that a drift from the
+// real Gateway shape fails `tsc` instead of silently mis-parsing a live frame.
+//
+// This matters more here than on the other channels, because two of the fields
+// below fail CLOSED on a malformed value: `guild_id` decides whether a message
+// is a DM, and `author.bot` is the one classifier standing between the
+// admission gate and a bot reply loop. A field-name typo in either would parse
+// to the tolerant branch forever and never announce itself.
+type DiscordMessageAuthor = NonNullable<
+  z.infer<typeof DiscordMessageCreateSchema>["author"]
+>;
+type DiscordMessageAttachment = NonNullable<
+  z.infer<typeof DiscordMessageCreateSchema>["attachments"]
+>[number];
+
+type _DiscordApiCrossChecks = [
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof DiscordGatewayPayloadSchema>,
+      GatewayReceivePayload
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<z.infer<typeof DiscordHelloSchema>, GatewayHelloData>
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<
+      z.infer<typeof DiscordHelloSchema>,
+      GatewayHelloData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof DiscordReadySchema>,
+      GatewayReadyDispatchData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof DiscordThreadSchema>,
+      APIThreadChannel
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof DiscordMessageCreateSchema>,
+      GatewayMessageCreateDispatchData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      DiscordMessageAuthor,
+      GatewayMessageCreateDispatchData["author"]
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      DiscordMessageAttachment,
+      GatewayMessageCreateDispatchData["attachments"][number]
+    >
+  >,
+];

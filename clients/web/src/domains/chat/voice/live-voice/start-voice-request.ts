@@ -30,6 +30,7 @@ import {
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
@@ -76,9 +77,11 @@ export function requestVoiceStart(): void {
  * - **The draft composer, so the session starts with no conversation** and the
  *   server assigns one on `ready`. Navigating is also what mounts `ChatLayout`
  *   and therefore the starter the request is waiting for.
- * - **The window is never raised.** Every caller is a surface the user reached
- *   for precisely because they are working somewhere else, and that surface is
- *   where the call then shows itself.
+ * - **The window is not raised for an ordinary start.** Every caller is a
+ *   surface the user reached for precisely because they are working somewhere
+ *   else, and that surface is where the call then shows itself. The one
+ *   exception is the first-run card below: it asks a question, and a question
+ *   drawn behind whatever the user is working in is a press that did nothing.
  */
 export function startVoiceFromSurface(navigate: (to: string) => unknown): void {
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
@@ -152,6 +155,13 @@ export async function drainPendingVoiceStart(): Promise<void> {
   // something the user can see (the card, the notice), so each is an answer
   // rather than a drop.
   if (firstRunCardIntercepts()) {
+    // **The one entry here that raises the app.** The card is a decision, and
+    // it is drawn in the app's window; a press from the companion leaves that
+    // window behind whatever the user is actually working in, so the press
+    // reads as having done nothing at all. Raising is the whole point of the
+    // beat: there is something to answer. Fire and forget, since nothing below
+    // depends on the window being up.
+    void ensureMainWindowVisible();
     consume();
     return;
   }

@@ -16,6 +16,8 @@
  *   - under --json the consent listing, the prompt, and the cancellation line
  *     all go to stderr, leaving stdout a pure JSON document
  *   - inspect renders the schedules surface block
+ *   - install prints a setup-skill hint when `skills/setup` or
+ *     `skills/<name>-setup` is present on the installed tree
  *
  * The installers are replaced by fakes that stage a fixture tree and run the
  * real `confirmStagedOrAbort` gate, so the command's consent callback is
@@ -76,6 +78,10 @@ let ipcResults: Array<{
 
 let inspectResult: PluginInspection | null = null;
 
+/** On-disk tree returned as the fake install `target` so post-install walks work. */
+let installTarget: string | null = null;
+const installTargetDirs: string[] = [];
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -123,7 +129,7 @@ async function runFakeInstall(
   await stageAndConfirm(name, deps?.confirmStaged);
   return {
     name,
-    target: `/plugins/${name}`,
+    target: installTarget ?? `/plugins/${name}`,
     fileCount: 3,
     ref: "main",
     commit: "a".repeat(40),
@@ -253,6 +259,7 @@ beforeEach(() => {
   upgradePluginCalls = [];
   ipcResults = [];
   inspectResult = null;
+  installTarget = null;
   // Platform features on by default, so a plain name install takes the
   // platform-tarball branch.
   delete process.env.VELLUM_DISABLE_PLATFORM;
@@ -260,6 +267,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const dir of installTargetDirs) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  installTargetDirs.length = 0;
   if (savedDisablePlatform === undefined) {
     delete process.env.VELLUM_DISABLE_PLATFORM;
   } else {
@@ -346,6 +357,7 @@ describe("plugins install - declared-schedules consent", () => {
     expect(confirmCalls.length).toBe(0);
     expect(r.stdout).not.toContain("declares");
     expect(r.stdout).not.toContain("schedule");
+    expect(r.stdout).not.toContain("to help set up this plugin");
     expect(r.stdout).toContain('Installed plugin "example"');
     expect(r.exitCode).toBe(0);
   });
@@ -687,6 +699,50 @@ describe("plugins inspect - schedules surface", () => {
     const r = await runCommand(["plugins", "inspect", "example"]);
 
     expect(r.stdout).toContain("weekly  RRULE:FREQ=WEEKLY;BYDAY=MO  (execute)");
+    expect(r.exitCode).toBe(0);
+  });
+});
+
+describe("plugins install - setup skill hint", () => {
+  function writeSetupSkill(skillId: string): void {
+    const dir = mkdtempSync(join(tmpdir(), "plugins-cmd-target-"));
+    installTargetDirs.push(dir);
+    mkdirSync(join(dir, "skills", skillId), { recursive: true });
+    writeFileSync(
+      join(dir, "skills", skillId, "SKILL.md"),
+      "---\nname: setup\ndescription: Set up the plugin.\n---\n",
+    );
+    installTarget = dir;
+  }
+
+  test("points at skills/setup after a successful install", async () => {
+    writeSetupSkill("setup");
+
+    const r = await runCommand(["plugins", "install", "example"]);
+
+    expect(r.stdout).toContain('Installed plugin "example"');
+    expect(r.stdout).toContain(
+      "Load the setup skill to help set up this plugin",
+    );
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("points at skills/<name>-setup when that is the shipped id", async () => {
+    writeSetupSkill("imessage-setup");
+
+    const r = await runCommand(["plugins", "install", "imessage"]);
+
+    expect(r.stdout).toContain(
+      "Load the imessage-setup skill to help set up this plugin",
+    );
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("prints no setup hint when the plugin ships no setup skill", async () => {
+    const r = await runCommand(["plugins", "install", "example"]);
+
+    expect(r.stdout).toContain('Installed plugin "example"');
+    expect(r.stdout).not.toContain("to help set up this plugin");
     expect(r.exitCode).toBe(0);
   });
 });

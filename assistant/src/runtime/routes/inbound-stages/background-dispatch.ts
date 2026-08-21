@@ -8,6 +8,7 @@
  * focused on orchestration.
  */
 import type { AssistantEvent } from "../../../api/index.js";
+import { resolveGuardianPromptDelivery } from "../../../approvals/guardian-channel-delivery.js";
 import {
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
@@ -20,9 +21,10 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
-import { sendChannelReaction } from "../../../messaging/providers/index.js";
 import {
+  sendChannelReaction,
   sendChannelTyping,
+  setChannelThreadStatus,
   supportsChannelTyping,
 } from "../../../messaging/providers/index.js";
 import {
@@ -175,7 +177,6 @@ export function processChannelMessageInBackground(
       sourceChannel,
       replyCallbackUrl,
       chatId: externalChatId,
-      assistantId,
       startImmediately: shouldStartSlackThinkingStatusImmediately({
         sourceChannel,
         chatType,
@@ -189,6 +190,7 @@ export function processChannelMessageInBackground(
           externalChatId,
           trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
+          guardianChatId: trustCtx.guardianChatId,
           requesterExternalUserId: trustCtx.requesterExternalUserId,
           replyCallbackUrl,
           assistantId,
@@ -226,7 +228,6 @@ export function processChannelMessageInBackground(
         chatType,
         replyCallbackUrl,
         chatId: externalChatId,
-        assistantId,
         recipientUserId: slackInbound?.actorExternalUserId,
         recipientTeamId: slackInbound?.actorTeamId,
         // Durably record the streamed message `ts` the instant the stream
@@ -473,16 +474,9 @@ function createSlackThinkingStatusController(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl?: string;
   chatId: string;
-  assistantId?: string;
   startImmediately?: boolean;
 }): SlackThinkingStatusController | undefined {
-  const {
-    sourceChannel,
-    replyCallbackUrl,
-    chatId,
-    assistantId,
-    startImmediately,
-  } = params;
+  const { sourceChannel, replyCallbackUrl, chatId, startImmediately } = params;
   if (
     !replyCallbackUrl ||
     !shouldEmitSlackThinkingStatus(sourceChannel, replyCallbackUrl)
@@ -507,7 +501,6 @@ function createSlackThinkingStatusController(params: {
     slackThinkingStatus = setSlackThinkingStatus(
       callbackUrl,
       chatId,
-      assistantId,
       currentLoadingMessages,
     );
     lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
@@ -624,7 +617,6 @@ function getTaskProgressLoadingMessage(
 function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
-  assistantId?: string,
   loadingMessages?: string[],
 ): SlackThinkingStatusHandle {
   let cleared = false;
@@ -687,15 +679,11 @@ function setSlackThinkingStatus(
 
   // Track the set promise so clear waits for it to settle first,
   // preventing a race where clear arrives at Slack before set.
-  let statusPromise = deliverChannelReply(callbackUrl, {
+  let statusPromise = setChannelThreadStatus(callbackUrl, {
     chatId,
-    assistantId,
-    assistantThreadStatus: {
-      channel: chatId,
-      threadTs,
-      status: getRandomSlackThinkingStatus(),
-      ...(loadingMessages ? { loadingMessages } : {}),
-    },
+    threadTs,
+    status: getRandomSlackThinkingStatus(),
+    ...(loadingMessages ? { loadingMessages } : {}),
   }).catch((err) => {
     log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
   });
@@ -705,17 +693,13 @@ function setSlackThinkingStatus(
       return;
     }
     statusPromise = statusPromise.then(() =>
-      deliverChannelReply(callbackUrl, {
+      setChannelThreadStatus(callbackUrl, {
         chatId,
-        assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: getRandomSlackThinkingStatus(),
-          ...(nextLoadingMessages
-            ? { loadingMessages: nextLoadingMessages }
-            : {}),
-        },
+        threadTs,
+        status: getRandomSlackThinkingStatus(),
+        ...(nextLoadingMessages
+          ? { loadingMessages: nextLoadingMessages }
+          : {}),
       }).catch((err) => {
         log.debug(
           { err, chatId, threadTs },
@@ -732,14 +716,10 @@ function setSlackThinkingStatus(
     cleared = true;
     clearTimeout(safetyTimer);
     void statusPromise.then(() =>
-      deliverChannelReply(callbackUrl, {
+      setChannelThreadStatus(callbackUrl, {
         chatId,
-        assistantId,
-        assistantThreadStatus: {
-          channel: chatId,
-          threadTs,
-          status: "",
-        },
+        threadTs,
+        status: "",
       }).catch((err) => {
         log.debug(
           { err, chatId, threadTs },
@@ -770,6 +750,7 @@ function startPendingApprovalPromptWatcher(params: {
   externalChatId: string;
   trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
+  guardianChatId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
   assistantId?: string;
@@ -781,6 +762,7 @@ function startPendingApprovalPromptWatcher(params: {
     externalChatId,
     trustClass,
     guardianExternalUserId,
+    guardianChatId,
     requesterExternalUserId,
     replyCallbackUrl,
     assistantId,
@@ -812,9 +794,17 @@ function startPendingApprovalPromptWatcher(params: {
         const info = pending[0];
         if (prompt && info && !deliveredRequestIds.has(info.requestId)) {
           deliveredRequestIds.add(info.requestId);
+          // Addressed to the guardian's own chat, not the chat the turn is
+          // running in, which can be a room that reads the tool and its
+          // command preview.
+          const promptDelivery = resolveGuardianPromptDelivery({
+            turnChatId: externalChatId,
+            turnCallbackUrl: replyCallbackUrl,
+            guardianChatId,
+          });
           const delivered = await deliverGeneratedApprovalPrompt({
-            replyCallbackUrl,
-            chatId: externalChatId,
+            replyCallbackUrl: promptDelivery.callbackUrl,
+            chatId: promptDelivery.chatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
             prompt,

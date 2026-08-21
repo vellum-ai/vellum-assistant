@@ -54,6 +54,10 @@ during the install, and the install asks for confirmation before finalizing:
 schedules run automatically in the background once the plugin is installed.
 Pass --force to skip the prompt (required for non-interactive installs).
 
+A plugin that ships a setup skill (skills/setup/ or
+skills/<name>-setup/) prints a line after install telling the user to
+load that skill to finish setup.
+
 A GitHub URL (anything containing a slash) installs directly from that repo,
 bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
 been reviewed and its hooks/tools run with full assistant access — so the
