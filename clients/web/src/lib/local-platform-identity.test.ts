@@ -78,7 +78,9 @@ mock.module("@/runtime/device-id", () => ({
   getDeviceId: () => browserDeviceId,
 }));
 
+const platformDetection = await import("@/runtime/platform-detection");
 mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
   detectElectronHostOS: () => electronHostOS,
 }));
 
