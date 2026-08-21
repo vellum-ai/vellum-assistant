@@ -54,8 +54,7 @@ function readBackupDestinations(): {
         )
         .map((d) => ({ path: d.path, encrypt: d.encrypt !== false }));
     }
-    // null destinations = iCloud default, but we don't list those unless
-    // they already have snapshots on disk.
+    // Implicit platform destinations are not listed by this route.
   }
 
   return { localDir, offsiteDestinations };
@@ -145,7 +144,10 @@ export function createBackupSnapshotHandler(deps: BackupRouteDeps) {
 
       if (message.includes("already in progress")) {
         return Response.json(
-          { error: "Conflict", message: "A backup snapshot is already in progress" },
+          {
+            error: "Conflict",
+            message: "A backup snapshot is already in progress",
+          },
           { status: 409 },
         );
       }

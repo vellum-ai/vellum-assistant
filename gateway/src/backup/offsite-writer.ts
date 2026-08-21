@@ -13,7 +13,9 @@
  */
 
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+
+import { deriveSafeOffsiteAncestor } from "@vellumai/backup-paths";
 
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneDir } from "./list-snapshots.js";
@@ -33,36 +35,6 @@ export interface OffsiteWriteResult {
 }
 
 /**
- * Derive the "safe ancestor" for an offsite destination — a directory that
- * must already exist on disk before we create intermediate directories
- * under it.
- */
-function deriveSafeAncestor(destinationPath: string): string {
-  // iCloud Drive subtrees anchor on the iCloud root
-  const home = process.env.HOME || "";
-  if (home) {
-    const iCloudRoot = join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
-    if (
-      destinationPath === iCloudRoot ||
-      destinationPath.startsWith(`${iCloudRoot}/`)
-    ) {
-      return iCloudRoot;
-    }
-  }
-  // /Volumes/<name>/... paths anchor on the volume mount point
-  const volumesPrefix = "/Volumes/";
-  if (destinationPath.startsWith(volumesPrefix)) {
-    const rest = destinationPath.slice(volumesPrefix.length);
-    const slash = rest.indexOf("/");
-    const volumeName = slash === -1 ? rest : rest.slice(0, slash);
-    if (volumeName.length > 0) {
-      return `${volumesPrefix}${volumeName}`;
-    }
-  }
-  return dirname(destinationPath);
-}
-
-/**
  * Write a local snapshot to a single offsite destination.
  */
 export async function writeOffsiteSnapshotToOne(
@@ -73,7 +45,7 @@ export async function writeOffsiteSnapshotToOne(
 ): Promise<OffsiteWriteResult> {
   try {
     try {
-      await stat(deriveSafeAncestor(destination.path));
+      await stat(deriveSafeOffsiteAncestor(destination.path));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return { destination, entry: null, skipped: "parent-missing" };

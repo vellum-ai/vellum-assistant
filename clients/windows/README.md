@@ -57,6 +57,24 @@ Packaged Windows startup installs the bundled CLI runtime for the current user:
 background archive uses PowerShell and the built-in `tar.exe`; other platforms
 use the existing POSIX archive process.
 
+## Automated backups
+
+Automated local backups are available through `assistant backup` and remain
+disabled until the user enables them. Windows has no implicit offsite
+destination. Add the intended OneDrive folder, external drive, or network
+location explicitly before relying on offsite copies:
+
+```powershell
+$backupDir = "C:\Users\Example\OneDrive\VellumAssistant\backups"
+New-Item -ItemType Directory -Force $backupDir
+assistant backup destinations add $backupDir
+assistant backup enable
+```
+
+Offsite copies are encrypted by default. The assistant does not infer a target
+from OneDrive environment variables because a machine can expose personal and
+organization-managed accounts at the same time.
+
 ## Not ported yet (see `clients/macos/src/main/` for reference implementations)
 
 - Gateway (`/assistant/__gateway/{port}/*`) request forwarding. Packaged
