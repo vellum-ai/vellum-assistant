@@ -6,6 +6,8 @@
  * - `ingress.publicBaseUrl` → set to `""`
  * - `ingress.enabled` → deleted
  * - `ingress.publicBaseUrlManagedBy` → deleted
+ * - `ingress.lastTunnel` → deleted
+ * - `ingress.assistantId` → deleted
  * - `telegram.registeredWebhookUrl` → deleted
  * - `daemon` → deleted entirely
  * - `skills.load.extraDirs` → set to `[]`
@@ -44,6 +46,10 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     ingress.publicBaseUrl = "";
     delete ingress.enabled;
     delete ingress.publicBaseUrlManagedBy;
+    // The remembered tunnel and the assistant it fronted belong to the source
+    // host; carrying them over makes tunnel-status UIs name the old deployment.
+    delete ingress.lastTunnel;
+    delete ingress.assistantId;
   }
 
   // Strip the recorded Telegram webhook URL. It records where *this*

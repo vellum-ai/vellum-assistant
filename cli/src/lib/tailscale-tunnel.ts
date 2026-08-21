@@ -213,7 +213,7 @@ export async function startTailscaleServe(
     throw new Error(serveFailureMessage(serveResult));
   }
 
-  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId, "tailscale");
 
   return { publicUrl, port, binary, workspaceDir };
 }

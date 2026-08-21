@@ -27,6 +27,7 @@ import * as ngrok from "../lib/ngrok.js";
 import * as nginxIngress from "../lib/nginx-ingress.js";
 import * as tailscaleTunnel from "../lib/tailscale-tunnel.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
+import { TUNNEL_PROVIDERS } from "../lib/ingress-config.js";
 
 const realCloudflareTunnel = { ...cloudflareTunnel };
 const realNgrok = { ...ngrok };
@@ -675,6 +676,23 @@ describe("tunnel edge targeting", () => {
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
 
+  test("accepts every provider in the shared registry", async () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const provider of TUNNEL_PROVIDERS) {
+        writeLockfile(makeLocalEntry());
+        process.argv = ["bun", "vellum", "tunnel", "--provider", provider];
+
+        const { exited, errors } = await runTunnelExpectingExit1();
+
+        expect(exited).toBe(false);
+        expect(errors).not.toContain("unknown tunnel provider");
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   test("threads --domain through to runNgrokTunnel", async () => {
     const entry = makeLocalEntry();
     writeLockfile(entry);
@@ -907,6 +925,41 @@ describe("ngrok --domain spawn args", () => {
     }) as unknown as typeof globalThis.fetch;
   }
 
+  function readIngress(ws: string): Record<string, unknown> {
+    const config = JSON.parse(
+      readFileSync(join(ws, "config.json"), "utf-8"),
+    ) as {
+      ingress?: Record<string, unknown>;
+    };
+    return config.ingress ?? {};
+  }
+
+  /** Run `fn` against a throwaway lockfile holding one local entry. */
+  async function withLockfileFor<T>(
+    assistantId: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const lockfileDir = mkdtempSync(join(tmpdir(), "vellum-ngrok-lockfile-"));
+    tempDirs.push(lockfileDir);
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        activeAssistant: assistantId,
+        assistants: [
+          { assistantId, runtimeUrl: "http://127.0.0.1:7830", cloud: "local" },
+        ],
+      }),
+    );
+    const previous = process.env.VELLUM_LOCKFILE_DIR;
+    process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
+    try {
+      return await fn();
+    } finally {
+      if (previous === undefined) delete process.env.VELLUM_LOCKFILE_DIR;
+      else process.env.VELLUM_LOCKFILE_DIR = previous;
+    }
+  }
+
   const unrelatedPortTunnel: StubTunnel = {
     public_url: "https://unrelated.ngrok.app",
     config: { addr: "localhost:65500" },
@@ -1088,6 +1141,54 @@ describe("ngrok --domain spawn args", () => {
     expect(config.ingress.publicBaseUrl).toBeUndefined();
     // …and the reserved domain stays saved as standing intent.
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
+  });
+
+  test("an adopted automatic tunnel records the assistant it fronts", async () => {
+    const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
+    mockTunnelListFetch("https://adopted.ngrok.app", "localhost:7830");
+
+    const child = await withLockfileFor("adopt-assistant", () =>
+      realNgrok.maybeStartNgrokTunnel(7830, ws, "adopt-assistant"),
+    );
+
+    expect(child).toBeNull();
+    expect(readIngress(ws)).toMatchObject({
+      publicBaseUrl: "https://adopted.ngrok.app",
+      assistantId: "adopt-assistant",
+      lastTunnel: {
+        provider: "ngrok",
+        publicBaseUrl: "https://adopted.ngrok.app",
+      },
+    });
+  });
+
+  test("a spawned automatic tunnel records the assistant it fronts", async () => {
+    const ws = makeWorkspace({ telegram: { botUsername: "example_bot" } });
+    mockNgrokApiFetch([
+      { tunnels: [] },
+      {
+        tunnels: [
+          {
+            public_url: "https://spawned.ngrok.app",
+            config: { addr: "localhost:7830" },
+          },
+        ],
+      },
+    ]);
+
+    const child = await withLockfileFor("spawn-assistant", () =>
+      realNgrok.maybeStartNgrokTunnel(7830, ws, "spawn-assistant"),
+    );
+
+    expect(child).not.toBeNull();
+    expect(readIngress(ws)).toMatchObject({
+      publicBaseUrl: "https://spawned.ngrok.app",
+      assistantId: "spawn-assistant",
+      lastTunnel: {
+        provider: "ngrok",
+        publicBaseUrl: "https://spawned.ngrok.app",
+      },
+    });
   });
 
   test("maybeStartNgrokTunnel skips when an existing agent tunnels a different port", async () => {
