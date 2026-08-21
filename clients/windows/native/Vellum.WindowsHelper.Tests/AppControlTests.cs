@@ -168,9 +168,39 @@ public static class AppControlTests
         AppInputSafety.ButtonDown(
             () => pointerEvents.Add("validate"),
             () => pointerEvents.Add("down"));
+        AppInputSafety.MoveWhilePressed(
+            30,
+            40,
+            () => pointerEvents.Add("validate-current"),
+            (_, _) => pointerEvents.Add("drag-move"),
+            () => pointerEvents.Add("validate-moved"));
         Check(
-            pointerEvents.SequenceEqual(["move", "validate", "validate", "down"]),
-            "pointer ownership is checked after movement and before button-down");
+            pointerEvents.SequenceEqual([
+                "move",
+                "validate",
+                "validate",
+                "down",
+                "validate-current",
+                "drag-move",
+                "validate-moved",
+            ]),
+            "pointer ownership surrounds held-button movement and precedes button-down");
+
+        var blockedMove = false;
+        try
+        {
+            AppInputSafety.MoveWhilePressed(
+                30,
+                40,
+                () => throw new InvalidOperationException("ownership changed"),
+                (_, _) => blockedMove = true,
+                () => { });
+            throw new Exception("Drag continued after ownership changed");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        Check(!blockedMove, "drag movement stops before input when ownership changed");
 
         var validations = 0;
         var typed = new List<char>();

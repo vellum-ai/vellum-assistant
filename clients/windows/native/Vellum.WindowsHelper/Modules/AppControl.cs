@@ -77,6 +77,17 @@ public static class AppInputSafety
         validate();
         send();
     }
+
+    public static void MoveWhilePressed(
+        double x,
+        double y,
+        Action validateBeforeMove,
+        Action<double, double> move,
+        Action validateAfterMove)
+    {
+        validateBeforeMove();
+        MoveAndValidate(x, y, move, validateAfterMove);
+    }
 }
 
 public interface IAppControlHost
@@ -823,16 +834,15 @@ public sealed class WindowsAppControlHost : IAppControlHost
         AppTarget target, AppWindow window, double x, double y, string button, bool doubleClick,
         CancellationToken cancellationToken)
     {
-        void Validate()
+        void ValidateCursor()
         {
-            EnsureForeground(target, window);
-            EnsurePointOwner(target, x, y);
+            EnsureCursorActionTarget(target, window);
         }
-        AppInputSafety.MoveAndValidate(x, y, NativeInput.MoveTo, Validate);
+        AppInputSafety.MoveAndValidate(x, y, NativeInput.MoveTo, ValidateCursor);
         for (var click = 0; click < (doubleClick ? 2 : 1); click++)
         {
             AppInputSafety.ButtonDown(
-                Validate,
+                ValidateCursor,
                 () => NativeInput.Button(button, down: true));
             try
             {
@@ -859,13 +869,17 @@ public sealed class WindowsAppControlHost : IAppControlHost
             EnsureForeground(target, window);
             EnsurePointOwner(target, x, y);
         }
+        void ValidateCursor()
+        {
+            EnsureCursorActionTarget(target, window);
+        }
         AppInputSafety.MoveAndValidate(
             fromX,
             fromY,
             NativeInput.MoveTo,
-            () => Validate(fromX, fromY));
+            ValidateCursor);
         AppInputSafety.ButtonDown(
-            () => Validate(fromX, fromY),
+            ValidateCursor,
             () => NativeInput.Button(button, down: true));
         try
         {
@@ -876,11 +890,16 @@ public sealed class WindowsAppControlHost : IAppControlHost
                 var x = fromX + (toX - fromX) * fraction;
                 var y = fromY + (toY - fromY) * fraction;
                 cancellationToken.ThrowIfCancellationRequested();
-                AppInputSafety.MoveAndValidate(
+                AppInputSafety.MoveWhilePressed(
                     x,
                     y,
+                    () =>
+                    {
+                        ValidateCursor();
+                        Validate(x, y);
+                    },
                     NativeInput.MoveTo,
-                    () => Validate(x, y));
+                    ValidateCursor);
                 await Task.Delay(10, cancellationToken);
             }
         }
@@ -910,6 +929,21 @@ public sealed class WindowsAppControlHost : IAppControlHost
             throw new InvalidOperationException(
                 "A target coordinate is covered by another process; input was not sent");
         }
+    }
+
+    private static void EnsureCursorOwner(AppTarget target)
+    {
+        if (!AppControlNativeMethods.GetCursorPos(out var point))
+        {
+            throw new InvalidOperationException("The pointer position could not be verified; input was not sent");
+        }
+        EnsurePointOwner(target, point.X, point.Y);
+    }
+
+    private static void EnsureCursorActionTarget(AppTarget target, AppWindow window)
+    {
+        EnsureForeground(target, window);
+        EnsureCursorOwner(target);
     }
 
     private static IReadOnlyList<Process> FindProcesses(string app)
@@ -1143,6 +1177,10 @@ internal static partial class AppControlNativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial nint WindowFromPoint(NativePoint point);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetCursorPos(out NativePoint point);
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetWindowThreadProcessId(nint window, out int processId);
