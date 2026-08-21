@@ -36,16 +36,14 @@ const CODE_CLASS =
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
  * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
  * pairing routes ({@link useSupportsRemoteWebPairing}). The client-scoped
- * `web-remote-ingress` flag decides only whether this card renders; it gates
- * no pairing functionality. The client-scoped `paired-devices-ui` flag decides
- * only whether the paired-devices list + revoke section renders inside the
- * card; revocation itself stays available via `vellum devices` on the host.
+ * `paired-devices-ui` flag decides only whether the paired-devices list +
+ * revoke section renders inside the card; revocation itself stays available
+ * via `vellum devices` on the host.
  */
 export function PairDeviceCard() {
   const { t } = useTranslation("settings");
   const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
-  const webRemoteIngressOn = useClientFeatureFlagStore.use.webRemoteIngress();
   const pairedDevicesUIOn = useClientFeatureFlagStore.use.pairedDevicesUI();
   const pair = usePairDevice(target?.base ?? null, target?.ingressUrl ?? null);
   // Bumped when the pending-request flow pairs a device, so the device list
@@ -55,7 +53,7 @@ export function PairDeviceCard() {
     errorMessage: t("pairDeviceCard.copyError"),
   });
 
-  if (!target || !supported || !webRemoteIngressOn) {
+  if (!target || !supported) {
     return null;
   }
 
