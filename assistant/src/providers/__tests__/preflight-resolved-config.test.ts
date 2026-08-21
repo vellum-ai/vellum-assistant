@@ -40,9 +40,10 @@ import {
   preflightResolvedConfig,
 } from "../connection-resolution.js";
 
+// The entry-name provider IS the connection reference: "anthropic-personal"
+// names a row directly.
 const resolved = (overrides: Partial<Record<string, string>> = {}) => ({
-  provider: "anthropic",
-  provider_connection: "anthropic-personal",
+  provider: "anthropic-personal",
   model: "claude-opus-4-8",
   ...overrides,
 });
@@ -86,20 +87,18 @@ describe("preflightResolvedConfig", () => {
     expect(await preflightError(resolved())).toBeUndefined();
   });
 
-  test("no provider_connection on the config is not the preflight's concern", async () => {
+  test("a bare vendor provider is not the preflight's concern", async () => {
     await preflightResolvedConfig(
       { provider: "anthropic", model: "claude-opus-4-8" },
       {},
     );
   });
 
-  test("deleted connection throws not_found naming profile and model", async () => {
+  test("an entry-name provider whose row is gone passes silently (dispatch surfaces the error)", async () => {
+    // With no row, the label is indistinguishable from an unknown provider;
+    // dispatch fails with its own explainable resolution error.
     connectionsByName = {};
-    const err = await preflightError(resolved());
-    expect(err?.reason).toBe("not_found");
-    expect(err?.profileName).toBe("custom-fast");
-    expect(err?.model).toBe("claude-opus-4-8");
-    expect(err?.message).toContain("anthropic-personal");
+    expect(await preflightError(resolved())).toBeUndefined();
   });
 
   test("missing credential throws missing_credential", async () => {
@@ -109,20 +108,18 @@ describe("preflightResolvedConfig", () => {
     expect(err?.message).toContain("API key");
   });
 
+  test("missing credential names profile and model", async () => {
+    secureKeys = {};
+    const err = await preflightError(resolved());
+    expect(err?.profileName).toBe("custom-fast");
+    expect(err?.model).toBe("claude-opus-4-8");
+    expect(err?.message).toContain("anthropic-personal");
+  });
+
   test("CES-unreachable passes silently — never misreported as a missing credential", async () => {
     secureKeys = {};
     cesUnreachable = true;
     expect(await preflightError(resolved())).toBeUndefined();
-  });
-
-  test("provider mismatch throws provider_mismatch", async () => {
-    connectionsByName["anthropic-personal"] = {
-      name: "anthropic-personal",
-      provider: "openai",
-      auth: { type: "api_key", credential: "credential/openai/api_key" },
-    };
-    const err = await preflightError(resolved());
-    expect(err?.reason).toBe("provider_mismatch");
   });
 
   test("a vellum identity preflights through the sentinel row with the derived upstream", async () => {
@@ -133,10 +130,7 @@ describe("preflightResolvedConfig", () => {
     };
     platformLoggedIn = true;
     await expect(
-      preflightResolvedConfig(
-        resolved({ provider: "vellum", provider_connection: "" }),
-        {},
-      ),
+      preflightResolvedConfig(resolved({ provider: "vellum" }), {}),
     ).resolves.toBeUndefined();
   });
 
@@ -147,9 +141,7 @@ describe("preflightResolvedConfig", () => {
       auth: { type: "platform" },
     };
     platformLoggedIn = false;
-    const err = await preflightError(
-      resolved({ provider: "vellum", provider_connection: "" }),
-    );
+    const err = await preflightError(resolved({ provider: "vellum" }));
     expect(err?.reason).toBe("platform_unauthenticated");
   });
 
@@ -164,7 +156,6 @@ describe("preflightResolvedConfig", () => {
     secureKeys["credential/openai/api_key"] = "sk-openai";
     const collided = resolved({
       provider: "vellum",
-      provider_connection: "",
       model: "gpt-5.6-luna",
     });
 
@@ -182,7 +173,6 @@ describe("preflightResolvedConfig", () => {
     const err = await preflightError(
       resolved({
         provider: "vellum",
-        provider_connection: "",
         model: "not-a-real-model",
       }),
     );
@@ -199,48 +189,17 @@ describe("preflightResolvedConfig", () => {
       },
     };
     const missing = await preflightError(
-      resolved({
-        provider: "chatgpt",
-        provider_connection: "",
-        model: "gpt-5.5",
-      }),
+      resolved({ provider: "chatgpt", model: "gpt-5.5" }),
     );
     expect(missing?.reason).toBe("missing_credential");
 
     secureKeys["credential/chatgpt/access_token"] = "tok";
     await expect(
       preflightResolvedConfig(
-        resolved({
-          provider: "chatgpt",
-          provider_connection: "",
-          model: "gpt-5.5",
-        }),
+        resolved({ provider: "chatgpt", model: "gpt-5.5" }),
         {},
       ),
     ).resolves.toBeUndefined();
-  });
-
-  test("an explicit connection outranks an entry-name provider, matching dispatch", async () => {
-    // A healthy entry row must not mask the row the request actually uses.
-    connectionsByName["anthropic-work"] = {
-      name: "anthropic-work",
-      provider: "anthropic",
-      auth: {
-        type: "api_key",
-        credential: "credential/anthropic-work/api_key",
-      },
-    };
-    secureKeys["credential/anthropic-work/api_key"] = "healthy";
-
-    const err = await preflightError(
-      resolved({
-        provider: "anthropic-work",
-        provider_connection: "deleted-row",
-        model: "claude-opus-4-8",
-      }),
-    );
-    expect(err?.reason).toBe("not_found");
-    expect(err?.connectionName).toBe("deleted-row");
   });
 
   test("a chatgpt-identity subscription row preflights the same way", async () => {
@@ -256,22 +215,14 @@ describe("preflightResolvedConfig", () => {
       },
     };
     const missing = await preflightError(
-      resolved({
-        provider: "chatgpt",
-        provider_connection: "",
-        model: "gpt-5.5",
-      }),
+      resolved({ provider: "chatgpt", model: "gpt-5.5" }),
     );
     expect(missing?.reason).toBe("missing_credential");
 
     secureKeys["credential/chatgpt/access_token"] = "tok";
     await expect(
       preflightResolvedConfig(
-        resolved({
-          provider: "chatgpt",
-          provider_connection: "",
-          model: "gpt-5.5",
-        }),
+        resolved({ provider: "chatgpt", model: "gpt-5.5" }),
         {},
       ),
     ).resolves.toBeUndefined();
@@ -279,55 +230,14 @@ describe("preflightResolvedConfig", () => {
 
   test("a chatgpt identity with no subscription row throws not_found", async () => {
     const err = await preflightError(
-      resolved({
-        provider: "chatgpt",
-        provider_connection: "",
-        model: "gpt-5.5",
-      }),
+      resolved({ provider: "chatgpt", model: "gpt-5.5" }),
     );
     expect(err?.reason).toBe("not_found");
   });
 
   test("a chatgpt identity with a non-Codex model throws model_incompatible", async () => {
-    const err = await preflightError(
-      resolved({ provider: "chatgpt", provider_connection: "" }),
-    );
+    const err = await preflightError(resolved({ provider: "chatgpt" }));
     expect(err?.reason).toBe("model_incompatible");
-  });
-
-  test("the vellum managed connection serves managed-routable providers when logged in", async () => {
-    connectionsByName = {
-      vellum: {
-        name: "vellum",
-        provider: "vellum",
-        auth: { type: "platform" },
-      },
-    };
-    platformLoggedIn = true;
-    expect(
-      await preflightError(resolved({ provider_connection: "vellum" })),
-    ).toBeUndefined();
-
-    platformLoggedIn = false;
-    const err = await preflightError(
-      resolved({ provider_connection: "vellum" }),
-    );
-    expect(err?.reason).toBe("platform_unauthenticated");
-  });
-
-  test("the vellum managed connection rejects non-managed-routable providers", async () => {
-    connectionsByName = {
-      vellum: {
-        name: "vellum",
-        provider: "vellum",
-        auth: { type: "platform" },
-      },
-    };
-    platformLoggedIn = true;
-    const err = await preflightError(
-      resolved({ provider: "openrouter", provider_connection: "vellum" }),
-    );
-    expect(err?.reason).toBe("provider_mismatch");
   });
 
   test("platform-auth connections require a platform login", async () => {
@@ -374,7 +284,7 @@ describe("preflightResolvedConfig platform-managed credential messaging", () => 
     };
     process.env.IS_PLATFORM = "true";
   };
-  const managedRoute = () => resolved({ provider_connection: "vellum" });
+  const managedRoute = () => resolved({ provider: "vellum" });
 
   test("store unreachable surfaces a retriable message with no login text", async () => {
     platformManaged();

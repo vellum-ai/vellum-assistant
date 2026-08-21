@@ -1,26 +1,23 @@
 /**
  * Dispatcher gate test — proves that `resolveConfiguredProvider` routes
  * through `resolveProviderFromConnection` for every dispatch when a profile
- * names a `provider_connection`, AND that misconfigurations now fail loudly
- * rather than silently rerouting to a legacy registry.
+ * derives a connection row (entry name, routing identity, or vendor
+ * auto-resolve), AND that misconfigurations fail loudly rather than
+ * silently rerouting to a legacy registry.
  *
- * Hard config errors (missing connection name, unknown connection,
- * provider mismatch) throw `ConnectionResolutionError`. Soft credential
- * failures (resolver returns null) still return null so callers can
- * degrade gracefully.
+ * Hard config errors (unknown connection, provider mismatch) throw
+ * `ConnectionResolutionError`. Soft credential failures (resolver returns
+ * null) still return null so callers can degrade gracefully.
  *
  * Hard gates:
- *   1. Two profiles, same provider, different `provider_connection` →
- *      resolver called twice with the right connection each time, with
- *      auth bundles distinguishable per profile (mix-and-match goal #2
- *      of the design).
- *   2. Profile WITHOUT `provider_connection` → throws
- *      `ConnectionResolutionError` (configuration bug; backfill should
- *      have populated it).
- *   3. `provider_connection` set but unknown → throws (loud config error).
- *   4. `provider_connection` set, found, but resolver returns null →
- *      returns null (soft credential failure; satellite caller decides
- *      what to do).
+ *   1. Two profiles, distinct entry-name providers → resolver called twice
+ *      with the right connection each time, with auth bundles
+ *      distinguishable per profile (mix-and-match goal #2 of the design).
+ *   2. Profile whose vendor has no connection row → returns null
+ *      (graceful fallback).
+ *   3. An unknown connection name → throws (loud config error).
+ *   4. Connection found but the resolver returns null → returns null
+ *      (soft credential failure; satellite caller decides what to do).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -95,6 +92,7 @@ mock.module("../registry.js", () => ({
 // Imports (after mocks).
 // ---------------------------------------------------------------------------
 
+import { resolveDefaultConnectionName } from "../../config/default-provider-resolution.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
@@ -158,13 +156,11 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     setLlmConfig({
       profiles: {
         "anthropic-managed-profile": {
-          provider: "anthropic",
-          provider_connection: "anthropic-managed",
+          provider: "anthropic-managed",
           model: "claude-opus-4-7",
         },
         "anthropic-personal-profile": {
-          provider: "anthropic",
-          provider_connection: "anthropic-personal",
+          provider: "anthropic-personal",
           model: "claude-opus-4-7",
         },
       },
@@ -198,18 +194,18 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     expect(personalResult).not.toBeNull();
   });
 
-  test("profile WITHOUT provider_connection returns null (graceful fallback)", async () => {
+  test("profile whose vendor has no connection row returns null (graceful fallback)", async () => {
     setLlmConfig({
       profiles: {
         "legacy-profile": {
           provider: "anthropic",
           model: "claude-opus-4-7",
-          // no provider_connection — boot-time backfill is expected to
-          // populate this in production. When unset, the per-callsite
-          // resolver returns null so callsites with deterministic
-          // fallbacks (invite instructions, telegram resolution, etc.)
-          // keep working. Hard config errors (lookup failed, mismatch)
-          // still throw via tryResolveProviderForConnectionName.
+          // A bare vendor with no row auto-resolves to nothing: the
+          // per-callsite resolver returns null so callsites with
+          // deterministic fallbacks (invite instructions, telegram
+          // resolution, etc.) keep working. Hard config errors (lookup
+          // failed, mismatch) still throw via
+          // tryResolveProviderForConnectionName.
         },
       },
     });
@@ -223,22 +219,17 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     expect(resolveProviderCalls.length).toBe(0);
   });
 
-  test("provider_connection set but unknown → throws ConnectionResolutionError(not_found)", async () => {
-    // No connection registered — the dispatcher should throw with reason
+  test("an unknown connection name throws ConnectionResolutionError(not_found)", async () => {
+    // No connection registered; resolution must throw with reason
     // 'not_found' rather than falling through to a legacy lookup.
-    setLlmConfig({
-      profiles: {
-        broken: {
-          provider: "anthropic",
-          provider_connection: "does-not-exist",
-          model: "claude-opus-4-7",
-        },
-      },
-    });
-
     let caught: unknown;
     try {
-      await getConfiguredProvider("mainAgent", { overrideProfile: "broken" });
+      await tryResolveProviderForConnectionName(
+        "does-not-exist",
+        {} as Parameters<typeof tryResolveProviderForConnectionName>[1],
+        "anthropic",
+        "claude-opus-4-7",
+      );
     } catch (err) {
       caught = err;
     }
@@ -283,6 +274,46 @@ describe("dispatch routes through provider_connection (Phase 1: connection-only)
     // however they want (rollup producer skips, others throw a domain-
     // specific error).
     expect(result).toBeNull();
+  });
+
+  test("bare-vendor auto-resolve prefers the conventional row over list order", async () => {
+    // Active same-vendor rows, the conventional one listed last, including
+    // a row named exactly like the vendor. Dispatch must land on the
+    // conventional `<provider>-personal` row so it agrees with the
+    // default-provider status route and the deletion guard, which reason
+    // via `resolveDefaultConnectionName`.
+    registerConnection(
+      {
+        name: "anthropic",
+        provider: "anthropic",
+        auth: { type: "api_key", credential: "credential/anthropic/work" },
+      },
+      { name: "anthropic", tag: "vendor-named-stub" },
+    );
+    registerConnection(
+      {
+        name: "anthropic-personal",
+        provider: "anthropic",
+        auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+      },
+      { name: "anthropic", tag: "personal-stub" },
+    );
+
+    setLlmConfig({
+      profiles: {
+        bare: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "bare",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls.length).toBe(1);
+    expect(resolveProviderCalls[0].name).toBe(
+      resolveDefaultConnectionName({ provider: "anthropic" }),
+    );
   });
 });
 

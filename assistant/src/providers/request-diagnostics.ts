@@ -35,7 +35,7 @@ export interface ProviderRequestDiagnostics {
   resolved_url?: string;
   /** Model ID as sent to the provider, not as requested by the caller. */
   model_id?: string;
-  /** `provider_connections` row whose credential authenticated the request. */
+  /** Connection row whose credential authenticated the request. */
   connection_name?: string;
   /** HTTP status of the outbound response. */
   http_status?: number;

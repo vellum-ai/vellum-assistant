@@ -43,7 +43,6 @@ describe("getEffectiveProfiles", () => {
       expect(body).toBeDefined();
       expect(typeof body.model).toBe("string");
       expect(body.provider).toBe("vellum");
-      expect(body.provider_connection).toBeUndefined();
       expect(body.source).toBe("managed");
     }
   });
@@ -170,7 +169,6 @@ describe("resolver integration", () => {
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
     expect(String(resolved.provider)).toBe("vellum");
-    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("an empty workspace resolves every call-site default from the catalog", () => {
@@ -240,7 +238,6 @@ describe("resolver integration", () => {
           source: "user",
           provider: "anthropic",
           model: "claude-opus-4-6",
-          provider_connection: "anthropic-personal",
           maxTokens: 32000,
           effort: "high",
         },
@@ -330,18 +327,12 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(entry).toBeDefined();
         expect(typeof entry?.model).toBe("string");
         expect(entry?.provider).toBeDefined();
-        // Identity columns stamp no connection; BYOK columns always do.
-        if (entry?.provider === "vellum" || entry?.provider === "chatgpt") {
-          expect(entry?.provider_connection).toBeUndefined();
-        } else {
-          expect(entry?.provider_connection).toBeDefined();
-        }
         expect(entry?.source).toBe("managed");
       }
     }
   });
 
-  test("the chatgpt column resolves Codex-pinned models with no connection stamp", () => {
+  test("the chatgpt column resolves Codex-pinned models", () => {
     const byKey: Record<string, string> = {
       balanced: "gpt-5.6-luna",
       "quality-optimized": "gpt-5.6-sol",
@@ -353,7 +344,6 @@ describe("resolveDefaultProfileForProvider", () => {
       const entry = effective[key];
       expect(entry?.provider).toBe("chatgpt");
       expect(entry?.model).toBe(model);
-      expect(entry?.provider_connection).toBeUndefined();
       expect(entry?.source).toBe("managed");
     }
     // Cost and Speed both opt fully out of reasoning.
@@ -369,7 +359,6 @@ describe("resolveDefaultProfileForProvider", () => {
       dp("together"),
     );
     expect(entry?.provider).toBe("together");
-    expect(entry?.provider_connection).toBe("together-personal");
     // No intent table for `together`: the intent falls back to the
     // provider's catalog defaultModel.
     expect(entry?.model).toBe(resolveModelIntent("together", "balanced"));
@@ -405,18 +394,17 @@ describe("resolveDefaultProfileForProvider", () => {
     expect(entry?.maxTokens).toBe(PROFILE_IMPLS.balanced.anthropic.maxTokens);
   });
 
-  test("BYOK columns resolve the intent to a provider-specific model and personal connection", () => {
+  test("BYOK columns resolve the intent to a provider-specific model", () => {
     const entry = resolveDefaultProfileForProvider(
       undefined,
       "balanced",
       dp("anthropic"),
     );
     expect(entry?.provider).toBe("anthropic");
-    expect(entry?.provider_connection).toBe("anthropic-personal");
     expect(entry?.model).toBe(resolveModelIntent("anthropic", "balanced"));
   });
 
-  test("the vellum column keeps its underlying dispatch provider and managed connection", () => {
+  test("the vellum column keeps its underlying dispatch provider", () => {
     const entry = resolveDefaultProfileForProvider(
       undefined,
       "balanced",
@@ -425,9 +413,6 @@ describe("resolveDefaultProfileForProvider", () => {
     // `vellum` is a routing identity: balanced dispatches through fireworks.
     expect(entry?.provider).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider,
-    );
-    expect(entry?.provider_connection).toBe(
-      CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider_connection,
     );
     expect(entry?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
@@ -466,7 +451,6 @@ describe("resolveDefaultProfileForProvider", () => {
     expect(entry?.topP).toBe(0.7);
     expect(entry?.provider).toBe("gemini");
     expect(entry?.model).toBe(resolveModelIntent("gemini", "balanced"));
-    expect(entry?.provider_connection).toBe("gemini-personal");
   });
 
   test("a null defaultProvider falls back to the vellum code bodies", () => {

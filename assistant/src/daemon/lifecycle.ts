@@ -33,7 +33,7 @@ import { isPlatformClientConfigured } from "../platform/client.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
-import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { ensureProviderConnectionRows } from "../providers/inference/backfill.js";
 import { repairSharedCredentialSlots } from "../providers/inference/credential-slot-repair.js";
 import { initializeProviders } from "../providers/registry.js";
 import { startRouteHost } from "../routes/control.js";
@@ -344,18 +344,14 @@ export async function runDaemon(): Promise<void> {
     );
     log.info(migrationSummary, "Daemon startup: workspace migrations complete");
 
-    // Seed canonical inference provider_connections and backfill any legacy
-    // profiles that pre-date the connection field. Runs after workspace
-    // migrations so migration 076 has already stripped services.inference.mode
-    // before backfill reads config. Idempotent — runs every boot so new
-    // canonicals propagate and manual config.json edits self-heal.
+    // Seed the canonical connection rows and ensure bare-vendor profiles
+    // have a row to dispatch through. Runs after workspace migrations so
+    // config.json is already in its current shape. Idempotent: runs every
+    // boot so new canonicals propagate and missing rows self-heal.
     try {
-      runProviderConnectionsBackfill(getDb());
+      ensureProviderConnectionRows(getDb());
     } catch (err) {
-      log.warn(
-        { err },
-        "provider_connections backfill failed — continuing startup",
-      );
+      log.warn({ err }, "connection-row repair failed - continuing startup");
     }
 
     // Repoint openai-compatible connections sharing the legacy provider-keyed

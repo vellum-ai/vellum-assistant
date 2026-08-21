@@ -1,20 +1,17 @@
 /**
- * Boot-time backfill: migrates existing config.json from the legacy
- * `provider` + `source` model to the new `provider_connection` model.
+ * Boot-time connection-row repair.
  *
- * Walks two locations in `llm.*` on every boot:
- *   - `llm.default`           — the legacy raw base blob still present in older configs
- *   - `llm.profiles.*`        — named alternate profiles (fast/balanced/...)
+ * Seeds the canonical connection rows and ensures every bare-vendor profile
+ * in `llm.default` / `llm.profiles.*` has a connection row to dispatch
+ * through, creating the conventional `<provider>-personal` row when it is
+ * missing (lazy bootstrap of user-mode credential rows, e.g. a config
+ * restored into a fresh workspace whose vault credential survived but whose
+ * DB rows did not).
  *
- * Call sites are not walked: call-site entries are model-only fragments that
- * carry no route of their own, so there is nothing to backfill there.
- *
- * Idempotent: any object that already has `provider_connection` is skipped.
- * Only modifies config.json when at least one location needs updating.
+ * Purely a data repair: config.json is read but never written.
  */
 
-import { MANAGED_PROFILE_NAMES } from "../../config/default-profile-catalog.js";
-import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import { loadRawConfig } from "../../config/loader.js";
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
@@ -23,46 +20,37 @@ import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
 import {
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
 import {
   createConnection,
   getConnection,
   listConnections,
   seedCanonicalConnections,
-  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./connections.js";
 
 const log = getLogger("provider-connections-backfill");
 
 /**
- * Seed canonical provider_connections and backfill any legacy config locations
- * that pre-date the connection field.
+ * Seed canonical connection rows and ensure a row exists for every
+ * bare-vendor profile.
  *
- * Runs on every daemon boot — both halves are idempotent and cheap
- * (O(profiles), typically ≤20 entries total). Designed to:
- *   - propagate new canonical connections as they're added in future versions
- *   - self-heal manual config.json edits that drop the connection field
- *
- * Steps:
- *   1. Upsert canonical connections.
- *   2. Walk `llm.default` and `llm.profiles.*` in config.json.
- *   3. For each entry without `provider_connection`, derive one from the
- *      entry's `provider` field + the global inference mode and write it back.
- *   4. Save config.json if any entry was updated.
+ * Runs on every daemon boot; both halves are idempotent and cheap
+ * (O(profiles), typically ≤20 entries total).
  */
-export function runProviderConnectionsBackfill(db: DrizzleDb): void {
+export function ensureProviderConnectionRows(db: DrizzleDb): void {
   try {
     seedCanonicalConnections(db);
-    backfillConfigProfiles(db);
+    ensureRowsForConfigProfiles(db);
   } catch (err) {
     log.error(
       { err },
-      "provider_connections backfill failed — will retry on next boot",
+      "connection-row repair failed - will retry on next boot",
     );
   }
 }
 
-function backfillConfigProfiles(db: DrizzleDb): void {
+function ensureRowsForConfigProfiles(db: DrizzleDb): void {
   const raw = loadRawConfig();
   const llm = raw.llm as Record<string, unknown> | undefined;
   if (!llm) {
@@ -73,20 +61,12 @@ function backfillConfigProfiles(db: DrizzleDb): void {
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
   const globalMode = isPlatform ? "managed" : "your-own";
 
-  let changed = false;
-
-  // 1. The default profile — every dispatch path's terminal fallback.
+  // The legacy raw base blob, still present in older configs.
   const defaultProfile = llm.default as Record<string, unknown> | undefined;
   if (defaultProfile && typeof defaultProfile === "object") {
-    if (
-      ensureProviderConnection(defaultProfile, "<llm.default>", db, globalMode)
-    ) {
-      llm.default = defaultProfile;
-      changed = true;
-    }
+    ensureRowForEntry(defaultProfile, "<llm.default>", db, globalMode);
   }
 
-  // 2. Named alternate profiles.
   const profiles = llm.profiles as Record<string, unknown> | undefined;
   if (profiles && typeof profiles === "object") {
     for (const [profileName, profileVal] of Object.entries(profiles)) {
@@ -94,147 +74,85 @@ function backfillConfigProfiles(db: DrizzleDb): void {
       if (!profile || typeof profile !== "object") {
         continue;
       }
-      if (ensureProviderConnection(profile, profileName, db, globalMode)) {
-        profiles[profileName] = profile;
-        changed = true;
-      }
+      ensureRowForEntry(profile, profileName, db, globalMode);
     }
-    if (changed) {
-      llm.profiles = profiles;
-    }
-  }
-
-  if (changed) {
-    raw.llm = llm;
-    saveRawConfig(raw);
-    log.info("Saved config.json after provider_connection backfill");
   }
 }
 
 /**
- * Ensure a profile-shaped config object has `provider_connection` set.
- *
- * Mutates `entry` in place when it has `provider` but no `provider_connection`,
- * deriving the canonical connection name from the global auth mode. If a
- * `*-personal` connection is needed and doesn't yet exist in the DB, this
- * also creates it (lazy bootstrap of user-mode credential rows).
- *
- * Returns `true` if the entry was changed, `false` otherwise.
+ * Ensure a connection row exists for a profile-shaped config object with a
+ * bare-vendor `provider`. Reads the entry, never mutates it: with a
+ * compatible row already present (or the managed route serving the vendor)
+ * there is nothing to do; otherwise the conventional `<provider>-personal`
+ * row is created with the vendor's auth mapping. Ollama is keyless, so it
+ * gets `auth: { type: "none" }`; everything else gets an api_key pointing
+ * at the conventional credential slot.
  */
-function ensureProviderConnection(
+function ensureRowForEntry(
   entry: Record<string, unknown>,
   entryLabel: string,
   db: DrizzleDb,
   globalMode: string,
-): boolean {
-  // Treat empty/whitespace strings the same as missing — `resolveDefaultProvider`
-  // (and friends) use a falsy check on the field, so a manually cleared
-  // `provider_connection: ""` would otherwise skip backfill and then hard-throw
-  // at runtime. Self-heal those alongside null/undefined.
-  const existing = entry.provider_connection;
-  const hasValid = typeof existing === "string" && existing.trim() !== "";
-  if (hasValid) {
-    return false;
-  }
-
+): void {
   const provider = entry.provider as string | undefined;
   if (!provider) {
-    return false;
+    return;
   }
 
-  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
-    log.warn(
-      { entry: entryLabel, provider },
-      "Skipping backfill for provider that requires per-connection base_url/models",
-    );
-    return false;
-  }
-
-  // Routing identities carry their target in the provider value itself —
-  // dispatch resolves the row per-request (vellum via the model's managed
-  // upstream, chatgpt via the subscription row). Stamping a provider-keyed
-  // row here would misroute them.
-  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
-    return false;
-  }
-
-  let connectionName: string;
-
-  // For user-owned entries, an existing connection for the entry's provider
-  // wins over the mode-derived default. Only user-brought connections can
-  // match — the canonical `vellum` row carries the `vellum` sentinel
-  // provider, never a concrete upstream. Without this, the managed branch
-  // would silently switch a connection-less BYOK-intent profile onto the
-  // billed managed connection, and the your-own branch would create a
-  // parallel `-personal` row (pointing at an empty credential slot) when a
-  // custom-named connection already exists.
-  //
-  // Managed-owned entries are excluded: a managed preset must stay on the
-  // platform-managed route, not start dispatching against a key the user
-  // brought for their own profiles. Managed-owned means `source: "managed"`
-  // or a canonical managed name without an explicit `source: "user"` —
-  // legacy seeders wrote canonical entries source-less, and only an explicit
-  // user source marks a shadow the user took ownership of (mirrors
-  // workspace migration 109). `entryLabel` is the profile name for the
-  // `llm.profiles.*` walk; the other walks pass bracketed labels that never
-  // collide with canonical names.
-  const isManagedOwned =
-    entry.source === "managed" ||
-    (entry.source !== "user" && MANAGED_PROFILE_NAMES.has(entryLabel));
-  const entryModel = typeof entry.model === "string" ? entry.model : undefined;
-  const existingForProvider = isManagedOwned
-    ? undefined
-    : listConnections(db, { provider }).find((c) =>
-        isConnectionCompatibleWithModel(c, entryModel),
-      );
-  if (existingForProvider) {
-    connectionName = existingForProvider.name;
-  } else if (
-    globalMode === "managed" &&
-    MANAGED_ROUTABLE_PROVIDERS.has(provider)
+  // Routing identities carry their target in the provider value itself
+  // (dispatch resolves the row per-request), an entry-name provider IS a
+  // row reference (nothing to bootstrap: its vendor is unknowable here),
+  // and per-connection base_url/models providers cannot be conjured from a
+  // vendor id alone.
+  if (
+    ROUTING_IDENTITY_PROVIDERS.has(provider) ||
+    !VALID_CONNECTION_PROVIDERS.includes(provider) ||
+    PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)
   ) {
-    // All managed-routable providers share the single provider-agnostic
-    // `vellum` connection; the upstream is recovered per-request from the
-    // profile's `provider` field.
-    connectionName = VELLUM_MANAGED_CONNECTION_NAME;
-  } else {
-    // "your-own" path (or provider not managed-supported): ensure a
-    // personal connection exists. Ollama is keyless, so it gets
-    // `auth: { type: "none" }`; everything else gets an api_key
-    // pointing at the conventional credential slot.
-    connectionName = `${provider}-personal`;
-    if (!getConnection(db, connectionName)) {
-      const isKeyless = provider === "ollama";
-      const credName = credentialKey(provider, "api_key");
-      const result = createConnection(db, {
-        name: connectionName,
-        provider,
-        auth: isKeyless
-          ? { type: "none" }
-          : { type: "api_key", credential: credName },
-      });
-      if (!result.ok) {
-        log.warn(
-          { entry: entryLabel, provider, error: result.error },
-          "Failed to create personal connection during backfill; skipping entry",
-        );
-        return false;
-      }
-      log.info(
-        {
-          connectionName,
-          provider,
-          credential: isKeyless ? null : credName,
-        },
-        "Created personal connection during backfill",
-      );
-    }
+    return;
   }
 
-  entry.provider_connection = connectionName;
-  log.info(
-    { entry: entryLabel, connectionName },
-    "Backfilled provider_connection",
+  const entryModel = typeof entry.model === "string" ? entry.model : undefined;
+  const existingForProvider = listConnections(db, { provider }).find((c) =>
+    isConnectionCompatibleWithModel(c, entryModel),
   );
-  return true;
+  if (existingForProvider) {
+    return;
+  }
+  if (globalMode === "managed" && MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
+    // Managed-routable providers dispatch through the single
+    // provider-agnostic `vellum` connection seeded above; no personal row
+    // is needed.
+    return;
+  }
+
+  const connectionName = `${provider}-personal`;
+  if (getConnection(db, connectionName)) {
+    return;
+  }
+  const isKeyless = provider === "ollama";
+  const credName = credentialKey(provider, "api_key");
+  const result = createConnection(db, {
+    name: connectionName,
+    provider,
+    auth: isKeyless
+      ? { type: "none" }
+      : { type: "api_key", credential: credName },
+  });
+  if (!result.ok) {
+    log.warn(
+      { entry: entryLabel, provider, error: result.error },
+      "Failed to create personal connection during row repair",
+    );
+    return;
+  }
+  log.info(
+    {
+      entry: entryLabel,
+      connectionName,
+      provider,
+      credential: isKeyless ? null : credName,
+    },
+    "Created personal connection during row repair",
+  );
 }

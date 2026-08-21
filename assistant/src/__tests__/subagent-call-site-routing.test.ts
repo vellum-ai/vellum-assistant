@@ -117,8 +117,8 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSubagentSystemPrompt: () => "subagent system",
 }));
 
-// Provider registry + connection resolver — routing goes through
-// `provider_connection` exclusively. `getProvider` throws while this file's
+// Provider registry + connection resolver: routing goes through the
+// winner's derived connection exclusively. `getProvider` throws while this file's
 // tests run (the production code under test must not call it), and delegates
 // to the real registry afterwards: `mock.module` patches persist for the rest
 // of the `bun test` process, and later test files (e.g. the platform-proxy
@@ -198,9 +198,8 @@ function setLlmConfig(raw: unknown): void {
 
 /**
  * Base LLM fixture: the workspace's default identity is a complete
- * (provider + model) active profile carrying the `provider_connection` —
- * `activeProfile` wins mainAgent resolution, and connections can only be
- * declared on profiles (see the note on the second test below).
+ * (entry-name provider + model) active profile; `activeProfile` wins
+ * mainAgent resolution, and the entry name IS the connection reference.
  */
 function makeLlmFixture(
   extras: {
@@ -212,8 +211,7 @@ function makeLlmFixture(
     profiles: {
       primary: {
         source: "user",
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
+        provider: "anthropic-conn",
         model: "claude-opus-4-7",
       },
       ...extras.profiles,
@@ -242,18 +240,14 @@ describe("SubagentManager — provider call-site routing", () => {
   });
 
   test("the wrapped provider exposes the default provider's name (stable identity for outer wrappers)", async () => {
-    // Note: `provider_connection` lives on `ProfileEntry` and `LLMConfigBase`,
-    // NOT on `LLMCallSiteConfig` (which is `LLMConfigFragment.extend({
-    // profile })`). Setting `provider_connection` directly on a `callSites.*`
-    // entry would be silently stripped by Zod. The correct shape for an
-    // alternate-provider call-site override is a profile reference, defined
-    // here as `altOpenai`.
+    // Note: a call-site entry cannot carry a route of its own; the
+    // correct shape for an alternate-provider call-site override is a
+    // profile reference, defined here as `altOpenai`.
     setLlmConfig(
       makeLlmFixture({
         profiles: {
           altOpenai: {
-            provider: "openai",
-            provider_connection: "openai-conn",
+            provider: "openai-conn",
             model: "gpt-5.4",
           },
         },
@@ -417,12 +411,11 @@ describe("SubagentManager — provider call-site routing", () => {
 // ── Direct unit test for CallSiteRoutingProvider's selection logic ─────────
 
 describe("CallSiteRoutingProvider — selectProvider behavior", () => {
-  test("routes to the resolved provider when callSite resolves to a profile with provider_connection", async () => {
+  test("routes to the resolved provider when callSite resolves to an entry-name profile", async () => {
     setLlmConfig({
       profiles: {
         altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
+          provider: "openai-conn",
           model: "gpt-5.4",
         },
       },

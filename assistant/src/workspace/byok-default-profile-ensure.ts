@@ -408,13 +408,6 @@ function isKnownUneditedBody(
     provider: copyProvider,
     ...(entry.source === "managed" ? { source: "user" } : {}),
   };
-  // The conventional personal binding is machinery-written (hatch stamps,
-  // completion re-stamps); normalize it away. Any other binding is user
-  // state and stays in the comparison, where the unbound template side
-  // makes it block conversion.
-  if (normalizedEntry.provider_connection === `${copyProvider}-personal`) {
-    delete normalizedEntry.provider_connection;
-  }
   const body = comparableBody(
     withCompletionBaked(normalizedEntry, completionBase),
   );

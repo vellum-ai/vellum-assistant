@@ -18,7 +18,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
+import {
+  isConnectionCompatibleWithModel,
+  pickAutoResolvedConnection,
+} from "../connection-model-compat.js";
 import type { Auth } from "../inference/auth.js";
 
 // ---------------------------------------------------------------------------
@@ -72,6 +75,47 @@ describe("isConnectionCompatibleWithModel", () => {
 // Integration tests through `getConfiguredProvider` — module mocks below must
 // be declared before the import-under-test.
 // ---------------------------------------------------------------------------
+
+describe("pickAutoResolvedConnection", () => {
+  const row = (name: string, auth: Auth = apiKeyAuth) => ({ name, auth });
+
+  test("the conventional -personal row wins over every other candidate", () => {
+    // One canonical order across surfaces: the picker prefers the row
+    // `resolveDefaultConnectionName` reports, so dispatch, the
+    // default-provider status route, and the deletion guard all name the
+    // same row even when a vendor-named sibling exists.
+    const picked = pickAutoResolvedConnection(
+      [row("aaa-anthropic"), row("anthropic"), row("anthropic-personal")],
+      "anthropic",
+      "claude-opus-4-8",
+    );
+    expect(picked?.name).toBe("anthropic-personal");
+  });
+
+  test("a row named exactly the vendor id wins over non-conventional siblings", () => {
+    const picked = pickAutoResolvedConnection(
+      [row("aaa-anthropic"), row("anthropic")],
+      "anthropic",
+      "claude-opus-4-8",
+    );
+    expect(picked?.name).toBe("anthropic");
+  });
+
+  test("falls back to the first model-compatible candidate", () => {
+    const picked = pickAutoResolvedConnection(
+      [row("codex", oauthAuth), row("my-openai")],
+      "openai",
+      "gpt-5",
+    );
+    expect(picked?.name).toBe("my-openai");
+  });
+
+  test("returns undefined with no compatible candidates", () => {
+    expect(
+      pickAutoResolvedConnection([row("codex", oauthAuth)], "openai", "gpt-5"),
+    ).toBeUndefined();
+  });
+});
 
 const mockDbSentinel = { __mock: "db" };
 mock.module("../../persistence/db-connection.js", () => ({
@@ -190,15 +234,14 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
     expect(resolveProviderCalls.length).toBe(0);
   });
 
-  test("explicitly pinned oauth_subscription connection is used regardless of model", async () => {
+  test("an entry-name oauth_subscription connection is used regardless of model", async () => {
     registerConnections([OPENAI_CODEX, OPENAI_KEY]);
     setConfig("llm", {
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         "openai-pinned": {
-          provider: "openai",
+          provider: "openai-codex",
           model: "gpt-5",
-          provider_connection: "openai-codex",
         },
       },
     });
@@ -207,7 +250,7 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
       overrideProfile: "openai-pinned",
     });
 
-    // The pinned connection bypasses the auto-resolution gate entirely.
+    // The entry-name route bypasses the auto-resolution gate entirely.
     expect(result).not.toBeNull();
     expect(resolveProviderCalls.length).toBe(1);
     expect(resolveProviderCalls[0].name).toBe("openai-codex");
@@ -218,7 +261,7 @@ function setOpenAiProfile(model: string): void {
   setConfig("llm", {
     default: { provider: "anthropic", model: "claude-opus-4-7" },
     profiles: {
-      // "Any active OpenAI connection" — provider set, no provider_connection.
+      // A bare vendor provider: auto-resolution picks the row.
       "openai-any": { provider: "openai", model },
     },
   });

@@ -16,7 +16,6 @@ import {
   isDefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
-import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   DEFAULT_PROVIDER_CHOICES,
@@ -53,7 +52,7 @@ import {
  */
 export type DefaultProfileTemplate = Omit<
   ProfileEntry,
-  "provider" | "model" | "provider_connection"
+  "provider" | "model"
 > & {
   intent?: ModelIntent;
   model?: string;
@@ -441,14 +440,11 @@ export const MANAGED_PROFILE_NAMES = new Set<string>([
 
 /**
  * Materialize a template into a concrete `ProfileEntry`: resolve `intent` to
- * a model id for the given provider and stamp the provider connection.
- * Routing-identity providers ("vellum") never receive a connection stamp —
- * dispatch resolves their row per-request from the provider value.
+ * a model id for the given provider.
  */
 export function materializeProfile(
   template: DefaultProfileTemplate,
   provider: NonNullable<ProfileEntry["provider"]>,
-  connectionName?: string,
 ): ProfileEntry {
   const { intent, model, provider: _p, ...rest } = template;
   const resolvedModel =
@@ -456,12 +452,9 @@ export function materializeProfile(
   if (!resolvedModel) {
     throw new Error("DefaultProfileTemplate requires `intent` or `model`");
   }
-  const stampConnection =
-    connectionName && !ROUTING_IDENTITY_PROVIDERS.has(provider);
   return {
     ...rest,
     provider,
-    ...(stampConnection ? { provider_connection: connectionName } : {}),
     model: resolvedModel,
   };
 }
@@ -718,11 +711,7 @@ function defaultProfileBodyForProvider(
   const { provider } = defaultProvider;
   const impl = defaultProfileImplForProvider(name, provider);
   return clampMaxTokensToModelCap({
-    ...materializeProfile(
-      impl,
-      impl.provider,
-      resolveDefaultConnectionName(defaultProvider),
-    ),
+    ...materializeProfile(impl, impl.provider),
     source: "managed",
   });
 }

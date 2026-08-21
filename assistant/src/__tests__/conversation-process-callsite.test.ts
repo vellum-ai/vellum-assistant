@@ -60,8 +60,7 @@ setConfig("llm", {
   profiles: {
     pinned: {
       source: "user",
-      provider: "anthropic",
-      provider_connection: "anthropic-conn",
+      provider: "anthropic-conn",
       model: "claude-opus-4-6",
     },
   },

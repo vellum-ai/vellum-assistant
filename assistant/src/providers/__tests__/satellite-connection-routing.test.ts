@@ -2,22 +2,21 @@
  * Satellite-path gate test for `CallSiteRoutingProvider`.
  *
  * The dispatcher gate (`dispatch-connection-routing.test.ts`) proves that
- * the canonical `getConfiguredProvider()` path honors `provider_connection`.
- * That path is used by `provider-send-message.ts` directly. The satellite
- * sites — daemon conversation/approval/guardian generators, subagent
- * manager, rollup producer — instead build a `CallSiteRoutingProvider` once
- * at construction time and reuse it across many `sendMessage` calls,
- * routing per-call via `options.config.callSite`.
+ * the canonical `getConfiguredProvider()` path routes through the winner's
+ * derived connection. That path is used by `provider-send-message.ts`
+ * directly. The satellite sites (daemon conversation/approval/guardian
+ * generators, subagent manager, rollup producer) instead build a
+ * `CallSiteRoutingProvider` once at construction time and reuse it across
+ * many `sendMessage` calls, routing per-call via `options.config.callSite`.
  *
  * `CallSiteRoutingProvider` does not use a legacy registry fallback.
  * The contract is:
- *   - Connection set, resolves cleanly → route through that connection.
- *   - Connection set, resolves to null (soft credential failure) →
- *     fall back to default Provider for graceful per-call degradation.
- *   - Connection set, hard config error (not_found / mismatch) → throw
- *     `ConnectionResolutionError`.
- *   - Connection unset, profile.provider matches default → reuse default.
- *   - Connection unset, profile.provider differs from default → throw
+ *   - Entry-name provider whose row resolves cleanly → route through that
+ *     connection.
+ *   - Connection resolves to null (soft credential failure) → fall back
+ *     to default Provider for graceful per-call degradation.
+ *   - No row derivable, profile.provider matches default → reuse default.
+ *   - No row derivable, profile.provider differs from default → throw
  *     (alternate-provider routing requires a connection).
  *   - No callSite → straight to default (no resolution work).
  */
@@ -167,12 +166,12 @@ const providersConfigStub = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", () => {
+describe("CallSiteRoutingProvider honors the winner's derived connection (satellite gate)", () => {
   beforeEach(reset);
 
-  test("provider_connection set + resolves cleanly → routes through that connection's auth", async () => {
+  test("an entry-name provider that resolves cleanly routes through that connection's auth", async () => {
     // Default = anthropic, but the rollup callSite is configured to use a
-    // different profile that names a `provider_connection`.
+    // different profile whose provider names a connection row.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
     registerConnection(
@@ -187,8 +186,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     setLlmConfig({
       profiles: {
         "managed-profile": {
-          provider: "anthropic",
-          provider_connection: "anthropic-managed",
+          provider: "anthropic-managed",
           model: "claude-opus-4-7",
         },
       },
@@ -221,9 +219,9 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     );
   });
 
-  test("connection unset + profile.provider matches default → reuses default (no resolution work)", async () => {
-    // The lenient path. A profile whose provider matches the default's name
-    // but doesn't (yet) carry a provider_connection should NOT throw — the
+  test("no row for the vendor + profile.provider matches default → reuses default (no resolution work)", async () => {
+    // The lenient path. A bare-vendor profile whose provider matches the
+    // default's name and has no row to auto-resolve should NOT throw; the
     // default IS the connection-aware route in that case.
     const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
 
@@ -232,7 +230,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
         "anthropic-bare": {
           provider: "anthropic",
           model: "claude-opus-4-7",
-          // no provider_connection — but provider matches default's name
+          // no row exists for anthropic, but provider matches default's name
         },
       },
       callSites: {
@@ -257,7 +255,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     expect(sendMessageCalls[0].tag).toBe("default-anthropic");
   });
 
-  test("connection unset + profile.provider differs from default → throws ConnectionResolutionError(missing_connection)", async () => {
+  test("no row for the vendor + profile.provider differs from default → throws ConnectionResolutionError(missing_connection)", async () => {
     // Alternate-provider routing requires a connection. Without one,
     // misconfigurations throw rather than silently dispatching to a
     // mismatched backend.
@@ -268,8 +266,8 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
         "openai-profile": {
           provider: "openai",
           model: "gpt-5.4",
-          // No provider_connection — alternate-provider routing demands
-          // one; this profile is expected to throw
+          // No openai row exists; alternate-provider routing demands a
+          // connection; this profile is expected to throw
           // `ConnectionResolutionError(missing_connection)`.
         },
       },
@@ -303,107 +301,6 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     expect(sendMessageCalls.length).toBe(0);
   });
 
-  test("provider_connection set but unknown → throws ConnectionResolutionError(not_found)", async () => {
-    const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-
-    setLlmConfig({
-      profiles: {
-        broken: {
-          provider: "anthropic",
-          provider_connection: "does-not-exist",
-          model: "claude-opus-4-7",
-        },
-      },
-      callSites: {
-        conversationTitle: { profile: "broken" },
-      },
-    });
-
-    const wrapped = wrapWithCallSiteRouting(
-      defaultProvider,
-      providersConfigStub,
-    );
-
-    let caught: unknown;
-    try {
-      await wrapped.sendMessage(
-        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        { tools: [], config: { callSite: "conversationTitle" } },
-      );
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(caught).toBeInstanceOf(ConnectionResolutionError);
-    expect((caught as ConnectionResolutionError).reason).toBe("not_found");
-    expect((caught as ConnectionResolutionError).connectionName).toBe(
-      "does-not-exist",
-    );
-    // Resolver was never reached (connection lookup returned null).
-    expect(resolveProviderCalls.length).toBe(0);
-    expect(sendMessageCalls.length).toBe(0);
-  });
-
-  test("provider/connection mismatch → throws ConnectionResolutionError(provider_mismatch)", async () => {
-    // Misconfiguration: profile says provider=openai but provider_connection
-    // points at an anthropic row. Connection validation throws
-    // `ConnectionResolutionError(provider_mismatch)` so OpenAI traffic
-    // never dispatches to an Anthropic backend.
-    const defaultProvider = makeFakeProvider("default-anthropic", "anthropic");
-
-    registerConnection(
-      {
-        name: "anthropic-managed",
-        provider: "anthropic",
-        auth: { type: "platform" },
-      },
-      // Stub registered but should NEVER run — the mismatch check throws
-      // before `resolveProviderFromConnection` is called.
-      makeFakeProvider("WRONG-connection-anthropic", "anthropic"),
-    );
-
-    setLlmConfig({
-      profiles: {
-        mismatched: {
-          provider: "openai",
-          // ↑ profile says openai
-          provider_connection: "anthropic-managed",
-          // ↑ but connection is anthropic — mismatch
-          model: "gpt-5.4",
-        },
-      },
-      callSites: {
-        replySuggestion: { profile: "mismatched" },
-      },
-    });
-
-    const wrapped = wrapWithCallSiteRouting(
-      defaultProvider,
-      providersConfigStub,
-    );
-
-    let caught: unknown;
-    try {
-      await wrapped.sendMessage(
-        [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        { tools: [], config: { callSite: "replySuggestion" } },
-      );
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(caught).toBeInstanceOf(ConnectionResolutionError);
-    expect((caught as ConnectionResolutionError).reason).toBe(
-      "provider_mismatch",
-    );
-    expect((caught as ConnectionResolutionError).connectionName).toBe(
-      "anthropic-managed",
-    );
-    // Resolver was never reached (mismatch check fires first).
-    expect(resolveProviderCalls.length).toBe(0);
-    expect(sendMessageCalls.length).toBe(0);
-  });
-
   test("transient auth-resolution failure → falls back to default (graceful per-call degradation)", async () => {
     // Simulates a transient error inside `resolveProviderFromConnection`
     // (e.g. a credential read fails, or managed-proxy context lookup
@@ -427,8 +324,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     setLlmConfig({
       profiles: {
         flaky: {
-          provider: "anthropic",
-          provider_connection: "flaky-managed",
+          provider: "flaky-managed",
           model: "claude-opus-4-7",
         },
       },

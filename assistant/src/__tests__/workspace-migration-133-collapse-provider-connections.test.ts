@@ -335,7 +335,6 @@ describe("133-collapse-provider-connections migration", () => {
     writeConfig(pre);
     const preParsed = AssistantConfigSchema.parse(pre);
     const preResolved = resolveCallSiteConfig("mainAgent", preParsed.llm);
-    expect(preResolved.provider_connection).toBe("vellum");
     expect(preResolved.provider).toBe("anthropic");
 
     run();

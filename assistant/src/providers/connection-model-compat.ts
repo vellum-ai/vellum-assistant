@@ -1,14 +1,14 @@
 /**
  * Model-compatibility gate for auto-resolved provider connections.
  *
- * When a profile uses "Any active <provider> connection" (no
- * `provider_connection` pinned), the daemon auto-picks an active connection
- * for the provider. `oauth_subscription` connections (ChatGPT Codex) hard-
+ * When a profile carries a bare vendor provider, the daemon auto-picks an
+ * active connection for it. `oauth_subscription` connections (ChatGPT Codex) hard-
  * route every request to the Codex endpoint, which rejects non-Codex models
  * with HTTP 400. This helper lets the auto-resolution sites skip such a
  * connection when the requested model is not Codex-compatible.
  */
 
+import { resolveDefaultConnectionName } from "../config/default-provider-resolution.js";
 import type { ProviderConnection } from "./inference/auth.js";
 import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 
@@ -24,9 +24,9 @@ import { isCodexSubscriptionModel } from "./openai/codex-models.js";
  * case no model gating is applied (returns true) so resolution behaviour is
  * unchanged.
  *
- * This gate applies to auto-resolution only — an explicitly pinned
- * `provider_connection` bypasses connection selection entirely and is used
- * regardless of model.
+ * This gate applies to auto-resolution only: an entry-name provider names
+ * its row directly and bypasses connection selection entirely, regardless
+ * of model.
  */
 export function isConnectionCompatibleWithModel(
   connection: Pick<ProviderConnection, "auth">,
@@ -39,6 +39,40 @@ export function isConnectionCompatibleWithModel(
     return true;
   }
   return isCodexSubscriptionModel(model);
+}
+
+/**
+ * Deterministic pick among a vendor's rows during auto-resolution (a
+ * bare-vendor provider with no entry name of its own). Preference order:
+ *
+ *   1. the conventional default row (`resolveDefaultConnectionName`'s
+ *      shape: `<provider>-personal` for catalog vendors, the canonical
+ *      names for identities), the same row the default-provider status
+ *      route and the deletion guard reason about;
+ *   2. a row named exactly the vendor id;
+ *   3. the first model-compatible candidate.
+ *
+ * The convention rung comes first so every surface gives one answer: a
+ * bare vendor dispatches on the row the status route reports and the
+ * delete guard protects ("bare catalog id = the default entry of that
+ * kind"), never on whichever row happens to list first.
+ */
+export function pickAutoResolvedConnection<
+  T extends Pick<ProviderConnection, "name" | "auth">,
+>(
+  candidates: readonly T[],
+  provider: string,
+  model: string | undefined,
+): T | undefined {
+  const compatible = candidates.filter((c) =>
+    isConnectionCompatibleWithModel(c, model),
+  );
+  const conventional = resolveDefaultConnectionName({ provider });
+  return (
+    compatible.find((c) => c.name === conventional) ??
+    compatible.find((c) => c.name === provider) ??
+    compatible[0]
+  );
 }
 
 /**

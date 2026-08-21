@@ -291,7 +291,7 @@ describe("POST inference/profiles (create) validation", () => {
     expect(result.entry.label).toBe("My Fast Model");
   });
 
-  test("accepts a model advertised by the named connection", async () => {
+  test("accepts a model advertised by the entry-name provider's row", async () => {
     getDb()
       .insert(providerConnections)
       .values({
@@ -308,9 +308,8 @@ describe("POST inference/profiles (create) validation", () => {
     const result = (await call("inference_profiles_create", {
       body: {
         name: "stub-fast",
-        provider: "openai-compatible",
+        provider: "stub-local",
         model: "stub-model",
-        connection: "stub-local",
       },
     })) as { ok: true; warnings: string[] };
     expect(result.ok).toBe(true);
@@ -329,19 +328,6 @@ describe("POST inference/profiles (create) validation", () => {
     ).rejects.toThrow(/not in the catalog/);
   });
 
-  test("rejects a missing provider connection", async () => {
-    await expect(
-      call("inference_profiles_create", {
-        body: {
-          name: "my-profile",
-          provider: "anthropic",
-          model: "claude-opus-4-8",
-          connection: "does-not-exist",
-        },
-      }),
-    ).rejects.toThrow(/does not exist/);
-  });
-
   test("rejects creating a managed default name", async () => {
     await expect(
       call("inference_profiles_create", {
@@ -352,6 +338,96 @@ describe("POST inference/profiles (create) validation", () => {
         },
       }),
     ).rejects.toThrow(/reserved for a code-defined default/);
+  });
+});
+
+// ── deprecated `connection` request shim ─────────────────────────────────────
+
+describe("deprecated connection request field (verified fold)", () => {
+  test("a verified connection folds into provider as the entry name", async () => {
+    seedConnection("my-anthropic", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "pinned",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+        connection: "my-anthropic",
+        allowUnavailable: true,
+      },
+    })) as { ok: true };
+    expect(result.ok).toBe(true);
+    const saved = persistedProfiles().pinned as Record<string, unknown>;
+    expect(saved.provider).toBe("my-anthropic");
+    expect(saved).not.toHaveProperty("provider_connection");
+    expect(saved).not.toHaveProperty("connection");
+  });
+
+  test("a dangling connection is rejected loudly, never silently dropped", async () => {
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "pinned",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+          connection: "does-not-exist",
+        },
+      }),
+    ).rejects.toThrow(/Connection "does-not-exist" does not exist/);
+    expect(persistedProfiles().pinned).toBeUndefined();
+  });
+
+  test("a kind-disagreeing connection is rejected loudly", async () => {
+    seedConnection("ollama-local", "ollama", { type: "none" });
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "pinned",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+          connection: "ollama-local",
+        },
+      }),
+    ).rejects.toThrow(/cannot serve provider "anthropic"/);
+  });
+
+  test("an update folds a verified connection the same way", async () => {
+    seedConnection("my-anthropic", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+    setConfig("llm", {
+      profiles: {
+        pinned: {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+    const result = (await call("inference_profiles_update", {
+      pathParams: { name: "pinned" },
+      body: { connection: "my-anthropic", allowUnavailable: true },
+    })) as { ok: true };
+    expect(result.ok).toBe(true);
+    const saved = persistedProfiles().pinned as Record<string, unknown>;
+    expect(saved.provider).toBe("my-anthropic");
+  });
+
+  test("the absent field leaves create behavior unchanged", async () => {
+    seedKeyedConnection("anthropic");
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "plain",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+    })) as { ok: true };
+    expect(result.ok).toBe(true);
+    const saved = persistedProfiles().plain as Record<string, unknown>;
+    expect(saved.provider).toBe("anthropic");
   });
 });
 

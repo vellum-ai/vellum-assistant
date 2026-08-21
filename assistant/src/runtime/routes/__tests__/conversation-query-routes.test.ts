@@ -907,7 +907,13 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
   });
 
-  test("writes provider_connection when present in body", async () => {
+  test("a legacy provider_connection folds into provider as the entry name", async () => {
+    getDb().delete(providerConnections).run();
+    createConnection(getDb(), {
+      name: "personal-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    });
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
@@ -924,38 +930,31 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("openai");
-    expect(savedProfile.provider_connection).toBe("personal-openai");
+    expect(savedProfile.provider).toBe("personal-openai");
+    expect(savedProfile).not.toHaveProperty("provider_connection");
   });
 
-  test("auto-derives provider_connection when omitted from body (Any active)", async () => {
-    // Start from a clean connection slate — provider_connections persists
-    // across tests in this file, so a leaked openai-personal would otherwise
-    // win the derivation.
+  test("a dangling legacy provider_connection is rejected loudly", async () => {
     getDb().delete(providerConnections).run();
-    // The single Vellum-managed connection serves managed-routable providers.
-    createConnection(getDb(), {
-      name: "vellum",
-      provider: "vellum",
-      auth: { type: "platform" },
-    });
-    // Seed an existing binding so the test starts from a non-empty state.
-    (
-      rawConfigFixture.llm as {
-        profiles: { custom: Record<string, unknown> };
-      }
-    ).profiles.custom.provider_connection = "stale-openai";
-    seedRawConfig();
+    await expect(
+      replaceProfileRoute.handler({
+        pathParams: { name: "custom" },
+        body: {
+          provider: "openai",
+          provider_connection: "deleted-row",
+          model: "gpt-5.5",
+        },
+      }),
+    ).rejects.toThrow(/Connection "deleted-row" does not exist/);
+  });
 
+  test("a null legacy provider_connection (cleared binding) is a no-op", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
         provider: "openai",
+        provider_connection: null,
         model: "gpt-5.5",
-        // provider_connection deliberately omitted — the UI cleared the
-        // picker back to "Any active". The route auto-derives an active
-        // connection for the provider to prevent stale inheritance during
-        // config deep-merge.
       },
     });
 
@@ -966,56 +965,16 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    // No personal openai connection exists, so the route auto-derives the
-    // single Vellum-managed connection for this managed-routable provider.
-    expect(savedProfile.provider_connection).toBe("vellum");
+    expect(savedProfile.provider).toBe("openai");
+    expect(savedProfile).not.toHaveProperty("provider_connection");
   });
 
-  test("Any active derivation skips orphaned legacy *-managed rows", async () => {
-    getDb().delete(providerConnections).run();
-    // Upgraded workspaces may still carry a legacy openai-managed row (hidden
-    // from the list route, deleted by a follow-up migration). It must not be
-    // auto-picked — the derivation should bind to `vellum` instead.
-    createConnection(getDb(), {
-      name: "openai-managed",
-      provider: "openai",
-      auth: { type: "platform" },
-    });
-    createConnection(getDb(), {
-      name: "vellum",
-      provider: "vellum",
-      auth: { type: "platform" },
-    });
-
-    await replaceProfileRoute.handler({
+  test("a replace never stamps a connection", async () => {
+    const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: { provider: "openai", model: "gpt-5.5" },
     });
 
-    const savedProfile = (
-      loadRawConfig().llm as {
-        profiles: Record<string, Record<string, unknown>>;
-      }
-    ).profiles.custom;
-    expect(savedProfile.provider_connection).toBe("vellum");
-  });
-
-  test("auto-derives provider_connection for BYOK provider (Any active)", async () => {
-    // Seed a fireworks connection in the DB.
-    createConnection(getDb(), {
-      name: "fireworks",
-      provider: "fireworks",
-      auth: { type: "api_key", credential: "fireworks:api_key" },
-    });
-
-    const result = await replaceProfileRoute.handler({
-      pathParams: { name: "custom" },
-      body: {
-        provider: "fireworks",
-        model: "accounts/fireworks/models/llama-v3p1-8b-instruct",
-      },
-    });
-
     expect(result).toEqual({ ok: true });
     const savedProfile = (
       loadRawConfig().llm as {
@@ -1023,11 +982,11 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("fireworks");
-    expect(savedProfile.provider_connection).toBe("fireworks");
+    expect(savedProfile.provider).toBe("openai");
+    expect(savedProfile).not.toHaveProperty("provider_connection");
   });
 
-  test("auto-creates provider_connection when no connection exists for provider", async () => {
+  test("a save creates no connection rows", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
@@ -1044,15 +1003,9 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     ).profiles.custom;
 
     expect(savedProfile.provider).toBe("openrouter");
-    expect(savedProfile.provider_connection).toBe("openrouter-personal");
-
-    const conn = getConnection(getDb(), "openrouter-personal");
-    expect(conn).not.toBeNull();
-    expect(conn!.provider).toBe("openrouter");
-    expect(conn!.auth).toEqual({
-      type: "api_key",
-      credential: "credential/openrouter/api_key",
-    });
+    expect(savedProfile).not.toHaveProperty("provider_connection");
+    // Row bootstrap belongs to boot-time repair, not the write path.
+    expect(getConnection(getDb(), "openrouter-personal")).toBeNull();
   });
 
   test("saves a profile using the minimax provider (regression #32404)", async () => {
@@ -1075,11 +1028,6 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(savedProfile.provider).toBe("minimax");
     expect(savedProfile.model).toBe("MiniMax-M2.7");
-    expect(savedProfile.provider_connection).toBe("minimax-personal");
-
-    const conn = getConnection(getDb(), "minimax-personal");
-    expect(conn).not.toBeNull();
-    expect(conn!.provider).toBe("minimax");
   });
 
   describe("managed profile guard", () => {
@@ -1427,6 +1375,80 @@ describe("custom profile write normalization (complete overrides)", () => {
   });
 });
 
+describe("PATCH profile entries fold the legacy provider_connection", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedProfiles = () =>
+    (
+      loadRawConfig().llm as {
+        profiles?: Record<string, Record<string, unknown>>;
+      }
+    ).profiles ?? {};
+
+  beforeEach(() => {
+    getDb().delete(providerConnections).run();
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          mine: {
+            source: "user",
+            provider: "openai",
+            model: "gpt-5.5",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("a verified binding folds into provider as the entry name", async () => {
+    createConnection(getDb(), {
+      name: "personal-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    });
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          profiles: { mine: { provider_connection: "personal-openai" } },
+        },
+      },
+    });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("personal-openai");
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+
+  test("a dangling binding is rejected loudly, leaving config untouched", async () => {
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            profiles: { mine: { provider_connection: "deleted-row" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Connection "deleted-row" does not exist/);
+    expect(savedProfiles().mine!.provider).toBe("openai");
+  });
+
+  test("a null binding (cleared) is a no-op and never lands in raw config", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          profiles: { mine: { provider_connection: null, maxTokens: 4096 } },
+        },
+      },
+    });
+    const saved = savedProfiles().mine!;
+    expect(saved.provider).toBe("openai");
+    expect(saved.maxTokens).toBe(4096);
+    expect(saved).not.toHaveProperty("provider_connection");
+  });
+});
+
 describe("call-site override writes stay sparse", () => {
   const configPatchRoute = ROUTES.find(
     (r) => r.operationId === "config_patch",
@@ -1668,10 +1690,9 @@ describe("call-site model writes are validated against the winning route", () =>
     );
   });
 
-  test("a connection move with an unchanged provider kind still revalidates and returns 400", async () => {
-    // The winner's kind stays "openai" before and after, but the pinned
-    // connection moves onto the ChatGPT subscription, whose Codex endpoint
-    // cannot serve the call site's model.
+  test("an entry-name move still revalidates and returns 400", async () => {
+    // The winner's provider moves onto the ChatGPT subscription's entry
+    // name, whose Codex endpoint cannot serve the call site's model.
     getDb().delete(providerConnections).run();
     createConnection(getDb(), {
       name: "chatgpt-subscription",
@@ -1693,7 +1714,7 @@ describe("call-site model writes are validated against the winning route", () =>
       configPatchRoute.handler({
         body: {
           llm: {
-            profiles: { op: { provider_connection: "chatgpt-subscription" } },
+            profiles: { op: { provider: "chatgpt-subscription" } },
           },
         },
       }),
@@ -1714,9 +1735,8 @@ describe("call-site model writes are validated against the winning route", () =>
         profiles: {
           op: {
             source: "user",
-            provider: "openai",
+            provider: "chatgpt-subscription",
             model: "gpt-5.5",
-            provider_connection: "chatgpt-subscription",
           },
         },
         callSites: {

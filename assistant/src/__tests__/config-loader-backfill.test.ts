@@ -633,7 +633,6 @@ describe("loadConfig startup behavior", () => {
       raw.llm.defaultProvider,
     );
     expect(effective.balanced?.provider).toBe("anthropic");
-    expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
     expect(effective.balanced?.model).toBe("claude-sonnet-4-6");
     expect(effective.balanced?.source).toBe("managed");
     expect("status" in (effective.balanced ?? {})).toBe(false);
@@ -672,7 +671,6 @@ describe("loadConfig startup behavior", () => {
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
     expect(effectiveBalanced?.provider).toBe("vellum");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
   test("re-hatch from openai to anthropic leaves the user profile untouched and re-anchors the defaults", () => {
@@ -722,7 +720,6 @@ describe("loadConfig startup behavior", () => {
       raw.llm.defaultProvider,
     );
     expect(effective.balanced?.provider).toBe("anthropic");
-    expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
   });
 
   test("on-platform re-hatch resets active profile to balanced", () => {
@@ -759,7 +756,6 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced).toBeUndefined();
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.provider).toBe("vellum");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
   });
@@ -871,15 +867,13 @@ describe("loadConfig startup behavior", () => {
       expect(raw.llm.profiles[name]).toBeUndefined();
     }
 
-    // The defaults resolve active through the openai column of the matrix,
-    // stamped with the personal connection.
+    // The defaults resolve active through the openai column of the matrix.
     const effective = getEffectiveProfilesForProvider(
       raw.llm.profiles,
       raw.llm.defaultProvider,
     );
     expect(effective.balanced?.provider).toBe("openai");
     expect(effective.balanced?.model).toBe("gpt-5.6-luna");
-    expect(effective.balanced?.provider_connection).toBe("openai-personal");
     expect(effective.balanced?.source).toBe("managed");
     expect(effective["quality-optimized"]?.provider).toBe("openai");
     expect(effective["quality-optimized"]?.model).toBe("gpt-5.6-sol");
@@ -889,8 +883,8 @@ describe("loadConfig startup behavior", () => {
 
   test("off-platform hatch with a provider outside the named matrix columns resolves through the shared BYOK templates", () => {
     // `together` has no column in PROFILE_IMPLS and no intent table: the
-    // defaults must still anchor on it (not fall back to anthropic), backed
-    // by the `together-personal` connection and its catalog defaultModel.
+    // defaults must still anchor on it (not fall back to anthropic), served
+    // by its catalog defaultModel.
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -923,7 +917,6 @@ describe("loadConfig startup behavior", () => {
       "cost-optimized",
     ] as const) {
       expect(effective[name]?.provider).toBe("together");
-      expect(effective[name]?.provider_connection).toBe("together-personal");
       expect(effective[name]?.model).toBe(getProviderDefaultModel("together"));
       expect(effective[name]?.source).toBe("managed");
     }
@@ -968,7 +961,6 @@ describe("loadConfig startup behavior", () => {
       "cost-optimized",
     ] as const) {
       expect(effective[name]?.provider).toBe("anthropic");
-      expect(effective[name]?.provider_connection).toBe("anthropic-personal");
     }
   });
 
@@ -999,7 +991,6 @@ describe("loadConfig startup behavior", () => {
     // only label/status/topP, everything else comes from the catalog.
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
   test("boot leaves a source-less legacy canonical profile as a user-owned shadow", () => {
@@ -1028,7 +1019,6 @@ describe("loadConfig startup behavior", () => {
       "quality-optimized",
     );
     expect(effectiveQuality?.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(effectiveQuality?.provider_connection).toBe("fireworks-managed");
     expect(effectiveQuality?.source).toBeUndefined();
   });
 
@@ -1080,7 +1070,6 @@ describe("loadConfig startup behavior", () => {
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
     expect(effectiveBalanced?.maxTokens).toBe(32000);
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     // The catalog body carries no topP and the entry has none, so the
     // effective profile has no topP override.
     expect("topP" in (effectiveBalanced ?? {})).toBe(false);
@@ -1345,7 +1334,6 @@ describe("loadConfig startup behavior", () => {
       "balanced",
     );
     expect(effectiveBalanced?.provider).toBe("vellum");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
     expect(effectiveBalanced?.maxTokens).toBe(32000);
     expect(effectiveBalanced?.thinking).toEqual({
@@ -1400,7 +1388,6 @@ describe("loadConfig startup behavior", () => {
       raw.llm.defaultProvider,
     );
     expect(effective.balanced?.provider).toBe("anthropic");
-    expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
   });
 
   test("still quarantines corrupt JSON", () => {
@@ -1427,8 +1414,8 @@ describe("loadConfig startup behavior", () => {
 // ---------------------------------------------------------------------------
 // Tests: BYOK-mode seed behavior. A BYOK hatch writes no profile entries at
 // all: the default names resolve through the hatch provider's column of the
-// intent × provider matrix (via `llm.defaultProvider`), active and
-// connection-stamped. Boots never touch managed entries, so pre-existing
+// intent × provider matrix (via `llm.defaultProvider`), active. Boots never
+// touch managed entries, so pre-existing
 // stubs and user toggles on them persist until the conversion pass removes
 // them.
 // ---------------------------------------------------------------------------
@@ -1668,7 +1655,6 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     expect(raw.llm.advisorProfile).toBe("quality-optimized");
     expect(raw.llm.profiles.balanced).toBeUndefined();
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     expect("status" in (effectiveBalanced ?? {})).toBe(false);
   });
 
@@ -2006,14 +1992,9 @@ describe("OS Beta managed profile template", () => {
   });
 
   test("materializeProfile resolves OS Beta to the Balanced model with low effort", () => {
-    const entry = materializeProfile(
-      OS_BETA_PROFILE_TEMPLATE,
-      "together",
-      "vellum",
-    );
+    const entry = materializeProfile(OS_BETA_PROFILE_TEMPLATE, "together");
 
     expect(entry.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(entry.provider_connection).toBe("vellum");
     expect(entry.provider).toBe("together");
     expect(entry.label).toBe("OS Beta");
     expect(entry.source).toBe("managed");

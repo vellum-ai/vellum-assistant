@@ -1038,7 +1038,7 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     setConfig("llm", {
       profiles: {
         "my-profile": {
-          provider_connection: "ref-conn",
+          provider: "ref-conn",
           model: "claude-opus-4-7",
         },
       },
@@ -1058,7 +1058,7 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     // already deleted. Delete on the dangling name must return 404 so
     // callers can distinguish stale config from active conflicts.
     setConfig("llm", {
-      profiles: { "ghost-prof": { provider_connection: "ghost-conn" } },
+      profiles: { "ghost-prof": { provider: "ghost-conn" } },
     });
 
     await expect(
@@ -1076,8 +1076,8 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     });
     setConfig("llm", {
       profiles: {
-        "prof-a": { provider_connection: "shared-conn" },
-        "prof-b": { provider_connection: "shared-conn" },
+        "prof-a": { provider: "shared-conn" },
+        "prof-b": { provider: "shared-conn" },
       },
     });
 

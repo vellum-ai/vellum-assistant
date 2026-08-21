@@ -10,7 +10,6 @@ let workspaceDir: string;
 
 const distinctiveDefault = {
   provider: "anthropic",
-  provider_connection: "anthropic-personal",
   model: "claude-opus-4-8",
   maxTokens: 12345,
   temperature: 0.7,
@@ -53,12 +52,7 @@ describe("ensureCompleteCustomProfiles", () => {
     ensureCompleteCustomProfiles(workspaceDir);
     const saved = readProfiles().partial;
     expect(saved.model).toBe("claude-haiku-4-5-20251001");
-    // This workspace has no connection rows, so the binding is unverifiable
-    // and passes through in the legacy field for the collapse migration to
-    // judge; with a verified row it would fold into the provider value (see
-    // profile-materialization.test.ts).
     expect(saved.provider).toBe("anthropic");
-    expect(saved.provider_connection).toBe("anthropic-personal");
     expect(saved.maxTokens).toBe(12345);
     expect(saved.temperature).toBe(0.7);
     expect(saved.logitBias).toBeUndefined();
@@ -76,11 +70,9 @@ describe("ensureCompleteCustomProfiles", () => {
     ensureCompleteCustomProfiles(workspaceDir);
     const saved = readProfiles().gpt;
     expect(saved.provider).toBe("openai");
-    // anthropic-personal belongs to the replaced provider.
-    expect(saved.provider_connection).toBeUndefined();
   });
 
-  test("inherits the vellum managed connection only onto managed-routable providers", () => {
+  test("a legacy binding on llm.default never stamps completed profiles", () => {
     writeConfig({
       llm: {
         default: { ...distinctiveDefault, provider_connection: "vellum" },

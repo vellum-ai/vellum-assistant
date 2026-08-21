@@ -1233,7 +1233,6 @@ describe("code-owned default profiles — BYO default provider wire view", () =>
     const wireBalanced = response.llm.profiles.balanced;
     expect(wireBalanced.provider).toBe("anthropic");
     expect(wireBalanced.model).toBe("claude-sonnet-4-6");
-    expect(wireBalanced.provider_connection).toBe("anthropic-personal");
     expect(response.llm.profiles["quality-optimized"].provider).toBe(
       "anthropic",
     );

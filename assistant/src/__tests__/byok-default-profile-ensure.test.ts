@@ -62,23 +62,19 @@ function hatchBody(
   if (template === undefined) {
     throw new Error(`No user profile template for custom-${key}`);
   }
-  return materializeProfile(template, provider, `${provider}-personal`);
+  return materializeProfile(template, provider);
 }
 
 /**
  * A `custom-*` copy as the earliest hatch era wrote it (#29755, 2026-05-05):
- * managed source, a "(Custom Provider)" label suffix, and no
- * `provider_connection` stamp.
+ * managed source and a "(Custom Provider)" label suffix.
  */
 function eraHatchBody(
   key: "balanced" | "quality-optimized" | "cost-optimized",
   provider: DefaultProfileProvider,
   model: string,
 ): Record<string, unknown> {
-  const { provider_connection: _pc, ...body } = hatchBody(
-    key,
-    provider,
-  ) as Record<string, unknown>;
+  const body = hatchBody(key, provider) as Record<string, unknown>;
   return {
     ...body,
     source: "managed",
@@ -201,7 +197,6 @@ describe("ensureByokDefaultProfiles", () => {
     expect(resolved?.source).toBe("managed");
     expect(resolved?.status).toBeUndefined();
     expect(resolved?.provider).toBe("anthropic");
-    expect(resolved?.provider_connection).toBe("anthropic-personal");
   });
 
   test("second run is a no-op with unchanged file bytes", () => {
@@ -383,27 +378,6 @@ describe("ensureByokDefaultProfiles", () => {
     ensureByokDefaultProfiles(workspaceDir);
 
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
-  });
-
-  test("a body without the conventional connection stamp converts", () => {
-    // Migration 133 drops `<provider>-personal` from every entry.
-    const { provider_connection: _pc, ...body } = hatchBody(
-      "balanced",
-      "anthropic",
-    ) as Record<string, unknown>;
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "anthropic" },
-        activeProfile: "custom-balanced",
-        profiles: { "custom-balanced": body },
-      },
-    });
-
-    ensureByokDefaultProfiles(workspaceDir);
-
-    expect(profiles()["custom-balanced"]).toBeUndefined();
-    expect(llm().activeProfile).toBe("balanced");
-    expectSecondRunNoop();
   });
 
   test("stubs carrying the migration-097 thinking stamp are deleted (real-world shape)", () => {
@@ -686,7 +660,6 @@ describe("ensureByokDefaultProfiles", () => {
             thinking: { enabled: false, streamThinking: false },
             contextWindow: { maxInputTokens: 200000 },
             provider: "fireworks",
-            provider_connection: "fireworks-personal",
             model: "accounts/fireworks/models/kimi-k2p5",
           },
         },

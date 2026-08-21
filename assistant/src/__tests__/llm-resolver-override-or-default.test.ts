@@ -16,7 +16,6 @@ const schemaBase = LLMConfigBase.parse({});
 const completeCustom = {
   source: "user" as const,
   provider: "openai" as const,
-  provider_connection: "openai-personal",
   model: "gpt-5.5",
   maxTokens: 9000,
   effort: "high" as const,
@@ -100,7 +99,6 @@ describe("selection chain", () => {
     const noPin = LLMSchema.parse(anthropicDp);
     const resolved = resolveCallSiteConfig("conversationSummarization", noPin);
     expect(resolved.provider).toBe("anthropic");
-    expect(resolved.provider_connection).toBe("anthropic-personal");
   });
 
   test("a null defaultProvider falls back to the vellum catalog bodies", () => {
@@ -108,7 +106,7 @@ describe("selection chain", () => {
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
     const vellumBody = CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"];
     expect(resolved.model).toBe(vellumBody.model as string);
-    expect(resolved.provider_connection).toBe(vellumBody.provider_connection);
+    expect(resolved.provider).toBe(vellumBody.provider as string);
   });
 });
 
@@ -387,7 +385,6 @@ describe("composition", () => {
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
     expect(resolved.model).toBe("gpt-5.4");
     expect(resolved.provider).toBe("openai");
-    expect(resolved.provider_connection).toBe("openai-personal");
   });
 
   test("a tweak cannot express a provider: a stray raw key is stripped and the winner's route stands", () => {
@@ -405,7 +402,6 @@ describe("composition", () => {
     // route stands and the tweak contributes only its model.
     expect(resolved.provider).toBe("vellum");
     expect(resolved.model).toBe("claude-opus-4-6");
-    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("the route comes from the winner: a model-only tweak on the vellum default keeps the identity provider", () => {
@@ -417,16 +413,14 @@ describe("composition", () => {
     });
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
     // provider "vellum" + the tweaked model is the complete dispatch shape:
-    // the upstream derives from the model, no connection stamp needed.
+    // the upstream derives from the model.
     expect(resolved.provider).toBe("vellum");
-    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("profileless call sites anchor on balanced intent through the default provider plus their tweaks", () => {
     const llm = LLMSchema.parse(anthropicDp);
     const resolved = resolveCallSiteConfig("workflowLeaf", llm);
     expect(resolved.provider).toBe("anthropic");
-    expect(resolved.provider_connection).toBe("anthropic-personal");
     expect(resolved.effort).toBe("low");
     expect(resolved.thinking.enabled).toBe(false);
     expect(resolveDefaultProfileKey("workflowLeaf", llm)).toBeUndefined();
@@ -520,7 +514,7 @@ describe("explicit default-profile references resolve through the default provid
     const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
     expect(pinned.provider).toBe("anthropic");
     expect(pinned.model).toBe(viaIntent.model);
-    expect(pinned.provider_connection).toBe(viaIntent.provider_connection);
+    expect(pinned.provider).toBe(viaIntent.provider);
     expect(pinned.model).not.toBe(
       CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"].model as string,
     );
@@ -534,7 +528,6 @@ describe("explicit default-profile references resolve through the default provid
     });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved.provider).toBe("anthropic");
-    expect(resolved.provider_connection).toBe("anthropic-personal");
     expect(resolved.model).not.toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
@@ -550,7 +543,7 @@ describe("explicit default-profile references resolve through the default provid
     });
     const vellumBody = CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"];
     expect(pinned.model).toBe(vellumBody.model as string);
-    expect(pinned.provider_connection).toBe(vellumBody.provider_connection);
+    expect(pinned.provider).toBe(vellumBody.provider as string);
   });
 
   test("a mix arm naming a default key expands through the default provider", () => {

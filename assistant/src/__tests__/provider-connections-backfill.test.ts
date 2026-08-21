@@ -1,24 +1,17 @@
 /**
- * Boot-time provider_connection backfill: an existing user connection for
- * the entry's provider must win over the mode-derived default.
- *
- * On managed (platform-hosted) installs the mode default is the billed
- * `vellum` connection — stamping it onto a connection-less BYOK-intent
- * profile permanently routes the user's own-key setup through managed
- * billing. On your-own installs the mode default creates a parallel
- * `<provider>-personal` row with an empty credential slot even when a
- * custom-named connection already exists.
+ * Boot-time connection-row repair: config.json is read but never written,
+ * while a bare-vendor profile whose row is missing still gets the
+ * conventional `<provider>-personal` row created.
  */
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { loadRawConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { providerConnections } from "../persistence/schema/index.js";
-import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { ensureProviderConnectionRows } from "../providers/inference/backfill.js";
 import {
   createConnection,
   getConnection,
@@ -29,18 +22,19 @@ await initializeDb();
 
 const originalIsPlatform = process.env.IS_PLATFORM;
 
-function seedConfig(profiles: Record<string, unknown>): void {
-  writeFileSync(
-    join(process.env.VELLUM_WORKSPACE_DIR!, "config.json"),
-    JSON.stringify({ llm: { profiles } }),
-  );
+function configPath(): string {
+  return join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
 }
 
-function backfilledConnection(profileName: string): unknown {
-  const llm = loadRawConfig().llm as {
-    profiles?: Record<string, Record<string, unknown>>;
-  };
-  return llm.profiles?.[profileName]?.provider_connection;
+function seedConfig(llm: Record<string, unknown>): void {
+  writeFileSync(configPath(), JSON.stringify({ llm }));
+}
+
+/** Run the repair and assert it performed zero config writes. */
+function runExpectingNoConfigWrite(): void {
+  const before = readFileSync(configPath(), "utf-8");
+  ensureProviderConnectionRows(getDb());
+  expect(readFileSync(configPath(), "utf-8")).toBe(before);
 }
 
 beforeEach(() => {
@@ -55,82 +49,34 @@ afterEach(() => {
   }
 });
 
-test("managed mode prefers an existing user connection over the vellum default", () => {
-  process.env.IS_PLATFORM = "true";
-  const created = createConnection(getDb(), {
-    name: "anthropic-personal",
-    provider: "anthropic",
-    auth: { type: "api_key", credential: "credential/anthropic/api_key" },
-  });
-  expect(created.ok).toBe(true);
-  seedConfig({ byok: { provider: "anthropic", model: "claude-fable-5" } });
-
-  runProviderConnectionsBackfill(getDb());
-
-  expect(backfilledConnection("byok")).toBe("anthropic-personal");
-});
-
-test("managed mode still stamps vellum when no user connection exists", () => {
-  process.env.IS_PLATFORM = "true";
-  seedConfig({ byok: { provider: "anthropic", model: "claude-fable-5" } });
-
-  runProviderConnectionsBackfill(getDb());
-
-  expect(backfilledConnection("byok")).toBe("vellum");
-});
-
-test("managed-owned entries keep the vellum stamp even when a user connection exists", () => {
-  process.env.IS_PLATFORM = "true";
-  const created = createConnection(getDb(), {
-    name: "anthropic-personal",
-    provider: "anthropic",
-    auth: { type: "api_key", credential: "credential/anthropic/api_key" },
-  });
-  expect(created.ok).toBe(true);
+test("a bare-vendor profile with a missing row gets its -personal row created, with no config write", () => {
+  delete process.env.IS_PLATFORM;
   seedConfig({
-    balanced: {
-      source: "managed",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-    },
-    // Legacy seeders wrote canonical entries without `source` — still
-    // managed-owned (workspace migration 109's rule).
-    "quality-optimized": {
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-    },
-    // An explicit user source on a canonical name is a shadow the user took
-    // ownership of — the preference applies.
-    "cost-optimized": {
-      source: "user",
-      provider: "anthropic",
-      model: "claude-haiku-4-5-20251001",
-    },
-    byok: { provider: "anthropic", model: "claude-fable-5" },
+    profiles: { byok: { provider: "anthropic", model: "claude-fable-5" } },
   });
 
-  runProviderConnectionsBackfill(getDb());
+  runExpectingNoConfigWrite();
 
-  expect(backfilledConnection("balanced")).toBe("vellum");
-  expect(backfilledConnection("quality-optimized")).toBe("vellum");
-  expect(backfilledConnection("cost-optimized")).toBe("anthropic-personal");
-  expect(backfilledConnection("byok")).toBe("anthropic-personal");
+  const row = getConnection(getDb(), "anthropic-personal");
+  expect(row?.provider).toBe("anthropic");
+  expect(row?.auth).toEqual({
+    type: "api_key",
+    credential: "credential/anthropic/api_key",
+  });
 });
 
-test("routing-identity providers are never stamped with a connection", () => {
-  process.env.IS_PLATFORM = "true";
+test("the legacy llm.default blob gets its row ensured too", () => {
+  delete process.env.IS_PLATFORM;
   seedConfig({
-    managedRoute: { provider: "vellum", model: "claude-fable-5" },
-    subscription: { provider: "chatgpt", model: "gpt-5.5" },
+    default: { provider: "openai", model: "gpt-5.5" },
   });
 
-  runProviderConnectionsBackfill(getDb());
+  runExpectingNoConfigWrite();
 
-  expect(backfilledConnection("managedRoute")).toBeUndefined();
-  expect(backfilledConnection("subscription")).toBeUndefined();
+  expect(getConnection(getDb(), "openai-personal")?.provider).toBe("openai");
 });
 
-test("your-own mode reuses a custom-named connection instead of creating -personal", () => {
+test("an existing compatible connection suppresses row creation", () => {
   delete process.env.IS_PLATFORM;
   const created = createConnection(getDb(), {
     name: "my-anthropic",
@@ -138,14 +84,58 @@ test("your-own mode reuses a custom-named connection instead of creating -person
     auth: { type: "api_key", credential: "credential/anthropic/api_key" },
   });
   expect(created.ok).toBe(true);
-  seedConfig({ byok: { provider: "anthropic", model: "claude-fable-5" } });
+  seedConfig({
+    profiles: { byok: { provider: "anthropic", model: "claude-fable-5" } },
+  });
 
-  runProviderConnectionsBackfill(getDb());
+  runExpectingNoConfigWrite();
 
-  expect(backfilledConnection("byok")).toBe("my-anthropic");
   expect(getConnection(getDb(), "anthropic-personal")).toBeNull();
-  // Exactly the user's connection — no parallel row was created.
   expect(
     listConnections(getDb(), { provider: "anthropic" }).map((c) => c.name),
   ).toEqual(["my-anthropic"]);
+});
+
+test("managed mode creates no personal row for managed-routable providers", () => {
+  process.env.IS_PLATFORM = "true";
+  seedConfig({
+    profiles: { byok: { provider: "anthropic", model: "claude-fable-5" } },
+  });
+
+  runExpectingNoConfigWrite();
+
+  expect(getConnection(getDb(), "anthropic-personal")).toBeNull();
+  // The canonical vellum row is seeded and serves the managed route.
+  expect(getConnection(getDb(), "vellum")?.provider).toBe("vellum");
+});
+
+test("routing identities and entry-name providers get no bootstrap rows", () => {
+  delete process.env.IS_PLATFORM;
+  seedConfig({
+    profiles: {
+      managedRoute: { provider: "vellum", model: "claude-fable-5" },
+      subscription: { provider: "chatgpt", model: "gpt-5.5" },
+      entry: { provider: "my-custom-entry", model: "some-model" },
+    },
+  });
+
+  runExpectingNoConfigWrite();
+
+  expect(getConnection(getDb(), "vellum-personal")).toBeNull();
+  expect(getConnection(getDb(), "chatgpt-personal")).toBeNull();
+  expect(getConnection(getDb(), "my-custom-entry-personal")).toBeNull();
+  expect(getConnection(getDb(), "my-custom-entry")).toBeNull();
+});
+
+test("ollama is keyless: its bootstrap row carries no credential", () => {
+  delete process.env.IS_PLATFORM;
+  seedConfig({
+    profiles: { local: { provider: "ollama", model: "llama3" } },
+  });
+
+  runExpectingNoConfigWrite();
+
+  expect(getConnection(getDb(), "ollama-personal")?.auth).toEqual({
+    type: "none",
+  });
 });
