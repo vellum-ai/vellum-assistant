@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@vellumai/assistant-client": "workspace:*",
+    "@vellumai/backup-paths": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
@@ -44,6 +45,7 @@
   },
   "bundledDependencies": [
     "@vellumai/assistant-client",
+    "@vellumai/backup-paths",
     "@vellumai/ces-client",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",

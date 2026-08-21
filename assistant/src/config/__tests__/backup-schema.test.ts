@@ -7,7 +7,7 @@ import {
 } from "../schemas/backup.js";
 
 describe("BackupConfigSchema", () => {
-  test("empty object parses to full defaults (disabled, sensible intervals, iCloud default)", () => {
+  test("empty object parses to full platform-neutral defaults", () => {
     const parsed = BackupConfigSchema.parse({});
     expect(parsed).toEqual({
       enabled: false,

@@ -22,6 +22,8 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
+import { resolveDefaultOffsiteDestinations } from "@vellumai/backup-paths";
+
 import { mintServiceToken } from "../auth/token-exchange.js";
 import { readConfigFileOrEmpty } from "../config-file-utils.js";
 import { fetchImpl } from "../fetch.js";
@@ -65,25 +67,6 @@ interface BackupConfig {
     destinations: BackupDestination[] | null;
   };
   localDirectory: string | null;
-}
-
-/** Default iCloud Drive destination (macOS) with encryption enabled. */
-function defaultOffsiteDestinations(): BackupDestination[] {
-  const home = process.env.HOME || "";
-  if (!home) return [];
-  return [
-    {
-      path: join(
-        home,
-        "Library",
-        "Mobile Documents",
-        "com~apple~CloudDocs",
-        "VellumAssistant",
-        "backups",
-      ),
-      encrypt: true,
-    },
-  ];
 }
 
 function readBackupConfig(): BackupConfig {
@@ -187,7 +170,7 @@ async function performBackup(
 
   // Resolve offsite destinations
   const destinations = config.offsite.enabled
-    ? (config.offsite.destinations ?? defaultOffsiteDestinations())
+    ? (config.offsite.destinations ?? resolveDefaultOffsiteDestinations())
     : [];
 
   // Ensure the backup key if any destination needs encryption

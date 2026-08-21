@@ -270,7 +270,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("handleBackupList", () => {
-  test("empty workspace: returns empty local array and one unreachable iCloud default", async () => {
+  test("empty workspace resolves only the current platform default", async () => {
     const origHome = process.env.HOME;
     process.env.HOME = ROOT;
     try {
@@ -287,10 +287,14 @@ describe("handleBackupList", () => {
 
       const result = await handleBackupList();
       expect(result.local).toEqual([]);
-      expect(result.offsite).toHaveLength(1);
-      expect(result.offsite[0].destination.encrypt).toBe(true);
-      expect(result.offsite[0].snapshots).toEqual([]);
-      expect(result.offsite[0].reachable).toBe(false);
+      if (process.platform === "darwin") {
+        expect(result.offsite).toHaveLength(1);
+        expect(result.offsite[0].destination.encrypt).toBe(true);
+        expect(result.offsite[0].snapshots).toEqual([]);
+        expect(result.offsite[0].reachable).toBe(false);
+      } else {
+        expect(result.offsite).toEqual([]);
+      }
       expect(result.nextRunAt).toBeNull();
     } finally {
       if (origHome === undefined) {

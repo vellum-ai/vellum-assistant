@@ -1,5 +1,13 @@
-import { homedir, userInfo } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import {
+  deriveSafeOffsiteAncestor,
+  getDefaultOffsiteBackupsDir as getPlatformDefaultOffsiteBackupsDir,
+  getICloudDriveRoot as getPlatformICloudDriveRoot,
+  type OffsitePathOptions,
+  resolveDefaultOffsiteDestinations,
+} from "@vellumai/backup-paths";
 
 import { getBackupDirOverride } from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";
@@ -22,109 +30,43 @@ export function getLocalBackupsDir(override?: string | null): string {
   return override ?? join(getBackupRootDir(), "local");
 }
 
-function safeUserInfoHomedir(): string {
-  try {
-    return userInfo().homedir;
-  } catch {
-    return "";
-  }
+/** Returns the absolute iCloud Drive root used by the macOS default. */
+export function getICloudDriveRoot(options?: OffsitePathOptions): string {
+  return getPlatformICloudDriveRoot(options);
 }
 
 /**
- * Returns the iCloud Drive root on macOS. This is the "safe ancestor" we use
- * for bootstrapping the default offsite path: if this directory exists iCloud
- * Drive is enabled and we can safely `mkdir -p` the `VellumAssistant/backups`
- * subtree below it.
- *
- * Fallback chain: `process.env.HOME` → `userInfo().homedir` → `homedir()`.
- * Reading `$HOME` at call time keeps the function honest under tests that
- * redirect the home directory mid-process. Uses `||` (not `??`) so an
- * empty-string `HOME` — legal in some sandboxed envs — advances to the next
- * fallback. `homedir()` alone is insufficient because libuv's
- * `uv_os_homedir` returns `$HOME` as-is when it's set (even to `""`) and
- * only consults `getpwuid_r` when `HOME` is unset entirely. `userInfo()`
- * calls `getpwuid_r` directly via `uv_os_get_passwd`, so it returns the
- * passwd-table home regardless of `HOME`. The `userInfo()` call is guarded
- * via `safeUserInfoHomedir()` because it throws `SystemError` when the
- * current UID has no passwd entry (rare on macOS but possible in
- * sandboxed/containerized envs); catching keeps the `homedir()` fallback
- * reachable. Asserts the final result is absolute so callers downstream
- * (`deriveSafeAncestor`, the offsite writer) never see a relative path
- * regardless of how the home lookup resolved.
+ * Returns the platform default offsite directory, when the OS exposes a
+ * reliable cloud-sync root.
  */
-export function getICloudDriveRoot(): string {
-  const home = process.env.HOME || safeUserInfoHomedir() || homedir();
-  const root = join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
-  if (!isAbsolute(root)) {
-    throw new Error(
-      `getICloudDriveRoot resolved to a relative path: ${root}. ` +
-        `HOME, userInfo().homedir, and homedir() all returned empty or relative values.`,
-    );
-  }
-  return root;
+export function getDefaultOffsiteBackupsDir(
+  options?: OffsitePathOptions,
+): string | null {
+  return getPlatformDefaultOffsiteBackupsDir(options);
 }
 
 /**
- * Returns the default offsite backups directory — the iCloud Drive path under
- * the VellumAssistant namespace. Used when no explicit offsite destinations
- * are configured.
+ * Returns the ancestor that must exist before an offsite directory is created.
+ * Missing cloud roots and mount points cause the destination to be skipped.
  */
-export function getDefaultOffsiteBackupsDir(): string {
-  return join(getICloudDriveRoot(), "VellumAssistant", "backups");
-}
-
-/**
- * Derive the "safe ancestor" for an offsite destination — a directory that
- * must already exist on disk before we are willing to create intermediate
- * directories under it. If the ancestor exists we `mkdir -p destinationPath`;
- * if it is missing we skip the destination (treating it as a transient
- * unavailability like an unplugged drive or disabled iCloud Drive).
- *
- * Derivation rules:
- *   - iCloud Drive subtrees (`~/Library/Mobile Documents/com~apple~CloudDocs/...`)
- *     anchor on the iCloud Drive root. This lets the default destination
- *     (`.../VellumAssistant/backups`) bootstrap on first run without the user
- *     having to pre-create the `VellumAssistant` folder.
- *   - `/Volumes/<name>/...` paths anchor on `/Volumes/<name>`, the macOS
- *     volume mount point. An unmounted drive has no entry in `/Volumes`, so
- *     its destination is correctly skipped rather than bootstrapped on the
- *     root filesystem.
- *   - Everything else falls back to `dirname(destinationPath)` — the original
- *     conservative behavior, preserved for arbitrary user-configured paths
- *     where we have no reliable mount signal.
- */
-export function deriveSafeAncestor(destinationPath: string): string {
-  const iCloudRoot = getICloudDriveRoot();
-  if (
-    destinationPath === iCloudRoot ||
-    destinationPath.startsWith(`${iCloudRoot}/`)
-  ) {
-    return iCloudRoot;
-  }
-  const volumesPrefix = "/Volumes/";
-  if (destinationPath.startsWith(volumesPrefix)) {
-    const rest = destinationPath.slice(volumesPrefix.length);
-    const slash = rest.indexOf("/");
-    const volumeName = slash === -1 ? rest : rest.slice(0, slash);
-    if (volumeName.length > 0) {
-      return `${volumesPrefix}${volumeName}`;
-    }
-  }
-  return dirname(destinationPath);
+export function deriveSafeAncestor(
+  destinationPath: string,
+  options?: OffsitePathOptions,
+): string {
+  return deriveSafeOffsiteAncestor(destinationPath, options);
 }
 
 /**
  * Resolves the list of offsite backup destinations from an optional config
- * override. When `override` is `null` (the "not configured" sentinel), returns
- * a single-element array pointing at the iCloud default with encryption
- * enabled. When `override` is an array (including the empty array), returns it
- * unchanged so callers never need to null-check.
+ * override. A null override uses the platform default when one exists. An
+ * explicit array, including the empty array, is returned unchanged.
  */
 export function resolveOffsiteDestinations(
   override?: BackupDestination[] | null,
+  options?: OffsitePathOptions,
 ): BackupDestination[] {
   if (override == null) {
-    return [{ path: getDefaultOffsiteBackupsDir(), encrypt: true }];
+    return resolveDefaultOffsiteDestinations(options);
   }
   return override;
 }

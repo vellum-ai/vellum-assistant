@@ -632,7 +632,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBackupDestinationsList,
     summary: "List configured offsite backup destinations",
     description:
-      "Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit array is configured.",
+      "Returns the current offsite destinations array. When no explicit array is configured, macOS materializes its encrypted iCloud Drive default while Windows and Linux return no implicit destination.",
     tags: ["backups"],
     responseBody: z.object({
       destinations: z.array(
@@ -654,7 +654,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBackupDestinationsAdd,
     summary: "Add an offsite backup destination",
     description:
-      "Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors if the path already exists.",
+      "Appends a new destination. Materializes the platform default first if destinations is currently null. Errors if the path already exists.",
     tags: ["backups"],
     requestBody: z.object({
       path: z
