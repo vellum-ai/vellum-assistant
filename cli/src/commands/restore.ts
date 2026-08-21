@@ -663,7 +663,7 @@ async function runLocalRestore(opts: {
                 Authorization: `Bearer ${accessToken}`,
                 "Content-Type": "application/octet-stream",
               },
-              body: bundleData,
+              body: bundleData ? new Uint8Array(bundleData) : undefined,
               signal: AbortSignal.timeout(120_000),
             },
           );
@@ -776,7 +776,7 @@ async function runLocalRestore(opts: {
                 Authorization: `Bearer ${accessToken}`,
                 "Content-Type": "application/octet-stream",
               },
-              body: bundleData,
+              body: bundleData ? new Uint8Array(bundleData) : undefined,
               signal: AbortSignal.timeout(120_000),
             },
           );

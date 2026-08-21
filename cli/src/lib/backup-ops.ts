@@ -222,25 +222,26 @@ export async function restoreBackup(
       return false;
     }
 
-    let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
-    if (!accessToken) {
+    const initialToken = await getGuardianAccessToken(runtimeUrl, assistantId);
+    if (!initialToken) {
       console.warn(
         "Warning: restore skipped — no valid guardian token available",
       );
       return false;
     }
+    let token = initialToken;
 
     if (staging) {
       const staged = await stageBundleForRestore(staging, backupPath);
       try {
         const postImport = () =>
-          importStagedBundle(runtimeUrl, accessToken, staged.relativePath);
+          importStagedBundle(runtimeUrl, token, staged.relativePath);
         const response = await postRestoreWithRetries(
           postImport,
           runtimeUrl,
           assistantId,
-          (token) => {
-            accessToken = token;
+          (nextToken) => {
+            token = nextToken;
           },
         );
         if (!response) {
@@ -252,12 +253,12 @@ export async function restoreBackup(
       }
     }
 
-    const bundleData = readFileSync(backupPath);
+    const bundleData = new Uint8Array(readFileSync(backupPath));
     const postImport = () =>
       loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/octet-stream",
         },
         body: bundleData,
@@ -267,8 +268,8 @@ export async function restoreBackup(
       postImport,
       runtimeUrl,
       assistantId,
-      (token) => {
-        accessToken = token;
+      (nextToken) => {
+        token = nextToken;
       },
     );
     if (!response) {
