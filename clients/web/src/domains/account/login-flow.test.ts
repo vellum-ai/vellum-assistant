@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   buildProviderCallbackUrl,
@@ -7,9 +7,17 @@ import {
   requiresPlatformSession,
   resolvePostAuthDestination,
 } from "@/domains/account/login-flow";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 describe("login flow routing", () => {
+  beforeEach(() => {
+    useResolvedAssistantsStore.setState({ assistants: [] });
+  });
+  afterEach(() => {
+    useResolvedAssistantsStore.setState({ assistants: [] });
+  });
+
   test("marks signup provider callbacks with an auth intent", () => {
     expect(
       buildProviderCallbackUrl(routes.assistant, { authIntent: "signup" }),
@@ -47,6 +55,41 @@ describe("login flow routing", () => {
       }),
     ).toEqual({
       destination: routes.home,
+      requiresFullPageNavigation: false,
+    });
+  });
+
+  test("skips privacy and research when the assistant is already onboarded", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          hatchedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+
+    expect(
+      resolvePostAuthDestination({
+        returnTo: routes.assistant,
+        fallback: routes.assistant,
+        authIntent: "signup",
+      }),
+    ).toEqual({
+      destination: routes.assistant,
+      requiresFullPageNavigation: false,
+    });
+    expect(
+      resolvePostAuthDestination({
+        returnTo: routes.onboarding.research,
+        fallback: routes.assistant,
+        authIntent: "login",
+      }),
+    ).toEqual({
+      destination: routes.assistant,
       requiresFullPageNavigation: false,
     });
   });

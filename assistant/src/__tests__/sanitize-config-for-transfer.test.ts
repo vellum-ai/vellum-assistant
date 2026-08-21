@@ -155,6 +155,34 @@ describe("sanitizeConfigForTransfer", () => {
     });
   });
 
+  test("strips the remembered tunnels and the assistant they fronted", () => {
+    // Every record describes the source host's tunnels; a destination that
+    // inherited them would report the old deployment's tunnel as its own, and
+    // advertise an address on the source's tailnet for pairing.
+    const input = {
+      ingress: {
+        publicBaseUrl: "https://source.ngrok.app",
+        lastTunnel: {
+          provider: "ngrok",
+          publicBaseUrl: "https://source.ngrok.app",
+        },
+        pairingTunnel: {
+          provider: "tailscale",
+          publicBaseUrl: "https://source-host.example.ts.net",
+        },
+        assistantId: "source-assistant",
+        webhook: { path: "/webhook" },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.ingress).toEqual({
+      publicBaseUrl: "",
+      webhook: { path: "/webhook" },
+    });
+  });
+
   test("preserves nested ingress fields other than environment-specific URL state", () => {
     const input = {
       ingress: {

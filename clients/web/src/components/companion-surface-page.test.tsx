@@ -12,6 +12,8 @@ import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
+const toggleWatchMock = mock(() => undefined);
+const answerRetroMock = mock((_open: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
 
@@ -23,6 +25,10 @@ const STATE: CompanionSurfaceState = {
   assistantName: "Ziggy",
   turns: [],
   working: false,
+  // Watch offered, which is what every case below except the flag's own is
+  // about. The flag is main's answer and arrives on the state like everything
+  // else here; the cases that care about it being absent say so.
+  watchEnabled: true,
   intro: null,
 };
 
@@ -30,38 +36,54 @@ const STATE: CompanionSurfaceState = {
 const resetState = () => {
   STATE.working = false;
   STATE.call = null;
+  delete STATE.watching;
+  delete STATE.captureCount;
+  STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
 };
 
 /**
- * The live subscriber, so a case can push a state change the way main does.
- * Held rather than ignored because some of what this page decides is about
- * moving between states, not about being in one.
+ * The page's subscribers, so a case can push a second state the way main does.
+ *
+ * The state main hands back on mount is what this window inherits, and some of
+ * what the page draws is a difference between that and what arrives after, so
+ * a bridge that only ever answers once cannot express it.
  */
-let subscriber: ((state: CompanionSurfaceState) => void) | null = null;
+const listeners = new Set<(state: CompanionSurfaceState) => void>();
 
-/** Publish the current `STATE`, as main's push would. */
-const pushState = () => {
+/**
+ * Push a state to the mounted page, inside `act` so React settles.
+ *
+ * With no argument it publishes the current `STATE`, which is how the cases
+ * that mutate that object drive a change; with one it pushes exactly what it
+ * was handed, which is how the cases about the difference between two states
+ * drive theirs.
+ */
+const pushState = (state: CompanionSurfaceState = { ...STATE }) => {
   act(() => {
-    subscriber?.({ ...STATE });
+    for (const listener of listeners) {
+      listener(state);
+    }
   });
 };
 
 mock.module("@/runtime/companion-surface", () => ({
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
-    callback: (state: CompanionSurfaceState) => void,
+    listener: (state: CompanionSurfaceState) => void,
   ) => {
-    subscriber = callback;
-    return () => {
-      subscriber = null;
-    };
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   },
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
   activateCompanionApp: activateMock,
   startCompanionVoice: () => undefined,
+  toggleCompanionWatch: toggleWatchMock,
+  // Stubbed rather than omitted: the page statically imports it, and a
+  // missing export is a load-time failure for the whole file.
+  answerCompanionWatchRetro: answerRetroMock,
   submitCompanionMessage: () => undefined,
   setCompanionComposing: () => undefined,
   setCompanionContext: () => undefined,
@@ -82,6 +104,7 @@ afterEach(() => {
   moveByMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
+  toggleWatchMock.mockClear();
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
 });
@@ -277,6 +300,154 @@ describe("the working ring on the page", () => {
 });
 
 /**
+ * The session is not this window's: main holds it and pushes it down with the
+ * rest of the state, and the press goes back out the same way. What this page
+ * owns is passing both halves through, which are two props rather than one
+ * because the phase a running session opens is outranked by a half-typed
+ * sentence and by a call, and the indicator is not.
+ */
+describe("the watch session on the companion surface", () => {
+  const watchOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    if (!found) {
+      throw new Error("Expected Watch to render");
+    }
+    return found;
+  };
+
+  test("hands the press back to the window holding the session", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    const canvas = canvasOf(container);
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+
+    fireEvent.click(watchOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("holds the pill open while a session runs, hand or no hand", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(container.querySelector("[inert]")).toBeNull();
+    });
+  });
+
+  test("draws the session as running", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+  });
+
+  /**
+   * The session's screen reads reach this window the same way the flag does,
+   * and they are the half nothing else can stand in for: the flag says a
+   * session is open and only the count says the screen has actually been read.
+   */
+  test("draws a capture the session reported", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    pushState({ ...STATE, captureCount: 4 });
+
+    expect(container.querySelector(".companion-capture-pulse")).not.toBeNull();
+  });
+
+  /**
+   * This window is recreated on every reload, and main answers the new one
+   * with the total it has been keeping. That number stands for reads taken
+   * before this window existed, so drawing it would present the last of them
+   * as one happening now.
+   */
+  test("does not draw a capture it only inherited from main", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
+  });
+
+  /**
+   * A state that cannot say how many reads a session has taken has not
+   * established that it took any, the same bargain the flag itself is given.
+   */
+  test("reads a state that says nothing about captures as none", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
+  });
+
+  /**
+   * Absence is not a session, so a state pushed by a main process that tracks
+   * none at all reads as nothing running. The alternative is a capture
+   * indicator over a machine nobody is reading.
+   */
+  test("reads a state that says nothing about it as no session", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+    });
+  });
+
+  /**
+   * The stop control has to reach as far as the indicator does, and the
+   * indicator outlives the phase: a session still running under a half-typed
+   * sentence that the user cannot end is worse than no indicator at all.
+   */
+  test("keeps a way out of the session while the composer is open", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+    fireEvent.click(
+      await waitFor(() => {
+        const type = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Type"]',
+        );
+        if (!type) {
+          throw new Error("Expected Type to render");
+        }
+        return type;
+      }),
+    );
+
+    const stop = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stop teaching"]',
+      );
+      if (!found) {
+        throw new Error("Expected the stop control to render");
+      }
+      return found;
+    });
+    fireEvent.click(stop);
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * The one-time introduction, which is the only thing this surface ever draws
  * that the user did not ask for. Main decides whether a run is due and holds
  * the beat; these are about what the page does with the one it is handed.
@@ -466,6 +637,80 @@ describe("the companion's introduction", () => {
     pushState();
 
     expect(container.querySelector('[role="group"]')).not.toBeNull();
+  });
+});
+
+/**
+ * The Watch flag, which this window cannot evaluate for itself.
+ *
+ * The route is standalone: no auth, no `RootLayout`, and so no flag store that
+ * ever settles. Main reads the evaluation the app's window wrote into settings
+ * and pushes it here, and this page's whole job is to believe only a positive
+ * answer.
+ */
+describe("the Watch flag on the companion surface", () => {
+  const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
+
+  /** Open the pill, which is where the way into a session would be drawn. */
+  const openPill = async (container: HTMLElement): Promise<void> => {
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+    await waitFor(() => {
+      if (!container.querySelector('button[aria-label="Talk"]')) {
+        throw new Error("Expected the pill to open");
+      }
+    });
+  };
+
+  test("draws no way in when the pushed state says nothing about it", async () => {
+    delete STATE.watchEnabled;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws no way in when the pushed state says no", async () => {
+    STATE.watchEnabled = false;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws the way in when the pushed state says yes", async () => {
+    STATE.watchEnabled = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).not.toBeNull();
+  });
+
+  /**
+   * The flag hides the door and never the exit. A session that outlives the
+   * answer is still reading the screen, and a capture the user cannot end is
+   * the one thing this surface exists to prevent.
+   */
+  test("keeps a way out of a session the flag no longer offers", async () => {
+    STATE.watchEnabled = false;
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinPill(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+
+    const stop = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stop teaching"]',
+      );
+      if (!found) {
+        throw new Error("Expected the stop control to render");
+      }
+      return found;
+    });
+    fireEvent.click(stop);
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -4,6 +4,7 @@ import { describe, expect, mock, test } from "bun:test";
 // kind, so the tests control the row store directly.
 const connectionRows = new Map<string, { name: string; provider: string }>([
   ["anthropic-personal", { name: "anthropic-personal", provider: "anthropic" }],
+  ["local-ollama", { name: "local-ollama", provider: "ollama" }],
 ]);
 mock.module("../../persistence/db-connection.js", () => ({
   getDb: () => ({}),
@@ -36,6 +37,31 @@ const fullDefault = LLMConfigBase.parse({
 });
 
 describe("completeCustomProfile", () => {
+  test("clamps a filled maxTokens to the model's catalog output cap", () => {
+    const completed = completeCustomProfile(fullDefault, {
+      provider: "ollama",
+      model: "llama3.2",
+    });
+    expect(completed.maxTokens).toBe(4096);
+  });
+
+  test("clamps a filled maxTokens for an entry-name provider via its row's kind", () => {
+    const completed = completeCustomProfile(fullDefault, {
+      provider: "local-ollama",
+      model: "llama3.2",
+    });
+    expect(completed.maxTokens).toBe(4096);
+  });
+
+  test("never clamps an explicit maxTokens", () => {
+    const completed = completeCustomProfile(fullDefault, {
+      provider: "ollama",
+      model: "llama3.2",
+      maxTokens: 64000,
+    });
+    expect(completed.maxTokens).toBe(64000);
+  });
+
   test("inherits omitted scalar fields from the default", () => {
     const completed = completeCustomProfile(fullDefault, {
       model: "claude-fable-5",

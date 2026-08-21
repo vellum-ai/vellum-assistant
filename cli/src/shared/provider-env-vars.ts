@@ -42,6 +42,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   tavily: "TAVILY_API_KEY",
   firecrawl: "FIRECRAWL_API_KEY",
   keenable: "KEENABLE_API_KEY",
+  fastcrw: "FASTCRW_API_KEY",
 };
 
 /**

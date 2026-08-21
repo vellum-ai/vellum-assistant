@@ -1,9 +1,11 @@
 /**
- * Tests for the `workspace-files` list/read endpoints in settings-routes.
+ * Tests for the `workspace-files` list/read and ingress-config endpoints in
+ * settings-routes.
  *
  * Focus: the list includes the guardian's per-user persona file
- * (`users/<slug>.md`) whenever a guardian exists, and the read endpoint
- * accepts paths under `users/`.
+ * (`users/<slug>.md`) whenever a guardian exists, the read endpoint accepts
+ * paths under `users/`, and writing a different ingress URL drops the tunnel
+ * records that described the old one.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -192,5 +194,85 @@ describe("GET /workspace-files/read", () => {
     expect(() => handler(makeArgs({ path: "users/nobody.md" }))).toThrow(
       NotFoundError,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /integrations/ingress/config
+// ---------------------------------------------------------------------------
+
+describe("PUT integrations/ingress/config", () => {
+  const handler = getHandler("integrations/ingress/config", "PUT");
+  const configPath = join(testWorkspaceDir, "config.json");
+
+  const TUNNEL_URL = "https://assistant-1.example.ts.net";
+  const LAST_TUNNEL = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
+
+  function readConfig(): Record<string, unknown> {
+    return existsSync(configPath)
+      ? JSON.parse(readFileSync(configPath, "utf-8"))
+      : {};
+  }
+
+  function seedIngress(ingress: Record<string, unknown>): void {
+    writeFileSync(
+      configPath,
+      JSON.stringify({ ...readConfig(), ingress }, null, 2),
+      "utf-8",
+    );
+  }
+
+  function readIngress(): Record<string, unknown> {
+    return readConfig().ingress as Record<string, unknown>;
+  }
+
+  beforeEach(() => {
+    seedIngress({
+      publicBaseUrl: TUNNEL_URL,
+      enabled: true,
+      assistantId: "assistant-1",
+      lastTunnel: LAST_TUNNEL,
+    });
+  });
+
+  test("keeps the records when the URL is unchanged", async () => {
+    await handler(makeArgs({}, { publicBaseUrl: TUNNEL_URL, enabled: false }));
+
+    const ingress = readIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+
+  test("ignores trailing slashes and whitespace when comparing", async () => {
+    await handler(
+      makeArgs({}, { publicBaseUrl: ` ${TUNNEL_URL}/ `, enabled: true }),
+    );
+
+    const ingress = readIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+
+  test("drops the records when the URL is retargeted", async () => {
+    await handler(
+      makeArgs(
+        {},
+        { publicBaseUrl: "https://other.example.ts.net", enabled: true },
+      ),
+    );
+
+    const ingress = readIngress();
+    expect(ingress.publicBaseUrl).toBe("https://other.example.ts.net");
+    expect(ingress.assistantId).toBeUndefined();
+    expect(ingress.lastTunnel).toBeUndefined();
+  });
+
+  test("drops the records when the URL is cleared", async () => {
+    await handler(makeArgs({}, { publicBaseUrl: "", enabled: false }));
+
+    const ingress = readIngress();
+    expect(ingress.publicBaseUrl).toBeUndefined();
+    expect(ingress.assistantId).toBeUndefined();
+    expect(ingress.lastTunnel).toBeUndefined();
   });
 });

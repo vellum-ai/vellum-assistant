@@ -1,4 +1,17 @@
 {
+  "acpConnectAffordance": {
+    "title": "Conectar Claude Code",
+    "subtitleIdle": "Usa tu suscripción a Claude Code",
+    "subtitleStarting": "Preparando el inicio de sesión...",
+    "subtitleWaiting": "Esperando el inicio de sesión de Claude...",
+    "subtitleExchanging": "Completando el inicio de sesión...",
+    "subtitleConnected": "Claude Code conectado, continuando...",
+    "subtitlePaste": "Pega la clave de la pestaña que se abrió",
+    "errorFallback": "No se pudo conectar Claude. Inténtalo de nuevo.",
+    "connectButton": "Conectar",
+    "saveButton": "Guardar",
+    "pastePlaceholder": "Pega tu clave"
+  },
   "activityStepsPanel": {
     "backAria": "Volver a todos los pasos",
     "backTooltip": "Todos los pasos"

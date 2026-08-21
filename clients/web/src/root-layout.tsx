@@ -19,6 +19,10 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { startVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-voice-request";
 import {
+  clearWatchRetro,
+  useWatchRetroStore,
+} from "@/domains/chat/watch/watch-retro";
+import {
   useAuthStore,
   useIsSessionInitializing,
   useHasPlatformSession,
@@ -32,7 +36,9 @@ import {
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
+import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
@@ -40,6 +46,7 @@ import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useWatchRetroSync } from "@/hooks/use-watch-retro-sync";
 import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navigation";
 import { usePushRegistration } from "@/hooks/use-push-registration";
 import { useWebPresenceReport } from "@/hooks/use-web-presence-report";
@@ -171,6 +178,12 @@ export function RootLayout() {
   useSoundEffects(assistantId, isAssistantActive);
   useDocumentEditorSync();
   useBookmarksSync();
+  // The end of a watch session's summary, which arrives on the assistant's
+  // event stream because the session's own socket is gone by the time the
+  // retrospective runs. Mounted here rather than in the chat layout: the
+  // announcement names a background conversation, and the user is by definition
+  // working somewhere else when a session ends.
+  useWatchRetroSync();
 
   // Keep the browser favicon in sync with the assistant's avatar across
   // every authenticated route (chat, settings, logs, etc.). Mounted here
@@ -331,6 +344,45 @@ export function RootLayout() {
       }
       startVoiceFromSurface(navigate);
     },
+    answerWatchRetro: (command) => {
+      if (command.kind !== "answerWatchRetro") {
+        return;
+      }
+      // Read before the state is cleared, since clearing is what takes the
+      // conversation with it.
+      const retro = useWatchRetroStore.getState().retro;
+      clearWatchRetro();
+      // **A yes is only honoured on a summary that is actually ready.** The
+      // surface draws the two answers only in that state, but a press can
+      // outlive it: the give-up timer and a fresh session both clear the
+      // question, and navigating to a conversation the runtime never reported a
+      // report in would open an empty thread.
+      if (!command.open || retro?.phase !== "ready") {
+        return;
+      }
+      // **And only on the assistant that wrote it.** Switching away clears the
+      // question (`watch/watch-retro.ts` binds it to its owner), so this should
+      // never be false; it is checked anyway because the failure it prevents is
+      // silent. Every request this app makes is scoped to the active assistant,
+      // so opening another assistant's conversation id lands on a thread that
+      // does not exist rather than on the report.
+      if (
+        retro.assistantId !==
+        useResolvedAssistantsStore.getState().activeAssistantId
+      ) {
+        return;
+      }
+      // The full navigation rather than a bare route push. The report is a
+      // conversation like any other, and arriving at it with the previous
+      // thread's subagent and workflow state still standing is what
+      // `navigateToConversation` exists to prevent.
+      navigateToConversation(navigate, retro.conversationId);
+    },
+    // The flag gate and the toggle both live in `watch-command.ts`. This is the
+    // one command registered here that can start reading the user's screen, so
+    // its refusal is worth being able to test, and a module is what makes that
+    // possible. It takes no arguments, which the handler signature allows.
+    toggleWatch: handleToggleWatchCommand,
     companionSubmit: (command) => {
       if (command.kind !== "companionSubmit") {
         return;

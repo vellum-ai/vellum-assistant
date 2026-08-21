@@ -67,6 +67,12 @@ function projectProvider(
   if (entry.privacyPolicyUrl !== undefined) {
     projected.privacyPolicyUrl = entry.privacyPolicyUrl;
   }
+  if (entry.supportsApiBase !== undefined) {
+    projected.supportsApiBase = entry.supportsApiBase;
+  }
+  if (entry.defaultApiBase !== undefined) {
+    projected.defaultApiBase = entry.defaultApiBase;
+  }
   return projected;
 }
 

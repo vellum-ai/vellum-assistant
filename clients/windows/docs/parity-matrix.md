@@ -33,12 +33,13 @@ that exercises the Windows behavior.
 
 ## Main-process capabilities without a bridge key
 
-| Capability                                                    | Windows module                                                                                       | Evidence                                                                                                          |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Host proxy (gateway forwarding, host executors, computer use) | `main/features/host-proxy.ts`, `main/host-proxy-adapter.ts`, `main/features/computer-use-actions.ts` | `main/host-proxy-feature.test.ts`, `main/host-proxy-adapter.test.ts`, `main/computer-use-actions-feature.test.ts` |
-| Packaged CLI provisioning and launcher                        | `main/cli-installer.ts`, `main/cli-path-flow.ts`                                                     | `main/cli-provisioning.test.ts`, `scripts/launch-cli.test.ts`, package smoke                                      |
-| Explorer preview and thumbnail handler                        | `native/Vellum.PreviewHandler`                                                                       | `native/Vellum.PreviewHandler.Tests`, package smoke                                                               |
-| NSIS install, protocol and file registration, uninstall       | `electron-builder.config.cjs`, `scripts/installer.nsh`                                               | package smoke                                                                                                     |
+| Capability                                                          | Windows module                                                                                       | Evidence                                                                                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Host proxy (gateway forwarding, host executors, computer use)       | `main/features/host-proxy.ts`, `main/host-proxy-adapter.ts`, `main/features/computer-use-actions.ts` | `main/host-proxy-feature.test.ts`, `main/host-proxy-adapter.test.ts`, `main/computer-use-actions-feature.test.ts` |
+| Packaged CLI provisioning and launcher                              | `main/cli-installer.ts`, `main/cli-path-flow.ts`                                                     | `main/cli-provisioning.test.ts`, `scripts/launch-cli.test.ts`, package smoke                                      |
+| `app://` gateway and paired-gateway forwarding, platform forwarding | `main/index.ts`, `main/paired-gateway-request-guard.ts`                                              | `main/paired-gateway-request-guard.test.ts`, `@vellumai/electron-desktop` `gateway-forward.test.ts`               |
+| Explorer preview and thumbnail handler                              | `native/Vellum.PreviewHandler`                                                                       | `native/Vellum.PreviewHandler.Tests`, package smoke                                                               |
+| NSIS install, protocol and file registration, uninstall             | `electron-builder.config.cjs`, `scripts/installer.nsh`                                               | package smoke                                                                                                     |
 
 ## Windows-only surface
 

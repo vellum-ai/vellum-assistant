@@ -9,6 +9,7 @@ let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 let mockFirecrawlSecureKey: string | undefined;
 let mockKeenableSecureKey: string | undefined;
+let mockFastcrwSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -21,9 +22,18 @@ let mockManagedSearchProxyCalls: Array<{
  * Seed the web-search service into the workspace config. Pass `undefined`
  * for mode to write a post-migration-132 config carrying only `provider`.
  */
-function seedWebSearch(mode: string | undefined, provider: string): void {
+function seedWebSearch(
+  mode: string | undefined,
+  provider: string,
+  apiBase?: string,
+): void {
+  const entry: Record<string, string> =
+    mode === undefined ? { provider } : { mode, provider };
+  if (apiBase !== undefined) {
+    entry.apiBase = apiBase;
+  }
   setConfig("services", {
-    "web-search": mode === undefined ? { provider } : { mode, provider },
+    "web-search": entry,
   });
 }
 
@@ -43,6 +53,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     }
     if (provider === "keenable") {
       return mockKeenableSecureKey;
+    }
+    if (provider === "fastcrw") {
+      return mockFastcrwSecureKey;
     }
     return undefined;
   },
@@ -87,6 +100,7 @@ describe("web_search tool", () => {
     mockTavilySecureKey = undefined;
     mockFirecrawlSecureKey = undefined;
     mockKeenableSecureKey = undefined;
+    mockFastcrwSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1045,6 +1059,87 @@ describe("web_search tool", () => {
     // Post-retry rate limits surface the friendly recoverable copy (ATL-727).
     expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     expect(callCount).toBe(4);
+  });
+
+  // ---- fastCRW provider ---------------------------------------------------
+
+  test("executes fastCRW search against the cloud default base", async () => {
+    seedWebSearch("your-own", "fastcrw");
+    mockFastcrwSecureKey = "crw_live_test";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [
+              {
+                title: "fastCRW Result",
+                url: "https://example.com/crw",
+                description: "From fastCRW",
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "rust scraper" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toBe("https://api.fastcrw.com/v1/search");
+    expect(result.content).toContain("fastCRW Result");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("fastcrw");
+  });
+
+  test("fastCRW uses a custom API base and accepts flat data arrays", async () => {
+    seedWebSearch("your-own", "fastcrw", "http://localhost:3000/");
+    mockFastcrwSecureKey = "crw_live_test";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: [
+            {
+              title: "Flat Result",
+              url: "https://example.com/flat",
+              snippet: "Portable flat shape",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "flat" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toBe("http://localhost:3000/v1/search");
+    expect(result.content).toContain("Flat Result");
+    expect(result.content).toContain("Portable flat shape");
+  });
+
+  test("fastCRW self-host with custom base runs without an API key", async () => {
+    seedWebSearch("your-own", "fastcrw", "http://127.0.0.1:3000");
+    mockFastcrwSecureKey = undefined;
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { results: [{ title: "Local", url: "https://local.test" }] },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "local" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Local");
+    expect(capturedHeaders?.get("authorization")).toBeNull();
   });
 
   // ---- Provider fallback --------------------------------------------------

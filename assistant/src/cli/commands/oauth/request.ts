@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { readStdinSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -175,7 +175,6 @@ export function registerRequestCommand(oauth: Command): void {
             parsedData = readBodyData(opts.data);
           }
 
-          // Build IPC request body
           const body: Record<string, unknown> = {
             provider: opts.provider,
             url,
@@ -202,7 +201,16 @@ export function registerRequestCommand(oauth: Command): void {
             body.client_id = opts.clientId;
           }
 
-          const r = await cliIpcCall<{
+          // Run the route handler in this process so Gmail-sized fetch and
+          // JSON parse stay off the assistant event loop.
+          const { handleRequest } = await import(
+            "../../../runtime/routes/oauth-commands-routes.js"
+          );
+          const { RouteError } = await import(
+            "../../../runtime/routes/errors.js"
+          );
+
+          let result: {
             ok: boolean;
             status: number;
             headers: Record<string, string>;
@@ -210,13 +218,19 @@ export function registerRequestCommand(oauth: Command): void {
             hint?: string;
             account?: string | null;
             accountWarning?: string;
-          }>("oauth_request", { body });
-
-          if (!r.ok) {
-            return exitFromIpcResult(r);
+          };
+          try {
+            result = (await handleRequest({ body })) as typeof result;
+          } catch (err) {
+            if (err instanceof RouteError) {
+              return exitFromIpcResult({
+                ok: false,
+                error: err.message,
+                statusCode: err.statusCode,
+              });
+            }
+            throw err;
           }
-
-          const result = r.result!;
 
           // Non-2xx exit code
           if (result.status < 200 || result.status >= 300) {

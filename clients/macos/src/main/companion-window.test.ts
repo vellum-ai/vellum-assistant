@@ -1,6 +1,10 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { COMPANION_SIZES } from "@vellumai/ipc-contract";
+import {
+  COMPANION_SIZES,
+  type CompanionSurfaceState,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
 
 // The module under test reaches `main-window.ts` to hand Talk to the renderer
 // that owns the live-voice session, and that chain loads `electron-store`, a
@@ -17,8 +21,137 @@ mock.module("electron-store", () => ({
   },
 }));
 
-// Dynamic, so the mock above is installed before the module graph loads:
-// static imports hoist above it.
+// The rest of the module's graph, stubbed down to what the IPC cases need: the
+// registrars the handlers land in, the surface they push to, and the app's
+// window they dispatch at. Everything main does against a real window server is
+// out of reach here, and none of it is what these cases are about.
+
+/** Every state main has pushed to the surface, most recent last. */
+const pushes: CompanionSurfaceState[] = [];
+
+/** Every command main has handed to the app's renderer, most recent last. */
+const dispatched: VellumCommand[] = [];
+
+/** How many times a press had to build a window before it could land. */
+let windowsRaised = 0;
+
+/** Whether the app's window exists, which is what decides between those two. */
+let mainWindowOpen = true;
+
+const surface = {
+  webContents: {
+    send: (_channel: string, state: CompanionSurfaceState) => {
+      pushes.push(state);
+    },
+  },
+  // The surface's own flag going away closes the window, which a case moving
+  // the flags can reach. Nothing here has a window server behind it, so this
+  // only has to be callable.
+  close: () => {},
+  on: () => {},
+};
+
+type Invoker = (args: unknown[]) => unknown;
+
+/** Channel to handler, with the channel's schema applied the way `on` does. */
+const listeners = new Map<string, Invoker>();
+const invocable = new Map<string, Invoker>();
+
+const register =
+  (into: Map<string, Invoker>) =>
+  (
+    channel: string,
+    schema: { parse: (input: unknown) => unknown },
+    fn: (args: never) => unknown,
+  ): void => {
+    into.set(channel, (args) => fn(schema.parse(args) as never));
+  };
+
+mock.module("electron", () => ({
+  BrowserWindow: { getAllWindows: () => [] },
+  // Stubbed for the same reason as the rest of this mock: the module under
+  // test imports it, and an export missing from a whole-module mock fails the
+  // file at load rather than in the case that uses it.
+  Menu: { buildFromTemplate: () => ({ popup: () => undefined }) },
+  shell: { openExternal: () => Promise.resolve() },
+  screen: {
+    getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+    getDisplayNearestPoint: () => ({
+      workArea: { x: 0, y: 0, width: 1440, height: 900 },
+    }),
+    on: () => undefined,
+  },
+}));
+
+mock.module("./ipc", () => ({
+  on: register(listeners),
+  handle: register(invocable),
+}));
+
+/** Main's show/hide/destroy listeners, so a case can fire one. */
+const visibilityListeners: (() => void)[] = [];
+
+mock.module("./main-window", () => ({
+  // Only its existence is read: it is what decides whether a press is
+  // dispatched straight into a renderer or has to build one first, and
+  // whether a visibility change is the window being destroyed.
+  current: () => (mainWindowOpen ? {} : null),
+  dispatchToMain: (command: VellumCommand) => {
+    dispatched.push(command);
+  },
+  ensureVisible: () => {
+    windowsRaised += 1;
+    return Promise.resolve();
+  },
+  onMainWindowVisibilityChange: (listener: () => void) => {
+    visibilityListeners.push(listener);
+  },
+}));
+
+mock.module("@vellumai/electron-desktop/floating-window", () => ({
+  createFloatingWindow: () => surface,
+  getFloatingWindow: () => surface,
+}));
+
+mock.module("@vellumai/electron-desktop/avatar", () => ({
+  getAvatarPng: () => null,
+  getCharacter: () => null,
+  onAvatarChange: () => () => {},
+}));
+
+/**
+ * The evaluated flags the app's window writes into settings, which is where
+ * main reads both the surface's own flag and Watch's. Mutable, because the
+ * whole point of reading them from settings is that they land after launch and
+ * can move again while the app runs.
+ */
+let flags: Record<string, boolean> = { "companion-surface": true };
+
+/** Main's `featureFlags` listeners, so a case can fire a targeting change. */
+const flagListeners: (() => void)[] = [];
+
+mock.module("@vellumai/electron-desktop/settings", () => ({
+  readSetting: () => flags,
+  onSettingChange: (_key: string, listener: () => void) => {
+    flagListeners.push(listener);
+    return () => {};
+  },
+}));
+
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  readCompanionSize: () => "small",
+  readCompanionHidden: () => false,
+  writeCompanionSize: () => {},
+  writeCompanionHidden: () => {},
+  // Stubbed rather than omitted, like every other export here: the module
+  // under test imports these, and one missing from a whole-module mock is a
+  // load-time failure for the file rather than a failing case.
+  readCompanionIntroSeen: () => true,
+  writeCompanionIntroSeen: () => {},
+}));
+
+// Dynamic, so the mocks above are installed before the module graph loads:
+// static imports hoist above them.
 const {
   growthFor,
   cardGrowthFor,
@@ -28,7 +161,51 @@ const {
   callOnUpdate,
   introOnAdvance,
   shouldShowCompanionSurface,
+  installCompanionWindow,
 } = await import("./companion-window");
+
+installCompanionWindow();
+
+/** Put a set of evaluated flags in settings and tell main they changed. */
+const setFlags = (next: Record<string, boolean>): void => {
+  flags = next;
+  for (const listener of [...flagListeners]) {
+    listener();
+  }
+};
+
+/** Fire main's visibility listeners, as show, hide, and destroy all do. */
+const fireVisibilityChange = (): void => {
+  for (const listener of [...visibilityListeners]) {
+    listener();
+  }
+};
+
+/** Send on a channel exactly as a renderer would, schema and all. */
+const send = (channel: string, ...args: unknown[]): void => {
+  const listener = listeners.get(channel);
+  if (!listener) {
+    throw new Error(`No listener registered for ${channel}`);
+  }
+  listener(args);
+};
+
+/** The state a renderer mounting on the surface would pull. */
+const state = (): CompanionSurfaceState => {
+  const pull = invocable.get("vellum:companion:getState");
+  if (!pull) {
+    throw new Error("No handler registered for vellum:companion:getState");
+  }
+  return pull([]) as CompanionSurfaceState;
+};
+
+/** A context as the app's window publishes one. */
+const context = (over: Record<string, unknown> = {}) => ({
+  assistantName: "Ziggy",
+  turns: [],
+  working: false,
+  ...over,
+});
 
 /** A session as the mirror publishes one, which is what main then holds. */
 const START = {
@@ -75,7 +252,9 @@ describe("growthFor", () => {
   });
 
   test("one pixel short on the right flips", () => {
-    expect(growthFor(DISPLAY.width - NEEDED + 1, DISPLAY, GEOMETRY)).toBe("left");
+    expect(growthFor(DISPLAY.width - NEEDED + 1, DISPLAY, GEOMETRY)).toBe(
+      "left",
+    );
   });
 
   test("measures against the display's own origin, not the screen's", () => {
@@ -130,26 +309,30 @@ const centreOf = (
 
 describe("placeCanvas", () => {
   test("puts the avatar exactly where a position inside the work area asks", () => {
-    expect(centreOf(placeCanvas({ x: 700, y: 500 }, WORK_AREA, GEOMETRY))).toEqual({
+    expect(
+      centreOf(placeCanvas({ x: 700, y: 500 }, WORK_AREA, GEOMETRY)),
+    ).toEqual({
       x: 700,
       y: 500,
     });
   });
 
   test("holds the avatar at the right edge rather than past it", () => {
-    expect(centreOf(placeCanvas({ x: 9000, y: 500 }, WORK_AREA, GEOMETRY)).x).toBe(
-      1440 - 22,
-    );
+    expect(
+      centreOf(placeCanvas({ x: 9000, y: 500 }, WORK_AREA, GEOMETRY)).x,
+    ).toBe(1440 - 22);
   });
 
   test("holds the avatar at the left edge rather than past it", () => {
-    expect(centreOf(placeCanvas({ x: -9000, y: 500 }, WORK_AREA, GEOMETRY)).x).toBe(22);
+    expect(
+      centreOf(placeCanvas({ x: -9000, y: 500 }, WORK_AREA, GEOMETRY)).x,
+    ).toBe(22);
   });
 
   test("holds the avatar at the bottom edge rather than past it", () => {
-    expect(centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y).toBe(
-      900 - 22,
-    );
+    expect(
+      centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY)).y,
+    ).toBe(900 - 22);
   });
 
   /**
@@ -165,9 +348,9 @@ describe("placeCanvas", () => {
 
   test("clamps against the display it is given, not the primary one", () => {
     const secondary = { x: 1440, y: 0, width: 1920, height: 1080 };
-    expect(centreOf(placeCanvas({ x: 99999, y: 500 }, secondary, GEOMETRY)).x).toBe(
-      1440 + 1920 - 22,
-    );
+    expect(
+      centreOf(placeCanvas({ x: 99999, y: 500 }, secondary, GEOMETRY)).x,
+    ).toBe(1440 + 1920 - 22);
   });
 
   /**
@@ -194,9 +377,9 @@ describe("placeCanvas", () => {
    */
   test("never asks for an origin above the work area", () => {
     for (const y of [-9000, -100, 0, 25, 40, 70, 71, 200, 400]) {
-      expect(placeCanvas({ x: 700, y }, WORK_AREA, GEOMETRY).origin.y).toBeGreaterThanOrEqual(
-        WORK_AREA.y,
-      );
+      expect(
+        placeCanvas({ x: 700, y }, WORK_AREA, GEOMETRY).origin.y,
+      ).toBeGreaterThanOrEqual(WORK_AREA.y);
     }
   });
 
@@ -206,7 +389,9 @@ describe("placeCanvas", () => {
    * old symmetric canvas spent on a card that had nowhere to grow.
    */
   test("brings the avatar within a shadow's width of the top", () => {
-    const centre = centreOf(placeCanvas({ x: 700, y: -9000 }, WORK_AREA, GEOMETRY));
+    const centre = centreOf(
+      placeCanvas({ x: 700, y: -9000 }, WORK_AREA, GEOMETRY),
+    );
     expect(centre.y).toBe(WORK_AREA.y + DROP_BELOW);
     // Where it used to stop: the old canvas's half-height below the work area.
     expect(centre.y).toBeLessThan(WORK_AREA.y + RISE_ABOVE);
@@ -223,8 +408,12 @@ describe("cardGrowthFor", () => {
   });
 
   test("flips exactly where the card stops fitting", () => {
-    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE, WORK_AREA, GEOMETRY)).toBe("up");
-    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE - 1, WORK_AREA, GEOMETRY)).toBe("down");
+    expect(cardGrowthFor(WORK_AREA.y + RISE_ABOVE, WORK_AREA, GEOMETRY)).toBe(
+      "up",
+    );
+    expect(
+      cardGrowthFor(WORK_AREA.y + RISE_ABOVE - 1, WORK_AREA, GEOMETRY),
+    ).toBe("down");
   });
 
   /**
@@ -262,7 +451,10 @@ describe("avatarOffsetFor", () => {
 describe("the session main holds", () => {
   test("update merges content and leaves the fixed fields alone", () => {
     const running = { ...START };
-    const next = callOnUpdate(running, { phase: "speaking", detail: "Reading" });
+    const next = callOnUpdate(running, {
+      phase: "speaking",
+      detail: "Reading",
+    });
     expect(next).toEqual({
       ...running,
       phase: "speaking",
@@ -443,7 +635,10 @@ describe("placing a larger companion", () => {
    * canvas half-height the bug was.
    */
   test("reaches the top, short by its own scaled shadow", () => {
-    const centre = centreOf(placeCanvas({ x: 700, y: -9000 }, WORK_AREA, LARGE), LARGE);
+    const centre = centreOf(
+      placeCanvas({ x: 700, y: -9000 }, WORK_AREA, LARGE),
+      LARGE,
+    );
     expect(centre.y).toBe(WORK_AREA.y + LARGE.dropBelow);
     expect(centre.y).toBeLessThan(WORK_AREA.y + LARGE.riseAbove);
   });
@@ -455,5 +650,289 @@ describe("placing a larger companion", () => {
     expect(
       cardGrowthFor(WORK_AREA.y + LARGE.riseAbove - 1, WORK_AREA, LARGE),
     ).toBe("down");
+  });
+});
+
+/**
+ * The watch session, as far as main is concerned: a press it forwards and a
+ * fact it holds. Main runs no session of its own, so what is worth stating is
+ * that the press does not drag the app over the screen being watched, and that
+ * the surface keeps being told whether a session is running across its own
+ * renderer reloading.
+ */
+describe("the watch session main relays", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context({ watching: false }));
+    pushes.length = 0;
+  });
+
+  test("hands the toggle to the app's renderer without raising it", () => {
+    send("vellum:companion:toggleWatch");
+    expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+    // The whole point of the surface: the user is working somewhere else, and
+    // here that work is what the session is for.
+    expect(windowsRaised).toBe(0);
+  });
+
+  test("builds a window when there is none, rather than lose the press", () => {
+    mainWindowOpen = false;
+    send("vellum:companion:toggleWatch");
+    expect(windowsRaised).toBe(1);
+  });
+
+  test("carries watching from the published context into pushed state", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state().watching).toBe(true);
+    send("vellum:companion:setContext", context({ watching: false }));
+    expect(state().watching).toBe(false);
+  });
+
+  /**
+   * The surface reloads, and a session whose indicator came back missing is a
+   * screen being read with nothing on screen saying so.
+   */
+  test("still reports the session to a renderer that pulls state fresh", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state()).toMatchObject({ assistantName: "Ziggy", watching: true });
+  });
+
+  /**
+   * A publisher that omits the field, which the schema defaults. Absence is
+   * the answer "no session", never a drawn indicator over a machine nobody is
+   * watching.
+   */
+  test("reads a context with no watching at all as no session", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().watching).toBe(false);
+  });
+
+  /**
+   * The session's screen reads, which the surface draws one flare per. Main
+   * holds them for the same reason it holds the flag: the surface's renderer
+   * reloads, and it has no other way of knowing what a session has taken.
+   */
+  test("carries the capture count into pushed state", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ watching: true, captureCount: 3 }),
+    );
+    expect(state().captureCount).toBe(3);
+  });
+
+  /**
+   * A publisher that reports no count has taken no reads this surface can
+   * vouch for, the same bargain absence is given everywhere else here.
+   */
+  test("reads a context with no capture count as no captures", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state().captureCount).toBe(0);
+  });
+
+  /**
+   * One channel carries the whole snapshot, so a context that flips watching is
+   * a single push. Pushing the fact separately from the context it arrived with
+   * would send the surface two states for one publish, the first of them stale.
+   */
+  test("pushes once per change rather than once per fact", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ working: true, watching: true }),
+    );
+    expect(pushes.length).toBe(1);
+    expect(pushes[0]).toMatchObject({ working: true, watching: true });
+  });
+});
+
+/**
+ * The summary a finished session leaves behind: a fact main holds and an answer
+ * it forwards.
+ *
+ * The one press on this surface that may raise the app, and only on a yes.
+ * Watch is kept behind the user's work because that work is the session's
+ * subject; by the time this is pressed the session is over and the report is a
+ * thing to read.
+ */
+describe("the watch summary main relays", () => {
+  beforeEach(() => {
+    dispatched.length = 0;
+    windowsRaised = 0;
+    mainWindowOpen = true;
+    send("vellum:companion:setContext", context());
+    pushes.length = 0;
+  });
+
+  test("carries the summary phase from the published context into pushed state", () => {
+    send("vellum:companion:setContext", context({ watchRetro: "pending" }));
+    expect(state().watchRetro).toBe("pending");
+    send("vellum:companion:setContext", context({ watchRetro: "ready" }));
+    expect(state().watchRetro).toBe("ready");
+  });
+
+  // Every value it can hold is a claim that something is happening, so absence
+  // is the only way to say nothing is and has to survive the trip.
+  test("a context with no summary reports none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().watchRetro).toBeUndefined();
+  });
+
+  // The window comes forward first and the navigation follows it, so the press
+  // lands a microtask later: dispatching ahead of the show would navigate a
+  // page the user is not looking at yet.
+  test("raises the app on a yes, since the report is the thing to read", async () => {
+    send("vellum:companion:answerWatchRetro", true);
+    expect(windowsRaised).toBe(1);
+
+    await Promise.resolve();
+
+    expect(dispatched).toEqual([{ kind: "answerWatchRetro", open: true }]);
+  });
+
+  /**
+   * A dismissal still travels: the window that ran the retrospective is the one
+   * holding the question, and an answer kept on this surface would be a
+   * question that gets asked again on the next push.
+   */
+  test("forwards a no without dragging the app over the user's work", () => {
+    send("vellum:companion:answerWatchRetro", false);
+    expect(dispatched).toEqual([{ kind: "answerWatchRetro", open: false }]);
+    expect(windowsRaised).toBe(0);
+  });
+});
+
+/**
+ * The app's window is destroyed while this surface stays open.
+ *
+ * The socket and the microphone go down with the renderer, and nothing is left
+ * to publish `watching: false`. A destroyed document does not reliably run
+ * React cleanup, so main has to give the claim up itself or the pill keeps
+ * drawing a capture indicator over a machine nothing is capturing.
+ */
+describe("the watch flag when the app's window goes away", () => {
+  test("is given up when the window is destroyed", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    expect(state().watching).toBe(true);
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().watching).toBe(false);
+  });
+
+  test("publishes the change, so the open surface redraws", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+    const before = pushes.length;
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.watching).toBe(false);
+  });
+
+  /**
+   * Hiding leaves the renderer alive and its session running. Clearing on any
+   * visibility change would put the indicator out under a session that is
+   * still reading the screen, which is the same failure inverted.
+   */
+  test("survives the window merely being hidden", () => {
+    send("vellum:companion:setContext", context({ watching: true }));
+
+    mainWindowOpen = true;
+    fireVisibilityChange();
+
+    expect(state().watching).toBe(true);
+  });
+
+  /**
+   * The tail and the name are a record of what was said and this surface is
+   * still where it is read, the same bargain `clearCompanionWorking` makes.
+   */
+  test("leaves the conversation and the name standing", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        turns: [{ role: "user", text: "hello" }],
+      }),
+    );
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().assistantName).toBe("Ziggy");
+    expect(state().turns).toEqual([{ role: "user", text: "hello" }]);
+  });
+
+  test("says nothing when no session was running", () => {
+    send("vellum:companion:setContext", context({ watching: false }));
+    const before = pushes.length;
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(pushes.length).toBe(before);
+  });
+});
+
+/**
+ * The Watch flag, from settings to the surface.
+ *
+ * The floating window has no auth and no flag store that ever settles, so main
+ * is the only side of this surface holding a real evaluation. What a case can
+ * hold is that the evaluation reaches the pushed state, that it keeps reaching
+ * it after a targeting change, and that every answer which is not a positive
+ * one arrives as off.
+ */
+describe("the Watch flag on the pushed state", () => {
+  test("is off when the flags have not arrived yet", () => {
+    setFlags({});
+
+    expect(state().watchEnabled).toBe(false);
+  });
+
+  test("is off when the flag was never provisioned", () => {
+    setFlags({ "companion-surface": true });
+
+    expect(state().watchEnabled).toBe(false);
+  });
+
+  test("is off when the evaluation says so", () => {
+    setFlags({ "companion-surface": true, teach: false });
+
+    expect(state().watchEnabled).toBe(false);
+  });
+
+  test("is on when the evaluation says so", () => {
+    setFlags({ "companion-surface": true, teach: true });
+
+    expect(state().watchEnabled).toBe(true);
+  });
+
+  /**
+   * The evaluation lands after launch: the app's window has to sign in and
+   * fetch it first. A surface already on screen has to hear the answer without
+   * waiting for something else to move the state.
+   */
+  test("is pushed to the open surface when it changes", () => {
+    setFlags({ "companion-surface": true });
+    const before = pushes.length;
+
+    setFlags({ "companion-surface": true, teach: true });
+
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.watchEnabled).toBe(true);
+  });
+
+  test("is pushed again when the answer is taken away", () => {
+    setFlags({ "companion-surface": true, teach: true });
+    const before = pushes.length;
+
+    setFlags({ "companion-surface": true, teach: false });
+
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.watchEnabled).toBe(false);
   });
 });

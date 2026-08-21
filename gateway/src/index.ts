@@ -50,6 +50,11 @@ import {
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
 import {
+  createWatchStreamWebsocketHandler,
+  getWatchStreamWebsocketHandlers,
+  type WatchStreamSocketData,
+} from "./http/routes/watch-stream-websocket.js";
+import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
   type SpeechRelaySocketData,
@@ -109,6 +114,7 @@ import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createPsHandler } from "./http/routes/ps.js";
+import { createVelayStatusHandler } from "./http/routes/velay-status.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
@@ -305,6 +311,14 @@ function isSttStreamSocketData(data: unknown): data is SttStreamSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "stt-stream"
+  );
+}
+
+function isWatchStreamSocketData(data: unknown): data is WatchStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "watch-stream"
   );
 }
 
@@ -537,6 +551,7 @@ async function main() {
     credentials: credentialCache,
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
+  const handleWatchStreamWs = createWatchStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
     config,
@@ -551,6 +566,7 @@ async function main() {
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
+  const watchStreamWebsocketHandlers = getWatchStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -593,6 +609,7 @@ async function main() {
   const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const psHandler = createPsHandler(config);
+  const velayStatusHandler = createVelayStatusHandler(velayTunnelClient);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
@@ -798,6 +815,23 @@ async function main() {
       method: "GET",
       auth: "edge",
       handler: () => psHandler.handlePs(),
+    },
+
+    // ── Velay tunnel status ──
+    {
+      path: "/v1/velay/status",
+      method: "GET",
+      auth: "edge",
+      handler: () => velayStatusHandler.handleVelayStatus(),
+    },
+    // Assistant-scoped mirror: self-hosted clients emit /v1/assistants/<id>/velay/status
+    // and rewriteForSelfHostedIngress preserves that path, so a flat-only route
+    // would fall through to the runtime proxy and 404. The assistant id is discarded.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/velay\/status\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      handler: () => velayStatusHandler.handleVelayStatus(),
     },
 
     // ── Brain graph ──
@@ -1859,6 +1893,10 @@ async function main() {
           sttStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
@@ -1882,6 +1920,10 @@ async function main() {
           sttStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
@@ -1903,6 +1945,10 @@ async function main() {
         }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isLiveVoiceSocketData(ws.data)) {
@@ -2124,6 +2170,19 @@ async function main() {
     if (url.pathname === "/v1/stt/stream") {
       const upgradeResult = handleSttStreamWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    // Reachable both ways: directly on a self-hosted ingress with an actor
+    // edge JWT, and through the velay tunnel on a managed assistant, which is
+    // why it is in `VELAY_ALLOWED_PATHS`. The handler authorizes each shape on
+    // its own terms and admits only the guardian either way. A paired
+    // assistant has no transport at all and never reaches here.
+    if (url.pathname === "/v1/watch/stream") {
+      const upgradeResult = await handleWatchStreamWs(req, server);
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
       return undefined as unknown as Response;
     }
 
