@@ -24,6 +24,17 @@ export const SYSTEM_PERMISSION_KINDS: SystemPermissionKind[] = [
   "notifications",
 ];
 
+const SYSTEM_PERMISSION_SETTINGS_URLS: Readonly<
+  Record<string, SystemPermissionKind>
+> = {
+  "ms-settings:privacy-microphone": "microphone",
+  "ms-settings:privacy-speech": "speechRecognition",
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone":
+    "microphone",
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition":
+    "speechRecognition",
+};
+
 export function supportsSystemPermissions(): boolean {
   return (
     isElectron() && typeof window.vellum?.permissions?.getState === "function"
@@ -53,6 +64,15 @@ export async function openSystemPermissionSettings(
     return null;
   }
   return await window.vellum!.permissions!.openSettings(kind);
+}
+
+export function openSystemPermissionSettingsUrl(url: string): boolean {
+  const kind = SYSTEM_PERMISSION_SETTINGS_URLS[url];
+  if (!kind || !supportsSystemPermissions()) {
+    return false;
+  }
+  void openSystemPermissionSettings(kind);
+  return true;
 }
 
 export async function quitAndReopenForPermissions(): Promise<void> {
