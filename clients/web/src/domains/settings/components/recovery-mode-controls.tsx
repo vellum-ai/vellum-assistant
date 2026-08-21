@@ -11,6 +11,7 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -26,6 +27,7 @@ export function RecoveryModeControls({
   maintenanceMode,
   onMaintenanceModeChange,
 }: RecoveryModeControlsProps) {
+  const { t } = useTranslation("settings");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Recovery Mode is platform-managed — self-hosted assistants have no
@@ -56,15 +58,15 @@ export function RecoveryModeControls({
           new Error("Enter maintenance mode returned non-ok response"),
           { context: "enter_maintenance_mode" },
         );
-        setError("Failed to enter Recovery Mode. Please try again.");
+        setError(t("recoveryModeControls.enterError"));
       }
     } catch (err) {
       captureError(err, { context: "enter_maintenance_mode" });
-      setError("Failed to enter Recovery Mode. Please try again.");
+      setError(t("recoveryModeControls.enterError"));
     } finally {
       setLoading(false);
     }
-  }, [assistantId, onMaintenanceModeChange]);
+  }, [assistantId, onMaintenanceModeChange, t]);
 
   const handleExit = useCallback(async () => {
     setLoading(true);
@@ -81,15 +83,15 @@ export function RecoveryModeControls({
           new Error("Exit maintenance mode returned non-ok response"),
           { context: "exit_maintenance_mode" },
         );
-        setError("Failed to exit Recovery Mode. Please try again.");
+        setError(t("recoveryModeControls.exitError"));
       }
     } catch (err) {
       captureError(err, { context: "exit_maintenance_mode" });
-      setError("Failed to exit Recovery Mode. Please try again.");
+      setError(t("recoveryModeControls.exitError"));
     } finally {
       setLoading(false);
     }
-  }, [assistantId, onMaintenanceModeChange]);
+  }, [assistantId, onMaintenanceModeChange, t]);
 
   // Self-hosted assistants don't run platform-managed Recovery Mode.
   // Early return must follow every hook above so that gate transitions
@@ -116,16 +118,15 @@ export function RecoveryModeControls({
           />
           <div className="min-w-0">
             <p className="text-body-medium-default text-[var(--content-default)]">
-              Recovery Mode
+              {t("recoveryModeControls.title")}
             </p>
             {isActive ? (
               <p className="text-body-small-default text-[var(--system-mid-strong)]">
-                Active — connected to the debug terminal
+                {t("recoveryModeControls.activeDescription")}
               </p>
             ) : (
               <p className="text-body-small-default text-[var(--content-tertiary)]">
-                Pause the assistant and connect directly to its workspace via
-                the debug terminal
+                {t("recoveryModeControls.inactiveDescription")}
               </p>
             )}
           </div>
@@ -136,11 +137,11 @@ export function RecoveryModeControls({
             <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
           ) : isActive ? (
             <Button variant="outlined" onClick={handleExit}>
-              Resume Assistant
+              {t("recoveryModeControls.resumeAssistant")}
             </Button>
           ) : (
             <Button variant="dangerOutline" onClick={handleEnter}>
-              Enter Recovery Mode
+              {t("recoveryModeControls.enter")}
             </Button>
           )}
         </div>
@@ -148,8 +149,9 @@ export function RecoveryModeControls({
 
       {platformGate === "disabled" && (
         <PlatformLoginNotice>
-          Log in to the Vellum platform to {isActive ? "exit" : "enter"}{" "}
-          Recovery Mode.
+          {isActive
+            ? t("recoveryModeControls.loginNoticeExit")
+            : t("recoveryModeControls.loginNoticeEnter")}
         </PlatformLoginNotice>
       )}
       {error && <Notice tone="error">{error}</Notice>}

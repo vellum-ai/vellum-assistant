@@ -2,6 +2,7 @@ import {
   isProactiveTipsOn,
   useProactiveTipsVariant,
 } from "@/hooks/use-proactive-tips-flag";
+import { useTranslation } from "@/i18n";
 import { tipsEnabledStorage } from "@/utils/tips-storage";
 import { emitTipEvent } from "@/utils/tips-telemetry";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -11,6 +12,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
  * Settings → General. Renders nothing while the proactive-tips flag is off.
  */
 export function ShowTipsRow() {
+  const { t } = useTranslation("settings");
   const variant = useProactiveTipsVariant();
   const enabled = tipsEnabledStorage.useValue();
 
@@ -31,14 +33,17 @@ export function ShowTipsRow() {
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="text-body-medium-lighter text-[var(--content-default)]">
-          Show tips
+          {t("showTipsRow.label")}
         </div>
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Occasional tips in the sidebar that highlight features you haven't
-          tried yet.
+          {t("showTipsRow.description")}
         </p>
       </div>
-      <Toggle checked={enabled} onChange={onToggle} aria-label="Show tips" />
+      <Toggle
+        checked={enabled}
+        onChange={onToggle}
+        aria-label={t("showTipsRow.ariaLabel")}
+      />
     </div>
   );
 }
