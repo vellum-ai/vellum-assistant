@@ -453,7 +453,7 @@ function startChannelActivity(params: {
   // Serialized so a later phase cannot overtake an earlier one and leave the
   // channel showing a state the turn has already left.
   let pending: Promise<unknown> = Promise.resolve();
-  let inFlight = false;
+  let outstanding = 0;
 
   const deliver = (phase: AssistantActivityPhase): Promise<boolean> =>
     setChannelActivity(url, {
@@ -469,19 +469,24 @@ function startChannelActivity(params: {
 
   /**
    * `refresh` is a re-assertion of a phase the channel is already showing, so
-   * it is dropped while a call is outstanding. A slow channel would otherwise
-   * queue one per tick, and those land after the turn's `idle` and raise the
-   * indicator again on a turn that has finished.
+   * it is dropped whenever anything is still outstanding. A slow channel would
+   * otherwise queue one per tick, and a busy phase that runs after the turn's
+   * `idle` raises the indicator again on a turn that has finished.
+   *
+   * `outstanding` counts sends that are queued or running, not just the one in
+   * flight. A flag cannot express two at once: the earlier link's completion
+   * would clear it while its successor is still waiting its turn on the chain,
+   * and the next tick would queue a third.
    */
   const send = (
     phase: AssistantActivityPhase,
     options?: { refresh?: boolean; retryOnce?: boolean },
   ): void => {
-    if (options?.refresh && inFlight) {
+    if (options?.refresh && outstanding > 0) {
       return;
     }
     lastPhase = phase;
-    inFlight = true;
+    outstanding += 1;
     pending = pending
       .then(async () => {
         const ok = await deliver(phase);
@@ -493,7 +498,7 @@ function startChannelActivity(params: {
         }
       })
       .finally(() => {
-        inFlight = false;
+        outstanding -= 1;
       });
   };
 

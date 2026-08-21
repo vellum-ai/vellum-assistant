@@ -88,24 +88,22 @@ mock.module("../../gateway-client.js", () => ({
   },
 }));
 
-const sentReactions: Array<{
-  callbackUrl: string;
-  target: Record<string, unknown>;
-}> = [];
 const sentStreamOps: Array<Record<string, unknown>> = [];
 let sendChannelStreamOpImpl: (
   op: Record<string, unknown>,
 ) => Promise<{ ok: boolean; ts?: string }> = async () => ({ ok: true });
 const sentActivity: Array<Record<string, unknown>> = [];
-let setChannelActivityImpl: (target: Record<string, unknown>) => {
-  ok: boolean;
-} = () => ({ ok: true });
+let setChannelActivityImpl: (
+  target: Record<string, unknown>,
+) => { ok: boolean } | Promise<{ ok: boolean }> = () => ({ ok: true });
+// Undefined stands for a channel whose indicator holds until it is changed, so
+// the controller reports each phase once and the assertions read as the turn's
+// lifecycle rather than as timer ticks. A test that needs the self-expiring
+// shape sets a cadence.
+let activityRefreshMsImpl: () => number | undefined = () => undefined;
 mock.module("../../../messaging/providers/index.js", () => ({
   supportsChannelActivity: () => true,
-  // Undefined stands for a channel whose indicator holds until it is changed,
-  // so the controller reports each phase once and the assertions below read as
-  // the turn's lifecycle rather than as timer ticks.
-  channelActivityRefreshMs: () => undefined,
+  channelActivityRefreshMs: () => activityRefreshMsImpl(),
   setChannelActivity: async (
     _callbackUrl: string,
     target: Record<string, unknown>,
@@ -120,13 +118,6 @@ mock.module("../../../messaging/providers/index.js", () => ({
   ) => {
     sentStreamOps.push(op);
     return sendChannelStreamOpImpl(op);
-  },
-  sendChannelReaction: async (
-    callbackUrl: string,
-    target: Record<string, unknown>,
-  ) => {
-    sentReactions.push({ callbackUrl, target });
-    return { ok: true };
   },
 }));
 
@@ -169,11 +160,11 @@ beforeEach(() => {
   __resetChannelTurnAdmissionForTests();
   clearConversations();
   deliveredChannelReplies.length = 0;
-  sentReactions.length = 0;
   sentStreamOps.length = 0;
   sendChannelStreamOpImpl = async () => ({ ok: true });
   sentActivity.length = 0;
   setChannelActivityImpl = () => ({ ok: true });
+  activityRefreshMsImpl = () => undefined;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
   retryableFailureEvents.length = 0;
@@ -1058,6 +1049,63 @@ describe("channel activity timing", () => {
     // Slack keeps showing the assistant as working for an hour, so the
     // terminal transition is the one worth attempting twice.
     expect(idleAttempts).toBe(2);
+  });
+
+  test("runs idle next when the turn stops during a slow request, with no stale busy phase between", async () => {
+    const conversationId = "conv-slow-refresh";
+    const channelId = "D-SLOW-REFRESH";
+
+    // A self-expiring channel re-asserts on a timer, which is the only shape
+    // where a refresh backlog can form at all.
+    activityRefreshMsImpl = () => 5;
+
+    let release: (() => void) | undefined;
+    let calls = 0;
+    setChannelActivityImpl = (target) => {
+      calls += 1;
+      if (calls === 1 && target.phase !== "idle") {
+        // Hold the first busy call open across many refresh intervals.
+        return new Promise<{ ok: boolean }>((resolve) => {
+          release = () => resolve({ ok: true });
+        });
+      }
+      return { ok: true };
+    };
+
+    const processMessage: MessageProcessor = async () => {
+      // Long enough for several ticks to fire while the first call is unresolved.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return { messageId: "user-msg-slow-refresh" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-slow-refresh",
+      content: "dm message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&messageTs=1700000000.000030`,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    release?.();
+    await flush();
+
+    const seen = phases();
+    // The terminal phase is last and nothing busy follows it. A busy phase
+    // executing after `idle` is the visible bug: the indicator comes back on a
+    // turn that has already replied, which teaches people to distrust it.
+    expect(seen.at(-1)).toBe("idle");
+    expect(seen.slice(seen.indexOf("idle") + 1)).toEqual([]);
+    // Ticks did not accumulate behind the outstanding call. Counting rather
+    // than checking the last entry is what catches a backlog that happens to
+    // drain in a harmless order.
+    expect(seen.filter((phase) => phase === "thinking")).toHaveLength(1);
   });
 
   test("stays silent for a turn that decides not to answer", async () => {
