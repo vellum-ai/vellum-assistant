@@ -52,6 +52,8 @@ export interface QueuedMessage {
   /** Client-generated correlation nonce. Echoed back on `user_message_echo`
    *  so the originating client can dedupe its optimistic row. */
   clientMessageId?: string;
+  /** Client that originated this queued turn, used for targeted UI directives. */
+  originClientId?: string;
   /**
    * True once a drain has told clients this message was dequeued and before
    * the turn it was dequeued for actually took over. A drain that sends the
@@ -266,6 +268,9 @@ function estimateItemBytes(item: QueuedMessage): number {
   }
   if (item.sourceActorPrincipalId) {
     bytes += item.sourceActorPrincipalId.length * 2;
+  }
+  if (item.originClientId) {
+    bytes += item.originClientId.length * 2;
   }
   // Small fixed overhead for metadata, pointers, etc. (not worth
   // measuring precisely — the content/attachment data dominates).

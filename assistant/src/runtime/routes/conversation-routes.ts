@@ -2219,7 +2219,8 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage({
       content: contentAfterScan,
       attachments,
-      onEvent: turnEventSink,
+      onEvent: broadcastMessage,
+      originClientId,
       requestId,
       metadata: withClientMetadata(
         {

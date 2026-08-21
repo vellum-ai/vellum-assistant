@@ -40,6 +40,10 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  createBatchedTurnEventSink,
+  createTurnEventSink,
+} from "../runtime/turn-event-sink.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
@@ -1295,7 +1299,7 @@ async function drainSingleMessage(
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
       ...drainLoopOptions,
-      onEvent: next.onEvent,
+      onEvent: createTurnEventSink(next.onEvent, next.originClientId),
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -1735,14 +1739,12 @@ async function drainBatch(
   // Members whose persist failed already received an error event in the catch
   // block above; sending them the assistant's streaming response would surface
   // a reply for a user message that isn't in their DB.
-  const successfulEventSinks = Array.from(
-    new Set(successfulBatch.map((qm) => qm.onEvent)),
+  const fanOutOnEvent = createBatchedTurnEventSink(
+    successfulBatch.map((qm) => ({
+      publish: qm.onEvent,
+      originClientId: qm.originClientId,
+    })),
   );
-  const fanOutOnEvent = (msg: AssistantEvent) => {
-    for (const onEvent of successfulEventSinks) {
-      onEvent(msg);
-    }
-  };
 
   const drainLoopOptions: {
     isInteractive?: boolean;
