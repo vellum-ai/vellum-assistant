@@ -1,35 +1,12 @@
 import { Tag } from "@vellumai/design-library/components/tag";
-import type { TagTone } from "@vellumai/design-library/components/tag";
-import { CheckCircle, CircleDashed, RefreshCw } from "lucide-react";
 
-import { useTranslation } from "@/i18n";
 import type { AssistantChannelState } from "@/types/channel-types";
+import { useChannelHealthBadge } from "@/utils/channel-presentation";
 
 interface ChannelHealthTagProps {
   /** Absent reads as connected: the channel measures nothing operational. */
   health?: AssistantChannelState["health"];
 }
-
-const TONE_BY_HEALTH = {
-  ok: {
-    tone: "positive",
-    icon: <CheckCircle />,
-    labelKey: "connectionCard.connected",
-  },
-  failing: {
-    tone: "warning",
-    icon: <RefreshCw />,
-    labelKey: "connectionCard.reconnecting",
-  },
-  unknown: {
-    tone: "neutral",
-    icon: <CircleDashed />,
-    labelKey: "connectionCard.statusUnavailable",
-  },
-} as const satisfies Record<
-  "ok" | "failing" | "unknown",
-  { tone: TagTone; icon: React.ReactNode; labelKey: string }
->;
 
 /**
  * The badge a connected channel card wears.
@@ -41,11 +18,10 @@ const TONE_BY_HEALTH = {
  * check instead, which shows the setup wizard rather than a card wearing this.
  */
 export function ChannelHealthTag({ health }: ChannelHealthTagProps) {
-  const { t } = useTranslation("channels");
-  const { tone, icon, labelKey } = TONE_BY_HEALTH[health ?? "ok"];
+  const { Icon, label, tone } = useChannelHealthBadge(health);
   return (
-    <Tag tone={tone} leftIcon={icon}>
-      {t(labelKey)}
+    <Tag tone={tone} leftIcon={<Icon />}>
+      {label}
     </Tag>
   );
 }

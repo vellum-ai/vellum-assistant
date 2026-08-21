@@ -53,6 +53,38 @@ describe("assistant channels detail (contact card)", () => {
     expect(document.body.textContent).not.toContain("Bot Token");
   });
 
+  test("a configured channel that is not delivering keeps its address and Disconnect", () => {
+    // The row reads two axes. Offering Connect here would hand the guardian a
+    // fresh setup conversation for a channel that is already set up, and take
+    // away the only control that could actually change anything, while the
+    // outage it is reporting clears itself in about forty seconds.
+    render(
+      <AssistantChannelsDetail
+        assistantName="Vex"
+        channels={[
+          {
+            key: "slack",
+            status: "incomplete",
+            configured: true,
+            health: "failing",
+            address: "@vex",
+          },
+        ]}
+        onConnect={() => {}}
+        onDisconnect={() => {}}
+      />,
+    );
+
+    expect(document.body.textContent).toContain("@vex");
+    expect(document.body.textContent).toContain("Reconnecting");
+    expect(document.body.textContent).not.toContain("Connected");
+    const labels = Array.from(document.querySelectorAll("button")).map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(labels).toContain("Disconnect");
+    expect(labels).not.toContain("Connect");
+  });
+
   test("disconnecting from the contact card asks for confirmation first", () => {
     const disconnected: string[] = [];
     render(
