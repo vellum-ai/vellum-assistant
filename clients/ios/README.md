@@ -308,6 +308,19 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   but is its own Icon Composer bundle living in this repo.
 - `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) follow
   the same structure — only the `fill.solid` colour differs.
+- `App/App/AvatarIcons/` holds generated alternate icons, one Icon
+  Composer bundle per character avatar trait combination, named
+  `avatar-<body>-<eye>-<color>`. They are produced from the avatar
+  component library (`assistant/src/avatar/`) by
+  `clients/ios/scripts/generate-avatar-icons.ts`, alongside
+  `Config/AvatarIcons.xcconfig`, which lists the bundle names. Both are
+  generated output: edit the script, not the files. Regenerate with
+  `bun clients/ios/scripts/generate-avatar-icons.ts` (add `--full` for
+  every combination instead of the committed pilot set) and verify with
+  `cd clients/ios && bun test scripts/__tests__/generate-avatar-icons.test.ts`.
+  `pr-ios.yaml` and `ci-main-ios.yaml` run that same check, and both watch
+  `assistant/src/avatar/**`, so a catalog edit without a regeneration fails
+  CI. No target builds them yet, so `project.yml` excludes the directory.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.
@@ -695,6 +708,8 @@ clients/
     │                                 # generated capacitor.config.json, etc.
     ├── docs/
     │   └── NATIVE_VOICE.md           # Live Activity, App Intents, deep links
+    ├── scripts/
+    │   └── generate-avatar-icons.ts  # Generates App/App/AvatarIcons/ + Config/AvatarIcons.xcconfig
     ├── App/
     │   ├── App.xcodeproj/            # Open this in Xcode
     │   │   └── xcshareddata/xcschemes/  # Shared schemes for all 3 targets
@@ -703,6 +718,7 @@ clients/
     │   │   ├── AppIcon.icon/         # Production icon (green)
     │   │   ├── AppIcon-Staging.icon/  # Staging icon (yellow)
     │   │   ├── AppIcon-Dev.icon/      # Dev icon (pink)
+    │   │   ├── AvatarIcons/          # Generated avatar alternate icons (not in any target yet)
     │   │   ├── Assets.xcassets/      # Splash imageset lives here
     │   │   ├── Base.lproj/           # LaunchScreen.storyboard, Main.storyboard
     │   │   ├── AppDelegate.swift     # Universal Links + APNs token forwarding

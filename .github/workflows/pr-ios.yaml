@@ -8,6 +8,9 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/ios/**'
+      # Source of the committed avatar app icons, so a catalog change with no
+      # regeneration still has to trip the drift check.
+      - 'assistant/src/avatar/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
       - '.github/workflows/pr-ios.yaml'
@@ -40,6 +43,14 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
+
+      - name: Check avatar icon drift
+        working-directory: clients/ios
+        # Asserts the committed Icon Composer bundles and xcconfig still match
+        # a fresh generation. Runs before the install because the generator
+        # only reads `assistant/src/avatar/`, and runs from `clients/ios`
+        # because the repo-root `test-preload.ts` rejects a root `bun test`.
+        run: bun test scripts/__tests__/generate-avatar-icons.test.ts
 
       - name: Install dependencies
         working-directory: clients/web

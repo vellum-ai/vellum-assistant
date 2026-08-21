@@ -51,6 +51,11 @@ targetTemplates:
       # target re-adds the single icon it ships with so that
       # ASSETCATALOG_COMPILER_APPICON_NAME (set per-target via xcconfig)
       # resolves to a bundled resource.
+      #
+      # `AvatarIcons/` holds the generated avatar alternate icons (see
+      # clients/ios/scripts/generate-avatar-icons.ts). No target ships them
+      # yet, so they stay out of the build until a target opts in alongside
+      # Config/AvatarIcons.xcconfig.
       - path: App
         excludes:
           - "Info.plist"
@@ -59,6 +64,7 @@ targetTemplates:
           - "AppIcon.icon"
           - "AppIcon-Dev.icon"
           - "AppIcon-Staging.icon"
+          - "AvatarIcons"
           - "capacitor.config.json"
           - "config.xml"
           - "public"
