@@ -1786,7 +1786,7 @@ jobs:
     needs: [extract-version, publish-npm-staging, publish-web-staging]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -1808,10 +1808,14 @@ jobs:
             .dependencies["@vellumai/web"] = $v
           ' package.json > tmp && mv tmp package.json
       # The meta package was just stamped to depend on freshly published
-      # @vellumai/* versions. npm's read path (CDN/replicas) lags the publish
-      # by seconds-to-minutes, so a shrinkwrap install kicked off right after
-      # the last dependency publish can hit ETARGET. Wait until every dep is
-      # resolvable before installing.
+      # @vellumai/* versions, but `npm publish` returning 0 does not mean the
+      # version is resolvable yet: npm queues some publishes for asynchronous
+      # processing ("Your package is being processed and may take a few
+      # minutes to become available"), and @vellumai/cli reliably lands on
+      # that queue, showing up on the registry ~5m after its publish job goes
+      # green. A shrinkwrap install kicked off right after the last publish
+      # therefore hits ETARGET. Wait until every dep is actually resolvable
+      # before installing.
       - name: Wait for dependencies to propagate
         working-directory: meta
         run: |
@@ -1821,12 +1825,12 @@ jobs:
               if (name.startsWith("@vellumai/")) console.log(`${name}@${version}`);
             }
           ' > /tmp/vellum-meta-deps.txt
-          deadline=$((SECONDS + 300))
+          deadline=$((SECONDS + 900))
           while read -r spec; do
             [ -z "$spec" ] && continue
             until npm view "$spec" version >/dev/null 2>&1; do
               if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "::error::$spec still not resolvable on the registry after waiting ~5m"
+                echo "::error::$spec still not resolvable on the registry after waiting ~15m"
                 exit 1
               fi
               echo "  $spec not yet available; retrying in 10s..."
@@ -2041,7 +2045,7 @@ jobs:
     needs: [extract-version, publish-npm-prod, publish-web-prod]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -2052,10 +2056,15 @@ jobs:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
 
-      # The meta package depends on freshly published @vellumai/* versions.
-      # npm's read path (CDN/replicas) lags the publish by seconds-to-minutes,
-      # so a shrinkwrap install kicked off right after the last dependency
-      # publish can hit ETARGET. Wait until every dep is resolvable first.
+      # The meta package was just stamped to depend on freshly published
+      # @vellumai/* versions, but `npm publish` returning 0 does not mean the
+      # version is resolvable yet: npm queues some publishes for asynchronous
+      # processing ("Your package is being processed and may take a few
+      # minutes to become available"), and @vellumai/cli reliably lands on
+      # that queue, showing up on the registry ~5m after its publish job goes
+      # green. A shrinkwrap install kicked off right after the last publish
+      # therefore hits ETARGET. Wait until every dep is actually resolvable
+      # before installing.
       - name: Wait for dependencies to propagate
         working-directory: meta
         run: |
@@ -2065,12 +2074,12 @@ jobs:
               if (name.startsWith("@vellumai/")) console.log(`${name}@${version}`);
             }
           ' > /tmp/vellum-meta-deps.txt
-          deadline=$((SECONDS + 300))
+          deadline=$((SECONDS + 900))
           while read -r spec; do
             [ -z "$spec" ] && continue
             until npm view "$spec" version >/dev/null 2>&1; do
               if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "::error::$spec still not resolvable on the registry after waiting ~5m"
+                echo "::error::$spec still not resolvable on the registry after waiting ~15m"
                 exit 1
               fi
               echo "  $spec not yet available; retrying in 10s..."
