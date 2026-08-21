@@ -1,8 +1,8 @@
 /**
  * Route definition for one-shot inference (LLM send).
  *
- * POST /v1/inference/send — send a user message to the configured LLM and
- *                           return the model response.
+ * POST /v1/inference/send sends a user message, or a short conversation
+ * transcript, to the configured LLM and returns the model response.
  */
 
 import { z } from "zod";
@@ -18,19 +18,113 @@ import {
 } from "../../providers/provider-send-message.js";
 import type { ProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
 import { runWithProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
-import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, UpstreamProviderError } from "./errors.js";
+import type { Message } from "../../providers/types.js";
+import { isOwnerCaller } from "../auth/owner-caller.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  UpstreamProviderError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Transcript input
+// ---------------------------------------------------------------------------
+
+/** Turns accepted in one transcript. */
+const MAX_TRANSCRIPT_TURNS = 200;
+
+/**
+ * Characters accepted across the whole transcript. The route spends the
+ * owner's provider budget on behalf of stateless clients, some of which relay
+ * page content, so the per-turn shape checks are paired with a total-size cap
+ * that bounds what a single request can cost.
+ */
+const MAX_TRANSCRIPT_CHARS = 200_000;
+
+const TranscriptSchema = z
+  .array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string().min(1),
+    }),
+  )
+  .min(1)
+  .max(MAX_TRANSCRIPT_TURNS);
+
+/** Build a single transcript turn in the provider Message format. */
+function transcriptMessage(role: "user" | "assistant", text: string): Message {
+  return { role, content: [{ type: "text", text }] };
+}
+
+/**
+ * Resolve the request's prompt into the provider message array.
+ *
+ * `message` carries one user turn; `messages` carries a transcript. The forms
+ * are mutually exclusive so the model's input is never assembled from two
+ * sources a caller has to reconcile.
+ */
+function resolveMessages(body: Record<string, unknown>): Message[] {
+  const hasMessage = body.message !== undefined;
+  const hasMessages = body.messages !== undefined;
+
+  if (hasMessage && hasMessages) {
+    throw new BadRequestError(
+      "Provide either message or messages, not both. Use message for a single user turn and messages for a transcript.",
+    );
+  }
+  if (!hasMessage && !hasMessages) {
+    throw new BadRequestError(
+      "Provide either message (a single user turn) or messages (a transcript).",
+    );
+  }
+
+  if (hasMessages) {
+    const parsed = TranscriptSchema.safeParse(body.messages);
+    if (!parsed.success) {
+      throw new BadRequestError(
+        `messages must be an array of 1 to ${MAX_TRANSCRIPT_TURNS} turns, each with role "user" or "assistant" and non-empty content`,
+      );
+    }
+    const totalChars = parsed.data.reduce(
+      (sum, turn) => sum + turn.content.length,
+      0,
+    );
+    if (totalChars > MAX_TRANSCRIPT_CHARS) {
+      throw new BadRequestError(
+        `messages content totals ${totalChars} characters, above the ${MAX_TRANSCRIPT_CHARS} character limit`,
+      );
+    }
+    return parsed.data.map((turn) =>
+      transcriptMessage(turn.role, turn.content),
+    );
+  }
+
+  const message = body.message;
+  if (typeof message !== "string" || !message.trim()) {
+    throw new BadRequestError("message must be a non-empty string");
+  }
+  return [userMessage(message)];
+}
 
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
-  const message = body.message;
-  if (typeof message !== "string" || !message.trim()) {
-    throw new BadRequestError("message must be a non-empty string");
+async function handleInferenceSend({ body = {}, headers }: RouteHandlerArgs) {
+  // The route policy admits actor principals, and an actor token is a bearer
+  // credential that stays signature-valid after the guardian binding it was
+  // minted against is revoked or rebound. Principal type alone therefore does
+  // not answer "is this still the owner", so the handler re-reads live owner
+  // authority before spending the owner's provider budget.
+  if (!(await isOwnerCaller(headers))) {
+    throw new ForbiddenError(
+      "Only the assistant's owner can send inference requests",
+    );
   }
+
+  const messages = resolveMessages(body);
 
   const systemPrompt = body.systemPrompt as string | undefined;
   const model = body.model as string | undefined;
@@ -100,7 +194,7 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
         "No LLM provider is configured. Connect a provider (assistant credentials) or set llm.defaultProvider to choose one.",
       );
     }
-    return provider.sendMessage([userMessage(message)], {
+    return provider.sendMessage(messages, {
       systemPrompt,
       config: {
         callSite: "inference",
@@ -190,15 +284,17 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policy: {
       requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Send a message to the configured LLM",
     description:
       "Send a user message to the configured LLM provider and return the model response. " +
+      "Supply either message for a single user turn or messages for a conversation transcript, never both. " +
       "Optionally specify a system prompt, model override, named profile, or max tokens.",
     tags: ["inference"],
     requestBody: z.object({
-      message: z.string().min(1),
+      message: z.string().min(1).optional(),
+      messages: TranscriptSchema.optional(),
       systemPrompt: z.string().optional(),
       model: z.string().optional(),
       profile: z.string().optional(),
