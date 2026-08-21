@@ -25,6 +25,8 @@ import type {
   VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
+import { MarkdownMessage } from "@vellumai/design-library";
+
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -686,15 +688,27 @@ function RecentTurns({ turns }: { turns: CompanionTurn[] }) {
                 last two turns and nothing else; now that the conversation
                 scrolls, a cut-off reply would be text the user can see the top
                 of and has no way to reach the rest of. */}
-            <p
-              className={`text-[12px] leading-[1.45] whitespace-pre-wrap ${
-                isUser
-                  ? "max-w-[80%] rounded-lg bg-white/[0.08] px-2.5 py-1.5 text-white/75"
-                  : "text-white/85"
-              }`}
-            >
-              {turn.text}
-            </p>
+            {isUser ? (
+              // The user's own words, exactly as they typed them. Rendering a
+              // person's message as markdown reformats what they wrote back at
+              // them, which the transcript does not do either.
+              <p className="max-w-[80%] rounded-lg bg-white/[0.08] px-2.5 py-1.5 text-[12px] leading-[1.45] whitespace-pre-wrap text-white/75">
+                {turn.text}
+              </p>
+            ) : (
+              // The reply, formatted. The assistant writes markdown, so the
+              // alternative is a card showing the user its asterisks and
+              // backticks while the same reply reads properly in the app.
+              //
+              // The design-library primitive rather than the chat domain's
+              // wrapper: that one carries OAuth link handling, attachments and
+              // inline media, none of which a floating panel can do anything
+              // with. The type scale is pinned down to the card's own 12px,
+              // since the primitive is authored for a full-width transcript.
+              <div className="companion-markdown min-w-0 text-[12px] leading-[1.45] text-white/85">
+                <MarkdownMessage content={turn.text} />
+              </div>
+            )}
           </div>
         );
       })}

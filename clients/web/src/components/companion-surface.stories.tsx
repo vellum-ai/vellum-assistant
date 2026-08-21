@@ -715,3 +715,22 @@ export const Introduction: Story = {
   args: { phase: "resting", introBeat: COMPANION_INTRO_BEATS[0] },
   render: (args) => <IntroWalkthrough {...args} />,
 };
+
+/**
+ * The card with a reply that uses the formatting an assistant actually writes:
+ * emphasis, inline code, and a short list. What the card does with markdown is
+ * worth looking at rather than reasoning about, since it is 360pt wide and set
+ * at 12px, and the primitive is authored for a full-width transcript.
+ */
+export const TypingWithMarkdown: Story = {
+  args: {
+    phase: "typing",
+    turns: [
+      { role: "user", text: "how do i reset the intro?" },
+      {
+        role: "assistant",
+        text: '## Resetting it\n\nRun this with the app quit:\n\n```sh\njq \'del(.companionIntroSeen)\' "$f" > "$f.tmp" && mv "$f.tmp" "$f"\n```\n\n- It runs **once per install**\n- `companionHidden` must be `false`\n- The surface appears *after* sign-in',
+      },
+    ],
+  },
+};
