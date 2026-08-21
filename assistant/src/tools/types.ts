@@ -1,4 +1,5 @@
 import type {
+  ChannelConversationType,
   RiskAllowlistOption,
   RiskDirectoryScopeOption,
 } from "@vellumai/gateway-client";
@@ -377,7 +378,7 @@ export interface ToolContext {
    * resolution; undefined when the chat type is unknown or ambiguous.
    * @legacy
    */
-  channelConversationType?: "dm" | "private" | "public";
+  channelConversationType?: ChannelConversationType;
   /**
    * External channel/conversation ID of the current chat (the binding's
    * external chat id — Slack channel, Telegram chat, …). Keys the channel
