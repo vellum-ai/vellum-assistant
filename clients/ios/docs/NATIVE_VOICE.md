@@ -593,10 +593,10 @@ avatar as `Data`. Nothing on this path touches a shared container.
 *Why:* an App Group is only needed to share *files*, and nothing here needs
 one. The obvious candidate was the avatar, but `ActivityAttributes` is
 `Codable`, so the bytes travel in the attributes and render via
-`Image(uiImage:)`: no entitlement, and one less Apple Developer portal
-capability to keep in sync across six App IDs (an entitlement enabled in the
-portal but not satisfiable by the build is a provisioning failure waiting to
-happen).
+`Image(uiImage:)`: no entitlement on this path, and nothing the island renders
+waits on an Apple Developer portal capability being in sync across six App IDs
+(an entitlement enabled in the portal but not satisfiable by the build is a
+provisioning failure waiting to happen).
 
 What is genuinely impossible is fetching anything at render time: a Live
 Activity draws from a snapshot, so a URL would only ever render `AsyncImage`'s
@@ -605,17 +605,15 @@ before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
 `clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
 activity rather than degrading the image.
 
-*What changed:* on exactly the reasoning above, the appex used to ship **no
-entitlements file at all**. The Home Screen widgets are the one consumer that
-changed the answer: they render from a snapshot the app writes (unread and
-in-progress counts, the three most recent conversation ids and titles), and
-there is no ActivityKit-style wire format to carry it, because nothing is
-pushing an update when the user glances at the Home Screen. So the appex now
-ships `App/App/Extension.entitlements` with the App Group and nothing else,
-`APP_GROUP_ID` is set per environment in every app and extension xcconfig, and
-the six App IDs carry the capability in the portal. The Live Activity path
-itself is untouched, and the rest of the reasoning still binds: nothing else
-gets declared speculatively.
+*The widgets are the exception:* they render from a snapshot the app writes
+(unread and in-progress counts, the three most recent conversation ids and
+titles), and no ActivityKit-style wire format carries it, because nothing is
+pushing an update when the user glances at the Home Screen. The appex
+therefore ships `App/App/Extension.entitlements` with the App Group and
+nothing else, `APP_GROUP_ID` is set per environment in every app and extension
+xcconfig, and the six App IDs carry the capability in the portal. The Live
+Activity path draws nothing from that container, and the rest of the reasoning
+still binds: nothing else is declared speculatively.
 
 The group carries **non-secret display data only** (ids, titles, group names,
 counts, timestamps). No token, credential, or message body ever enters it. A

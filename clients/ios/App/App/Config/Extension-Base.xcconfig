@@ -38,22 +38,22 @@
 // catches that locally — the archive builds and signs clean, and the
 // failure surfaces at the altool step in release-ios.yaml.
 //
-// The extension ships exactly one entitlement, the App Group, and no
-// more. The Live Activity never needed one (ContentState carries only
-// primitives across the ActivityKit boundary, so there is nothing to
-// share through a container), and for as long as that was the whole
-// appex it shipped no entitlements file at all. The Home Screen widgets
-// changed the answer: they render from a snapshot the app writes into
-// the group container, which is the one thing ActivityKit's wire format
-// cannot carry. So the entitlement is now used, not merely declared.
+// The extension's entitlements file carries exactly the App Group and
+// nothing else. The Home Screen widgets render from a snapshot the app
+// writes into the group container, so the entitlement is one the build
+// uses rather than merely declares, and the container holds non-secret
+// display data only.
 //
-// The original reasoning still binds everything else: an entitlement
-// enabled in the portal but not satisfiable by the build is a
-// provisioning failure waiting to happen, so nothing gets added here
-// speculatively. Push in particular stays off; the appex has no use for
-// it. Enabling the App Group capability on the six App IDs and
-// regenerating the distribution profiles is portal work that must land
-// before a release build of the affected environment can sign. See
+// Nothing else belongs in that file: an entitlement enabled in the
+// portal but not satisfiable by the build is a provisioning failure
+// waiting to happen. Push stays off, since the appex has no use for it,
+// and the Live Activity needs no container either (ContentState carries
+// only primitives across the ActivityKit boundary, so there is nothing
+// to share).
+//
+// The App Group capability on the six App IDs, and distribution
+// profiles issued against it, are portal work that must land before a
+// release build of the affected environment can sign. See
 // clients/ios/README.md.
 //
 // MARKETING_VERSION and CURRENT_PROJECT_VERSION are local-build
