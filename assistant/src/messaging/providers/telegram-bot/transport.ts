@@ -7,6 +7,7 @@ import type {
 } from "../channel-transport.js";
 import type { TelegramSendOptions } from "./send.js";
 import {
+  editTelegramMessage,
   sendTelegramAttachments,
   sendTelegramReply,
   sendTelegramRichReply,
@@ -32,10 +33,9 @@ export const telegramTransport: ChannelTransport = {
     const opts = threadOptions(ctx);
 
     if (text) {
-      // The delivery layer sets this on every segment; Telegram answers it
-      // delivery layer; the Telegram adapter honors it by forwarding markdown
-      // to `sendRichMessage`, degrading to plain text otherwise (and on any
-      // rich-send rejection).
+      // Telegram answers a rich render by forwarding markdown to
+      // `sendRichMessage`, degrading to plain text otherwise and on any
+      // rich-send rejection.
       if (payload.renderRichly) {
         await sendTelegramRichReply(chatId, text, approval, opts);
       } else {
@@ -64,6 +64,11 @@ export const telegramTransport: ChannelTransport = {
       { chatId, hasText: !!text, messageThreadId: opts?.messageThreadId },
       "Telegram reply delivered (direct)",
     );
+    return { ok: true };
+  },
+
+  async edit(_ctx, target) {
+    await editTelegramMessage(target.chatId, target.messageId, target.text);
     return { ok: true };
   },
 

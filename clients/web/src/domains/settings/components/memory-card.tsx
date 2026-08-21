@@ -10,11 +10,13 @@ import {
   configGetSetQueryData,
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function MemoryCard() {
+  const { t } = useTranslation("settings");
   const { healthz } = useAssistantWithHealthz();
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
@@ -49,10 +51,14 @@ export function MemoryCard() {
         path: { assistant_id: assistantId },
         body: { memory: { enabled } },
       });
-      toast.success(enabled ? "Memory enabled." : "Memory disabled.");
+      toast.success(
+        enabled
+          ? t("memoryCard.enabledToast")
+          : t("memoryCard.disabledToast"),
+      );
     } catch (error) {
       captureError(error, { context: "settings-memory-toggle" });
-      toast.error("Failed to update memory setting.");
+      toast.error(t("memoryCard.updateFailedToast"));
     }
   };
 
@@ -62,13 +68,13 @@ export function MemoryCard() {
 
   return (
     <DetailCard
-      title="Memory"
-      subtitle="Let your assistant remember information from past conversations. Turning this off also pauses memory consolidation."
+      title={t("memoryCard.title")}
+      subtitle={t("memoryCard.subtitle")}
       accessory={
         <Toggle
           checked={memoryEnabled}
           onChange={(enabled) => void handleMemoryToggle(enabled)}
-          aria-label="Enable memory"
+          aria-label={t("memoryCard.enableAriaLabel")}
           disabled={configMutation.isPending}
         />
       }

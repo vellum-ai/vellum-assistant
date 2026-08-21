@@ -12,10 +12,12 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function AccessConsentSetting() {
+  const { t } = useTranslation("settings");
   // platformHostedOnly: this consent toggle is per-assistant — Vellum
   // admins cannot reach a self-hosted daemon, so the setting has no
   // meaning whenever the active assistant is self-hosted. The standard
@@ -59,12 +61,12 @@ export function AccessConsentSetting() {
       );
       toast.success(
         updated?.access_consented
-          ? "Admin data access enabled."
-          : "Admin data access disabled.",
+          ? t("accessConsentSetting.toastEnabled")
+          : t("accessConsentSetting.toastDisabled"),
       );
     },
     onError: () => {
-      toast.error("Failed to update log access consent.");
+      toast.error(t("accessConsentSetting.toastUpdateFailed"));
     },
   });
 
@@ -100,17 +102,14 @@ export function AccessConsentSetting() {
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="text-body-medium-default text-[var(--content-default)]">
-            Allow Staff Access
+            {t("accessConsentSetting.title")}
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-            When enabled, Vellum Staff will be able to access your assistant and
-            its data for debugging purposes. It&apos;s suggested that you leave
-            this off and only turn it on temporarily if you need Vellum
-            Support&apos;s help in investigating an issue.
+            {t("accessConsentSetting.description")}
           </p>
           {platformGate === "full" && isError && (
             <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
-              Failed to load consent setting.
+              {t("accessConsentSetting.loadError")}
             </p>
           )}
         </div>
@@ -131,7 +130,7 @@ export function AccessConsentSetting() {
       </div>
       {platformGate === "disabled" && (
         <PlatformLoginNotice className="mt-3">
-          Log in to the Vellum platform to manage admin data access.
+          {t("accessConsentSetting.loginNotice")}
         </PlatformLoginNotice>
       )}
     </div>

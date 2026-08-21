@@ -619,6 +619,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
@@ -636,6 +637,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
@@ -713,7 +715,7 @@ describe("vellum wake — tunnel edge restore", () => {
     }
   });
 
-  test("a docker wake reuses an edge that already fronts it", async () => {
+  test("a docker wake adopts an edge that already fronts it", async () => {
     const defaultWorkspace = mkdtempSync(
       join(tmpdir(), "vellum-wake-default-"),
     );
@@ -732,12 +734,23 @@ describe("vellum wake — tunnel edge restore", () => {
       includeWebApp: true,
       gatewayPort: 7930,
     });
+    // Ownership clears the restore, and `ensureTunnelEdge` is what decides the
+    // running edge still matches: it reports the reuse rather than a restart.
+    ensureTunnelEdgeMock.mockResolvedValue({
+      port: 7840,
+      started: false,
+      includesWebApp: true,
+    });
     process.argv = ["bun", "vellum", "wake", "docker-1"];
 
     try {
       await wake();
 
-      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+      expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+        assistantId: "docker-1",
+        workspaceDir: defaultWorkspace,
+        gatewayPort: 7930,
+      });
       expect(logSpy).toHaveBeenCalledWith(
         expect.stringContaining("already running on 127.0.0.1:7840"),
       );
@@ -1036,6 +1049,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -1048,6 +1062,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
@@ -1059,28 +1074,91 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
   });
 
-  test("a running edge recorded against this gateway port is reused without ensureTunnelEdge", async () => {
+  test("a running edge is rebuilt through ensureTunnelEdge, never adopted at its recorded port", async () => {
+    // Recorded mode and gateway port are not a licence to reuse: only
+    // ensureTunnelEdge compares the injected-config fingerprint, so an edge
+    // predating the current edge template (one serving no assistantId, which
+    // makes the identity probe degrade to always-healthy) must be rebuilt
+    // rather than carried across the wake at its recorded listen port.
     loadRawConfigMock.mockReturnValue(webhookConfig);
     isIngressRunningMock.mockReturnValue(true);
     readIngressStateMock.mockReturnValue({
       listenPort: 7845,
       includeWebApp: true,
       gatewayPort: 7830,
+      remoteWebConfigHash: "fingerprint-of-an-older-edge-template",
     });
 
     await wake();
 
-    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith(
-      "   Tunnel edge already running on 127.0.0.1:7845 (remote web + webhooks).",
-    );
+    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith({
+      assistantId: "local-assistant",
+      workspaceDir: workspaceDirOf(tempDir),
+      gatewayPort: 7830,
+    });
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
-      7845,
+      7840,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 
-  test("a running webhooks-only edge goes through ensureTunnelEdge to upgrade to the SPA edge", async () => {
+  test("a failed rebuild keeps tunneling the SPA edge that is still running", async () => {
+    // web-dist-missing bails before the running edge is stopped, and a drifted
+    // edge whose stop fails reports staleRemoteWebConfig; both throw while the
+    // edge keeps serving. Tunneling the gateway directly would put the
+    // sensitive-route denylist behind the tunnel instead of in front of it.
+    loadRawConfigMock.mockReturnValue(webhookConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7830,
+      remoteWebConfigHash: "fingerprint-of-an-older-edge-template",
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error(
+        "The nginx edge is still serving an outdated remote web config and could not be restarted with the updated one. Vellum could not stop the nginx process (PID 4242), even with SIGKILL. Stop it by hand and retry, or run `vellum sleep` to shut the assistant down entirely.",
+      ),
+    );
+
+    await wake();
+
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7845,
+      workspaceDirOf(tempDir),
+      "local-assistant",
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("127.0.0.1:7845"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Stop it by hand and retry"),
+    );
+  });
+
+  test("a failed rebuild falls back to the gateway port when the running edge fronts another gateway", async () => {
+    loadRawConfigMock.mockReturnValue(webhookConfig);
+    isIngressRunningMock.mockReturnValue(true);
+    readIngressStateMock.mockReturnValue({
+      listenPort: 7845,
+      includeWebApp: true,
+      gatewayPort: 7831,
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error("The nginx edge is still proxying gateway port 7831."),
+    );
+
+    await wake();
+
+    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
+      7830,
+      workspaceDirOf(tempDir),
+      "local-assistant",
+    );
+  });
+
+  test("a failed rebuild falls back to the gateway port when only a webhooks-only edge survives", async () => {
     loadRawConfigMock.mockReturnValue(webhookConfig);
     isIngressRunningMock.mockReturnValue(true);
     readIngressStateMock.mockReturnValue({
@@ -1088,51 +1166,17 @@ describe("vellum wake — tunnel edge restore", () => {
       includeWebApp: false,
       gatewayPort: 7830,
     });
+    ensureTunnelEdgeMock.mockRejectedValue(
+      new Error("The nginx edge is still running in webhooks-only mode."),
+    );
 
     await wake();
 
-    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ gatewayPort: 7830 }),
-    );
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
-      7840,
+      7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
-  });
-
-  test("a running edge recorded against a different gateway port goes through ensureTunnelEdge", async () => {
-    loadRawConfigMock.mockReturnValue(webhookConfig);
-    isIngressRunningMock.mockReturnValue(true);
-    readIngressStateMock.mockReturnValue({
-      listenPort: 7845,
-      includeWebApp: true,
-      gatewayPort: 7900,
-    });
-
-    await wake();
-
-    expect(ensureTunnelEdgeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ gatewayPort: 7830 }),
-    );
-    expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
-      7840,
-      workspaceDirOf(tempDir),
-    );
-  });
-
-  test("a running edge without a recorded gateway port goes through ensureTunnelEdge", async () => {
-    // An unverified upstream must not be reused blindly; ensureTunnelEdge
-    // restarts it so the running config provably targets the requested port.
-    loadRawConfigMock.mockReturnValue(webhookConfig);
-    isIngressRunningMock.mockReturnValue(true);
-    readIngressStateMock.mockReturnValue({
-      listenPort: 7845,
-      includeWebApp: true,
-    });
-
-    await wake();
-
-    expect(ensureTunnelEdgeMock).toHaveBeenCalled();
   });
 
   test("nginx-missing falls back to the gateway-port tunnel with a warning", async () => {
@@ -1154,6 +1198,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
@@ -1171,6 +1216,7 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7841,
       workspaceDirOf(tempDir),
+      "local-assistant",
     );
   });
 });

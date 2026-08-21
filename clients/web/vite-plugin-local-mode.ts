@@ -75,6 +75,9 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
   const baseDir = path.resolve(import.meta.dirname, "..", "..");
 
+  // The `/assistant/__config` document, also injected into the index. No
+  // `assistantId`: the dev server fronts every assistant in the lockfile at
+  // once, so it has no single identity to report the way an nginx edge does.
   const configJson = JSON.stringify({
     webUrl: config.webUrl,
     platformUrl: config.platformUrl,
@@ -91,9 +94,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
       server.middlewares.use(platformSessionMiddleware());
-      server.middlewares.use(
-        configMiddleware(config.webUrl, config.platformUrl),
-      );
+      server.middlewares.use(configMiddleware(configJson));
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
@@ -264,18 +265,13 @@ function platformSessionMiddleware(): Connect.NextHandleFunction {
   };
 }
 
-function configMiddleware(
-  webUrl: string,
-  platformUrl: string,
-): Connect.NextHandleFunction {
-  const body = JSON.stringify({ webUrl, platformUrl });
-
+function configMiddleware(configJson: string): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url !== "/assistant/__config" && req.url !== "/__config") {
       return next();
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(body);
+    res.end(configJson);
   };
 }
 

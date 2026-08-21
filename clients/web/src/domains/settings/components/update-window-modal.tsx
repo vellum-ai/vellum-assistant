@@ -1,4 +1,5 @@
 import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
+import { useTranslation } from "@/i18n";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 export interface UpdateWindowModalProps {
@@ -13,6 +14,8 @@ export function UpdateWindowModal({
   open,
   onClose,
 }: UpdateWindowModalProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <Modal.Root
       open={open}
@@ -24,9 +27,9 @@ export function UpdateWindowModal({
     >
       <Modal.Content size="md">
         <Modal.Header>
-          <Modal.Title>Update Window</Modal.Title>
+          <Modal.Title>{t("updateWindowModal.title")}</Modal.Title>
           <Modal.Description>
-            Configure when automatic updates are applied.
+            {t("updateWindowModal.description")}
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>

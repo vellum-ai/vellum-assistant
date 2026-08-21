@@ -2592,18 +2592,17 @@ jobs:
             --head "$BRANCH")
 
           # Try the normal merge first. If it fails (e.g. due to cherry-picked
-          # commits causing conflicts), rebase onto main with `-X theirs` to
-          # auto-resolve textual conflicts in favor of the release branch and
-          # retry. The release branch is the source of truth for the version
-          # being shipped, so taking its side is the safe default.
+          # commits causing conflicts), rebase onto main with `-X ours` to
+          # auto-resolve textual conflicts in favor of main and retry. During a
+          # rebase, ours is the new base, so `-X ours` keeps main's side.
           if ! gh pr merge "$PR_URL" --squash --admin --delete-branch; then
-            echo "Merge failed — rebasing with -X theirs to resolve cherry-pick conflicts"
+            echo "Merge failed - rebasing with -X ours to keep main on conflicts"
 
             git config user.name "vellum-automation[bot]"
             git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
 
             git fetch origin main
-            git rebase -X theirs origin/main
+            git rebase -X ours origin/main
 
             # Append [skip ci] so the force-push doesn't re-trigger this workflow
             git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
