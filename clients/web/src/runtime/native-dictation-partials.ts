@@ -27,6 +27,7 @@ import WORKLET_MODULE_URL from "@/domains/chat/voice/live-voice/pcm-downsample-w
 
 import { createAudioContext } from "@/domains/chat/voice/audio-context";
 import { isElectron } from "@/runtime/is-electron";
+import { requestNativeTranscription } from "@/runtime/native-dictation-transcription";
 
 const WORKLET_PROCESSOR_NAME = "pcm-downsample";
 
@@ -172,7 +173,9 @@ export async function transcribeNativeAudioBlob(
   blob: Blob,
 ): Promise<string | null> {
   const dictation = dictationBridge();
-  if (!dictation?.transcribe || !dictation.onTranscribed) {
+  const transcribe = dictation?.transcribe;
+  const onTranscribed = dictation?.onTranscribed;
+  if (!transcribe || !onTranscribed) {
     return null;
   }
 
@@ -191,20 +194,20 @@ export async function transcribeNativeAudioBlob(
     return null;
   }
 
-  let resolveText: ((text: string | null) => void) | null = null;
-  const unsubscribe = dictation.onTranscribed((event) => {
-    resolveText?.(event.text || null);
-  });
   try {
-    const result = await dictation.transcribe(pcm);
+    const result = await requestNativeTranscription(
+      {
+        transcribe,
+        onTranscribed,
+      },
+      pcm,
+      transcribedTimeoutMs(pcm.byteLength),
+    );
     if (!result.ok) {
       console.info("dictation: native transcribe unavailable:", result.reason);
       return null;
     }
-    const text = await new Promise<string | null>((resolve) => {
-      resolveText = resolve;
-      setTimeout(() => resolve(null), transcribedTimeoutMs(pcm.byteLength));
-    });
+    const { text } = result;
     // Length only — transcript content must never be logged.
     console.info(
       `dictation: native transcribe ${text ? `chars=${text.length}` : "produced no text"}`,
@@ -213,8 +216,6 @@ export async function transcribeNativeAudioBlob(
   } catch (err) {
     console.warn("dictation: native transcribe failed", err);
     return null;
-  } finally {
-    unsubscribe();
   }
 }
 
