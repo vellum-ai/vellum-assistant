@@ -169,6 +169,7 @@ import {
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
 import { withSourceChannel } from "../trust-context-resolver.js";
+import { createTurnEventSink } from "../turn-event-sink.js";
 import {
   emitCannedMessageComplete,
   persistCannedAssistantCard,
@@ -1530,6 +1531,7 @@ export async function handleSendMessage(
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const turnEventSink = createTurnEventSink(broadcastMessage, originClientId);
   const clientMetadata = readClientMetadataHeaders(headers);
 
   const { conversationKey, content, attachmentIds } = body;
@@ -2217,7 +2219,7 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage({
       content: contentAfterScan,
       attachments,
-      onEvent: broadcastMessage,
+      onEvent: turnEventSink,
       requestId,
       metadata: withClientMetadata(
         {
@@ -2706,10 +2708,10 @@ export async function handleSendMessage(
   }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
-  // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
+  // Fire-and-forget the agent loop; events flow to the hub via turnEventSink.
   conversation
     .runAgentLoop(resolvedContent, messageId, {
-      onEvent: broadcastMessage,
+      onEvent: turnEventSink,
       isInteractive,
       isUserMessage: true,
       turnTrustContext,
