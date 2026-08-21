@@ -10,6 +10,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { validateInferenceProfileConfig } from "@vellumai/assistant-api";
 
+import { t } from "@/i18n";
+
 import {
   getManagedUpstreamForModel,
   getModelsForProvider,
@@ -69,8 +71,14 @@ function maxTokensBudgetError(
     return null;
   }
   return issue.code === "over_output_cap"
-    ? `Max tokens (${maxTokens}) exceeds the model's maximum output of ${catalogModel.maxOutputTokens} tokens. Reduce it to ${catalogModel.maxOutputTokens} or less.`
-    : `Max tokens (${maxTokens}) reserves the entire ${catalogModel.contextWindowTokens}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).`;
+    ? t("settings:profileEditor.maxTokensOverCap", {
+        maxTokens,
+        cap: catalogModel.maxOutputTokens,
+      })
+    : t("settings:profileEditor.maxTokensNoInputRoom", {
+        maxTokens,
+        window: catalogModel.contextWindowTokens,
+      });
 }
 
 export type ProfileEditorMode = "create" | "edit" | "view";

@@ -28,7 +28,7 @@ import {
   userMessage,
 } from "../provider-send-message.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "./auth.js";
-import { getConnection } from "./connections.js";
+import { getConnection, MANAGED_CONNECTION_NAMES } from "./connections.js";
 import { PROBE_TIMEOUT_MS } from "./endpoint-probe.js";
 
 const log = getLogger("inference-profile-probe");
@@ -175,9 +175,16 @@ export async function probeInferenceProfile(
     return null;
   }
   const connection = resolved.provider_connection ?? (provider || undefined);
+  // Canonical managed names always dispatch platform-billed: routing ignores
+  // a user-owned row that merely claims such a name
+  // (tryResolveProviderForConnectionName), so the name gates the probe
+  // regardless of the row's stored auth.
+  if (connection && MANAGED_CONNECTION_NAMES.has(connection)) {
+    return null;
+  }
   // A legacy profile can declare a concrete provider while staying bound to
-  // a platform-billed connection row (e.g. the canonical vellum connection);
-  // the row's auth is the billing fact, so it gates the probe too.
+  // a platform-billed connection row; the row's auth is the billing fact, so
+  // it gates the probe too.
   const boundRow = connection ? getConnection(getDb(), connection) : null;
   if (boundRow?.auth.type === "platform") {
     return null;

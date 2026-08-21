@@ -772,6 +772,8 @@
     "saving": "Guardando…"
   },
   "profileEditor": {
+    "maxTokensNoInputRoom": "El máximo de tokens ({maxTokens}) reserva toda la ventana de contexto de {window} tokens para la salida, sin dejar espacio para tus mensajes. Redúcelo (p. ej., 8000).",
+    "maxTokensOverCap": "El máximo de tokens ({maxTokens}) supera la salida máxima del modelo de {cap} tokens. Redúcelo a {cap} o menos.",
     "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
   },
   "profileEditorFields": {
