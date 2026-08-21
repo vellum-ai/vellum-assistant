@@ -24,7 +24,7 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
-import { supportsClientOs } from "../tools/client-os.js";
+import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllPluginToolDefinitions,
@@ -739,7 +739,13 @@ export function isToolActiveForContext(
       ? transportInterface
       : undefined);
   const supportedClientOs = getTool(name)?.supportedClientOs;
-  if (!supportsClientOs(supportedClientOs, clientOs)) {
+  if (
+    !supportsClientOsForSkillTool(supportedClientOs, name, {
+      clientOs,
+      transportInterface,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+    })
+  ) {
     return false;
   }
 

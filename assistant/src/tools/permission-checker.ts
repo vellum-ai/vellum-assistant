@@ -125,7 +125,7 @@ export class PermissionChecker {
       undefined,
       undefined,
       context.signal,
-      getHostShell(context),
+      getHostShell(context, input),
     );
     const { level: risk, reason: riskReason } = classification;
     const riskLevel: string = risk;

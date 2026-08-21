@@ -25,7 +25,7 @@ import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
-import { supportsClientOs } from "../client-os.js";
+import { supportsClientOsForSkillTool } from "../client-os.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -84,11 +84,18 @@ function loadToolManifest(
  */
 function formatToolSchemas(
   manifest: SkillToolManifest,
-  clientOs: ToolContext["clientOs"],
+  context: Pick<
+    ToolContext,
+    "clientOs" | "transportInterface" | "sourceActorPrincipalId"
+  >,
   childSkillName?: string,
 ): string | undefined {
   const tools = manifest.tools.filter((tool) =>
-    supportsClientOs(tool.supported_client_os, clientOs),
+    supportsClientOsForSkillTool(tool.supported_client_os, tool.name, {
+      clientOs: context.clientOs,
+      transportInterface: context.transportInterface,
+      sourceActorPrincipalId: context.sourceActorPrincipalId,
+    }),
   );
   if (tools.length === 0) {
     return undefined;
@@ -412,7 +419,7 @@ export const skillLoadTool = {
     // Load tool schemas for the main skill
     const mainManifest = loadToolManifest(skill.directoryPath);
     const toolSchemasSection = mainManifest
-      ? formatToolSchemas(mainManifest, context.clientOs)
+      ? formatToolSchemas(mainManifest, context)
       : undefined;
 
     // Build immediate children metadata section and load included skill bodies
@@ -529,7 +536,7 @@ export const skillLoadTool = {
           if (childManifest) {
             const childSchemas = formatToolSchemas(
               childManifest,
-              context.clientOs,
+              context,
               childLoaded.skill.displayName,
             );
             if (childSchemas) {

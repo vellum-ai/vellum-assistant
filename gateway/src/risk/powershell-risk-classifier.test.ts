@@ -85,4 +85,13 @@ describe("PowerShellRiskClassifier", () => {
 
     expect(result.riskLevel).toBe("high");
   });
+
+  test("classifies commands on assignment right-hand sides", async () => {
+    const result = await powerShellRiskClassifier.classify(
+      "$result = Remove-Item -Recurse C:\\Temp\\data",
+    );
+
+    expect(result.riskLevel).toBe("high");
+    expect(result.actionKeys).toContain("action:remove-item");
+  });
 });

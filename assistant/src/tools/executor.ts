@@ -90,7 +90,7 @@ export class ToolExecutor {
         undefined,
         undefined,
         context.signal,
-        getHostShell(context),
+        getHostShell(context, input),
       );
     } catch {
       // Stays undefined; the audit row records RISK_LEVEL_UNCLASSIFIED.

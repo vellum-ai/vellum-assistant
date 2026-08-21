@@ -226,6 +226,11 @@ const DANGEROUS_PATTERNS: Array<{
   },
 ];
 
+const POWERSHELL_VARIABLE = String.raw`\$(?:[A-Za-z_][\w:]*|\{[^}]+\})(?:\.[A-Za-z_]\w*|\[[^\]]+\])*`;
+const LEADING_ASSIGNMENT = new RegExp(
+  String.raw`^\s*${POWERSHELL_VARIABLE}(?:\s*,\s*${POWERSHELL_VARIABLE})*\s*(?:(?:\?\?|[+*/%-])?=)\s*`,
+);
+
 function splitPowerShell(command: string): string[] {
   const segments: string[] = [];
   let current = "";
@@ -348,14 +353,30 @@ function normalizeProgram(program: string): string {
   return ALIASES.get(normalized) ?? normalized;
 }
 
+function stripLeadingAssignments(segment: string): string {
+  let command = segment;
+  while (true) {
+    const match = command.match(LEADING_ASSIGNMENT);
+    if (!match) {
+      return command;
+    }
+    command = command.slice(match[0].length);
+  }
+}
+
 function parseSegments(command: string): PowerShellSegment[] {
   return splitPowerShell(command).flatMap((raw) => {
-    const tokens = tokenizePowerShell(raw);
+    const executable = stripLeadingAssignments(raw);
+    const tokens = tokenizePowerShell(executable);
     if (tokens.length === 0) {
       return [];
     }
     return [
-      { raw, program: normalizeProgram(tokens[0]!), args: tokens.slice(1) },
+      {
+        raw: executable,
+        program: normalizeProgram(tokens[0]!),
+        args: tokens.slice(1),
+      },
     ];
   });
 }

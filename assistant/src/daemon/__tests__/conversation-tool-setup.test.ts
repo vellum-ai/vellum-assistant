@@ -36,14 +36,28 @@ import type { ChannelCapabilities } from "../conversation-runtime-assembly.js";
 
 // Control how many capable clients the hub reports per capability.
 const mockClientCountByCapability = new Map<string, number>();
+const mockClientsByCapability = new Map<
+  string,
+  Array<{
+    clientId: string;
+    capabilities: string[];
+    interfaceId: string;
+    actorPrincipalId?: string;
+  }>
+>();
 
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     listClientsByCapability: (cap: string) => {
+      const clients = mockClientsByCapability.get(cap);
+      if (clients) {
+        return clients;
+      }
       const count = mockClientCountByCapability.get(cap) ?? 0;
       return Array.from({ length: count }, (_, i) => ({
         clientId: `mock-${cap}-client-${i}`,
         capabilities: [cap],
+        interfaceId: "macos",
       }));
     },
   },
@@ -79,6 +93,7 @@ function makeCtx(
 
 beforeEach(() => {
   mockClientCountByCapability.clear();
+  mockClientsByCapability.clear();
 });
 
 describe("isToolActiveForContext - client OS eligibility", () => {
@@ -107,6 +122,50 @@ describe("isToolActiveForContext - client OS eligibility", () => {
           makeCtx({ clientOs: "macos", currentTurnClientOs: "macos" }),
         ),
       ).toBe(true);
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
+
+  test("uses same-user target desktops for cross-client tool eligibility", () => {
+    const skillId = "cross-client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "computer_use_platform_test",
+        supportedClientOs: ["macos"],
+      }),
+    ]);
+    const ctx = makeCtx({
+      clientOs: "web",
+      currentTurnClientOs: "web",
+      transportInterface: "web",
+      getTurnActorPrincipalId: () => "actor-1",
+    });
+
+    try {
+      mockClientsByCapability.set("host_cu", [
+        {
+          clientId: "mac-client",
+          capabilities: ["host_cu"],
+          interfaceId: "macos",
+          actorPrincipalId: "actor-1",
+        },
+      ]);
+      expect(isToolActiveForContext("computer_use_platform_test", ctx)).toBe(
+        true,
+      );
+
+      mockClientsByCapability.set("host_cu", [
+        {
+          clientId: "windows-client",
+          capabilities: ["host_cu"],
+          interfaceId: "windows",
+          actorPrincipalId: "actor-1",
+        },
+      ]);
+      expect(isToolActiveForContext("computer_use_platform_test", ctx)).toBe(
+        false,
+      );
     } finally {
       unregisterSkillTools(skillId);
     }
