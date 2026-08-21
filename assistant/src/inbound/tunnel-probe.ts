@@ -16,13 +16,14 @@
  *     can pair against. Only the nginx remote-web SPA edge serves it
  *     (`buildRemoteWebIngressLocations` in `cli/src/lib/nginx-ingress.ts`),
  *     and that is the same edge serving `/assistant/pair`, so an edge that
- *     answers the config request with anything other than a config is an edge
- *     whose pair URL would 404. That is `unpairable`: alive, and no use to a
- *     card whose whole job is pairing. A tunnel pointed straight at the
- *     gateway and a bring-your-own HTTPS front that only proxies the gateway
- *     both land there. A config request that gets no answer at all, because
- *     it lost the shared deadline or the connection dropped under it, proves
- *     nothing either way, and the live `/healthz` stands.
+ *     answers the config request with anything but that edge's own config is
+ *     an edge whose pair URL would 404. That is `unpairable`: alive, and no
+ *     use to a card whose whole job is pairing. A tunnel pointed straight at
+ *     the gateway, a bring-your-own HTTPS front that only proxies the gateway,
+ *     and a catch-all that answers every path with some JSON all land there.
+ *     A config request that gets no answer at all, because it lost the shared
+ *     deadline or the connection dropped under it, proves nothing either way,
+ *     and the live `/healthz` stands.
  *
  * The served config also carries the assistant's id, which is what separates
  * `healthy` from `foreign`.
@@ -46,7 +47,8 @@ import { truncate } from "../util/truncate.js";
  * Verdict for one probe.
  *
  * `unpairable` means the edge answered the config request with something that
- * is not a config, so it is alive without fronting the pairing app.
+ * is not the pairing edge's config, so it is alive without fronting the
+ * pairing app.
  * `foreign` means the edge positively identified itself as a different
  * assistant. Any case where either id is unknown is `healthy`: a config
  * served by a CLI that predates the id, or a URL recorded before the id was
@@ -74,6 +76,16 @@ const GENERIC_FETCH_MESSAGES = new Set(["fetch failed", "failed to fetch"]);
 
 /** Reported when the config path answers with a body that is not a config. */
 const UNREADABLE_CONFIG_DETAIL = "no assistant config served";
+
+/** Reported when a served body parses but is not the pairing edge's config. */
+const UNMARKED_CONFIG_DETAIL = "not a pairing edge config";
+
+/**
+ * Stamped into the served config by the nginx pairing edge and nothing else
+ * (`remoteWebIngressConfig` in `cli/src/lib/nginx-ingress.ts`), which makes it
+ * the marker that separates that edge from any other JSON a live URL serves.
+ */
+const PAIRING_EDGE_MODE = "remote-gateway";
 
 export async function probeTunnel(args: {
   publicBaseUrl: string;
@@ -212,9 +224,9 @@ type ServedConfigReading =
   | { kind: "served"; config: ServedEdgeConfig };
 
 /**
- * A 2xx JSON object is the pairing edge identifying itself, any other answer
- * is an edge that does not serve the pairing app, and no answer is no
- * evidence.
+ * A 2xx JSON object carrying the pairing edge's marker is that edge
+ * identifying itself, any other answer is an edge that does not serve the
+ * pairing app, and no answer is no evidence.
  */
 async function readServedConfig(
   response: Response | undefined,
@@ -226,20 +238,24 @@ async function readServedConfig(
     await discardBody(response);
     return { kind: "notServed", detail: `HTTP ${response.status}` };
   }
+  let detail = UNREADABLE_CONFIG_DETAIL;
   try {
     const body: unknown = await response.json();
     if (isPlainObject(body)) {
-      return {
-        kind: "served",
-        config: {
-          assistantId: trimmedNonEmptyString(body.assistantId),
-          assistantName: trimmedNonEmptyString(body.assistantName),
-        },
-      };
+      if (body.mode === PAIRING_EDGE_MODE) {
+        return {
+          kind: "served",
+          config: {
+            assistantId: trimmedNonEmptyString(body.assistantId),
+            assistantName: trimmedNonEmptyString(body.assistantName),
+          },
+        };
+      }
+      detail = UNMARKED_CONFIG_DETAIL;
     }
   } catch {
     /* an unparseable body is an edge answering with something else */
   }
   await discardBody(response);
-  return { kind: "notServed", detail: UNREADABLE_CONFIG_DETAIL };
+  return { kind: "notServed", detail };
 }

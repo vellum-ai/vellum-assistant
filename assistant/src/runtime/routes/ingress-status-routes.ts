@@ -14,9 +14,9 @@
  * Platform-hosted assistants receive webhooks through platform callback
  * routing and never run `vellum tunnel`, so they report `unconfigured`
  * rather than a tunnel state they cannot act on. A self-hosted gateway whose
- * Velay tunnel owns the URL is the same story one layer down: it is still
- * probed while a URL is published, but it is never handed a tunnel command,
- * because the gateway publishes and restores that URL itself.
+ * Velay tunnel owns the URL is the same story one layer down: that URL
+ * carries webhooks alone, so it is `unconfigured` for pairing too, and the
+ * gateway publishes and restores it without a tunnel command either way.
  */
 import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 import { z } from "zod";
@@ -93,9 +93,14 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
   const pairingTunnel = loadPairingTunnelRecord();
   // A Velay-managed URL belongs to the gateway, which writes it, clears it,
   // and reconnects on its own, so there is no tunnel for the user to restart.
-  const velayManaged = isVelayManagedIngress();
-  const lastTunnel =
-    pairingTunnel ?? (velayManaged ? null : loadLastTunnelRecord());
+  // Velay's allowlist (`gateway/src/velay/allowed-paths.ts`) also exposes
+  // neither `/healthz` nor the `/assistant/*` pairing surface, so that URL can
+  // only ever probe as dead and prefills a page pairing cannot open. Without a
+  // pairing tunnel beside it there is no address to report at all.
+  if (isVelayManagedIngress() && !pairingTunnel) {
+    return { state: "unconfigured" };
+  }
+  const lastTunnel = pairingTunnel ?? loadLastTunnelRecord();
 
   const publicBaseUrl =
     pairingTunnel?.publicBaseUrl ?? config.publicBaseUrl.trim();

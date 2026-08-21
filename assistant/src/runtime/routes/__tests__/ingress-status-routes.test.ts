@@ -337,16 +337,16 @@ describe("integrations_ingress_status route", () => {
     expect(probeTunnelMock).not.toHaveBeenCalled();
   });
 
-  test("probes a Velay-managed URL but names no tunnel to restart", async () => {
+  test("reports a Velay-managed URL with no pairing tunnel as unconfigured", async () => {
+    // Velay's allowlist (`gateway/src/velay/allowed-paths.ts`) carries neither
+    // `/healthz` nor the pairing surface, so the callback URL it owns could
+    // only ever probe as dead. The card asks for a first tunnel instead.
     velayManaged = true;
     ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
     lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
-    probeResult = { kind: "unreachable", detail: "HTTP 502" };
 
-    const result = (await route.handler({})) as Record<string, unknown>;
-
-    expect(result.state).toBe("unreachable");
-    expect(result).not.toHaveProperty("lastTunnel");
+    expect(await route.handler({})).toEqual({ state: "unconfigured" });
+    expect(probeTunnelMock).not.toHaveBeenCalled();
   });
 
   test("omits lastTunnel from a healthy response", async () => {
@@ -450,6 +450,25 @@ describe("integrations_ingress_status route", () => {
     expect(result.publicBaseUrl).toBe(PAIRING_URL);
     expect(probeTunnelMock).toHaveBeenCalledWith({
       publicBaseUrl: PAIRING_URL,
+    });
+  });
+
+  test("probes a Velay-managed ingress only through its pairing tunnel", async () => {
+    // The pairing record is the one address on a Velay-managed workspace that
+    // a device can reach, so it is probed while the callback base is not.
+    velayManaged = true;
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    pairingTunnel = { provider: "tailscale", publicBaseUrl: PAIRING_URL };
+    recordedAssistantId = "assistant-1";
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(result.publicBaseUrl).toBe(PAIRING_URL);
+    expect(probeTunnelMock).toHaveBeenCalledTimes(1);
+    expect(probeTunnelMock).toHaveBeenCalledWith({
+      publicBaseUrl: PAIRING_URL,
+      expectedAssistantId: "assistant-1",
     });
   });
 

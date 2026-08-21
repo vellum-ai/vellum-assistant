@@ -4,12 +4,13 @@
  * Four properties carry the feature. First, `/healthz` decides liveness, so an
  * edge whose nginx answers while the gateway behind it does not reads
  * `unreachable`. Second, the config path decides pairing: an ingress that
- * answers it with anything other than a config reads `unpairable`, while a
- * config request that gets no answer at all leaves the liveness verdict
- * standing. Third, `foreign` is an accusation ("this URL now fronts someone
- * else's assistant"), so it is reserved for a positive mismatch of two known
- * ids and every skew case reads `healthy`. Fourth, the probe runs often enough
- * that a body it never parses has to be cancelled rather than left to GC.
+ * answers it with anything but the pairing edge's own marked config reads
+ * `unpairable`, while a config request that gets no answer at all leaves the
+ * liveness verdict standing. Third, `foreign` is an accusation ("this URL now
+ * fronts someone else's assistant"), so it is reserved for a positive mismatch
+ * of two known ids and every skew case reads `healthy`. Fourth, the probe runs
+ * often enough that a body it never parses has to be cancelled rather than
+ * left to GC.
  *
  * Every case injects `fetchImpl`, so nothing here touches the network.
  */
@@ -19,6 +20,9 @@ import { describe, expect, test } from "bun:test";
 import { probeTunnel } from "../tunnel-probe.js";
 
 const BASE = "https://edge.example";
+
+/** The marker the nginx pairing edge stamps into every config it serves. */
+const PAIRING_EDGE_MODE = "remote-gateway";
 
 type Route = { status?: number; body?: string; reject?: unknown };
 
@@ -63,7 +67,7 @@ function stubFetch(routes: { healthz?: Route; config?: Route }): {
     const label = isHealth ? "healthz" : "config";
     const route = isHealth
       ? (routes.healthz ?? { body: "ok" })
-      : (routes.config ?? { body: "{}" });
+      : (routes.config ?? { body: JSON.stringify({ mode: PAIRING_EDGE_MODE }) });
     if (route.reject !== undefined) {
       throw route.reject;
     }
@@ -72,8 +76,15 @@ function stubFetch(routes: { healthz?: Route; config?: Route }): {
   return { fetchImpl, urls, cancelled };
 }
 
+/**
+ * The probe accepts a served config only from an edge that marks itself, so a
+ * case about identity alone carries the marker without saying so each time.
+ */
 function configBody(config: Record<string, unknown>): Route {
-  return { status: 200, body: JSON.stringify(config) };
+  return {
+    status: 200,
+    body: JSON.stringify({ mode: PAIRING_EDGE_MODE, ...config }),
+  };
 }
 
 describe("probeTunnel", () => {
@@ -184,6 +195,55 @@ describe("probeTunnel", () => {
     ).resolves.toEqual({
       kind: "unpairable",
       detail: "no assistant config served",
+    });
+  });
+
+  test("unpairable when a served body carries no pairing-edge marker", async () => {
+    // A bring-your-own front or a catch-all that answers every path with some
+    // JSON is not the edge serving `/assistant/pair`, however well-formed its
+    // body is.
+    const { fetchImpl, cancelled } = stubFetch({
+      config: { status: 200, body: "{}" },
+    });
+    await expect(
+      probeTunnel({
+        publicBaseUrl: BASE,
+        expectedAssistantId: "asst_1",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      kind: "unpairable",
+      detail: "not a pairing edge config",
+    });
+    expect(cancelled.sort()).toEqual(["config", "healthz"]);
+  });
+
+  test("healthy when the marked pairing edge identifies this assistant", async () => {
+    // The whole served document, as `remoteWebIngressConfig` writes it.
+    const { fetchImpl } = stubFetch({
+      config: {
+        status: 200,
+        body: JSON.stringify({
+          mode: PAIRING_EDGE_MODE,
+          apiBaseUrl: "/v1",
+          platformDisabled: true,
+          disablePlatform: true,
+          assistantName: "Ada",
+          assistantId: "asst_1",
+          hubUrl: "https://app.vellum.ai",
+        }),
+      },
+    });
+    await expect(
+      probeTunnel({
+        publicBaseUrl: BASE,
+        expectedAssistantId: "asst_1",
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      kind: "healthy",
+      assistantId: "asst_1",
+      assistantName: "Ada",
     });
   });
 
@@ -371,7 +431,10 @@ describe("probeTunnel", () => {
             throw new Error("already locked");
           },
         },
-        json: async (): Promise<unknown> => ({ assistantId: "asst_1" }),
+        json: async (): Promise<unknown> => ({
+          mode: PAIRING_EDGE_MODE,
+          assistantId: "asst_1",
+        }),
       } as unknown as Response),
     );
     await expect(
