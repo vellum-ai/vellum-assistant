@@ -22,6 +22,13 @@ import { usePortalContainer } from "../utils/portal-container";
  * information a touch user needs belongs somewhere a thumb can get to, not in
  * a tooltip.
  *
+ * The suppression stands even for a hardware keyboard on such a device:
+ * keyboard focus and tap focus arrive as the same event there, and telling
+ * them apart is the heuristic that fails on these devices in the first place.
+ * The accessible name stays on the control itself (callers pair `tooltip`
+ * with an `aria-label`), and content beyond a name belongs in a surface every
+ * input can reach.
+ *
  * The convenience `Tooltip` wrapper embeds its own `TooltipProvider` so
  * it works standalone. For compound usage, wrap the tree in a
  * `<TooltipProvider>` to configure global delay behaviour.

@@ -18,6 +18,15 @@
  * strip tooltips wherever the signal is merely unknown, which is a far larger
  * blast radius than leaving one on a device that turns out not to want it.
  *
+ * `hover`, not `any-hover`, and that is also deliberate. `any-hover: hover`
+ * matches whenever any input mechanism can hover, so a hovering stylus (an
+ * S-Pen, a Pencil) flips it on a screen whose primary input is still a finger,
+ * and the affordance comes back for the very input it fails on. The primary
+ * axis under-serves a tablet with a mouse attached; the any axis mis-serves
+ * every finger on a stylus-capable screen, the larger and worse failure. It
+ * also keeps this constant on the same axis as the `hover` blocks in
+ * `tokens.css` that the parity test guards.
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/hover
  */
 
@@ -26,9 +35,11 @@ import { useCallback, useSyncExternalStore } from "react";
 export const HOVER_ABSENT_MEDIA_QUERY = "(hover: none)";
 
 /**
- * Whether the current device can hover (see {@link HOVER_ABSENT_MEDIA_QUERY}).
- * Re-renders when that changes, so plugging a mouse into a tablet or moving a
- * window to another display is picked up without a reload.
+ * Whether the device's primary input can hover (see
+ * {@link HOVER_ABSENT_MEDIA_QUERY}). Re-renders when the platform re-evaluates
+ * the feature, though whether attaching a mouse flips it is the platform's
+ * call: Android promotes the mouse to primary input, iPadOS keeps reporting
+ * touch.
  *
  * Prefer letting a primitive read this over reading it in a caller: a caller
  * that drops its own tooltip on touch is re-deciding a question every caller
