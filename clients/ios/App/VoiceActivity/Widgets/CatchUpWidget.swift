@@ -1,4 +1,3 @@
-import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -45,20 +44,8 @@ struct CatchUpWidgetView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 7) {
-                WidgetActionTile(
-                    intent: OpenNewChatIntent(),
-                    icon: Image("VellumV"),
-                    title: "New Chat",
-                    fill: WidgetTheme.newChatFill,
-                    tint: WidgetTheme.brand
-                )
-                WidgetActionTile(
-                    intent: StartNewVoiceConversationIntent(),
-                    icon: Image(systemName: "waveform"),
-                    title: "Voice",
-                    fill: WidgetTheme.voiceFill,
-                    tint: WidgetTheme.textPrimary
-                )
+                WidgetActionTile.newChat
+                WidgetActionTile.voice
             }
             .frame(width: Self.actionColumnWidth)
 
@@ -101,10 +88,7 @@ struct CatchUpWidgetView: View {
     /// end with opening the app. The actions beside it stay live, so the
     /// widget is still a way in.
     private var emptyPrompt: some View {
-        Text("Open Vellum to see your recent chats.")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(WidgetTheme.textSecondary)
-            .lineLimit(2)
+        WidgetPromptText("Open Vellum to see your recent chats.", size: 11)
             .padding(.top, 2)
     }
 }
@@ -185,42 +169,5 @@ struct CatchUpRow: View {
         Image(systemName: "bubble.left")
             .font(.system(size: 11))
             .foregroundStyle(WidgetTheme.textPrimary)
-    }
-}
-
-/// One tile in the action column: a glyph over a word, filling a rounded
-/// square, wired to an App Intent.
-///
-/// Generic over the intent because `Button(intent:)` takes a concrete
-/// `AppIntent` and the two tiles run different ones. Both intents declare
-/// `openAppWhenRun`, so the system performs them in the app process; the appex
-/// only needs the types to exist.
-struct WidgetActionTile<ActionIntent: AppIntent>: View {
-    /// Matched to the squircle the system clips the widget itself with, so a
-    /// tile reads as a smaller instance of the card it sits on.
-    private static var cornerRadius: CGFloat { 14 }
-
-    let intent: ActionIntent
-    let icon: Image
-    let title: String
-    let fill: Color
-    let tint: Color
-
-    var body: some View {
-        Button(intent: intent) {
-            VStack(spacing: 4) {
-                icon
-                    .font(.system(size: 22))
-                    .foregroundStyle(tint)
-                Text(title)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(WidgetTheme.textPrimary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
     }
 }

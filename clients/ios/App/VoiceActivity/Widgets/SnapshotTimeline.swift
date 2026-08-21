@@ -31,8 +31,20 @@ struct SnapshotEntry: TimelineEntry {
 /// The extension has no network stack and no auth, so there is nothing to
 /// fetch here. `WidgetSnapshotPlugin` writes the snapshot while the app is
 /// open and calls `WidgetCenter.reloadTimelines(ofKind:)`, which is what
-/// actually keeps these widgets current; the `.atEnd` policy is the floor
-/// under that, not the mechanism.
+/// actually keeps these widgets current and costs no refresh budget.
+///
+/// The refresh policy follows from what the timeline managed to schedule.
+/// When a staleness transition is still ahead, the timeline ends with
+/// `.atEnd`, so the system comes back once that second entry has been drawn.
+/// When the only entry is dated now, because nothing is synced or the
+/// snapshot already aged out, there is nothing further to draw and the
+/// timeline ends with `.never`: asking again would spend the widget's
+/// refresh budget re-reading a store only the app writes.
+///
+/// The producers are synchronous. `TimelineProvider` wants completions and
+/// `AppIntentTimelineProvider` wants `async`, and both shapes are satisfied
+/// by forwarding to ``entry(in:)`` and ``timeline(now:)`` so the staleness
+/// rule lives in one place.
 struct SnapshotProvider: TimelineProvider {
     /// How long a snapshot's live claims are trusted.
     ///
@@ -48,21 +60,20 @@ struct SnapshotProvider: TimelineProvider {
         SnapshotEntry(date: Date(), snapshot: .placeholder, isStale: false)
     }
 
-    /// The gallery and the widget's transient previews ask through here. A
-    /// preview shows the fixture rather than the real snapshot, so browsing
-    /// the gallery on a locked device cannot put someone's conversation titles
-    /// on screen, and so an account with nothing synced yet is still offered a
-    /// widget that looks like something.
-    func getSnapshot(in context: Context, completion: @escaping (SnapshotEntry) -> Void) {
+    /// The single entry the gallery and the widget's transient previews ask
+    /// for. A preview shows the fixture rather than the real snapshot, so
+    /// browsing the gallery on a locked device cannot put someone's
+    /// conversation titles on screen, and so an account with nothing synced
+    /// yet is still offered a widget that looks like something.
+    func entry(in context: Context) -> SnapshotEntry {
         if context.isPreview {
-            completion(placeholder(in: context))
-            return
+            return placeholder(in: context)
         }
-        completion(entry(at: Date(), for: WidgetSnapshotStore.load()))
+        return entry(at: Date(), for: WidgetSnapshotStore.load())
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
-        let now = Date()
+    /// What to draw now, and the one moment after it worth redrawing.
+    func timeline(now: Date) -> Timeline<SnapshotEntry> {
         let snapshot = WidgetSnapshotStore.load()
         var entries = [entry(at: now, for: snapshot)]
         if let snapshot {
@@ -74,7 +85,15 @@ struct SnapshotProvider: TimelineProvider {
                 entries.append(SnapshotEntry(date: staleAt, snapshot: snapshot, isStale: true))
             }
         }
-        completion(Timeline(entries: entries, policy: .atEnd))
+        return Timeline(entries: entries, policy: entries.count > 1 ? .atEnd : .never)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (SnapshotEntry) -> Void) {
+        completion(entry(in: context))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
+        completion(timeline(now: Date()))
     }
 
     private func entry(at date: Date, for snapshot: WidgetSnapshot?) -> SnapshotEntry {
@@ -107,7 +126,6 @@ extension WidgetSnapshot {
                 id: "placeholder-1",
                 title: "Your morning briefing",
                 subtitle: "Daily",
-                lastMessageAt: nil,
                 hasUnseen: true,
                 isProcessing: false
             ),
@@ -115,7 +133,6 @@ extension WidgetSnapshot {
                 id: "placeholder-2",
                 title: "Trip planning notes",
                 subtitle: "Travel",
-                lastMessageAt: nil,
                 hasUnseen: true,
                 isProcessing: false
             ),
@@ -123,7 +140,6 @@ extension WidgetSnapshot {
                 id: "placeholder-3",
                 title: "Looking that up",
                 subtitle: nil,
-                lastMessageAt: nil,
                 hasUnseen: false,
                 isProcessing: true
             ),

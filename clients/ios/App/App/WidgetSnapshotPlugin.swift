@@ -72,7 +72,6 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
             id: id,
             title: title,
             subtitle: (dict["subtitle"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            lastMessageAt: date(from: dict["lastMessageAt"] as? String),
             hasUnseen: dict["hasUnseen"] as? Bool ?? false,
             isProcessing: dict["isProcessing"] as? Bool ?? false
         )

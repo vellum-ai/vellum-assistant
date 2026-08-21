@@ -43,20 +43,8 @@ struct StatusWidgetView: View {
             readout
             Spacer(minLength: 0)
             HStack(spacing: 7) {
-                WidgetActionTile(
-                    intent: OpenNewChatIntent(),
-                    icon: Image("VellumV"),
-                    title: "New Chat",
-                    fill: WidgetTheme.newChatFill,
-                    tint: WidgetTheme.brand
-                )
-                WidgetActionTile(
-                    intent: StartNewVoiceConversationIntent(),
-                    icon: Image(systemName: "waveform"),
-                    title: "Voice",
-                    fill: WidgetTheme.voiceFill,
-                    tint: WidgetTheme.textPrimary
-                )
+                WidgetActionTile.newChat
+                WidgetActionTile.voice
             }
             .frame(height: Self.actionRowHeight)
         }
@@ -74,13 +62,19 @@ struct StatusWidgetView: View {
     /// rows keep their unread markers past the same threshold because each one
     /// hangs off a conversation the reader recognizes; a bare number has
     /// nothing to qualify it.
+    ///
+    /// The three prompts that stand in for the counts are three different
+    /// facts rather than spare wordings of one: nothing has ever synced, the
+    /// snapshot is too old to read as a status, or there is genuinely nothing
+    /// waiting. The buttons below stay live in all three, so the widget is
+    /// still a way in when it has nothing to report.
     @ViewBuilder
     private var readout: some View {
         if let snapshot = entry.snapshot {
             if entry.isStale {
-                prompt("Open Vellum for the latest.")
+                WidgetPromptText("Open Vellum for the latest.")
             } else if snapshot.unreadCount <= 0, snapshot.inProgressCount <= 0 {
-                prompt("All caught up.")
+                WidgetPromptText("All caught up.")
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     if snapshot.unreadCount > 0 {
@@ -92,12 +86,16 @@ struct StatusWidgetView: View {
                 }
             }
         } else {
-            prompt("Open Vellum to see what is waiting.")
+            WidgetPromptText("Open Vellum to see what is waiting.")
         }
     }
 
     /// The glyph is decorative: the text beside it already says everything
     /// VoiceOver needs to read.
+    ///
+    /// The line is `.privacySensitive()` while the glyph beside it is not,
+    /// matching the Quick Actions chip: a locked device still shows that
+    /// something is waiting without spelling out how far behind its owner is.
     private func countLine(icon: String, text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
@@ -110,18 +108,7 @@ struct StatusWidgetView: View {
                 .foregroundStyle(WidgetTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+                .privacySensitive()
         }
-    }
-
-    /// The line that stands in for the counts. Its three phrasings are three
-    /// different facts rather than spare wordings of one: nothing has ever
-    /// synced, the snapshot is too old to read as a status, or there is
-    /// genuinely nothing waiting. The buttons below stay live in all three, so
-    /// the widget is still a way in when it has nothing to report.
-    private func prompt(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(WidgetTheme.textSecondary)
-            .lineLimit(2)
     }
 }
