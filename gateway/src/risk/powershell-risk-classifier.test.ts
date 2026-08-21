@@ -90,6 +90,14 @@ describe("PowerShellRiskClassifier", () => {
     expect(result.riskLevel).toBe("high");
   });
 
+  test("classifies Start-Process as high risk", async () => {
+    const result = await powerShellRiskClassifier.classify(
+      "Start-Process C:\\Temp\\payload.exe",
+    );
+
+    expect(result.riskLevel).toBe("high");
+  });
+
   test("classifies commands on assignment right-hand sides", async () => {
     const result = await powerShellRiskClassifier.classify(
       "$result = Remove-Item -Recurse C:\\Temp\\data",
@@ -124,6 +132,29 @@ describe("PowerShellRiskClassifier", () => {
 
     expect(result.riskLevel).toBe("medium");
     expect(result.isComplexSyntax).toBe(true);
+  });
+
+  test("classifies adjacent call operators as high risk", async () => {
+    const quoted = await powerShellRiskClassifier.classify(
+      "&'Remove-Item' -Recurse C:\\Temp\\data",
+    );
+    const expression = await powerShellRiskClassifier.classify(
+      "&(Get-Command Remove-Item) -Recurse C:\\Temp\\data",
+    );
+
+    expect(quoted.riskLevel).toBe("high");
+    expect(expression.riskLevel).toBe("high");
+    expect(quoted.opaqueConstructs).toBe(true);
+  });
+
+  test("does not treat escaped or logical ampersands as call operators", async () => {
+    const escaped = await powerShellRiskClassifier.classify("Write-Output `&");
+    const logical = await powerShellRiskClassifier.classify(
+      "Get-Process && Get-Service",
+    );
+
+    expect(escaped.opaqueConstructs).toBe(false);
+    expect(logical.opaqueConstructs).toBe(false);
   });
 
   test("matches normalized action trust rules", async () => {

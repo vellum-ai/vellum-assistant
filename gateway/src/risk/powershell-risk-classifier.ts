@@ -99,7 +99,6 @@ const MEDIUM_RISK_COMMANDS = new Set([
   "set-item",
   "set-itemproperty",
   "set-location",
-  "start-process",
   "start-service",
   "stop-process",
   "stop-service",
@@ -123,6 +122,7 @@ const HIGH_RISK_COMMANDS = new Set([
   "remove-itemproperty",
   "restart-computer",
   "set-executionpolicy",
+  "start-process",
   "stop-computer",
   "uninstall-package",
 ]);
@@ -538,11 +538,17 @@ function detectDangerousPatterns(command: string): DangerousPattern[] {
   return patterns;
 }
 
-function hasOutputRedirection(command: string): boolean {
+function scanPowerShellSyntax(command: string): {
+  callOperator: boolean;
+  outputRedirection: boolean;
+} {
   let quote: "'" | '"' | null = null;
   let escaped = false;
+  let callOperator = false;
+  let outputRedirection = false;
 
-  for (const char of command) {
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]!;
     if (escaped) {
       escaped = false;
       continue;
@@ -562,11 +568,19 @@ function hasOutputRedirection(command: string): boolean {
       continue;
     }
     if (char === ">") {
-      return true;
+      outputRedirection = true;
+      continue;
+    }
+    if (
+      char === "&" &&
+      command[index - 1] !== "&" &&
+      command[index + 1] !== "&"
+    ) {
+      callOperator = true;
     }
   }
 
-  return false;
+  return { callOperator, outputRedirection };
 }
 
 function collectWindowsPaths(segments: PowerShellSegment[]): string[] {
@@ -699,9 +713,10 @@ export class PowerShellRiskClassifier {
     const resolvedPaths = collectWindowsPaths(segments);
     const actionKeys = buildActionKeys(segments);
     const dangerousPatterns = detectDangerousPatterns(trimmed);
-    const outputRedirection = hasOutputRedirection(trimmed);
+    const syntax = scanPowerShellSyntax(trimmed);
     const opaqueConstructs =
-      /\$\(|[{}]|(?:^|\s)[.&](?:\s|$)/.test(trimmed) ||
+      /\$\(|[{}]|(?:^|\s)\.(?:\s|$)/.test(trimmed) ||
+      syntax.callOperator ||
       /\b(?:foreach-object|where-object)\b[^\n]*\{/i.test(trimmed);
     let riskLevel: Risk = segments.length === 0 ? "high" : "low";
     let reason = segments.length === 0 ? "No parseable command segments" : "";
@@ -728,7 +743,7 @@ export class PowerShellRiskClassifier {
       riskLevel = maxRisk(riskLevel, "high");
       reason = "PowerShell command contains dynamic script execution";
       matchType = "registry";
-    } else if (outputRedirection) {
+    } else if (syntax.outputRedirection) {
       riskLevel = maxRisk(riskLevel, "medium");
       reason = "PowerShell command redirects output";
       matchType = "registry";
@@ -747,7 +762,7 @@ export class PowerShellRiskClassifier {
       commandCandidates: [trimmed, ...actionKeys],
       dangerousPatterns,
       opaqueConstructs,
-      isComplexSyntax: segments.length > 1 || outputRedirection,
+      isComplexSyntax: segments.length > 1 || syntax.outputRedirection,
       directoryScopeOptions: buildDirectoryScopeOptions(resolvedPaths),
       resolvedPaths: resolvedPaths.length > 0 ? resolvedPaths : undefined,
       matchType,
