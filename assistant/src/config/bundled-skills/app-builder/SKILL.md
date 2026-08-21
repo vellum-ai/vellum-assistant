@@ -325,9 +325,35 @@ To reach daemon capabilities, import from `@vellumai/plugin-api` — `publishEve
 
 - **Feedback for every action** — a toast or inline confirmation after creates, deletes, updates, errors. Build your own (e.g. toggle the `.v-toast` class with JS).
 - **Confirm destructive actions** — render your own confirmation (an inline "Are you sure?" or a modal) before deleting or resetting.
-- **Validate forms** before submit, show errors inline, disable submit during async.
+- **Validate forms** before submit, show errors inline, disable submit during async — but wire the submit with `onClick`, never a `<form>` (see below).
 - **Loading states** — skeleton or spinner, never a blank screen.
 - **Designed empty states** — `.v-empty-state` when there's no data.
+
+### `<form>` submission is blocked — use `onClick`
+
+The app frame runs under `sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"`. There is no `allow-forms`, so the browser blocks every `<form>` submission and **the `onSubmit` handler never runs**. Nothing throws, nothing renders an error, and no test fails — the only trace is a console line the user never sees:
+
+```
+Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set.
+```
+
+A Save button written the ordinary way is therefore inert. Wire the action to the button's `onClick`, and put keyboard submit back with an Enter handler on the inputs — that is all the `<form>` was buying:
+
+```tsx
+<input
+  value={name}
+  onInput={(e) => setName(e.currentTarget.value)}
+  onKeyDown={(e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    }
+  }}
+/>
+<button type="button" onClick={save} disabled={busy}>Save</button>
+```
+
+Group the fields with a `<div>`, not a `<form>`. If you keep a `<form>` for semantics, give the button `type="button"` so it can never try to submit.
 
 ### Keep the assistant aware
 
