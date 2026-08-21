@@ -44,15 +44,19 @@ describe("classifyProbeFailure", () => {
     ).toBe("transient");
   });
 
-  test("blames the provider for unwrapped transport failures", () => {
-    // The OpenAI SDK's APIConnectionError reaches the probe without a
-    // ProviderError wrapper or semantic reason.
-    const result = classifyProbeFailure(new Error("Connection error."));
+  test("blames the provider for transport failures", () => {
+    // The adapters stamp reason network_error on SDK connection errors
+    // (normalizeOpenAIAPIError), so the probe classifies by reason alone.
+    const result = classifyProbeFailure(
+      new ProviderError(
+        "OpenAI-compatible API error (unknown status): Connection error.",
+        "openai-compatible",
+        undefined,
+        { reason: "network_error" },
+      ),
+    );
     expect(result.blame).toBe("provider");
     expect(result.reason).toBe("network_error");
-    expect(classifyProbeFailure(new Error("fetch failed")).blame).toBe(
-      "provider",
-    );
   });
 
   test("falls back to unknown for unclassified errors", () => {
