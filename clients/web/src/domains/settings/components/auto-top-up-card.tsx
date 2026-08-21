@@ -503,7 +503,7 @@ export function AutoTopUpCard() {
             data-testid="auto-top-up-edit-button"
             className="shrink-0"
           >
-            Adjust
+            {t("autoTopUpCard.adjust")}
           </Button>
         </div>
       )}
@@ -519,7 +519,7 @@ export function AutoTopUpCard() {
               onClick={() => setPmModalOpen(true)}
               data-testid="auto-top-up-add-pm-button"
             >
-              Add payment method
+              {t("autoTopUpCard.addPaymentMethod")}
             </Button>
           }
         >
@@ -569,7 +569,7 @@ export function AutoTopUpCard() {
               data-testid="auto-top-up-add-pm-button"
               className="self-start"
             >
-              Add a Credit Card
+              {t("autoTopUpCard.addCreditCard")}
             </Button>
           </div>
         </div>

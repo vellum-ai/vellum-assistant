@@ -1396,7 +1396,6 @@
     "stable": "Stable",
     "stableBackupLabel": "Stable {version}",
     "stableEnabledToast": "Stable channel enabled.",
-    "stableSwitchFailedToast": "Could not switch to Stable.",
     "standardUpgradeHelper": "Keep the current data and directly switch to the Stable image.",
     "standardUpgradeLabel": "Switch to Stable without restoring backup",
     "standardUpgradeUnavailable": "Unavailable because the latest Stable release is older than this assistant's Preview release.",

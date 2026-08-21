@@ -1396,7 +1396,6 @@
     "stable": "Estable",
     "stableBackupLabel": "Estable {version}",
     "stableEnabledToast": "Canal Estable activado.",
-    "stableSwitchFailedToast": "No se pudo cambiar a Estable.",
     "standardUpgradeHelper": "Conserva los datos actuales y cambia directamente a la imagen Estable.",
     "standardUpgradeLabel": "Cambiar a Estable sin restaurar la copia de seguridad",
     "standardUpgradeUnavailable": "No disponible porque la última versión Estable es anterior a la versión de Vista previa de este asistente.",
