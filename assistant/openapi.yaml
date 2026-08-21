@@ -15474,11 +15474,11 @@ paths:
       summary: Get ingress tunnel status
       description:
         Probe the configured public ingress URL and report whether a tunnel is serving this assistant.
-        `unconfigured` means no tunnel has ever been recorded (or the assistant is platform-hosted, which never uses
-        one), `stopped` means a tunnel ran before and is not running now (ingress is switched off, or its URL is gone),
-        `healthy` means the URL answers and fronts this assistant, `unreachable` means it does not answer, and `foreign`
-        means it answers for a different assistant. `lastTunnel` names the tunnel to restart on every state but
-        `healthy` and `unconfigured`.
+        `unconfigured` means no tunnel has ever been recorded (or the ingress is managed for this assistant, as it is
+        when platform-hosted or fronted by a Velay tunnel), `stopped` means a tunnel ran before and is not running now
+        (ingress is explicitly switched off, or its URL is gone), `healthy` means the URL answers and fronts this
+        assistant, `unreachable` means it does not answer, and `foreign` means it answers for a different assistant.
+        `lastTunnel` names the tunnel to restart, on the states where a recorded one applies to the configured URL.
       tags:
         - config
       responses:
@@ -15502,8 +15502,8 @@ paths:
                     type: string
                   lastTunnel:
                     description:
-                      "The tunnel to restart. Set whenever one is recorded and the URL is not serving this assistant: stopped,
-                      unreachable, and foreign."
+                      The tunnel to restart. Set on stopped whenever one is recorded, and on unreachable and foreign when the
+                      recorded tunnel fronted the configured URL.
                     type: object
                     properties:
                       provider:

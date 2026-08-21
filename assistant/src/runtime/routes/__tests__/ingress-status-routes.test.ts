@@ -14,11 +14,13 @@ import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 
 let ingressConfig = {
   enabled: true,
+  explicitlyDisabled: false,
   publicBaseUrl: "",
   localGatewayTarget: "http://127.0.0.1:4000",
   managedCallbacks: false,
   success: true,
 };
+let velayManaged = false;
 let lastTunnel: LastTunnelRecord | null = null;
 let recordedAssistantId: string | null = null;
 let probeResult: TunnelProbeResult = { kind: "healthy" };
@@ -32,6 +34,7 @@ const probeTunnelMock = mock(
 
 mock.module("../../../daemon/handlers/config-ingress.js", () => ({
   getIngressConfigResult: () => ingressConfig,
+  isVelayManagedIngress: () => velayManaged,
   loadLastTunnelRecord: () => lastTunnel,
   loadRecordedAssistantId: () => recordedAssistantId,
 }));
@@ -52,11 +55,13 @@ describe("integrations_ingress_status route", () => {
   beforeEach(() => {
     ingressConfig = {
       enabled: true,
+      explicitlyDisabled: false,
       publicBaseUrl: "",
       localGatewayTarget: "http://127.0.0.1:4000",
       managedCallbacks: false,
       success: true,
     };
+    velayManaged = false;
     lastTunnel = null;
     recordedAssistantId = null;
     probeResult = { kind: "healthy" };
@@ -107,6 +112,7 @@ describe("integrations_ingress_status route", () => {
     ingressConfig = {
       ...ingressConfig,
       enabled: false,
+      explicitlyDisabled: true,
       publicBaseUrl: TUNNEL_URL,
     };
     lastTunnel = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
@@ -122,11 +128,31 @@ describe("integrations_ingress_status route", () => {
     ingressConfig = {
       ...ingressConfig,
       enabled: false,
+      explicitlyDisabled: true,
       publicBaseUrl: TUNNEL_URL,
     };
 
     expect(await route.handler({})).toEqual({ state: "stopped" });
     expect(probeTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("probes a URL configured without the enabled flag", async () => {
+    // A bring-your-own-HTTPS front is set up with `config set
+    // ingress.publicBaseUrl`, which never writes `ingress.enabled`. Only an
+    // explicit opt-out means stopped.
+    ingressConfig = {
+      ...ingressConfig,
+      enabled: false,
+      explicitlyDisabled: false,
+      publicBaseUrl: TUNNEL_URL,
+    };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("healthy");
+    expect(probeTunnelMock).toHaveBeenCalledWith({
+      publicBaseUrl: TUNNEL_URL,
+    });
   });
 
   test("reports healthy with a timestamp when the probe succeeds", async () => {
@@ -218,6 +244,67 @@ describe("integrations_ingress_status route", () => {
       provider: "ngrok",
       publicBaseUrl: TUNNEL_URL,
     });
+  });
+
+  test("ignores trailing slashes when matching the recorded tunnel", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: `${TUNNEL_URL}/` };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "unreachable", detail: "HTTP 502" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.lastTunnel).toEqual({
+      provider: "ngrok",
+      publicBaseUrl: TUNNEL_URL,
+    });
+  });
+
+  test("omits a recorded tunnel that fronted a different URL", async () => {
+    // `saveIngressUrl` keeps `lastTunnel` when it replaces the URL without a
+    // provider, so the record can outlive the address it described. Restarting
+    // it would not bring the configured URL back.
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: "https://old.ngrok.app" };
+    probeResult = { kind: "unreachable", detail: "HTTP 502" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unreachable");
+    expect(result).not.toHaveProperty("lastTunnel");
+  });
+
+  test("omits a stale recorded tunnel from a foreign response", async () => {
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: "https://old.ngrok.app" };
+    probeResult = { kind: "foreign", assistantId: "assistant-2" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("foreign");
+    expect(result).not.toHaveProperty("lastTunnel");
+  });
+
+  test("reports unconfigured for a Velay-managed ingress with no URL", async () => {
+    // The gateway clears the URL when its tunnel drops and reconnects on its
+    // own, so there is no tunnel command to offer the user.
+    velayManaged = true;
+    ingressConfig = { ...ingressConfig, publicBaseUrl: "" };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+
+    expect(await route.handler({})).toEqual({ state: "unconfigured" });
+    expect(probeTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("probes a Velay-managed URL but names no tunnel to restart", async () => {
+    velayManaged = true;
+    ingressConfig = { ...ingressConfig, publicBaseUrl: TUNNEL_URL };
+    lastTunnel = { provider: "ngrok", publicBaseUrl: TUNNEL_URL };
+    probeResult = { kind: "unreachable", detail: "HTTP 502" };
+
+    const result = (await route.handler({})) as Record<string, unknown>;
+
+    expect(result.state).toBe("unreachable");
+    expect(result).not.toHaveProperty("lastTunnel");
   });
 
   test("omits lastTunnel from a healthy response", async () => {
