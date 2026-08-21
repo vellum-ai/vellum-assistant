@@ -73,7 +73,7 @@ const RETRO_INSTRUCTIONS = `Write back to the user in two sections, in this orde
 
 First, "What I need from you". The questions you cannot answer from the recording, numbered, most consequential first. Each one concrete enough to answer in a sentence, and each one about something you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Always ask what they would say to start this task, in their own words, because the recording cannot tell you that. Ask about the destructive step and the done condition if either is unclear. Do not ask them to confirm something the recording already showed you.
 
-Second, "What I saw". Your reading of the task from start to finish and what it is for, the steps in order, one line each and concrete enough to follow. This is the record your questions sit on top of, so state it rather than asking about it.
+Second, "What I saw". Open with one sentence naming the task and what it is for, on its own and not as a list item. Then the steps in order beneath it, one line each and concrete enough to follow, carrying no purpose of their own. This is the record your questions sit on top of, so state it rather than asking about it.
 
 Open on the first heading. No preamble, no announcing what you are about to do, no narrating which skills you are loading.
 
