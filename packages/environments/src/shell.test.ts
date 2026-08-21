@@ -31,7 +31,10 @@ describe("buildShellInvocation", () => {
     const encoded = invocation.args.at(-1)!;
     const decoded = Buffer.from(encoded, "base64").toString("utf16le");
     expect(decoded).toContain("[Console]::OutputEncoding");
-    expect(decoded).toEndWith("Write-Output 'hello 世界'");
+    expect(decoded).toContain("$global:LASTEXITCODE = 0");
+    expect(decoded).toContain("Write-Output 'hello 世界'");
+    expect(decoded).toContain("exit $__vellumNativeExitCode");
+    expect(decoded).toEndWith("exit 0");
   });
 });
 

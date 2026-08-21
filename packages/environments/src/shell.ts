@@ -7,7 +7,17 @@ export interface ShellInvocation {
 
 const WINDOWS_UTF8_PREAMBLE =
   "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
-  "$OutputEncoding = [System.Text.Encoding]::UTF8; ";
+  "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
+  "$global:LASTEXITCODE = 0;";
+
+const WINDOWS_EXIT_STATUS_SUFFIX = `
+$__vellumCommandSucceeded = $?
+$__vellumNativeExitCode = $LASTEXITCODE
+if (-not $__vellumCommandSucceeded) {
+  if ($__vellumNativeExitCode -ne 0) { exit $__vellumNativeExitCode }
+  exit 1
+}
+exit 0`;
 
 export function buildShellInvocation(
   command: string,
@@ -23,9 +33,10 @@ export function buildShellInvocation(
         "-ExecutionPolicy",
         "Bypass",
         "-EncodedCommand",
-        Buffer.from(WINDOWS_UTF8_PREAMBLE + command, "utf16le").toString(
-          "base64",
-        ),
+        Buffer.from(
+          `${WINDOWS_UTF8_PREAMBLE}\n${command}${WINDOWS_EXIT_STATUS_SUFFIX}`,
+          "utf16le",
+        ).toString("base64"),
       ],
     };
   }
