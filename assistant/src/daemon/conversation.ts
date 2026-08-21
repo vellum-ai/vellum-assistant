@@ -328,7 +328,9 @@ export class Conversation {
    * {@link emit}, which also notifies {@link addEventObserver} observers.
    */
   private readonly sendToClient: (msg: AssistantEvent) => void;
-  /** @internal */ currentTurnEventSink?: (msg: AssistantEvent) => void;
+  private currentTurnEventBinding?: {
+    sink?: (msg: AssistantEvent) => void;
+  };
   /**
    * Observers notified after every {@link emit}, in registration order. An
    * observer sees the event after the sink delivered it, so anything it does
@@ -1568,7 +1570,10 @@ export class Conversation {
 
   /** Deliver a tool event through the active turn's request-bound sink. */
   readonly emitToCurrentTurn = (msg: AssistantEvent): void => {
-    this.deliverEvent(msg, this.currentTurnEventSink ?? this.sendToClient);
+    this.deliverEvent(
+      msg,
+      this.currentTurnEventBinding?.sink ?? this.sendToClient,
+    );
   };
 
   /**
@@ -2784,8 +2789,8 @@ export class Conversation {
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};
-    const previousTurnEventSink = this.currentTurnEventSink;
-    this.currentTurnEventSink = onEvent;
+    const turnEventBinding = { sink: onEvent };
+    this.currentTurnEventBinding = turnEventBinding;
     try {
       return await runAgentLoopImpl(
         this,
@@ -2795,7 +2800,9 @@ export class Conversation {
         rest,
       );
     } finally {
-      this.currentTurnEventSink = previousTurnEventSink;
+      if (this.currentTurnEventBinding === turnEventBinding) {
+        this.currentTurnEventBinding = undefined;
+      }
     }
   }
 
