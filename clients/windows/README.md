@@ -107,10 +107,10 @@ packaging and then install-, launch-, and uninstall-tests.
 
 ## Release
 
-`.github/workflows/release-windows.yaml` is the reusable release:
-`dev-release.yaml` calls it with `{ environment, version }` behind the
-`WINDOWS_DEV_RELEASE_ENABLED` variable (staging and production wiring in
-`release.yml` is a follow-up once the dev channel has shipped). Per
+`.github/workflows/release-windows.yaml` is the reusable release: both
+`dev-release.yaml` and `release.yml` call it with `{ environment, version }`
+behind the `WINDOWS_{DEV,STAGING,PRODUCTION}_RELEASE_ENABLED` variables, so
+each channel stays off until its variable is set. Per
 architecture (x64 on `windows-2025`, arm64 on the `windows-11-vs2026-arm`
 preview runner) it stamps the version, builds the helper, preview handler,
 CLI runtime, and renderer, packages and signs through `electron-builder`,
