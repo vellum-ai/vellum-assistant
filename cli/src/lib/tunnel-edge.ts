@@ -1,6 +1,10 @@
 import type { ChildProcess } from "child_process";
 
-import { loadAllAssistants, type AssistantEntry } from "./assistant-config.js";
+import {
+  loadAllAssistants,
+  loadAllAssistantsAcrossEnvs,
+  type AssistantEntry,
+} from "./assistant-config.js";
 
 import {
   getDefaultWorkspaceDir,
@@ -132,7 +136,10 @@ export async function restoreTunnelEdge(
  * establish ownership, and both have to hold because neither survives every
  * teardown: a running edge records its `gatewayPort`, while the saved
  * `ingress.publicBaseUrl` outlives the edge and is mirrored onto its owner's
- * entry as `ingressUrl`.
+ * entry as `ingressUrl`. That mirror is optional, so only a rival entry
+ * actually claiming the URL disproves ownership; the default workspace is one
+ * path shared by every environment, so rivals are looked for across all of
+ * them.
  */
 function ownsSharedIngress(
   entry: AssistantEntry,
@@ -165,7 +172,7 @@ function ownsSharedIngress(
   // of non-ownership: a workspace tunneled before mirroring, or through a
   // caller that omits `assistantId`, has a saved URL that no entry claims.
   // Only another container actually claiming this URL disproves ownership.
-  return !loadAllAssistants().some(
+  return ![...loadAllAssistantsAcrossEnvs(), ...loadAllAssistants()].some(
     (other) =>
       other.assistantId !== entry.assistantId &&
       isLocalContainerEntry(other) &&

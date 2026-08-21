@@ -35,6 +35,9 @@ const resolveTargetAssistantMock =
 const loadAllAssistantsMock = mock<typeof assistantConfig.loadAllAssistants>(
   () => [],
 );
+const loadAllAssistantsAcrossEnvsMock = mock<
+  typeof assistantConfig.loadAllAssistantsAcrossEnvs
+>(() => []);
 const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
   () => {},
 );
@@ -46,6 +49,7 @@ mock.module("../lib/assistant-config.js", () => ({
   ...realAssistantConfig,
   resolveTargetAssistant: resolveTargetAssistantMock,
   loadAllAssistants: loadAllAssistantsMock,
+  loadAllAssistantsAcrossEnvs: loadAllAssistantsAcrossEnvsMock,
   saveAssistantEntry: saveAssistantEntryMock,
   getDaemonPidPath: getDaemonPidPathMock,
 }));
@@ -231,6 +235,8 @@ beforeEach(() => {
   resolveTargetAssistantMock.mockReturnValue(localEntry);
   loadAllAssistantsMock.mockReset();
   loadAllAssistantsMock.mockReturnValue([]);
+  loadAllAssistantsAcrossEnvsMock.mockReset();
+  loadAllAssistantsAcrossEnvsMock.mockReturnValue([]);
   saveAssistantEntryMock.mockReset();
   getDaemonPidPathMock.mockReset();
   getDaemonPidPathMock.mockImplementation((resources) =>
@@ -947,6 +953,43 @@ describe("vellum wake — tunnel edge restore", () => {
         workspaceDir: defaultWorkspace,
         gatewayPort: 7930,
       });
+    } finally {
+      if (originalWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+      }
+      rmSync(defaultWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test("a docker wake respects an ingress claim from another environment", async () => {
+    const defaultWorkspace = mkdtempSync(
+      join(tmpdir(), "vellum-wake-default-"),
+    );
+    const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = defaultWorkspace;
+    resolveTargetAssistantMock.mockReturnValue({
+      assistantId: "docker-1",
+      runtimeUrl: "http://localhost:7930",
+      cloud: "docker",
+    } as AssistantEntry);
+    loadAllAssistantsAcrossEnvsMock.mockReturnValue([
+      {
+        assistantId: "docker-2",
+        runtimeUrl: "http://localhost:8030",
+        cloud: "docker",
+        ingressUrl: "https://assistant.example.com",
+      } as AssistantEntry,
+    ]);
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    isIngressRunningMock.mockReturnValue(false);
+    process.argv = ["bun", "vellum", "wake", "docker-1"];
+
+    try {
+      await wake();
+
+      expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
     } finally {
       if (originalWorkspaceDir === undefined) {
         delete process.env.VELLUM_WORKSPACE_DIR;
