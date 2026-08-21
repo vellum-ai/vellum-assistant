@@ -530,9 +530,6 @@ export const CHANNEL_SOCKET_HEALTH_STATUSES = [
   "unsupported",
 ] as const;
 
-export type ChannelSocketHealthStatus =
-  (typeof CHANNEL_SOCKET_HEALTH_STATUSES)[number];
-
 export const ChannelSocketHealthIpcParamsSchema = z.object({
   channel: z.enum(CHANNEL_IDS),
 });

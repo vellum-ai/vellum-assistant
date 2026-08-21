@@ -4,7 +4,6 @@ import type { AssistantChannelState } from "@/types/channel-types";
 import { useChannelHealthBadge } from "@/utils/channel-presentation";
 
 interface ChannelHealthTagProps {
-  /** Absent reads as connected: the channel measures nothing operational. */
   health?: AssistantChannelState["health"];
 }
 

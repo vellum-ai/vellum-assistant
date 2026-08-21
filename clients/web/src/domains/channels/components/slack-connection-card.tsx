@@ -11,7 +11,6 @@ import { ChannelHealthTag } from "./channel-health-tag";
 import { publicAsset } from "@/utils/public-asset";
 
 interface SlackConnectionCardProps {
-  /** Operational health; absent reads as connected. */
   health?: AssistantChannelState["health"];
   /** The assistant's Slack @handle, when known. */
   slackHandle?: string;

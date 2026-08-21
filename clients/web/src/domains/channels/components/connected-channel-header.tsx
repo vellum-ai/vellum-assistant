@@ -6,7 +6,6 @@ import type { AssistantChannelState } from "@/types/channel-types";
 import { ChannelHealthTag } from "./channel-health-tag";
 
 interface ConnectedChannelHeaderProps {
-  /** Operational health; absent reads as connected. */
   health?: AssistantChannelState["health"];
   /** The connected channel's address/handle, when known. */
   address?: string;
