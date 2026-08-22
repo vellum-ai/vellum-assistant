@@ -2006,6 +2006,145 @@ describe("iOS widget snapshot on session end", () => {
   });
 });
 
+/**
+ * Hold the next `fetchConsent()` open, returning the release fn, so a test can
+ * suspend a refresh inside `syncUserScopedState`, the long await between the
+ * session response and the authenticated write that response drives.
+ */
+function holdConsentFetch(): () => void {
+  let release = (): void => {};
+  fetchConsentMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve(mockFetchConsentResult);
+      }),
+  );
+  return () => release();
+}
+
+// The other half of the observation-vs-decision rule: a logout invalidates the
+// observations already in flight. A refresh that fetched its session while the
+// credentials were still valid can still be inside its awaits when logout ends
+// the session, and its authenticated write would put the user back on
+// signed-in surfaces after they pressed Log Out.
+describe("explicit logout supersedes an in-flight refresh", () => {
+  test("a refresh that began before logout abandons its authenticated write", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: null,
+      platformSession: "present",
+    });
+    const releaseConsent = holdConsentFetch();
+
+    const refreshing = useAuthStore.getState().refreshSession();
+    await flushTasks();
+
+    await useAuthStore.getState().logout();
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+
+    const statuses: string[] = [];
+    const unsubscribe = useAuthStore.subscribe((state) => {
+      statuses.push(state.sessionStatus);
+    });
+    releaseConsent();
+    await expect(refreshing).resolves.toBe(false);
+    unsubscribe();
+
+    // Not even a flash: the write never lands, rather than landing and being
+    // corrected.
+    expect(statuses).not.toContain("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    // The abandoned transition also carries `persistUserSnapshot`, which would
+    // leave the departed account restorable on the next offline boot.
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("a refresh that starts midway through a logout is superseded too", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: null,
+      platformSession: "present",
+    });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const loggingOut = useAuthStore.getState().logout();
+    await flushTasks();
+
+    // Enters while logout is suspended on the snapshot clear, and resumes only
+    // after logout's session-ending write has landed.
+    const releaseConsent = holdConsentFetch();
+    const refreshing = useAuthStore.getState().refreshSession();
+    await flushTasks();
+
+    releaseClear();
+    await loggingOut;
+    releaseConsent();
+    await expect(refreshing).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  test("a refresh that completes with no logout still authenticates", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      user: null,
+      platformSession: "absent",
+    });
+    const releaseConsent = holdConsentFetch();
+
+    const refreshing = useAuthStore.getState().refreshSession();
+    await flushTasks();
+    releaseConsent();
+
+    await expect(refreshing).resolves.toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-1");
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("a sign-in started after a logout is never blocked", async () => {
+    // The generation is snapshotted on entry, so a completed logout can only
+    // supersede refreshes that were already running. Nothing resets it, and a
+    // fresh sign-in still commits.
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: null,
+      platformSession: "present",
+    });
+
+    await useAuthStore.getState().logout();
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+
+    // The provider callback and signup pages commit an interactive sign-in
+    // through `refreshSession`.
+    sessionUser = { id: "user-2", email: "user2@example.com" };
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-2");
+
+    // And the connect action commits one directly.
+    await useAuthStore.getState().logout();
+    await useAuthStore.getState().connectPlatformAssistant("assistant-1");
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-2");
+  });
+});
+
 describe("platform session probe resolution", () => {
   // A returning local-gateway user re-runs the platform probe on app resume.
   // The probe must NOT reopen the "unknown" window: it leaves the last-known

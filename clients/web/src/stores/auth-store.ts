@@ -203,6 +203,26 @@ const GATEWAY_LOCAL_USER: AuthUser = {
 // `endSession(set, { authoritative: true })` and lands its write regardless.
 let authEpoch = 0;
 
+// Bumped by every explicit `logout()`, once when it starts and once when the
+// session has ended. `authEpoch` settles races between observations; this
+// settles the other direction, because a decision also invalidates the
+// observations already in flight. A `refreshSession` that entered before the
+// logout can still be inside `reconcilePlatformAssistants()` or
+// `syncUserScopedState()` when the authoritative session-ending write lands,
+// and its later `set(authenticatedPlatformUser(user))` would restore signed-in
+// surfaces (and re-persist the departing user's snapshot and consent) from a
+// response obtained while the credentials still existed. So each refresh
+// snapshots this counter on entry and re-checks it before every authenticated
+// write, abandoning the write when a logout has moved it. Bumping at both ends
+// makes the invariant "no logout began or ended while I was running", which
+// covers a refresh that started midway through the logout too.
+//
+// Nothing resets it, and nothing can wedge on it: the snapshot is taken on
+// entry, so a refresh (or a connect action, or the loopback page's
+// `initSession`) that starts after a logout captures the current value and
+// commits normally. A fresh sign-in always works.
+let logoutGeneration = 0;
+
 /**
  * Stamp a new auth epoch and hand back the patch unchanged, so every write that
  * enters an authenticated session supersedes a session-ending write that is
@@ -285,6 +305,11 @@ const sessionEnded = (): Partial<AuthState> => ({
  * pressing Log Out. Every passive path (a boot probe, a refresh 401, an
  * exhausted gateway prime) keeps the guard, because those are reports about a
  * session that a newer report is entitled to supersede.
+ *
+ * The decision runs the other way too: an observation already in flight when
+ * the decision is made describes a session that no longer exists, so it must
+ * not land either. That half lives in {@link logoutGeneration}, which
+ * `refreshSession` re-checks before each of its authenticated writes.
  *
  * `keepPlatformSession` omits the `platformSession: "absent"` half of the
  * transition for the one caller that ends the session with a platform probe
@@ -942,6 +967,12 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   platformSession: "unknown",
   platformSessionRestoredOffline: false,
 
+  // Deliberately not guarded by `logoutGeneration`, unlike `refreshSession`.
+  // Its two callers can't overlap a logout: the boot path runs before any
+  // signed-in surface exists to press Log Out on, and the platform loopback
+  // page runs it from the logged-out login flow as the commit step of a
+  // deliberate sign-in: a decision, which the guard exists to protect, rather
+  // than an observation the guard should be able to discard.
   initSession: async () => {
     if (isRemoteGatewayMode()) {
       if (await hasRemoteGatewaySessionAfterRefresh()) {
@@ -1168,8 +1199,24 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   },
 
   refreshSession: async () => {
+    // Captured before the first await. This action is an *observation* of the
+    // session, and an explicit logout taken while it is suspended supersedes
+    // it: the response it is carrying describes credentials that logout has
+    // since dropped. Every authenticated write below re-checks the snapshot
+    // and abandons itself on a mismatch; see `logoutGeneration`. Session-
+    // ending writes need no check, because they agree with the logout.
+    const generation = logoutGeneration;
+    const supersededByLogout = (): boolean => logoutGeneration !== generation;
+    // Report the session as the store now holds it rather than as this
+    // superseded response describes it, mirroring the inconclusive-probe
+    // branch below, so no caller reads an abandoned refresh as a verdict.
+    const abandon = (): boolean => isAuthenticated(get().sessionStatus);
+
     if (isRemoteGatewayMode()) {
       if (await hasRemoteGatewaySessionAfterRefresh()) {
+        if (supersededByLogout()) {
+          return abandon();
+        }
         set({ ...authenticatedLocalUser(), platformSession: "absent" });
         return true;
       }
@@ -1188,6 +1235,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
           await primeLocalGatewayConnection(selected);
         } else {
           await ensureGatewayToken(getLocalTokenUrl());
+        }
+        if (supersededByLogout()) {
+          // Abandon the platform probe below too: launching it would settle
+          // `platformSession` from the session the logout just ended.
+          return abandon();
         }
         set(enteringAuthenticatedSession({ sessionStatus: "authenticated" }));
       } catch {
@@ -1214,7 +1266,18 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
           ? await reconcilePlatformAssistants()
           : false;
         if (!sessionRejected) {
+          // Checked on both sides of the sync: the first check keeps a logout
+          // that landed during the reconcile from re-installing the departed
+          // account's consent and organization state, and the second covers a
+          // logout that landed during the sync itself, whose fetch is the
+          // longest await on this path.
+          if (supersededByLogout()) {
+            return abandon();
+          }
           await syncUserScopedState(user?.id ?? null);
+          if (supersededByLogout()) {
+            return abandon();
+          }
           set(authenticatedPlatformUser(user));
           return true;
         }
@@ -1254,6 +1317,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // assistant is unreachable without a platform session and routing to login
     // beats stranding the user beside one that cannot answer. Remote-gateway
     // mode returns at the top of this action.
+    //
+    // The demotion needs no `supersededByLogout` check: it writes only when
+    // the store still reads authenticated, which a completed logout has
+    // already made false.
     const localSessionStandsAlone =
       isLocalClient() &&
       (isGatewayAuthEnabled() || getPlatformAssistants().length === 0);
@@ -1272,6 +1339,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   },
 
   logout: async () => {
+    // Bumped before anything else: the steps below drop the credentials, the
+    // selection, the organization and the user-scoped storage, and a refresh
+    // that resumes partway through would otherwise re-persist the departing
+    // user's snapshot and consent on its way to an authenticated write.
+    logoutGeneration += 1;
     if (isGatewayAuthMode()) {
       // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
       // so the assistant sync hooks don't observe a stale assistant id in
@@ -1287,6 +1359,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       clearOrganization();
       clearUserScopedStorage();
       await endSession(set, { authoritative: true });
+      // Bumped again now the session has ended: a refresh that entered partway
+      // through this logout captured the first bump, and its response is just
+      // as stale as one captured before it.
+      logoutGeneration += 1;
       broadcastAuthChange();
       return;
     }
@@ -1320,6 +1396,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // previous user's assistant after re-login.
       await setSelectedAssistant(null);
       await endSession(set, { authoritative: true });
+      // See the gateway branch: the second bump also supersedes a refresh that
+      // entered partway through this logout.
+      logoutGeneration += 1;
       broadcastAuthChange();
     }
   },
