@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { useUnreadConversationCount } from "@/hooks/conversation-queries";
+import { useTranslation } from "@/i18n";
 import {
   clearWidgetSnapshot,
   isWidgetSnapshotSyncAvailable,
@@ -90,6 +91,14 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * the ref itself. Held only for the render that read it, a later switch away
  * would find no known owner and leave that producer's titles on the Home
  * Screen indefinitely.
+ *
+ * The fallback for a conversation with no title is serialized into the App
+ * Group and drawn verbatim by the widget, so it comes from the catalog rather
+ * than a literal. It is read through the reactive `useTranslation` binding,
+ * not the bound `t`, because the string outlives the render that produced it:
+ * a language switch has to reach a Home Screen that never reloads on its own.
+ * Resolving it inside the effect is what makes that work, since the new
+ * language changes the serialized payload and so the dedup key too.
  */
 export function useNativeWidgetSnapshotSync(
   assistantId: string | null,
@@ -108,6 +117,7 @@ export function useNativeWidgetSnapshotSync(
   // a snapshot this page lifetime did not write, so one read per launch is
   // enough and the ref is authoritative from then on.
   const readPersistedOwnerRef = useRef(false);
+  const { t } = useTranslation("chat");
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
 
@@ -168,7 +178,7 @@ export function useNativeWidgetSnapshotSync(
       .slice(0, MAX_SNAPSHOT_CONVERSATIONS)
       .map((conversation) => ({
         id: conversation.conversationId,
-        title: conversation.title ?? "Untitled",
+        title: conversation.title ?? t("useNativeWidgetSnapshotSync.untitled"),
         subtitle:
           conversation.groupId === undefined
             ? undefined
@@ -204,5 +214,6 @@ export function useNativeWidgetSnapshotSync(
     processingConversationIds,
     unreadCount,
     inputsResolved,
+    t,
   ]);
 }

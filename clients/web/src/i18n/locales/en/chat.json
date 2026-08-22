@@ -635,6 +635,9 @@
     "retryFailed": "Couldn't retry the response",
     "summarizeFailed": "Couldn't summarize the conversation"
   },
+  "useNativeWidgetSnapshotSync": {
+    "untitled": "Untitled"
+  },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",
     "doctorUnavailable": "The Doctor isn't available on this assistant."

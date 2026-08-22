@@ -635,6 +635,9 @@
     "retryFailed": "No se pudo reintentar la respuesta",
     "summarizeFailed": "No se pudo resumir la conversación"
   },
+  "useNativeWidgetSnapshotSync": {
+    "untitled": "Sin título"
+  },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
     "doctorUnavailable": "El Doctor no está disponible en este asistente."
