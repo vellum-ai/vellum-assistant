@@ -179,6 +179,7 @@ export function DoctorPanel() {
   const [feedbackDraft, setFeedbackDraft] = useState<{
     message?: string;
     reason?: FeedbackReason;
+    requireEdit?: boolean;
   } | null>(null);
 
   const platformGate = usePlatformGate();
@@ -422,9 +423,17 @@ export function DoctorPanel() {
   };
 
   const handleOpenFeedback = useCallback(
-    (draft?: { message?: string; reason?: FeedbackReason }) => {
+    (draft?: {
+      message?: string;
+      reason?: FeedbackReason;
+      requireEdit?: boolean;
+    }) => {
       const initialMessage = draft?.message?.trim() || undefined;
-      setFeedbackDraft({ message: initialMessage, reason: draft?.reason });
+      setFeedbackDraft({
+        message: initialMessage,
+        reason: draft?.reason,
+        requireEdit: draft?.requireEdit,
+      });
       setFeedbackOpen(true);
     },
     [],
@@ -492,8 +501,11 @@ export function DoctorPanel() {
         }
       });
       if (!resolved) {
+        // Scaffold only — Send stays disabled until the user adds their own
+        // words, so we don't file content-free "[Doctor] ..." Linear tickets.
         handleOpenFeedback({
           message: "The Doctor wasn't able to solve my problem: ",
+          requireEdit: true,
         });
       }
     },
@@ -1027,6 +1039,7 @@ export function DoctorPanel() {
         onClose={handleCloseFeedback}
         initialReason={feedbackDraft?.reason}
         initialMessage={feedbackDraft?.message}
+        requireMessageEdit={feedbackDraft?.requireEdit}
         assistantId={assistantId}
         doctorSessionId={visibleDoctorSessionId}
         doctorSessionLog={doctorSessionLog}
