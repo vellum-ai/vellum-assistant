@@ -22,6 +22,7 @@ import {
 } from "./default-profile-names.js";
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
+  backupProfilesResolveUnderDefaultProvider,
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   DEFAULT_PROVIDER_CHOICES,
   type DefaultProviderConfig,
@@ -844,8 +845,7 @@ function defaultProfileBodyForProvider(
     // resolves to the managed column, so it keeps its backups.
     if (
       isBackupProfileKey(name) &&
-      defaultProvider != null &&
-      defaultProvider.provider !== "vellum"
+      !backupProfilesResolveUnderDefaultProvider(defaultProvider)
     ) {
       return undefined;
     }
@@ -895,6 +895,15 @@ function clampMaxTokensToModelCap(body: ProfileEntry): ProfileEntry {
  * available code default, merged per `getEffectiveProfile`. This is the
  * record all runtime readers of `llm.profiles` should consume; the raw
  * workspace record is a write-path concern.
+ *
+ * Deliberately provider-agnostic: it lists the managed backups whatever
+ * `llm.defaultProvider` says, because it resolves names against the passed
+ * catalog alone and never reads config. Any caller that JUDGES AVAILABILITY
+ * (is this name selectable? does this reference still resolve?) must use
+ * `getEffectiveProfilesForProvider` instead, which hides the backups on the
+ * BYOK and ChatGPT columns the same way `resolveDefaultProfileForProvider`
+ * does. Duplicating that conditioning here would fork the rule across two
+ * functions, and the sibling already owns it.
  */
 export function getEffectiveProfiles(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,

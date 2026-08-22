@@ -1436,6 +1436,29 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["balanced-backup"]).toBeUndefined();
   });
 
+  test("an active managed backup profile is repaired on a BYOK install", () => {
+    // Backups live on the managed column alone, so under a BYOK default
+    // provider the selection names a profile that resolves to nothing. The
+    // schema rejects the reference on load and the seeder, which resolves
+    // availability through the same provider-aware view, repairs the stored
+    // selection instead of preserving a dead pointer.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {},
+        activeProfile: "balanced-backup",
+      },
+    });
+
+    const config = loadConfig();
+    expect(config.llm.activeProfile).toBeUndefined();
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
   test("a call site pinned to a managed backup profile survives a reload", () => {
     writeConfig({
       llm: {

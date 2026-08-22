@@ -1420,8 +1420,14 @@ function assertRoutableIdentityEntries(
  * the repair path for a hand-edited config.
  */
 function assertValidFallbackProfileGraph(raw: Record<string, unknown>): void {
-  const profiles = readPlainObject(readPlainObject(raw.llm)?.profiles);
-  const issues = collectFallbackProfileIssues(profiles ?? undefined);
+  const llm = readPlainObject(raw.llm);
+  const profiles = readPlainObject(llm?.profiles);
+  // The sibling `llm.defaultProvider` decides whether the managed backups are
+  // valid fallback targets: they resolve on the managed column alone.
+  const issues = collectFallbackProfileIssues(
+    profiles ?? undefined,
+    llm?.defaultProvider,
+  );
   if (issues.length > 0) {
     throw new BadRequestError(issues.map((issue) => issue.message).join(" "));
   }
