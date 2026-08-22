@@ -3,7 +3,7 @@
  *
  * The handler aggregates gate telemetry from the telemetry DB and buckets it
  * by concept page count. These tests cover:
- *   - empty DB → zero counts, all buckets present, scoredPassRate null
+ *   - empty DB returns zero counts, all buckets present, scoredPassRate null
  *   - mixed rows land in the correct buckets by real_concept_page_count
  *   - scored vs unscored runs are counted separately
  *   - rows with no real_concept_page_count go to unknownPageCount
@@ -75,7 +75,7 @@ describe("handleMemoryV3GateStats", () => {
     }
   });
 
-  test("buckets a dense_pass row into 10–49 bucket", () => {
+  test("buckets a dense_pass row into 10-49 bucket", () => {
     const rows = [
       {
         payload: makePayload({
@@ -131,7 +131,7 @@ describe("handleMemoryV3GateStats", () => {
     expect(bucket.total).toBe(1);
     expect(bucket.scored).toBe(0);
     expect(bucket.passed).toBe(1);
-    // No scored runs → scoredPassRate is null (unscored pass does not count)
+    // No scored runs: scoredPassRate is null (unscored pass does not count)
     expect(bucket.scoredPassRate).toBeNull();
   });
 
@@ -160,7 +160,7 @@ describe("handleMemoryV3GateStats", () => {
     expect(bucket.total).toBe(2);
     expect(bucket.scored).toBe(1);
     expect(bucket.passed).toBe(1); // total passes (scored + unscored)
-    // Only the scored fail counts toward the rate — no scored passes
+    // Only the scored fail counts toward the rate: no scored passes
     expect(bucket.scoredPassRate).toBe(0);
   });
 
@@ -185,7 +185,7 @@ describe("handleMemoryV3GateStats", () => {
 
   test("mixed rows across multiple buckets are aggregated correctly", () => {
     const rows: FakeRow[] = [
-      // 0–9 bucket: 1 unscored pass
+      // 0-9 bucket: 1 unscored pass
       {
         payload: makePayload({
           pass: true,
@@ -194,7 +194,7 @@ describe("handleMemoryV3GateStats", () => {
           real_concept_page_count: 3,
         }),
       },
-      // 10–49 bucket: 1 pass, 1 fail (both scored)
+      // 10-49 bucket: 1 pass, 1 fail (both scored)
       {
         payload: makePayload({
           pass: true,
@@ -211,7 +211,7 @@ describe("handleMemoryV3GateStats", () => {
           real_concept_page_count: 45,
         }),
       },
-      // 50–199 bucket: 2 passes
+      // 50-199 bucket: 2 passes
       {
         payload: makePayload({
           pass: true,
@@ -251,7 +251,7 @@ describe("handleMemoryV3GateStats", () => {
     expect(b50199.scoredPassRate).toBe(1);
   });
 
-  test("lookbackDays is clamped to 1–90", () => {
+  test("lookbackDays is clamped to 1-90", () => {
     const r1 = handleMemoryV3GateStats(0, fakeDb([]));
     expect(r1.lookbackDays).toBe(1);
     const r2 = handleMemoryV3GateStats(999, fakeDb([]));
@@ -273,8 +273,8 @@ describe("handleMemoryV3GateStats", () => {
       },
     ];
     const result = handleMemoryV3GateStats(30, fakeDb(rows));
-    // Only the valid row is counted
-    expect(result.totalRuns).toBe(2); // totalRuns counts raw rows before parse
+    // totalRuns counts raw rows before parse
+    expect(result.totalRuns).toBe(2);
     const bucket = result.buckets.find((b) => b.pageCountRange === "10–49")!;
     expect(bucket.total).toBe(1);
   });
