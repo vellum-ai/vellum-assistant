@@ -4,8 +4,8 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  * Named provider connections.
  *
  * Each row is a named auth-config instance for a code-defined provider.
- * Profiles in config.json reference connections by `name` via the
- * `provider_connection` field.
+ * Profiles in config.json reference an entry by putting its `name` in their
+ * `provider` field.
  *
  * Created by migration 243.
  */

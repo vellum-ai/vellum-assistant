@@ -133,9 +133,18 @@ const VELLUM_ROUTABLE_MODELS = new Set([
   "accounts/fireworks/models/minimax-m3",
   "accounts/fireworks/models/minimax-m2p7",
   "accounts/fireworks/models/deepseek-v4-pro",
+  // Migration 146 (which runs first) rewrites the undated DeepSeek flash id
+  // to the dated one, but a deferred 146 leaves the undated form in place for
+  // this same boot. This pass gates DELETION, so both forms are listed: an
+  // omission would permanently delete a tweak 146's retry would have healed.
+  "accounts/fireworks/models/deepseek-v4-flash",
   "accounts/fireworks/models/deepseek-v4-flash-0731",
   "MiniMaxAI/MiniMax-M3",
 ]);
+
+// Frozen snapshot of the routing identities: provider values that name a
+// route rather than a vendor.
+const ROUTING_IDENTITIES = new Set(["vellum", "chatgpt"]);
 
 // Frozen snapshot of the ChatGPT-subscription (Codex) allowlist.
 const CODEX_MODELS = new Set([
@@ -193,6 +202,8 @@ const CATALOG_MODELS: Record<string, ReadonlySet<string>> = {
     "accounts/fireworks/models/minimax-m3",
     "accounts/fireworks/models/minimax-m2p7",
     "accounts/fireworks/models/deepseek-v4-pro",
+    // Both DeepSeek flash forms, for the deferred-146 reason above.
+    "accounts/fireworks/models/deepseek-v4-flash",
     "accounts/fireworks/models/deepseek-v4-flash-0731",
   ]),
   together: new Set(["MiniMaxAI/MiniMax-M3"]),
@@ -412,8 +423,8 @@ function winnerProviderForSite(
 
 /**
  * A named rung's provider: the profile's own provider when it is plainly
- * usable (judged as the vellum identity when the profile pins the managed
- * "vellum" connection and its model is vellum-routable, mirroring
+ * usable (judged as the vellum identity when a non-identity profile pins the
+ * managed "vellum" connection and its model is vellum-routable, mirroring
  * migration 148's fold), the intent column for default-key names with no
  * workspace entry
  * (or an explicitly managed stub, which the resolver overrides with the
@@ -449,9 +460,12 @@ function rungProvider(
     // folds the pin into the vellum identity when the profile's model is
     // vellum-routable. Servability is judged by that post-fold winner, not
     // the declared vendor, so this pass never deletes a tweak the managed
-    // route serves.
+    // route serves. A profile that already declares a routing identity is
+    // excluded: 148 handles identities first (it keeps the identity and
+    // drops the stray binding), so the declared identity is the winner.
     if (
       entry.provider_connection === "vellum" &&
+      !ROUTING_IDENTITIES.has(usableProvider) &&
       model !== null &&
       VELLUM_ROUTABLE_MODELS.has(model)
     ) {

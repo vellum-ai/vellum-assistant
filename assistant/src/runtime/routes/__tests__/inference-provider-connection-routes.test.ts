@@ -10,7 +10,7 @@
  *   Auth   — 401 (missing key) and 403 (insufficient scope) via route-policy assertions
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Real imports ──────────────────────────────────────────────────────────────
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
@@ -18,11 +18,26 @@ import { LLMSchema } from "../../../config/schemas/llm.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
+import { credentialKey } from "../../../security/credential-key.js";
+import * as secureKeys from "../../../security/secure-keys.js";
 // Route policies are read directly off `route.policy` now (ATL-315
 // followup) — no registry lookup.
 import { BadRequestError, ConflictError, NotFoundError } from "../errors.js";
 import { ROUTES } from "../inference-provider-connection-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+
+// ── Vault stub ────────────────────────────────────────────────────────────────
+
+// The route deletes a connection's credential slot best-effort; the stub
+// records which key it asked for without touching a real vault backend.
+const vaultKeys = new Set<string>();
+mock.module("../../../security/secure-keys.js", () => ({
+  ...secureKeys,
+  deleteSecureKeyAsync: async (key: string) => {
+    const had = vaultKeys.delete(key);
+    return had ? ("deleted" as const) : ("not-found" as const);
+  },
+}));
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
@@ -1145,6 +1160,16 @@ describe("DELETE repairs a row whose stored auth is underivable", () => {
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
+  test("DELETE frees the per-name credential slot the row owned when healthy", async () => {
+    vaultKeys.add(credentialKey("zombie", "api_key"));
+
+    await call(findHandler("inference_provider_connections_delete"), {
+      pathParams: { name: "zombie" },
+    });
+
+    expect(vaultKeys.has(credentialKey("zombie", "api_key"))).toBe(false);
+  });
+
   test("DELETE proceeds even when the default provider resolves to the name", async () => {
     // The default is already broken (resolution cannot load the row), so
     // the orphan guard must not block the one repair path.
@@ -1161,6 +1186,53 @@ describe("DELETE repairs a row whose stored auth is underivable", () => {
       { pathParams: { name: "anthropic-personal" } },
     )) as { ok: boolean };
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("DELETE repairs a row whose stored auth is not JSON at all", () => {
+  // A corrupt auth column must read as an invalid row, not throw out of the
+  // loaders — otherwise the whole list breaks and DELETE (the one repair
+  // path) 500s instead of removing the row.
+  beforeEach(() => {
+    const now = Date.now();
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "corrupt",
+        provider: "anthropic",
+        auth: "not json at all",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  });
+
+  test("list succeeds and excludes the row", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_list"),
+      {},
+    )) as { connections: { name: string }[] };
+    expect(result.connections.map((c) => c.name)).not.toContain("corrupt");
+  });
+
+  test("DELETE succeeds and frees the name for re-create", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "corrupt" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+
+    const recreated = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "corrupt",
+          provider: "anthropic",
+          auth: { type: "api_key", credential: "vault/anthropic/key" },
+        },
+      },
+    )) as { name: string };
+    expect(recreated.name).toBe("corrupt");
   });
 });
 

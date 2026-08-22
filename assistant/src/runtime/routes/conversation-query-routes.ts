@@ -1451,7 +1451,9 @@ function assertRoutableIdentityEntries(
  * anything indeterminate (an unparseable `llm` section whose parse error
  * surfaces elsewhere, a winner whose connection row cannot be read, or a
  * route whose model set is not code-known: endpoint-supplied providers,
- * keyless ollama), matching `preflightResolvedConfig`'s posture.
+ * keyless ollama), matching `preflightResolvedConfig`'s posture. A mix
+ * winner has no single route to fingerprint, so an introduced or changed
+ * model is judged against its arms instead (`assertServableByEveryMixArm`).
  */
 function assertServableCallSiteModels(
   preWrite: Record<string, unknown>,
@@ -1497,6 +1499,8 @@ function assertServableCallSiteModels(
      * rather than a dispatch-translated vendor. Null = indeterminate.
      */
     kind: string | null;
+    /** The winning profile's name when the winner is a mix, else null. */
+    mixProfile: string | null;
   }
   const routeFingerprint = (
     llm: z.infer<typeof LLMSchema>,
@@ -1506,24 +1510,27 @@ function assertServableCallSiteModels(
     // A mix winner expands to a random arm on every unseeded resolution
     // here, so its route cannot be fingerprinted: any judgment would be
     // against a nondeterministic arm. Indeterminate, like the other
-    // fail-open cases.
+    // fail-open cases; its name is carried out so an introduced model can
+    // still be judged arm by arm.
     if (profileName != null && llm.profiles?.[profileName]?.mix != null) {
-      return { provider: null, kind: null };
+      return { provider: null, kind: null, mixProfile: profileName };
     }
-    const kind = (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(
-      config.provider,
-    )
-      ? config.provider
-      : connectionRowKind(config.provider);
-    return { provider: config.provider, kind };
+    return {
+      provider: config.provider,
+      kind: providerKind(config.provider),
+      mixProfile: null,
+    };
   };
 
   for (const { site, model } of modelBearing) {
     const route = routeFingerprint(post.data, site);
+    const modelChanged = model !== readPlainObject(priorSites[site])?.model;
     if (route.kind == null) {
+      if (modelChanged && route.mixProfile != null) {
+        assertServableByEveryMixArm(post.data, route.mixProfile, site, model);
+      }
       continue;
     }
-    const modelChanged = model !== readPlainObject(priorSites[site])?.model;
     if (!modelChanged) {
       // Model untouched: validate only when this write moved the site's
       // route. An indeterminable pre-write config counts as unmoved, so a
@@ -1539,13 +1546,69 @@ function assertServableCallSiteModels(
         continue;
       }
     }
-    const issue = ROUTING_IDENTITY_PROVIDERS.has(route.kind)
-      ? routingIdentityModelIssue(route.kind, model)
-      : catalogServabilityIssue(route.kind, model);
+    const issue = servabilityIssue(route.kind, model);
     if (issue) {
       throw new BadRequestError(`${issue} (llm.callSites.${site}.model)`);
     }
   }
+}
+
+/**
+ * Reject a call-site model no arm of a mix winner can serve. A mix has no
+ * single route to fingerprint (the arm is a seeded per-conversation pick),
+ * but its arms are fully knowable: the schema guarantees every arm exists
+ * and is a standard profile, so a model this write introduces or changes is
+ * required to be servable by all of them. Judged only for arms whose kind is
+ * determinable; an arm that cannot be judged fails open on its own, and a
+ * disabled arm is skipped because selection falls through to another winner
+ * entirely when the pick lands on it.
+ */
+function assertServableByEveryMixArm(
+  llm: z.infer<typeof LLMSchema>,
+  mixProfile: string,
+  site: LLMCallSite,
+  model: string,
+): void {
+  for (const arm of llm.profiles?.[mixProfile]?.mix ?? []) {
+    const entry = llm.profiles?.[arm.profile];
+    if (
+      entry == null ||
+      entry.status === "disabled" ||
+      entry.provider == null
+    ) {
+      continue;
+    }
+    const kind = providerKind(entry.provider);
+    if (kind == null) {
+      continue;
+    }
+    const issue = servabilityIssue(kind, model);
+    if (issue) {
+      throw new BadRequestError(
+        `${issue} (llm.callSites.${site}.model, mix arm "${arm.profile}")`,
+      );
+    }
+  }
+}
+
+/**
+ * Why a route kind cannot serve a model, or null when it can (or cannot be
+ * judged): identities by their routing table, vendors by catalog membership.
+ */
+function servabilityIssue(kind: string, model: string): string | null {
+  return ROUTING_IDENTITY_PROVIDERS.has(kind)
+    ? routingIdentityModelIssue(kind, model)
+    : catalogServabilityIssue(kind, model);
+}
+
+/**
+ * The kind a provider value is judged by: a vendor value verbatim,
+ * otherwise the entry-name row's provider column. Null = indeterminate.
+ */
+function providerKind(provider: string): string | null {
+  return (VALID_CONNECTION_PROVIDERS as readonly string[]).includes(provider)
+    ? provider
+    : connectionRowKind(provider);
 }
 
 /**
