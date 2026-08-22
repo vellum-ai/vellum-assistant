@@ -83,10 +83,13 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Drop the App Group snapshot and refresh the surfaces that render it.
     ///
-    /// Shared with `SelfHostedServersPlugin`, which owes the same drop on every
-    /// origin swap and cannot get it from the web layer: the bookkeeping that
-    /// would carry an unfinished clear forward lives in per-origin web storage,
-    /// which the destination origin cannot read.
+    /// Also the native side of the origin-change invariant: every change of the
+    /// active self-hosted origin drops the snapshot, because the bookkeeping
+    /// that would carry an unfinished clear forward lives in per-origin web
+    /// storage the destination origin cannot read. `SelfHostedServer.setActive`
+    /// is the choke point that calls this for every path that writes the active
+    /// slot, with `MyViewController.reloadIfConfiguredOriginChanged()` covering
+    /// the iOS Settings pane, which writes the slot behind that type's back.
     static func clearSnapshotAndReloadWidgets() {
         WidgetSnapshotStore.clear()
         reloadWidgets()

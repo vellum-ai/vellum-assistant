@@ -14,6 +14,22 @@ import Foundation
 /// foreground override), `AppDelegate` (connect deep link), and
 /// `SelfHostedServersPlugin` so the keys and the validation rules live in
 /// exactly one place.
+///
+/// `setActive` is also the choke point for one invariant: any change of the
+/// active origin drops the widget snapshot. That App Group cache describes the
+/// conversations of the origin being left, and the destination is a different
+/// deployment with its own account and list, so those titles must not stay on
+/// a Home Screen that never reloads on its own. The web layer cannot carry the
+/// obligation across the boundary, because every record it could leave behind
+/// (the producer id, an unfinished-clear marker) lives in localStorage, which
+/// is per-origin, so the destination reads none of it. Routing every write
+/// through one setter means each native origin-change path inherits the drop
+/// without a call of its own: the plugin's `switchTo`, `switchToPath` and
+/// `remove`, the `connect` deep link on both a warm open and a cold launch,
+/// and the unreachable-server alert's "Use Vellum Cloud" fallback. The iOS
+/// Settings pane is the one writer that goes straight to `UserDefaults` behind
+/// this type's back, so `MyViewController.reloadIfConfiguredOriginChanged()`
+/// carries the same drop on the predicate it already computes.
 enum SelfHostedServer {
     /// `UserDefaults` key shared with the `Settings.bundle` pane. This exact
     /// string is the read/write contract with the settings `Root.plist`.
@@ -99,12 +115,33 @@ enum SelfHostedServer {
 
     /// Persist a validated origin under the shared defaults key.
     static func store(_ url: URL, defaults: UserDefaults = .standard) {
-        defaults.set(url.absoluteString, forKey: defaultsKey)
+        setActive(url.absoluteString, defaults: defaults)
     }
 
     /// Clear the preference, returning the shell to the baked Vellum Cloud URL.
     static func clear(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: defaultsKey)
+        setActive(nil, defaults: defaults)
+    }
+
+    /// The single writer of the active slot, and with it the single place the
+    /// widget snapshot is dropped on an origin change (see the type doc).
+    ///
+    /// The drop fires only when the effective origin actually moves, compared
+    /// canonically so a re-write of the same server in a different spelling
+    /// stays a no-op. Switching to the origin already active therefore keeps
+    /// the snapshot it belongs to, and clearing an already-absent preference
+    /// leaves the baked cloud origin's snapshot alone.
+    private static func setActive(_ raw: String?, defaults: UserDefaults) {
+        let previous = configuredURL(defaults: defaults).map(canonicalString)
+        if let raw {
+            defaults.set(raw, forKey: defaultsKey)
+        } else {
+            defaults.removeObject(forKey: defaultsKey)
+        }
+        guard previous != configuredURL(defaults: defaults).map(canonicalString) else {
+            return
+        }
+        WidgetSnapshotPlugin.clearSnapshotAndReloadWidgets()
     }
 
     /// The remembered server list, entries keyed by canonical URL. Entries

@@ -200,6 +200,12 @@ class MyViewController: CAPBridgeViewController {
     /// last applied. Comparing the full URL — not just the origin — catches a
     /// same-host path change. A full reload is sufficient; the assistant has no
     /// useful offline state.
+    ///
+    /// This is the one native origin change `SelfHostedServer.setActive` cannot
+    /// see: the iOS Settings pane writes the active slot straight to
+    /// `UserDefaults`. The guard below is the change predicate, so the widget
+    /// snapshot drop that every other path inherits from that setter hangs off
+    /// it here, leaving a foreground with no change alone.
     @objc private func reloadIfConfiguredOriginChanged() {
         let destination = SelfHostedServer.configuredURL() ?? bakedServerURL
         guard let destination,
@@ -207,6 +213,7 @@ class MyViewController: CAPBridgeViewController {
         else {
             return
         }
+        WidgetSnapshotPlugin.clearSnapshotAndReloadWidgets()
         applyConfiguredOrigin()
     }
 
