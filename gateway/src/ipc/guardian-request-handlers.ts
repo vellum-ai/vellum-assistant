@@ -31,6 +31,7 @@ import {
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
   SweepExpiredGuardianRequestsIpcParamsSchema,
+  SweepPendingForRemindersIpcParamsSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
 } from "@vellumai/gateway-client";
@@ -53,6 +54,7 @@ import {
   listPendingRequestsByDestination,
   listPendingRequestsByScope,
   sweepExpiredRequests,
+  sweepPendingForReminders,
   updateGuardianRequest,
   updateGuardianRequestDelivery,
 } from "../approvals/guardian-request-service.js";
@@ -69,6 +71,10 @@ const ExpireInteractionBoundParamsSchema = z.preprocess(
 const SweepExpiredParamsSchema = z.preprocess(
   (v) => v ?? {},
   SweepExpiredGuardianRequestsIpcParamsSchema,
+);
+const SweepPendingForRemindersParamsSchema = z.preprocess(
+  (v) => v ?? {},
+  SweepPendingForRemindersIpcParamsSchema,
 );
 const ListGuardianRequestsParamsSchema = z.preprocess(
   (v) => v ?? {},
@@ -243,6 +249,17 @@ export const guardianRequestRoutes: IpcRoute[] = [
       const { pendingQuestionId } =
         GetGuardianRequestByPendingQuestionIpcParamsSchema.parse(params);
       return getRequestByPendingQuestion(pendingQuestionId);
+    },
+  },
+  {
+    // Returns pending persistent requests older than the threshold with no
+    // followupState, so the daemon can send reminders without a follow-up
+    // read that could fail after marking the state.
+    method: GUARDIAN_REQUESTS_IPC_METHODS.sweepPendingForReminders,
+    schema: SweepPendingForRemindersParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const input = SweepPendingForRemindersParamsSchema.parse(params);
+      return sweepPendingForReminders(input);
     },
   },
 ];
