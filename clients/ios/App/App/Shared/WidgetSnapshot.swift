@@ -74,6 +74,10 @@ enum VellumWidgetKind {
 enum WidgetSnapshotStore {
     static let defaultsKey = "widgetSnapshot"
 
+    /// Key holding the origin the stored snapshot belongs to. See
+    /// ``appliedOrigin()``.
+    static let appliedOriginKey = "appliedOrigin"
+
     private static var defaults: UserDefaults? {
         AppGroupID.current.flatMap(UserDefaults.init(suiteName:))
     }
@@ -114,7 +118,29 @@ enum WidgetSnapshotStore {
         return snapshot
     }
 
+    /// Drop the snapshot. The applied-origin mirror below deliberately stays:
+    /// it records which origin this container belongs to, which an emptied
+    /// container still does, and removing it would disarm the comparison the
+    /// next launch makes.
     static func clear() {
         defaults?.removeObject(forKey: defaultsKey)
+    }
+
+    /// The origin the stored snapshot belongs to, or `nil` when none has been
+    /// recorded yet (a fresh install, or one predating this key).
+    ///
+    /// The mirror lives here, in the App Group, because the staleness it guards
+    /// is the one no in-memory value can see: the active origin can change
+    /// while the app is not running, and this container is what survives that.
+    /// `nil` therefore means "not recorded", never "no origin"; the origin
+    /// string itself carries the case where the shell serves its baked default.
+    /// `WidgetSnapshotPlugin.recordAppliedOrigin` is the only reader and writer
+    /// and defines what each value means.
+    static func appliedOrigin() -> String? {
+        return defaults?.string(forKey: appliedOriginKey)
+    }
+
+    static func setAppliedOrigin(_ origin: String) {
+        defaults?.set(origin, forKey: appliedOriginKey)
     }
 }

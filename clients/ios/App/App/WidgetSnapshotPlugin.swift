@@ -82,17 +82,36 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Drop the App Group snapshot and refresh the surfaces that render it.
-    ///
-    /// Also the native side of the origin-change invariant: every change of the
-    /// active self-hosted origin drops the snapshot, because the bookkeeping
-    /// that would carry an unfinished clear forward lives in per-origin web
-    /// storage the destination origin cannot read. `SelfHostedServer.setActive`
-    /// is the choke point that calls this for every path that writes the active
-    /// slot, with `MyViewController.reloadIfConfiguredOriginChanged()` covering
-    /// the iOS Settings pane, which writes the slot behind that type's back.
     static func clearSnapshotAndReloadWidgets() {
         WidgetSnapshotStore.clear()
         reloadWidgets()
+    }
+
+    /// Bind the stored snapshot to the origin the shell is serving, dropping it
+    /// when that origin has moved since the last recording.
+    ///
+    /// This is the native side of the origin-change invariant: every change of
+    /// the active self-hosted origin drops the snapshot, because the bookkeeping
+    /// that would carry an unfinished clear forward lives in per-origin web
+    /// storage the destination origin cannot read. Recording rather than
+    /// clearing outright is what makes the invariant hold across a change the
+    /// running process never saw: the compared value is mirrored into the App
+    /// Group, so the boot recording catches an origin the iOS Settings pane
+    /// rewrote while the app was terminated. See `SelfHostedServer` for the
+    /// three callers and why each one is needed.
+    ///
+    /// A mirror that was never written counts as a match, so the first launch
+    /// after this ships adopts the origin it finds instead of blanking widgets
+    /// that are correct.
+    ///
+    /// `canonicalOrigin` must come from `SelfHostedServer.activeOriginIdentity`
+    /// on every caller: the comparison is string equality, so agreeing on one
+    /// spelling per server is the whole contract.
+    static func recordAppliedOrigin(_ canonicalOrigin: String) {
+        if let previous = WidgetSnapshotStore.appliedOrigin(), previous != canonicalOrigin {
+            clearSnapshotAndReloadWidgets()
+        }
+        WidgetSnapshotStore.setAppliedOrigin(canonicalOrigin)
     }
 
     private static func conversation(from item: Any) -> WidgetSnapshotConversation? {

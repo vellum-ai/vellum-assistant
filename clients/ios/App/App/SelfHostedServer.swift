@@ -22,14 +22,27 @@ import Foundation
 /// a Home Screen that never reloads on its own. The web layer cannot carry the
 /// obligation across the boundary, because every record it could leave behind
 /// (the producer id, an unfinished-clear marker) lives in localStorage, which
-/// is per-origin, so the destination reads none of it. Routing every write
-/// through one setter means each native origin-change path inherits the drop
-/// without a call of its own: the plugin's `switchTo`, `switchToPath` and
-/// `remove`, the `connect` deep link on both a warm open and a cold launch,
-/// and the unreachable-server alert's "Use Vellum Cloud" fallback. The iOS
-/// Settings pane is the one writer that goes straight to `UserDefaults` behind
-/// this type's back, so `MyViewController.reloadIfConfiguredOriginChanged()`
-/// carries the same drop on the predicate it already computes.
+/// is per-origin, so the destination reads none of it.
+///
+/// The drop is expressed as a recording rather than a call to clear:
+/// `WidgetSnapshotPlugin.recordAppliedOrigin` compares `activeOriginIdentity`
+/// against the origin mirrored in the App Group beside the snapshot, and clears
+/// only on a change. Three callers make that cover every way the active origin
+/// moves:
+///
+///  1. `setActive`, so each in-app path inherits the drop without a call of its
+///     own: the plugin's `switchTo`, `switchToPath` and `remove`, the `connect`
+///     deep link on both a warm open and a cold launch, and the
+///     unreachable-server alert's "Use Vellum Cloud" fallback.
+///  2. `MyViewController.reloadIfConfiguredOriginChanged()`, for the iOS
+///     Settings pane, the one writer that goes straight to `UserDefaults`
+///     behind this type's back while the app is running.
+///  3. `MyViewController.instanceDescriptor()`, where a launch applies the
+///     origin it finds. This is the case no in-memory comparison can make: a
+///     Settings change against a terminated app leaves no previous value in the
+///     process that boots on the new origin, and only the mirror, which outlives
+///     the process because it sits in the container it describes, still knows
+///     which origin the snapshot came from.
 enum SelfHostedServer {
     /// `UserDefaults` key shared with the `Settings.bundle` pane. This exact
     /// string is the read/write contract with the settings `Root.plist`.
@@ -105,6 +118,20 @@ enum SelfHostedServer {
         return canonicalize(url).absoluteString
     }
 
+    /// The active origin as the single string every widget-snapshot comparison
+    /// is made on: the canonical configured origin, or `""` when none is set,
+    /// meaning the shell serves its baked Vellum Cloud URL.
+    ///
+    /// The cloud case is a value rather than an absence so that leaving it, or
+    /// returning to it, reads as a change like any other; `nil` stays free to
+    /// mean "never recorded" in `WidgetSnapshotStore.appliedOrigin()`. The baked
+    /// URL cannot be named here (it comes from the Capacitor descriptor) and
+    /// does not need to be: the preference is what every origin change writes,
+    /// so its canonical form identifies the origin either way.
+    static func activeOriginIdentity(defaults: UserDefaults = .standard) -> String {
+        return configuredURL(defaults: defaults).map(canonicalString) ?? ""
+    }
+
     /// Whether a URL canonically matches the active slot.
     static func isActive(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
         guard let active = configuredURL(defaults: defaults) else {
@@ -123,25 +150,21 @@ enum SelfHostedServer {
         setActive(nil, defaults: defaults)
     }
 
-    /// The single writer of the active slot, and with it the single place the
-    /// widget snapshot is dropped on an origin change (see the type doc).
+    /// The single writer of the active slot, and with it the single in-app
+    /// place the widget snapshot is bound to an origin (see the type doc).
     ///
-    /// The drop fires only when the effective origin actually moves, compared
-    /// canonically so a re-write of the same server in a different spelling
-    /// stays a no-op. Switching to the origin already active therefore keeps
-    /// the snapshot it belongs to, and clearing an already-absent preference
-    /// leaves the baked cloud origin's snapshot alone.
+    /// The recording drops the snapshot only when the effective origin actually
+    /// moves, compared canonically so a re-write of the same server in a
+    /// different spelling stays a no-op. Switching to the origin already active
+    /// therefore keeps the snapshot it belongs to, and clearing an
+    /// already-absent preference leaves the baked cloud origin's snapshot alone.
     private static func setActive(_ raw: String?, defaults: UserDefaults) {
-        let previous = configuredURL(defaults: defaults).map(canonicalString)
         if let raw {
             defaults.set(raw, forKey: defaultsKey)
         } else {
             defaults.removeObject(forKey: defaultsKey)
         }
-        guard previous != configuredURL(defaults: defaults).map(canonicalString) else {
-            return
-        }
-        WidgetSnapshotPlugin.clearSnapshotAndReloadWidgets()
+        WidgetSnapshotPlugin.recordAppliedOrigin(activeOriginIdentity(defaults: defaults))
     }
 
     /// The remembered server list, entries keyed by canonical URL. Entries
