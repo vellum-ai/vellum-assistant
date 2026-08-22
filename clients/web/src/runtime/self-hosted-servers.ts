@@ -258,6 +258,15 @@ export function installNativeRememberedOrigins(): void {
  * marker cannot reach is the swap that succeeds, since it lives in the
  * per-origin localStorage this page is leaving, which is the same reason the
  * producer id cannot help here.
+ *
+ * That gap is closed on the other side of the bridge: the shell's origin-swap
+ * methods (`SelfHostedServersPlugin.switchTo` and friends) drop the App Group
+ * snapshot themselves, in the same native call that rewrites the active slot,
+ * so a swap that lands has cleared. This clear stays as the primary anyway: it
+ * is the only one an installed shell predating that guarantee performs, and on
+ * a current shell it is a cheap best-effort that usually lands first. The
+ * residual (a clear that fails and a swap that succeeds, leaving the old
+ * snapshot) therefore exists only on those older shells, until they update.
  */
 async function nativeOriginSwap(
   method: string,

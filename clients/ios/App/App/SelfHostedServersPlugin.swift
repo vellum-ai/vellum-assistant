@@ -13,6 +13,9 @@ import Foundation
 /// - `switchTo({url?})` swaps the shell's origin and reloads in place; an
 ///   absent/empty url returns to the baked Vellum Cloud origin
 ///
+/// Every method here that changes the ACTIVE origin also drops the widget
+/// snapshot; see `switchTo` for why that belongs on this side of the bridge.
+///
 /// Per the skew rule in `clients/web/docs/CAPACITOR.md`, one result shape
 /// encodes every state: empty state resolves with an empty list and nulls
 /// rather than rejecting, so only genuinely invalid caller input (an `add` or
@@ -60,12 +63,16 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Forgetting a URL that is not (or cannot be) in the list is a no-op, so
     /// this never rejects. Removing the active server clears the active slot,
-    /// so the shell reloads back to the baked origin like `switchTo({})`.
+    /// so the shell reloads back to the baked origin like `switchTo({})`, and
+    /// carries the same widget-snapshot obligation described on `switchTo`.
     @objc public func remove(_ call: CAPPluginCall) {
         var removedActive = false
         if let url = SelfHostedServer.validate(call.getString("url")) {
             removedActive = SelfHostedServer.isActive(url)
             SelfHostedServer.remove(url: url)
+        }
+        if removedActive {
+            WidgetSnapshotPlugin.clearSnapshotAndReloadWidgets()
         }
         // Resolve before scheduling the reload: it tears the web context down,
         // so a caller awaiting this call would otherwise never settle.
@@ -83,6 +90,19 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
     /// main queue via `MyViewController.applyConfiguredOrigin()`; the runtime
     /// navigation allowance (`NavigationDelegateProxy`) checks the
     /// currently-configured host, so the new origin loads in-app.
+    ///
+    /// The widget snapshot is dropped here, as part of the swap, rather than
+    /// being left to the web layer. The snapshot describes the conversations of
+    /// the origin being left, and the destination is a different deployment
+    /// with its own account and list, so those titles must not stay on a Home
+    /// Screen that never reloads on its own. The web layer cannot carry that
+    /// obligation across the boundary: every record it could leave behind (the
+    /// producer id, an unfinished-clear marker) lives in localStorage, which is
+    /// per-origin, so the destination reads none of it. Doing it in the same
+    /// native call makes the drop atomic with the swap: if the origin changed,
+    /// the snapshot went with it, with no second bridge round trip to fail.
+    /// A swap whose target is the current origin clears it too, which is
+    /// accepted: the next resolved list re-syncs it.
     @objc public func switchTo(_ call: CAPPluginCall) {
         let raw = call.getString("url")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if raw.isEmpty {
@@ -94,12 +114,15 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("invalid url")
             return
         }
+        WidgetSnapshotPlugin.clearSnapshotAndReloadWidgets()
         DispatchQueue.main.async { [weak self] in
             (self?.bridge?.viewController as? MyViewController)?.applyConfiguredOrigin()
             call.resolve(["ok": true])
         }
     }
 
+    /// `switchTo` plus a route to land on, so it drops the widget snapshot for
+    /// the same reason and in the same breath as the origin write.
     @objc public func switchToPath(_ call: CAPPluginCall) {
         let path = call.getString("path")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("://"), !path.contains("#") else {
@@ -117,6 +140,7 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("invalid url")
             return
         }
+        WidgetSnapshotPlugin.clearSnapshotAndReloadWidgets()
         DispatchQueue.main.async { [weak self] in
             (self?.bridge?.viewController as? MyViewController)?.applyConfiguredOrigin(path: path)
             call.resolve(["ok": true])

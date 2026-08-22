@@ -54,8 +54,7 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
                 payloadVersion.map { "\($0)" } ?? "<none>",
                 WidgetSnapshot.currentSchemaVersion
             )
-            WidgetSnapshotStore.clear()
-            Self.reloadWidgets()
+            Self.clearSnapshotAndReloadWidgets()
             call.resolve(["ok": true])
             return
         }
@@ -78,9 +77,19 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc public func clear(_ call: CAPPluginCall) {
-        WidgetSnapshotStore.clear()
-        Self.reloadWidgets()
+        Self.clearSnapshotAndReloadWidgets()
         call.resolve(["ok": true])
+    }
+
+    /// Drop the App Group snapshot and refresh the surfaces that render it.
+    ///
+    /// Shared with `SelfHostedServersPlugin`, which owes the same drop on every
+    /// origin swap and cannot get it from the web layer: the bookkeeping that
+    /// would carry an unfinished clear forward lives in per-origin web storage,
+    /// which the destination origin cannot read.
+    static func clearSnapshotAndReloadWidgets() {
+        WidgetSnapshotStore.clear()
+        reloadWidgets()
     }
 
     private static func conversation(from item: Any) -> WidgetSnapshotConversation? {
