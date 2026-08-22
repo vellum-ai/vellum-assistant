@@ -9,8 +9,10 @@
 import type { Database } from "bun:sqlite";
 import {
   and,
+  asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
@@ -303,6 +305,12 @@ export interface ListGuardianRequestsFilters {
   sourceChannel?: string;
   kind?: string;
   toolName?: string;
+  /** Maximum rows to return. Results are ordered newest-first (createdAt DESC, id ASC). */
+  limit?: number;
+  /** Keyset cursor — epoch-ms createdAt of the last item on the previous page. */
+  before?: number;
+  /** Keyset cursor — id of the last item (tiebreaker for equal createdAt). */
+  beforeId?: string;
 }
 
 export function listGuardianRequests(
@@ -352,17 +360,36 @@ export function listGuardianRequests(
   if (filters?.toolName) {
     conditions.push(eq(guardianRequests.toolName, filters.toolName));
   }
-
-  if (conditions.length === 0) {
-    return db.select().from(guardianRequests).all().map(rowToRequest);
+  if (filters?.before !== undefined) {
+    const beforeMs = filters.before;
+    const beforeId = filters.beforeId;
+    conditions.push(
+      beforeId !== undefined
+        ? or(
+            lt(guardianRequests.createdAt, beforeMs),
+            and(
+              eq(guardianRequests.createdAt, beforeMs),
+              gt(guardianRequests.id, beforeId),
+            ),
+          )!
+        : lt(guardianRequests.createdAt, beforeMs),
+    );
   }
 
-  return db
+  const query = db
     .select()
     .from(guardianRequests)
-    .where(and(...conditions))
-    .all()
-    .map(rowToRequest);
+    .orderBy(desc(guardianRequests.createdAt), asc(guardianRequests.id));
+
+  const withWhere =
+    conditions.length > 0 ? query.where(and(...conditions)) : query;
+
+  const rows =
+    filters?.limit !== undefined
+      ? withWhere.limit(filters.limit).all()
+      : withWhere.all();
+
+  return rows.map(rowToRequest);
 }
 
 export interface UpdateGuardianRequestParams {
@@ -417,7 +444,8 @@ export interface ResolveGuardianRequestDecision {
 }
 
 export type ResolveGuardianRequestResult =
-  { applied: true; request: GuardianRequest } | { applied: false };
+  | { applied: true; request: GuardianRequest }
+  | { applied: false };
 
 /**
  * Compare-and-swap resolve: only transitions the request from

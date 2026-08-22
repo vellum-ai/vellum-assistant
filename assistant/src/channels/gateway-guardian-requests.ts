@@ -158,7 +158,7 @@ export const getGuardianRequestByCodeOrNull = degradeOnFailure(
 );
 
 /** List guardian requests matching the filters. Throws on transport failure. */
-async function listGuardianRequests(
+export async function listGuardianRequests(
   filters: ListGuardianRequestsIpcParams = {},
 ): Promise<GuardianRequestWire[]> {
   return callGateway(
