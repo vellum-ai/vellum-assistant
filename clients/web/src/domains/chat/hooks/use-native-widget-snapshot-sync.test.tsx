@@ -28,6 +28,10 @@
  * fresh stamp on outdated rows. bun ships no fake timers, so `setInterval` and
  * `clearInterval` are stubbed with the armed-timer capture other hooks in this
  * directory use, and the heartbeat's own delay picks its timer out.
+ *
+ * The hook is also the seam that finishes a clear a previous session could not:
+ * a sign-out or origin swap whose bridge call failed persists the obligation,
+ * and a launch that reaches no sync of its own would otherwise never honor it.
  */
 
 import {
@@ -61,7 +65,12 @@ mock.module("@/utils/conversation-list-fetchers", () => ({
 const syncedSnapshots: WidgetSnapshotPayload[] = [];
 const syncedAssistantIds: (string | null)[] = [];
 let clearCount = 0;
+/** Every bridge call in order, for the claims that are about ordering. */
+let bridgeOrder: string[] = [];
 let syncAvailable = true;
+// Stands in for the obligation the module persists when a clear does not land,
+// which it finishes before anything a later session writes.
+let pendingClear = false;
 // Whether the bridge write lands. False stands in for both ways it can fail:
 // a shell too old to carry the plugin rejects, and one that accepts the call
 // without answering hits the module's two-second timeout. The hook sees the
@@ -83,15 +92,32 @@ mock.module("@/runtime/widget-snapshot", () => ({
   ) => {
     syncedSnapshots.push(snapshot);
     syncedAssistantIds.push(assistantId);
+    bridgeOrder.push("sync");
     if (!syncLands) {
       return false;
     }
+    // A landed write replaces the whole App Group record, so it also settles
+    // any clear that was owed for what used to be there.
+    pendingClear = false;
     persistedAssistantId = assistantId;
     return true;
   },
   clearWidgetSnapshot: async () => {
     clearCount++;
+    bridgeOrder.push("clear");
     persistedAssistantId = null;
+    pendingClear = false;
+    return true;
+  },
+  retryPendingWidgetSnapshotClear: async () => {
+    if (!pendingClear) {
+      return true;
+    }
+    clearCount++;
+    bridgeOrder.push("clear");
+    persistedAssistantId = null;
+    pendingClear = false;
+    return true;
   },
 }));
 
@@ -185,8 +211,10 @@ beforeEach(() => {
   syncedSnapshots.length = 0;
   syncedAssistantIds.length = 0;
   clearCount = 0;
+  bridgeOrder = [];
   syncAvailable = true;
   syncLands = true;
+  pendingClear = false;
   persistedAssistantId = null;
   armedTimers = [];
   useConversationStore.setState({ processingConversationIds: new Set() });
@@ -384,6 +412,44 @@ describe("useNativeWidgetSnapshotSync", () => {
       inputsResolved: false,
     });
     expect(clearCount).toBe(1);
+  });
+
+  it("finishes a clear a previous session could not, before writing its own", () => {
+    // The previous session's sign-out reached a bridge that rejected or never
+    // answered, so its snapshot is still up and the obligation persisted. This
+    // launch signs in as the same assistant, so nothing about the producer id
+    // says anything is wrong: the obligation is the only thing that reaches it.
+    pendingClear = true;
+    persistedAssistantId = ASSISTANT_ID;
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(bridgeOrder).toEqual(["clear", "sync"]);
+  });
+
+  it("issues no clear on a launch that owes none", () => {
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(bridgeOrder).toEqual(["sync"]);
+  });
+
+  it("finishes an owed clear even on a launch whose list never resolves", () => {
+    // Offline, or an assistant that never comes up: this session reaches no
+    // sync and no switch, so the mount is the only seam the obligation has.
+    pendingClear = true;
+    persistedAssistantId = ASSISTANT_ID;
+    render({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: false,
+    });
+    expect(clearCount).toBe(1);
+    expect(syncedSnapshots).toHaveLength(0);
   });
 
   it("keeps a cold-boot snapshot this assistant produced while its list is pending", () => {
@@ -866,11 +932,15 @@ describe("useNativeWidgetSnapshotSync", () => {
 
   it("is a no-op off Capacitor iOS", () => {
     syncAvailable = false;
+    // Including the obligation: nothing off iOS ever wrote a snapshot, so
+    // there is none to owe a clear for.
+    pendingClear = true;
     render({
       conversations: [conversation("c1")],
       conversationGroups: NO_GROUPS,
       inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(0);
+    expect(bridgeOrder).toHaveLength(0);
   });
 });

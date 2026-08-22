@@ -289,6 +289,13 @@ const sessionEnded = (): Partial<AuthState> => ({
  * navigation that tears the page down before a detached bridge call would
  * reach the shell.
  *
+ * Awaited, but not gated on: a sign-out the bridge could refuse to complete
+ * would be worse than a snapshot that outlives it by one launch. It is not
+ * fire-and-forget either, because a clear that does not land persists the
+ * obligation and the next use of the module finishes it, so the drop is
+ * at-least-once rather than best-effort. That is why nothing here reads the
+ * reported outcome.
+ *
  * That await is bounded but not instant (2s on an unanswering iOS bridge), so
  * the write is guarded by {@link authEpoch}: an authentication that lands while
  * the clear is outstanding supersedes this transition, and the resumed call

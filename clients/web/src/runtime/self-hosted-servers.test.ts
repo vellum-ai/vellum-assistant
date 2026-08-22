@@ -52,6 +52,7 @@ const bridgeOrder: string[] = [];
 
 const clearWidgetSnapshotMock = mock(async () => {
   bridgeOrder.push("clearWidgetSnapshot");
+  return true;
 });
 mock.module("@/runtime/widget-snapshot", () => ({
   clearWidgetSnapshot: clearWidgetSnapshotMock,
@@ -421,6 +422,20 @@ describe("nativeSwitchToOrigin", () => {
 
     expect(await nativeSwitchToOrigin("https://host.example")).toBe(false);
     expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("swaps anyway when the snapshot clear does not land", async () => {
+    // A shell too old to carry the snapshot plugin, or one that never answers
+    // the call, must not be able to strand the user on this origin. The drop
+    // is not lost with the attempt: the module persists the obligation and
+    // finishes it on the next use, which is why nothing here reads the result.
+    clearWidgetSnapshotMock.mockImplementationOnce(async () => {
+      bridgeOrder.push("clearWidgetSnapshot");
+      return false;
+    });
+
+    expect(await nativeSwitchToOrigin("https://host.example")).toBe(true);
+    expect(bridgeOrder).toEqual(["clearWidgetSnapshot", "switchTo"]);
   });
 });
 

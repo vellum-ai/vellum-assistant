@@ -41,6 +41,40 @@ export function readWidgetSnapshotAssistantId(): string | null {
 }
 
 /**
+ * An unfinished obligation to drop the native snapshot.
+ *
+ * A clear on a session seam cannot be made blocking: sign-out and an origin
+ * swap have to proceed whether or not the bridge answers, so neither can be
+ * held hostage to it. A clear that rejects or times out therefore records the
+ * obligation here rather than dropping it, and the next use of this module
+ * honors it before writing anything of its own. That makes a session-ending
+ * clear at-least-once across launches instead of fire-and-forget, which is what
+ * keeps a departed account's conversation titles off a Home Screen that never
+ * reloads on its own.
+ *
+ * Persisted beside the producer id and just as best-effort: storage that
+ * refuses the write leaves the marker absent, which reads as "nothing owed" and
+ * falls back to the producer-id machinery, one belt for the other's braces.
+ */
+const PENDING_CLEAR_KEY = "vellum:widgetSnapshotPendingClear";
+
+function hasPendingClear(): boolean {
+  return getLocalSetting(PENDING_CLEAR_KEY, "") !== "";
+}
+
+/**
+ * Bumped as every clear starts AND as it settles, so a write on the bridge
+ * across any part of one can tell that it belongs to a session that is ending.
+ * Such a write may land on either side of the clear, so what it leaves in the
+ * App Group is itself something to clear rather than a snapshot the current
+ * session wants.
+ */
+let clearGeneration = 0;
+
+/** The retry in flight, so a mount-time retry and a sync share one clear. */
+let pendingClearRetry: Promise<boolean> | null = null;
+
+/**
  * Wire-format version. Must stay in lockstep with the Swift side's
  * `WidgetSnapshot.currentSchemaVersion`: a snapshot written under a version
  * the reader does not recognize is discarded rather than misread, which is
@@ -149,6 +183,18 @@ async function callBridge(
  * rejected or timed out would suppress every retry until the conversation data
  * itself changed, leaving a stale snapshot on the Home Screen. False off iOS
  * too, where nothing was written by construction.
+ *
+ * An owed clear ({@link PENDING_CLEAR_KEY}) is honored first, so a snapshot a
+ * previous session failed to drop is never left underneath a new one. The wait
+ * is what makes the ordering real rather than merely intended: a clear issued
+ * alongside this write could otherwise land after it and wipe the fresh
+ * snapshot.
+ *
+ * A landed write then discharges that obligation, because the plugin REPLACES
+ * the App Group record rather than merging into it: the payload the clear was
+ * owed for no longer exists once this one is in. The equivalence is exact only
+ * while the Swift side keeps replacing, so a plugin that ever merged would have
+ * to break it.
  */
 export async function syncWidgetSnapshot(
   snapshot: WidgetSnapshotPayload,
@@ -157,9 +203,21 @@ export async function syncWidgetSnapshot(
   if (!isWidgetSnapshotSyncAvailable()) {
     return false;
   }
+  await retryPendingWidgetSnapshotClear();
+  const generation = clearGeneration;
   if (!(await callBridge("sync", () => WidgetSnapshot.sync(snapshot)))) {
     return false;
   }
+  if (generation !== clearGeneration) {
+    // A clear started while this write was on the bridge, so the session it
+    // describes is over and what it left is owed a clear of its own. Re-arming
+    // rather than discharging is also what covers the clear that SUCCEEDED
+    // before this landed: the record it removed cannot name this orphan, so the
+    // marker is the only thing left that can reach it.
+    setLocalSetting(PENDING_CLEAR_KEY, "1");
+    return true;
+  }
+  removeLocalSetting(PENDING_CLEAR_KEY);
   if (assistantId === null) {
     removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);
     return true;
@@ -183,13 +241,63 @@ export async function syncWidgetSnapshot(
  * consistent. The origin swap is the one that cannot be caught later: the
  * producer id lives in localStorage, which is per-origin, so the new
  * deployment starts with no record of the snapshot the old one left behind.
+ *
+ * Reports whether the native clear landed. A clear that did NOT land leaves the
+ * App Group untouched, so it also leaves the recorded producer with it, and
+ * records the obligation in {@link PENDING_CLEAR_KEY} for the next use of this
+ * module to finish. Callers on a session seam are free to carry on either way,
+ * which is the point of persisting the obligation rather than reporting it and
+ * hoping: sign-out must not be blockable by a bridge, and the marker is what
+ * keeps the clear at-least-once anyway. True off iOS, where there is nothing to
+ * clear by construction.
  */
-export async function clearWidgetSnapshot(): Promise<void> {
+export async function clearWidgetSnapshot(): Promise<boolean> {
   if (!isWidgetSnapshotSyncAvailable()) {
-    return;
+    return true;
   }
-  if (!(await callBridge("clear", () => WidgetSnapshot.clear()))) {
-    return;
+  clearGeneration += 1;
+  // Armed BEFORE the attempt, so a page torn down mid-call (a sign-out that
+  // ends in a hard navigation, an origin swap, the user closing the app) still
+  // leaves the obligation behind rather than losing it with the page.
+  setLocalSetting(PENDING_CLEAR_KEY, "1");
+  const landed = await callBridge("clear", () => WidgetSnapshot.clear());
+  // Bumped again as the call settles, not only as it starts. A write that
+  // entered after the start and lands after the finish overlapped this call
+  // from end to end, and one bump cannot tell that apart from no overlap:
+  // the write would read the same generation it captured and take itself for
+  // uncontested.
+  clearGeneration += 1;
+  if (!landed) {
+    return false;
   }
   removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);
+  removeLocalSetting(PENDING_CLEAR_KEY);
+  return true;
+}
+
+/**
+ * Finish a clear a previous attempt owed, if one is owed.
+ *
+ * {@link syncWidgetSnapshot} awaits this itself, so no write can slip past an
+ * owed clear. The producer hook also calls it on mount, for the launch that
+ * never syncs at all: a list that stays unresolved (offline, an assistant that
+ * never comes up) reaches no other seam, and the obligation would otherwise
+ * wait for a session that does.
+ *
+ * Concurrent callers share the one in-flight clear rather than each issuing
+ * their own, so a retry cannot land after a sync that was waiting on it and
+ * wipe the snapshot that sync just wrote.
+ *
+ * Resolves true when nothing is owed, which includes off iOS.
+ */
+export async function retryPendingWidgetSnapshotClear(): Promise<boolean> {
+  if (!isWidgetSnapshotSyncAvailable() || !hasPendingClear()) {
+    return true;
+  }
+  if (pendingClearRetry === null) {
+    pendingClearRetry = clearWidgetSnapshot().finally(() => {
+      pendingClearRetry = null;
+    });
+  }
+  return pendingClearRetry;
 }

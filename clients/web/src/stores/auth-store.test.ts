@@ -327,13 +327,14 @@ mock.module("@/lib/auth/session-cleanup", () => ({
 // The iOS widget snapshot outlives the page, so every session-ending path has
 // to drop it. Full module surface: `mock.module` is process-global in bun, so
 // a partial shape would shadow the other exports for later test files.
-const clearWidgetSnapshotMock = mock(async () => {});
+const clearWidgetSnapshotMock = mock(async () => true);
 mock.module("@/runtime/widget-snapshot", () => ({
   WIDGET_SNAPSHOT_SCHEMA_VERSION: 1,
   isWidgetSnapshotSyncAvailable: () => false,
   readWidgetSnapshotAssistantId: () => null,
-  syncWidgetSnapshot: async () => {},
+  syncWidgetSnapshot: async () => false,
   clearWidgetSnapshot: clearWidgetSnapshotMock,
+  retryPendingWidgetSnapshotClear: async () => true,
 }));
 
 // Use the REAL resolved-assistants store: it's dependency-light, so loading it
@@ -1732,8 +1733,8 @@ function holdWidgetSnapshotClear(): () => void {
   let release = (): void => {};
   clearWidgetSnapshotMock.mockImplementationOnce(
     () =>
-      new Promise<void>((resolve) => {
-        release = resolve;
+      new Promise<boolean>((resolve) => {
+        release = () => resolve(true);
       }),
   );
   return () => release();
@@ -1768,6 +1769,7 @@ describe("iOS widget snapshot on session end", () => {
     let statusAtClearTime = useAuthStore.getState().sessionStatus;
     clearWidgetSnapshotMock.mockImplementationOnce(async () => {
       statusAtClearTime = useAuthStore.getState().sessionStatus;
+      return true;
     });
     useAuthStore.setState({ sessionStatus: "authenticated" });
 

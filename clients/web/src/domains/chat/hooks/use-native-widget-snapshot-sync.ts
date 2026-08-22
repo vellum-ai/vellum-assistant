@@ -6,6 +6,7 @@ import {
   clearWidgetSnapshot,
   isWidgetSnapshotSyncAvailable,
   readWidgetSnapshotAssistantId,
+  retryPendingWidgetSnapshotClear,
   syncWidgetSnapshot,
   WIDGET_SNAPSHOT_SCHEMA_VERSION,
   type WidgetSnapshotConversation,
@@ -150,6 +151,13 @@ type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
  * would find no known owner and leave that producer's titles on the Home
  * Screen indefinitely.
  *
+ * A clear owed by a previous session (its sign-out or origin swap reached a
+ * bridge that rejected or never answered) is finished on mount, before this
+ * session writes anything of its own. `syncWidgetSnapshot` awaits the same
+ * retry, so the ordering holds however the two are scheduled; the mount call is
+ * what covers the launch that reaches no sync at all, where a list that never
+ * resolves would otherwise leave the departed snapshot up for the whole run.
+ *
  * The fallback for a conversation with no title is serialized into the App
  * Group and drawn verbatim by the widget, so it comes from the catalog rather
  * than a literal. It is read through the reactive `useTranslation` binding,
@@ -238,6 +246,19 @@ export function useNativeWidgetSnapshotSync(
     },
     [],
   );
+
+  // A clear a previous session could not finish (its bridge rejected or timed
+  // out on the way out of a sign-out or an origin swap) is persisted as an
+  // obligation, so this launch honors it. `syncWidgetSnapshot` awaits the same
+  // retry, which is what orders it ahead of anything this session writes; the
+  // mount call is for the launch that never reaches a sync at all, where a list
+  // that stays unresolved would otherwise leave the departed snapshot up.
+  useEffect(() => {
+    if (!isWidgetSnapshotSyncAvailable()) {
+      return;
+    }
+    void retryPendingWidgetSnapshotClear();
+  }, []);
 
   useEffect(() => {
     if (!isWidgetSnapshotSyncAvailable()) {

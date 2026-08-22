@@ -250,6 +250,14 @@ export function installNativeRememberedOrigins(): void {
  * Home Screen that never reloads on its own. A swap whose target is already
  * the current origin clears the snapshot too, which is accepted: the next
  * resolved list re-syncs it.
+ *
+ * The swap proceeds whether or not the clear lands, so nothing here reads its
+ * outcome: a clear that fails persists its obligation and the next use of the
+ * module finishes it, making the drop at-least-once rather than the
+ * fire-and-forget it would be if the swap simply carried on. The one case the
+ * marker cannot reach is the swap that succeeds, since it lives in the
+ * per-origin localStorage this page is leaving, which is the same reason the
+ * producer id cannot help here.
  */
 async function nativeOriginSwap(
   method: string,
