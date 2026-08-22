@@ -94,8 +94,8 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   // both callbacks re-read the shell and report what that read found. The
   // caller has UI riding on the answer, and it should be riding on the home
   // screen rather than on the request. A read that degrades, an old shell or a
-  // bridge fault, reports nothing applied: an apply reads as failed instead of
-  // throwing, and a reset as already back to the default icon.
+  // bridge fault, cannot verify anything, so both callbacks report failure
+  // instead of throwing.
   const apply = useCallback(async () => {
     if (!enabled || !availableMatch || target === null) {
       return false;
@@ -111,7 +111,7 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
     }
     await setAppIcon(null);
     const restored = await refresh();
-    return restored.current === null;
+    return restored.supported && restored.current === null;
   }, [enabled, refresh]);
 
   return {

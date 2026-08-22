@@ -283,6 +283,26 @@ describe("useAppIconSync", () => {
     });
   });
 
+  test("reset reports failure when the re-read degrades", async () => {
+    iconState = { supported: true, current: ICON, available: [ICON] };
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.currentIcon).toBe(ICON);
+    });
+    iconState = { supported: false, current: null, available: [] };
+
+    let restored: boolean | undefined;
+    await act(async () => {
+      restored = await result.current.reset();
+    });
+
+    expect(restored).toBe(false);
+    expect(useAppIconStore.getState().snapshot).toEqual(APP_ICON_UNSUPPORTED);
+    await waitFor(() => {
+      expect(result.current.enabled).toBe(false);
+    });
+  });
+
   test("reset reports a swap the shell took but never made", async () => {
     iconState = { supported: true, current: ICON, available: [ICON] };
     const { result } = await renderSync();
