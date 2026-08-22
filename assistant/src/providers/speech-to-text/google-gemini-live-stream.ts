@@ -51,12 +51,13 @@ const log = getLogger("google-gemini-live-stream");
  * from that list closes the Live socket with code 1008 ("not found for API
  * version v1beta, or is not supported for bidiGenerateContent").
  *
- * Prefer a `-latest` alias over a dated `-preview` id. Google rotates the
- * alias forward, while preview ids are retired on their own schedule and can
- * keep serving grandfathered projects after they stop being listed, so a
- * retired id can fail for new API keys while still working internally.
+ * Prefer a `-latest` alias over a dated `-preview` id: Google rotates the
+ * alias forward, while preview ids are retired on their own schedule.
+ *
+ * Exported so `scripts/check-model-pins.ts` probes the live value rather than
+ * a copy that can drift out of step with it.
  */
-const DEFAULT_MODEL = "gemini-2.5-flash-native-audio-latest";
+export const DEFAULT_MODEL = "gemini-2.5-flash-native-audio-latest";
 
 /**
  * Default timeout (ms) for the Live session handshake.
