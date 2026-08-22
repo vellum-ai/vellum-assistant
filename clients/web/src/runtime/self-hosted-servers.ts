@@ -233,61 +233,74 @@ export function installNativeRememberedOrigins(): void {
 }
 
 /**
- * Swap the shell's origin in place, `null` meaning "back to the baked Vellum
- * Cloud origin". Resolves whether the shell took the switch, so a caller on an
- * older shell (or off native mobile) can fall back to a plain navigation.
+ * The one native origin-swap sequence: gate on the shell, run the pre-switch
+ * preparation, hand `swap` to the bridge, and resolve whether the shell took
+ * it. Every path out of an origin goes through here, so a preparation step
+ * added later cannot land on one path and miss the other. `method` names the
+ * bridge call for the skew debug line.
  *
- * Drops the iOS widget snapshot first. The target origin is a different
+ * Preparation drops the iOS widget snapshot. The target origin is a different
  * deployment with its own conversations, so the snapshot the running one
  * produced is about to describe an account the widgets are no longer showing,
  * and the producer id that catches a stale snapshot elsewhere cannot help
  * here: it lives in localStorage, which is per-origin and does not survive the
- * swap. The clear belongs to this function rather than to its callers so that
- * no way of leaving an origin can forget it. The widgets sit empty until the
- * new origin resolves its own list, which beats the previous deployment's
- * titles on a Home Screen that never reloads on its own.
+ * swap. The clear belongs here rather than at the call sites so that no way of
+ * leaving an origin can forget it. The widgets sit empty until the new origin
+ * resolves its own list, which beats the previous deployment's titles on a
+ * Home Screen that never reloads on its own. A swap whose target is already
+ * the current origin clears the snapshot too, which is accepted: the next
+ * resolved list re-syncs it.
  */
-export async function nativeSwitchToOrigin(
-  url: string | null,
+async function nativeOriginSwap(
+  method: string,
+  swap: () => Promise<unknown>,
 ): Promise<boolean> {
   if (!isNativeMobile()) {
     return false;
   }
   await clearWidgetSnapshot();
   try {
-    await SelfHostedServers.switchTo(url === null ? {} : { url });
+    await swap();
     return true;
   } catch (err) {
-    console.debug("[self-hosted-servers] switchTo unavailable:", err);
+    console.debug(`[self-hosted-servers] ${method} unavailable:`, err);
     return false;
   }
+}
+
+/**
+ * Swap the shell's origin in place, `null` meaning "back to the baked Vellum
+ * Cloud origin". Resolves whether the shell took the switch, so a caller on an
+ * older shell (or off native mobile) can fall back to a plain navigation.
+ *
+ * Runs through {@link nativeOriginSwap}, which drops the widget snapshot
+ * before the shell leaves the origin.
+ */
+export async function nativeSwitchToOrigin(
+  url: string | null,
+): Promise<boolean> {
+  return nativeOriginSwap("switchTo", () =>
+    SelfHostedServers.switchTo(url === null ? {} : { url }),
+  );
 }
 
 /**
  * Switch the shell to an origin and load a route atomically. A separate bridge
  * method preserves the skew fallback when an older shell lacks path support.
  *
- * Drops the widget snapshot first, for the reason spelled out on
- * {@link nativeSwitchToOrigin}.
+ * Shares {@link nativeOriginSwap} with {@link nativeSwitchToOrigin}, so the
+ * pre-switch snapshot clear covers this path too.
  */
 export async function nativeSwitchToOriginPath(
   url: string | null,
   path: string,
 ): Promise<boolean> {
-  if (!isNativeMobile()) {
-    return false;
-  }
-  await clearWidgetSnapshot();
-  try {
-    await SelfHostedServers.switchToPath({
+  return nativeOriginSwap("switchToPath", () =>
+    SelfHostedServers.switchToPath({
       ...(url === null ? {} : { url }),
       path,
-    });
-    return true;
-  } catch (err) {
-    console.debug("[self-hosted-servers] switchToPath unavailable:", err);
-    return false;
-  }
+    }),
+  );
 }
 
 /**

@@ -122,8 +122,8 @@ describe("CameraCaptureOverlay", () => {
     // cleanup, setup with the refs preserved. The cleanup half is a real
     // teardown of `useVoiceCamera`: it releases the camera and cancels the
     // acquisition still in flight, so the surface has to ask for another one.
-    // A latch that only answered "have I opened before" said yes on the second
-    // pass and left every development build with a dead viewfinder.
+    // A latch that only asks whether the camera was opened before answers yes
+    // on the second pass, leaving a development build with a dead viewfinder.
     renderOverlayStrict();
 
     expect(openCameraMock).toHaveBeenCalledTimes(2);
