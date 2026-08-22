@@ -9,7 +9,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { ApiError } from "@/utils/api-errors";
 
 const CONVERSATION_LIST_LOAD_FAILED_CODE = "CONVERSATION_LIST_LOAD_FAILED";
-const DEFAULT_RESUME_GRACE_MS = 15_000;
+const DEFAULT_RESUME_GRACE_MS = 30_000;
 
 // The conversation-list query is stubbed so the test drives its error state
 // directly; history loading, routing, and toasts are stubbed out so only the

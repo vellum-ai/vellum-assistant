@@ -65,6 +65,24 @@ interface BannerConfig {
 
 const LOCAL_WAKE_SETTLING_MS = 60_000;
 
+// How long an operational "unreachable" reading (or a status-query error)
+// must persist before it surfaces as a hard error. Mobile WebViews can be
+// killed and cold-restarted, throttle timers, or drop the first probe on a
+// flaky network, so the app can observe a fresh "unreachable" without any
+// resume signal or preceding healthy reading to key suppression on. Until
+// the reading settles, the banner shows the "waking" info treatment.
+let unreachableSettleMs = 30_000;
+
+/**
+ * Override the unreachable settle window. Test-only seam so specs can
+ * exercise both sides of the debounce without real-time waits; never call
+ * from production code.
+ * @internal
+ */
+export function __setUnreachableSettleMsForTesting(ms: number): void {
+  unreachableSettleMs = ms;
+}
+
 export type StatusBannerPlacement = "web" | "electron";
 
 interface StatusToneClasses {
@@ -634,6 +652,39 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // the preceding reading.
   const isResumeGraceActive = useResumeGrace();
 
+  // Require an "unreachable" reading to persist for the settle window before
+  // it can surface as an error. This is the catch-all for clients whose
+  // lifecycle signals are unreliable (mobile WebView cold restarts, throttled
+  // timers, probes racing a pod wake): no resume event or prior healthy
+  // reading is needed for the suppression to apply.
+  const [hasUnreachableSettled, setHasUnreachableSettled] = useState(false);
+  // Keyed by assistant id so a polling-target switch restarts the settle
+  // window instead of inheriting the previous assistant's settled reading.
+  useEffect(() => {
+    setHasUnreachableSettled(false);
+    if (operationalStatus?.state !== "unreachable") {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setHasUnreachableSettled(true);
+    }, unreachableSettleMs);
+    return () => clearTimeout(timeout);
+  }, [assistantId, operationalStatus?.state]);
+
+  // Same debounce for the status query erroring outright: the first probe
+  // after a cold restart or reconnect can fail before the assistant settles.
+  const [hasStatusErrorSettled, setHasStatusErrorSettled] = useState(false);
+  useEffect(() => {
+    setHasStatusErrorSettled(false);
+    if (!operationalStatusIsError) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setHasStatusErrorSettled(true);
+    }, unreachableSettleMs);
+    return () => clearTimeout(timeout);
+  }, [assistantId, operationalStatusIsError]);
+
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
   // classify as a crash loop before the assistant settles back to active.
@@ -914,13 +965,15 @@ function useAssistantBannerConfig(): BannerConfig | null {
     lifecycleMaintenanceModeActive &&
     (!operationalStatus || isHealthyOperationalStatus(operationalStatus));
 
-  // Hold back a status-query error briefly after resume: the first probe on
-  // return from background can fail transiently before the assistant settles.
-  // Once the grace window expires a persisting error surfaces normally.
+  // Hold back a status-query error until it both outlives the resume grace
+  // window and persists past the settle window: the first probe on return
+  // from background or after a cold restart can fail transiently before the
+  // assistant settles. A persisting error then surfaces normally.
   if (
     operationalStatusIsError &&
     !shouldUseLifecycleMaintenanceMode &&
-    !isResumeGraceActive
+    !isResumeGraceActive &&
+    (hasStatusErrorSettled || unreachableSettleMs <= 0)
   ) {
     return {
       tone: "error",
@@ -938,24 +991,31 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // the user sees a smooth active → sleeping progression.
   // Similarly, a restart can briefly read as "crash_loop"; keep showing
   // "restarting" until the grace window expires.
-  // Finally, within the resume grace window a transient "unreachable" reads
-  // as "waking" so returning to a backgrounded client shows the info/spinner
-  // treatment rather than the "unreachable" error banner.
+  // Finally, within the resume grace window, or until the reading persists
+  // past the settle window, a transient "unreachable" reads as "waking" so
+  // a returning or cold-restarted client shows the info/spinner treatment
+  // rather than the "unreachable" error banner.
   const effectiveStatus =
-    operationalStatus?.state === "unreachable" &&
-    (wasRecentlySleeping || isResumeGraceActive)
+    operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
       : operationalStatus?.state === "unreachable" && wasRecentlyActive
         ? {
             ...operationalStatus,
             state: "sleeping" as AssistantOperationalState,
           }
-        : operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
+        : operationalStatus?.state === "unreachable" &&
+            (isResumeGraceActive ||
+              (!hasUnreachableSettled && unreachableSettleMs > 0))
           ? {
               ...operationalStatus,
-              state: "restarting" as AssistantOperationalState,
+              state: "waking" as AssistantOperationalState,
             }
-          : operationalStatus;
+          : operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
+            ? {
+                ...operationalStatus,
+                state: "restarting" as AssistantOperationalState,
+              }
+            : operationalStatus;
 
   const isFailedOperationDismissed =
     effectiveStatus?.detail_state === "failed" &&
