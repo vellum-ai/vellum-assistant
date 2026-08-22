@@ -91,6 +91,91 @@ describe("assistant channels", () => {
     });
   });
 
+  describe("two-axis rendering", () => {
+    /**
+     * A configured channel whose delivery stopped is the state this command
+     * used to have no word for. Setup is finished, so telling the reader to
+     * finish setup sends them to re-enter credentials that are already
+     * correct, and the operational reason for the outage is the only thing
+     * they can act on.
+     */
+    const configuredButDown = (health: string) =>
+      emptySnapshot("slack", {
+        ready: false,
+        setupStatus: "ready",
+        health,
+        localChecks: [
+          {
+            name: "inbound_delivery",
+            passed: health !== "failing",
+            kind: "operational",
+            message: "Slack Socket Mode holds no live connection",
+          },
+        ],
+      });
+
+    test("list calls a configured channel that stopped delivering down, not unfinished", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: { success: true, snapshots: [configuredButDown("failing")] },
+        },
+      ];
+      const out = await runCli("channels", "list");
+      expect(out).toContain("not delivering");
+      expect(out).not.toContain("incomplete");
+      expect(out).not.toContain("not configured");
+    });
+
+    test("list distinguishes a verdict it could not obtain from an outage", async () => {
+      mockResponses = [
+        {
+          ok: true,
+          result: { success: true, snapshots: [configuredButDown("unknown")] },
+        },
+      ];
+      const out = await runCli("channels", "list");
+      expect(out).toContain("state unknown");
+      expect(out).not.toContain("not delivering");
+      expect(out).not.toContain("incomplete");
+    });
+
+    test("setup that genuinely did not finish still reads incomplete", async () => {
+      // The sensitivity check on the two above: the word has to survive for
+      // the state it was always correct for.
+      mockResponses = [
+        {
+          ok: true,
+          result: {
+            success: true,
+            snapshots: [
+              emptySnapshot("slack", {
+                ready: false,
+                setupStatus: "incomplete",
+              }),
+            ],
+          },
+        },
+      ];
+      const out = await runCli("channels", "list");
+      expect(out).toContain("incomplete");
+    });
+
+    test("the detail header agrees with its own glyph", async () => {
+      // It used to print the raw setupStatus beside a glyph derived from both
+      // axes, so an outage rendered as a warning sign next to the word ready.
+      mockResponses = [
+        {
+          ok: true,
+          result: { success: true, snapshots: [configuredButDown("failing")] },
+        },
+      ];
+      const out = await runCli("channels", "get", "slack");
+      expect(out).toContain("slack — not delivering");
+      expect(out).not.toContain("slack — ready");
+    });
+  });
+
   describe("get", () => {
     test("always re-probes via the refresh route (live, never cached)", async () => {
       mockResponses = [
