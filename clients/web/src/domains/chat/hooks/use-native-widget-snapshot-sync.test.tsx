@@ -18,6 +18,13 @@
  * The key is armed from the bridge call's resolution, not from the render that
  * fired it, so a write the bridge rejected or never answered is retried by the
  * next run instead of being deduped away.
+ *
+ * Because `generatedAt` is outside that key, a session left open on unchanged
+ * data would never move it, and the widget extension ages a snapshot out on its
+ * own clock. So a heartbeat re-sends the landed payload through the same send
+ * path on a bounded interval. bun ships no fake timers, so `setInterval` and
+ * `clearInterval` are stubbed with the armed-timer capture other hooks in this
+ * directory use, and the heartbeat's own delay picks its timer out.
  */
 
 import {
@@ -95,8 +102,34 @@ function settle(): Promise<void> {
 }
 
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useNativeWidgetSnapshotSync } =
+const { useNativeWidgetSnapshotSync, WIDGET_SNAPSHOT_HEARTBEAT_MS } =
   await import("@/domains/chat/hooks/use-native-widget-snapshot-sync");
+
+// --- setInterval capture ----------------------------------------------------
+
+interface ArmedTimer {
+  handler: () => void;
+  delay: number;
+  cleared: boolean;
+}
+
+let armedTimers: ArmedTimer[] = [];
+const realSetInterval = globalThis.setInterval;
+const realClearInterval = globalThis.clearInterval;
+
+/** The heartbeat timers still armed, newest last. */
+function liveHeartbeats(): ArmedTimer[] {
+  return armedTimers.filter(
+    (timer) => timer.delay === WIDGET_SNAPSHOT_HEARTBEAT_MS && !timer.cleared,
+  );
+}
+
+/** Run the one armed heartbeat, failing loudly if the hook armed none. */
+function fireHeartbeat(): void {
+  const live = liveHeartbeats();
+  expect(live).toHaveLength(1);
+  live[0]?.handler();
+}
 
 const ASSISTANT_ID = "asst-1";
 const NO_GROUPS: ConversationGroup[] = [];
@@ -152,10 +185,24 @@ beforeEach(() => {
   syncAvailable = true;
   syncLands = true;
   persistedAssistantId = null;
+  armedTimers = [];
   useConversationStore.setState({ processingConversationIds: new Set() });
+
+  globalThis.setInterval = ((handler: () => void, delay: number) => {
+    armedTimers.push({ handler, delay, cleared: false });
+    return armedTimers.length as unknown as ReturnType<typeof setInterval>;
+  }) as typeof globalThis.setInterval;
+  globalThis.clearInterval = ((id: number) => {
+    const timer = armedTimers[id - 1];
+    if (timer) {
+      timer.cleared = true;
+    }
+  }) as typeof globalThis.clearInterval;
 });
 
 afterEach(() => {
+  globalThis.setInterval = realSetInterval;
+  globalThis.clearInterval = realClearInterval;
   cleanup();
   setSystemTime();
 });
@@ -575,6 +622,167 @@ describe("useNativeWidgetSnapshotSync", () => {
       conversationGroups: NO_GROUPS,
       inputsResolved: true,
     });
+    expect(syncedSnapshots).toHaveLength(1);
+  });
+
+  it("beats at half the window the widgets call a snapshot stale", () => {
+    // `SnapshotProvider.staleAfter` in SnapshotTimeline.swift, which nothing
+    // shares across the bridge. Half of it leaves room for a lost heartbeat.
+    expect(WIDGET_SNAPSHOT_HEARTBEAT_MS).toBe(15 * 60 * 1000);
+  });
+
+  it("re-sends the landed snapshot with a fresh generatedAt while the app is open", async () => {
+    setSystemTime(new Date("2026-08-21T16:00:00Z"));
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+    await settle();
+
+    // Nothing about the conversations changed, so the content dedup would hold
+    // this back. Only the timestamp is at stake.
+    setSystemTime(new Date("2026-08-21T16:15:00Z"));
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.conversations).toEqual(
+      syncedSnapshots[0]?.conversations ?? [],
+    );
+    expect(syncedSnapshots[1]?.generatedAt).toBe("2026-08-21T16:15:00.000Z");
+    expect(syncedAssistantIds).toEqual([ASSISTANT_ID, ASSISTANT_ID]);
+    await settle();
+
+    // And the re-send did not disturb the dedup key it was built from.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+  });
+
+  it("does not heartbeat a snapshot that never landed", async () => {
+    // An empty App Group has no freshness to keep, and a session whose writes
+    // are all rejected has nothing on the Home Screen to keep fresh either.
+    syncLands = false;
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+    await settle();
+
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(1);
+  });
+
+  it("arms no heartbeat while the inputs are unresolved", async () => {
+    // The heartbeat says the data is current, which a pending or errored query
+    // cannot say: the preserved snapshot is left to age out natively instead.
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(liveHeartbeats()).toHaveLength(1);
+
+    rerender({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: false,
+    });
+    expect(liveHeartbeats()).toHaveLength(0);
+
+    // The same assistant's list comes back, and so does the heartbeat.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(liveHeartbeats()).toHaveLength(1);
+    expect(syncedSnapshots).toHaveLength(1);
+  });
+
+  it("drops the previous assistant's payload from the heartbeat on a switch", async () => {
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    const beforeSwitch = liveHeartbeats()[0];
+
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: false,
+    });
+    expect(beforeSwitch?.cleared).toBe(true);
+    expect(liveHeartbeats()).toHaveLength(0);
+
+    // A tick the platform coalesced past the teardown must not put the
+    // previous assistant's rows back on a Home Screen that was just cleared.
+    beforeSwitch?.handler();
+    expect(syncedSnapshots).toHaveLength(1);
+
+    // The new assistant's own list lands, and the heartbeat carries it.
+    rerender({
+      assistantId: "asst-2",
+      conversations: [conversation("c2", { title: "Flights" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(3);
+    expect(syncedSnapshots[2]?.conversations[0]?.id).toBe("c2");
+    expect(syncedAssistantIds[2]).toBe("asst-2");
+  });
+
+  it("leaves the bookkeeping intact when a heartbeat does not land", async () => {
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    syncLands = false;
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(2);
+    await settle();
+
+    // The failure changed nothing about what the App Group holds, so the dedup
+    // key still describes it and identical data still costs no bridge traffic.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+
+    // And the payload is still there to beat with on the next tick.
+    syncLands = true;
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(3);
+    expect(syncedSnapshots[2]?.conversations[0]?.id).toBe("c1");
+  });
+
+  it("skips a heartbeat while a real sync is on the bridge", () => {
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+
+    // The first write has not settled: it is already carrying a fresh
+    // timestamp, and racing it would retire the attempt it counts on.
+    fireHeartbeat();
     expect(syncedSnapshots).toHaveLength(1);
   });
 

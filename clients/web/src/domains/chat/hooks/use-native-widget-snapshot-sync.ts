@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { useUnreadConversationCount } from "@/hooks/conversation-queries";
 import { useTranslation } from "@/i18n";
@@ -26,6 +26,26 @@ import { activeConversationsByRecency } from "@/utils/conversation-order";
 const MAX_SNAPSHOT_CONVERSATIONS = 3;
 
 /**
+ * How often a live session re-sends its unchanged snapshot, purely to move
+ * `generatedAt` forward.
+ *
+ * The widget extension cannot ask whether the app is running, so it ages the
+ * snapshot out on its own: past `SnapshotProvider.staleAfter` (30 minutes, in
+ * `SnapshotTimeline.swift`) it drops the live claims, hiding the Status counts
+ * and the Quick Actions unread chip. Nothing shares that constant across the
+ * bridge, so this is the coupling: any change to one has to be weighed against
+ * the other. Dedup is on content alone, so an app left open on unchanged data
+ * writes nothing and would cross that line while sitting in the foreground on
+ * data it has been refetching all along. Half the native window is the
+ * interval, so the snapshot stays fresh even when a heartbeat is lost, and one
+ * bridge call per 15 minutes is far below what a single re-render costs.
+ */
+export const WIDGET_SNAPSHOT_HEARTBEAT_MS = 15 * 60 * 1000;
+
+/** A snapshot before it is stamped, which is also the dedup key's shape. */
+type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
+
+/**
  * Mirror the conversation list into the iOS shell's `WidgetSnapshot` plugin
  * so the Home Screen widgets can draw unread and in-progress counts and the
  * three most recent chats. No-ops everywhere but Capacitor iOS.
@@ -51,6 +71,25 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * Including it would make every render a fresh payload and the dedup dead,
  * so the shell would take bridge traffic and a widget timeline reload on
  * every re-render of the layout.
+ *
+ * That leaves the timestamp to a heartbeat
+ * ({@link WIDGET_SNAPSHOT_HEARTBEAT_MS}), because the widget reads it as
+ * freshness rather than as a change marker: an app left open on unchanged data
+ * would otherwise let its snapshot age past the native stale window and lose
+ * the live counts, while the app it came from is in the foreground refetching
+ * that same data. The heartbeat re-sends the landed payload verbatim through
+ * the same send path, so it shares the attempt counter, the in-flight dedup and
+ * the landed bookkeeping: one that fails leaves every ref as it found it, and
+ * one that is overtaken by a real data sync cannot arm the dedup key behind it.
+ *
+ * It is armed from the resolved inputs rather than from the moment a write
+ * lands, and asks at each tick whether there is anything to refresh. A tick
+ * with nothing landed does nothing (an empty or signed-out Home Screen has no
+ * freshness to keep), and re-arming on every landed write would make the
+ * timer's lifetime depend on render state the effect would then have to carry.
+ * Unresolved inputs disarm it: the heartbeat asserts the data is current, which
+ * is exactly what a pending or errored query cannot say, so a preserved
+ * snapshot is left to age out on the native side instead.
  *
  * The dedup key describes what the App Group is known to HOLD, so it is armed
  * from the resolution of the bridge call rather than from the render that fired
@@ -120,6 +159,10 @@ export function useNativeWidgetSnapshotSync(
   // timed-out call changed nothing, and a key armed for it would suppress every
   // retry until the conversation data itself changed.
   const lastPayloadRef = useRef<string | null>(null);
+  // The same payload unserialized, so the heartbeat can re-stamp and re-send
+  // what the App Group holds. Written and dropped wherever `lastPayloadRef` is,
+  // since the two describe the one snapshot.
+  const landedContentRef = useRef<SnapshotContent | null>(null);
   // The payload currently on the bridge, if a call has not settled yet. Dedup
   // runs against it as well, so a re-render inside the bridge's window does not
   // send the same payload twice; it is dropped as the call settles, which is
@@ -149,6 +192,41 @@ export function useNativeWidgetSnapshotSync(
     isWidgetSnapshotSyncAvailable() && isAssistantActive,
   );
 
+  // The one way to the bridge, shared by data syncs and the heartbeat so a
+  // heartbeat cannot corrupt the bookkeeping a data sync depends on.
+  const sendSnapshot = useCallback(
+    (content: SnapshotContent, ownerId: string | null): void => {
+      const serialized = JSON.stringify(content);
+      // The producer is recorded as the call is fired rather than when it
+      // lands. A write already on the bridge can land at any moment, so a
+      // switch that happens in between has to see this assistant as an owner.
+      // Naming one too eagerly costs at most an idempotent clear; naming one
+      // too late leaves another assistant's titles on a Home Screen that never
+      // reloads.
+      syncedAssistantIdRef.current = ownerId;
+      inFlightPayloadRef.current = serialized;
+      const attempt = (syncAttemptRef.current += 1);
+      void syncWidgetSnapshot(
+        {
+          ...content,
+          generatedAt: new Date().toISOString(),
+        },
+        ownerId,
+      ).then((landed) => {
+        if (attempt !== syncAttemptRef.current) {
+          return;
+        }
+        inFlightPayloadRef.current = null;
+        if (!landed) {
+          return;
+        }
+        lastPayloadRef.current = serialized;
+        landedContentRef.current = content;
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!isWidgetSnapshotSyncAvailable()) {
       return;
@@ -176,6 +254,7 @@ export function useNativeWidgetSnapshotSync(
     if (switchedAssistant) {
       syncedAssistantIdRef.current = null;
       lastPayloadRef.current = null;
+      landedContentRef.current = null;
       inFlightPayloadRef.current = null;
       // Retires any call still on the bridge for the previous assistant, so it
       // cannot arm the dedup key after the clear below.
@@ -214,7 +293,7 @@ export function useNativeWidgetSnapshotSync(
       }));
 
     // Built without `generatedAt` so the serialized form is the dedup key.
-    const content: Omit<WidgetSnapshotPayload, "generatedAt"> = {
+    const content: SnapshotContent = {
       schemaVersion: WIDGET_SNAPSHOT_SCHEMA_VERSION,
       unreadCount,
       inProgressCount,
@@ -227,29 +306,7 @@ export function useNativeWidgetSnapshotSync(
     ) {
       return;
     }
-    // The producer is recorded as the call is fired rather than when it lands.
-    // A write already on the bridge can land at any moment, so a switch that
-    // happens in between has to see this assistant as an owner. Naming one too
-    // eagerly costs at most an idempotent clear; naming one too late leaves
-    // another assistant's titles on a Home Screen that never reloads.
-    syncedAssistantIdRef.current = assistantId;
-    inFlightPayloadRef.current = serialized;
-    const attempt = (syncAttemptRef.current += 1);
-    void syncWidgetSnapshot(
-      {
-        ...content,
-        generatedAt: new Date().toISOString(),
-      },
-      assistantId,
-    ).then((landed) => {
-      if (attempt !== syncAttemptRef.current) {
-        return;
-      }
-      inFlightPayloadRef.current = null;
-      if (landed) {
-        lastPayloadRef.current = serialized;
-      }
-    });
+    sendSnapshot(content, assistantId);
   }, [
     assistantId,
     conversations,
@@ -257,6 +314,28 @@ export function useNativeWidgetSnapshotSync(
     processingConversationIds,
     unreadCount,
     inputsResolved,
+    sendSnapshot,
     t,
   ]);
+
+  // Keep `generatedAt` moving while this session is live and its data is
+  // verified current, so the widgets never call an open app's snapshot stale.
+  useEffect(() => {
+    if (!isWidgetSnapshotSyncAvailable() || !inputsResolved) {
+      return;
+    }
+    const heartbeat = setInterval(() => {
+      const landed = landedContentRef.current;
+      // Nothing has reached the App Group yet, so there is no freshness to
+      // keep. A call already on the bridge is writing its own timestamp, and
+      // racing it would retire the attempt it is counting on.
+      if (landed === null || inFlightPayloadRef.current !== null) {
+        return;
+      }
+      sendSnapshot(landed, assistantId);
+    }, WIDGET_SNAPSHOT_HEARTBEAT_MS);
+    return () => {
+      clearInterval(heartbeat);
+    };
+  }, [assistantId, inputsResolved, sendSnapshot]);
 }
