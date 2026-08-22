@@ -188,6 +188,29 @@ const GATEWAY_LOCAL_USER: AuthUser = {
   lastName: "User",
 };
 
+// Monotonic id stamped on every transition INTO an authenticated session.
+// `endSession` awaits the widget-snapshot clear before it writes, and auth work
+// overlaps: the app-resume listener can fire a second `refreshSession`, and an
+// interactive sign-in can land, while an earlier conclusive rejection is still
+// waiting on that bridge call. A session authenticated inside that window is
+// the newer truth, so the delayed write compares the epoch it captured against
+// this counter and skips itself rather than sending a freshly signed-in user
+// back to login. Latest-wins, the same rule `latestPlatformProbe` applies to
+// overlapping platform probes.
+let authEpoch = 0;
+
+/**
+ * Stamp a new auth epoch and hand back the patch unchanged, so every write that
+ * enters an authenticated session supersedes a session-ending write that is
+ * still mid-await in {@link endSession}.
+ */
+function enteringAuthenticatedSession(
+  patch: Partial<AuthState>,
+): Partial<AuthState> {
+  authEpoch += 1;
+  return patch;
+}
+
 /**
  * Named state transitions — the store declares *which session it is entering*
  * instead of re-listing the same field combinations at every call site. Each
@@ -204,19 +227,20 @@ const authenticatedPlatformUser = (
   // (boot, refresh, connect, biometric retry) feeds the offline restore
   // (LUM-2412) without each call site remembering to.
   persistUserSnapshot(user);
-  return {
+  return enteringAuthenticatedSession({
     sessionStatus: "authenticated",
     user,
     platformSession: "present",
     // Confirmed by a live probe; `restoreOfflineSession` overrides this to true.
     platformSessionRestoredOffline: false,
-  };
+  });
 };
 
-const authenticatedLocalUser = (): Partial<AuthState> => ({
-  sessionStatus: "authenticated",
-  user: GATEWAY_LOCAL_USER,
-});
+const authenticatedLocalUser = (): Partial<AuthState> =>
+  enteringAuthenticatedSession({
+    sessionStatus: "authenticated",
+    user: GATEWAY_LOCAL_USER,
+  });
 
 const sessionEnded = (): Partial<AuthState> => ({
   sessionStatus: "unauthenticated",
@@ -241,6 +265,13 @@ const sessionEnded = (): Partial<AuthState> => ({
  * navigation that tears the page down before a detached bridge call would
  * reach the shell.
  *
+ * That await is bounded but not instant (2s on an unanswering iOS bridge), so
+ * the write is guarded by {@link authEpoch}: an authentication that lands while
+ * the clear is outstanding supersedes this transition, and the resumed call
+ * skips its write instead of reverting the newer session. The clear itself
+ * still stands, being idempotent, and the fresh session's next sync rewrites
+ * the snapshot.
+ *
  * `keepPlatformSession` omits the `platformSession: "absent"` half of the
  * transition for the one caller that ends the session with a platform probe
  * still in flight. Writing `"absent"` there would settle
@@ -252,7 +283,11 @@ async function endSession(
   set: AuthSet,
   options?: { keepPlatformSession?: boolean },
 ): Promise<void> {
+  const epoch = authEpoch;
   await clearWidgetSnapshot();
+  if (epoch !== authEpoch) {
+    return;
+  }
   set(
     options?.keepPlatformSession
       ? { sessionStatus: "unauthenticated", user: null }
@@ -1140,7 +1175,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         } else {
           await ensureGatewayToken(getLocalTokenUrl());
         }
-        set({ sessionStatus: "authenticated" });
+        set(enteringAuthenticatedSession({ sessionStatus: "authenticated" }));
       } catch {
         await endSession(set);
         return false;
