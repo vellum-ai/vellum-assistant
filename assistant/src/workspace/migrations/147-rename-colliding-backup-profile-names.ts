@@ -23,7 +23,7 @@
  *   - `llm.profiles.<key>.mix[].profile` arms
  *   - `llm.profiles.<key>.fallbackProfile` targets
  *   - `conversations.inference_profile` and `cron_jobs.inference_profile`
- *     rows (best effort, see below)
+ *     rows (see below)
  *
  * The new key is `<name>-custom`, suffixed `-custom-2`, `-custom-3`, ... when
  * that is taken. Candidates are checked against every existing profile key
@@ -35,16 +35,25 @@
  * a non-object value under one of these keys is not a profile at all (the
  * loader strips it); both are left alone.
  *
- * The DB rewrite is best effort: a missing, locked, or unqueryable database
- * is logged and skipped rather than blocking the config repair. A stranded
- * conversation or schedule pin degrades to the default profile selection,
- * which is the documented behaviour for a pin whose profile no longer
- * exists, while leaving the config unrepaired would keep the user's profile
- * shadowed by ours.
+ * The DB rewrite is NOT best effort. A pin the rewrite abandons does not
+ * degrade to the default selection: its old name is now a reserved code-owned
+ * key, so the conversation or schedule silently starts routing through the
+ * managed backup instead of the user's profile. So a database that exists but
+ * cannot be opened or written is retried a bounded number of times with a
+ * short backoff, and a failure that outlives the retries throws. The runner
+ * then records a `failed` checkpoint, and `retryFailedCheckpoint` makes the
+ * next boot re-run the whole migration. An absent database file is a real
+ * state (no pins to strand) and a table the schema does not carry yet is
+ * nothing to rewrite; both are skipped without failing.
+ *
+ * The DB rewrite deliberately runs BEFORE the config write, so a throw leaves
+ * config.json holding the old keys and the next run rebuilds the same
+ * mapping from it.
  *
  * Idempotent: after a successful run no workspace-owned profile carries a
  * reserved backup name, so a re-run finds nothing to rename and writes
- * nothing.
+ * nothing. The pin rewrite matches on the old name, so re-running it after a
+ * partial pass is a no-op on the rows already repointed.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -85,13 +94,23 @@ const RESERVED_PROFILE_NAMES = new Set<string>([
 
 const RENAME_SUFFIX = "-custom";
 
+/** Total attempts at the pin rewrite, the first one included. */
+const DB_ATTEMPTS = 4;
+
+/** First backoff step; each further wait doubles it (50, 100, 200 ms). */
+const DB_RETRY_BASE_DELAY_MS = 50;
+
 export const renameCollidingBackupProfileNamesMigration: WorkspaceMigration = {
   id: "147-rename-colliding-backup-profile-names",
   description:
     "Rename user profiles colliding with the reserved managed backup keys and rewrite their references",
+  // The failure this migration can hit is a database it cannot write, and
+  // both halves of the run are idempotent, so a failed checkpoint is worth
+  // re-running: the config still holds the old keys, the mapping rebuilds
+  // from them, and the pin rewrite matches on the old name.
   retryFailedCheckpoint: true,
 
-  run(workspaceDir: string): void {
+  async run(workspaceDir: string): Promise<void> {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) {
       return;
@@ -119,9 +138,11 @@ export const renameCollidingBackupProfileNamesMigration: WorkspaceMigration = {
       return;
     }
 
-    // The DB rewrite runs first so an interrupted migration re-runs with the
-    // config still holding the old keys, i.e. with the mapping intact.
-    rewriteDbReferences(workspaceDir, renames);
+    // The DB rewrite runs first so an interrupted or failed migration re-runs
+    // with the config still holding the old keys, i.e. with the mapping
+    // intact. A rewrite that cannot be completed throws out of here, which
+    // stops the config rename below rather than stranding the pins.
+    await rewriteDbReferences(workspaceDir, renames);
 
     llm.profiles = renameProfileKeys(profiles, renames);
     rewriteConfigReferences(llm, renames);
@@ -259,41 +280,74 @@ function rewriteConfigReferences(
 
 /**
  * Repoint the profile pins stored outside config.json: the sticky
- * per-conversation profile and the per-schedule profile. Best effort, see
- * the file header.
+ * per-conversation profile and the per-schedule profile.
+ *
+ * Retried as a whole rather than per statement: opening the database, reading
+ * `sqlite_master` and running the updates all fail the same way under write
+ * contention (`SQLITE_BUSY` from a second connection), and every step is
+ * idempotent, so re-running the block is the simplest recovery that cannot
+ * double-apply. A failure that outlives the attempts throws, which fails the
+ * migration for `retryFailedCheckpoint` to pick up on the next boot.
  */
-function rewriteDbReferences(
+async function rewriteDbReferences(
   workspaceDir: string,
   renames: Map<string, string>,
-): void {
+): Promise<void> {
   const dbPath = join(workspaceDir, "data", "db", "assistant.db");
   if (!existsSync(dbPath)) {
+    // No database yet, so there are no pins that could be stranded.
     return;
   }
-  let db: Database;
-  try {
-    db = new Database(dbPath);
-  } catch (err) {
-    log.warn({ err }, "Could not open the database to repoint profile pins");
-    return;
-  }
-  try {
-    for (const table of ["conversations", "cron_jobs"]) {
-      for (const [from, to] of renames) {
-        try {
+  await withDbRetry(() => {
+    const db = new Database(dbPath);
+    try {
+      for (const table of ["conversations", "cron_jobs"]) {
+        const present = db
+          .query(
+            `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+          )
+          .get(table);
+        if (!present) {
+          // A workspace whose schema does not carry this table holds no pins
+          // in it. Nothing to rewrite, and nothing to fail over.
+          log.info({ table }, "No profile pin table to repoint");
+          continue;
+        }
+        for (const [from, to] of renames) {
           db.query(
             `UPDATE ${table} SET inference_profile = ? WHERE inference_profile = ?`,
           ).run(to, from);
-        } catch (err) {
-          log.warn(
-            { err, table, from, to },
-            "Could not repoint profile pins on this table; stranded pins fall back to the default selection",
-          );
         }
       }
+    } finally {
+      db.close();
     }
-  } finally {
-    db.close();
+  });
+}
+
+/**
+ * Run the pin rewrite, retrying a transient database failure with a short
+ * doubling backoff. Rethrows once the attempts are spent so the caller stops
+ * before the config rename.
+ */
+async function withDbRetry(attempt: () => void): Promise<void> {
+  for (let index = 0; ; index += 1) {
+    try {
+      attempt();
+      return;
+    } catch (err) {
+      if (index >= DB_ATTEMPTS - 1) {
+        throw new Error(
+          `Could not repoint conversation and schedule profile pins after ${DB_ATTEMPTS} attempts; leaving the config unrenamed so the next boot retries`,
+          { cause: err },
+        );
+      }
+      log.warn(
+        { err, attempt: index },
+        "Could not repoint profile pins; retrying",
+      );
+      await Bun.sleep(DB_RETRY_BASE_DELAY_MS * 2 ** index);
+    }
   }
 }
 

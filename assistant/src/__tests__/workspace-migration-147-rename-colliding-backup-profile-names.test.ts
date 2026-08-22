@@ -17,6 +17,10 @@ import {
 import { LLMSchema } from "../config/schemas/llm.js";
 import { renameCollidingBackupProfileNamesMigration } from "../workspace/migrations/147-rename-colliding-backup-profile-names.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+import {
+  loadCheckpoints,
+  runWorkspaceMigrations,
+} from "../workspace/migrations/runner.js";
 import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 let workspaceDir: string;
@@ -38,6 +42,10 @@ function writeConfig(data: Record<string, unknown>): void {
 
 function readConfig(): Record<string, any> {
   return JSON.parse(readFileSync(join(workspaceDir, "config.json"), "utf-8"));
+}
+
+function dbPath(): string {
+  return join(workspaceDir, "data", "db", "assistant.db");
 }
 
 function seedProfilePinTables(rows: {
@@ -91,7 +99,7 @@ afterEach(() => {
 });
 
 describe("147-rename-colliding-backup-profile-names migration", () => {
-  test("has correct migration id and is registered", () => {
+  test("has correct migration id and is registered", async () => {
     expect(renameCollidingBackupProfileNamesMigration.id).toBe(
       "147-rename-colliding-backup-profile-names",
     );
@@ -100,7 +108,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     );
   });
 
-  test("renames a colliding user profile and rewrites every reference", () => {
+  test("renames a colliding user profile and rewrites every reference", async () => {
     writeConfig({
       llm: {
         defaultProvider: { provider: "vellum" },
@@ -128,7 +136,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
       },
     });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     const llm = readConfig().llm;
     expect(llm.profiles["balanced-backup"]).toBeUndefined();
@@ -152,7 +160,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     ]);
   });
 
-  test("the code-owned backup is available under the reserved name afterwards", () => {
+  test("the code-owned backup is available under the reserved name afterwards", async () => {
     writeConfig({
       llm: {
         defaultProvider: { provider: "vellum" },
@@ -167,7 +175,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
       },
     });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     const llm = readConfig().llm;
     // The reserved key is free, so it resolves to the code-owned backup body
@@ -184,7 +192,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     expect(parsed.success).toBe(true);
   });
 
-  test("the migrated config parses under LLMSchema", () => {
+  test("the migrated config parses under LLMSchema", async () => {
     writeConfig({
       llm: {
         defaultProvider: { provider: "vellum" },
@@ -205,7 +213,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
       },
     });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     const parsed = LLMSchema.safeParse(readConfig().llm);
     expect(parsed.success).toBe(true);
@@ -214,7 +222,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     }
   });
 
-  test("renames every colliding key and keeps suffixing past taken names", () => {
+  test("renames every colliding key and keeps suffixing past taken names", async () => {
     const profiles: Record<string, unknown> = {
       "balanced-backup-custom": { source: "user", speed: "fast" },
       "balanced-backup-custom-2": { source: "user", speed: "fast" },
@@ -224,7 +232,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     }
     writeConfig({ llm: { profiles } });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     const renamed = readConfig().llm.profiles;
     expect(renamed["balanced-backup-custom-3"]).toBeDefined();
@@ -236,7 +244,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     }
   });
 
-  test("never renames onto another reserved code-defined name", () => {
+  test("never renames onto another reserved code-defined name", async () => {
     // Contrived: a profile literally named `<backup>-custom` would be a
     // legitimate rename target, but a reserved name never is.
     writeConfig({
@@ -249,7 +257,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
       },
     });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     const renamed = Object.keys(readConfig().llm.profiles);
     for (const key of BACKUP_PROFILE_KEYS) {
@@ -262,7 +270,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     }
   });
 
-  test("leaves managed stubs and non-object values alone", () => {
+  test("leaves managed stubs and non-object values alone", async () => {
     writeConfig({
       llm: {
         profiles: {
@@ -273,7 +281,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
       },
     });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     const llm = readConfig().llm;
     expect(llm.profiles["balanced-backup"]).toEqual({
@@ -284,7 +292,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     expect(llm.activeProfile).toBe("balanced-backup");
   });
 
-  test("repoints conversation and schedule profile pins", () => {
+  test("repoints conversation and schedule profile pins", async () => {
     seedProfilePinTables({
       conversations: ["balanced-backup", "balanced", "balanced-backup"],
       cronJobs: ["balanced-backup", "scratch"],
@@ -298,7 +306,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
       },
     });
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
 
     expect(readPins("conversations")).toEqual([
       "balanced-backup-custom",
@@ -311,7 +319,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     ]);
   });
 
-  test("is a no-op without a collision and idempotent on re-run", () => {
+  test("is a no-op without a collision and idempotent on re-run", async () => {
     const config = {
       llm: {
         defaultProvider: { provider: "vellum" },
@@ -324,7 +332,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     };
     writeConfig(config);
 
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
     expect(readConfig()).toEqual(config);
 
     // With a collision, a second run finds nothing left to rename.
@@ -334,24 +342,135 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
         activeProfile: "balanced-backup",
       },
     });
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
     const first = readConfig();
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
     expect(readConfig()).toEqual(first);
   });
 
-  test("handles missing config, missing llm block, and invalid JSON", () => {
-    expect(() =>
+  test("handles missing config, missing llm block, and invalid JSON", async () => {
+    await expect(
       renameCollidingBackupProfileNamesMigration.run(workspaceDir),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
 
     writeConfig({ theme: "dark" });
-    renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
     expect(readConfig()).toEqual({ theme: "dark" });
 
     writeFileSync(join(workspaceDir, "config.json"), "{not json");
-    expect(() =>
+    await expect(
       renameCollidingBackupProfileNamesMigration.run(workspaceDir),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
+  });
+
+  test("retries a pin rewrite the database refuses, then completes", async () => {
+    seedProfilePinTables({
+      conversations: ["balanced-backup", "balanced"],
+      cronJobs: ["balanced-backup"],
+    });
+    writeConfig({
+      llm: {
+        profiles: {
+          "balanced-backup": { source: "user", provider: "anthropic" },
+        },
+        activeProfile: "balanced-backup",
+      },
+    });
+
+    // A second connection holding the write lock makes every UPDATE fail with
+    // SQLITE_BUSY until it commits, which is the contention the retry exists
+    // for.
+    const blocker = new Database(dbPath());
+    blocker.run("BEGIN IMMEDIATE");
+    let released = false;
+    const release = setTimeout(() => {
+      blocker.run("COMMIT");
+      blocker.close();
+      released = true;
+    }, 10);
+
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    clearTimeout(release);
+
+    // The lock is released from a timer, which can only fire while the
+    // migration is waiting out a backoff: a first attempt that had succeeded
+    // would have finished the run before this point.
+    expect(released).toBe(true);
+    expect(readPins("conversations")).toEqual([
+      "balanced-backup-custom",
+      "balanced",
+    ]);
+    expect(readPins("cron_jobs")).toEqual(["balanced-backup-custom"]);
+    expect(readConfig().llm.activeProfile).toBe("balanced-backup-custom");
+  });
+
+  test("stays unapplied and retries on the next boot when the pins cannot be rewritten", async () => {
+    seedProfilePinTables({
+      conversations: ["balanced-backup"],
+      cronJobs: ["balanced-backup"],
+    });
+    const config = {
+      llm: {
+        profiles: {
+          "balanced-backup": { source: "user", provider: "anthropic" },
+        },
+        activeProfile: "balanced-backup",
+      },
+    };
+    writeConfig(config);
+
+    const blocker = new Database(dbPath());
+    blocker.run("BEGIN IMMEDIATE");
+
+    const firstBoot = await runWorkspaceMigrations(workspaceDir, [
+      renameCollidingBackupProfileNamesMigration,
+    ]);
+
+    // Failed, not completed: the config keeps the old key, so the rename is
+    // still pending and the mapping is still derivable from it.
+    expect(firstBoot).toEqual({ applied: 0, skipped: 0, failed: 1 });
+    expect(
+      loadCheckpoints(workspaceDir).applied[
+        "147-rename-colliding-backup-profile-names"
+      ]?.status,
+    ).toBe("failed");
+    expect(readConfig()).toEqual(config);
+    expect(readPins("conversations")).toEqual(["balanced-backup"]);
+
+    blocker.run("COMMIT");
+    blocker.close();
+
+    const secondBoot = await runWorkspaceMigrations(workspaceDir, [
+      renameCollidingBackupProfileNamesMigration,
+    ]);
+
+    expect(secondBoot).toEqual({ applied: 1, skipped: 0, failed: 0 });
+    expect(readConfig().llm.activeProfile).toBe("balanced-backup-custom");
+    expect(readPins("conversations")).toEqual(["balanced-backup-custom"]);
+    expect(readPins("cron_jobs")).toEqual(["balanced-backup-custom"]);
+  });
+
+  test("touches the database not at all without a collision", async () => {
+    seedProfilePinTables({
+      conversations: ["balanced-backup"],
+      cronJobs: ["scratch"],
+    });
+    writeConfig({
+      llm: {
+        profiles: { scratch: { source: "user", speed: "fast" } },
+        activeProfile: "balanced",
+      },
+    });
+
+    // Holding the write lock for the whole run proves no write is attempted:
+    // one would fail, and a failure now throws.
+    const blocker = new Database(dbPath());
+    blocker.run("BEGIN IMMEDIATE");
+    await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    blocker.run("COMMIT");
+    blocker.close();
+
+    expect(readPins("conversations")).toEqual(["balanced-backup"]);
+    expect(readPins("cron_jobs")).toEqual(["scratch"]);
   });
 });

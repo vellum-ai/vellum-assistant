@@ -179,6 +179,51 @@ describe("managed-column-only scoping", () => {
       expect(effective[key]?.fallbackProfile).toBeUndefined();
     }
   });
+
+  test("a persisted managed stub does not resurrect a backup off the managed column", () => {
+    // A `config get` -> `config set` round-trip on a managed install can
+    // leave a thin managed stub for a backup in `llm.profiles`
+    // (`normalizeManagedProfileWrites`). The stub is the workspace's slot for
+    // a code-owned body, not a profile, so once the column has no body behind
+    // it the name must stop being listed rather than resolve to a
+    // providerless entry the pickers would offer and `LLMSchema` would
+    // reject.
+    const workspace: Record<string, ProfileEntry> = {
+      "balanced-backup": { source: "managed" },
+    };
+    for (const provider of ["anthropic", "chatgpt"] as const) {
+      const effective = getEffectiveProfilesForProvider(workspace, {
+        provider,
+      });
+      expect(effective["balanced-backup"]).toBeUndefined();
+      expect(
+        resolveDefaultProfileForProvider(workspace, "balanced-backup", {
+          provider,
+        }),
+      ).toBeUndefined();
+    }
+    // The managed column still has a body for the stub to stand for.
+    expect(
+      getEffectiveProfilesForProvider(workspace, vellum)["balanced-backup"]
+        ?.model,
+    ).toBe(CODE_DEFAULT_PROFILE_ENTRIES["balanced-backup"]?.model);
+  });
+
+  test("a user-owned entry under a backup name stays listed off the managed column", () => {
+    // Nothing code-owned resolves there, so the entry is simply a profile of
+    // that name and keeps its own body.
+    const workspace: Record<string, ProfileEntry> = {
+      "balanced-backup": {
+        source: "user",
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+      },
+    };
+    const effective = getEffectiveProfilesForProvider(workspace, {
+      provider: "anthropic",
+    });
+    expect(effective["balanced-backup"]?.model).toBe("claude-opus-4-7");
+  });
 });
 
 describe("effective-profile machinery", () => {

@@ -14,6 +14,7 @@ import {
   BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
+  isBackupProfileKey,
 } from "../default-profile-names.js";
 
 /**
@@ -723,6 +724,46 @@ function unresolvableProfileReason(
     : "is not defined in llm.profiles";
 }
 
+/**
+ * The `llm.profiles` keys that are reference targets in their own right,
+ * given whether the managed backups resolve under the current
+ * `llm.defaultProvider`.
+ *
+ * Every on-disk key qualifies but one: a reserved backup name whose entry is
+ * a thin `source: "managed"` stub. The stub is not a profile, it is the
+ * workspace's slot for a code-owned one, and it can reach disk on a managed
+ * install through nothing more than a `config get` -> `config set` round-trip
+ * of the effective profile list (`normalizeManagedProfileWrites` reduces the
+ * echoed body to exactly that stub). Counting it as an ordinary raw key would
+ * let it launder a backup reference past the provider gate: after a switch to
+ * a BYOK or ChatGPT default provider the reference would keep validating
+ * while the code-owned body it stands for has resolved to nothing, leaving a
+ * selection that names a providerless stub.
+ *
+ * A genuinely user-owned entry under a backup name is the opposite case: it
+ * carries its own body, and with no code-owned body to lose on a non-managed
+ * column `resolveAgainstBody` resolves the workspace entry itself. So it
+ * stays a valid target on every column. The `source` test is the same one
+ * the resolver uses, which is what keeps the two in step.
+ */
+function referenceableProfileKeys(
+  profiles: Record<string, unknown> | undefined,
+  backupsResolve: boolean,
+): string[] {
+  return Object.entries(profiles ?? {})
+    .filter(([name, value]) => {
+      if (backupsResolve || !isBackupProfileKey(name)) {
+        return true;
+      }
+      const entry =
+        value != null && typeof value === "object" && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : null;
+      return entry != null && entry.source !== "managed";
+    })
+    .map(([name]) => name);
+}
+
 // ---------------------------------------------------------------------------
 // Top-level LLM schema
 // ---------------------------------------------------------------------------
@@ -761,10 +802,12 @@ export function collectFallbackProfileIssues(
   // fallback targets (same rule as call-site `profile` references). The
   // managed backups resolve the same way, but on the managed column only,
   // so they are valid targets only under a managed `llm.defaultProvider`.
+  // A persisted managed stub for a backup name does not change that, see
+  // `referenceableProfileKeys`.
   const backupsResolve =
     backupProfilesResolveUnderDefaultProvider(defaultProvider);
   const profileNames = new Set([
-    ...entries.map(([name]) => name),
+    ...referenceableProfileKeys(profiles, backupsResolve),
     ...DEFAULT_PROFILE_KEYS,
     ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
   ]);
@@ -904,12 +947,17 @@ export const LLMSchema = z
     // keeping the reference would strand a selection the picker cannot show.
     // The flag-gated `os-beta` is excluded: it resolves only while a
     // workspace entry exists, so a reference to it is valid only when that
-    // entry is present in `config.profiles`.
+    // entry is present in `config.profiles`. A backup name materialized as a
+    // thin managed stub does not re-enter the set on a non-managed column
+    // either, see `referenceableProfileKeys`.
     const backupsResolve = backupProfilesResolveUnderDefaultProvider(
       config.defaultProvider,
     );
     const profileNames = new Set([
-      ...Object.keys(config.profiles ?? {}),
+      ...referenceableProfileKeys(
+        config.profiles as Record<string, unknown> | undefined,
+        backupsResolve,
+      ),
       ...DEFAULT_PROFILE_KEYS,
       ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
     ]);

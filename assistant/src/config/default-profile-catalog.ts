@@ -748,6 +748,16 @@ function resolveAgainstBody(
   body: ProfileEntry | undefined,
 ): ProfileEntry | undefined {
   if (body == null) {
+    // A managed stub is the workspace's slot for a code-owned profile, never
+    // a profile of its own, so with no body behind it there is nothing to
+    // resolve. Only a backup name reaches this branch with a stub (the
+    // default keys always have a body), and it reaches it on the columns
+    // where the backups do not exist. Resolving to the stub would list a
+    // profile with no provider or model and let a reference to it look
+    // valid, which is precisely what `LLMSchema` rejects on those columns.
+    if (isBackupProfileKey(name) && workspace?.source === "managed") {
+      return undefined;
+    }
     return workspace;
   }
   if (CODE_OWNED_PROFILE_NAMES.has(name)) {
@@ -946,7 +956,13 @@ export function getEffectiveProfilesForProvider(
     );
     if (entry != null) {
       effective[name] = entry;
+      continue;
     }
+    // Nothing resolved, so the name must not survive from the workspace
+    // spread above: a backup carrying only a managed stub on a column that
+    // has no backups would otherwise be listed as an available profile with
+    // no provider or model behind it.
+    delete effective[name];
   }
   return effective;
 }

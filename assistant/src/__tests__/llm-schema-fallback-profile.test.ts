@@ -191,10 +191,13 @@ describe("LLMSchema fallbackProfile", () => {
     }
   });
 
-  test("a materialized backup entry is a valid target on any column", () => {
-    // Conditioning applies to the code-defined name, not to a workspace
-    // entry: an on-disk profile of that name is a real entry and resolves
-    // whatever the default provider is.
+  test("a user-owned materialized backup entry is a valid target on any column", () => {
+    // Conditioning applies to the code-defined name, not to a user-owned
+    // workspace entry: that entry carries its own body, and with no
+    // code-owned body to lose on a BYOK column it is what the name resolves
+    // to, so a pointer at it stays valid. A `source` other than `managed`,
+    // absent included, is what makes an entry user-owned, matching
+    // `resolveAgainstBody`.
     const backupKey = BACKUP_PROFILE_KEYS[0];
     const result = LLMSchema.safeParse({
       defaultProvider: { provider: "anthropic" },
@@ -333,6 +336,108 @@ describe("LLMSchema backup profile references vs llm.defaultProvider", () => {
           LLMSchema.safeParse({ defaultProvider, activeProfile: key }).success,
         ).toBe(true);
       }
+    }
+  });
+
+  // A managed install can persist a thin `{ source: "managed" }` stub for a
+  // backup key: `normalizeManagedProfileWrites` reduces a `config get` ->
+  // `config set` echo of the effective profile list to exactly that. The stub
+  // holds no body of its own, so it must not carry a reference past the
+  // provider gate once the install moves off the managed column.
+  const stub = { source: "managed" } as const;
+
+  test("a managed stub does not keep a backup reference alive off the managed column", () => {
+    for (const defaultProvider of nonManaged) {
+      const result = LLMSchema.safeParse({
+        defaultProvider,
+        profiles: { [backupKey]: stub, primary: { effort: "high" } },
+        activeProfile: backupKey,
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(
+          (i) => i.path.join(".") === "activeProfile",
+        );
+        expect(issue?.message).toContain("managed backup profile");
+      }
+    }
+  });
+
+  test("a managed stub does not keep a call-site pin or mix arm alive either", () => {
+    for (const defaultProvider of nonManaged) {
+      const callSitePin = LLMSchema.safeParse({
+        defaultProvider,
+        profiles: { [backupKey]: stub },
+        callSites: { recall: { profile: backupKey } },
+      });
+      expect(callSitePin.success).toBe(false);
+
+      const mixArm = LLMSchema.safeParse({
+        defaultProvider,
+        profiles: {
+          [backupKey]: stub,
+          armA: { speed: "fast" },
+          blend: {
+            mix: [
+              { profile: backupKey, weight: 1 },
+              { profile: "armA", weight: 1 },
+            ],
+          },
+        },
+      });
+      expect(mixArm.success).toBe(false);
+    }
+  });
+
+  test("a managed stub does not keep a fallbackProfile pointer alive either", () => {
+    for (const defaultProvider of nonManaged) {
+      const result = LLMSchema.safeParse({
+        defaultProvider,
+        profiles: {
+          [backupKey]: stub,
+          primary: { fallbackProfile: backupKey },
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(
+          (i) => i.path.join(".") === "profiles.primary.fallbackProfile",
+        );
+        expect(issue?.message).toContain("managed backup profile");
+      }
+    }
+  });
+
+  test("a managed stub keeps its references valid on the managed column", () => {
+    // The stub stands for a body that does resolve here, so nothing about it
+    // makes the reference worse than the unmaterialized case.
+    const result = LLMSchema.safeParse({
+      defaultProvider: managed,
+      profiles: {
+        [backupKey]: stub,
+        primary: { fallbackProfile: backupKey },
+      },
+      activeProfile: backupKey,
+      callSites: { recall: { profile: backupKey } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("a user-owned entry under a backup name keeps its references on every column", () => {
+    for (const defaultProvider of [managed, ...nonManaged]) {
+      const result = LLMSchema.safeParse({
+        defaultProvider,
+        profiles: {
+          [backupKey]: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-7",
+          },
+          primary: { fallbackProfile: backupKey },
+        },
+        activeProfile: backupKey,
+      });
+      expect(result.success).toBe(true);
     }
   });
 });
