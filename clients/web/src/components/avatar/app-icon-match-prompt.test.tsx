@@ -70,7 +70,6 @@ const IMAGE_WITH_STALE_TRAITS: AvatarState = {
 };
 
 let avatarState: AvatarState | null = CHARACTER;
-let nativeIOS = true;
 let iconState: AppIconState = {
   supported: true,
   current: null,
@@ -85,7 +84,7 @@ const setAppIcon = mock(async (_name: string | null) => swapSucceeds);
 
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
-  useIsNativeIOS: () => nativeIOS,
+  useIsNativeIOS: () => true,
 }));
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({
@@ -170,7 +169,6 @@ async function expectNoPrompt() {
 
 beforeEach(() => {
   avatarState = CHARACTER;
-  nativeIOS = true;
   swapSucceeds = true;
   iconState = { supported: true, current: null, available: [ICON, OTHER_ICON] };
   localStorage.clear();
