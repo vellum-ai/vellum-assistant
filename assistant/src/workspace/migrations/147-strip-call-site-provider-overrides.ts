@@ -430,10 +430,10 @@ function winnerProviderForSite(
  * (or an explicitly managed stub, which the resolver overrides with the
  * code-owned body), "fall_through" when the name resolves to nothing, and
  * null when the outcome cannot be determined. A user-owned workspace entry
- * in any state that is not plainly usable is indeterminate on purpose: the
- * effective profile view materializes default bodies through workspace
- * state this migration does not reproduce, and deletion must never ride on
- * an approximation.
+ * in any state that is not plainly usable, and any profile the read path
+ * would reject outright, are indeterminate on purpose: the effective profile
+ * view materializes default bodies through workspace state this migration
+ * does not reproduce, and deletion must never ride on an approximation.
  */
 function rungProvider(
   name: string,
@@ -470,6 +470,21 @@ function rungProvider(
       VELLUM_ROUTABLE_MODELS.has(model)
     ) {
       return "vellum";
+    }
+    // A declared routing identity that cannot serve the profile's OWN model
+    // is rejected at parse (`routingIdentityModelIssue` fails the leaf and
+    // the loader drops the profile), so this rung's winner does not exist on
+    // the read path and the site really falls through to a later rung.
+    // Indeterminate rather than judged: a deletion must never ride on a
+    // winner the runtime discards.
+    if (
+      ROUTING_IDENTITIES.has(usableProvider) &&
+      model !== null &&
+      !(
+        usableProvider === "vellum" ? VELLUM_ROUTABLE_MODELS : CODEX_MODELS
+      ).has(model)
+    ) {
+      return null;
     }
     return usableProvider;
   }

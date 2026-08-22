@@ -8,14 +8,23 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { assertNotLiveDb } from "./assert-not-live-db.js";
+import { createMockLoggerModule } from "./helpers/mock-logger.js";
 
 // The migration's structured logs are the only observable difference between
 // its delete branches, so they are captured. `getLogger` is called at module
 // scope, so the mock must be registered before the migration module is
-// evaluated — hence the dynamic imports below.
+// evaluated, hence the dynamic imports below.
 interface LogCall {
   level: string;
   fields: Record<string, unknown>;
@@ -29,16 +38,20 @@ function capture(level: string) {
     });
   };
 }
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: capture("info"),
-    warn: capture("warn"),
-    error: capture("error"),
-    debug: capture("debug"),
-    trace: capture("trace"),
-    fatal: capture("fatal"),
-  }),
-}));
+// Only the two levels the migration emits are captured. Everything else is
+// an inert method returning the same logger: a Bun module mock is
+// process-global for every module loaded after it, so a stub missing
+// `debug`/`child` would break unrelated suites sharing the run.
+const captureLogger: Record<string, unknown> = new Proxy(
+  { info: capture("info"), warn: capture("warn") } as Record<string, unknown>,
+  { get: (target, prop) => target[prop as string] ?? (() => captureLogger) },
+);
+mock.module("../util/logger.js", () =>
+  createMockLoggerModule({ getLogger: () => captureLogger }),
+);
+afterAll(() => {
+  mock.restore();
+});
 
 const { deleteProviderConnectionResidueMigration } =
   await import("../workspace/migrations/148-delete-provider-connection-residue.js");

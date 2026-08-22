@@ -1191,7 +1191,7 @@ describe("DELETE repairs a row whose stored auth is underivable", () => {
 
 describe("DELETE repairs a row whose stored auth is not JSON at all", () => {
   // A corrupt auth column must read as an invalid row, not throw out of the
-  // loaders — otherwise the whole list breaks and DELETE (the one repair
+  // loaders: otherwise the whole list breaks and DELETE (the one repair
   // path) 500s instead of removing the row.
   beforeEach(() => {
     const now = Date.now();

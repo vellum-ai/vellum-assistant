@@ -294,6 +294,38 @@ describe("147-strip-call-site-provider-overrides", () => {
     expect(readCallSites()).not.toHaveProperty("memoryExtraction");
   });
 
+  test("keeps a tweak whose identity winner the loader itself discards", () => {
+    // The profile declares "chatgpt" but carries a model only the managed
+    // route serves, so `LLMSchema` rejects the leaf and the loader drops the
+    // profile: this rung never wins at runtime and the site falls to another
+    // one. Judging the tweak against the Codex allowlist would delete it on
+    // a winner that does not exist.
+    writeConfig({
+      llm: {
+        profiles: {
+          subscription: {
+            source: "user",
+            provider: "chatgpt",
+            model: "claude-opus-5",
+          },
+        },
+        callSites: {
+          memoryExtraction: {
+            profile: "subscription",
+            model: "gemini-2.5-pro",
+          },
+        },
+      },
+    });
+
+    run();
+
+    expect(readCallSites().memoryExtraction).toEqual({
+      profile: "subscription",
+      model: "gemini-2.5-pro",
+    });
+  });
+
   test("keeps a tweak carrying the undated DeepSeek id under a vellum winner", () => {
     // Migration 146 normally rewrites this id first, but a deferred 146 (the
     // runner continues past a failed migration) leaves it in place for this

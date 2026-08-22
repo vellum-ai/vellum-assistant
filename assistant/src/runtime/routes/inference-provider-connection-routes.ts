@@ -574,10 +574,13 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // A row whose stored auth payload is underivable (`parseAuth` returns
   // null, including a column that is not JSON at all) is hidden by the typed
   // loader but still occupies its name; DELETE is the one repair path, so
-  // fall through to the raw row and run the guards below on it. Such a row
-  // can never be the managed row (the managed row's auth always derives) and
-  // cannot be routed through, but it may still own the per-name credential
-  // slot from when it was healthy, so the cleanup below covers it.
+  // fall through to the raw row and run the guards below on it. A corrupt
+  // auth column on the canonical row reads as underivable too, so
+  // `claimsManagedName` goes true and the managed-delete protection is
+  // bypassed: that is the intended repair, since boot re-seeds the real
+  // managed connection under the same name. Such a row cannot be routed
+  // through, but it may still own its credential slot (see the cleanup at
+  // the end of this handler).
   const rawRow = existing ?? getConnectionRowRaw(getDb(), name);
   if (!rawRow) {
     throw new NotFoundError(`Connection "${name}" not found.`);
@@ -677,7 +680,7 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // shared across rows. An underivable row has no readable pointer to check,
   // but it can still own that slot from when it was healthy, so the repair
   // path clears it best-effort. Awaited so the response orders after the
-  // vault delete — a client that deletes, recreates the name, and saves a new
+  // vault delete: a client that deletes, recreates the name, and saves a new
   // key must never have that key erased by a still-in-flight deletion.
   // Failures are logged, never surfaced: a vault outage leaves an orphaned
   // secret, not a failed delete (the timeout on vault calls bounds the wait).

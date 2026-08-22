@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { providerConnections } from "../../persistence/schema/inference.js";
 import { normalizeCredentialRef } from "../../security/credential-key.js";
+import { parseJsonSafe } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
 import {
@@ -55,7 +56,10 @@ function isManagedRow(row: {
  * key in stored JSON is inert. Credential references are normalized to the
  * vault-key form on read as well as write, healing rows stored with the
  * secrets-API wire name (e.g. `openrouter:api_key`) without a migration.
- * Returns null for an underivable value; callers treat the row as invalid.
+ * Returns null for an underivable value, including the `null` a corrupt
+ * stored column parses to; callers treat the row as invalid (hidden from
+ * list/get, removable by DELETE) rather than throwing the read out from
+ * under themselves.
  */
 function parseAuth(raw: unknown, provider: string): Auth | null {
   if (raw === null || typeof raw !== "object") {
@@ -69,20 +73,6 @@ function parseAuth(raw: unknown, provider: string): Auth | null {
     return null;
   }
   return deriveStoredAuth(provider, normalizeCredentialRef(credential));
-}
-
-/**
- * The stored auth column as JSON, or null when the column does not parse.
- * A corrupt payload must read as an invalid row (hidden from list/get,
- * removable by DELETE), never throw the whole read out from under the
- * caller.
- */
-function parseStoredAuthColumn(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -124,7 +114,7 @@ export function listConnections(
     : db.select().from(providerConnections).all();
 
   return rows.flatMap((row) => {
-    const auth = parseAuth(parseStoredAuthColumn(row.auth), row.provider);
+    const auth = parseAuth(parseJsonSafe(row.auth), row.provider);
     if (!auth) {
       return [];
     }
@@ -159,7 +149,7 @@ export function getConnection(
   if (!row) {
     return null;
   }
-  const auth = parseAuth(parseStoredAuthColumn(row.auth), row.provider);
+  const auth = parseAuth(parseJsonSafe(row.auth), row.provider);
   if (!auth) {
     return null;
   }
@@ -518,7 +508,7 @@ export function canonicalVellumConnection(): ProviderConnection {
  *     blocking prevents a confusing delete → re-appear loop).
  *   - PATCH that changes `auth` is blocked (auth is locked to `{type:"platform"}`
  *     so any other value would be reverted on the next boot upsert).
- *   - PATCH that changes `label` is allowed — users may legitimately relabel the
+ *   - PATCH that changes `label` is allowed: users may legitimately relabel the
  *     managed connection. `label` is seeded on initial INSERT and backfilled when
  *     null on subsequent boots so pre-seed installs pick up the default; a non-null
  *     user-customized label is preserved (see `seedCanonicalConnections`).
