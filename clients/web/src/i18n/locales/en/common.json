@@ -2,6 +2,13 @@
   "addCreditsModal": {
     "configureAutoReload": "Configure Auto-Reload"
   },
+  "appIconMatchPrompt": {
+    "title": "Match your app icon to your avatar?",
+    "message": "Your home screen icon becomes this avatar. You can change it back any time from Settings.",
+    "error": "iOS did not change your home screen icon. You can try again.",
+    "apply": "Apply",
+    "notNow": "Not now"
+  },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
     "meet": {

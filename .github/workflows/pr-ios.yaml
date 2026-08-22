@@ -8,6 +8,9 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/ios/**'
+      # Source of the committed avatar app icons, so a catalog change with no
+      # regeneration still has to trip the drift check.
+      - 'assistant/src/avatar/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
       - '.github/workflows/pr-ios.yaml'
@@ -24,7 +27,10 @@ jobs:
     # Runner and Xcode match `release-ios.yaml` so this check exercises the
     # same toolchain that produces TestFlight builds.
     runs-on: macos-15
-    timeout-minutes: 30
+    # The avatar icon drift check rasterizes 540 icons, which takes about 19
+    # minutes here against 2 on an M-series laptop. That plus the build lands
+    # around 23, so 30 left no room.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -43,7 +49,19 @@ jobs:
 
       - name: Install dependencies
         working-directory: clients/web
-        run: bun install --frozen-lockfile --filter=@vellumai/web
+        # `@vellumai/assistant` is here for the avatar icon drift check below:
+        # rasterizing the icons needs its native `@resvg/resvg-js` binding.
+        run: |
+          bun install --frozen-lockfile \
+            --filter=@vellumai/web \
+            --filter=@vellumai/assistant
+
+      - name: Check avatar icon drift
+        working-directory: clients/ios
+        # Asserts the committed icon sets and xcconfig still match a fresh
+        # generation. Runs from `clients/ios` because the repo-root
+        # `test-preload.ts` rejects a root `bun test`.
+        run: bun test scripts/__tests__/generate-avatar-icons.test.ts
 
       - name: Capacitor sync
         working-directory: clients/web

@@ -51,6 +51,11 @@ targetTemplates:
       # target re-adds the single icon it ships with so that
       # ASSETCATALOG_COMPILER_APPICON_NAME (set per-target via xcconfig)
       # resolves to a bundled resource.
+      #
+      # `AvatarIcons.xcassets` rides along in this sweep, the same way
+      # `Assets.xcassets` does: every target ships every avatar alternate
+      # icon, so there is nothing to re-add per target. The xcconfigs turn
+      # them into alternates via Config/AvatarIcons.xcconfig.
       - path: App
         excludes:
           - "Info.plist"

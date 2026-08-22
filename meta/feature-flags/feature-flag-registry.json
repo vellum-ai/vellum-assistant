@@ -380,6 +380,14 @@
       "label": "Obscure Credits",
       "description": "Replaces the dollar amounts on the billing Plan section with a usage-relative view: the current-plan tile trades its price footer for a Usage Balance bar (managed spend this billing cycle against the package's included credits) and the credits spec chip reads \"<Package> usage, reset monthly\" instead of naming a dollar bundle. Spec chips wrap horizontally to fit the shorter labels. Off leaves the Plan section exactly as it ships today.",
       "defaultEnabled": false
+    },
+    {
+      "id": "ios-avatar-app-icon",
+      "scope": "client",
+      "key": "ios-avatar-app-icon",
+      "label": "iOS Avatar App Icon",
+      "description": "Offers to match the iOS home screen icon to the assistant's character avatar, swapping in the bundled alternate icon for that body shape, eye style, and color. Only character avatars qualify: uploaded and AI-generated avatars never change the app icon. Off leaves the default icon in place and hides the prompt entirely.",
+      "defaultEnabled": false
     }
   ]
 }

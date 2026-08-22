@@ -7,7 +7,11 @@ import {
   fetchAvatarImageUrl,
   fetchCharacterTraits,
 } from "@/assistant/avatar-api";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type {
+  AvatarState,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
 import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
@@ -21,6 +25,17 @@ export interface AvatarData {
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
+  /**
+   * The render manifest the three fields above were derived from. Consumers
+   * that need `kind` rather than just traits read it from here so they stay on
+   * this one query, because a second query would miss the `avatar_updated`
+   * sweep that keeps this one live.
+   *
+   * Optional because surfaces that seed this cache by hand (the takeover
+   * avatar stash, stories) carry only what they paint with. A missing state
+   * reads as unknown, which every consumer must treat as "not a character".
+   */
+  state?: AvatarState | null;
 }
 
 const activeBlobUrls = new Map<string, string>();
@@ -53,9 +68,11 @@ export interface AssistantAvatarOptions {
  * Query keeps the previously cached avatar instead of blanking out — see
  * the `retry` / `staleTime` options below.
  */
-async function fetchAvatarViaManifest(
-  assistantId: string,
-): Promise<{ traits: CharacterTraits | null; imageUrl: string | null }> {
+async function fetchAvatarViaManifest(assistantId: string): Promise<{
+  state: AvatarState;
+  traits: CharacterTraits | null;
+  imageUrl: string | null;
+}> {
   const state = await fetchAvatarState(assistantId);
   if (state === null) {
     // `fetchAvatarState` returns null only on transport failure. Throw
@@ -70,15 +87,19 @@ async function fetchAvatarViaManifest(
     // Built/AI character: render the animated SVG from traits. The daemon
     // also writes a derived avatar-image.png raster, but the web never
     // uses it, so we skip the image fetch entirely.
-    return { traits: state.traits, imageUrl: null };
+    return { state, traits: state.traits, imageUrl: null };
   }
   if (state.kind === "image") {
     // Custom uploaded image: render the static circle.
-    return { traits: null, imageUrl: await fetchAvatarImageUrl(assistantId) };
+    return {
+      state,
+      traits: null,
+      imageUrl: await fetchAvatarImageUrl(assistantId),
+    };
   }
   // kind === "none": both stay null, and ChatAvatar falls back to default
   // components / the "V".
-  return { traits: null, imageUrl: null };
+  return { state, traits: null, imageUrl: null };
 }
 
 /**
@@ -88,16 +109,26 @@ async function fetchAvatarViaManifest(
  * alive behind the version gate — see
  * `lib/backwards-compat/avatar-state-manifest.ts`.
  */
-async function fetchAvatarViaLegacyFiles(
-  assistantId: string,
-): Promise<{ traits: CharacterTraits | null; imageUrl: string | null }> {
+async function fetchAvatarViaLegacyFiles(assistantId: string): Promise<{
+  state: AvatarState;
+  traits: CharacterTraits | null;
+  imageUrl: string | null;
+}> {
   const imageUrl = await fetchAvatarImageUrl(assistantId);
   // Skip the traits fetch when a custom image exists — the traits file is
   // intentionally deleted on the daemon side in that case, so requesting it
   // just generates 404s. `AvatarRenderer` only reads `traits` when there is
   // no `customImageUrl`.
   const traits = imageUrl ? null : await fetchCharacterTraits(assistantId);
-  return { traits, imageUrl };
+  // The same file precedence, restated as a manifest so `state` has one shape
+  // on both paths. `source` and `image` stay null because the sidecar files
+  // carry neither.
+  const state: AvatarState = imageUrl
+    ? { kind: "image", traits: null, source: null, image: null }
+    : traits
+      ? { kind: "character", traits, source: null, image: null }
+      : { kind: "none", traits: null, source: null, image: null };
+  return { state, traits, imageUrl };
 }
 
 /**
@@ -124,7 +155,7 @@ export function useAssistantAvatar(
     queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],
     queryFn: async () => {
       const id = assistantId!;
-      const [components, { traits, imageUrl }] = await Promise.all([
+      const [components, { state, traits, imageUrl }] = await Promise.all([
         fetchCharacterComponents(id),
         supportsManifest
           ? fetchAvatarViaManifest(id)
@@ -149,7 +180,7 @@ export function useAssistantAvatar(
         activeBlobUrls.delete(id);
       }
 
-      return { components, traits, customImageUrl: imageUrl };
+      return { components, traits, customImageUrl: imageUrl, state };
     },
     enabled: Boolean(assistantId) && (options?.enabled ?? true),
     staleTime: Infinity,
@@ -173,6 +204,7 @@ export function useAssistantAvatar(
     components: data?.components ?? null,
     traits: data?.traits ?? null,
     customImageUrl: data?.customImageUrl ?? null,
+    state: data?.state ?? null,
     isLoading,
     invalidate,
   };

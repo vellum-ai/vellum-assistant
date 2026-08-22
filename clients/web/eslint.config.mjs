@@ -190,6 +190,7 @@ const authBoundaryAllowedPaths = [
  * noise, which is how these rules die.
  */
 const i18nEnforcedPaths = [
+  "src/components/avatar/app-icon-match-prompt.tsx",
   "src/components/companion-intro.tsx",
   "src/domains/chat/transcript/acp-connect-affordance.tsx",
   "src/hooks/use-connect-claude.ts",

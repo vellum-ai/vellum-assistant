@@ -71,6 +71,16 @@
     "unsupportedDescription": "Los ajustes de notificaciones no están disponibles en esta versión de la app.",
     "unsupportedLabel": "No disponible"
   },
+  "appIconCard": {
+    "description": "Los iconos alternativos vienen incluidos en la app, e iOS confirma cada cambio con su propio aviso.",
+    "error": "iOS no cambió el icono de tu pantalla de inicio. Puedes intentarlo de nuevo.",
+    "match": "Usar el avatar",
+    "reset": "Usar el predeterminado",
+    "statusDefault": "Tu pantalla de inicio muestra el icono predeterminado de Vellum.",
+    "statusMatched": "El icono de tu pantalla de inicio coincide con tu avatar.",
+    "statusStale": "El icono de tu pantalla de inicio es de un avatar anterior.",
+    "title": "Icono de la app"
+  },
   "assistantBackups": {
     "columnCreated": "Creada",
     "columnReady": "Lista",
