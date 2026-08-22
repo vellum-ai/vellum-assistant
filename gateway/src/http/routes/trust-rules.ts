@@ -156,7 +156,7 @@ export function createTrustRulesCreateHandler() {
       );
     }
 
-    const { tool, pattern, risk, description } = body as Record<
+    const { tool, pattern, risk, description, scope } = body as Record<
       string,
       unknown
     >;
@@ -185,9 +185,21 @@ export function createTrustRulesCreateHandler() {
         { status: 400 },
       );
     }
+    if (scope !== undefined && scope !== null && typeof scope !== "string") {
+      return Response.json(
+        { error: '"scope" must be a string or null' },
+        { status: 400 },
+      );
+    }
 
     try {
-      const rule = store.create({ tool, pattern, risk, description });
+      const rule = store.create({
+        tool,
+        pattern,
+        risk,
+        description,
+        scope: typeof scope === "string" ? scope : null,
+      });
       invalidateTrustRuleCache();
       return Response.json({ rule }, { status: 201 });
     } catch (err) {

@@ -330,6 +330,12 @@ export const trustRules = sqliteTable(
       .notNull()
       .default(false),
     deleted: integer("deleted", { mode: "boolean" }).notNull().default(false),
+    /**
+     * Optional directory scope. When non-null the rule applies only when the
+     * tool is invoked from within this directory (or a subdirectory of it).
+     * Null means the rule is global (applies in any directory).
+     */
+    scope: text("scope"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

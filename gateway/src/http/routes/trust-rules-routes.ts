@@ -28,6 +28,12 @@ const TrustRuleSchema = z.object({
   origin: z.enum(["default", "user_defined"]),
   userModified: z.boolean(),
   deleted: z.boolean(),
+  /**
+   * Optional directory scope. When non-null the rule applies only when the
+   * tool is invoked from within this directory (or a subdirectory). Null
+   * means global.
+   */
+  scope: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -39,9 +45,10 @@ const CreateTrustRuleRequestSchema = z.object({
   description: z.string().min(1),
   scope: z
     .string()
+    .nullable()
     .optional()
     .describe(
-      "Directory scope selected in the rule editor. Accepted on the wire but not yet persisted by the gateway.",
+      "Optional directory scope. When set, the rule applies only when the tool is invoked from within this directory or a subdirectory of it. Null or omitted means global.",
     ),
 });
 
