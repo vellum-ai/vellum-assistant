@@ -1451,10 +1451,16 @@ function assertRoutableIdentityEntries(
  * anything indeterminate (an unparseable `llm` section whose parse error
  * surfaces elsewhere, a winner whose connection row cannot be read, or a
  * route whose model set is not code-known: endpoint-supplied providers,
- * keyless ollama), matching `preflightResolvedConfig`'s posture. A mix
- * winner has no single route to fingerprint, so a model this write
- * introduces, changes, or moves onto the mix is judged against its arms
- * instead (`assertServableByEveryMixArm`).
+ * keyless ollama), matching `preflightResolvedConfig`'s posture.
+ *
+ * A mix winner is never judged. Its winning arm is a seeded
+ * per-conversation pick, so any single judgment is against one of several
+ * real routes and can wrongly reject a legitimate save as readily as
+ * wrongly accept one; an unservable pair is reported loudly at dispatch
+ * instead. Workspace migration 147 takes the same posture toward mixes. A
+ * mix therefore fingerprints as indeterminate, which also keeps a site
+ * from reading as moved merely because a mix was involved; a mix that
+ * becomes concrete still revalidates, the concrete side being judgeable.
  */
 function assertServableCallSiteModels(
   preWrite: Record<string, unknown>,
@@ -1500,48 +1506,25 @@ function assertServableCallSiteModels(
      * rather than a dispatch-translated vendor. Null = indeterminate.
      */
     kind: string | null;
-    /** The mix profile the route expanded through, else null. */
-    mixProfile: string | null;
-    /** That mix's arm names, so an arm-list edit reads as a move. */
-    mixArms: string | null;
   }
   const routeFingerprint = (
     llm: z.infer<typeof LLMSchema>,
     site: LLMCallSite,
   ): RouteFingerprint => {
     // The seed is fixed so a pre-write and a post-write resolution of the
-    // same config expand mixes identically and an unchanged route never
-    // reads as moved. It is reproducibility only, never the basis of a
-    // judgment: a mix is still judged arm by arm below.
-    const expandedMixes: string[] = [];
+    // same config expand mixes identically: whether a site's winner is a
+    // mix is then a property of the config alone, on every rung including
+    // the anchor and when a seeded pick falls through a disabled arm.
+    let expandedMix = false;
     const { config } = resolveCallSiteConfigWithProfile(site, llm, {
       selectionSeed: site,
-      onMixSelected: ({ mixProfile }) => {
-        expandedMixes.push(mixProfile);
+      onMixSelected: () => {
+        expandedMix = true;
       },
     });
-    // Any mix the chain expanded (a named rung's or the anchor's) makes the
-    // route a per-conversation pick, so it cannot be fingerprinted: a rung
-    // whose arm is unusable under this seed still wins under another. The
-    // last expansion is the lowest-precedence one the chain reached, so it
-    // is the mix that either won or stood between the site and its winner.
-    // Indeterminate, like the other fail-open cases; the mix's name and arms
-    // are carried out so the model can still be judged arm by arm.
-    const mixProfile = expandedMixes[expandedMixes.length - 1] ?? null;
-    if (mixProfile != null) {
-      return {
-        provider: null,
-        kind: null,
-        mixProfile,
-        mixArms: JSON.stringify(mixArmNames(llm, mixProfile)),
-      };
-    }
-    return {
-      provider: config.provider,
-      kind: providerKind(config.provider),
-      mixProfile: null,
-      mixArms: null,
-    };
+    return expandedMix
+      ? { provider: null, kind: null }
+      : { provider: config.provider, kind: providerKind(config.provider) };
   };
 
   for (const { site, model } of modelBearing) {
@@ -1557,16 +1540,10 @@ function assertServableCallSiteModels(
       const prior = routeFingerprint(pre.data, site);
       const moved =
         prior.provider !== route.provider ||
-        (prior.kind != null && prior.kind !== route.kind) ||
-        prior.mixProfile !== route.mixProfile ||
-        prior.mixArms !== route.mixArms;
+        (prior.kind != null && prior.kind !== route.kind);
       if (!moved) {
         continue;
       }
-    }
-    if (route.mixProfile != null) {
-      assertServableByEveryMixArm(post.data, route.mixProfile, site, model);
-      continue;
     }
     if (route.kind == null) {
       continue;
@@ -1574,70 +1551,6 @@ function assertServableCallSiteModels(
     const issue = servabilityIssue(route.kind, model);
     if (issue) {
       throw new BadRequestError(`${issue} (llm.callSites.${site}.model)`);
-    }
-  }
-}
-
-/**
- * The arm profile names of a mix, resolved the way the runtime resolver
- * resolves the mix itself; empty when the name is not a mix.
- */
-function mixArmNames(
-  llm: z.infer<typeof LLMSchema>,
-  mixProfile: string,
-): string[] {
-  const entry = resolveDefaultProfileForProvider(
-    llm.profiles,
-    mixProfile,
-    llm.defaultProvider ?? null,
-  );
-  return (entry?.mix ?? []).map((arm) => arm.profile);
-}
-
-/**
- * Reject a call-site model no arm of a mix winner can serve. A mix has no
- * single route to fingerprint (the arm is a seeded per-conversation pick),
- * but its arms are fully knowable: `LLMSchema.superRefine` guarantees every
- * arm names a standard profile that RESOLVES, which for a default-profile
- * key means the code-owned body rather than a `llm.profiles` entry (defaults
- * are never materialized into workspace config). Arms therefore resolve
- * through the same effective-profile catalog the runtime uses; an arm that
- * resolves to nothing is a genuine fail-open, not the common case. Judged
- * only for arms whose kind is determinable; an arm that cannot be judged
- * fails open on its own, and a disabled or incomplete arm is skipped because
- * selection falls through to another winner entirely when the pick lands
- * on it.
- */
-function assertServableByEveryMixArm(
-  llm: z.infer<typeof LLMSchema>,
-  mixProfile: string,
-  site: LLMCallSite,
-  model: string,
-): void {
-  const defaultProvider = llm.defaultProvider ?? null;
-  for (const armName of mixArmNames(llm, mixProfile)) {
-    const entry = resolveDefaultProfileForProvider(
-      llm.profiles,
-      armName,
-      defaultProvider,
-    );
-    if (
-      entry == null ||
-      entry.status === "disabled" ||
-      entry.provider == null ||
-      entry.model == null
-    ) {
-      continue;
-    }
-    const kind = providerKind(entry.provider);
-    if (kind == null) {
-      continue;
-    }
-    const issue = servabilityIssue(kind, model);
-    if (issue) {
-      throw new BadRequestError(
-        `${issue} (llm.callSites.${site}.model, mix arm "${armName}")`,
-      );
     }
   }
 }
