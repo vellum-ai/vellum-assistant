@@ -76,9 +76,15 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * begins with the ref null and would preserve another assistant's titles for
  * as long as its own list stayed unresolved. The producer id is therefore
  * also persisted next to the snapshot (`readWidgetSnapshotAssistantId`), and
- * consulted once per launch as the ref's cold-boot complement. A launch with
- * no recorded producer, or one recorded for the assistant now active, is not
- * a switch and keeps the preservation.
+ * read once per launch to seed that ref. A launch with no recorded producer,
+ * or one recorded for the assistant now active, is not a switch and keeps the
+ * preservation.
+ *
+ * The read seeds the ref rather than a per-render local because a launch on
+ * the recorded producer may never resolve its own list, and so may never write
+ * the ref itself. Held only for the render that read it, a later switch away
+ * would find no known owner and leave that producer's titles on the Home
+ * Screen indefinitely.
  */
 export function useNativeWidgetSnapshotSync(
   assistantId: string | null,
@@ -88,9 +94,10 @@ export function useNativeWidgetSnapshotSync(
   listResolved: boolean,
 ): void {
   const lastPayloadRef = useRef<string | null>(null);
-  // The assistant the snapshot in the App Group was built from; null until
-  // this hook has written one, which is what keeps a launch from reading as
-  // a switch.
+  // The assistant the snapshot in the App Group was built from: whatever this
+  // hook last wrote, or the producer read back from storage on a cold launch.
+  // Null while no producer is known, which is what keeps a launch from reading
+  // as a switch.
   const syncedAssistantIdRef = useRef<string | null>(null);
   // Whether the persisted producer id has been consulted. It only answers for
   // a snapshot this page lifetime did not write, so one read per launch is
@@ -117,15 +124,16 @@ export function useNativeWidgetSnapshotSync(
     // serialize identically to what the previous one last wrote.
     //
     // On a cold launch the ref is null while a snapshot from a previous run
-    // may still be on the Home Screen, so its producer comes from storage
-    // instead. Deferred until the active assistant is known, so a launch that
-    // has not resolved one yet is never mistaken for a switch.
-    let persistedOwnerId: string | null = null;
+    // may still be on the Home Screen, so its producer comes from storage and
+    // seeds the ref. Deferred until the active assistant is known, so a launch
+    // that has not resolved one yet is never mistaken for a switch. Seeding
+    // rather than reading into a local is what keeps the owner detectable when
+    // the launch assistant's own list never resolves and never writes the ref.
     if (!readPersistedOwnerRef.current && assistantId !== null) {
       readPersistedOwnerRef.current = true;
-      persistedOwnerId = readWidgetSnapshotAssistantId();
+      syncedAssistantIdRef.current = readWidgetSnapshotAssistantId();
     }
-    const snapshotOwnerId = syncedAssistantIdRef.current ?? persistedOwnerId;
+    const snapshotOwnerId = syncedAssistantIdRef.current;
     const switchedAssistant =
       snapshotOwnerId !== null && snapshotOwnerId !== assistantId;
     if (switchedAssistant) {

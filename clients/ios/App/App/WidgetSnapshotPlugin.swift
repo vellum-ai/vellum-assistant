@@ -14,9 +14,16 @@ import WidgetKit
 /// - `clear()` drops it, for sign-out. See `WidgetSnapshotStore`'s cache
 ///   boundary for why this store, unlike `RecentChatsStore`, has one.
 ///
-/// The payload's own version field is not read. The shell re-encodes into its
-/// own model, so what lands in the store is a `currentSchemaVersion` blob by
-/// construction and a field this build does not know is simply dropped.
+/// The shell only stores payloads whose schema it understands. `sync` reads
+/// the payload's `schemaVersion` and stores it only when it matches
+/// `WidgetSnapshot.currentSchemaVersion`; anything else (a newer web
+/// deployment against an older installed shell, or the inverse after a shell
+/// upgrade) clears the stored snapshot instead, so the widgets fall back to
+/// their empty state rather than showing data relabeled with a version whose
+/// field meanings this build cannot vouch for. An older shell receiving a
+/// newer payload therefore degrades to empty widgets until the shell updates.
+/// This is the write-side half of the check `WidgetSnapshotStore.load()`
+/// already makes on read.
 ///
 /// Malformed conversation entries are dropped rather than rejecting the call:
 /// a partial summary beats none, and the web producer already shapes the
@@ -37,6 +44,21 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
     private static let maxConversations = 3
 
     @objc public func sync(_ call: CAPPluginCall) {
+        // A payload with no version is as unreadable as one carrying a version
+        // this build does not know: every producer of this contract sends the
+        // field, so its absence is skew rather than an older dialect.
+        let payloadVersion = call.getInt("schemaVersion")
+        guard payloadVersion == WidgetSnapshot.currentSchemaVersion else {
+            NSLog(
+                "[widget] Dropping a snapshot for schema %@; this build reads %d",
+                payloadVersion.map { "\($0)" } ?? "<none>",
+                WidgetSnapshot.currentSchemaVersion
+            )
+            WidgetSnapshotStore.clear()
+            Self.reloadWidgets()
+            call.resolve(["ok": true])
+            return
+        }
         let conversations = (call.getArray("conversations") ?? [])
             .compactMap(Self.conversation(from:))
             .prefix(Self.maxConversations)

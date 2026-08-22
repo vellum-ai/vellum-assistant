@@ -322,6 +322,40 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots).toHaveLength(0);
   });
 
+  it("clears when the assistant changes away from a cold-boot producer whose own list never resolved", () => {
+    // The producer is read once per launch, so the owner it names has to be
+    // retained rather than held for that render alone. Here the launch starts
+    // on the recorded producer, so the read is not a switch and writes no
+    // snapshot of its own; a switch away before the list resolves is still a
+    // switch, and leaving it undetected would keep this assistant's titles on
+    // the Home Screen for as long as the next one stayed unresolved.
+    persistedAssistantId = ASSISTANT_ID;
+    const { rerender } = render({
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(0);
+
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
+    expect(syncedSnapshots).toHaveLength(0);
+
+    // Still one switch, however long the new assistant takes.
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      listResolved: false,
+    });
+    expect(clearCount).toBe(1);
+  });
+
   it("waits for the active assistant before judging a cold-boot snapshot", () => {
     // `activeAssistantId` resolves after the layout mounts. A null id matches
     // nothing, so acting on it would blank the widgets on every launch.
