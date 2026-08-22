@@ -654,6 +654,7 @@ async function upgradeDocker(
               entry.runtimeUrl,
               entry.assistantId,
               backupPath,
+              { kind: "docker", assistantId: entry.assistantId },
             );
             if (restored) {
               console.log("   ✅ Data restored successfully\n");

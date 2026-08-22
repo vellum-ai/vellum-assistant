@@ -3858,10 +3858,10 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Import workspace backup",
           description:
-            "Proxies a migration import request to the assistant. Two request shapes are accepted:\n" +
+            "Proxies a migration import request to the assistant. Request shapes:\n" +
             "\n" +
             "  - `application/octet-stream`: raw .vbundle body. The request is proxied synchronously and the caller's connection stays open for the full import duration (returns 200 on success).\n" +
-            '  - `application/json` with `{ "url": "<signed GCS URL>" }`: the gateway generates a jobId, kicks off the upstream assistant call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress.\n' +
+            '  - `application/json` with `{ "url": "<signed GCS URL>" }` or `{ "path": "<staged workspace path>" }`: the gateway generates a jobId, kicks off the upstream assistant call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress. The path form points at a `.vbundle` staged under the assistant workspace `.restore-staging` directory.\n' +
             "\n" +
             "Authenticated with an edge JWT. Synchronous-path timeout is 60 minutes to accommodate large 8 GB backups; the async path returns immediately.",
           operationId: "migrationImport",
@@ -3874,16 +3874,32 @@ export function buildSchema(): Record<string, unknown> {
               },
               "application/json": {
                 schema: {
-                  type: "object",
-                  required: ["url"],
-                  properties: {
-                    url: {
-                      type: "string",
-                      format: "uri",
-                      description:
-                        "Signed GCS URL pointing at a .vbundle archive.",
+                  oneOf: [
+                    {
+                      type: "object",
+                      required: ["url"],
+                      properties: {
+                        url: {
+                          type: "string",
+                          format: "uri",
+                          description:
+                            "Signed GCS URL pointing at a .vbundle archive.",
+                        },
+                      },
                     },
-                  },
+                    {
+                      type: "object",
+                      required: ["path"],
+                      properties: {
+                        path: {
+                          type: "string",
+                          minLength: 1,
+                          description:
+                            "Workspace-relative or absolute path to a staged .vbundle under .restore-staging.",
+                        },
+                      },
+                    },
+                  ],
                 },
               },
             },
@@ -3895,7 +3911,7 @@ export function buildSchema(): Record<string, unknown> {
             },
             "202": {
               description:
-                "Import accepted for async processing (JSON URL path). Poll `/v1/migrations/import/{jobId}/status` for progress.",
+                "Import accepted for async processing (JSON url or path body). Poll `/v1/migrations/import/{jobId}/status` for progress.",
               content: {
                 "application/json": {
                   schema: {
@@ -3921,7 +3937,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Poll async import job status",
           description:
-            "Returns the current status of an async `.vbundle` import kicked off by `POST /v1/migrations/import` with a JSON `{url}` body. Finished jobs remain queryable for 30 minutes before being pruned.",
+            "Returns the current status of an async `.vbundle` import kicked off by `POST /v1/migrations/import` with a JSON `{url}` or `{path}` body. Finished jobs remain queryable for 30 minutes before being pruned.",
           operationId: "migrationImportStatus",
           security: [{ BearerAuth: [] }],
           parameters: [

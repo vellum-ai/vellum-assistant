@@ -9,6 +9,11 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
+import {
+  importStagedBundle,
+  stageBundleForRestore,
+  type RestoreStagingTarget,
+} from "./bundle-staging.js";
 import { loadGuardianToken, refreshGuardianToken } from "./guardian-token.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
@@ -134,6 +139,72 @@ export async function createBackup(
   }
 }
 
+async function postRestoreWithRetries(
+  postImport: () => Promise<Response>,
+  runtimeUrl: string,
+  assistantId: string,
+  onTokenRefresh: (token: string) => void,
+): Promise<Response | null> {
+  let response = await postImport();
+
+  // Retry once with a refreshed token on 401 — the cached token may be
+  // stale after a container restart that regenerated the gateway signing key.
+  if (response.status === 401) {
+    const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
+    if (!refreshed) {
+      console.warn(`Warning: restore failed (401) and token refresh failed`);
+      return null;
+    }
+    onTokenRefresh(refreshed.accessToken);
+    response = await postImport();
+  }
+
+  // A freshly-(re)started gateway 503s {status:"starting"} for a couple of
+  // seconds until its own assistant poll observes the migration state and
+  // opens the traffic gate — retry through that window rather than failing
+  // the recovery. The daemon's running-migrations 503 carries a `reason`
+  // field and is excluded: the import must not race an in-flight migration.
+  const startingGateDeadline = Date.now() + 15_000;
+  while (!response.ok) {
+    const body = await response.text();
+    let gatewayStarting = false;
+    try {
+      const parsed = JSON.parse(body) as {
+        status?: string;
+        reason?: string;
+      };
+      gatewayStarting =
+        parsed.status === "starting" && parsed.reason === undefined;
+    } catch {
+      // Non-JSON error body — not the starting gate.
+    }
+    if (gatewayStarting && Date.now() < startingGateDeadline) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      response = await postImport();
+      continue;
+    }
+    console.warn(`Warning: restore failed (${response.status}): ${body}`);
+    return null;
+  }
+
+  return response;
+}
+
+async function finishRestoreResponse(response: Response): Promise<boolean> {
+  const result = (await response.json()) as {
+    success: boolean;
+    message?: string;
+    reason?: string;
+  };
+  if (!result.success) {
+    console.warn(
+      `Warning: restore failed — ${result.message ?? result.reason ?? "unknown reason"}`,
+    );
+    return false;
+  }
+  return true;
+}
+
 /**
  * Restore a .vbundle backup into a running assistant.
  * Returns true if restore succeeded, false otherwise.
@@ -143,6 +214,7 @@ export async function restoreBackup(
   runtimeUrl: string,
   assistantId: string,
   backupPath: string,
+  staging?: RestoreStagingTarget | null,
 ): Promise<boolean> {
   try {
     if (!existsSync(backupPath)) {
@@ -150,81 +222,60 @@ export async function restoreBackup(
       return false;
     }
 
-    const bundleData = readFileSync(backupPath);
-    let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
-    if (!accessToken) {
+    const initialToken = await getGuardianAccessToken(runtimeUrl, assistantId);
+    if (!initialToken) {
       console.warn(
         "Warning: restore skipped — no valid guardian token available",
       );
       return false;
     }
+    let token = initialToken;
 
+    if (staging) {
+      const staged = await stageBundleForRestore(staging, backupPath);
+      try {
+        const postImport = () =>
+          importStagedBundle(runtimeUrl, token, staged.relativePath);
+        const response = await postRestoreWithRetries(
+          postImport,
+          runtimeUrl,
+          assistantId,
+          (nextToken) => {
+            token = nextToken;
+          },
+        );
+        if (!response) {
+          return false;
+        }
+        return await finishRestoreResponse(response);
+      } finally {
+        await staged.cleanup();
+      }
+    }
+
+    const bundleData = new Uint8Array(readFileSync(backupPath));
     const postImport = () =>
       loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/octet-stream",
         },
         body: bundleData,
         signal: AbortSignal.timeout(120_000),
       });
-
-    let response = await postImport();
-
-    // Retry once with a refreshed token on 401 — the cached token may be
-    // stale after a container restart that regenerated the gateway signing key.
-    if (response.status === 401) {
-      const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
-      if (!refreshed) {
-        console.warn(`Warning: restore failed (401) and token refresh failed`);
-        return false;
-      }
-      accessToken = refreshed.accessToken;
-      response = await postImport();
-    }
-
-    // A freshly-(re)started gateway 503s {status:"starting"} for a couple of
-    // seconds until its own assistant poll observes the migration state and
-    // opens the traffic gate — retry through that window rather than failing
-    // the recovery. The daemon's running-migrations 503 carries a `reason`
-    // field and is excluded: the import must not race an in-flight migration.
-    const startingGateDeadline = Date.now() + 15_000;
-    while (!response.ok) {
-      const body = await response.text();
-      let gatewayStarting = false;
-      try {
-        const parsed = JSON.parse(body) as {
-          status?: string;
-          reason?: string;
-        };
-        gatewayStarting =
-          parsed.status === "starting" && parsed.reason === undefined;
-      } catch {
-        // Non-JSON error body — not the starting gate.
-      }
-      if (gatewayStarting && Date.now() < startingGateDeadline) {
-        await new Promise((r) => setTimeout(r, 1_000));
-        response = await postImport();
-        continue;
-      }
-      console.warn(`Warning: restore failed (${response.status}): ${body}`);
+    const response = await postRestoreWithRetries(
+      postImport,
+      runtimeUrl,
+      assistantId,
+      (nextToken) => {
+        token = nextToken;
+      },
+    );
+    if (!response) {
       return false;
     }
-
-    const result = (await response.json()) as {
-      success: boolean;
-      message?: string;
-      reason?: string;
-    };
-    if (!result.success) {
-      console.warn(
-        `Warning: restore failed — ${result.message ?? result.reason ?? "unknown reason"}`,
-      );
-      return false;
-    }
-
-    return true;
+    return await finishRestoreResponse(response);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`Warning: restore failed: ${msg}`);
