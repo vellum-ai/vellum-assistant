@@ -49,7 +49,10 @@ const log = getLogger("migrations/148-delete-provider-connection-residue");
 //
 // The identity mapping, managed-routable set, and identity model tables are
 // frozen snapshots (migrations are self-contained) of the routing tables as
-// of 2026-08-20, matching migration 147's snapshots.
+// of 2026-08-20. They mirror the live tables exactly, unlike migration 147's
+// deliberately over-inclusive copies: this pass STAMPS an identity, so an
+// extra id would write a pair the read path strips, where 147 gates deletion
+// and must fail open.
 
 const ROUTING_IDENTITIES = new Set(["vellum", "chatgpt"]);
 const MANAGED_ROUTABLE = new Set([
@@ -97,9 +100,9 @@ const VELLUM_ROUTABLE_MODELS = new Set([
   "accounts/fireworks/models/minimax-m3",
   "accounts/fireworks/models/minimax-m2p7",
   "accounts/fireworks/models/deepseek-v4-pro",
-  // Migration 146 (which runs first) rewrites the undated DeepSeek flash id
-  // to the dated one; both are listed so either form folds.
-  "accounts/fireworks/models/deepseek-v4-flash",
+  // The retired undated DeepSeek flash id is deliberately absent (see above):
+  // a profile still carrying it because migration 146 deferred takes the
+  // dangling_binding_dropped path and keeps its declared provider.
   "accounts/fireworks/models/deepseek-v4-flash-0731",
   "MiniMaxAI/MiniMax-M3",
 ]);

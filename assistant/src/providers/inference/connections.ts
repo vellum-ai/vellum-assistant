@@ -72,6 +72,20 @@ function parseAuth(raw: unknown, provider: string): Auth | null {
 }
 
 /**
+ * The stored auth column as JSON, or null when the column does not parse.
+ * A corrupt payload must read as an invalid row (hidden from list/get,
+ * removable by DELETE), never throw the whole read out from under the
+ * caller.
+ */
+function parseStoredAuthColumn(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Payload-only JSON persisted in the auth column. The auth type is derived
  * from the provider column on read, so it is never stored.
  */
@@ -110,7 +124,7 @@ export function listConnections(
     : db.select().from(providerConnections).all();
 
   return rows.flatMap((row) => {
-    const auth = parseAuth(JSON.parse(row.auth), row.provider);
+    const auth = parseAuth(parseStoredAuthColumn(row.auth), row.provider);
     if (!auth) {
       return [];
     }
@@ -145,7 +159,7 @@ export function getConnection(
   if (!row) {
     return null;
   }
-  const auth = parseAuth(JSON.parse(row.auth), row.provider);
+  const auth = parseAuth(parseStoredAuthColumn(row.auth), row.provider);
   if (!auth) {
     return null;
   }

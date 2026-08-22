@@ -8,11 +8,42 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { deleteProviderConnectionResidueMigration } from "../workspace/migrations/148-delete-provider-connection-residue.js";
-import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { assertNotLiveDb } from "./assert-not-live-db.js";
+
+// The migration's structured logs are the only observable difference between
+// its delete branches, so they are captured. `getLogger` is called at module
+// scope, so the mock must be registered before the migration module is
+// evaluated — hence the dynamic imports below.
+interface LogCall {
+  level: string;
+  fields: Record<string, unknown>;
+}
+const logCalls: LogCall[] = [];
+function capture(level: string) {
+  return (...args: unknown[]) => {
+    logCalls.push({
+      level,
+      fields: (args[0] ?? {}) as Record<string, unknown>,
+    });
+  };
+}
+mock.module("../util/logger.js", () => ({
+  getLogger: () => ({
+    info: capture("info"),
+    warn: capture("warn"),
+    error: capture("error"),
+    debug: capture("debug"),
+    trace: capture("trace"),
+    fatal: capture("fatal"),
+  }),
+}));
+
+const { deleteProviderConnectionResidueMigration } =
+  await import("../workspace/migrations/148-delete-provider-connection-residue.js");
+const { WORKSPACE_MIGRATIONS } =
+  await import("../workspace/migrations/registry.js");
 
 let workspaceDir: string;
 
@@ -65,6 +96,7 @@ function run(): void {
 }
 
 beforeEach(() => {
+  logCalls.length = 0;
   workspaceDir = join(
     tmpdir(),
     `vellum-migration-148-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -137,6 +169,39 @@ describe("148-delete-provider-connection-residue", () => {
     );
   });
 
+  test("warn-drops a vellum binding carrying the retired undated DeepSeek id", () => {
+    // Migration 146 normally rewrites this id first; when it defers, folding
+    // onto the identity would write a pair the read-path schema strips, so
+    // the binding drops and the declared provider stays.
+    seedRows([{ name: "vellum", provider: "vellum" }]);
+    writeConfig({
+      llm: {
+        profiles: {
+          deepseek: {
+            provider: "fireworks",
+            provider_connection: "vellum",
+            model: "accounts/fireworks/models/deepseek-v4-flash",
+          },
+        },
+      },
+    });
+
+    run();
+
+    const deepseek = readProfiles().deepseek;
+    expect(deepseek.provider).toBe("fireworks");
+    expect(deepseek).not.toHaveProperty("provider_connection");
+    expect(logCalls).toContainEqual({
+      level: "warn",
+      fields: {
+        profile: "deepseek",
+        provider: "fireworks",
+        binding: "vellum",
+        reason: "dangling_binding_dropped",
+      },
+    });
+  });
+
   test("deletes a self-named pin shadowed by the conventional row", () => {
     // With both the self-named row and `<provider>-personal` present,
     // bare-vendor dispatch prefers the conventional row, so the delete is
@@ -163,9 +228,21 @@ describe("148-delete-provider-connection-residue", () => {
     const pinned = readProfiles().pinned;
     expect(pinned.provider).toBe("anthropic");
     expect(pinned).not.toHaveProperty("provider_connection");
+    expect(logCalls).toContainEqual({
+      level: "warn",
+      fields: {
+        profile: "pinned",
+        provider: "anthropic",
+        binding: "anthropic",
+        reason: "self_named_binding_shadowed",
+      },
+    });
   });
 
-  test("folds a self-named pin (the entry name is the vendor)", () => {
+  test("deletes a self-named pin with no conventional sibling losslessly", () => {
+    // Without `<provider>-personal`, auto-resolve's second preference is the
+    // self-named row the pin named, so the delete loses nothing and is
+    // recorded at info: no shadowing cohort to identify.
     seedRows([
       { name: "anthropic", provider: "anthropic" },
       { name: "anthropic-2", provider: "anthropic" },
@@ -187,6 +264,11 @@ describe("148-delete-provider-connection-residue", () => {
     const pinned = readProfiles().pinned;
     expect(pinned.provider).toBe("anthropic");
     expect(pinned).not.toHaveProperty("provider_connection");
+    expect(logCalls.filter((c) => c.level === "warn")).toEqual([]);
+    expect(logCalls).toContainEqual({
+      level: "info",
+      fields: { profile: "pinned", provider: "anthropic" },
+    });
   });
 
   test("drops a dangling binding with the vendor kept", () => {

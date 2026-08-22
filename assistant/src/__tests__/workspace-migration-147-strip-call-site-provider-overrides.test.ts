@@ -265,6 +265,65 @@ describe("147-strip-call-site-provider-overrides", () => {
     expect(readCallSites()).not.toHaveProperty("memoryExtraction");
   });
 
+  test("a vellum pin on a routing-identity profile judges the identity", () => {
+    // Migration 148 handles routing identities first: the profile keeps
+    // "chatgpt" and the stray binding is dropped, so the post-fold winner is
+    // the Codex allowlist, not the managed route.
+    writeConfig({
+      llm: {
+        profiles: {
+          subscription: {
+            source: "user",
+            provider: "chatgpt",
+            provider_connection: "vellum",
+            model: "gpt-5.5",
+          },
+        },
+        callSites: {
+          // Vellum-routable but not a Codex model.
+          memoryExtraction: {
+            profile: "subscription",
+            model: "gemini-2.5-pro",
+          },
+        },
+      },
+    });
+
+    run();
+
+    expect(readCallSites()).not.toHaveProperty("memoryExtraction");
+  });
+
+  test("keeps a tweak carrying the undated DeepSeek id under a vellum winner", () => {
+    // Migration 146 normally rewrites this id first, but a deferred 146 (the
+    // runner continues past a failed migration) leaves it in place for this
+    // boot. Deletion must fail open, or the tweak 146's retry would have
+    // healed is destroyed permanently.
+    writeConfig({
+      llm: {
+        profiles: {
+          managed: {
+            source: "user",
+            provider: "vellum",
+            model: "claude-opus-4-8",
+          },
+        },
+        callSites: {
+          memoryExtraction: {
+            profile: "managed",
+            model: "accounts/fireworks/models/deepseek-v4-flash",
+          },
+        },
+      },
+    });
+
+    run();
+
+    expect(readCallSites().memoryExtraction.model).toBe(
+      "accounts/fireworks/models/deepseek-v4-flash",
+    );
+  });
+
   test("an entry-name winner is judged through its connection row", () => {
     seedRows([{ name: "my-openai", provider: "openai" }]);
     writeConfig({
