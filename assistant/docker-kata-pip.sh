@@ -39,7 +39,7 @@ if [ "$(id -u)" = "0" ]; then
       # namespace, fall back to a bare chroot — index installs still persist,
       # only caller-path installs lose visibility.
       if unshare -m true 2>/dev/null; then
-        exec unshare -m /app/assistant/docker-kata-pip-chroot.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
+        exec unshare -m /app/assistant/docker-kata-chroot-exec.sh "${DATA_ROOT}" "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
       fi
       exec chroot "${DATA_ROOT}" /bin/sh -c 'cd "$1" 2>/dev/null || cd /; shift; exec "$@"' sh "${PWD}" "/usr/bin/${PIP_NAME}" "$@"
     fi
