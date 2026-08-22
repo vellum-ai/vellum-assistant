@@ -46,6 +46,7 @@ import {
 } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import { mintGrantFromDecision } from "./approval-primitive.js";
+import { upsertConversationToolGrant } from "./conversation-tool-grant.js";
 import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
 import {
   type ActorContext,
@@ -97,6 +98,34 @@ export function mintGuardianRequestGrant(params: {
     return { minted: false };
   }
 
+  let standingMinted = false;
+  if (
+    request.kind === "tool_grant_request" &&
+    request.toolName === "bash" &&
+    request.sourceConversationId
+  ) {
+    try {
+      upsertConversationToolGrant({
+        conversationId: request.sourceConversationId,
+        requestChannel: request.sourceChannel ?? "unknown",
+        decisionChannel: actorChannel,
+        requesterExternalUserId: request.requesterExternalUserId ?? null,
+        guardianExternalUserId: guardianExternalUserId ?? null,
+      });
+      standingMinted = true;
+    } catch (error) {
+      log.error(
+        {
+          event: "conversation_tool_grant_mint_failed",
+          err: error,
+          requestId: request.id,
+          conversationId: request.sourceConversationId,
+        },
+        "Failed to mint standing conversation_tool grant (non-fatal)",
+      );
+    }
+  }
+
   const result = mintGrantFromDecision({
     scopeMode: "tool_signature",
     toolName: request.toolName,
@@ -118,6 +147,7 @@ export function mintGuardianRequestGrant(params: {
         requestId: request.id,
         toolName: request.toolName,
         conversationId: request.sourceConversationId,
+        standingMinted,
       },
       "Minted scoped approval grant for guardian request",
     );
@@ -133,7 +163,7 @@ export function mintGuardianRequestGrant(params: {
     },
     "Failed to mint scoped approval grant for guardian request (non-fatal)",
   );
-  return { minted: false };
+  return { minted: standingMinted };
 }
 
 // ---------------------------------------------------------------------------

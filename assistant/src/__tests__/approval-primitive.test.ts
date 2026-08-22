@@ -603,4 +603,58 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     // Should return nearly instantly — no retry loop
     expect(elapsed).toBeLessThan(100);
   });
+
+  test("mints a conversation_tool grant when conversationId and toolName are set", () => {
+    const result = mintGrantFromDecision(
+      mintParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.grant.scopeMode).toBe("conversation_tool");
+    expect(result.grant.conversationId).toBe("conv-xyz");
+    expect(result.grant.toolName).toBe("bash");
+  });
+
+  test("rejects conversation_tool scope when conversationId is missing", () => {
+    const result = mintGrantFromDecision(
+      mintParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: null,
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe("missing_conversation_fields");
+  });
+
+  test("consumeGrantForInvocation does not treat a conversation_tool grant as a one-shot consume", async () => {
+    mintGrantFromDecision(
+      mintParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-xyz",
+      }),
+    );
+
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: "bash",
+        inputDigest: "sha256:first",
+        consumingRequestId: "c1",
+        conversationId: "conv-xyz",
+        requesterExternalUserId: "user-123",
+      },
+      { maxWaitMs: 0 },
+    );
+    expect(result.ok).toBe(false);
+  });
 });

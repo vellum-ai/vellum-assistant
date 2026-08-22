@@ -1240,6 +1240,81 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
   });
 });
 
+describe("ToolApprovalHandler / conversation_tool standing grant", () => {
+  const handler = new ToolApprovalHandler();
+
+  beforeEach(() => {
+    clearTables();
+    resetAuditCalls();
+  });
+
+  test("trusted_contact + standing grant allows medium sandbox bash", async () => {
+    mintGrantFromDecision(
+      mintParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-1",
+      }),
+    );
+
+    const first = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "find /workspace -name '*.csv'" },
+      makeContext({ trustClass: "trusted_contact" }),
+      "medium",
+      Date.now(),
+    );
+    expect(first.allowed).toBe(true);
+
+    const second = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "sed -n '1,20p' /workspace/sales.csv" },
+      makeContext({ trustClass: "trusted_contact" }),
+      "medium",
+      Date.now(),
+    );
+    expect(second.allowed).toBe(true);
+  });
+
+  test("standing grant does not cover unknown actors", async () => {
+    mintGrantFromDecision(
+      mintParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-1",
+      }),
+    );
+
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls" },
+      makeContext({ trustClass: "unknown" }),
+      "medium",
+      Date.now(),
+    );
+    expect(result.allowed).toBe(false);
+  });
+
+  test("standing bash grant does not cover host_bash", async () => {
+    mintGrantFromDecision(
+      mintParams({
+        scopeMode: "conversation_tool",
+        toolName: "bash",
+        conversationId: "conv-1",
+      }),
+    );
+
+    const result = await handler.checkPreExecutionGates(
+      "host_bash",
+      { command: "ls" },
+      makeContext({ trustClass: "trusted_contact" }),
+      "medium",
+      Date.now(),
+    );
+    expect(result.allowed).toBe(false);
+  });
+});
+
 afterAll(() => {
   mock.restore();
 });

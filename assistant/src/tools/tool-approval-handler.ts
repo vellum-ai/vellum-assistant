@@ -1,4 +1,7 @@
-import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import {
+  consumeGrantForInvocation,
+  peekConversationToolGrantForInvocation,
+} from "../approvals/approval-primitive.js";
 import {
   getGuardianRequestOrNull,
   updateGuardianRequest,
@@ -487,6 +490,25 @@ export function resolveSensitiveToolDecision(input: {
 const CODE_EXECUTION_TOOLS: ReadonlySet<string> = new Set(["bash"]);
 
 /**
+ * A conversation_tool grant covers sandbox bash for a trusted contact
+ * when the classified risk is not high. High-risk bash and host execution
+ * still escalate.
+ */
+function isStandingWorkspaceCommandGrantHonored(params: {
+  toolName: string;
+  executionTarget: ExecutionTarget;
+  trustClass: ToolContext["trustClass"];
+  riskLevel: string;
+}): boolean {
+  return (
+    params.toolName === "bash" &&
+    params.executionTarget === "sandbox" &&
+    params.trustClass === "trusted_contact" &&
+    params.riskLevel !== "high"
+  );
+}
+
+/**
  * Whether an invocation reaches the private network — localhost, which is the
  * daemon's own HTTP surface, the gateway, and whatever else listens on the
  * guardian's machine. Keyed on the input rather than the tool, because the
@@ -947,6 +969,35 @@ export class ToolApprovalHandler {
     // minting (2-5s). Non-voice channels get an instant sync lookup so
     // normal denials are not delayed.
     if (needsGrantConsumption && deferredConsumeParams) {
+      if (
+        isStandingWorkspaceCommandGrantHonored({
+          toolName: name,
+          executionTarget,
+          trustClass: context.trustClass,
+          riskLevel,
+        })
+      ) {
+        const standing = peekConversationToolGrantForInvocation({
+          toolName: name,
+          conversationId: context.conversationId,
+          requesterExternalUserId: context.requesterExternalUserId,
+        });
+        if (standing) {
+          log.info(
+            {
+              toolName: name,
+              conversationId: context.conversationId,
+              trustClass: context.trustClass,
+              executionTarget,
+              grantId: standing.id,
+              scopeMode: standing.scopeMode,
+            },
+            "Standing conversation_tool grant peeked - allowing trusted contact workspace command",
+          );
+          return { allowed: true, tool, grantConsumed: true, parsedInput };
+        }
+      }
+
       const isVoice = context.executionChannel === "phone";
       const grantResult = await consumeGrantForInvocation(
         deferredConsumeParams,

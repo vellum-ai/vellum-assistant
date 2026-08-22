@@ -15,6 +15,7 @@ Examples:
   $ assistant conversations search "project planning"
   $ assistant conversations new "Project planning"
   $ assistant conversations export
+  $ assistant conversations workspace-commands allow conv-xyz
   $ assistant conversations clear`,
   subcommands: [
     {
@@ -319,6 +320,109 @@ Examples:
   $ assistant conversations slack detach conv-123
   $ assistant conversations slack mute --channel C123 --thread 1700000000.000100
   $ assistant conversations slack detach --json`,
+        },
+      ],
+    },
+    {
+      name: "workspace-commands",
+      description:
+        "Allow trusted contacts to run workspace shell commands in a conversation",
+      helpText: `
+Standing access for trusted contacts to run workspace shell commands
+(sandbox bash) in one conversation without a per-command approval.
+High-risk commands still require guardian approval. host_bash is never
+covered.
+
+Find the conversation ID with 'assistant conversations list' or
+'assistant conversations search'. Slack DMs can also be targeted with
+--slack-channel or --slack-user.
+
+Examples:
+  $ assistant conversations workspace-commands get conv-xyz
+  $ assistant conversations workspace-commands allow conv-xyz
+  $ assistant conversations workspace-commands deny conv-xyz
+  $ assistant conversations workspace-commands allow --slack-user U12345678`,
+      subcommands: [
+        {
+          name: "get",
+          args: "[conversationId]",
+          description: "Show whether workspace commands are allowed",
+          options: [
+            {
+              flags: "--slack-channel <id>",
+              description: "Resolve the conversation from a Slack channel ID",
+            },
+            {
+              flags: "--slack-user <id>",
+              description: "Resolve the conversation from a Slack user ID",
+            },
+            {
+              flags: "--json",
+              description: "Output result as machine-readable JSON",
+            },
+          ],
+          helpText: `
+Arguments:
+  conversationId   Conversation ID. Run 'assistant conversations list' to
+                   find it. Omit when using --slack-channel or --slack-user.
+
+Examples:
+  $ assistant conversations workspace-commands get conv-xyz
+  $ assistant conversations workspace-commands get --slack-channel D01234567
+  $ assistant conversations workspace-commands get --json`,
+        },
+        {
+          name: "allow",
+          args: "[conversationId]",
+          description:
+            "Allow trusted contacts to run workspace commands without per-command approval",
+          options: [
+            {
+              flags: "--slack-channel <id>",
+              description: "Resolve the conversation from a Slack channel ID",
+            },
+            {
+              flags: "--slack-user <id>",
+              description: "Resolve the conversation from a Slack user ID",
+            },
+            {
+              flags: "--json",
+              description: "Output result as machine-readable JSON",
+            },
+          ],
+          helpText: `
+Writes a standing grant so trusted contacts can run workspace shell
+commands in this conversation without paging the owner for each command.
+High-risk commands still require approval.
+
+Examples:
+  $ assistant conversations workspace-commands allow conv-xyz
+  $ assistant conversations workspace-commands allow --slack-user U12345678`,
+        },
+        {
+          name: "deny",
+          args: "[conversationId]",
+          description: "Revoke standing workspace-command access",
+          options: [
+            {
+              flags: "--slack-channel <id>",
+              description: "Resolve the conversation from a Slack channel ID",
+            },
+            {
+              flags: "--slack-user <id>",
+              description: "Resolve the conversation from a Slack user ID",
+            },
+            {
+              flags: "--json",
+              description: "Output result as machine-readable JSON",
+            },
+          ],
+          helpText: `
+Revokes standing workspace-command access for this conversation. Trusted
+contacts will need guardian approval again for sandbox bash.
+
+Examples:
+  $ assistant conversations workspace-commands deny conv-xyz`,
         },
       ],
     },

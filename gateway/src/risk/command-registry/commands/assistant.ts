@@ -110,6 +110,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations export",
   "conversations clear",
   "conversations wake",
+  "conversations workspace-commands",
+  "conversations workspace-commands get",
+  "conversations workspace-commands allow",
+  "conversations workspace-commands deny",
   "pending",
   "pending list",
   "credentials",
@@ -469,6 +473,18 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "conversations new", risk: "low" },
   { path: "conversations rename", risk: "low" },
   { path: "conversations wake", risk: "low" },
+  { path: "conversations workspace-commands get", risk: "low" },
+  {
+    path: "conversations workspace-commands allow",
+    risk: "high",
+    reason:
+      "Grants trusted contacts standing workspace shell access in a conversation",
+  },
+  {
+    path: "conversations workspace-commands deny",
+    risk: "medium",
+    reason: "Revokes standing workspace shell access for a conversation",
+  },
   {
     path: "db repair",
     risk: "medium",
