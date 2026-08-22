@@ -120,6 +120,10 @@ export interface GenerateAvatarIconsOptions {
  * name when it asks iOS to switch icons, so this format is a wire contract:
  * changing it breaks every already-installed app until both sides ship
  * together.
+ *
+ * The name is also a cache key: iOS caches an alternate icon's artwork under
+ * it, so each name permanently identifies one artwork version. Changed art
+ * goes out under a new versioned name, never behind an existing one.
  */
 export function iconNameForTraits(traits: AvatarIconTraits): string {
   return `avatar-${traits.bodyShape}-${traits.eyeStyle}-${traits.color}`;

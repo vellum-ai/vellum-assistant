@@ -361,6 +361,27 @@ That is **34.3 KiB per alternate icon** compiled, against 8.82 MiB of PNGs
 checked in. The whole catalog is one `Assets.car` slice, so the cost lands on
 every install whether or not the user ever switches icons.
 
+**Do not try to shrink this by capping the rendered detail.** Rendering at
+180 px (the largest size iOS ever draws an alternate icon at) and upscaling
+onto the 1024 canvas is a standard icon-shrinking trick, and it backfires
+badly on this artwork. The avatars are flat vector shapes, so a native 1024
+render is almost entirely uniform regions separated by hairline antialiased
+edges, which is the best case there is for compression. A bilinear upscale
+replaces every one of those edges with a six-pixel gradient ramp:
+
+| Full catalog, 540 icons | Committed PNGs | `Assets.car` |
+| ----------------------- | -------------- | ------------ |
+| Native 1024 render (current) | 9,142,935 B (8.72 MiB) | 18,963,192 B (18.08 MiB) |
+| 180 px detail, bilinear upscale | 64,211,254 B (61.24 MiB) | 118,320,408 B (112.84 MiB) |
+
+Those `Assets.car` figures come from compiling `AvatarIcons.xcassets` alone
+through `actool`, which lands within 0.1 percent of the in-build delta above.
+Rendering at 360 px instead of 180 only halves the overshoot. Nearest-neighbour
+upscaling does shrink the compiled catalog by 45 percent, but the 5.69x
+non-integer scale leaves visible stair-stepping: max per-channel error against
+the current icons at display size is about 220 of 255, against about 110 for
+bilinear. Display-size fidelity was never the problem, the compressed size was.
+
 ### Bundle ID vs capacitor.config appId
 
 There's a deliberate mismatch:
