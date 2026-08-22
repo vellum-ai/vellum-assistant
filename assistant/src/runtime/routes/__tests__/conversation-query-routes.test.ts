@@ -1880,10 +1880,9 @@ describe("call-site model writes are validated against the winning route", () =>
     );
   });
 
-  // A mix winner expands via an unseeded random arm pick per resolution, so
-  // it has no single route to fingerprint; an introduced model is judged
-  // against every arm instead. The loops catch a regression that resolves an
-  // arm and so only misjudges on some picks.
+  // A mix winner expands to a per-conversation seeded arm pick, so it has no
+  // single route to fingerprint; a model this write introduces or moves onto
+  // the mix is judged against every arm instead.
   const mixedProfiles = {
     op: { source: "user", provider: "openai", model: "gpt-5.5" },
     an: { source: "user", provider: "anthropic", model: "claude-opus-4-8" },
@@ -1897,11 +1896,51 @@ describe("call-site model writes are validated against the winning route", () =>
     },
   };
 
-  test("a call-site model only one mix arm serves returns 400 every time", async () => {
+  test("a call-site model only one mix arm serves returns 400", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: structuredClone(mixedProfiles),
+        callSites: { memoryExtraction: { profile: "ab" } },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: { callSites: { memoryExtraction: { model: "gpt-5.4-nano" } } },
+        },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.4-nano" is not served by provider "anthropic". (llm.callSites.memoryExtraction.model, mix arm "an")',
+    );
+  });
+
+  // A mix rung whose pick lands on a disabled arm falls through to a
+  // different winner entirely, so a fingerprint that resolved an arm would
+  // see the mix on only some picks and judge the site against a route it may
+  // not take. The loops catch any save that disagrees with its twin.
+  const disabledArmProfiles = (mixName: string) => ({
+    op: { source: "user", provider: "openai", model: "gpt-5.5" },
+    an: {
+      source: "user",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      status: "disabled",
+    },
+    [mixName]: {
+      source: "user",
+      mix: [
+        { profile: "op", weight: 1 },
+        { profile: "an", weight: 1 },
+      ],
+    },
+  });
+
+  test("a mix with a disabled arm judges a pinned site identically every save", async () => {
     for (let i = 0; i < 10; i += 1) {
       rawConfigFixture = {
         llm: {
-          profiles: structuredClone(mixedProfiles),
+          profiles: disabledArmProfiles("ab"),
           callSites: { memoryExtraction: { profile: "ab" } },
         },
       };
@@ -1909,13 +1948,161 @@ describe("call-site model writes are validated against the winning route", () =>
       await expect(
         configPatchRoute.handler({
           body: {
-            llm: { callSites: { memoryExtraction: { model: "gpt-5.4-nano" } } },
+            llm: {
+              callSites: { memoryExtraction: { model: "claude-opus-4-8" } },
+            },
           },
         }),
       ).rejects.toThrow(
-        'Model "gpt-5.4-nano" is not served by provider "anthropic". (llm.callSites.memoryExtraction.model, mix arm "an")',
+        'Model "claude-opus-4-8" is not served by provider "openai". (llm.callSites.memoryExtraction.model, mix arm "op")',
       );
     }
+  });
+
+  test("a mix with a disabled arm judges the anchor rung identically every save", async () => {
+    // `vision` has no shipped profile intent, so selection bottoms out on the
+    // anchor: a mix there expands with no winning profile name to report.
+    for (let i = 0; i < 10; i += 1) {
+      rawConfigFixture = { llm: { profiles: disabledArmProfiles("balanced") } };
+      seedRawConfig();
+      await expect(
+        configPatchRoute.handler({
+          body: {
+            llm: { callSites: { vision: { model: "claude-opus-4-8" } } },
+          },
+        }),
+      ).rejects.toThrow(
+        'Model "claude-opus-4-8" is not served by provider "openai". (llm.callSites.vision.model, mix arm "op")',
+      );
+    }
+  });
+
+  test("a mix over default profile keys validates its arms", async () => {
+    // Default profile bodies are never materialized into workspace config, so
+    // arms naming them resolve only through the effective-profile catalog.
+    rawConfigFixture = {
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          ab: {
+            source: "user",
+            mix: [
+              { profile: "balanced", weight: 1 },
+              { profile: "cost-optimized", weight: 1 },
+            ],
+          },
+        },
+        callSites: { memoryExtraction: { profile: "ab" } },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: { callSites: { memoryExtraction: { model: "gpt-5.4-nano" } } },
+        },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.4-nano" is not served by provider "anthropic". (llm.callSites.memoryExtraction.model, mix arm "balanced")',
+    );
+  });
+
+  test("moving a site's winner onto a mix revalidates an unchanged model", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: structuredClone(mixedProfiles),
+        callSites: {
+          memoryExtraction: { profile: "an", model: "claude-opus-4-8" },
+        },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: { llm: { callSites: { memoryExtraction: { profile: "ab" } } } },
+      }),
+    ).rejects.toThrow(
+      'Model "claude-opus-4-8" is not served by provider "openai". (llm.callSites.memoryExtraction.model, mix arm "op")',
+    );
+  });
+
+  test("moving a site's winner between mixes revalidates an unchanged model", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          ...structuredClone(mixedProfiles),
+          an2: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-sonnet-5",
+          },
+          anthropicOnly: {
+            source: "user",
+            mix: [
+              { profile: "an", weight: 1 },
+              { profile: "an2", weight: 1 },
+            ],
+          },
+        },
+        callSites: {
+          memoryExtraction: {
+            profile: "anthropicOnly",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: { llm: { callSites: { memoryExtraction: { profile: "ab" } } } },
+      }),
+    ).rejects.toThrow(
+      'Model "claude-opus-4-8" is not served by provider "openai". (llm.callSites.memoryExtraction.model, mix arm "op")',
+    );
+  });
+
+  test("swapping an arm of the winning mix revalidates an unchanged model", async () => {
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          op: { source: "user", provider: "openai", model: "gpt-5.5" },
+          op2: { source: "user", provider: "openai", model: "gpt-5.2" },
+          an: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+          ab: {
+            source: "user",
+            mix: [
+              { profile: "op", weight: 1 },
+              { profile: "op2", weight: 1 },
+            ],
+          },
+        },
+        callSites: { memoryExtraction: { profile: "ab", model: "gpt-5.5" } },
+      },
+    };
+    seedRawConfig();
+    await expect(
+      configPatchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              ab: {
+                mix: [
+                  { profile: "op", weight: 1 },
+                  { profile: "an", weight: 1 },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Model "gpt-5.5" is not served by provider "anthropic". (llm.callSites.memoryExtraction.model, mix arm "an")',
+    );
   });
 
   test("a call-site model every mix arm serves saves", async () => {
