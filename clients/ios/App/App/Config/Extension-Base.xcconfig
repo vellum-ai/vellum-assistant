@@ -5,9 +5,10 @@
 // prefix rule is the whole reason there are three extension targets
 // rather than one shared appex.
 //
-// This deliberately does NOT #include Base.xcconfig. That file carries
-// app-only settings — CODE_SIGN_ENTITLEMENTS, the app's INFOPLIST_FILE,
-// ASSOCIATED_DOMAIN — that are wrong or actively harmful on an appex.
+// This deliberately does NOT #include Base.xcconfig. That file points
+// CODE_SIGN_ENTITLEMENTS, INFOPLIST_FILE and ASSOCIATED_DOMAIN at the
+// app's own values, which are wrong or actively harmful on an appex;
+// the appex names its own entitlements file below.
 // The cost is that the handful of genuinely shared values below are
 // restated: keep DEVELOPMENT_TEAM, SWIFT_VERSION,
 // TARGETED_DEVICE_FAMILY and especially IPHONEOS_DEPLOYMENT_TARGET in
@@ -15,9 +16,16 @@
 // higher than its host app's fails to install on the OS versions the
 // app still claims to support.
 //
-// BUNDLE_URL_SCHEME and BUNDLE_DISPLAY_NAME are the two app-target
-// variables each per-environment extension xcconfig does restate, and
-// both must be copied verbatim from the matching App*.xcconfig.
+// APP_GROUP_ID, BUNDLE_URL_SCHEME and BUNDLE_DISPLAY_NAME are the three
+// app-target variables each per-environment extension xcconfig does
+// restate, and all must be copied verbatim from the matching
+// App*.xcconfig.
+//
+// APP_GROUP_ID: a container is shared only between bundles naming the
+// identical group, so the appex restates the app's value verbatim. It
+// reaches the entitlement below and, so Swift can read it at runtime,
+// the VellumAppGroupId Info.plist key, which exists because the
+// entitlement itself is not readable from Swift.
 //
 // BUNDLE_URL_SCHEME: the Live Activity's widgetURL has to deep-link into
 // its *own* containing app — a mismatch sends a Dev build's island tap
@@ -30,11 +38,22 @@
 // catches that locally — the archive builds and signs clean, and the
 // failure surfaces at the altool step in release-ios.yaml.
 //
-// The extension ships no entitlements file at all: no App Group
-// (ContentState carries only primitives across the ActivityKit
-// boundary, so there is nothing to share through a container) and no
-// push. An unused entitlement is a provisioning failure waiting to
-// happen.
+// The extension's entitlements file carries exactly the App Group and
+// nothing else. That group is the shared container for widget snapshot
+// data, the one place this appex and its containing app both reach, and
+// it takes non-secret display data only.
+//
+// Nothing else belongs in that file: an entitlement enabled in the
+// portal but not satisfiable by the build is a provisioning failure
+// waiting to happen. Push stays off, since the appex has no use for it,
+// and the Live Activity needs no container either (ContentState carries
+// only primitives across the ActivityKit boundary, so there is nothing
+// to share).
+//
+// The App Group capability on the six App IDs, and distribution
+// profiles issued against it, are portal work that must land before a
+// release build of the affected environment can sign. See
+// clients/ios/README.md.
 //
 // MARKETING_VERSION and CURRENT_PROJECT_VERSION are local-build
 // placeholders, for the same reason as in Base.xcconfig: release builds
@@ -50,6 +69,7 @@
 MARKETING_VERSION = 0.0.0
 CURRENT_PROJECT_VERSION = 1
 
+CODE_SIGN_ENTITLEMENTS = App/Extension.entitlements
 CODE_SIGN_STYLE = Automatic
 DEVELOPMENT_TEAM = 7FZDXZR8P5
 INFOPLIST_FILE = VoiceActivity/Info.plist

@@ -56,6 +56,16 @@ export interface PendingDeepLinkState {
    * start's age check.
    */
   pendingThreadSend: PendingThreadSend | null;
+  /**
+   * When a `deeplink.openCamera` was parked waiting for the composer's
+   * attachment layer (`Date.now()`), or `null` if none is. Same race as
+   * `pendingVoiceStartAt`, one layer lower: the camera input is owned by the
+   * composer, which does not exist yet when a widget tap cold-launches the app
+   * and never exists on settings / logs / account routes. A timestamp rather
+   * than a payload for the same reason too, since the command carries nothing
+   * and the drain needs to know how stale it is.
+   */
+  pendingCameraAt: number | null;
 }
 
 /** A proven send-into-thread request; see `pendingThreadSend`. */
@@ -101,6 +111,16 @@ export interface PendingDeepLinkActions {
    * than dropped, and only the consumer can do that demotion.
    */
   consumePendingThreadSend: () => PendingThreadSend | null;
+  /** Park a camera deep link until the composer's attachment layer mounts. */
+  setPendingCamera: () => void;
+  /**
+   * Read and clear the parked camera request. Returns `false` when none was
+   * parked, and when the parked one is older than `maxAgeMs`: a park that was
+   * never drained (its navigation bounced off a route guard, say) must not
+   * throw the camera open minutes later. Either way the park is cleared. The
+   * age bound belongs to the drain site, as with the voice start.
+   */
+  consumePendingCamera: (maxAgeMs: number) => boolean;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -111,6 +131,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
     pendingThreadSend: null,
+    pendingCameraAt: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -138,6 +159,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       }
       return parked;
     },
+    setPendingCamera: () => set({ pendingCameraAt: Date.now() }),
+    consumePendingCamera: (maxAgeMs) => {
+      const parkedAt = get().pendingCameraAt;
+      if (parkedAt === null) {
+        return false;
+      }
+      set({ pendingCameraAt: null });
+      return Date.now() - parkedAt <= maxAgeMs;
+    },
   }),
 );
 
@@ -153,5 +183,6 @@ export function __resetPendingDeepLinkForTesting(): void {
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
     pendingThreadSend: null,
+    pendingCameraAt: null,
   });
 }
