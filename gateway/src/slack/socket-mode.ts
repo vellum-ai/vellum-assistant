@@ -2094,7 +2094,14 @@ export class SlackSocketModeClient {
       ...(msg.files ? { files: msg.files } : {}),
       ...(msg.attachments ? { attachments: msg.attachments } : {}),
       ...(msg.blocks ? { blocks: msg.blocks } : {}),
-    } as unknown as SlackChannelMessageEvent;
+      // The live event shape, plus the two fields the catch-up carries
+      // untouched. Nothing in the gateway reads them off an inbound message
+      // and the event schema does not model them, so they are stated here as
+      // opaque rather than left to arrive unannounced through a spread.
+    } satisfies SlackChannelMessageEvent & {
+      attachments?: unknown[];
+      blocks?: unknown[];
+    };
 
     this.processEventPayload({
       event_id: `replay:${channel}:${msg.ts}`,
