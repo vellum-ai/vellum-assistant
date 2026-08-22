@@ -367,6 +367,24 @@ describe("AppIconMatchPrompt", () => {
     expect(setAppIcon).not.toHaveBeenCalled();
   });
 
+  test("an offer suppressed by onboarding returns when onboarding ends", async () => {
+    renderPrompt();
+    await expectPrompt();
+
+    act(() => {
+      useOnboardingFocusStore.setState({ focused: true });
+    });
+    await waitFor(() => {
+      expect(dialogTitle()).toBeNull();
+    });
+
+    // Nobody answered, so the question comes back once the screen is free.
+    act(() => {
+      useOnboardingFocusStore.setState({ focused: false });
+    });
+    await expectPrompt();
+  });
+
   test("closes an open offer when the target becomes one already declined", async () => {
     localStorage.setItem(`vellum:appIcon:declined:${OTHER_ICON}`, "1");
     const view = renderPrompt();

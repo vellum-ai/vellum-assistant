@@ -88,19 +88,26 @@ export function AppIconMatchPrompt({ assistantId }: AppIconMatchPromptProps) {
   // An offer is about one icon name, so it only survives while that name is
   // still the answer. Onboarding taking the screen, the avatar becoming one we
   // ship no icon for, or the active assistant changing all retire the question
-  // on screen rather than leaving it to act on the new assistant's behalf.
+  // on screen rather than leaving it to act on the new assistant's behalf. A
+  // retired question was never answered, so its name goes back to the session
+  // and can be asked again later.
   useEffect(() => {
-    if (!canOffer || targetIcon === null || onboardingActive) {
+    const retire = () => {
+      if (offer !== null) {
+        offeredThisSession.delete(offer);
+      }
       setOffer(null);
       setApplyFailed(false);
+    };
+    if (!canOffer || targetIcon === null || onboardingActive) {
+      retire();
       return;
     }
     if (offer === targetIcon) {
       return;
     }
     if (offeredThisSession.has(targetIcon) || isDeclined(targetIcon)) {
-      setOffer(null);
-      setApplyFailed(false);
+      retire();
       return;
     }
     offeredThisSession.add(targetIcon);
