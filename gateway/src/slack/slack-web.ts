@@ -12,9 +12,7 @@ const log = getLogger("slack-web");
  *
  * Declared next to the event schemas it shares field definitions with, so a
  * recovered message's `files` carries the same checked shape a live event's
- * does. Previously this was a hand-written type applied with `as`, which meant
- * the Web API's JSON was described rather than checked, and the difference was
- * cast away when the catch-up path mapped it onto an event.
+ * does and the catch-up path can build an event from one without a cast.
  */
 export type { SlackHistoryMessage };
 
@@ -35,7 +33,9 @@ type SlackHistoryResponse = {
 function parseHistoryMessages(
   messages: unknown[] | undefined,
 ): SlackHistoryMessage[] {
-  if (!messages) return [];
+  if (!messages) {
+    return [];
+  }
   const parsed: SlackHistoryMessage[] = [];
   for (const message of messages) {
     const result = slackHistoryMessageSchema.safeParse(message);

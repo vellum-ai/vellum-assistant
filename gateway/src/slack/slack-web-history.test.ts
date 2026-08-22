@@ -44,8 +44,8 @@ describe("recovered history messages are validated, not asserted", () => {
     const result = await fetchChannelHistorySince(params);
 
     expect(result.messages).toHaveLength(1);
-    // Reaching `id` without a cast is the point: this used to arrive as
-    // `unknown[]` and be forced into the event shape at the boundary.
+    // Reaching `id` without a cast is the point: a recovered file carries the
+    // checked shape, so the catch-up path can build an event from it directly.
     expect(result.messages[0]?.files?.[0]?.id).toBe("F1");
   });
 
