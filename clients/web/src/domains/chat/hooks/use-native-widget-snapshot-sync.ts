@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import { useUnreadConversationCount } from "@/hooks/conversation-queries";
+import {
+  useCanQueryDaemon,
+  useUnreadConversationCount,
+} from "@/hooks/conversation-queries";
 import { useTranslation } from "@/i18n";
 import {
   clearWidgetSnapshot,
@@ -99,6 +102,19 @@ type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
  * have to carry. Unresolved inputs disarm it: the heartbeat asserts the data is
  * current, which is exactly what a pending or errored query cannot say, so a
  * preserved snapshot is left to age out on the native side instead.
+ *
+ * Resolution alone cannot carry that claim, because a query that succeeded and
+ * then lost its source stays resolved: TanStack Query keeps serving the cached
+ * rows with neither pending nor error set. An assistant that goes inactive, or
+ * a pod that stops serving, would leave the heartbeat re-stamping data nothing
+ * is refetching, which is exactly when the native staleness degradation should
+ * be taking the live claims down. So the heartbeat also requires the
+ * preconditions those queries are gated on, meaning they would fetch if asked:
+ * the assistant gate the caller passes them, and the daemon gate they apply
+ * inside their own hooks. When either closes, the ticks stop and the snapshot
+ * ages out natively as designed. Only the freshness re-stamp is gated. Nothing
+ * fetches behind a closed gate, so the cache stops changing on its own, and a
+ * payload that does change is worth writing whatever the gate says.
  *
  * The dedup key describes what the App Group is known to HOLD, so it is armed
  * from the resolution of the bridge call rather than from the render that fired
@@ -212,6 +228,12 @@ export function useNativeWidgetSnapshotSync(
     conversations,
     isWidgetSnapshotSyncAvailable() && isAssistantActive,
   );
+  // Whether the queries behind the snapshot would fetch if asked: the same two
+  // gates they run under, the caller's assistant gate and the daemon
+  // preconditions the query hooks apply for themselves. What tells a heartbeat
+  // that resolved data is still being kept current rather than merely cached.
+  const canQueryDaemon = useCanQueryDaemon(assistantId);
+  const inputsAreLive = isAssistantActive && canQueryDaemon;
 
   // The one way to the bridge, shared by data syncs and the heartbeat so a
   // heartbeat cannot corrupt the bookkeeping a data sync depends on.
@@ -360,8 +382,12 @@ export function useNativeWidgetSnapshotSync(
   // verified current, so the widgets never call an open app's snapshot stale,
   // and carry the newest content so a write that never landed is retried
   // rather than left behind an outdated one that keeps being re-stamped.
+  //
+  // Current means both resolved and still being refetched: cached rows from an
+  // assistant that stopped serving are resolved forever, and re-stamping them
+  // would defeat the native staleness degradation exactly when it applies.
   useEffect(() => {
-    if (!isWidgetSnapshotSyncAvailable() || !inputsResolved) {
+    if (!isWidgetSnapshotSyncAvailable() || !inputsResolved || !inputsAreLive) {
       return;
     }
     const heartbeat = setInterval(() => {
@@ -379,5 +405,5 @@ export function useNativeWidgetSnapshotSync(
     return () => {
       clearInterval(heartbeat);
     };
-  }, [assistantId, inputsResolved, sendSnapshot]);
+  }, [assistantId, inputsResolved, inputsAreLive, sendSnapshot]);
 }

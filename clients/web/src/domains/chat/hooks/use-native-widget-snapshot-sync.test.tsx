@@ -25,9 +25,13 @@
  * interval, carrying the content the session currently WANTS the App Group to
  * hold rather than the one that last landed there: identical in the ordinary
  * case, and after a write the bridge never landed it is the retry instead of a
- * fresh stamp on outdated rows. bun ships no fake timers, so `setInterval` and
- * `clearInterval` are stubbed with the armed-timer capture other hooks in this
- * directory use, and the heartbeat's own delay picks its timer out.
+ * fresh stamp on outdated rows. It is armed only while the queries behind it
+ * would fetch if asked, since resolution outlives the assistant: cached rows
+ * from one that went inactive or whose pod stopped serving must age out on the
+ * native clock rather than be re-stamped as current. bun ships no fake timers,
+ * so `setInterval` and `clearInterval` are stubbed with the armed-timer capture
+ * other hooks in this directory use, and the heartbeat's own delay picks its
+ * timer out.
  *
  * The hook is also the seam that finishes a clear a previous session could not:
  * a sign-out or origin swap whose bridge call failed persists the obligation,
@@ -130,6 +134,18 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// The pod half of the queries' daemon gate. Spread over the real module: the
+// rest of its surface is in this import graph, and `mock.module` is
+// process-global in bun, so a bare object would shadow those exports for later
+// test files in the run.
+let podIsServing = true;
+const realOperationalStatus = await import("@/assistant/operational-status");
+
+mock.module("@/assistant/operational-status", () => ({
+  ...realOperationalStatus,
+  useAssistantIsServing: () => podIsServing,
+}));
+
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useNativeWidgetSnapshotSync, WIDGET_SNAPSHOT_HEARTBEAT_MS } =
   await import("@/domains/chat/hooks/use-native-widget-snapshot-sync");
@@ -183,6 +199,8 @@ interface Props {
   assistantId?: string | null;
   conversations: Conversation[];
   conversationGroups: ConversationGroup[];
+  /** The assistant-record gate the caller also passes the queries. */
+  isAssistantActive?: boolean;
   inputsResolved: boolean;
 }
 
@@ -196,7 +214,7 @@ function render(initialProps: Props) {
         props.assistantId === undefined ? ASSISTANT_ID : props.assistantId,
         props.conversations,
         props.conversationGroups,
-        true,
+        props.isAssistantActive ?? true,
         props.inputsResolved,
       ),
     {
@@ -216,6 +234,7 @@ beforeEach(() => {
   syncLands = true;
   pendingClear = false;
   persistedAssistantId = null;
+  podIsServing = true;
   armedTimers = [];
   useConversationStore.setState({ processingConversationIds: new Set() });
 
@@ -848,6 +867,67 @@ describe("useNativeWidgetSnapshotSync", () => {
     });
     expect(liveHeartbeats()).toHaveLength(1);
     expect(syncedSnapshots).toHaveLength(1);
+  });
+
+  it("arms no heartbeat once the assistant stops being active", async () => {
+    // The queries keep serving their cached rows with neither pending nor
+    // error set, so resolution outlives the assistant and only the gate those
+    // queries run under can say the data is still being kept current.
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    const beforeInactive = liveHeartbeats()[0];
+
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      isAssistantActive: false,
+      inputsResolved: true,
+    });
+    expect(beforeInactive?.cleared).toBe(true);
+    expect(liveHeartbeats()).toHaveLength(0);
+
+    // The assistant comes back, and so does the freshness the widgets read.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(liveHeartbeats()).toHaveLength(1);
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.conversations[0]?.id).toBe("c1");
+  });
+
+  it("arms no heartbeat once the pod stops serving", async () => {
+    // The other half of the same gate: the assistant record stays active while
+    // its pod is unreachable, and the cached rows stay resolved throughout.
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(liveHeartbeats()).toHaveLength(1);
+
+    podIsServing = false;
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(liveHeartbeats()).toHaveLength(0);
+
+    podIsServing = true;
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(liveHeartbeats()).toHaveLength(1);
   });
 
   it("drops the previous assistant's payload from the heartbeat on a switch", async () => {
