@@ -1,14 +1,16 @@
 /**
- * Covers the iOS widget-snapshot contract: the `listResolved` guard, the
+ * Covers the iOS widget-snapshot contract: the `inputsResolved` guard, the
  * payload the Home Screen widgets read, and the dedup that keeps a re-render
  * from costing bridge traffic and a widget timeline reload.
  *
- * The guard is the same one the recent-chats sync carries: the
- * conversation-list query serves an `[]` fallback while loading, gated, or
- * errored, and syncing that would blank the widgets on every launch, and for
- * as long as the failure lasted on a launch that never loads. An empty list
- * from a *successful* query must still sync: genuinely having no
- * conversations should empty the widgets.
+ * The guard is the one the recent-chats sync carries, widened to both queries
+ * the snapshot is built from: the conversation-list and conversation-groups
+ * queries each serve an `[]` fallback while loading, gated, or errored, and
+ * syncing that would blank the widgets on every launch (or drop every row's
+ * group subtitle, when only the groups half is unresolved), and for as long
+ * as the failure lasted on a launch that never loads. The caller ANDs the two
+ * into this one flag. An empty list from *successful* queries must still
+ * sync: genuinely having no conversations should empty the widgets.
  *
  * `generatedAt` is deliberately outside the dedup key. It changes on every
  * render by construction, so including it would leave the dedup dead.
@@ -97,7 +99,7 @@ interface Props {
   assistantId?: string | null;
   conversations: Conversation[];
   conversationGroups: ConversationGroup[];
-  listResolved: boolean;
+  inputsResolved: boolean;
 }
 
 function render(initialProps: Props) {
@@ -111,7 +113,7 @@ function render(initialProps: Props) {
         props.conversations,
         props.conversationGroups,
         true,
-        props.listResolved,
+        props.inputsResolved,
       ),
     {
       initialProps,
@@ -140,14 +142,14 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(syncedSnapshots).toHaveLength(0);
 
     rerender({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
     expect(syncedSnapshots[0]?.conversations).toHaveLength(1);
@@ -157,7 +159,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [conversation("c1")],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
 
@@ -166,7 +168,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     rerender({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(syncedSnapshots).toHaveLength(1);
     expect(clearCount).toBe(0);
@@ -176,7 +178,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
     expect(clearCount).toBe(0);
@@ -188,7 +190,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
     expect(syncedSnapshots).toHaveLength(1);
@@ -199,7 +201,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
 
@@ -208,7 +210,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [conversation("c2", { title: "Flights" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(2);
     expect(syncedSnapshots[1]?.conversations[0]?.id).toBe("c2");
@@ -218,7 +220,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
 
@@ -226,7 +228,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [conversation("c2", { title: "Flights" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(clearCount).toBe(0);
     expect(syncedSnapshots).toHaveLength(2);
@@ -239,7 +241,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
 
@@ -247,13 +249,13 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     rerender({
       assistantId: "asst-2",
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(clearCount).toBe(1);
     expect(syncedSnapshots).toHaveLength(2);
@@ -267,13 +269,13 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-1",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     rerender({
       assistantId: "asst-2",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(0);
     expect(syncedSnapshots).toHaveLength(0);
@@ -283,7 +285,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     render({
       conversations: [conversation("c1")],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedAssistantIds).toEqual([ASSISTANT_ID]);
   });
@@ -296,7 +298,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
     expect(syncedSnapshots).toHaveLength(0);
@@ -306,7 +308,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     rerender({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
   });
@@ -316,7 +318,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     render({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(0);
     expect(syncedSnapshots).toHaveLength(0);
@@ -333,7 +335,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(0);
 
@@ -341,7 +343,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
     expect(syncedSnapshots).toHaveLength(0);
@@ -351,7 +353,7 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: "asst-2",
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
   });
@@ -364,14 +366,14 @@ describe("useNativeWidgetSnapshotSync", () => {
       assistantId: null,
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(0);
 
     rerender({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: false,
+      inputsResolved: false,
     });
     expect(clearCount).toBe(1);
   });
@@ -408,7 +410,7 @@ describe("useNativeWidgetSnapshotSync", () => {
         }),
       ],
       conversationGroups: [group("g1", "Errands")],
-      listResolved: true,
+      inputsResolved: true,
     });
 
     expect(syncedSnapshots).toHaveLength(1);
@@ -449,7 +451,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     render({
       conversations: [],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
     expect(syncedSnapshots[0]).toMatchObject({
@@ -464,7 +466,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
     expect(syncedSnapshots[0]?.generatedAt).toBe("2026-08-21T16:00:00.000Z");
@@ -475,7 +477,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     rerender({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(1);
 
@@ -483,7 +485,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     rerender({
       conversations: [conversation("c1", { title: "Groceries and dinner" })],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(2);
     expect(syncedSnapshots[1]?.generatedAt).toBe("2026-08-21T16:05:00.000Z");
@@ -494,7 +496,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     render({
       conversations: [conversation("c1")],
       conversationGroups: NO_GROUPS,
-      listResolved: true,
+      inputsResolved: true,
     });
     expect(syncedSnapshots).toHaveLength(0);
   });

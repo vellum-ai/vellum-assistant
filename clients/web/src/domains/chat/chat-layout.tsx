@@ -223,10 +223,11 @@ export function ChatLayout({
     isError: conversationsFailed,
     refetch: retryConversations,
   } = useConversationListQuery(assistantId, isAssistantActive);
-  const { conversationGroups } = useConversationGroupsQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  const {
+    conversationGroups,
+    isPending: isGroupsPending,
+    isError: groupsFailed,
+  } = useConversationGroupsQuery(assistantId, isAssistantActive);
 
   // Whether the transcript is on screen, resolved here because this is where
   // the route, the viewer and the viewport are all in hand. One owner, so
@@ -284,13 +285,20 @@ export function ChatLayout({
   // widgets (unread and in-progress counts, the three most recent chats).
   // No-op off Capacitor iOS, and resolved carries the same meaning it does
   // for the recent-chats sync above: an unresolved `[]` would blank the
-  // widgets for as long as the list failed to load.
+  // widgets for as long as the list failed to load. It covers BOTH queries
+  // here, because the widget snapshot carries group subtitles as well as the
+  // rows, and the groups query serves its own `[]` fallback while pending,
+  // gated, or errored: either input resolving alone would overwrite a valid
+  // snapshot with one whose subtitles are all missing.
   useNativeWidgetSnapshotSync(
     assistantId,
     conversations,
     conversationGroups,
     isAssistantActive,
-    !isConversationListPending && !conversationsFailed,
+    !isConversationListPending &&
+      !conversationsFailed &&
+      !isGroupsPending &&
+      !groupsFailed,
   );
 
   // Header slots come from a module-level store so gated routes

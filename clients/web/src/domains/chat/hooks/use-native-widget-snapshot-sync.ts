@@ -51,16 +51,21 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * so the shell would take bridge traffic and a widget timeline reload on
  * every re-render of the layout.
  *
- * `listResolved` must be false until the conversation-list query has actually
- * SUCCEEDED. The query serves an `[]` fallback while pending (loading, or
- * gated on the assistant/pod) AND while in a terminal error state, and the
- * caller must exclude both (`!isPending && !isError`): a bare `!isPending`
- * lets the error case through. Without the guard, every launch would blank
- * the widgets before the first load, and a launch that never loads (offline,
- * assistant never ready, pod waking into a 503 error) would blank them for as
- * long as it lasted, despite a last-known-good snapshot sitting in the App
- * Group. An empty list from a *successful* query does sync: genuinely having
- * no conversations should empty the widgets.
+ * `inputsResolved` must be false until BOTH queries behind the snapshot, the
+ * conversation list and the conversation groups, have actually SUCCEEDED.
+ * Each serves an `[]` fallback while pending (loading, or gated on the
+ * assistant/pod) AND while in a terminal error state, and the caller must
+ * exclude both states for both queries (`!isPending && !isError`): a bare
+ * `!isPending` lets the error case through. Without the guard, every launch
+ * would blank the widgets before the first load, and a launch that never
+ * loads (offline, assistant never ready, pod waking into a 503 error) would
+ * blank them for as long as it lasted, despite a last-known-good snapshot
+ * sitting in the App Group. The groups query is in the guard because the rows
+ * carry group names as subtitles, so a list that resolves ahead of the groups
+ * would replace a good snapshot with one whose subtitles are all missing, and
+ * a terminal groups error would leave it that way. An empty list from
+ * *successful* queries does sync: genuinely having no conversations should
+ * empty the widgets.
  *
  * That preservation is scoped to ONE assistant. A snapshot describes the
  * assistant it was built from, so an in-SPA switch
@@ -91,7 +96,7 @@ export function useNativeWidgetSnapshotSync(
   conversations: Conversation[],
   conversationGroups: ConversationGroup[],
   isAssistantActive: boolean,
-  listResolved: boolean,
+  inputsResolved: boolean,
 ): void {
   const lastPayloadRef = useRef<string | null>(null);
   // The assistant the snapshot in the App Group was built from: whatever this
@@ -117,7 +122,7 @@ export function useNativeWidgetSnapshotSync(
       return;
     }
 
-    // Checked ahead of the `listResolved` guard, which would otherwise hold
+    // Checked ahead of the `inputsResolved` guard, which would otherwise hold
     // the previous assistant's snapshot for the whole time the new one takes
     // to resolve. Dropping the dedup key too, so the new assistant's first
     // resolved list always reaches the bridge even when it happens to
@@ -141,7 +146,7 @@ export function useNativeWidgetSnapshotSync(
       lastPayloadRef.current = null;
     }
 
-    if (!listResolved) {
+    if (!inputsResolved) {
       // Only on a switch: a pending or errored query for the SAME assistant
       // still keeps its last-known-good snapshot.
       if (switchedAssistant) {
@@ -198,6 +203,6 @@ export function useNativeWidgetSnapshotSync(
     conversationGroups,
     processingConversationIds,
     unreadCount,
-    listResolved,
+    inputsResolved,
   ]);
 }
