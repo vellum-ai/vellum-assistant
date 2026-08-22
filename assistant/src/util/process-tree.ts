@@ -9,11 +9,11 @@
  * process that is actually parented to it.
  */
 
-import { execFile } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import {
+  listProcessTable,
+  type ProcessTableRow,
+  readRawProcessCommand,
+} from "./process-table.js";
 
 /**
  * Whether a process runs plugin-owned code or is the daemon itself / one of its
@@ -64,7 +64,14 @@ const RUNTIMES = new Set([
   "env",
 ]);
 
-const basename = (p: string): string => p.split("/").pop() || p;
+const basename = (p: string): string => p.split(/[\\/]/).pop() || p;
+
+function splitCommand(command: string): string[] {
+  return Array.from(
+    command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g),
+    (match) => match[1] ?? match[2] ?? match[3],
+  );
+}
 
 /** Script extensions whose path we summarize as `<parent>-<file>`. */
 const SCRIPT_EXT_RE = /\.(ts|js|mjs|cjs|py)$/;
@@ -76,7 +83,7 @@ const SCRIPT_EXT_RE = /\.(ts|js|mjs|cjs|py)$/;
  * filename when the script sits at the filesystem root.
  */
 function scriptName(scriptPath: string): string {
-  const parts = scriptPath.split("/").filter(Boolean);
+  const parts = scriptPath.split(/[\\/]/).filter(Boolean);
   const file = parts[parts.length - 1].replace(SCRIPT_EXT_RE, "");
   const parent = parts.length >= 2 ? parts[parts.length - 2] : "";
   return parent ? `${parent}-${file}` : file;
@@ -93,13 +100,14 @@ function scriptName(scriptPath: string): string {
  * (`/…/vellum-qdrant`) keep their bare executable name.
  */
 export function deriveName(command: string): string {
-  const tokens = command.trim().split(/\s+/).filter(Boolean);
+  const tokens = splitCommand(command.trim());
   if (tokens.length === 0) {
     return "(unknown)";
   }
 
   const argv0 = basename(tokens[0]);
-  if (RUNTIMES.has(argv0)) {
+  const runtimeName = argv0.replace(/\.exe$/i, "").toLowerCase();
+  if (RUNTIMES.has(runtimeName)) {
     const args = tokens.slice(1);
     const script = args.find((t) => SCRIPT_EXT_RE.test(t));
     if (script) {
@@ -109,7 +117,7 @@ export function deriveName(command: string): string {
     // "what was run" rather than an opaque `bun`. Flags are dropped as noise.
     const meaningful = args.filter((t) => !t.startsWith("-"));
     if (meaningful.length > 0) {
-      return `${argv0} ${meaningful.join(" ")}`;
+      return `${runtimeName} ${meaningful.join(" ")}`;
     }
   }
   return argv0;
@@ -126,12 +134,8 @@ export function deriveName(command: string): string {
  * {@link deriveName} descriptor.
  */
 export function readProcessCommand(pid: number): string | null {
-  try {
-    const raw = readFileSync(`/proc/${pid}/cmdline`, "utf8");
-    return deriveName(raw.split("\0").filter(Boolean).join(" "));
-  } catch {
-    return null;
-  }
+  const command = readRawProcessCommand(pid);
+  return command == null ? null : deriveName(command);
 }
 
 /**
@@ -143,7 +147,8 @@ export function readProcessCommand(pid: number): string | null {
  * (`.../plugins/defaults/<name>/`). The `plugins-data/` state directory is
  * deliberately not matched — the slash after `plugins` excludes it.
  */
-const PLUGIN_PATH_RE = /(?:^|\/)plugins\/([^/\s]+)(?:\/([^/\s]+))?/;
+const PLUGIN_PATH_RE =
+  /(?:^|[\\/])plugins[\\/]([^\\/\s]+)(?:[\\/]([^\\/\s]+))?/;
 
 /**
  * Classify whether a raw command line belongs to plugin-owned code, and if so
@@ -170,110 +175,18 @@ export function deriveOrigin(command: string): ProcessOrigin {
 }
 
 /**
- * Parse a `/proc/<pid>/stat` line into its leading fields. `comm` (the
- * executable name) may itself contain spaces and parentheses, so the fixed
- * fields are read relative to the final `)` rather than by naive splitting.
- * Returns null if the line is malformed.
- */
-function parseProcStat(content: string): { comm: string; ppid: number } | null {
-  const lparen = content.indexOf("(");
-  const rparen = content.lastIndexOf(")");
-  if (lparen === -1 || rparen === -1 || rparen < lparen) {
-    return null;
-  }
-  const comm = content.slice(lparen + 1, rparen);
-  // After ")" come: " <state> <ppid> …" — split the remainder on spaces.
-  const rest = content.slice(rparen + 2).split(" ");
-  const ppid = Number(rest[1]);
-  if (!Number.isInteger(ppid)) {
-    return null;
-  }
-  return { comm, ppid };
-}
-
-/** Read the live process table from Linux `/proc`. Throws if `/proc` is absent. */
-function listProcessesFromProc(): ProcInfo[] {
-  const entries = readdirSync("/proc");
-  const procs: ProcInfo[] = [];
-  for (const entry of entries) {
-    const pid = Number(entry);
-    if (!Number.isInteger(pid) || pid <= 0) {
-      continue;
-    }
-
-    let ppid: number;
-    let comm: string;
-    try {
-      const parsed = parseProcStat(readFileSync(`/proc/${pid}/stat`, "utf8"));
-      if (!parsed) {
-        continue;
-      }
-      ({ ppid, comm } = parsed);
-    } catch {
-      // Process exited between readdir and read — skip.
-      continue;
-    }
-
-    // `/proc/<pid>/cmdline` is NUL-delimited and empty for kernel threads.
-    // Redact the raw command line via deriveName to strip secrets (tokens,
-    // API keys, database URLs) that are commonly passed as process arguments.
-    // The raw command line is read here but never stored — only the derived
-    // safe descriptor is kept.
-    let command = comm;
-    // Origin is derived from the raw command path (which carries the plugin
-    // directory), so it is classified before deriveName redacts the path away.
-    let origin: ProcessOrigin = "workspace";
-    try {
-      const raw = readFileSync(`/proc/${pid}/cmdline`, "utf8");
-      const joined = raw.split("\0").filter(Boolean).join(" ");
-      if (joined) {
-        command = deriveName(joined);
-        origin = deriveOrigin(joined);
-      }
-    } catch {
-      // Fall back to comm.
-    }
-
-    procs.push({ pid, ppid, command, origin });
-  }
-  return procs;
-}
-
-/** Read the live process table via the `ps` command (macOS / no `/proc`). */
-async function listProcessesFromPs(): Promise<ProcInfo[]> {
-  const { stdout } = await execFileAsync(
-    "ps",
-    ["-A", "-o", "pid=,ppid=,command="],
-    { maxBuffer: 8 * 1024 * 1024 },
-  );
-
-  const procs: ProcInfo[] = [];
-  for (const line of stdout.split("\n")) {
-    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-    if (!m) {
-      continue;
-    }
-    const raw = m[3].trim();
-    procs.push({
-      pid: Number(m[1]),
-      ppid: Number(m[2]),
-      command: deriveName(raw),
-      origin: deriveOrigin(raw),
-    });
-  }
-  return procs;
-}
-
-/**
  * Enumerate the live process table as `(pid, ppid, command)` rows. Prefers
- * Linux `/proc`; falls back to `ps` when `/proc` is unavailable (e.g. macOS).
+ * Linux `/proc`, uses `ps` on macOS, and queries Win32_Process on Windows.
  */
-export async function listProcesses(): Promise<ProcInfo[]> {
-  try {
-    return listProcessesFromProc();
-  } catch {
-    return listProcessesFromPs();
-  }
+export async function listProcesses(
+  rows: ProcessTableRow[] = listProcessTable(),
+): Promise<ProcInfo[]> {
+  return rows.map(({ pid, ppid, command }) => ({
+    pid,
+    ppid,
+    command: deriveName(command),
+    origin: deriveOrigin(command),
+  }));
 }
 
 /**
