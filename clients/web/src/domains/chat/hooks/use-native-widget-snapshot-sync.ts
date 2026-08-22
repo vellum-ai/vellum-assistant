@@ -77,27 +77,38 @@ type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
  * freshness rather than as a change marker: an app left open on unchanged data
  * would otherwise let its snapshot age past the native stale window and lose
  * the live counts, while the app it came from is in the foreground refetching
- * that same data. The heartbeat re-sends the landed payload verbatim through
- * the same send path, so it shares the attempt counter, the in-flight dedup and
- * the landed bookkeeping: one that fails leaves every ref as it found it, and
- * one that is overtaken by a real data sync cannot arm the dedup key behind it.
+ * that same data. The heartbeat sends the latest DESIRED content, meaning what
+ * this session currently wants the App Group to hold, rather than what last
+ * landed there. The two are the same payload in the ordinary case, and the tick
+ * is then purely a fresh `generatedAt`. They diverge when a data sync rejects or
+ * times out: the last landed payload is outdated, and re-stamping it would age
+ * outdated conversations and counts into reading as current, every 15 minutes
+ * for as long as nothing re-renders to retry the newer one. Sending the desired
+ * content instead makes the tick double as that retry, which strictly widens the
+ * retry-on-the-next-effect-run below. It goes through the same send path either
+ * way, so it shares the attempt counter, the in-flight dedup and the landed
+ * bookkeeping: one that fails leaves every ref as it found it, and one that is
+ * overtaken by a real data sync cannot arm the dedup key behind it.
  *
  * It is armed from the resolved inputs rather than from the moment a write
- * lands, and asks at each tick whether there is anything to refresh. A tick
- * with nothing landed does nothing (an empty or signed-out Home Screen has no
- * freshness to keep), and re-arming on every landed write would make the
- * timer's lifetime depend on render state the effect would then have to carry.
- * Unresolved inputs disarm it: the heartbeat asserts the data is current, which
- * is exactly what a pending or errored query cannot say, so a preserved
- * snapshot is left to age out on the native side instead.
+ * lands, and asks at each tick whether there is anything to send. A tick with
+ * nothing desired does nothing (an empty or signed-out Home Screen has no
+ * freshness to keep and nothing to retry), and re-arming on every landed write
+ * would make the timer's lifetime depend on render state the effect would then
+ * have to carry. Unresolved inputs disarm it: the heartbeat asserts the data is
+ * current, which is exactly what a pending or errored query cannot say, so a
+ * preserved snapshot is left to age out on the native side instead.
  *
  * The dedup key describes what the App Group is known to HOLD, so it is armed
  * from the resolution of the bridge call rather than from the render that fired
  * it: the bridge can reject (an older shell) or time out, and a key armed for a
  * write that never landed would suppress every retry until the conversation
- * data itself changed, stranding a stale snapshot on the Home Screen. The
- * payload still on the bridge is deduped against separately, so a re-render
- * inside that window does not send it twice.
+ * data itself changed, stranding a stale snapshot on the Home Screen. Nothing
+ * guarantees such a change arrives, which is the other half of why the
+ * heartbeat carries the desired content: a failed write is retried on the next
+ * tick even when the query layer hands back structurally identical results
+ * forever. The payload still on the bridge is deduped against separately, so a
+ * re-render inside that window does not send it twice.
  *
  * `inputsResolved` must be false until BOTH queries behind the snapshot, the
  * conversation list and the conversation groups, have actually SUCCEEDED.
@@ -159,10 +170,12 @@ export function useNativeWidgetSnapshotSync(
   // timed-out call changed nothing, and a key armed for it would suppress every
   // retry until the conversation data itself changed.
   const lastPayloadRef = useRef<string | null>(null);
-  // The same payload unserialized, so the heartbeat can re-stamp and re-send
-  // what the App Group holds. Written and dropped wherever `lastPayloadRef` is,
-  // since the two describe the one snapshot.
-  const landedContentRef = useRef<SnapshotContent | null>(null);
+  // The newest content this session wants the App Group to hold, landed or not,
+  // which is what the heartbeat sends. Written on every resolved run, so a tick
+  // after a write that never landed retries the current data rather than
+  // re-stamping the outdated payload that is still on the Home Screen. Dropped
+  // wherever the snapshot stops describing the active assistant.
+  const desiredContentRef = useRef<SnapshotContent | null>(null);
   // The payload currently on the bridge, if a call has not settled yet. Dedup
   // runs against it as well, so a re-render inside the bridge's window does not
   // send the same payload twice; it is dropped as the call settles, which is
@@ -221,7 +234,6 @@ export function useNativeWidgetSnapshotSync(
           return;
         }
         lastPayloadRef.current = serialized;
-        landedContentRef.current = content;
       });
     },
     [],
@@ -254,7 +266,9 @@ export function useNativeWidgetSnapshotSync(
     if (switchedAssistant) {
       syncedAssistantIdRef.current = null;
       lastPayloadRef.current = null;
-      landedContentRef.current = null;
+      // A heartbeat the platform coalesced past this run must never put the
+      // previous assistant's rows back on a Home Screen that was just cleared.
+      desiredContentRef.current = null;
       inFlightPayloadRef.current = null;
       // Retires any call still on the bridge for the previous assistant, so it
       // cannot arm the dedup key after the clear below.
@@ -300,6 +314,9 @@ export function useNativeWidgetSnapshotSync(
       conversations: rows,
     };
     const serialized = JSON.stringify(content);
+    // Recorded whether or not this run sends it, since it describes what the
+    // App Group should hold rather than what reached it.
+    desiredContentRef.current = content;
     if (
       serialized === lastPayloadRef.current ||
       serialized === inFlightPayloadRef.current
@@ -319,20 +336,24 @@ export function useNativeWidgetSnapshotSync(
   ]);
 
   // Keep `generatedAt` moving while this session is live and its data is
-  // verified current, so the widgets never call an open app's snapshot stale.
+  // verified current, so the widgets never call an open app's snapshot stale,
+  // and carry the newest content so a write that never landed is retried
+  // rather than left behind an outdated one that keeps being re-stamped.
   useEffect(() => {
     if (!isWidgetSnapshotSyncAvailable() || !inputsResolved) {
       return;
     }
     const heartbeat = setInterval(() => {
-      const landed = landedContentRef.current;
-      // Nothing has reached the App Group yet, so there is no freshness to
-      // keep. A call already on the bridge is writing its own timestamp, and
-      // racing it would retire the attempt it is counting on.
-      if (landed === null || inFlightPayloadRef.current !== null) {
+      const desired = desiredContentRef.current;
+      // Nothing is wanted for the active assistant yet, so there is neither
+      // freshness to keep nor a write to retry: a signed-out or empty session
+      // before its first resolved run, and a tick coalesced past a switch. A
+      // call already on the bridge is writing its own timestamp, and racing it
+      // would retire the attempt it is counting on.
+      if (desired === null || inFlightPayloadRef.current !== null) {
         return;
       }
-      sendSnapshot(landed, assistantId);
+      sendSnapshot(desired, assistantId);
     }, WIDGET_SNAPSHOT_HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);

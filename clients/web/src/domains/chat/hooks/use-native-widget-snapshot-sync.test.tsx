@@ -21,8 +21,11 @@
  *
  * Because `generatedAt` is outside that key, a session left open on unchanged
  * data would never move it, and the widget extension ages a snapshot out on its
- * own clock. So a heartbeat re-sends the landed payload through the same send
- * path on a bounded interval. bun ships no fake timers, so `setInterval` and
+ * own clock. So a heartbeat re-sends through the same send path on a bounded
+ * interval, carrying the content the session currently WANTS the App Group to
+ * hold rather than the one that last landed there: identical in the ordinary
+ * case, and after a write the bridge never landed it is the retry instead of a
+ * fresh stamp on outdated rows. bun ships no fake timers, so `setInterval` and
  * `clearInterval` are stubbed with the armed-timer capture other hooks in this
  * directory use, and the heartbeat's own delay picks its timer out.
  */
@@ -631,7 +634,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(WIDGET_SNAPSHOT_HEARTBEAT_MS).toBe(15 * 60 * 1000);
   });
 
-  it("re-sends the landed snapshot with a fresh generatedAt while the app is open", async () => {
+  it("re-sends the current snapshot with a fresh generatedAt while the app is open", async () => {
     setSystemTime(new Date("2026-08-21T16:00:00Z"));
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
@@ -662,11 +665,77 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots).toHaveLength(2);
   });
 
-  it("does not heartbeat a snapshot that never landed", async () => {
-    // An empty App Group has no freshness to keep, and a session whose writes
-    // are all rejected has nothing on the Home Screen to keep fresh either.
+  it("beats with the newest content after a sync the bridge never landed", async () => {
+    // The App Group still holds the older payload while the session's current
+    // data is the newer one, and settling a rejected call triggers no render,
+    // so nothing else retries it. The tick is that retry.
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
     syncLands = false;
-    render({
+    rerender({
+      conversations: [conversation("c2", { title: "Flights" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+    await settle();
+
+    syncLands = true;
+    fireHeartbeat();
+    expect(syncedSnapshots).toHaveLength(3);
+    expect(syncedSnapshots[2]?.conversations[0]?.id).toBe("c2");
+    await settle();
+
+    // The retry landed, so the newer payload is the dedup key now and an
+    // identical render costs no bridge traffic.
+    rerender({
+      conversations: [conversation("c2", { title: "Flights" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(3);
+  });
+
+  it("never re-stamps the landed payload once newer content is wanted", async () => {
+    // Re-sending the last landed payload would move `generatedAt` forward on
+    // conversations and counts the session already knows are outdated, telling
+    // the widgets they are current for as long as the writes keep failing.
+    setSystemTime(new Date("2026-08-21T16:00:00Z"));
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    syncLands = false;
+    rerender({
+      conversations: [conversation("c2", { title: "Flights" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    fireHeartbeat();
+    await settle();
+    fireHeartbeat();
+    await settle();
+
+    expect(
+      syncedSnapshots.map((snapshot) => snapshot.conversations[0]?.id),
+    ).toEqual(["c1", "c2", "c2", "c2"]);
+  });
+
+  it("does not heartbeat before anything is wanted", async () => {
+    // An empty or signed-out session has no freshness to keep and nothing to
+    // retry, so a tick that outlives the run which cleared it sends nothing.
+    syncLands = false;
+    const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
       inputsResolved: true,
@@ -674,7 +743,16 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots).toHaveLength(1);
     await settle();
 
-    fireHeartbeat();
+    // Switching away clears what this assistant wanted, so the retry the tick
+    // would otherwise carry cannot resurrect its rows under the new assistant.
+    const beforeSwitch = liveHeartbeats()[0];
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: false,
+    });
+    beforeSwitch?.handler();
     expect(syncedSnapshots).toHaveLength(1);
   });
 
