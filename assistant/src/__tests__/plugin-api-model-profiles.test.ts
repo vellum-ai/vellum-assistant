@@ -64,8 +64,12 @@ describe("getModelProfiles", () => {
       "balanced",
       "cost-optimized",
       "alpha",
+      "balanced-backup",
+      "cost-optimized-backup",
       "latency-optimized",
+      "latency-optimized-backup",
       "quality-optimized",
+      "quality-optimized-backup",
       "zeta",
     ]);
   });
@@ -95,9 +99,13 @@ describe("getModelProfiles", () => {
       ["beta", false],
       ["blend", true],
       ["balanced", false],
+      ["balanced-backup", false],
       ["cost-optimized", false],
+      ["cost-optimized-backup", false],
       ["latency-optimized", false],
+      ["latency-optimized-backup", false],
       ["quality-optimized", false],
+      ["quality-optimized-backup", false],
     ]);
   });
 
@@ -145,9 +153,13 @@ describe("getModelProfiles", () => {
       ["alpha", false],
       ["beta", true],
       ["balanced", false],
+      ["balanced-backup", false],
       ["cost-optimized", false],
+      ["cost-optimized-backup", false],
       ["latency-optimized", false],
+      ["latency-optimized-backup", false],
       ["quality-optimized", false],
+      ["quality-optimized-backup", false],
     ]);
   });
 
@@ -190,9 +202,13 @@ describe("getModelProfiles", () => {
       ["alpha", false],
       ["beta", true],
       ["balanced", false],
+      ["balanced-backup", false],
       ["cost-optimized", false],
+      ["cost-optimized-backup", false],
       ["latency-optimized", false],
+      ["latency-optimized-backup", false],
       ["quality-optimized", false],
+      ["quality-optimized-backup", false],
     ]);
   });
 
@@ -230,9 +246,13 @@ describe("getModelProfiles", () => {
         .sort(),
     ).toEqual([
       "balanced",
+      "balanced-backup",
       "cost-optimized",
+      "cost-optimized-backup",
       "latency-optimized",
+      "latency-optimized-backup",
       "quality-optimized",
+      "quality-optimized-backup",
     ]);
   });
 });
