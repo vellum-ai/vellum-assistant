@@ -43,8 +43,9 @@ export interface AppIconSync {
   /** True when the shell bundles `targetIcon` and it is not already applied. */
   canOffer: boolean;
   /**
-   * Apply `targetIcon`. User-initiated only. Resolves true only when the home
-   * screen actually changed, so callers can keep their action on screen.
+   * Apply `targetIcon`. User-initiated only. Resolves true only when a re-read
+   * of the shell finds the icon on the home screen, so callers can keep their
+   * action on screen.
    */
   apply: () => Promise<boolean>;
   /** Restore the default icon. User-initiated only. Resolves as `apply` does. */
@@ -60,12 +61,16 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   const iconState = useAppIconStore.use.snapshot();
   const setSnapshot = useAppIconStore.use.setSnapshot();
 
+  // Publishes the shell's answer and hands the same snapshot back, so a caller
+  // that just asked for a swap can judge it against what the shell now reports.
   const refresh = useCallback(async () => {
     if (!gateOpen) {
       setSnapshot(APP_ICON_UNSUPPORTED);
-      return;
+      return APP_ICON_UNSUPPORTED;
     }
-    setSnapshot(await getAppIconState());
+    const next = await getAppIconState();
+    setSnapshot(next);
+    return next;
   }, [gateOpen, setSnapshot]);
 
   useEffect(() => {
@@ -83,26 +88,30 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   const { target, availableMatch } = resolveAppIconTarget(state, iconState);
   const canOffer = availableMatch && target !== iconState.current;
 
-  // iOS can refuse a swap, and the caller has UI riding on the answer, so the
-  // shell's verdict is handed back rather than swallowed. The refresh runs
-  // either way: a refusal still has to leave the snapshot telling the truth
-  // about what is on the home screen.
+  // iOS can refuse a swap outright, and it can also take one and leave the home
+  // screen alone (the app backgrounded mid-swap, the iOS 26 regressions). The
+  // request's own answer is therefore not evidence that anything changed, so
+  // both callbacks re-read the shell and report what that read found. The
+  // caller has UI riding on the answer, and it should be riding on the home
+  // screen rather than on the request. A read that degrades, an old shell or a
+  // bridge fault, cannot verify anything, so both callbacks report failure
+  // instead of throwing.
   const apply = useCallback(async () => {
     if (!enabled || !availableMatch || target === null) {
       return false;
     }
-    const applied = await setAppIcon(target);
-    await refresh();
-    return applied;
+    await setAppIcon(target);
+    const applied = await refresh();
+    return applied.supported && applied.current === target;
   }, [enabled, availableMatch, target, refresh]);
 
   const reset = useCallback(async () => {
     if (!enabled) {
       return false;
     }
-    const restored = await setAppIcon(null);
-    await refresh();
-    return restored;
+    await setAppIcon(null);
+    const restored = await refresh();
+    return restored.supported && restored.current === null;
   }, [enabled, refresh]);
 
   return {
