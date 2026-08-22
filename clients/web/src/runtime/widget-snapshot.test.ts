@@ -12,6 +12,11 @@
  * cache outlives the page, so it is the only thing a cold launch can use to
  * tell whose snapshot it inherited, and it has to track the writes that
  * actually landed.
+ *
+ * A sync also reports whether its write landed, since the producer hook dedupes
+ * on the payload it last sent and would otherwise arm that key for a write the
+ * bridge rejected or never answered, leaving a stale snapshot on the Home
+ * Screen until the conversation data itself changed.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -123,7 +128,7 @@ afterEach(() => {
 describe("widget-snapshot bridge", () => {
   it("passes the snapshot through on Capacitor iOS", async () => {
     expect(isWidgetSnapshotSyncAvailable()).toBe(true);
-    await syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await expect(syncWidgetSnapshot(SNAPSHOT, "asst-1")).resolves.toBe(true);
     await clearWidgetSnapshot();
     expect(syncCalls).toEqual([SNAPSHOT]);
     expect(clearCalls).toBe(1);
@@ -132,7 +137,8 @@ describe("widget-snapshot bridge", () => {
   it("never reaches the plugin off Capacitor iOS", async () => {
     platform = "web";
     expect(isWidgetSnapshotSyncAvailable()).toBe(false);
-    await syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    // Nothing was written, so nothing landed.
+    await expect(syncWidgetSnapshot(SNAPSHOT, "asst-1")).resolves.toBe(false);
     await clearWidgetSnapshot();
     expect(syncCalls).toHaveLength(0);
     expect(clearCalls).toBe(0);
@@ -140,10 +146,11 @@ describe("widget-snapshot bridge", () => {
   });
 
   it("resolves silently on a shell too old to carry the plugin", async () => {
+    // Rejecting would break the session-ending callers that await these; the
+    // producer hook still has to learn that nothing landed, so the sync
+    // reports it rather than throwing it.
     pluginRejects = true;
-    await expect(
-      syncWidgetSnapshot(SNAPSHOT, "asst-1"),
-    ).resolves.toBeUndefined();
+    await expect(syncWidgetSnapshot(SNAPSHOT, "asst-1")).resolves.toBe(false);
     await expect(clearWidgetSnapshot()).resolves.toBeUndefined();
   });
 
@@ -158,7 +165,9 @@ describe("widget-snapshot bridge", () => {
     elapse();
 
     await expect(cleared).resolves.toBeUndefined();
-    await expect(synced).resolves.toBeUndefined();
+    // A timed-out write is reported the same way a rejected one is: the App
+    // Group was not updated, so the producer must be free to try again.
+    await expect(synced).resolves.toBe(false);
     expect(clearCalls).toBe(1);
     expect(syncCalls).toHaveLength(1);
   });
@@ -228,9 +237,7 @@ describe("the recorded snapshot producer", () => {
       get: () => throwing,
     });
     try {
-      await expect(
-        syncWidgetSnapshot(SNAPSHOT, "asst-1"),
-      ).resolves.toBeUndefined();
+      await expect(syncWidgetSnapshot(SNAPSHOT, "asst-1")).resolves.toBe(true);
       await expect(clearWidgetSnapshot()).resolves.toBeUndefined();
       expect(readWidgetSnapshotAssistantId()).toBeNull();
       expect(syncCalls).toHaveLength(1);

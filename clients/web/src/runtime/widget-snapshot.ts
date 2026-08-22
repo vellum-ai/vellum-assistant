@@ -143,22 +143,29 @@ async function callBridge(
  * the write lands so a later cold launch can recognize a snapshot it did not
  * produce. A sync that did not land leaves whatever the last successful one
  * wrote, and so leaves the recorded producer with it.
+ *
+ * Reports whether the write landed, without ever rejecting: the producer hook
+ * dedupes on the payload it last sent, and a key armed for a write that was
+ * rejected or timed out would suppress every retry until the conversation data
+ * itself changed, leaving a stale snapshot on the Home Screen. False off iOS
+ * too, where nothing was written by construction.
  */
 export async function syncWidgetSnapshot(
   snapshot: WidgetSnapshotPayload,
   assistantId: string | null,
-): Promise<void> {
+): Promise<boolean> {
   if (!isWidgetSnapshotSyncAvailable()) {
-    return;
+    return false;
   }
   if (!(await callBridge("sync", () => WidgetSnapshot.sync(snapshot)))) {
-    return;
+    return false;
   }
   if (assistantId === null) {
     removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);
-    return;
+    return true;
   }
   setLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY, assistantId);
+  return true;
 }
 
 /**

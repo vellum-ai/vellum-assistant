@@ -197,6 +197,10 @@ const GATEWAY_LOCAL_USER: AuthUser = {
 // this counter and skips itself rather than sending a freshly signed-in user
 // back to login. Latest-wins, the same rule `latestPlatformProbe` applies to
 // overlapping platform probes.
+//
+// Latest-wins only settles races between *observations* of the session. An
+// explicit `logout()` is not one, so it ends the session through
+// `endSession(set, { authoritative: true })` and lands its write regardless.
 let authEpoch = 0;
 
 /**
@@ -272,6 +276,16 @@ const sessionEnded = (): Partial<AuthState> => ({
  * still stands, being idempotent, and the fresh session's next sync rewrites
  * the snapshot.
  *
+ * `authoritative` opts out of that guard, for the callers whose session end is
+ * a decision rather than an observation: an explicit `logout()` has already
+ * dropped the credentials, the selection, the organization and the user-scoped
+ * storage by the time it gets here, so a refresh that authenticated inside the
+ * clear's window is describing a session that no longer exists. Letting the
+ * guard skip the write there would leave the user on signed-in surfaces after
+ * pressing Log Out. Every passive path (a boot probe, a refresh 401, an
+ * exhausted gateway prime) keeps the guard, because those are reports about a
+ * session that a newer report is entitled to supersede.
+ *
  * `keepPlatformSession` omits the `platformSession: "absent"` half of the
  * transition for the one caller that ends the session with a platform probe
  * still in flight. Writing `"absent"` there would settle
@@ -281,11 +295,11 @@ const sessionEnded = (): Partial<AuthState> => ({
  */
 async function endSession(
   set: AuthSet,
-  options?: { keepPlatformSession?: boolean },
+  options?: { keepPlatformSession?: boolean; authoritative?: boolean },
 ): Promise<void> {
   const epoch = authEpoch;
   await clearWidgetSnapshot();
-  if (epoch !== authEpoch) {
+  if (!options?.authoritative && epoch !== authEpoch) {
     return;
   }
   set(
@@ -1272,7 +1286,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();
-      await endSession(set);
+      await endSession(set, { authoritative: true });
       broadcastAuthChange();
       return;
     }
@@ -1305,7 +1319,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       // removed the persisted key, and a surviving slice would resolve the
       // previous user's assistant after re-login.
       await setSelectedAssistant(null);
-      await endSession(set);
+      await endSession(set, { authoritative: true });
       broadcastAuthChange();
     }
   },

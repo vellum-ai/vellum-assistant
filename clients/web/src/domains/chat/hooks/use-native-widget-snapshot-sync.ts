@@ -52,6 +52,14 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  * so the shell would take bridge traffic and a widget timeline reload on
  * every re-render of the layout.
  *
+ * The dedup key describes what the App Group is known to HOLD, so it is armed
+ * from the resolution of the bridge call rather than from the render that fired
+ * it: the bridge can reject (an older shell) or time out, and a key armed for a
+ * write that never landed would suppress every retry until the conversation
+ * data itself changed, stranding a stale snapshot on the Home Screen. The
+ * payload still on the bridge is deduped against separately, so a re-render
+ * inside that window does not send it twice.
+ *
  * `inputsResolved` must be false until BOTH queries behind the snapshot, the
  * conversation list and the conversation groups, have actually SUCCEEDED.
  * Each serves an `[]` fallback while pending (loading, or gated on the
@@ -107,9 +115,23 @@ export function useNativeWidgetSnapshotSync(
   isAssistantActive: boolean,
   inputsResolved: boolean,
 ): void {
+  // What the App Group is known to hold, so an unchanged payload costs no
+  // bridge traffic. Armed only once a write has actually landed: a rejected or
+  // timed-out call changed nothing, and a key armed for it would suppress every
+  // retry until the conversation data itself changed.
   const lastPayloadRef = useRef<string | null>(null);
+  // The payload currently on the bridge, if a call has not settled yet. Dedup
+  // runs against it as well, so a re-render inside the bridge's window does not
+  // send the same payload twice; it is dropped as the call settles, which is
+  // what lets the next effect run retry a write that never landed.
+  const inFlightPayloadRef = useRef<string | null>(null);
+  // Monotonic id for the outstanding call. Only the latest attempt records what
+  // it wrote, so a slow call settling after a newer one (or after an assistant
+  // switch) cannot arm the dedup key with a payload the App Group no longer
+  // holds.
+  const syncAttemptRef = useRef(0);
   // The assistant the snapshot in the App Group was built from: whatever this
-  // hook last wrote, or the producer read back from storage on a cold launch.
+  // hook last sent, or the producer read back from storage on a cold launch.
   // Null while no producer is known, which is what keeps a launch from reading
   // as a switch.
   const syncedAssistantIdRef = useRef<string | null>(null);
@@ -154,6 +176,10 @@ export function useNativeWidgetSnapshotSync(
     if (switchedAssistant) {
       syncedAssistantIdRef.current = null;
       lastPayloadRef.current = null;
+      inFlightPayloadRef.current = null;
+      // Retires any call still on the bridge for the previous assistant, so it
+      // cannot arm the dedup key after the clear below.
+      syncAttemptRef.current += 1;
     }
 
     if (!inputsResolved) {
@@ -195,18 +221,35 @@ export function useNativeWidgetSnapshotSync(
       conversations: rows,
     };
     const serialized = JSON.stringify(content);
-    if (serialized === lastPayloadRef.current) {
+    if (
+      serialized === lastPayloadRef.current ||
+      serialized === inFlightPayloadRef.current
+    ) {
       return;
     }
-    lastPayloadRef.current = serialized;
+    // The producer is recorded as the call is fired rather than when it lands.
+    // A write already on the bridge can land at any moment, so a switch that
+    // happens in between has to see this assistant as an owner. Naming one too
+    // eagerly costs at most an idempotent clear; naming one too late leaves
+    // another assistant's titles on a Home Screen that never reloads.
     syncedAssistantIdRef.current = assistantId;
+    inFlightPayloadRef.current = serialized;
+    const attempt = (syncAttemptRef.current += 1);
     void syncWidgetSnapshot(
       {
         ...content,
         generatedAt: new Date().toISOString(),
       },
       assistantId,
-    );
+    ).then((landed) => {
+      if (attempt !== syncAttemptRef.current) {
+        return;
+      }
+      inFlightPayloadRef.current = null;
+      if (landed) {
+        lastPayloadRef.current = serialized;
+      }
+    });
   }, [
     assistantId,
     conversations,

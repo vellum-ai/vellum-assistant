@@ -14,6 +14,10 @@
  *
  * `generatedAt` is deliberately outside the dedup key. It changes on every
  * render by construction, so including it would leave the dedup dead.
+ *
+ * The key is armed from the bridge call's resolution, not from the render that
+ * fired it, so a write the bridge rejected or never answered is retried by the
+ * next run instead of being deduped away.
  */
 
 import {
@@ -48,6 +52,11 @@ const syncedSnapshots: WidgetSnapshotPayload[] = [];
 const syncedAssistantIds: (string | null)[] = [];
 let clearCount = 0;
 let syncAvailable = true;
+// Whether the bridge write lands. False stands in for both ways it can fail:
+// a shell too old to carry the plugin rejects, and one that accepts the call
+// without answering hits the module's two-second timeout. The hook sees the
+// same reported `false` either way.
+let syncLands = true;
 // Stands in for the producer id the bridge persists beside the App Group
 // snapshot, so a test can start from a snapshot a previous run left behind.
 let persistedAssistantId: string | null = null;
@@ -64,13 +73,26 @@ mock.module("@/runtime/widget-snapshot", () => ({
   ) => {
     syncedSnapshots.push(snapshot);
     syncedAssistantIds.push(assistantId);
+    if (!syncLands) {
+      return false;
+    }
     persistedAssistantId = assistantId;
+    return true;
   },
   clearWidgetSnapshot: async () => {
     clearCount++;
     persistedAssistantId = null;
   },
 }));
+
+/**
+ * Let a fired bridge call settle. The hook arms its dedup key from the call's
+ * resolution rather than from the render that fired it, so the tests that
+ * depend on the key have to give the bridge a turn.
+ */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useNativeWidgetSnapshotSync } =
@@ -128,6 +150,7 @@ beforeEach(() => {
   syncedAssistantIds.length = 0;
   clearCount = 0;
   syncAvailable = true;
+  syncLands = true;
   persistedAssistantId = null;
   useConversationStore.setState({ processingConversationIds: new Set() });
 });
@@ -464,7 +487,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     });
   });
 
-  it("dedupes identical data across re-renders, ignoring the moving generatedAt", () => {
+  it("dedupes identical data across re-renders, ignoring the moving generatedAt", async () => {
     setSystemTime(new Date("2026-08-21T16:00:00Z"));
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
@@ -473,6 +496,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     });
     expect(syncedSnapshots).toHaveLength(1);
     expect(syncedSnapshots[0]?.generatedAt).toBe("2026-08-21T16:00:00.000Z");
+    await settle();
 
     // A later render of the same data would carry a different `generatedAt`.
     // The dedup key excludes it, so nothing reaches the bridge.
@@ -492,6 +516,66 @@ describe("useNativeWidgetSnapshotSync", () => {
     });
     expect(syncedSnapshots).toHaveLength(2);
     expect(syncedSnapshots[1]?.generatedAt).toBe("2026-08-21T16:05:00.000Z");
+  });
+
+  it("retries a sync the bridge never landed", async () => {
+    // An older shell rejects the call and one that never answers hits the
+    // module's timeout; either way nothing reached the App Group. Arming the
+    // dedup key there would leave the previous snapshot on the Home Screen
+    // until the conversation data itself changed.
+    syncLands = false;
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+    await settle();
+
+    syncLands = true;
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+    await settle();
+
+    // That one landed, so an identical render costs no bridge traffic.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedAssistantIds).toEqual([ASSISTANT_ID, ASSISTANT_ID]);
+  });
+
+  it("does not resend a payload the bridge is still holding", async () => {
+    // The key is armed from the call's resolution, so the payload in flight is
+    // deduped against separately: a re-render inside the bridge's window must
+    // not cost a second write and a second widget timeline reload.
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+
+    await settle();
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
   });
 
   it("is a no-op off Capacitor iOS", () => {

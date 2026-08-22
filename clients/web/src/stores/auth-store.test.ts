@@ -1934,6 +1934,55 @@ describe("iOS widget snapshot on session end", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent");
   });
 
+  test("an explicit logout outlasts a refresh that authenticates during the clear", async () => {
+    // The inverse of the guard above. Logout has already dropped the
+    // credentials, the selection and the user-scoped storage before it reaches
+    // the clear, so a refresh that lands inside that window is describing a
+    // session that no longer exists. Deferring to it would leave the user
+    // signed in after pressing Log Out.
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const loggingOut = useAuthStore.getState().logout();
+    await flushTasks();
+
+    // The app-resume listener explicitly permits overlapping refreshes.
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    releaseClear();
+    await loggingOut;
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("a gateway logout outlasts a refresh that authenticates during the clear", async () => {
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    mockIsLocalClient = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const loggingOut = useAuthStore.getState().logout();
+    await flushTasks();
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    releaseClear();
+    await loggingOut;
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
   test("a gateway re-auth during the snapshot clear survives the delayed write", async () => {
     // The `keepPlatformSession` variant takes the same guard: a boot that
     // exhausted its gateway prime must not log out the session a retry
