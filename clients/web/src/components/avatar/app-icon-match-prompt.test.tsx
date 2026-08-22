@@ -6,8 +6,8 @@
  * bundle) is pinned once in `use-app-icon-sync.test.tsx`, so only the flag case
  * stands here as the representative. An offer already on screen has to go quiet
  * on the same terms, so the tests below also take the question away
- * mid-display, and a swap iOS refuses has to leave the question exactly where
- * it was.
+ * mid-display, and a swap iOS refuses, or takes without moving the home screen,
+ * has to leave the question exactly where it was.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -78,9 +78,21 @@ let iconState: AppIconState = {
 
 /** What the shell answers the next swap with: iOS is free to refuse one. */
 let swapSucceeds = true;
+/** iOS taking a swap and leaving the home screen exactly as it was. */
+let swapSilentlyNoOps = false;
 
 const getAppIconState = mock(async () => iconState);
-const setAppIcon = mock(async (_name: string | null) => swapSucceeds);
+// Mirrors the shell: a swap that lands changes what the next read reports, and
+// one that is refused, or silently dropped, leaves that read where it was.
+const setAppIcon = mock(async (name: string | null) => {
+  if (!swapSucceeds) {
+    return false;
+  }
+  if (!swapSilentlyNoOps) {
+    iconState = { ...iconState, current: name };
+  }
+  return true;
+});
 
 mock.module("@/runtime/app-icon", () => ({ getAppIconState, setAppIcon }));
 mock.module("@/runtime/platform-detection", () => ({
@@ -170,6 +182,7 @@ async function expectNoPrompt() {
 beforeEach(() => {
   avatarState = CHARACTER;
   swapSucceeds = true;
+  swapSilentlyNoOps = false;
   iconState = { supported: true, current: null, available: [ICON, OTHER_ICON] };
   localStorage.clear();
   __resetAppIconOfferSession();
@@ -234,6 +247,30 @@ describe("AppIconMatchPrompt", () => {
     await waitFor(() => {
       expect(setAppIcon).toHaveBeenCalledTimes(2);
     });
+    await waitFor(() => {
+      expect(dialogTitle()).toBeNull();
+    });
+  });
+
+  test("keeps the dialog up when the swap is taken but never made", async () => {
+    swapSilentlyNoOps = true;
+    renderPrompt();
+    await expectPrompt();
+
+    clickByText("Apply");
+
+    // The shell said yes and the home screen did not move, so the question is
+    // still a question and the dialog has to say so.
+    await waitFor(() => {
+      expect(alertText()).toBe(
+        "iOS did not change your home screen icon. You can try again.",
+      );
+    });
+    expect(dialogTitle()).toBe("Match your app icon to your avatar?");
+
+    swapSilentlyNoOps = false;
+    clickByText("Apply");
+
     await waitFor(() => {
       expect(dialogTitle()).toBeNull();
     });

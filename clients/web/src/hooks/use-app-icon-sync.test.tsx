@@ -1,8 +1,9 @@
 /**
  * The invariants this feature rests on: an icon is only ever *offered* for a
  * character avatar the installed build ships a bundle for, `setAppIcon` is only
- * ever reached from a user-pressed callback, and every mounted consumer reads
- * the same shell snapshot.
+ * ever reached from a user-pressed callback, every mounted consumer reads the
+ * same shell snapshot, and a swap counts as landed only when a re-read of the
+ * shell says the home screen holds the icon that was asked for.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -53,6 +54,10 @@ let iconState: AppIconState = {
 /** What the shell answers the next swap with: iOS is free to refuse one. */
 let swapSucceeds = true;
 
+// The two are deliberately independent: what the shell answers a swap with and
+// what it reports afterwards are separate facts, so a test models a swap that
+// landed by moving `iconState` and a swap that silently did not by leaving it
+// where it was.
 const getAppIconState = mock(async () => iconState);
 const setAppIcon = mock(async (_name: string | null) => swapSucceeds);
 
@@ -215,7 +220,70 @@ describe("useAppIconSync", () => {
     });
   });
 
+  test("apply reports a swap the shell took but never made", async () => {
+    // iOS accepting `setAlternateIconName` and leaving the home screen alone:
+    // the request says it worked and the next read says otherwise.
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.canOffer).toBe(true);
+    });
+
+    let applied: boolean | undefined;
+    await act(async () => {
+      applied = await result.current.apply();
+    });
+
+    expect(setAppIcon).toHaveBeenCalledTimes(1);
+    // The read is what counts, and it still reports the default icon.
+    expect(applied).toBe(false);
+    expect(useAppIconStore.getState().snapshot.current).toBeNull();
+    expect(result.current.currentIcon).toBeNull();
+    expect(result.current.canOffer).toBe(true);
+  });
+
+  test("apply reports failure when the re-read degrades", async () => {
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.canOffer).toBe(true);
+    });
+    // The shell stops answering mid-swap, which every degrade path in
+    // `runtime/app-icon` turns into this snapshot rather than a rejection.
+    iconState = { supported: false, current: null, available: [] };
+
+    let applied: boolean | undefined;
+    await act(async () => {
+      applied = await result.current.apply();
+    });
+
+    expect(applied).toBe(false);
+    expect(useAppIconStore.getState().snapshot).toEqual(APP_ICON_UNSUPPORTED);
+    await waitFor(() => {
+      expect(result.current.enabled).toBe(false);
+    });
+  });
+
   test("reset restores the default icon", async () => {
+    iconState = { supported: true, current: ICON, available: [ICON] };
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.currentIcon).toBe(ICON);
+    });
+    iconState = { supported: true, current: null, available: [ICON] };
+
+    let restored: boolean | undefined;
+    await act(async () => {
+      restored = await result.current.reset();
+    });
+
+    expect(restored).toBe(true);
+    expect(setAppIcon).toHaveBeenCalledTimes(1);
+    expect(setAppIcon.mock.calls[0]?.[0]).toBeNull();
+    await waitFor(() => {
+      expect(result.current.currentIcon).toBeNull();
+    });
+  });
+
+  test("reset reports a swap the shell took but never made", async () => {
     iconState = { supported: true, current: ICON, available: [ICON] };
     const { result } = await renderSync();
     await waitFor(() => {
@@ -227,9 +295,10 @@ describe("useAppIconSync", () => {
       restored = await result.current.reset();
     });
 
-    expect(restored).toBe(true);
     expect(setAppIcon).toHaveBeenCalledTimes(1);
-    expect(setAppIcon.mock.calls[0]?.[0]).toBeNull();
+    expect(restored).toBe(false);
+    expect(useAppIconStore.getState().snapshot.current).toBe(ICON);
+    expect(result.current.currentIcon).toBe(ICON);
   });
 
   test("apply hands back a refusal and leaves the snapshot truthful", async () => {
