@@ -71,9 +71,13 @@ describe("recovered history messages are validated, not asserted", () => {
     expect(result.messages.map((m) => m.text)).toEqual(["kept", "also kept"]);
   });
 
-  test("a file that does not parse is dropped, and its message survives", async () => {
-    // `files` is tolerant within a message: a malformed attachment must not
-    // discard the text the person actually wrote.
+  test("a file missing its id is coerced the same way a live event's is", async () => {
+    // `slackFileSchema` declares `id` as required and catches to `""`, so a
+    // malformed file is forwarded with an empty id rather than discarded.
+    // Asserted here to hold the recovered path identical to the live one:
+    // making history stricter would reintroduce the divergence this change
+    // exists to remove. Whether `""` is the right coercion is a question about
+    // that shared schema, not about catch-up.
     fetchMock = mock(async () =>
       historyResponse([
         {
@@ -90,6 +94,6 @@ describe("recovered history messages are validated, not asserted", () => {
 
     expect(result.messages).toHaveLength(1);
     expect(result.messages[0]?.text).toBe("text plus a bad file");
-    expect(result.messages[0]?.files).toBeUndefined();
+    expect(result.messages[0]?.files?.[0]?.id).toBe("");
   });
 });
