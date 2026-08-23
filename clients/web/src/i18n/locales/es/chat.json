@@ -17,19 +17,17 @@
     "showRaw": "Mostrar entrada/salida en bruto"
   },
   "acpConnectAffordance": {
-    "completingSignIn": "Completando el inicio de sesión...",
-    "connect": "Conectar",
-    "connectFailed": "No se pudo conectar Claude. Inténtalo de nuevo.",
-    "connectedContinuing": "Claude Code conectado. Continuando...",
-    "dismiss": "Descartar",
-    "pasteKeyHint": "Se abrió una pestaña del navegador. Pega la clave que te da para terminar.",
-    "pasteKeyPlaceholder": "Pega tu clave",
-    "save": "Guardar",
-    "signInNoKey": "Inicia sesión. No hace falta una clave API",
-    "signInWithAccount": "Inicia sesión con tu cuenta de Claude para ejecutar este agente. No se necesita una clave API.",
-    "startingSignIn": "Iniciando sesión...",
-    "title": "Conectar Claude Code",
-    "waitingSignIn": "Esperando el inicio de sesión de Claude..."
+    "connectButton": "Conectar",
+    "errorFallback": "No se pudo conectar Claude. Inténtalo de nuevo.",
+    "pastePlaceholder": "Pega tu clave",
+    "saveButton": "Guardar",
+    "subtitleConnected": "Claude Code conectado, continuando...",
+    "subtitleExchanging": "Completando el inicio de sesión...",
+    "subtitleIdle": "Usa tu suscripción a Claude Code",
+    "subtitlePaste": "Pega la clave de la pestaña que se abrió",
+    "subtitleStarting": "Preparando el inicio de sesión...",
+    "subtitleWaiting": "Esperando el inicio de sesión de Claude...",
+    "title": "Conectar Claude Code"
   },
   "acpRunChatView": {
     "backToConversationAria": "Volver a la conversación",
@@ -1478,6 +1476,9 @@
     "openVoiceRoom": "Abrir la sala de voz",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
+  },
+  "voiceErrors": {
+    "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."
   },
   "voiceFirstRunCard": {
     "backAria": "Atrás",

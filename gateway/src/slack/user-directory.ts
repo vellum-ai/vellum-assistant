@@ -39,6 +39,13 @@ interface SlackChannelInfo {
  */
 interface SlackChannelKind {
   isMpim: boolean;
+  /**
+   * Slack's own answer to whether the conversation is private, which covers
+   * private channels and group DMs alike. Kept because the same response
+   * already carries it and reconstructing it from an id prefix cannot
+   * distinguish a private channel from a modern multi-person IM.
+   */
+  isPrivate: boolean;
   unresolved?: boolean;
 }
 
@@ -244,6 +251,7 @@ export async function resolveSlackUser(
 interface SlackConversationInfo {
   name?: string;
   isMpim: boolean;
+  isPrivate: boolean;
 }
 
 /**
@@ -261,7 +269,10 @@ function cacheUnresolvedChannelKind(cacheKey: string): void {
   cacheSet(
     channelKindCache,
     cacheKey,
-    { isMpim: false, unresolved: true },
+    // Both flags are meaningless while `unresolved` is set; every reader gates
+    // on it first, and treats an unresolved kind as unknown rather than as a
+    // proven public room.
+    { isMpim: false, isPrivate: false, unresolved: true },
     CHANNEL_KIND_FAILURE_TTL_MS,
     CHANNEL_CACHE_MAX_SIZE,
   );
@@ -304,6 +315,8 @@ async function fetchSlackConversationInfo(
           name?: string;
           name_normalized?: string;
           is_mpim?: boolean;
+          is_private?: boolean;
+          is_im?: boolean;
         };
       };
       if (!data.ok || !data.channel) {
@@ -314,12 +327,19 @@ async function fetchSlackConversationInfo(
       const info: SlackConversationInfo = {
         name: data.channel.name || data.channel.name_normalized,
         isMpim: data.channel.is_mpim === true,
+        // A DM and a group DM are both private, and Slack marks a group DM
+        // private in its own right, so this needs no reconstruction from the
+        // other flags.
+        isPrivate:
+          data.channel.is_private === true ||
+          data.channel.is_im === true ||
+          data.channel.is_mpim === true,
       };
 
       cacheSet(
         channelKindCache,
         cacheKey,
-        { isMpim: info.isMpim },
+        { isMpim: info.isMpim, isPrivate: info.isPrivate },
         CHANNEL_CACHE_TTL_MS,
         CHANNEL_CACHE_MAX_SIZE,
       );
@@ -396,7 +416,9 @@ export function recordSlackChannelKind(
   cacheSet(
     channelKindCache,
     slackChannelCacheKey(channelId, botToken),
-    { isMpim: channelType === "mpim" },
+    // Slack sent the type on a message, so both answers are proven: an `im` and
+    // an `mpim` are each private.
+    { isMpim: channelType === "mpim", isPrivate: true },
     CHANNEL_CACHE_TTL_MS,
     CHANNEL_CACHE_MAX_SIZE,
   );
@@ -419,7 +441,37 @@ export async function resolveSlackChannelKind(
   if (cached) return cached.unresolved ? undefined : cached;
 
   const info = await fetchSlackConversationInfo(channelId, botToken);
-  return info ? { isMpim: info.isMpim } : undefined;
+  return info ? { isMpim: info.isMpim, isPrivate: info.isPrivate } : undefined;
+}
+
+/**
+ * Whether Slack considers a conversation private, asked authoritatively.
+ *
+ * `channel_type` and id prefixes settle most conversations for free, and this
+ * exists for the one they cannot: a bare `C` is a public channel or a modern
+ * multi-person IM, and nothing about the id says which. Guessing there hands a
+ * group DM a public-channel permission rule.
+ *
+ * Awaits rather than warming in the background, because the answer is a
+ * permission input. A background warm returns the permissive answer on the
+ * first event and the correct one afterwards, so the same room resolves
+ * differently depending on how recently the gateway restarted, and a guardian's
+ * rule applies intermittently. One `conversations.info` per ambiguous
+ * conversation per cache lifetime is the price of it being deterministic, and
+ * concurrent events for the same conversation share the one request.
+ *
+ * `undefined` means Slack did not answer. Callers must treat that as unknown
+ * rather than public: a lookup failure cannot be allowed to widen a rule.
+ */
+export async function resolveSlackChannelIsPrivate(
+  channelId: string,
+  botToken: string,
+): Promise<boolean | undefined> {
+  const cacheKey = slackChannelCacheKey(channelId, botToken);
+  const cached = cacheGet(channelKindCache, cacheKey);
+  if (cached) return cached.unresolved ? undefined : cached.isPrivate;
+  const info = await fetchSlackConversationInfo(channelId, botToken);
+  return info ? info.isPrivate : undefined;
 }
 
 /**

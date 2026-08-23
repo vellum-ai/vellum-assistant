@@ -27,6 +27,7 @@ import WORKLET_MODULE_URL from "@/domains/chat/voice/live-voice/pcm-downsample-w
 
 import { createAudioContext } from "@/domains/chat/voice/audio-context";
 import { isElectron } from "@/runtime/is-electron";
+import { requestNativeTranscription } from "@/runtime/native-dictation-transcription";
 
 const WORKLET_PROCESSOR_NAME = "pcm-downsample";
 
@@ -44,7 +45,7 @@ function dictationBridge() {
  * True when the renderer can route dictation through the native helper's
  * on-device recognizer, i.e. an Electron shell with a preload new
  * enough to expose the dictation bridge. Settings uses this to decide
- * whether to offer the "macOS Native Dictation" STT provider at all.
+ * whether to offer the desktop-native dictation provider at all.
  *
  * Requires the one-shot `transcribe`/`onTranscribed` surface, not just the
  * partials methods: those members are optional for version-skew tolerance,
@@ -149,11 +150,24 @@ async function startAudioPump(
   }
 }
 
-const TRANSCRIBED_TIMEOUT_MS = 8000;
+const MIN_TRANSCRIBED_TIMEOUT_MS = 8000;
+const TRANSCRIBED_TIMEOUT_GRACE_MS = 5000;
+
+function transcribedTimeoutMs(pcmByteLength: number): number {
+  if (window.vellum?.hostOS !== "windows") {
+    return MIN_TRANSCRIBED_TIMEOUT_MS;
+  }
+  const pcmDurationMs =
+    (pcmByteLength / (PUSH_SAMPLE_RATE * Int16Array.BYTES_PER_ELEMENT)) * 1000;
+  return Math.max(
+    MIN_TRANSCRIBED_TIMEOUT_MS,
+    pcmDurationMs + TRANSCRIBED_TIMEOUT_GRACE_MS,
+  );
+}
 
 /**
- * One-shot Apple Speech recognition of a complete recording — the offline
- * transcript authority. Streaming partials race the pump warmup and
+ * One-shot native speech recognition of a complete recording, used as the
+ * offline transcript authority. Streaming partials race the pump warmup and
  * recognition latency on short dictations; the recorded blob contains
  * every millisecond, so recognizing it whole does not. Resolves `null`
  * when unavailable (off Electron, old shell, decode failure, denied).
@@ -162,7 +176,9 @@ export async function transcribeNativeAudioBlob(
   blob: Blob,
 ): Promise<string | null> {
   const dictation = dictationBridge();
-  if (!dictation?.transcribe || !dictation.onTranscribed) {
+  const transcribe = dictation?.transcribe;
+  const onTranscribed = dictation?.onTranscribed;
+  if (!transcribe || !onTranscribed) {
     return null;
   }
 
@@ -181,20 +197,20 @@ export async function transcribeNativeAudioBlob(
     return null;
   }
 
-  let resolveText: ((text: string | null) => void) | null = null;
-  const unsubscribe = dictation.onTranscribed((event) => {
-    resolveText?.(event.text || null);
-  });
   try {
-    const result = await dictation.transcribe(pcm);
+    const result = await requestNativeTranscription(
+      {
+        transcribe,
+        onTranscribed,
+      },
+      pcm,
+      transcribedTimeoutMs(pcm.byteLength),
+    );
     if (!result.ok) {
       console.info("dictation: native transcribe unavailable:", result.reason);
       return null;
     }
-    const text = await new Promise<string | null>((resolve) => {
-      resolveText = resolve;
-      setTimeout(() => resolve(null), TRANSCRIBED_TIMEOUT_MS);
-    });
+    const { text } = result;
     // Length only — transcript content must never be logged.
     console.info(
       `dictation: native transcribe ${text ? `chars=${text.length}` : "produced no text"}`,
@@ -203,8 +219,6 @@ export async function transcribeNativeAudioBlob(
   } catch (err) {
     console.warn("dictation: native transcribe failed", err);
     return null;
-  } finally {
-    unsubscribe();
   }
 }
 

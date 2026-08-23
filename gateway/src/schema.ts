@@ -1070,6 +1070,95 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/watch/stream": {
+        get: {
+          summary: "Watch stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade for a watch session's narration audio. Authenticates the client using an edge JWT (actor principal) and proxies frames bidirectionally to the assistant runtime's /v1/watch/stream endpoint using a gateway service token. Requires the mimeType query parameter. Client frames are audio; runtime frames are session lifecycle and acknowledgements only (ready, entry, observation, error, closed), never transcript text. An observation frame acknowledges that the runtime read the screen and kept what it saw, and like entry it carries nothing beyond the fact that it happened.",
+          operationId: "watchStreamWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "mimeType",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "MIME type of the narration audio being streamed (e.g. 'audio/pcm').",
+            },
+            {
+              name: "sampleRate",
+              in: "query",
+              required: false,
+              schema: { type: "integer" },
+              description: "Audio sample rate in Hz, when applicable.",
+            },
+            {
+              name: "conversationId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Conversation the session's timeline is filed against. Absent lets the runtime mint one for the session.",
+            },
+            {
+              name: "clientId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Host client whose screen the session reads. Absent lets the runtime resolve the actor's own host.",
+            },
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful - bidirectional watch stream frame proxying begins.",
+            },
+            "400": {
+              description: "Missing required query parameter (mimeType)",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized - missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required - request is not a WebSocket upgrade",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/live-voice": {
         get: {
           summary: "Live voice WebSocket",

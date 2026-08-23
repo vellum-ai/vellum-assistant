@@ -304,6 +304,11 @@ export function runStorageMigrations(): void {
   migrateKey("local:lockfile", "vellum:local:lockfile");
   migrateKey("local:selectedAssistantId", "vellum:local:selectedAssistantId");
 
+  // Flag key renames. A developer's local override is stored under the flag
+  // key, so renaming a key orphans the override and the flag silently falls
+  // back to its registry default.
+  migrateKey("vellum:ff:watch", "vellum:ff:teach");
+
   // -- Prefix renames (dynamic/per-entity keys) --------------------------
 
   // voice: per-provider keys → vellum:voice:

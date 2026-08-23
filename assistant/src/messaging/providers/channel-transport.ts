@@ -4,6 +4,7 @@ import type {
   SlackStreamOp,
 } from "@vellumai/gateway-client";
 
+import type { AssistantActivityPhase } from "../../api/index.js";
 import type { ChannelId } from "../../channels/types.js";
 
 /**
@@ -16,25 +17,36 @@ export interface CallbackContext {
   readonly params: Readonly<Record<string, string>>;
 }
 
-/** The message an emoji reaction lands on, and what to do there. */
-export interface ReactionTarget {
+/**
+ * How busy the assistant is in one conversation, for the channel to show.
+ *
+ * `phase` is the daemon's own activity phase rather than a channel's word for
+ * it, so every channel is told the same lifecycle and decides how to render
+ * it. A channel whose indicator expires on its own re-sends while the busy
+ * phases last; a channel whose indicator holds sets it once and clears it on
+ * `idle`. Neither shape leaks into what the caller says.
+ */
+export interface ActivityTarget {
   readonly chatId: string;
-  /** The target message, in the channel's own id space. */
-  readonly messageId: string;
-  readonly emoji: string;
-  readonly action: "add" | "remove";
+  readonly phase: AssistantActivityPhase;
+  /**
+   * Who started the turn. Channels that attribute a session to a person read
+   * it when the session is created, and ignore it afterwards.
+   */
+  readonly initiatorUserId?: string;
 }
 
 /**
- * A status surface update. `chatId` is the room, spelled the way every other
- * method on this interface spells it.
+ * Whether a phase means a turn is actually running.
+ *
+ * A channel with a plain busy indicator shows it for these and nothing else.
+ * `awaiting_confirmation` is deliberately not one: an approval is waiting on a
+ * person, and a typing bubble there promises output that is not coming.
  */
-export interface ThreadStatus {
-  readonly chatId: string;
-  readonly threadTs: string;
-  readonly status: string;
-  /** Rotating hints shown under the status while it holds. */
-  readonly loadingMessages?: readonly string[];
+export function isBusyActivityPhase(phase: AssistantActivityPhase): boolean {
+  return (
+    phase === "thinking" || phase === "streaming" || phase === "tool_running"
+  );
 }
 
 /**
@@ -96,38 +108,28 @@ export interface ChannelTransport {
   ): Promise<ChannelDeliveryResult>;
 
   /**
-   * Show that the assistant is working, in whatever form the channel has.
+   * Show how busy the assistant is, in whatever form the channel has.
    *
-   * Takes the place and nothing else, because that is all it needs. A channel
-   * without the affordance omits the method, so implementing it is the whole
-   * of declaring the capability.
+   * One capability rather than one per indicator shape: a self-expiring typing
+   * bubble and a status that holds until cleared answer the same question, and
+   * splitting them by how the channel keeps them alive forces every caller to
+   * know which channel it is talking to. A channel without any such affordance
+   * omits the method, so implementing it is the whole of declaring it.
    */
-  typing?(ctx: CallbackContext, chatId: string): Promise<ChannelDeliveryResult>;
-
-  /**
-   * Add or remove one of the assistant's own emoji reactions on a message.
-   *
-   * `messageId` is the target's id in the channel's own space, the same way
-   * `chatId` is: Slack spells it as a timestamp, Discord and Telegram as ids.
-   * Nothing outside the channel reads it, so nothing outside needs a shared
-   * spelling for it.
-   */
-  react?(
+  setActivity?(
     ctx: CallbackContext,
-    target: ReactionTarget,
+    target: ActivityTarget,
   ): Promise<ChannelDeliveryResult>;
 
   /**
-   * Set or clear the channel's own "working on it" surface.
+   * How often a busy indicator must be re-asserted to stay visible, for a
+   * channel whose indicator expires on its own.
    *
-   * Distinct from `typing`: an indicator a channel refreshes on a timer versus
-   * a status a channel holds until it is changed. Slack has both and uses this
-   * one; a channel with only the first implements only `typing`.
+   * Omitted by a channel whose indicator holds until it is changed, which is
+   * how a caller knows to set it once rather than run a timer. Declaring the
+   * cadence here keeps the caller from having to know which channel it is.
    */
-  setThreadStatus?(
-    ctx: CallbackContext,
-    status: ThreadStatus,
-  ): Promise<ChannelDeliveryResult>;
+  readonly activityRefreshMs?: number;
 
   /**
    * Advance a streamed reply: open it, add to it, or close it.

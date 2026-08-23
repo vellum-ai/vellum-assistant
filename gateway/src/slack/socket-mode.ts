@@ -19,6 +19,7 @@ import {
   type SlackHistoryMessage,
 } from "./slack-web.js";
 import { isSlackDmChannel, isSlackMpimChannel } from "./channel.js";
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import { parseSlackEnvelope } from "./envelope.js";
 import type { SlackEnvelopePayload, SlackInboundEvent } from "./envelope.js";
 import { classifySlackEvent } from "./classify-event.js";
@@ -42,6 +43,7 @@ import {
   normalizeSlackReactionRemoved,
 } from "./reaction-normalizer.js";
 import { enrichNormalizedActor } from "./actor.js";
+import { resolveSlackChannelIsPrivate } from "./user-directory.js";
 import { SlackSocketLiveness } from "./socket-liveness.js";
 import {
   defaultSchedule,
@@ -362,6 +364,28 @@ export class SlackSocketModeClient {
         this.forceReconnect("liveness probe failed", "backoff");
       },
     });
+  }
+
+  /**
+   * Whether this client currently holds an open, live Socket Mode connection.
+   *
+   * `connected` reads the socket's own `readyState`, which on its own is a
+   * claim the transport cannot back up: a half-open socket reports `OPEN`
+   * indefinitely. It is trustworthy here only because the liveness watchdog
+   * bounds how long a socket can claim to be open while dead, to one probe
+   * interval plus one deadline. A change that removes that watchdog makes this
+   * getter unreliable.
+   *
+   * `lastLivenessAt` is the corroborating evidence, and is deliberately not
+   * part of the `connected` verdict: the first probe is a full interval after
+   * `open`, so every healthy reconnect has a window where no pong has landed
+   * yet. Gating on it would report a fresh connection as broken.
+   */
+  getConnectionHealth(): ChannelConnectionHealth {
+    return {
+      connected: this.ws?.readyState === WebSocket.OPEN,
+      lastLivenessAt: this.liveness.lastPongAt,
+    };
   }
 
   /**
@@ -1800,6 +1824,29 @@ export class SlackSocketModeClient {
       }
     }
 
+    // Resolve visibility when the id and event type could not settle it, for
+    // the same reason the actor is enriched above: this is a permission input
+    // and it has to be right before enforcement, not eventually.
+    //
+    // Only a bare `C` reaches here. It is a public channel or a modern
+    // multi-person IM, and nothing about the id distinguishes them, so a
+    // background warm would return the permissive answer on the first event
+    // and the correct one later. Bounded by the same timeout as the actor
+    // lookup, and an unanswered lookup stays unknown rather than public.
+    if (!normalized.event.source.conversationType && channelId) {
+      const isPrivate = await Promise.race([
+        resolveSlackChannelIsPrivate(channelId, this.config.botToken),
+        new Promise<undefined>((resolve) =>
+          setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
+        ),
+      ]);
+      if (isPrivate !== undefined) {
+        normalized.event.source.conversationType = isPrivate
+          ? "private"
+          : "public";
+      }
+    }
+
     this.onEvent(normalized);
   }
 
@@ -2004,8 +2051,9 @@ export class SlackSocketModeClient {
     const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
     // `conversations.history`/`replies` carry no `channel_type`, so classify
     // DMs by the conversation ID prefix and group DMs from the observed-kind
-    // cache. The `"channel"` fallback below is therefore a guess, which is why
-    // `recordSlackChannelKind` refuses to learn from that value.
+    // cache. Anything else is unproven and stays unstamped rather than being
+    // guessed, so no consumer can mistake a replay's inference for something
+    // Slack said.
     const isDm = isSlackDmChannel(channel);
     const isGroupDm = !isDm && this.isGroupDmChannel(channel);
     // Slack only emits `app_mention` in non-DM channels, even when the bot is
@@ -2028,7 +2076,19 @@ export class SlackSocketModeClient {
       ts: msg.ts,
       thread_ts: msg.thread_ts,
       channel,
-      channel_type: isDm ? "im" : isGroupDm ? "mpim" : "channel",
+      // Only the proven types are stamped. `"channel"` would be a guess, and a
+      // guess must not read as proof: `slackConversationVisibility` treats an
+      // explicit `channel_type` as authoritative, so synthesizing one here
+      // would stamp a recovered private-channel message as public and skip the
+      // authoritative lookup that would have corrected it. Omitting it leaves
+      // the same signals a live thread reply has, which is a `G` prefix for a
+      // private room and a resolved lookup for an ambiguous `C`. This is the
+      // same reason `recordSlackChannelKind` refuses to learn from the value.
+      ...(isDm
+        ? { channel_type: "im" }
+        : isGroupDm
+          ? { channel_type: "mpim" }
+          : {}),
       team: msg.team,
       ...(msg.subtype ? { subtype: msg.subtype } : {}),
       ...(msg.files ? { files: msg.files } : {}),

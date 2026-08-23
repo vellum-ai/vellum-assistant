@@ -138,6 +138,12 @@ describe("AcpConnectAffordance", () => {
     render(<AcpConnectAffordance assistantId="assistant-123" />);
 
     expect(screen.getByRole("button", { name: "Connect" })).not.toBeNull();
+    expect(
+      screen.getByText("Use your Claude Code subscription"),
+    ).not.toBeNull();
+    // The card has no manual dismissal; it retires via the connect flow's
+    // auto-continue or the already-connected self-heal.
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 
   test("renders nothing when the daemon is too old to support Connect", () => {
@@ -265,6 +271,10 @@ describe("AcpConnectAffordance", () => {
       expect(screen.getByPlaceholderText("Paste your key")).not.toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
+    expect(
+      screen.getByText("Paste the key from the tab that opened"),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 
   test("signals auto-continue once the connect flow completes", async () => {
@@ -302,7 +312,7 @@ describe("AcpConnectAffordance", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     // The error text appears...
-    await screen.findByText(/Couldn't complete Connect Claude/i);
+    await screen.findByText(/Check the pasted key and try again/i);
     // ...and the paste field + Save remain for a retry, with the value intact.
     const retryInput = screen.getByPlaceholderText(
       "Paste your key",

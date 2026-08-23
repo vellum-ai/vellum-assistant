@@ -73,12 +73,16 @@ export function withSkipResearch(
  *   gateway readyz → provider key) runs; the hatching screen then redirects into
  *   the research flow, which adopts that just-hatched assistant. Skipping
  *   hatching here would leave the research flow with no assistant to adopt.
+ * - **Already onboarded** (hatched at least a week ago) → `/assistant`. The
+ *   assistant is already provisioned and past research, including in
+ *   production.
  * - **Skip to chat** (non-production) → hatching as well. There is no research
  *   form, so the hatch screen provisions, then hands off to chat.
  */
 export function onboardingDestinationAfterConsent({
   isLocalHatch,
   skipResearch = false,
+  alreadyOnboarded = false,
   env = import.meta.env.VITE_SENTRY_ENVIRONMENT,
 }: {
   /** A local-hosting onboarding that must run the foreground local hatch. */
@@ -88,9 +92,17 @@ export function onboardingDestinationAfterConsent({
    * production builds.
    */
   skipResearch?: boolean;
+  /**
+   * The current assistant has already finished first-run onboarding. Skips
+   * research on every build, including production.
+   */
+  alreadyOnboarded?: boolean;
   /** Build environment; defaults to `VITE_SENTRY_ENVIRONMENT`. */
   env?: string;
 }): string {
+  if (alreadyOnboarded) {
+    return routes.assistant;
+  }
   if (skipResearch && canSkipOnboardingResearch(env)) {
     return routes.onboarding.hatching;
   }

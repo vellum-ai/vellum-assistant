@@ -1,17 +1,108 @@
 /**
  * Shared scaffolding for the pair-device test files: the fetch stub with its
- * request log, JSON response builders, the pending-request fixture, and the
- * armed-timer capture harness standing in for fake timers (bun's test runner
- * has none). Test semantics stay in the test files; only plumbing lives here.
+ * request log, JSON response builders, the pending-request fixture, the
+ * tunnel-probe mock, the query-client wrapper, and the armed-timer capture
+ * harness standing in for fake timers (bun's test runner has none). Test
+ * semantics stay in the test files; only plumbing lives here.
  */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mock } from "bun:test";
+import { createElement, type ReactElement, type ReactNode } from "react";
 
 import type { RemoteWebPairingRequestSummary } from "@vellumai/service-contracts/remote-web-pairing";
+
+import type { IntegrationsIngressStatusGetResponse } from "@/generated/daemon/types.gen";
 
 /** Local-gateway base URL used across the pair-device tests. */
 export const TEST_GATEWAY_BASE =
   "http://localhost:3000/assistant/__gateway/20100";
+
+/** An assistant version below the ingress-status floor, so no probe goes out. */
+export const VERSION_BELOW_INGRESS_STATUS = "0.11.5";
+
+/**
+ * A fresh query client and the provider wrapper around it, which anything
+ * rendering the tunnel-status probe needs. Retries are off so a failing probe
+ * reaches its error state inside a test's patience.
+ */
+export function createQueryClientWrapper(): {
+  client: QueryClient;
+  wrapper: (props: { children: ReactNode }) => ReactElement;
+} {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return {
+    client,
+    wrapper: ({ children }) =>
+      createElement(QueryClientProvider, { client }, children),
+  };
+}
+
+/**
+ * Swap the generated ingress-status call for a mock the caller steers. Call it
+ * at the top level of a test file, before importing the module under test, and
+ * `reset()` it in `beforeEach`.
+ *
+ * Mocking the SDK call, rather than only reading TanStack's `fetchStatus`, is
+ * what lets a test count probes: an imperative `refetch()` that a guard should
+ * have swallowed leaves no trace in the query state but does show up here.
+ */
+export async function installIngressProbe(
+  defaultResponse: IntegrationsIngressStatusGetResponse,
+) {
+  let response = defaultResponse;
+  let failure: Error | null = null;
+  let stalls = false;
+
+  const probe = mock(async () => {
+    if (stalls) {
+      await new Promise(() => {});
+    }
+    if (failure) {
+      throw failure;
+    }
+    return {
+      data: response,
+      error: undefined,
+      response: new Response(null, { status: 200 }),
+    };
+  });
+
+  /* Spread over the real module rather than replacing it: the generated SDK is
+     a single barrel that the query-options barrel also pulls from, and a bare
+     object drops every export not named here. */
+  const realDaemonSdk = await import("@/generated/daemon/sdk.gen");
+  mock.module("@/generated/daemon/sdk.gen", () => ({
+    ...realDaemonSdk,
+    integrationsIngressStatusGet: probe,
+  }));
+
+  return {
+    /** The mocked call itself, for call-count assertions. */
+    probe,
+    /** Answer every probe from here on with this response. */
+    respondWith(next: IntegrationsIngressStatusGetResponse) {
+      response = next;
+    },
+    /** Fail every probe from here on, the way a dead daemon would. */
+    failWith(error: Error) {
+      failure = error;
+    },
+    /** Leave every probe from here on in flight, the way a slow daemon would. */
+    stall() {
+      stalls = true;
+    },
+    /** Back to the default answer, with the call log cleared. */
+    reset() {
+      response = defaultResponse;
+      failure = null;
+      stalls = false;
+      probe.mockClear();
+    },
+  };
+}
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -36,7 +127,7 @@ export function pendingRequest(
   };
 }
 
-export interface RecordedFetch {
+interface RecordedFetch {
   url: string;
   init: RequestInit | undefined;
 }
@@ -84,7 +175,7 @@ export interface ArmedTimer {
   cleared: boolean;
 }
 
-export interface TimerHarness {
+interface TimerHarness {
   /** Every interval armed since {@link TimerHarness.install}, oldest first. */
   timers: ArmedTimer[];
   install: () => void;

@@ -749,7 +749,7 @@ function readBodyData(data: string): unknown {
   return tryJsonParse(data);
 }
 
-async function handleRequest({ body = {} }: RouteHandlerArgs) {
+export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const b = body as {
     provider: string;
     url: string;

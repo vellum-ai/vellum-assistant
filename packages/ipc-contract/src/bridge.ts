@@ -30,6 +30,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -180,7 +181,7 @@ export interface VellumBridge {
        */
       transcribe?(
         audio: ArrayBuffer,
-      ): Promise<{ ok: boolean; reason?: string }>;
+      ): Promise<DictationTranscribeResult>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
@@ -422,6 +423,25 @@ export interface VellumBridge {
      * the session itself, on `onState`.
      */
     startVoice(): void;
+    /**
+     * Turn the session that reads the screen on or off, which is what Watch
+     * does.
+     *
+     * One call for both edges, the way the `toggleWatch` command is: the
+     * surface draws a single control and the window holding the session is the
+     * only side that knows which edge a press is. What comes back is `watching`
+     * on `onState`.
+     */
+    toggleWatch(): void;
+    /**
+     * Answer the summary question a finished watch session leaves on the
+     * surface: open the report now, or not.
+     *
+     * See the `answerWatchRetro` command. Both answers travel, because the
+     * window that ran the retrospective is the one holding the question; what
+     * comes back either way is `watchRetro` going absent on `onState`.
+     */
+    answerWatchRetro(open: boolean): void;
     /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.

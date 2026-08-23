@@ -1204,10 +1204,12 @@
     "generateButton": "Generar QR de vinculación",
     "generateButtonMinting": "Generando…",
     "generateButtonRegenerate": "Generar nuevo código",
+    "generateButtonWarned": "Generar de todos modos",
     "noTunnelMore": "Otros proveedores y opciones: <code>{command}</code>",
     "noTunnelNext": "El túnel imprime una dirección https. Pégala en URL pública más abajo y deja el túnel en marcha mientras vinculas y usas otros dispositivos.",
     "noTunnelTitle": "Abre primero un túnel",
     "noTunnelWhy": "Otros dispositivos alcanzan {name} por internet a través de un túnel desde este equipo. En una terminal aquí, ejecuta:",
+    "publicUrlDisclosure": "Usar otra dirección",
     "publicUrlHelper": "La dirección https en la que tus dispositivos pueden alcanzar este asistente (tu URL de Tailscale o la de otro túnel).",
     "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
     "publicUrlLabel": "URL pública",
@@ -1443,6 +1445,13 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosidad"
   },
+  "profileCheck": {
+    "profileError": "Guardado, pero una solicitud de prueba con este perfil falló: {detail} Revisa el modelo y los parámetros del perfil.",
+    "providerError": "Guardado, pero una solicitud de prueba con este perfil falló: {detail} Revisa la conexión de proveedor \"{connection}\".",
+    "providerErrorUnnamed": "Guardado, pero una solicitud de prueba con este perfil falló: {detail} Revisa la conexión de proveedor del perfil.",
+    "transient": "Guardado, pero una solicitud de prueba con este perfil no se pudo completar: {detail} Puede ser temporal.",
+    "unknown": "Guardado, pero una solicitud de prueba con este perfil falló: {detail}"
+  },
   "profileDetailPanel": {
     "createProfile": "Crear perfil",
     "defaultTitle": "Perfil",
@@ -1456,6 +1465,8 @@
     "saving": "Guardando…"
   },
   "profileEditor": {
+    "maxTokensNoInputRoom": "El máximo de tokens ({maxTokens}) reserva toda la ventana de contexto de {window} tokens para la salida, sin dejar espacio para tus mensajes. Redúcelo (p. ej., 8000).",
+    "maxTokensOverCap": "El máximo de tokens ({maxTokens}) supera la salida máxima del modelo de {cap} tokens. Redúcelo a {cap} o menos.",
     "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
   },
   "profileEditorFields": {
@@ -1518,6 +1529,9 @@
     "makeDefault": "Hacer predeterminado",
     "managedByVellum": "Gestionado por Vellum",
     "openProfileAriaLabel": "Abrir perfil {displayName}",
+    "configIssueModelUnknown": "El modelo de este perfil no está disponible en su proveedor.",
+    "configIssueNoInputRoom": "El máximo de tokens de salida de este perfil no deja espacio para la entrada en la ventana de contexto del modelo.",
+    "configIssueOverOutputCap": "El máximo de tokens de salida de este perfil supera lo que admite su modelo.",
     "providerUnavailableDefault": "El proveedor de este perfil no está disponible.",
     "providerUnavailableFixable": "{message} Haz clic para corregirlo.",
     "view": "Ver"
@@ -1960,6 +1974,19 @@
     "showAllDefaults": "Mostrar todos los valores predeterminados",
     "title": "Reglas de confianza"
   },
+  "tunnelStatusRow": {
+    "checkedAt": "Comprobado {when}",
+    "checkingStatus": "Comprobando si el túnel es accesible…",
+    "foreignStatus": "Esta dirección está sirviendo a otro asistente ahora mismo.",
+    "foreignStatusNamed": "Esta dirección está sirviendo a {name} ahora mismo, no a este asistente.",
+    "healthyStatus": "El túnel está en marcha y es accesible.",
+    "refreshLabel": "Comprobar el túnel de nuevo",
+    "restartHint": "Vuelve a iniciar el túnel de este asistente con <code>{command}</code> en una terminal de este equipo.",
+    "stoppedRestart": "Ejecuta <code>{command}</code> en una terminal de este equipo para volver a iniciarlo.",
+    "stoppedStatus": "El túnel está detenido, por lo que otros dispositivos no pueden alcanzar este asistente.",
+    "unpairableStatus": "Esta dirección responde, pero no está sirviendo la aplicación de vinculación. Inicia un túnel con la aplicación web habilitada para que los enlaces de vinculación se abran.",
+    "unreachableStatus": "Esta dirección no responde ahora mismo."
+  },
   "twoFactorSection": {
     "addAuthenticatorApp": "Añadir aplicación de autenticación",
     "addedOn": " · Añadido {date}",
@@ -2128,6 +2155,7 @@
     "microphoneFallbackLabel": "Micrófono {index}",
     "microphoneSubtitle": "Qué dispositivo de entrada se usa para dictado y conversaciones de voz.",
     "microphoneTitle": "Micrófono",
+    "offKeyLabel": "Desactivado",
     "pauseBeforeReplyAriaLabel": "Pausa antes de responder",
     "pauseBeforeReplyDescription": "Cuánto espera el asistente después de que dejas de hablar antes de responder. Una pausa más larga te permite reunir tus ideas a mitad de frase sin ser interrumpido.",
     "pauseBeforeReplyLabel": "Pausa antes de responder",

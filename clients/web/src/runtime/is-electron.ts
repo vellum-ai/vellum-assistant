@@ -32,6 +32,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
   ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
@@ -168,7 +169,7 @@ declare global {
           ): () => void;
           transcribe?(
             audio: ArrayBuffer,
-          ): Promise<{ ok: boolean; reason?: string }>;
+          ): Promise<DictationTranscribeResult>;
           onTranscribed?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
@@ -349,6 +350,8 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
+        toggleWatch?(): void;
+        answerWatchRetro?(open: boolean): void;
         activate?(): void;
         setComposing?(composing: boolean): void;
         submit?(message: string, startsConversation: boolean): void;

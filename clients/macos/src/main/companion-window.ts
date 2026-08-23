@@ -13,6 +13,7 @@ import {
   COMPANION_SIZES,
   COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
+  WATCH_FLAG,
   type CompanionCardGrowth,
   type CompanionGrowth,
   type CompanionContext,
@@ -24,6 +25,10 @@ import {
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 import { COMPANION_SIZE_LABELS } from "@vellumai/electron-desktop/companion-menu";
+import {
+  onSettingChange,
+  readSetting,
+} from "@vellumai/electron-desktop/settings";
 import {
   readCompanionHidden,
   readCompanionIntroSeen,
@@ -51,7 +56,36 @@ import {
   current as currentMainWindow,
   dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
+  onMainWindowVisibilityChange,
 } from "./main-window";
+
+/**
+/**
+ * The flag Watch is behind.
+ *
+ * Its own flag rather than a share of whatever gates the surface, because the
+ * surface is a place to talk to the assistant from and Watch is a session that
+ * reads the user's screen. They are ready to be offered to people at different
+ * moments, and folding one into the other would mean shipping the second the
+ * day the first goes out.
+ *
+ * Absent means off. A fresh install whose window has not synced yet and an
+ * environment where the flag was never provisioned both arrive here as
+ * nothing, and the thing on the other side of this answer is a control that
+ * starts reading the screen: an affordance offered on a guess is one a user
+ * can press before anyone has decided they should have it.
+ *
+ * Read here rather than in the window that draws the control. That window is a
+ * floating route with no auth and no flag store that ever settles, so main is
+ * the only side of the surface holding a real evaluation, and it travels down
+ * on the state push as {@link CompanionSurfaceState.watchEnabled}.
+ *
+ * The key itself comes from the contract package, because the web app's
+ * `toggleWatch` command reads the same evaluation to decide whether a press may
+ * start a session. See {@link WATCH_FLAG}.
+ */
+const isWatchEnabled = (): boolean =>
+  readSetting("featureFlags")?.[WATCH_FLAG] === true;
 
 /**
  * The companion surface (LUM-3086): the assistant's avatar floating from app
@@ -181,7 +215,6 @@ export const geometryFor = (size: CompanionSize): CompanionGeometry => {
 /** Gap from the work area's bottom-right on the first ever launch. */
 const DEFAULT_MARGIN = 24;
 
-
 let growth: CompanionGrowth = "right";
 
 /**
@@ -232,7 +265,8 @@ export const introOnAdvance = (
   if (current === null || action === "dismiss") {
     return null;
   }
-  const next = COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
+  const next =
+    COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
   return next ?? null;
 };
 
@@ -274,6 +308,8 @@ let context: CompanionContext = {
   assistantName: "",
   turns: [],
   working: false,
+  watching: false,
+  captureCount: 0,
 };
 
 /**
@@ -297,6 +333,22 @@ const currentState = (): CompanionSurfaceState => {
     assistantName: context.assistantName,
     turns: context.turns,
     working: context.working,
+    // `CompanionContext.watching` is optional, so a publisher that omits it is
+    // reporting no session of its own. Settled to a boolean here rather than
+    // passed through, so the surface reads one shape whatever arrived.
+    watching: context.watching === true,
+    // Passed through as it arrived, absence included: unlike `watching` this
+    // has no resting value to settle to, since every value it can hold is a
+    // claim that something is happening.
+    watchRetro: context.watchRetro,
+    // Settled the same way, and to zero rather than to anything carried over:
+    // a publisher that reports no count has taken no reads this surface can
+    // vouch for.
+    captureCount: context.captureCount ?? 0,
+    // Read on every rebuild rather than captured once, because the evaluation
+    // lands after launch: the app's window has to sign in and fetch it first,
+    // and a targeting change can move it again while the app runs.
+    watchEnabled: isWatchEnabled(),
   };
 };
 
@@ -636,6 +688,47 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * Watch, delivered to the same renderer Talk's press goes to.
+   *
+   * One command for both edges rather than a start and a stop. The surface
+   * draws a single toggle and holds no session, so the window that owns the
+   * session is the only side that can tell which edge a press is; main forwards
+   * the press and lets it answer.
+   *
+   * This does not raise the app, for a sharper version of Talk's reason. The
+   * user reached for a floating surface because they are working somewhere
+   * else, and here that work is the subject of the session: bringing Vellum
+   * forward would cover the very thing the session exists to watch.
+   */
+  on("vellum:companion:toggleWatch", z.tuple([]), () => {
+    dispatchWithoutRaising({ kind: "toggleWatch" });
+  });
+
+  /**
+   * The answer to the summary question, delivered to the window that asked it.
+   *
+   * The one companion press that may raise the app, and only on a yes. Watch's
+   * press is kept behind the user's work because that work is the session's
+   * subject; by the time this is pressed the session is over, and the report is
+   * a thing to read rather than a thing to avoid covering. A dismissal still
+   * travels and still leaves the window where it is: the question lives in the
+   * renderer that ran the retrospective, and the answer has to reach it either
+   * way or it will ask again on its next push.
+   */
+  on("vellum:companion:answerWatchRetro", z.tuple([z.boolean()]), ([open]) => {
+    if (!open) {
+      dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
+      return;
+    }
+    // The same shape `activate` takes, because it is the same request: bring
+    // the app forward first, then tell it where to go. Dispatching before the
+    // window is visible would navigate a page the user is not looking at.
+    void ensureMainWindowVisible().then(() => {
+      dispatchToMain({ kind: "answerWatchRetro", open: true });
+    });
+  });
+
+  /**
    * Type, sent: the message goes to the same renderer Talk's press goes to, and
    * lands in the conversation that renderer has open.
    *
@@ -656,11 +749,17 @@ export const installCompanionWindow = (): void => {
   );
 
   /**
-   * The assistant and the conversation's tail, from the window holding them.
+   * The assistant and the conversation's tail, from the window holding them,
+   * and with them whether a watch session is running.
    *
    * Published rather than fetched, because main has no conversation of its own
    * and no transport to fetch one with. The turns arrive already condensed to a
    * side and some text: see `companionContextSchema`.
+   *
+   * One channel for the whole snapshot rather than one per fact. They describe
+   * the same assistant at the same moment, and a surface drawing a stale
+   * `watching` beside a fresh tail is exactly the skew independently-pushed
+   * facts would produce.
    */
   on(
     "vellum:companion:setContext",
@@ -894,6 +993,35 @@ export const installCompanionWindow = (): void => {
     },
   );
 
+  /**
+   * The window that publishes `watching` is gone, so stop claiming a screen is
+   * being read.
+   *
+   * The session lives in the app's window: the socket and the microphone go
+   * down with the renderer when it is destroyed, which is exactly why nothing
+   * is left to report it. The renderer's own teardown cannot cover this, since
+   * a destroyed document does not reliably run React cleanup, and this surface
+   * outlives that window by design. Left alone the last context stands and the
+   * pill goes on drawing a capture indicator over a machine nothing is
+   * capturing, until some later window happens to publish over it.
+   *
+   * Fired on show, hide, and destroy alike, so the destroyed case is the one
+   * where `currentMainWindow()` has already been cleared. Hiding the window
+   * leaves the renderer alive and its session running, and must not clear
+   * anything.
+   *
+   * Only the watch flag. The name and the tail are a record of what was said
+   * and this surface is still where it is read, the same bargain `working` is
+   * given by `clearCompanionWorking`.
+   */
+  onMainWindowVisibilityChange(() => {
+    if (currentMainWindow() !== null || context.watching !== true) {
+      return;
+    }
+    context = { ...context, watching: false };
+    pushState();
+  });
+
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too. Repaint only: whether there is a surface to repaint is a question
   // about the assistant, not about its picture.
@@ -903,6 +1031,16 @@ export const installCompanionWindow = (): void => {
   // surface belongs on screen at all. The name is published after sign-in and
   // blanked on sign-out, so this is both edges.
   onNameChange(syncCompanionSurface);
+
+  // Watch's flag arrives after launch, not before it: main reads it from
+  // settings and the app's window is what puts it there, once it has signed in
+  // and fetched an evaluation. A surface that is already open has to hear that
+  // Watch became available, or stopped being, without waiting for something
+  // else to move the state. It pushes rather than syncing, because whether the
+  // surface is on screen is no longer this flag's business.
+  onSettingChange("featureFlags", () => {
+    pushState();
+  });
 
   // The route loads lazily after the window is created, so a state pushed
   // before its subscription registers is dropped. It pulls this once mounted.
@@ -1008,7 +1146,8 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
 };
 
 /** Which size the surface is currently drawn at, for the tray's radio items. */
-export const readCompanionSurfaceSize = (): CompanionSize => readCompanionSize();
+export const readCompanionSurfaceSize = (): CompanionSize =>
+  readCompanionSize();
 
 /**
  * Draw the surface at a different size, keeping the avatar where it is.

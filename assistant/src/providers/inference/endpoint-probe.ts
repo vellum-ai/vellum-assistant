@@ -15,8 +15,11 @@ import { resolveAuth } from "./resolve-auth.js";
 
 const log = getLogger("inference-endpoint-probe");
 
-/** Matches the API-key validation timeout so a dead host can't hang the save. */
-const PROBE_TIMEOUT_MS = 10_000;
+/**
+ * Bound on every save-path probe (this endpoint probe and the profile probe)
+ * so a dead host can't hang a save. Matches the API-key validation timeout.
+ */
+export const PROBE_TIMEOUT_MS = 10_000;
 
 export const EndpointCheckSchema = z
   .object({

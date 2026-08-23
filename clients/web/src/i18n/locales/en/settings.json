@@ -1204,10 +1204,12 @@
     "generateButton": "Generate pairing QR",
     "generateButtonMinting": "Generating…",
     "generateButtonRegenerate": "Generate new code",
+    "generateButtonWarned": "Generate anyway",
     "noTunnelMore": "Other providers and options: <code>{command}</code>",
     "noTunnelNext": "The tunnel prints an https address. Paste it into Public URL below, and leave the tunnel running while you pair and use other devices.",
     "noTunnelTitle": "Open a tunnel first",
     "noTunnelWhy": "Other devices reach {name} over the internet through a tunnel from this computer. In a terminal here, run:",
+    "publicUrlDisclosure": "Use a different address",
     "publicUrlHelper": "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's).",
     "publicUrlHelperTunnel": "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL.",
     "publicUrlLabel": "Public URL",
@@ -1443,6 +1445,13 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosity"
   },
+  "profileCheck": {
+    "profileError": "Saved, but a test request through this profile failed: {detail} Check the profile's model and parameters.",
+    "providerError": "Saved, but a test request through this profile failed: {detail} Check the provider connection \"{connection}\".",
+    "providerErrorUnnamed": "Saved, but a test request through this profile failed: {detail} Check the profile's provider connection.",
+    "transient": "Saved, but a test request through this profile could not complete: {detail} This may be temporary.",
+    "unknown": "Saved, but a test request through this profile failed: {detail}"
+  },
   "profileDetailPanel": {
     "createProfile": "Create Profile",
     "defaultTitle": "Profile",
@@ -1456,6 +1465,8 @@
     "saving": "Saving…"
   },
   "profileEditor": {
+    "maxTokensNoInputRoom": "Max tokens ({maxTokens}) reserves the entire {window}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).",
+    "maxTokensOverCap": "Max tokens ({maxTokens}) exceeds the model's maximum output of {cap} tokens. Reduce it to {cap} or less.",
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
   },
   "profileEditorFields": {
@@ -1518,6 +1529,9 @@
     "makeDefault": "Make Default",
     "managedByVellum": "Managed by Vellum",
     "openProfileAriaLabel": "Open profile {displayName}",
+    "configIssueModelUnknown": "This profile's model is not available from its provider.",
+    "configIssueNoInputRoom": "This profile's max output tokens leave no room for input in the model's context window.",
+    "configIssueOverOutputCap": "This profile's max output tokens exceed what its model supports.",
     "providerUnavailableDefault": "This profile's provider is not available.",
     "providerUnavailableFixable": "{message} Click to fix.",
     "view": "View"
@@ -1960,6 +1974,19 @@
     "showAllDefaults": "Show all defaults",
     "title": "Trust Rules"
   },
+  "tunnelStatusRow": {
+    "checkedAt": "Checked {when}",
+    "checkingStatus": "Checking whether the tunnel is reachable…",
+    "foreignStatus": "This address is serving a different assistant right now.",
+    "foreignStatusNamed": "This address is serving {name} right now, not this assistant.",
+    "healthyStatus": "The tunnel is running and reachable.",
+    "refreshLabel": "Check the tunnel again",
+    "restartHint": "Start this assistant's tunnel again with <code>{command}</code> in a terminal on this computer.",
+    "stoppedRestart": "Run <code>{command}</code> in a terminal on this computer to start it again.",
+    "stoppedStatus": "The tunnel is stopped, so other devices cannot reach this assistant.",
+    "unpairableStatus": "This address answers, but it is not serving the pairing app. Start a tunnel with the web app enabled so pairing links open.",
+    "unreachableStatus": "This address is not answering right now."
+  },
   "twoFactorSection": {
     "addAuthenticatorApp": "Add authenticator app",
     "addedOn": " · Added {date}",
@@ -2128,6 +2155,7 @@
     "microphoneFallbackLabel": "Microphone {index}",
     "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
     "microphoneTitle": "Microphone",
+    "offKeyLabel": "Off",
     "pauseBeforeReplyAriaLabel": "Pause before reply",
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",

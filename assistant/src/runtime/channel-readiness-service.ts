@@ -9,6 +9,7 @@ import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
+  ChannelHealth,
   ChannelId,
   ChannelProbe,
   ChannelProbeContext,
@@ -247,12 +248,19 @@ const telegramProbe: ChannelProbe = {
       health.status === "unknown" ||
       health.status === "unverified";
     const result = check(
+      // Published identifier. Installed skill copies and external clients
+      // search readiness responses for this name, and they do not upgrade in
+      // lockstep with the daemon, so renaming it silently breaks their
+      // delivery gate while Telegram is healthy.
       "webhook_delivery",
       health.status === "healthy" || indeterminate,
       "Telegram is delivering to this assistant",
       health.detail,
     );
-    return [indeterminate ? { ...result, indeterminate: true } : result];
+    const operational = { ...result, kind: "operational" as const };
+    return [
+      indeterminate ? { ...operational, indeterminate: true } : operational,
+    ];
   },
 };
 
@@ -354,6 +362,84 @@ const whatsappProbe: ChannelProbe = {
 
 // ── Slack Probe ─────────────────────────────────────────────────────────────
 
+/**
+ * Ask the gateway whether Slack's Socket Mode connection is receiving.
+ *
+ * Distinct from the credential checks: valid tokens and a reachable
+ * `auth.test` establish that Slack would accept us, not that anything is
+ * arriving. A socket can be open at the transport layer and deliver nothing.
+ *
+ * Three outcomes, matching the Telegram probe:
+ *
+ *   - `connected` is the only verified pass.
+ *   - `disconnected` is a failure with a concrete cause.
+ *   - `not_configured`, `unsupported` and an unreachable gateway are
+ *     indeterminate. None is evidence of a fault, so none may show the channel
+ *     as broken; none is evidence of delivery either, so none may make it
+ *     ready.
+ *
+ * `lastLivenessAt` is reported and never gated on: a connection's first
+ * keepalive is a full interval after it opens, so requiring one would call
+ * every healthy reconnect broken.
+ *
+ * Declared `operational`, so it decides the channel's health rather than its
+ * setup progress: a dead socket means a configured channel is down, not a
+ * half-configured one.
+ *
+ * It runs among the local checks purely for freshness. It costs one IPC round
+ * trip to the gateway beside us rather than a call to Slack, and the remote
+ * bucket is cached for {@link REMOTE_TTL_MS}, far longer than a socket takes
+ * to die and recover. Placement is a cost decision here; `kind` carries the
+ * meaning.
+ */
+async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
+  // Imported here rather than at module scope, matching the Telegram probe:
+  // the gateway IPC client pulls in a module graph that unrelated consumers of
+  // this service should not have to mock.
+  const { readChannelSocketHealth } =
+    await import("../channels/gateway-channel-socket-health.js");
+
+  let health;
+  try {
+    health = await readChannelSocketHealth("slack");
+  } catch {
+    return {
+      name: "inbound_delivery",
+      kind: "operational",
+      passed: true,
+      message: "Could not reach the gateway to read the Slack connection state",
+      indeterminate: true,
+    };
+  }
+
+  if (health.status === "not_configured" || health.status === "unsupported") {
+    return {
+      name: "inbound_delivery",
+      kind: "operational",
+      passed: true,
+      message:
+        health.status === "not_configured"
+          ? "Slack Socket Mode is not running, because its credentials are not configured"
+          : "Slack does not report a gateway-owned socket",
+      indeterminate: true,
+    };
+  }
+
+  const lastProof =
+    health.lastLivenessAt === undefined
+      ? "no keepalive answered yet on this connection"
+      : `last keepalive ${new Date(health.lastLivenessAt).toISOString()}`;
+  return {
+    ...check(
+      "inbound_delivery",
+      health.status === "connected",
+      `Slack is delivering to this assistant (${lastProof})`,
+      "Slack Socket Mode holds no live connection, so inbound messages are not reaching this assistant",
+    ),
+    kind: "operational",
+  };
+}
+
 const slackProbe: ChannelProbe = {
   channel: "slack",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
@@ -370,6 +456,7 @@ const slackProbe: ChannelProbe = {
         "app_token",
         "Slack app token",
       ),
+      await checkSlackInboundDelivery(),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
@@ -519,14 +606,7 @@ export class ChannelReadinessService {
       // itself live on the strength of a check that never ran.
       const verified = (c: ReadinessCheckResult): boolean =>
         c.passed && !c.indeterminate;
-      const allLocalPassed = localChecks.every(verified);
-      const allRemotePassed =
-        remoteChecks && remoteChecksAffectReadiness
-          ? remoteChecks.every(verified)
-          : true;
-      const ready = allLocalPassed && allRemotePassed;
 
-      // setupStatus: considers all checks (credentials + infrastructure)
       const consideredChecks = [
         ...localChecks,
         ...(remoteChecks && remoteChecksAffectReadiness ? remoteChecks : []),
@@ -537,12 +617,37 @@ export class ChannelReadinessService {
       // progress reports an untouched workspace as `incomplete`, which is what
       // sends the Channels UI down the "finish setup" path instead of the
       // normal setup flow.
-      const anyCheckPassed = consideredChecks.some(verified);
-      const setupStatus: SetupStatus = !anyCheckPassed
+      // Two axes, not one ladder. Setup progress derives from configuration
+      // checks and health from operational ones, because "is this configured"
+      // and "is it working" have different answers and different remedies. A
+      // fully configured channel whose delivery is failing is not half set
+      // up, and reporting it as incomplete sends its owner to fix the one
+      // thing that is not broken.
+      const configurationChecks = consideredChecks.filter(
+        (c) => (c.kind ?? "configuration") === "configuration",
+      );
+      const operationalChecks = consideredChecks.filter(
+        (c) => c.kind === "operational",
+      );
+
+      const setupStatus: SetupStatus = !configurationChecks.some(verified)
         ? "not_configured"
-        : ready
+        : configurationChecks.every(verified)
           ? "ready"
           : "incomplete";
+
+      // Absent, not "unknown", when the channel asks no operational question.
+      // Nothing was measured, so nothing is claimed, and readiness rests on
+      // configuration alone. Collapsing that into `unknown` would report every
+      // channel without a delivery check as unverifiable.
+      const health: ChannelHealth | undefined =
+        operationalChecks.length === 0
+          ? undefined
+          : operationalChecks.some((c) => !c.passed)
+            ? "failing"
+            : operationalChecks.every(verified)
+              ? "ok"
+              : "unknown";
 
       const reasons: Array<{ code: string; text: string }> = [];
       for (const check of localChecks) {
@@ -560,8 +665,12 @@ export class ChannelReadinessService {
 
       const snapshot: ChannelReadinessSnapshot = {
         channel: ch,
-        ready,
+        ready:
+          setupStatus === "ready" &&
+          health !== "failing" &&
+          health !== "unknown",
         setupStatus,
+        health,
         checkedAt:
           remoteChecks && cached && !remoteChecksFreshlyFetched
             ? cached.checkedAt

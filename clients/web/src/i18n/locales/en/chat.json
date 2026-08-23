@@ -17,19 +17,17 @@
     "showRaw": "Show raw input/output"
   },
   "acpConnectAffordance": {
-    "completingSignIn": "Completing sign-in...",
-    "connect": "Connect",
-    "connectFailed": "Connecting Claude failed. Please try again.",
-    "connectedContinuing": "Claude Code connected. Continuing...",
-    "dismiss": "Dismiss",
-    "pasteKeyHint": "A browser tab opened. Paste the key it gives you to finish.",
-    "pasteKeyPlaceholder": "Paste your key",
-    "save": "Save",
-    "signInNoKey": "Sign in. No API key needed",
-    "signInWithAccount": "Sign in with your Claude account to run this agent. No API key required.",
-    "startingSignIn": "Starting sign-in...",
-    "title": "Connect Claude Code",
-    "waitingSignIn": "Waiting for Claude sign-in..."
+    "connectButton": "Connect",
+    "errorFallback": "Connecting Claude failed. Please try again.",
+    "pastePlaceholder": "Paste your key",
+    "saveButton": "Save",
+    "subtitleConnected": "Claude Code connected, continuing...",
+    "subtitleExchanging": "Completing sign-in...",
+    "subtitleIdle": "Use your Claude Code subscription",
+    "subtitlePaste": "Paste the key from the tab that opened",
+    "subtitleStarting": "Starting sign-in...",
+    "subtitleWaiting": "Waiting for Claude sign-in...",
+    "title": "Connect Claude Code"
   },
   "acpRunChatView": {
     "backToConversationAria": "Back to conversation",
@@ -1478,6 +1476,9 @@
     "openVoiceRoom": "Open voice room",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
+  },
+  "voiceErrors": {
+    "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
   "voiceFirstRunCard": {
     "backAria": "Back",

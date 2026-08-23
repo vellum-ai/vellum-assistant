@@ -142,13 +142,23 @@ describe("SystemPermissionsCard", () => {
 
     expect(screen.queryByRole("switch", { name: "Accessibility" })).toBeNull();
     expect(
-      screen.queryByRole("switch", { name: "Screen Recording" }),
-    ).toBeNull();
+      screen.getByRole("switch", { name: "Screen Recording" }),
+    ).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Microphone" })).toBeTruthy();
     expect(
       screen.getByText(/show Windows notifications for approvals/),
     ).toBeTruthy();
     expect(screen.queryByText(/macOS alerts/)).toBeNull();
+  });
+
+  test("hides permissions reported as not applicable", () => {
+    state = makeState({ screen: "not-applicable" });
+
+    render(<SystemPermissionsCard />);
+
+    expect(
+      screen.queryByRole("switch", { name: "Screen Recording" }),
+    ).toBeNull();
   });
 
   test("updates the Dock badge setting without requesting a macOS permission", async () => {
