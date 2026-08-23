@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
 import { publicAsset } from "@/utils/public-asset";
 
 /**
@@ -12,18 +13,19 @@ import { publicAsset } from "@/utils/public-asset";
  * illustrations flush at the bottom of the screen.
  */
 export function NativeSplash({ children }: { children?: ReactNode }) {
+  const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--surface-base)] text-[var(--content-default)]">
       <img
         src={publicAsset("/vellum-logo.svg")}
-        alt="Vellum"
+        alt={t("nativeSplash.logoAlt")}
         width={220}
         height={66}
         className="block dark:hidden"
       />
       <img
         src={publicAsset("/vellum-logo-white.svg")}
-        alt="Vellum"
+        alt={t("nativeSplash.logoAlt")}
         width={220}
         height={66}
         className="hidden dark:block"
