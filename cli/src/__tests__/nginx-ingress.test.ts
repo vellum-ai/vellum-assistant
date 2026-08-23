@@ -748,7 +748,7 @@ function spaConfigHash(
   return createHash("sha256")
     .update(
       JSON.stringify({
-        template: 4,
+        template: 5,
         config: {
           mode: "remote-gateway",
           apiBaseUrl: "/v1",
