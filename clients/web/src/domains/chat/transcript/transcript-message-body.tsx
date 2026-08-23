@@ -71,6 +71,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -160,6 +161,8 @@ export function TranscriptMessageBody({
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
   const { t } = useTranslation("chat");
+  const inlineAssistantIntermediates =
+    useClientFeatureFlagStore.use.inlineAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -1141,7 +1144,13 @@ export function TranscriptMessageBody({
   const finalResponseGroupIndex = groups.findLastIndex(
     (group) => group.type === "text" && group.text.trim().length > 0,
   );
+  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
+  // no group is collapsible, so the whole response renders inline at full
+  // size and none of the collapsed styling applies.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
+    if (inlineAssistantIntermediates) {
+      return [];
+    }
     if (groupIndex >= finalResponseGroupIndex) {
       return [];
     }
