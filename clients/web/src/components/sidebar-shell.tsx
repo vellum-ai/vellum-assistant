@@ -7,6 +7,7 @@ import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { navigateWithPageTransition } from "@/lib/page-transition";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
@@ -35,6 +36,7 @@ export function SidebarShell({
   title = "Settings",
   menuRoute = routes.settings.root,
 }: SidebarShellProps) {
+  const { t } = useTranslation();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMenuRoute = pathname === menuRoute;
@@ -77,8 +79,8 @@ export function SidebarShell({
   const electron = isElectron();
 
   const mobileBackLabel = isMenuRoute
-    ? `Back from ${title}`
-    : `Back to ${title} menu`;
+    ? t("sidebarShell.backFrom", { title })
+    : t("sidebarShell.backToMenu", { title });
 
   const mobileBackButton = (
     <Button
@@ -96,7 +98,7 @@ export function SidebarShell({
     <Button
       asChild
       variant="outlined"
-      aria-label={`Back from ${title}`}
+      aria-label={t("sidebarShell.backFrom", { title })}
       className="h-8 w-8 px-0"
       tintColor="var(--content-secondary)"
     >
@@ -161,7 +163,7 @@ export function SidebarShell({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <aside
             className="hidden w-64 shrink-0 overflow-y-auto md:block"
-            aria-label={`${title} navigation`}
+            aria-label={t("sidebarShell.navigationAria", { title })}
           >
             {sidebar}
           </aside>

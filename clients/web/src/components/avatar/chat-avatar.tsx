@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { useTranslation } from "@/i18n";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { AnimatedAvatar } from "./animated-avatar";
 
@@ -55,6 +56,7 @@ function ChatAvatarComponent({
   isAssistantBusy = false,
   originAnchor = false,
 }: ChatAvatarProps) {
+  const { t } = useTranslation();
   const reduce = useReducedMotion();
   const [isPoking, setIsPoking] = useState(false);
   // Spread onto whichever root renders, so the room can locate this avatar.
@@ -150,7 +152,7 @@ function ChatAvatarComponent({
       >
         <img
           src={customImageUrl}
-          alt="Assistant avatar"
+          alt={t("chatAvatar.alt")}
           width={size}
           height={size}
           className={`rounded-full object-cover ${className ?? ""}`}
@@ -170,7 +172,7 @@ function ChatAvatarComponent({
       animate={animate}
       transition={transition}
     >
-      V
+      {t("chatAvatar.fallbackLetter")}
     </motion.div>
   );
 }

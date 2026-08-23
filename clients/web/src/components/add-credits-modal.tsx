@@ -151,9 +151,9 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Add Credits</Modal.Title>
+          <Modal.Title>{t("addCreditsModal.title")}</Modal.Title>
           <Modal.Description>
-            You&apos;ll be redirected to Stripe to complete the payment.
+            {t("addCreditsModal.description")}
           </Modal.Description>
         </Modal.Header>
 
@@ -164,7 +164,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
                 htmlFor="add-credits-amount"
                 className="block text-body-small-default text-[var(--content-tertiary)]"
               >
-                Amount
+                {t("addCreditsModal.amount")}
               </label>
               <Select
                 id="add-credits-amount"
@@ -205,7 +205,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
 
         <Modal.Footer>
           <Modal.Close asChild>
-            <Button variant="outlined">Cancel</Button>
+            <Button variant="outlined">{t("addCreditsModal.cancel")}</Button>
           </Modal.Close>
           <Button
             variant="primary"
@@ -217,7 +217,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
             onClick={handleAddFunds}
             disabled={checkoutMutation.isPending || isLoading || !summary}
           >
-            Continue
+            {t("addCreditsModal.continue")}
           </Button>
         </Modal.Footer>
       </Modal.Content>
@@ -226,6 +226,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
 }
 
 export function AddCreditsModal(props: AddCreditsModalProps) {
+  const { t } = useTranslation();
   const isNativeAndroid = useIsNativeAndroid();
 
   if (!isNativeAndroid) {
@@ -236,12 +237,12 @@ export function AddCreditsModal(props: AddCreditsModalProps) {
     <Modal.Root open={props.open} onOpenChange={props.onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Billing</Modal.Title>
+          <Modal.Title>{t("addCreditsModal.billingTitle")}</Modal.Title>
           <Modal.Description>{ANDROID_BILLING_MESSAGE}</Modal.Description>
         </Modal.Header>
         <Modal.Footer>
           <Modal.Close asChild>
-            <Button variant="outlined">Close</Button>
+            <Button variant="outlined">{t("addCreditsModal.close")}</Button>
           </Modal.Close>
         </Modal.Footer>
       </Modal.Content>

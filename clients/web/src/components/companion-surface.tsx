@@ -34,6 +34,7 @@ import { MarkdownMessage } from "@vellumai/design-library";
 import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 /**
@@ -1074,6 +1075,7 @@ function Composer({
   onCancel?: () => void;
   onWatch?: () => void;
 }) {
+  const { t } = useTranslation();
   // The draft is the composer's own and never leaves except as a submitted
   // message. Holding it in the page instead would re-render the whole surface,
   // and the creature animating inside it, on every keystroke.
@@ -1110,7 +1112,9 @@ function Composer({
         ref={inputRef}
         type="text"
         value={draft}
-        placeholder={`Message ${assistantName}`}
+        placeholder={t("companionSurface.messagePlaceholder", {
+          name: assistantName,
+        })}
         onChange={(event) => {
           setDraft(event.target.value);
         }}
@@ -1144,8 +1148,16 @@ function Composer({
           wants least. */}
       <button
         type="button"
-        aria-label={message === "" ? "Go back" : "Send"}
-        title={message === "" ? "Go back" : "Send"}
+        aria-label={
+          message === ""
+            ? t("companionSurface.goBack")
+            : t("companionSurface.send")
+        }
+        title={
+          message === ""
+            ? t("companionSurface.goBack")
+            : t("companionSurface.send")
+        }
         onClick={message === "" ? onCancel : send}
         onMouseDown={(event) => {
           event.stopPropagation();
@@ -1275,18 +1287,19 @@ function IdleBody({
   onType?: () => void;
   onWatch?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <PillButton
         icon={<AudioLines className="size-4" />}
-        label="Talk"
+        label={t("companionSurface.talk")}
         showLabel
         active={spotlight === "talk"}
         onClick={onTalk}
       />
       <PillButton
         icon={<Keyboard className="size-4" />}
-        label="Type"
+        label={t("companionSurface.type")}
         showLabel
         active={spotlight === "type"}
         onClick={onType}
@@ -1311,7 +1324,7 @@ function IdleBody({
       {watchEnabled ? (
         <PillButton
           icon={<Eye className="size-4" />}
-          label="Teach"
+          label={t("companionSurface.teach")}
           showLabel
           pressed={watching}
           onClick={onWatch}
@@ -1352,10 +1365,11 @@ function SummaryBody({
   retro: CompanionWatchRetro;
   onWatchRetro?: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   if (retro === "pending") {
     return (
       <span className="ml-1 shrink-0 text-[12px] text-white/85">
-        Summarizing
+        {t("companionSurface.summarizing")}
       </span>
     );
   }
@@ -1363,7 +1377,7 @@ function SummaryBody({
     <>
       <PillButton
         icon={<ScrollText className="size-4" />}
-        label="Show summary"
+        label={t("companionSurface.showSummary")}
         showLabel
         onClick={() => {
           onWatchRetro?.(true);
@@ -1371,7 +1385,7 @@ function SummaryBody({
       />
       <PillButton
         icon={<X className="size-4" />}
-        label="Not now"
+        label={t("companionSurface.notNow")}
         showLabel
         onClick={() => {
           onWatchRetro?.(false);
@@ -1414,6 +1428,7 @@ function CallBody({
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
 }) {
+  const { t } = useTranslation();
   // The confirmation takes the row rather than crowding into it. The turn is
   // stopped until it is answered, so it is the only thing here worth pressing,
   // and a pill that tried to carry five controls would make each of them a
@@ -1460,7 +1475,11 @@ function CallBody({
         icon={
           muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
         }
-        label={muted ? "Unmute microphone" : "Mute microphone"}
+        label={
+          muted
+            ? t("companionSurface.unmuteMicrophone")
+            : t("companionSurface.muteMicrophone")
+        }
         onClick={() => {
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
@@ -1473,7 +1492,11 @@ function CallBody({
             <Volume2 className="size-4" />
           )
         }
-        label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+        label={
+          outputMuted
+            ? t("companionSurface.unmuteAssistant")
+            : t("companionSurface.muteAssistant")
+        }
         onClick={() => {
           onControl?.(
             outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
@@ -1486,7 +1509,7 @@ function CallBody({
           user meets it. */}
       <PillButton
         icon={<X className="size-4" strokeWidth={2.5} />}
-        label="End session"
+        label={t("companionSurface.endSession")}
         tone="negative"
         onClick={() => {
           onControl?.("endSession");
@@ -1514,6 +1537,7 @@ function ApprovalBody({
   requestId: string;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       {detail !== "" && (
@@ -1523,7 +1547,7 @@ function ApprovalBody({
       )}
       <PillButton
         icon={<Check className="size-4" />}
-        label="Allow"
+        label={t("companionSurface.allow")}
         showLabel
         tone="positive"
         onClick={() => {
@@ -1532,7 +1556,7 @@ function ApprovalBody({
       />
       <PillButton
         icon={<X className="size-4" />}
-        label="Deny"
+        label={t("companionSurface.deny")}
         showLabel
         tone="negative"
         onClick={() => {
@@ -1558,10 +1582,11 @@ function ApprovalBody({
  * the watching is only there when something is being watched.
  */
 function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
+  const { t } = useTranslation();
   return (
     <PillButton
       icon={<EyeOff className="size-4" />}
-      label="Stop teaching"
+      label={t("companionSurface.stopTeaching")}
       onClick={onWatch}
     />
   );

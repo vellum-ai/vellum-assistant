@@ -12,6 +12,7 @@
  */
 
 import { VercelTokenDialog } from "@/components/vercel-token-dialog";
+import { useTranslation } from "@/i18n";
 import { useDeployStore } from "@/stores/deploy-store";
 import { ConfirmDialog } from "@vellumai/design-library";
 
@@ -26,8 +27,10 @@ export function DeployDialogs({
   assistantName,
   onStartConversation,
 }: DeployDialogsProps) {
+  const { t } = useTranslation();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
+  const appName = complexDeployApp?.name ?? "";
 
   return (
     <>
@@ -45,9 +48,20 @@ export function DeployDialogs({
       />
       <ConfirmDialog
         open={complexDeployApp !== null}
-        title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantName ?? "your assistant"} handle it`}
+        title={t("deployDialogs.title")}
+        message={
+          assistantName
+            ? t("deployDialogs.messageNamed", {
+                appName,
+                assistantName,
+              })
+            : t("deployDialogs.message", { appName })
+        }
+        confirmLabel={
+          assistantName
+            ? t("deployDialogs.confirmLabelNamed", { assistantName })
+            : t("deployDialogs.confirmLabel")
+        }
         onConfirm={() => {
           const appName =
             useDeployStore.getState().complexDeployApp?.name ?? "this app";

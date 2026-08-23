@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library";
 
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useSwipeHorizontal } from "@/hooks/use-swipe-horizontal";
+import { useTranslation } from "@/i18n";
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -40,6 +41,7 @@ export function SideListDrawer({
   children,
   title,
 }: SideListDrawerProps) {
+  const { t } = useTranslation();
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -120,7 +122,7 @@ export function SideListDrawer({
     >
       <button
         type="button"
-        aria-label="Close sidebar"
+        aria-label={t("sideListDrawer.closeSidebarAria")}
         className="absolute inset-0 h-full w-full cursor-default"
         style={{ background: "rgba(0, 0, 0, 0.4)", zIndex: 40 }}
         onClick={onClose}
@@ -167,7 +169,7 @@ export function SideListDrawer({
             size="compact"
             iconOnly={<X aria-hidden />}
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("sideListDrawer.closeAria")}
             tintColor="var(--content-tertiary)"
           />
         </div>
@@ -183,13 +185,15 @@ export function SideListDrawer({
  * does not.
  */
 export function SideListTrigger({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
+
   return (
     <Button
       type="button"
       variant="ghost"
       iconOnly={<Menu aria-hidden />}
       onClick={onClick}
-      aria-label="Open sidebar"
+      aria-label={t("sideListDrawer.openSidebarAria")}
       tintColor="var(--content-secondary)"
     />
   );

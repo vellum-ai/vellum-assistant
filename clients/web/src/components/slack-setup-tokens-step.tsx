@@ -1,5 +1,6 @@
 import { Button, Input, Notice, Typography } from "@vellumai/design-library";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
+import { Trans, useTranslation } from "@/i18n";
 import {
   APP_TOKEN_PREFIX,
   BOT_TOKEN_PREFIX,
@@ -31,15 +32,16 @@ export function SlackSetupTokensStep({
   onAppTokenChange,
   onSave,
 }: SlackSetupTokensStepProps) {
+  const { t } = useTranslation();
   const botTokenError = validateSlackToken(
     botToken,
     BOT_TOKEN_PREFIX,
-    "Bot token",
+    t("slackSetupTokensStep.botTokenLabel"),
   );
   const appTokenError = validateSlackToken(
     appToken,
     APP_TOKEN_PREFIX,
-    "App token",
+    t("slackSetupTokensStep.appTokenLabel"),
   );
 
   const canSave =
@@ -56,18 +58,21 @@ export function SlackSetupTokensStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        On Slack&apos;s confirmation screen, expand{" "}
-        <strong>Your app credentials</strong> and copy both tokens.
+        <Trans
+          i18nKey="slackSetupTokensStep.instructions"
+          components={{ credentials: <strong /> }}
+        />
       </Typography>
 
       <Notice tone="warning">
-        That screen also offers a command-line walkthrough and a{" "}
-        <strong>Download app files</strong> button. Skip both. They set up a
-        separate local app, and this assistant needs only the two tokens.
+        <Trans
+          i18nKey="slackSetupTokensStep.skipNotice"
+          components={{ download: <strong /> }}
+        />
       </Notice>
 
       <Input
-        label="Bot Token"
+        label={t("slackSetupTokensStep.botTokenLabel")}
         type="password"
         value={botToken}
         onChange={(e) => onBotTokenChange(e.target.value)}
@@ -78,7 +83,7 @@ export function SlackSetupTokensStep({
       />
 
       <Input
-        label="App Token"
+        label={t("slackSetupTokensStep.appTokenLabel")}
         type="password"
         value={appToken}
         onChange={(e) => onAppTokenChange(e.target.value)}
@@ -95,7 +100,9 @@ export function SlackSetupTokensStep({
         onClick={onSave}
         disabled={!canSave}
       >
-        {saveStatus === "pending" ? "Connecting…" : "Connect Slack"}
+        {saveStatus === "pending"
+          ? t("slackSetupTokensStep.connecting")
+          : t("slackSetupTokensStep.connectSlack")}
       </Button>
 
       {saveStatus === "success" && (
@@ -104,7 +111,7 @@ export function SlackSetupTokensStep({
           variant="body-small-default"
           className="text-[color:var(--content-positive)]"
         >
-          Credentials saved.
+          {t("slackSetupTokensStep.credentialsSaved")}
         </Typography>
       )}
       {saveStatus === "error" && saveError && (

@@ -52,6 +52,7 @@ import {
   assistantsValidForOrg,
   useResolvedAssistantsStore,
 } from "@/stores/resolved-assistants-store";
+import { t } from "@/i18n";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 
@@ -298,7 +299,7 @@ function failedOperationActions(
       ) : null}
       {onDismiss ? (
         <Button variant="ghost" size="compact" onClick={onDismiss}>
-          Dismiss
+          {t("statusBanner.dismiss")}
         </Button>
       ) : null}
     </>
@@ -463,7 +464,9 @@ function localHealthBannerConfig(
 function doctorAction(): ReactNode {
   return (
     <Button asChild variant="outlined" size="compact">
-      <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
+      <Link to={`${routes.settings.debug}?tab=doctor`}>
+        {t("statusBanner.goToDoctor")}
+      </Link>
     </Button>
   );
 }
@@ -873,7 +876,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
           void handleWakeLocalAssistant();
         }}
       >
-        Wake up
+        {t("statusBanner.wakeUp")}
       </Button>
     ) : undefined;
   const localHealthBanner = localHealthBannerConfig(
@@ -901,7 +904,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
       actions: (
         <Button variant="outlined" size="compact" onClick={retryConnectivity}>
-          Retry now
+          {t("statusBanner.retryNow")}
         </Button>
       ),
     };
@@ -995,7 +998,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
           void handleExitMaintenanceMode();
         }}
       >
-        Resume Assistant
+        {t("statusBanner.resumeAssistant")}
       </Button>
     ) : undefined,
   };

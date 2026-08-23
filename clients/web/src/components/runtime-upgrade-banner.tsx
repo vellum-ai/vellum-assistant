@@ -16,6 +16,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsUpgradeDetailCreate } from "@/generated/api/sdk.gen";
 import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
+import { t, useTranslation } from "@/i18n";
 import { subscribe } from "@/lib/event-bus";
 import {
   dismissRuntimeUpgrade,
@@ -52,6 +53,7 @@ export function RuntimeUpgradeBanner({
   placement = "web",
   className,
 }: RuntimeUpgradeBannerProps) {
+  const { t } = useTranslation();
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [dismissedScope, setDismissedScope] = useState<string | null>(null);
   const assistantState = useAssistantLifecycleStore((s) => s.assistantState);
@@ -219,7 +221,7 @@ export function RuntimeUpgradeBanner({
         }
       } else {
         await localUpgrade.upgrade();
-        toast.success("Update complete. Your assistant is healthy.", {
+        toast.success(t("runtimeUpgradeBanner.toastComplete"), {
           id: "runtime-upgrade-complete",
           tone: "strong",
         });
@@ -229,7 +231,7 @@ export function RuntimeUpgradeBanner({
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to trigger update. Please try again.",
+          : t("runtimeUpgradeBanner.toastFailed"),
       );
     }
   };
@@ -262,7 +264,7 @@ export function RuntimeUpgradeBanner({
       >
         <StatusBannerNotice
           tone="info"
-          title={`New assistant version available: ${targetVersion}`}
+          title={t("runtimeUpgradeBanner.title", { version: targetVersion })}
           placement={placement}
           icon={<RefreshCw aria-hidden="true" />}
           actions={
@@ -272,14 +274,14 @@ export function RuntimeUpgradeBanner({
                 size="compact"
                 onClick={() => setShowConfirmation(true)}
               >
-                Update
+                {t("runtimeUpgradeBanner.update")}
               </Button>
               <span
                 aria-hidden="true"
                 className="h-3 w-px bg-[color-mix(in_srgb,var(--status-banner-action-color)_35%,transparent)]"
               />
               <Button variant="ghost" size="compact" onClick={handleDismiss}>
-                Later
+                {t("runtimeUpgradeBanner.later")}
               </Button>
             </>
           }
@@ -287,9 +289,11 @@ export function RuntimeUpgradeBanner({
       </div>
       <ConfirmDialog
         open={showConfirmation}
-        title="Update assistant runtime"
-        message={`Update to version ${targetVersion}? The assistant will be briefly unavailable during the update.`}
-        confirmLabel="Update"
+        title={t("runtimeUpgradeBanner.confirmTitle")}
+        message={t("runtimeUpgradeBanner.confirmMessage", {
+          version: targetVersion,
+        })}
+        confirmLabel={t("runtimeUpgradeBanner.update")}
         onConfirm={handleConfirmUpgrade}
         onCancel={() => setShowConfirmation(false)}
       />
@@ -351,7 +355,7 @@ function usePlatformRuntimeUpgrade({
           }
           targetVersionRef.current = null;
           setIsPollingUpgrade(false);
-          toast.success("Update complete. Your assistant is healthy.", {
+          toast.success(t("common:runtimeUpgradeBanner.toastComplete"), {
             id: "runtime-upgrade-complete",
             tone: "strong",
           });

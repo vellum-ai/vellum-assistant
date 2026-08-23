@@ -8,6 +8,7 @@ import {
   useAppDeployment,
 } from "@/hooks/use-app-deployment";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
+import { useTranslation } from "@/i18n";
 import { useAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { cn } from "@/utils/misc";
 import { injectBridge } from "@/utils/sandbox-bridge";
@@ -63,6 +64,7 @@ export function AppViewerContainer({
   enableFullscreen = false,
   onAction,
 }: AppViewerContainerProps) {
+  const { t } = useTranslation();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -163,7 +165,7 @@ export function AppViewerContainer({
               variant="primary"
               iconOnly={<Minimize2 />}
               onClick={toggleFullscreen}
-              tooltip="Exit fullscreen"
+              tooltip={t("appViewerContainer.exitFullscreen")}
             />
           </div>
         )}

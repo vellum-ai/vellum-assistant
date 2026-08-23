@@ -36,6 +36,7 @@ import { Check, Search } from "lucide-react";
 import { cn } from "@vellumai/design-library";
 import { Combobox } from "@vellumai/design-library/components/combobox";
 
+import { useTranslation } from "@/i18n";
 import {
   type SttLanguageOption,
   sttLanguageGroupsFor,
@@ -70,6 +71,7 @@ export function SttLanguagePicker({
   selecting,
   onDone,
 }: SttLanguagePickerProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
 
@@ -138,7 +140,7 @@ export function SttLanguagePicker({
         </span>
         {isSuggested && (
           <span className="shrink-0 text-label-small-default text-[var(--content-tertiary)]">
-            Suggested
+            {t("sttLanguagePicker.suggested")}
           </span>
         )}
         {isSelected && (
@@ -166,15 +168,15 @@ export function SttLanguagePicker({
     >
       <Combobox.Input
         ref={inputRef}
-        aria-label="Search languages"
-        placeholder="Search languages"
+        aria-label={t("sttLanguagePicker.searchAriaLabel")}
+        placeholder={t("sttLanguagePicker.searchPlaceholder")}
         leftIcon={<Search className="size-4" />}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         fullWidth
       />
       <Combobox.List
-        aria-label="Languages"
+        aria-label={t("sttLanguagePicker.languagesAriaLabel")}
         aria-busy={selecting}
         className={cn(
           "max-h-[50vh]",
@@ -184,7 +186,7 @@ export function SttLanguagePicker({
         )}
         emptyState={
           <p className="px-3 py-2.5 text-body-medium-default text-[var(--content-tertiary)]">
-            No languages match.
+            {t("sttLanguagePicker.noMatch")}
           </p>
         }
       >
@@ -192,10 +194,10 @@ export function SttLanguagePicker({
           visibleOptions.map(renderOption)
         ) : (
           <>
-            <Combobox.Group label="Featured">
+            <Combobox.Group label={t("sttLanguagePicker.featured")}>
               {groups.featured.map(renderOption)}
             </Combobox.Group>
-            <Combobox.Group label="All languages">
+            <Combobox.Group label={t("sttLanguagePicker.allLanguages")}>
               {groups.rest.map(renderOption)}
             </Combobox.Group>
           </>
