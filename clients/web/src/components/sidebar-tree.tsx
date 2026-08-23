@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { navigateWithPageTransition } from "@/lib/page-transition";
 import { isModifiedLinkClick } from "@/utils/link-click";
 import { SideMenu } from "@vellumai/design-library";
@@ -32,6 +33,7 @@ export function SidebarTree({
   bottomItems,
   indexPath,
 }: SidebarTreeProps) {
+  const { t } = useTranslation();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -91,7 +93,7 @@ export function SidebarTree({
 
   return (
     <nav
-      aria-label="Sidebar navigation"
+      aria-label={t("sidebarTree.ariaLabel")}
       className="flex min-h-full flex-col md:gap-2 md:px-6 md:pb-4"
     >
       {items.map((item, index) =>

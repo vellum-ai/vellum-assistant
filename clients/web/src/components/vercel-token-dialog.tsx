@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { integrationsVercelConfigPost } from "@/generated/daemon/sdk.gen";
+import { useTranslation } from "@/i18n";
 import {
   Button,
   Input,
@@ -23,6 +24,7 @@ export function VercelTokenDialog({
   assistantId,
   onTokenSaved,
 }: VercelTokenDialogProps) {
+  const { t } = useTranslation();
   const [token, setToken] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,19 +47,21 @@ export function VercelTokenDialog({
       onTokenSaved();
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to save Vercel token.";
+        err instanceof Error
+          ? err.message
+          : t("vercelTokenDialog.saveFailed");
       setError(message);
       toast.error(message);
     } finally {
       setIsSaving(false);
     }
-  }, [assistantId, token, onTokenSaved]);
+  }, [assistantId, token, onTokenSaved, t]);
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Connect Vercel</Modal.Title>
+          <Modal.Title>{t("vercelTokenDialog.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <div className="flex flex-col gap-4">
@@ -66,7 +70,7 @@ export function VercelTokenDialog({
               variant="body-medium-lighter"
               className="text-(--content-secondary)"
             >
-              Enter your Vercel API token to deploy apps as static pages.
+              {t("vercelTokenDialog.body")}
             </Typography>
             <a
               href="https://vercel.com/account/tokens"
@@ -74,14 +78,14 @@ export function VercelTokenDialog({
               rel="noopener noreferrer"
               className="text-body-medium-default text-(--primary-base) hover:underline"
             >
-              Create a token on Vercel &rarr;
+              {t("vercelTokenDialog.createToken")}
             </a>
             <Input
               type="password"
-              placeholder="Vercel API token"
+              placeholder={t("vercelTokenDialog.tokenPlaceholder")}
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              label="API Token"
+              label={t("vercelTokenDialog.tokenLabel")}
               fullWidth
               errorText={error}
               disabled={isSaving}
@@ -91,7 +95,7 @@ export function VercelTokenDialog({
         <Modal.Footer>
           <Modal.Close asChild>
             <Button variant="outlined" disabled={isSaving}>
-              Cancel
+              {t("vercelTokenDialog.cancel")}
             </Button>
           </Modal.Close>
           <Button
@@ -102,7 +106,9 @@ export function VercelTokenDialog({
               isSaving ? <Loader2 className="animate-spin" /> : undefined
             }
           >
-            {isSaving ? "Saving…" : "Save"}
+            {isSaving
+              ? t("vercelTokenDialog.saving")
+              : t("vercelTokenDialog.save")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

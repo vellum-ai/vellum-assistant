@@ -16,6 +16,7 @@ import { Popover } from "@vellumai/design-library/components/popover";
 import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
+import { useTranslation } from "@/i18n";
 import { voiceTraitsLabel } from "@/lib/tts/managed-voice-catalog";
 
 export interface VoicePickerFieldProps {
@@ -32,6 +33,7 @@ export function VoicePickerField({
   onChange,
   className,
 }: VoicePickerFieldProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // Gate on the catalog, not the saved-config `available`: this field is always
   // parent-controlled (the Text-to-Speech card decides to show it from its
@@ -51,9 +53,11 @@ export function VoicePickerField({
         {/* Mirrors the design-library Select trigger exactly so the Voice
             field reads as a sibling of the Provider dropdown above it. */}
         <SelectTriggerRow
-          aria-label="Voice"
+          aria-label={t("voicePickerField.ariaLabel")}
           value={
-            current ? voiceTraitsLabel(current.description) : "Select a voice"
+            current
+              ? voiceTraitsLabel(current.description)
+              : t("voicePickerField.selectVoice")
           }
           className={className}
         />
