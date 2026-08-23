@@ -1,7 +1,8 @@
 /// Distills the raw keyboard stream into bare-Fn taps.
 ///
 /// A tap is a press and release of Fn with nothing else involved: no other
-/// modifier held at any moment of the hold, and no key pressed during it.
+/// modifier held at any moment of the hold, and no ordinary key already
+/// down at the press or pressed during it.
 /// Anything else is a chord that belongs to someone else's shortcut on its
 /// way through (Fn+Ctrl window tiling, Fn+arrow paging), so reporting it
 /// would steal a binding the user never gave us.
@@ -32,9 +33,17 @@ public struct FnTapDetector {
     public init() {}
 
     /// Feed a modifier-flags change. Returns the edges to report, in order.
+    ///
+    /// `ordinaryKeyHeld` answers whether any non-modifier key is down right
+    /// now, and is consulted only on the press transition: a chord whose
+    /// ordinary key came first (Delete held, then Fn) is invisible both to
+    /// the flags and to key-down events during the hold, so the press has to
+    /// ask. Deliberately a closure so the caller's poll runs only then, not
+    /// on every modifier event.
     public mutating func flagsChanged(
         fnHeld nowHeld: Bool,
-        otherModifiersHeld: Bool
+        otherModifiersHeld: Bool,
+        ordinaryKeyHeld: () -> Bool = { false }
     ) -> [Edge] {
         let wasHeld = fnHeld
         fnHeld = nowHeld
@@ -49,7 +58,7 @@ public struct FnTapDetector {
         }
 
         if !wasHeld {
-            armed = !otherModifiersHeld
+            armed = !otherModifiersHeld && !ordinaryKeyHeld()
             return []
         }
 

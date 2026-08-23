@@ -241,11 +241,31 @@ final class MacHelper: @unchecked Sendable {
             | UInt32(rightShiftKey | rightOptionKey | rightControlKey)
         let edges = fnTapDetector.flagsChanged(
             fnHeld: (modifiers & UInt32(kEventKeyModifierFnMask)) != 0,
-            otherModifiersHeld: (modifiers & chordMask) != 0
+            otherModifiersHeld: (modifiers & chordMask) != 0,
+            ordinaryKeyHeld: { anyOrdinaryKeyIsDown() }
         )
         for edge in edges {
             emitHotkey(state: edge.rawValue)
         }
+    }
+
+    /// Whether any non-modifier key is down right now, per the session's
+    /// aggregate keyboard state. Polled only when Fn goes down alone, to
+    /// catch a chord whose ordinary key was pressed first (Delete held,
+    /// then Fn tapped): the key-down handler only sees presses that happen
+    /// while Fn is already held. A poll of current state rather than
+    /// tracked down/up events, so a missed event can never wedge the
+    /// detector with a phantom held key.
+    private func anyOrdinaryKeyIsDown() -> Bool {
+        // Virtual keycodes 0x36...0x3F are the modifier block (Cmd, Shift,
+        // Caps Lock, Option, Control, Fn, and right-hand variants); held
+        // modifiers are already visible in the event flags.
+        for keycode in 0..<128 where !(0x36...0x3F).contains(keycode) {
+            if CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keycode)) {
+                return true
+            }
+        }
+        return false
     }
 
     /// A key went down somewhere while the raw monitor is watching. Only its

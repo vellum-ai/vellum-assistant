@@ -80,6 +80,46 @@ private typealias Edge = FnTapDetector.Edge
     )
 }
 
+@Test func ordinaryKeyHeldBeforeFnBlocksTheTap() {
+    var detector = FnTapDetector()
+
+    // Delete held first, then Fn pressed and released around it: the key
+    // predates the hold, so neither the flags nor key-down events see it.
+    #expect(
+        detector.flagsChanged(
+            fnHeld: true,
+            otherModifiersHeld: false,
+            ordinaryKeyHeld: { true }
+        ) == []
+    )
+    #expect(
+        detector.flagsChanged(fnHeld: false, otherModifiersHeld: false)
+            == [Edge.up]
+    )
+}
+
+@Test func ordinaryKeyStateIsPolledOnlyAtThePress() {
+    var detector = FnTapDetector()
+    var polls = 0
+    let countingPoll: () -> Bool = {
+        polls += 1
+        return false
+    }
+
+    _ = detector.flagsChanged(
+        fnHeld: true, otherModifiersHeld: false, ordinaryKeyHeld: countingPoll
+    )
+    // Fn held steady through another flags change, then released.
+    _ = detector.flagsChanged(
+        fnHeld: true, otherModifiersHeld: false, ordinaryKeyHeld: countingPoll
+    )
+    _ = detector.flagsChanged(
+        fnHeld: false, otherModifiersHeld: false, ordinaryKeyHeld: countingPoll
+    )
+
+    #expect(polls == 1)
+}
+
 @Test func consecutiveTapsEachFire() {
     var detector = FnTapDetector()
 
