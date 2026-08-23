@@ -20,6 +20,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useConversationStore } from "@/stores/conversation-store";
 
 import type { Conversation } from "@/types/conversation-types";
 
@@ -38,6 +39,11 @@ export function useActiveConversation(
 ): Conversation | undefined {
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
+  // A client-minted draft has no server row yet; fetching it would only 404
+  // (and did, repeatedly, when a failed first send left the draft in place).
+  const isDraft = useConversationStore((s) =>
+    conversationId ? s.draftConversationIds.has(conversationId) : false,
+  );
   const { conversations: foreground } = useConversationListQuery(
     assistantId,
     enabled,
@@ -75,7 +81,7 @@ export function useActiveConversation(
     if (!enabled || !assistantId || !conversationId || !isOrgReady) {
       return;
     }
-    if (activeConversation) {
+    if (isDraft || activeConversation) {
       return;
     }
     if (fetchedConversationIdRef.current === conversationId) {
@@ -98,6 +104,7 @@ export function useActiveConversation(
     activeConversation,
     queryClient,
     isOrgReady,
+    isDraft,
   ]);
 
   return activeConversation;

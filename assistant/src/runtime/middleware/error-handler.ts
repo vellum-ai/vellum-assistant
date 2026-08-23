@@ -2,6 +2,7 @@
  * Centralized error handling for runtime HTTP request dispatch.
  */
 
+import { ConnectionResolutionError } from "../../providers/routing-identity.js";
 import { ConfigError, ProviderNotConfiguredError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -11,6 +12,11 @@ const log = getLogger("runtime-http");
 /**
  * Wrap an async endpoint handler with standard error handling.
  * Catches ConfigError (422) and generic errors (500).
+ *
+ * A missing or unusable provider credential keeps the 422 status but is
+ * tagged `PROVIDER_NOT_CONFIGURED` (the same code the conversation error
+ * stream uses) so clients can offer a "open settings" action instead of
+ * showing the prose.
  */
 export async function withErrorHandling(
   endpoint: string,
@@ -22,10 +28,14 @@ export async function withErrorHandling(
     if (err instanceof ProviderNotConfiguredError) {
       log.warn({ err, endpoint }, "No LLM provider configured");
       return httpError(
-        "UNPROCESSABLE_ENTITY",
+        "PROVIDER_NOT_CONFIGURED",
         `No API key configured for ${err.requestedProvider}. Run \`keys set ${err.requestedProvider} <key>\` or configure it from the Settings page under API Keys.`,
         422,
       );
+    }
+    if (err instanceof ConnectionResolutionError) {
+      log.warn({ err, endpoint }, "Provider connection is not usable");
+      return httpError("PROVIDER_NOT_CONFIGURED", err.message, 422);
     }
     if (err instanceof ConfigError) {
       log.warn({ err, endpoint }, "Runtime HTTP config error");

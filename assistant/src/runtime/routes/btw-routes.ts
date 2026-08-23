@@ -24,6 +24,7 @@ import {
 import { readNowScratchpad } from "../../daemon/now-scratchpad.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
+import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
@@ -133,7 +134,13 @@ async function handleBtw({
       conversationId,
       mapping ? undefined : { ephemeral: true },
     );
-  } catch {
+  } catch (err) {
+    // A config error (no API key, unusable connection) is the caller's to
+    // fix, not an outage: let `withErrorHandling` map it to 422
+    // PROVIDER_NOT_CONFIGURED rather than flagging the daemon unreachable.
+    if (err instanceof ConfigError) {
+      throw err;
+    }
     throw new ServiceUnavailableError("Message processing is not available");
   }
 

@@ -12,7 +12,7 @@ export type ChatBillingBannerDecision =
   "managed_credits" | "provider_billing" | "daily_limit";
 
 const PROVIDER_BILLING_CODE = "PROVIDER_BILLING";
-const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
+export const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
 const MANAGED_KEY_INVALID_CODE = "MANAGED_KEY_INVALID";
 const MANAGED_CREDITS_EXHAUSTED_CATEGORY = "credits_exhausted";
 const PROVIDER_BILLING_CATEGORY = "provider_billing";
@@ -157,6 +157,34 @@ export function resolveComposerBillingBanner(args: {
     return "daily_limit";
   }
   return args.isLowBalance && !args.dismissed ? "low_balance" : null;
+}
+
+/**
+ * Legacy daemons reject a send whose default provider has no credential with
+ * a generic 422 whose prose names the missing key or connection. Newer ones
+ * send the `PROVIDER_NOT_CONFIGURED` code instead.
+ */
+const LEGACY_PROVIDER_NOT_CONFIGURED_DETAIL =
+  /^provider_connection\b|no api key/i;
+
+/**
+ * Whether a failed send POST means the default provider has no usable
+ * credential, so the composer's missing-API-key banner (with its "Open
+ * Settings" action) should own the error instead of the generic notice.
+ */
+export function isProviderNotConfiguredPostError(result: {
+  status: number;
+  error: { code?: string; detail?: string };
+}): boolean {
+  if (result.error.code === PROVIDER_NOT_CONFIGURED_CODE) {
+    return true;
+  }
+  return (
+    result.status === 422 &&
+    (result.error.code === undefined ||
+      result.error.code === "UNPROCESSABLE_ENTITY") &&
+    LEGACY_PROVIDER_NOT_CONFIGURED_DETAIL.test(result.error.detail ?? "")
+  );
 }
 
 export function shouldSuppressGenericChatErrorNotice(
