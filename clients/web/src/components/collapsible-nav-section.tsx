@@ -21,6 +21,7 @@ import {
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
+import { useTranslation } from "@/i18n";
 import { isPointerCoarse } from "@/utils/pointer";
 
 /**
@@ -102,6 +103,7 @@ function LongPressHeaderMenu({
   content: (close: () => void) => ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   const longPress = useLongPressSheet({ shouldSkip: skipTrailingControl });
 
   return (
@@ -113,7 +115,9 @@ function LongPressHeaderMenu({
       >
         <BottomSheet.Content aria-describedby={undefined}>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>{title} actions</BottomSheet.Title>
+            <BottomSheet.Title>
+              {t("collapsibleNavSection.actionsTitle", { title })}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">
             {content(longPress.close)}
