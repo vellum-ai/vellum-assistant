@@ -234,7 +234,10 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { role: "zoomIn" },
         { role: "zoomOut" },
         { type: "separator" },
-        { role: "togglefullscreen" },
+        {
+          role: "togglefullscreen",
+          accelerator: "Control+Command+F",
+        },
       ],
     },
     {
