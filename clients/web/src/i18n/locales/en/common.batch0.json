@@ -4,37 +4,11 @@
     "logIn": "Log In",
     "logOut": "Log Out"
   },
-  "addCreditsModal": {
-    "configureAutoReload": "Configure Auto-Reload"
-  },
   "appCard": {
     "openApp": "Open App",
     "pin": "Pin",
     "previewTitle": "{name} preview",
     "unpin": "Unpin"
-  },
-  "companionIntro": {
-    "ariaLabel": "Introducing your companion",
-    "meet": {
-      "title": "This is me",
-      "titleNamed": "I’m {name}",
-      "body": "I stay on your desktop, even when Vellum isn’t visible."
-    },
-    "talk": {
-      "title": "Talk",
-      "body": "Start a voice conversation."
-    },
-    "type": {
-      "title": "Type",
-      "body": "Send a message from here and read the reply here too."
-    },
-    "menu": {
-      "title": "Right-click me",
-      "body": "That’s where you hide me or change my size."
-    },
-    "skip": "Skip",
-    "next": "Next",
-    "done": "Got it"
   },
   "createAssistantDialog": {
     "cancel": "Cancel",
@@ -65,26 +39,12 @@
     "subtitle": "Computer use · terminal access · native automation",
     "title": "Get the macOS app"
   },
-  "notFound": {
-    "badge": "Error 404",
-    "title": "Page not found",
-    "body": "The page you're looking for doesn't exist or may have moved.",
-    "backToAssistant": "Back to your assistant",
-    "goBack": "Go back"
-  },
   "removeFromDeviceDialog": {
     "confirm": "Remove",
     "messageOrigin": "This won't affect {assistantName} or sign you out there. It only forgets the entry on this device. Add it again anytime.",
     "messagePaired": "This won't affect {assistantName} on its host machine. It only forgets the pairing on this device. Pair again anytime with vellum connect import.",
     "messagePlatform": "This won't delete {assistantName}. It only removes it from this device. Logging in will make it available again.",
     "title": "Remove from this device?"
-  },
-  "resourcePressureBanner": {
-    "title": "Resource utilization is high",
-    "body": "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
-    "bodyNoUpgrade": "Your assistant has been using elevated resources for an extended period.",
-    "upgrade": "Upgrade",
-    "dontShowAgain": "Don't show again"
   },
   "rootHydrateFallback": {
     "loadingAria": "Loading"
@@ -97,9 +57,6 @@
     "toastComplete": "Update complete. Your assistant is healthy.",
     "toastFailed": "Failed to trigger update. Please try again.",
     "update": "Update"
-  },
-  "sectionActionsButton": {
-    "ariaLabel": "{name} actions"
   },
   "shareFeedbackModal": {
     "aboutDiagnosticsAria": "About diagnostics",
@@ -167,11 +124,6 @@
     "stepName": "Name",
     "stepOpen": "Open"
   },
-  "sttProviderForm": {
-    "windowsNativeDisplayName": "Windows Native Dictation",
-    "windowsNativeSubtitle": "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
-    "windowsNativeSetupWarning": "Requires Basic speech recognition for your Windows display language: open Settings > Time & language > Language & region, select the three dots next to the display language, choose Language options, then under Language features download Basic speech recognition."
-  },
   "subagentAvatarChip": {
     "ariaLabel": "Subagent {subagentId}"
   },
@@ -194,22 +146,7 @@
     "stepConnect": "Connect",
     "stepCreate": "Create bot"
   },
-  "useConnectClaude": {
-    "failed": "Connecting Claude failed. Please try again.",
-    "timedOut": "Timed out waiting for Claude to connect. Please try again.",
-    "startFailed": "Couldn't start Connect Claude. Please try again.",
-    "popupBlocked": "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
-    "pasteEmpty": "Paste the code shown on the Claude page.",
-    "notStarted": "Start the Connect Claude flow first.",
-    "exchangeFailed": "Check the pasted key and try again."
-  },
   "voiceProvidersNote": {
     "body": "Speech providers, transcription, and API keys live in <modelsLink>Models & Services</modelsLink>."
-  },
-  "windowsMenuBar": {
-    "file": "File",
-    "view": "View",
-    "developer": "Developer",
-    "help": "Help"
   }
 }

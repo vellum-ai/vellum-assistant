@@ -1,5 +1,7 @@
 import { Loader2 } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
+
 /**
  * Rendered by React Router during initial hydration while the matched
  * route's lazy chunk is loading. Without this, the router logs a
@@ -9,12 +11,14 @@ import { Loader2 } from "lucide-react";
  * Reference: https://reactrouter.com/start/data/route-object#hydratefallback
  */
 export function RootHydrateFallback() {
+  const { t } = useTranslation();
+
   return (
     <div
       data-slot="root-hydrate-fallback"
       className="flex min-h-svh items-center justify-center"
       role="status"
-      aria-label="Loading"
+      aria-label={t("rootHydrateFallback.loadingAria")}
     >
       <Loader2 className="size-6 animate-spin text-[var(--content-tertiary)]" />
     </div>

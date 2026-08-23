@@ -1,5 +1,7 @@
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
+
 /**
  * Shared "Remove from this device?" confirmation, mounted by both the
  * assistant chooser and the tray-command handler in `RootLayout` so the copy
@@ -30,29 +32,22 @@ export function RemoveFromDeviceDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
+
+  const message =
+    kind === "paired"
+      ? t("removeFromDeviceDialog.messagePaired", { assistantName })
+      : kind === "origin"
+        ? t("removeFromDeviceDialog.messageOrigin", { assistantName })
+        : t("removeFromDeviceDialog.messagePlatform", { assistantName });
+
   return (
     <ConfirmDialog
       open={open}
-      title="Remove from this device?"
+      title={t("removeFromDeviceDialog.title")}
       message={
         <>
-          {kind === "paired" ? (
-            <>
-              This won&rsquo;t affect {assistantName} on its host machine. It
-              only forgets the pairing on this device. Pair again anytime with
-              vellum connect import.
-            </>
-          ) : kind === "origin" ? (
-            <>
-              This won&rsquo;t affect {assistantName} or sign you out there. It
-              only forgets the entry on this device. Add it again anytime.
-            </>
-          ) : (
-            <>
-              This won&rsquo;t delete {assistantName}. It only removes it from
-              this device. Logging in will make it available again.
-            </>
-          )}
+          {message}
           {errorMessage && (
             <span className="mt-2 block text-[var(--system-negative-strong)]">
               {errorMessage}
@@ -60,7 +55,7 @@ export function RemoveFromDeviceDialog({
           )}
         </>
       }
-      confirmLabel="Remove"
+      confirmLabel={t("removeFromDeviceDialog.confirm")}
       destructive
       isPending={isPending}
       onConfirm={onConfirm}

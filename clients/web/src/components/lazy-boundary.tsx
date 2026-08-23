@@ -1,6 +1,7 @@
 import { Suspense, type ReactElement, type ReactNode } from "react";
 import * as Sentry from "@sentry/react";
 
+import { useTranslation } from "@/i18n";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 
 interface LazyBoundaryProps {
@@ -43,6 +44,8 @@ export function LazyBoundary({
   fallback = null,
   errorFallback,
 }: LazyBoundaryProps) {
+  const { t } = useTranslation();
+
   return (
     <Sentry.ErrorBoundary
       beforeCapture={(scope, error) => {
@@ -57,7 +60,7 @@ export function LazyBoundary({
             role="alert"
             className="p-3 text-body-small-default text-[var(--content-tertiary)]"
           >
-            This section couldn&apos;t load. Reload the page to try again.
+            {t("lazyBoundary.loadError")}
           </div>
         )
       }
