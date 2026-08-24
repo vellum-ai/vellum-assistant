@@ -6,13 +6,13 @@
  * list itself (`pinSortPosition`, `pinColor`), so a pin is scoped to the
  * assistant that owns the app by construction rather than by a key naming
  * convention. Reading it off the app list also means a pin renders the app's
- * live name and icon, and an app that no longer exists brings no pin with it.
+ * live name and icon, and an app that is gone brings no pin with it.
  *
- * Against a daemon too old to store pins, this falls back wholesale to the
- * browser-local list in `utils/app-pin-storage.ts` (legacy). The
- * two paths are alternatives, not layers: one of them owns every pin for the
- * session, and each handles workspace and plugin apps alike. Which one is in
- * play is {@link PinnedApps.source}. See {@link useSupportsDaemonAppPins}.
+ * Against a daemon too old to store pins, `use-legacy-pinned-apps.ts` serves
+ * instead. The two are alternatives, not layers: one of them owns every pin for
+ * the session, and each handles workspace and plugin apps alike. Which one is
+ * in play is {@link PinnedApps.source}, and the choice is
+ * {@link useSupportsDaemonAppPins}.
  *
  * Every caller passes the assistant it is showing. There is deliberately no
  * ambient "current assistant" here: the id a pin is written against is the one
@@ -20,7 +20,7 @@
  * just navigated away from.
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -29,50 +29,22 @@ import {
   appsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppsGetResponse } from "@/generated/daemon/types.gen";
+import type { PinnedAppsBackend, PinnedAppView } from "@/hooks/pinned-apps";
+import { useLegacyPinnedApps } from "@/hooks/use-legacy-pinned-apps";
 import { useSupportsDaemonAppPins } from "@/lib/backwards-compat/daemon-app-pins";
 import type { AppSummary } from "@/types/app-types";
-import {
-  loadPinnedApps,
-  pinApp,
-  setAppColor,
-  subscribePinnedApps,
-  unpinApp,
-} from "@/utils/app-pin-storage";
 
-/**
- * What a pinned row renders from. Narrower than the full {@link AppSummary}
- * because the legacy path can supply only these four fields, and because a
- * sidebar row has no use for an app's provenance or timestamps.
- */
-export type PinnedAppView = Pick<
-  AppSummary,
-  "id" | "name" | "icon" | "pinColor"
->;
+export type { PinnedAppView };
 
-export interface PinnedApps {
-  /** Pinned apps in sidebar order. Empty until the app list has loaded. */
-  pinnedApps: PinnedAppView[];
+export interface PinnedApps extends PinnedAppsBackend {
   pinnedAppIds: Set<string>;
   /**
-   * Where this list came from. It flips once per load, when the daemon version
-   * hydrates and the gate resolves, and the list is replaced wholesale when it
-   * does. A consumer that reads meaning into the list changing has to treat
-   * that swap as a new list rather than as pins going away.
+   * Which backend served this list. It flips once per load, when the capability
+   * resolves, and the list is replaced wholesale when it does. A consumer that
+   * reads meaning into the list changing has to treat that swap as a new list
+   * rather than as pins going away.
    */
   source: "daemon" | "local";
-  togglePin: (appId: string) => void;
-  /**
-   * Remove a pin by id. A no-op when the id is not pinned. Deleting an app
-   * clears its pin daemon-side, so this is not the cleanup path for one whose
-   * app is gone: such a pin never reaches the client at all.
-   */
-  unpin: (appId: string) => void;
-  /**
-   * Set or clear the colour the sidebar tints this pin with, as an id from the
-   * pinned-app colour registry. `null` clears it. A no-op when the id is not
-   * pinned, so a colour cannot conjure a pin that unpinning just removed.
-   */
-  setColor: (appId: string, color: string | null) => void;
 }
 
 const EMPTY_APPS: AppSummary[] = [];
@@ -81,58 +53,65 @@ export function usePinnedApps(
   assistantId: string | null | undefined,
 ): PinnedApps {
   const daemonOwnsPins = useSupportsDaemonAppPins();
-  const queryClient = useQueryClient();
   const path = useMemo(
     () => ({ assistant_id: assistantId ?? "" }),
     [assistantId],
   );
 
-  /* Fetched on both paths: the legacy one still needs the app list to resolve
-     the name and icon it copies onto a pin. */
+  /* Fetched for both backends: the legacy one needs the app list to resolve the
+     name and icon it copies onto a pin. */
   const { data: apps = EMPTY_APPS } = useQuery({
     ...appsGetOptions({ path }),
     select: (data) => data.apps,
     enabled: Boolean(assistantId),
   });
 
-  const legacyEntries = useSyncExternalStore(
-    subscribePinnedApps,
-    loadPinnedApps,
-    loadPinnedApps,
-  );
-
-  const pinnedApps = useMemo((): PinnedAppView[] => {
-    if (daemonOwnsPins) {
-      return apps
-        .filter((app) => app.pinSortPosition !== undefined)
-        .sort((a, b) => (a.pinSortPosition ?? 0) - (b.pinSortPosition ?? 0))
-        .map(({ id, name, icon, pinColor }) => ({ id, name, icon, pinColor }));
-    }
-    return [...legacyEntries]
-      .sort((a, b) => a.pinnedOrder - b.pinnedOrder)
-      .map((entry) => ({
-        id: entry.appId,
-        name: entry.name,
-        icon: entry.icon,
-        pinColor: entry.color,
-      }));
-  }, [daemonOwnsPins, apps, legacyEntries]);
+  const daemon = useDaemonPinnedApps(assistantId, path, apps);
+  const legacy = useLegacyPinnedApps(apps);
+  const backend = daemonOwnsPins ? daemon : legacy;
 
   const pinnedAppIds = useMemo(
+    () => new Set(backend.pinnedApps.map((app) => app.id)),
+    [backend.pinnedApps],
+  );
+
+  return {
+    ...backend,
+    pinnedAppIds,
+    source: daemonOwnsPins ? "daemon" : "local",
+  };
+}
+
+function useDaemonPinnedApps(
+  assistantId: string | null | undefined,
+  path: { assistant_id: string },
+  apps: readonly AppSummary[],
+): PinnedAppsBackend {
+  const queryClient = useQueryClient();
+
+  const pinnedApps = useMemo(
+    (): PinnedAppView[] =>
+      apps
+        .filter((app) => app.pinSortPosition !== undefined)
+        .sort((a, b) => (a.pinSortPosition ?? 0) - (b.pinSortPosition ?? 0))
+        .map(({ id, name, icon, pinColor }) => ({ id, name, icon, pinColor })),
+    [apps],
+  );
+
+  const pinnedIds = useMemo(
     () => new Set(pinnedApps.map((app) => app.id)),
     [pinnedApps],
   );
 
   /*
    * Optimistic through the cache rather than off `mutation.isPending`: pins are
-   * toggled from the Library and from an app card, and the sidebar showing them
-   * is a different component with a different mutation. The cache is what all
-   * of them share.
+   * toggled from the Library and from an app card, while the sidebar showing
+   * them is a different component with its own mutation. The cache is what they
+   * share.
    *
-   * The daemon publishes an apps-list invalidation on every pin write, which is
-   * what carries the change to the user's other windows and devices. That
-   * broadcast suppresses the client that caused it, so `onSettled` settles its
-   * own.
+   * The daemon publishes an apps-list invalidation on every pin write, which
+   * carries the change to the user's other windows and devices. That broadcast
+   * suppresses the client that caused it, so `onSettled` settles its own.
    */
   const { mutate } = useMutation({
     ...appsByIdPinPostMutation(),
@@ -169,59 +148,30 @@ export function usePinnedApps(
 
   const togglePin = useCallback(
     (appId: string) => {
-      const pinned = pinnedAppIds.has(appId);
-      if (daemonOwnsPins) {
-        write(appId, { pinned: !pinned });
-        return;
-      }
-      if (pinned) {
-        unpinApp(appId);
-        return;
-      }
-      const app = apps.find((candidate) => candidate.id === appId);
-      if (app) {
-        pinApp({ id: app.id, name: app.name, icon: app.icon });
-      }
+      write(appId, { pinned: !pinnedIds.has(appId) });
     },
-    [daemonOwnsPins, write, pinnedAppIds, apps],
+    [write, pinnedIds],
   );
 
   const unpin = useCallback(
     (appId: string) => {
-      if (!pinnedAppIds.has(appId)) {
-        return;
-      }
-      if (daemonOwnsPins) {
+      if (pinnedIds.has(appId)) {
         write(appId, { pinned: false });
-      } else {
-        unpinApp(appId);
       }
     },
-    [daemonOwnsPins, write, pinnedAppIds],
+    [write, pinnedIds],
   );
 
   const setColor = useCallback(
     (appId: string, color: string | null) => {
-      if (!pinnedAppIds.has(appId)) {
-        return;
-      }
-      if (daemonOwnsPins) {
+      if (pinnedIds.has(appId)) {
         write(appId, { color });
-      } else {
-        setAppColor(appId, color);
       }
     },
-    [daemonOwnsPins, write, pinnedAppIds],
+    [write, pinnedIds],
   );
 
-  return {
-    pinnedApps,
-    pinnedAppIds,
-    source: daemonOwnsPins ? "daemon" : "local",
-    togglePin,
-    unpin,
-    setColor,
-  };
+  return { pinnedApps, togglePin, unpin, setColor };
 }
 
 /**
