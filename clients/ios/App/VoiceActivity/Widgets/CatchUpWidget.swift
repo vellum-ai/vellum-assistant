@@ -26,6 +26,7 @@ struct CatchUpWidget: Widget {
         .configurationDisplayName("Catch Up")
         .description("See your most recent Vellum conversations and start a new chat or a voice session.")
         .supportedFamilies([.systemMedium])
+        .contentMarginsDisabled()
     }
 }
 
@@ -41,6 +42,11 @@ struct CatchUpWidgetView: View {
     /// share of the widget, so the rows beside it get every remaining point.
     private static let actionColumnWidth: CGFloat = 71
 
+    /// The widget disables the system content margins and draws this one
+    /// instead: the default margins leave the row list short of the three
+    /// full-height rows it is laid out for.
+    private static let contentMargin: CGFloat = 16
+
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 7) {
@@ -49,10 +55,11 @@ struct CatchUpWidgetView: View {
             }
             .frame(width: Self.actionColumnWidth)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("Catch up:")
                     .font(.system(size: 10))
                     .foregroundStyle(WidgetTheme.textSecondary)
+                    .padding(.bottom, 5)
                 if entry.conversations.isEmpty {
                     emptyPrompt
                 } else {
@@ -64,6 +71,7 @@ struct CatchUpWidgetView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(Self.contentMargin)
     }
 
     /// The row, wrapped in a `Link` when this build declares a URL scheme.
@@ -106,6 +114,11 @@ struct CatchUpRow: View {
     /// about work in flight. See ``SnapshotProvider/staleAfter``.
     let isStale: Bool
 
+    /// Rows sit flush against each other at a fixed height, so the space
+    /// between a title and the next one belongs to the row that owns it
+    /// rather than to a gap the eye has to assign.
+    private static let height: CGFloat = 37
+
     var body: some View {
         HStack(spacing: 7) {
             statusGlyph
@@ -128,7 +141,7 @@ struct CatchUpRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 3)
+        .frame(height: Self.height)
     }
 
     /// Working beats unread, and staleness beats working.
