@@ -221,11 +221,13 @@ export function AutoTopUpCard() {
   }, [showAddPm, pendingEnable, gateHasPaymentMethod, gateEnabled, gateCutOff]);
 
   // Arriving with `?configure_top_up=1` (deeplinked from the Add Credits
-  // modal) replays the toggle-on path once, then strips the param. Never
-  // mutates the server; persistence still requires Save. Must sit before the
-  // loading/error guards below (rules-of-hooks), so it reads through
-  // `configQuery.data` and reuses `beginEnableFlow` (the same flow the toggle
-  // runs) rather than the post-guard `config`/handlers.
+  // modal and from the Android browser handoff) opens the configurator once,
+  // then strips the param: the toggle-on path while disabled, the Adjust
+  // editor while enabled. It never disables and never mutates the server;
+  // persistence still requires Save. Must sit before the loading/error
+  // guards below (rules-of-hooks), so it reads through `configQuery.data`
+  // and reuses the shared flows rather than the post-guard
+  // `config`/handlers.
   const configureTopUpRequested = searchParams.get("configure_top_up") === "1";
   useEffect(() => {
     if (!configureTopUpRequested || configQuery.data == null) {
@@ -236,9 +238,10 @@ export function AutoTopUpCard() {
     setSearchParams(next, { replace: true });
     const cfg = configQuery.data;
     if (cfg.enabled === true) {
-      return;
+      enterFormMode();
+    } else {
+      beginEnableFlow(cfg);
     }
-    beginEnableFlow(cfg);
     const reduceMotion =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -246,7 +249,7 @@ export function AutoTopUpCard() {
       behavior: reduceMotion ? "auto" : "smooth",
       block: "center",
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `beginEnableFlow`/`searchParams` intentionally excluded
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `enterFormMode`/`beginEnableFlow`/`searchParams` intentionally excluded
   }, [configureTopUpRequested, configQuery.data]);
 
   if (configQuery.isLoading) {

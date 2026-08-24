@@ -576,19 +576,22 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
     expect(updateCalls.length).toBe(0);
   });
 
-  test("arriving with ?configure_top_up=1 while already enabled is a no-op", () => {
+  test("arriving with ?configure_top_up=1 while already enabled opens the Adjust editor", () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(
+    const { container, getByLabelText } = render(
       wrap(ENABLED_WITH_CARD, "/?configure_top_up=1"),
     );
 
-    // Already enabled: the effect strips the param but does not enter the form
-    // or fire a mutation — the enabled summary stays put.
+    // Already enabled: the link opens the same editor the Adjust button does.
+    // The toggle stays on and nothing mutates; persistence still needs Save.
     expect(
-      container.querySelector('[data-testid="auto-top-up-summary"]'),
-    ).not.toBeNull();
+      getByLabelText("Enable auto-reload").getAttribute("aria-checked"),
+    ).toBe("true");
     expect(
       container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="auto-top-up-summary"]'),
     ).toBeNull();
     expect(updateCalls.length).toBe(0);
   });
