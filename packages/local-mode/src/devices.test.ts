@@ -10,9 +10,9 @@ class FakeChild extends EventEmitter {
 }
 
 let lastChild: FakeChild;
-const spawnArgs: Array<[string, string[], { stdio?: unknown }]> = [];
+const spawnArgs: Array<[string, string[], { stdio?: unknown; windowsHide?: boolean }]> = [];
 const spawnMock = mock(
-  (command: string, args: string[], options: { stdio?: unknown }) => {
+  (command: string, args: string[], options: { stdio?: unknown; windowsHide?: boolean }) => {
     spawnArgs.push([command, args, options]);
     lastChild = new FakeChild();
     return lastChild;
@@ -71,7 +71,7 @@ describe("runDevicesList", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "devices", "asst-42", "--json"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 
@@ -226,7 +226,7 @@ describe("runDevicesRevoke", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "devices", "revoke", "hash-a", "asst-42", "--yes", "--json"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 

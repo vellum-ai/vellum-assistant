@@ -90,6 +90,7 @@ export function runUpgrade(
 
     const child = spawn(invocation.command, args, {
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     let stdout = "";

@@ -1,6 +1,7 @@
 import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
 import type { FC } from "react";
 import { useCallback, useState } from "react";
+import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
@@ -27,6 +28,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   attachments,
   onRemove,
 }) => {
+  const { t } = useTranslation("chat");
   const [previewAttachment, setPreviewAttachment] =
     useState<UploadedAttachment | null>(null);
   const handleClosePreview = useCallback(() => setPreviewAttachment(null), []);
@@ -71,7 +73,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   expandOnMobile={false}
                   iconOnly={<X />}
                   onClick={() => onRemove(att.localId)}
-                  aria-label={`Remove ${att.filename}`}
+                  aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
                 />
               </div>
             );
@@ -91,10 +93,10 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   variant="ghost"
                   size="compact"
                   onClick={() => onRemove(att.localId)}
-                  aria-label={`Remove ${att.filename}`}
+                  aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
                   className="ml-0.5 underline"
                 >
-                  Dismiss
+                  {t("chatAttachments.dismiss")}
                 </Button>
               </div>
             );
@@ -140,8 +142,10 @@ interface AttachFileButtonProps {
 export const AttachFileButton: FC<AttachFileButtonProps> = ({
   disabled = false,
   onFilesSelected,
-  title = "Attach file",
+  title,
 }) => {
+  const { t } = useTranslation("chat");
+  const resolvedTitle = title ?? t("chatAttachments.attachFileAria");
   const { openPicker, inputNode } = useAttachmentFilePicker({
     onFiles: onFilesSelected,
     multiple: true,
@@ -155,8 +159,8 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
         iconOnly={<Paperclip />}
         onClick={openPicker}
         disabled={disabled}
-        aria-label="Attach file"
-        title={title}
+        aria-label={t("chatAttachments.attachFileAria")}
+        title={resolvedTitle}
         // Tertiary resting tone, matching the composer action row's icons
         // (Figma: New-App 7471-25234). The touch-mobile override beats the
         // ghost icon-only variant's default-tone mobile chrome so mobile

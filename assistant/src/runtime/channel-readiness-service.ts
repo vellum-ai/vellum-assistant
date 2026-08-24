@@ -248,6 +248,10 @@ const telegramProbe: ChannelProbe = {
       health.status === "unknown" ||
       health.status === "unverified";
     const result = check(
+      // Published identifier. Installed skill copies and external clients
+      // search readiness responses for this name, and they do not upgrade in
+      // lockstep with the daemon, so renaming it silently breaks their
+      // delivery gate while Telegram is healthy.
       "webhook_delivery",
       health.status === "healthy" || indeterminate,
       "Telegram is delivering to this assistant",
@@ -358,6 +362,84 @@ const whatsappProbe: ChannelProbe = {
 
 // ── Slack Probe ─────────────────────────────────────────────────────────────
 
+/**
+ * Ask the gateway whether Slack's Socket Mode connection is receiving.
+ *
+ * Distinct from the credential checks: valid tokens and a reachable
+ * `auth.test` establish that Slack would accept us, not that anything is
+ * arriving. A socket can be open at the transport layer and deliver nothing.
+ *
+ * Three outcomes, matching the Telegram probe:
+ *
+ *   - `connected` is the only verified pass.
+ *   - `disconnected` is a failure with a concrete cause.
+ *   - `not_configured`, `unsupported` and an unreachable gateway are
+ *     indeterminate. None is evidence of a fault, so none may show the channel
+ *     as broken; none is evidence of delivery either, so none may make it
+ *     ready.
+ *
+ * `lastLivenessAt` is reported and never gated on: a connection's first
+ * keepalive is a full interval after it opens, so requiring one would call
+ * every healthy reconnect broken.
+ *
+ * Declared `operational`, so it decides the channel's health rather than its
+ * setup progress: a dead socket means a configured channel is down, not a
+ * half-configured one.
+ *
+ * It runs among the local checks purely for freshness. It costs one IPC round
+ * trip to the gateway beside us rather than a call to Slack, and the remote
+ * bucket is cached for {@link REMOTE_TTL_MS}, far longer than a socket takes
+ * to die and recover. Placement is a cost decision here; `kind` carries the
+ * meaning.
+ */
+async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
+  // Imported here rather than at module scope, matching the Telegram probe:
+  // the gateway IPC client pulls in a module graph that unrelated consumers of
+  // this service should not have to mock.
+  const { readChannelSocketHealth } =
+    await import("../channels/gateway-channel-socket-health.js");
+
+  let health;
+  try {
+    health = await readChannelSocketHealth("slack");
+  } catch {
+    return {
+      name: "inbound_delivery",
+      kind: "operational",
+      passed: true,
+      message: "Could not reach the gateway to read the Slack connection state",
+      indeterminate: true,
+    };
+  }
+
+  if (health.status === "not_configured" || health.status === "unsupported") {
+    return {
+      name: "inbound_delivery",
+      kind: "operational",
+      passed: true,
+      message:
+        health.status === "not_configured"
+          ? "Slack Socket Mode is not running, because its credentials are not configured"
+          : "Slack does not report a gateway-owned socket",
+      indeterminate: true,
+    };
+  }
+
+  const lastProof =
+    health.lastLivenessAt === undefined
+      ? "no keepalive answered yet on this connection"
+      : `last keepalive ${new Date(health.lastLivenessAt).toISOString()}`;
+  return {
+    ...check(
+      "inbound_delivery",
+      health.status === "connected",
+      `Slack is delivering to this assistant (${lastProof})`,
+      "Slack Socket Mode holds no live connection, so inbound messages are not reaching this assistant",
+    ),
+    kind: "operational",
+  };
+}
+
 const slackProbe: ChannelProbe = {
   channel: "slack",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
@@ -374,6 +456,7 @@ const slackProbe: ChannelProbe = {
         "app_token",
         "Slack app token",
       ),
+      await checkSlackInboundDelivery(),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {

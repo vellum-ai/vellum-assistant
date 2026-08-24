@@ -83,12 +83,9 @@ const WINDOWS_ONLY_SURFACE = [
   "menu.popup",
   "menu.titles",
 ];
-// The Fn push-to-talk key and the offline whole-utterance recognizer are
-// macOS helper contracts; Windows dictates through partials plus a
+// The Fn push-to-talk key is a macOS helper contract; Windows uses a
 // configurable global chord.
 const MACOS_ONLY_SURFACE = [
-  "helper.dictation.onTranscribed",
-  "helper.dictation.transcribe",
   "helper.hotkey.fnPushToTalk",
   "helper.hotkey.onEvent",
 ];

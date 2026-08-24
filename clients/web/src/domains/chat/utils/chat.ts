@@ -18,6 +18,11 @@ import {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { PendingToolConfirmation } from "@vellumai/assistant-api";
 import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
+import { t } from "@/i18n";
+import {
+  clientOsDisplayName,
+  detectClientOs,
+} from "@/runtime/platform-detection";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
@@ -265,8 +270,6 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "stt-unavailable":
     "Speech-to-text is temporarily unavailable. Try again in a moment.",
   "stt-timeout": "Transcription took too long. Try a shorter recording.",
-  "native-stt-no-transcript":
-    "macOS dictation didn’t return a transcript. Make sure Dictation is turned on in System Settings → Keyboard → Dictation, then try again.",
   "dictation-automation-denied":
     "Dictation needs Automation permission to paste into other apps.",
   "dictation-paste-blocked":
@@ -274,6 +277,11 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 export function formatVoiceError(code: string): string {
+  if (code === "native-stt-no-transcript") {
+    return t("chat:voiceErrors.nativeSttNoTranscript", {
+      clientName: clientOsDisplayName(detectClientOs()),
+    });
+  }
   return (
     VOICE_ERROR_MESSAGES[code] ??
     `Voice input failed (${code}). Try again or type your message.`

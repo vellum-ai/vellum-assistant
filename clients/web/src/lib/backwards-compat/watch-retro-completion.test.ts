@@ -48,26 +48,40 @@ describe("supportsWatchRetroCompletion", () => {
   });
 
   /**
-   * The band this gate exists for. An assistant that serves `/v1/watch/stream`
-   * but predates the announcement runs sessions and never settles the wait, so
-   * without a floor of its own every stop would leave the surface expanded on
-   * "Summarizing" until the three-minute give-up timer.
+   * A build that serves the stream announces too, because both arrived in one
+   * merge. The gate still has to answer for the builds below that merge, which
+   * is what the case below covers.
    */
-  test("false for a build that serves watch sessions but not the announcement", () => {
+  test("true for a build that serves watch sessions", () => {
     seed(WATCH_SESSIONS_MIN_VERSION);
+    expect(supportsWatchRetroCompletion(OWNER_ASSISTANT_ID)).toBe(true);
+  });
+
+  /**
+   * The stop edge's old behavior, which is what this gate protects: a build
+   * from before the merge returns the surface straight to resting rather than
+   * opening a wait nothing will settle.
+   */
+  test("false for a dev build cut before the merge", () => {
+    seed("0.11.4-dev.202608201200.0000000");
     expect(supportsWatchRetroCompletion(OWNER_ASSISTANT_ID)).toBe(false);
   });
 
-  /** Which is only a band at all because this floor is the later of the two. */
-  test("the floor sits above the watch-sessions floor", () => {
+  /**
+   * The route and the announcement landed on `main` in one merge, so the band
+   * between them is empty and this floor is that floor. Pinned so a later
+   * stamp on one of them is a deliberate parting rather than a silent one.
+   */
+  test("the floor is the watch stream's floor", () => {
+    expect(MIN_VERSION).toBe(WATCH_SESSIONS_MIN_VERSION);
     expect(versionSupports(MIN_VERSION, WATCH_SESSIONS_MIN_VERSION)).toBe(true);
-    expect(versionSupports(WATCH_SESSIONS_MIN_VERSION, MIN_VERSION)).toBe(false);
+    expect(versionSupports(WATCH_SESSIONS_MIN_VERSION, MIN_VERSION)).toBe(true);
   });
 
   test("true for the dev build the floor names and later ones", () => {
     seed(MIN_VERSION);
     expect(supportsWatchRetroCompletion(OWNER_ASSISTANT_ID)).toBe(true);
-    seed("0.11.4-dev.202608210100.abcdef0");
+    seed("0.11.4-dev.202608220100.abcdef0");
     expect(supportsWatchRetroCompletion(OWNER_ASSISTANT_ID)).toBe(true);
   });
 

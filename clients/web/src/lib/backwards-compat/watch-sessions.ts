@@ -22,19 +22,13 @@
  * outgoing assistant must never authorize a capture against the incoming one.
  *
  * MIN_VERSION is a dev floor rather than a predicted release number, per the
- * guidance in `docs/BACKWARDS_COMPAT.md`. It names the commit that added the
- * route, `7a51a0f` (PR #40984, merged 2026-08-19 23:48 UTC), on top of the
- * then-current base `0.11.4`. Every later release satisfies it without anyone
- * having to guess a number, and dev builds cut after that commit light up.
- *
- * One caveat worth knowing if this reads as too low: the commit it names
- * landed on the `learning-by-watching` feature branch, and dev builds are cut
- * from `main`. A dev build taken from `main` between that instant and the
- * feature branch merging carries the floor's timestamp but not the route.
- * That window is internal dogfood builds only, and it degrades to the
- * pre-gate behavior rather than to something worse: the refused upgrade
- * closes the socket, `teardown` runs, and the flag falls back to false.
- * Re-stamp this to the main-merge commit if the branch sits unmerged.
+ * guidance in `docs/BACKWARDS_COMPAT.md`. It names the merge that puts the
+ * route on `main` (#41133, 2026-08-21 20:20 UTC) on top of the then-current
+ * base `0.11.4`. The merge is the instant that matters rather than the commit
+ * that writes the route, because dev builds are cut from `main`: a build
+ * carrying a feature-branch timestamp satisfies a floor for code `main` does
+ * not hold. Every dev build from this instant on serves the route, and every
+ * later release clears the floor without anyone having to guess a number.
  */
 
 import {
@@ -42,7 +36,7 @@ import {
   whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
 
-export const MIN_VERSION = "0.11.4-dev.202608192348.7a51a0f";
+export const MIN_VERSION = "0.11.4-dev.202608212020.70f2864";
 
 /**
  * Whether `assistantId` is new enough to serve `/v1/watch/stream`.

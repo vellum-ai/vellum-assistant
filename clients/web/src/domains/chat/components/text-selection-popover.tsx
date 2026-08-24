@@ -20,6 +20,7 @@ import { Button, Popover } from "@vellumai/design-library";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { resolveAssistantSelection } from "@/domains/chat/resolve-assistant-selection";
 import { hasNativeQuoteReplyMenu } from "@/domains/chat/hooks/use-native-quote-reply";
+import { useTranslation } from "@/i18n";
 import { isPointerCoarse } from "@/utils/pointer";
 
 const COARSE_SELECTION_SETTLE_MS = 120;
@@ -39,6 +40,7 @@ interface TextSelectionPopoverProps {
 export function TextSelectionPopover({
   containerRef,
 }: TextSelectionPopoverProps) {
+  const { t } = useTranslation("chat");
   const coarseSelectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -216,7 +218,7 @@ export function TextSelectionPopover({
           tintColor="var(--content-default)"
           className="rounded-lg px-2.5"
         >
-          Reply
+          {t("textSelectionPopover.reply")}
         </Button>
       </Popover.Content>
     </Popover.Root>

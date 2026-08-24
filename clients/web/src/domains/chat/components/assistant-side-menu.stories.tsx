@@ -262,6 +262,7 @@ const SHARED_ARGS = {
   onMarkConversationUnread: () => {},
   onPinConversation: () => {},
   onArchiveConversation: () => {},
+  onDeleteConversation: () => {},
   /* The real `PreferencesMenu`, not a stand-in: it is the sidebar's bottom
      entry, and without it these stories show every part of the rail except
      the one at its foot. `chat-layout` passes it the same way. */

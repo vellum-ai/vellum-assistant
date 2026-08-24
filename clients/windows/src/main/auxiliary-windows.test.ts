@@ -20,6 +20,8 @@ const handleListeners = new Map<string, Listener>();
 const onListeners = new Map<string, Listener>();
 const screenListeners = new Map<string, Listener>();
 const shortcutListeners = new Map<string, Listener>();
+const appListeners = new Map<string, Listener>();
+let focusedWindow: object | null = null;
 let workArea: Electron.Rectangle = { x: 0, y: 0, width: 1600, height: 900 };
 
 const makeWindow = () => {
@@ -76,7 +78,11 @@ const dispatchToMain = mock(() => undefined);
 const logWarn = mock(() => undefined);
 
 mock.module("electron", () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    on: (event: string, listener: Listener) => appListeners.set(event, listener),
+    off: (event: string) => appListeners.delete(event),
+  },
   BrowserWindow: class {
     static getAllWindows() {
       return created
@@ -85,7 +91,7 @@ mock.module("electron", () => ({
     }
 
     static getFocusedWindow() {
-      return null;
+      return focusedWindow;
     }
   },
   globalShortcut: {
@@ -93,6 +99,7 @@ mock.module("electron", () => ({
       shortcutListeners.set(accelerator, listener);
       return true;
     },
+    unregister: (accelerator: string) => shortcutListeners.delete(accelerator),
   },
   screen: {
     getCursorScreenPoint: () => ({ x: workArea.x, y: workArea.y }),
@@ -128,6 +135,8 @@ beforeAll(() => {
 });
 beforeEach(() => {
   created.length = 0;
+  focusedWindow = null;
+  dispatchToMain.mockClear();
   workArea = { x: 0, y: 0, width: 1600, height: 900 };
 });
 
@@ -190,6 +199,27 @@ describe("Windows auxiliary windows", () => {
     expect(window.isDestroyed()).toBe(true);
   });
 
+  test("Escape cancels dictation only while Vellum is unfocused", () => {
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "recording", transcription: "" },
+    ]);
+    shortcutListeners.get("Escape")?.();
+    expect(dispatchToMain).toHaveBeenCalledWith({ kind: "cancelDictation" });
+
+    dispatchToMain.mockClear();
+    focusedWindow = created[0]!.window;
+    appListeners.get("browser-window-focus")?.();
+    expect(shortcutListeners.has("Escape")).toBe(false);
+
+    focusedWindow = null;
+    appListeners.get("browser-window-blur")?.();
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "dismiss" },
+    ]);
+    expect(shortcutListeners.has("Escape")).toBe(false);
+    expect(dispatchToMain).not.toHaveBeenCalled();
+  });
+
   test("polls the cursor against the reported Stop region and unlocks clicks", async () => {
     // Native forward:true mouse-move delivery is unreliable on Windows
     // (electron/electron#33281), so main hit-tests the cursor against the
@@ -224,6 +254,9 @@ describe("Windows auxiliary windows", () => {
         "app://vellum.ai/assistant/floating/dictation-overlay",
       );
     } finally {
+      onListeners.get("vellum:dictationOverlay:setState")?.([
+        { kind: "dismiss" },
+      ]);
       delete process.env.VELLUM_LOCAL_RENDERER;
       delete process.env.VELLUM_DEV_URL;
     }

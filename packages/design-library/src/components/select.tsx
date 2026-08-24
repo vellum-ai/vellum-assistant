@@ -406,14 +406,6 @@ export function Select<T extends string>({
                   className={cn(
                     "flex items-center gap-2 outline-none transition-colors",
                     OPTION_SIZE_CLASSES[size],
-                    // Opaque fill and a rule along the top, so the rows it
-                    // floats over read as scrolled under it rather than
-                    // bleeding through. The rule uses `--border-element`
-                    // rather than `--field-border`, which is transparent in
-                    // the dark and velvet themes and would leave the row
-                    // indistinguishable from an ordinary last row.
-                    option.sticky &&
-                      "sticky bottom-0 z-10 border-t border-[var(--border-element)] bg-[var(--field-bg)]",
                     option.disabled
                       ? "cursor-not-allowed opacity-50"
                       : "cursor-pointer data-[highlighted]:bg-[var(--surface-hover)]",
@@ -456,7 +448,7 @@ export function Select<T extends string>({
                   </RadixSelect.ItemIndicator>
                 </RadixSelect.Item>
               );
-              return option.tooltip ? (
+              const row = option.tooltip ? (
                 <Tooltip
                   key={tokenFor(option.value)}
                   content={option.tooltip}
@@ -466,6 +458,19 @@ export function Select<T extends string>({
                 </Tooltip>
               ) : (
                 optionRow
+              );
+              if (!option.sticky) {
+                return row;
+              }
+              return (
+                <div
+                  key={tokenFor(option.value)}
+                  data-slot="select-pinned-option"
+                  role="presentation"
+                  className="sticky bottom-0 z-10 border-t border-[var(--border-element)] bg-[var(--field-bg)]"
+                >
+                  {row}
+                </div>
               );
             })}
           </RadixSelect.Viewport>

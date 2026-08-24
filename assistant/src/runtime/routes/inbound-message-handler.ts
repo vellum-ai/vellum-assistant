@@ -39,7 +39,6 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
@@ -1030,7 +1029,11 @@ export async function handleChannelInbound({
     sourceMetadata.chatType.trim().length > 0
       ? sourceMetadata.chatType.trim()
       : undefined;
-  trustCtx.conversationType = mapChatTypeToConversationType(sourceChatType);
+  // Decided by the sending channel, which is the only side that knows what its
+  // own surfaces mean. The daemon reads the answer rather than re-deriving it
+  // from a vocabulary where `channel` means a public room on Slack and a
+  // broadcast feed on Telegram.
+  trustCtx.conversationType = sourceMetadata?.conversationType;
 
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =

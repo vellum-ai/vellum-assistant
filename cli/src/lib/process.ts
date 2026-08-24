@@ -56,6 +56,7 @@ function readWindowsProcesses(pid?: number): TasklistProcess[] {
     ? ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]
     : ["/FO", "CSV", "/NH"];
   const output = execFileSync("tasklist.exe", args, {
+    windowsHide: true,
     encoding: "utf-8",
     timeout: 5000,
     stdio: ["ignore", "pipe", "ignore"],
@@ -77,6 +78,7 @@ export function windowsCommandLineLookupArgs(pid: number): string[] {
 
 function readWindowsCommandLine(pid: number): string {
   return execFileSync("powershell.exe", windowsCommandLineLookupArgs(pid), {
+    windowsHide: true,
     encoding: "utf8",
     timeout: 3000,
     stdio: ["ignore", "pipe", "ignore"],
@@ -287,6 +289,7 @@ export async function stopProcess(
   hostPlatform: NodeJS.Platform = platform(),
   runTaskkill: (args: string[], timeout: number) => void = (args, timeout) => {
     execFileSync("taskkill.exe", args, {
+      windowsHide: true,
       timeout,
       stdio: "ignore",
     });

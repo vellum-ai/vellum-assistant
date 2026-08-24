@@ -83,3 +83,19 @@ export interface TurnInterfaceContext {
   userMessageInterface: InterfaceId;
   assistantMessageInterface: InterfaceId;
 }
+
+/**
+ * What a channel that holds a long-lived inbound socket reports about that
+ * socket. Shared so the gateway's socket clients and the readiness relay that
+ * reads them agree on one shape; each client fills it in its own protocol's
+ * terms.
+ */
+export type ChannelConnectionHealth = {
+  /** An established connection, not merely a constructed socket. */
+  connected: boolean;
+  /**
+   * Epoch millis when the transport last proved it was alive, by whatever
+   * means it proves it. Absent means not proven yet, never proven dead.
+   */
+  lastLivenessAt: number | undefined;
+};

@@ -189,6 +189,7 @@ export type SystemPermissionKind = (typeof SYSTEM_PERMISSION_KINDS)[number];
 
 export const SYSTEM_PERMISSION_STATUSES = [
   "unknown",
+  "not-applicable",
   "restricted",
   "denied",
   "not-determined",
@@ -305,6 +306,11 @@ export type DictationPartialsResult =
 
 export interface DictationPartialEvent {
   text: string;
+}
+
+export interface DictationTranscribeResult {
+  ok: boolean;
+  reason?: string;
 }
 
 /**

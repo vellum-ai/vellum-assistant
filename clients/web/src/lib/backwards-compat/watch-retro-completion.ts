@@ -2,15 +2,13 @@
  * Backwards-compat gate: the announcement that a watch session's summary is
  * finished.
  *
- * Watching itself is gated separately, by `watch-sessions.ts`, and the two
- * floors are not the same instant. The `/v1/watch/stream` route landed first;
- * the `watch_retro_completed` event that settles the wait afterwards landed on
- * a later commit. So there is a real band of assistant versions that run
- * sessions perfectly well and never say anything when the retrospective is
- * done, and the newest web bundle talks to all of them.
+ * Watching itself is gated separately, by `watch-sessions.ts`. This gate
+ * answers a different question at a different edge: whether the assistant a
+ * session belongs to emits the `watch_retro_completed` event that settles the
+ * wait a deliberate stop opens.
  *
- * Without a floor of its own, every deliberate stop against such an assistant
- * opens a wait nothing can end. The companion surface stays expanded on
+ * If an assistant serves sessions without announcing their retrospectives, a
+ * stop opens a wait nothing can end. The companion surface stays expanded on
  * "Summarizing" until the give-up timer in `watch/watch-retro.ts` runs out, and
  * that timer is three minutes because it is sized for a turn that reads a whole
  * session, not for a routine ending. A floating window sitting over the user's
@@ -29,27 +27,25 @@
  * announcement arrives on that assistant's event stream, and a version fetched
  * for the outgoing assistant must not authorize a wait on the incoming one's.
  *
- * MIN_VERSION is a dev floor rather than a predicted release number, per the
- * guidance in `docs/BACKWARDS_COMPAT.md`. It names the commit that added the
- * event and the runtime dispatch behind it (`b796564`, 2026-08-20 22:15 UTC) on
- * top of the then-current base `0.11.4`. Every later release satisfies it
- * without anyone having to guess a number, and dev builds cut after that commit
- * light up.
+ * MIN_VERSION is the watch stream's own floor, imported rather than stamped
+ * again. The route and this event reach `main` in the same merge (#41133), so
+ * no shipped build serves a session it cannot announce the retrospective for,
+ * and a second constant would only be a second thing to keep in step.
  *
- * The same caveat `watch-sessions.ts` carries applies here and for the same
- * reason: the commit landed on the `learning-by-watching` feature branch, and
- * dev builds are cut from `main`, so a build taken from `main` between that
- * instant and the branch merging carries the floor's timestamp without the
- * event. The comparison keys on that timestamp rather than on the sha, so a
- * squash restamping the commit does not move the floor. That window is internal
- * dogfood builds only, and it degrades to the pre-gate behavior: the wait opens,
- * nothing settles it, and the give-up timer returns the surface to resting.
- * Re-stamp this to the main-merge commit if the branch sits unmerged.
+ * **While the two share a floor this gate cannot refuse.** A stop edge only
+ * exists for a session that started, and a session only starts for an
+ * assistant that cleared the stream's floor, which is this one, so the gate
+ * reads true wherever it is reachable. It stays its own gate because it
+ * answers its own question, and a caller reading
+ * `supportsWatchRetroCompletion` at the stop edge should not have to know the
+ * two share a number today. If the announcement ever moves to a later build,
+ * stamping this from that build parts them without touching a call site.
  */
 
 import { assistantScopedSupports } from "@/lib/backwards-compat/utils";
+import { MIN_VERSION as WATCH_STREAM_MIN_VERSION } from "@/lib/backwards-compat/watch-sessions";
 
-export const MIN_VERSION = "0.11.4-dev.202608202215.b796564";
+export const MIN_VERSION = WATCH_STREAM_MIN_VERSION;
 
 /**
  * Whether `assistantId` announces a finished watch retrospective.

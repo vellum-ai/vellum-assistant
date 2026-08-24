@@ -91,6 +91,12 @@ describe("classifyDiskPressureTurnPolicy", () => {
       expected: { action: "allow-cleanup-mode", reason: "local-owner" },
     },
     {
+      name: "locked Windows local owner without trust enters cleanup mode",
+      status: status({ acknowledged: true }),
+      metadata: { ...localOwnerTurn, sourceInterface: "windows" },
+      expected: { action: "allow-cleanup-mode", reason: "local-owner" },
+    },
+    {
       name: "locked guardian enters cleanup mode",
       status: status(),
       metadata: guardianTurn,
