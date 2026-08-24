@@ -135,10 +135,12 @@ export function SidebarSectionCard({
            inset its header and row list sit flush inside (Figma 7842-83305).
            The 12px vertical inset plus the 20px header row makes the
            collapsed pill exactly the overlay tile size (44px), so it stands
-           level with the assistant pill above it. The rail keeps the radius
-           that makes its 36px header read as fully round. */
+           level with the assistant pill above it. `border-0` drops the
+           Card's default transparent 1px border, which would otherwise grow
+           the border-box to 46px. The rail keeps that border and the radius
+           that makes its header read as fully round. */
         overlayCards
-          ? "rounded-[16px] pt-3 pr-3 pb-3 pl-2"
+          ? "rounded-[16px] border-0 pt-3 pr-3 pb-3 pl-2"
           : "rounded-[18px]",
         "has-[[data-state=open]]:w-full",
         /* `width` toggles between the measured `--section-collapsed-width`

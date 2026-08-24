@@ -966,6 +966,9 @@ describe("AssistantSideMenu · overlay section card geometry", () => {
     expect(cardTokens).toContain("rounded-[16px]");
     expect(cardTokens).toContain("pt-3");
     expect(cardTokens).toContain("pb-3");
+    // Without this the Card's default transparent 1px border grows the
+    // border-box to 46px.
+    expect(cardTokens).toContain("border-0");
 
     const header = container.querySelector(
       '[data-slot="collapsible-nav-section-header"]',
