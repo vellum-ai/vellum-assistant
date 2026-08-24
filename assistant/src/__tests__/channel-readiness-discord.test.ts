@@ -44,6 +44,18 @@ type SocketHealth = {
 let askedChannels: string[];
 let socketHealth: SocketHealth | Error;
 
+/** How many channels the gateway reports on Discord's allow-list. */
+let admittedChannelCount: number | Error;
+
+mock.module("../channels/gateway-discord-admission.js", () => ({
+  readDiscordAdmission: async () => {
+    if (admittedChannelCount instanceof Error) {
+      throw admittedChannelCount;
+    }
+    return { admittedChannelCount };
+  },
+}));
+
 mock.module("../channels/gateway-channel-socket-health.js", () => ({
   readChannelSocketHealth: async (channel: string) => {
     askedChannels.push(channel);
@@ -58,6 +70,7 @@ beforeEach(() => {
   mockSecureKeys = {};
   askedChannels = [];
   socketHealth = { channel: "discord", status: "connected" };
+  admittedChannelCount = 1;
 });
 
 async function runDiscordProbe() {
@@ -88,8 +101,9 @@ describe("discord readiness", () => {
     expect(snapshot.setupStatus).toBe("not_configured");
   });
 
-  test("a stored token and a live connection read as ready", async () => {
+  test("a token, a live connection and an allow-list read as ready", async () => {
     mockSecureKeys[credentialKey("discord_channel", "bot_token")] = "bot-fake";
+    admittedChannelCount = 2;
     socketHealth = {
       channel: "discord",
       status: "connected",
@@ -103,7 +117,54 @@ describe("discord readiness", () => {
     expect(delivery.passed).toBe(true);
     expect(delivery.message).toContain("Discord");
     expect(delivery.message).toContain("2026-08-21T17:00:00.000Z");
+    expect(findCheck(snapshot, "guild_admission").message).toContain(
+      "2 channels",
+    );
     expect(snapshot.ready).toBe(true);
+  });
+
+  test("an empty allow-list is unfinished setup, not a live channel", async () => {
+    mockSecureKeys[credentialKey("discord_channel", "bot_token")] = "bot-fake";
+    admittedChannelCount = 0;
+
+    const [snapshot] = await runDiscordProbe();
+
+    // A connected socket that admits nothing still drops every guild message,
+    // so claiming ready here would promise delivery the gate is refusing.
+    const admission = findCheck(snapshot, "guild_admission");
+    expect(admission.passed).toBe(false);
+    expect(snapshot.setupStatus).toBe("incomplete");
+    expect(snapshot.ready).toBe(false);
+
+    // And it is a setup step rather than an outage: direct messages carry no
+    // guild and never meet this gate, so the connection itself is fine.
+    expect(snapshot.health).not.toBe("failing");
+    expect(findCheck(snapshot, "inbound_delivery").passed).toBe(true);
+  });
+
+  test("one admitted channel reads in the singular", async () => {
+    mockSecureKeys[credentialKey("discord_channel", "bot_token")] = "bot-fake";
+    admittedChannelCount = 1;
+
+    const [snapshot] = await runDiscordProbe();
+
+    expect(findCheck(snapshot, "guild_admission").message).toContain(
+      "1 channel",
+    );
+    expect(findCheck(snapshot, "guild_admission").message).not.toContain(
+      "1 channels",
+    );
+  });
+
+  test("an unreachable gateway does not claim the allow-list is empty", async () => {
+    mockSecureKeys[credentialKey("discord_channel", "bot_token")] = "bot-fake";
+    admittedChannelCount = new Error("gateway down");
+
+    const [snapshot] = await runDiscordProbe();
+
+    const admission = findCheck(snapshot, "guild_admission");
+    expect(admission.passed).toBe(true);
+    expect(admission.indeterminate).toBe(true);
   });
 
   test("a dead socket reads as configured and failing, not unconfigured", async () => {
