@@ -486,7 +486,7 @@ describe("recordActorTokenUse", () => {
 
     const after = readRow("token-used");
     expect(after?.lastUsedAt).toBeGreaterThan(0);
-    // updatedAt tracks row lifecycle, not activity — it must not move.
+    // updatedAt tracks row lifecycle, not activity, so it must not move.
     expect(after?.updatedAt).toBe(before?.updatedAt ?? 0);
   });
 
@@ -548,5 +548,34 @@ describe("recordActorTokenUse", () => {
     expect(() =>
       recordActorTokenUse("token-anything", actorClaims),
     ).not.toThrow();
+  });
+
+  test("a failed stamp leaves the next attempt free to retry", () => {
+    insertTokenRecord("token-retry", "active");
+    const rawDb = (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    // Make the stamp UPDATE throw while the record lookup keeps working.
+    rawDb.exec(
+      "CREATE TRIGGER fail_last_used BEFORE UPDATE ON actor_token_records BEGIN SELECT RAISE(ABORT, 'stamp failed'); END",
+    );
+
+    recordActorTokenUse("token-retry", actorClaims);
+    expect(readRow("token-retry")?.lastUsedAt).toBeNull();
+
+    rawDb.exec("DROP TRIGGER fail_last_used");
+    // Inside the debounce window: only a completed stamp may suppress a retry.
+    recordActorTokenUse("token-retry", actorClaims);
+
+    expect(readRow("token-retry")?.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  test("a missing record leaves a later stamp for the same token free to run", () => {
+    recordActorTokenUse("token-late", actorClaims);
+
+    insertTokenRecord("token-late", "active");
+    recordActorTokenUse("token-late", actorClaims);
+
+    expect(readRow("token-late")?.lastUsedAt).toBeGreaterThan(0);
   });
 });

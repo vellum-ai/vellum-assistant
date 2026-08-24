@@ -125,7 +125,9 @@ export function isActorTokenRevoked(
 
 function evictStaleStamps(now: number): void {
   for (const [hash, stamped] of lastStampedByTokenHash) {
-    if (now - stamped >= STAMP_DEBOUNCE_MS) lastStampedByTokenHash.delete(hash);
+    if (now - stamped >= STAMP_DEBOUNCE_MS) {
+      lastStampedByTokenHash.delete(hash);
+    }
   }
   if (lastStampedByTokenHash.size > MAX_TRACKED_TOKENS) {
     lastStampedByTokenHash.clear();
@@ -136,10 +138,12 @@ function evictStaleStamps(now: number): void {
  * Stamp `lastUsedAt` for the device behind `rawToken`, powering the "Paired
  * devices" list's last-used label.
  *
- * Debounced to one write per token per {@link STAMP_DEBOUNCE_MS}, and resolved
- * through the DEVICE rather than the presented row — `/auth/token` mints
- * `status = 'derived'` rows sharing the source row's `hashed_device_id`, and
- * only the `active` row is ever displayed — so derived-token traffic counts.
+ * Debounced to one write per token per {@link STAMP_DEBOUNCE_MS}, counted from
+ * a completed stamp so a DB error leaves the next request free to retry.
+ *
+ * Resolved through the DEVICE rather than the presented row: `/auth/token`
+ * mints `status = 'derived'` rows sharing the source row's `hashed_device_id`
+ * and only the `active` row is ever displayed, so derived-token traffic counts.
  *
  * Deliberately leaves `updatedAt` alone: that column tracks row lifecycle
  * (status changes), and moving it every few minutes would destroy that signal.
@@ -152,15 +156,16 @@ export function recordActorTokenUse(
   claims: TokenClaims,
 ): void {
   const parsed = parseSub(claims.sub);
-  if (!parsed.ok || parsed.principalType !== "actor") return;
+  if (!parsed.ok || parsed.principalType !== "actor") {
+    return;
+  }
 
   const now = Date.now();
   const tokenHash = actorTokenRecordHash(rawToken);
   const stamped = lastStampedByTokenHash.get(tokenHash);
-  if (stamped !== undefined && now - stamped < STAMP_DEBOUNCE_MS) return;
-
-  if (lastStampedByTokenHash.size >= MAX_TRACKED_TOKENS) evictStaleStamps(now);
-  lastStampedByTokenHash.set(tokenHash, now);
+  if (stamped !== undefined && now - stamped < STAMP_DEBOUNCE_MS) {
+    return;
+  }
 
   try {
     const db = getGatewayDb();
@@ -172,7 +177,9 @@ export function recordActorTokenUse(
       .from(actorTokenRecords)
       .where(eq(actorTokenRecords.tokenHash, tokenHash))
       .get();
-    if (!record) return;
+    if (!record) {
+      return;
+    }
 
     db.update(actorTokenRecords)
       .set({ lastUsedAt: now })
@@ -184,10 +191,15 @@ export function recordActorTokenUse(
         ),
       )
       .run();
+
+    if (lastStampedByTokenHash.size >= MAX_TRACKED_TOKENS) {
+      evictStaleStamps(now);
+    }
+    lastStampedByTokenHash.set(tokenHash, now);
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
-      "Actor-token last-used stamp failed — ignoring (fail-open)",
+      "Actor-token last-used stamp failed, ignoring (fail-open)",
     );
   }
 }
