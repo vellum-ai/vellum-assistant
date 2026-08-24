@@ -1449,7 +1449,11 @@ export class RetryProvider implements Provider {
               // with the longer cooldown a repeat outage earns.
               return served;
             }
-            break;
+            // The probe confirmed this route is still down. If the backup
+            // cannot serve, surface that primary failure directly instead of
+            // spending a fresh retry budget on the route the probe just
+            // re-tripped.
+            throw error;
           }
         }
       }

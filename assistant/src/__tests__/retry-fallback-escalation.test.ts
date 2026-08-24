@@ -9,7 +9,10 @@ mock.module("../util/retry.js", () => ({
   sleep: async () => {},
 }));
 
-import { resetFallbackBreaker } from "../providers/fallback-breaker.js";
+import {
+  recordFallbackServed,
+  resetFallbackBreaker,
+} from "../providers/fallback-breaker.js";
 import type {
   Message,
   Provider,
@@ -634,6 +637,31 @@ describe("RetryProvider fallback-route escalation", () => {
 
     expect(thrown).toBe(originalError);
     expect((thrown as Error).cause).toBeUndefined();
+    expect(route.calls()).toBe(1);
+    expect(backup.calls()).toBe(1);
+  });
+
+  test("failed recovery probe and backup surface the probe error without retrying the primary", async () => {
+    const originalError = new ProviderError(
+      "Service Unavailable",
+      "openai",
+      503,
+    );
+    const primary = failingProvider("openai", () => originalError);
+    const backupError = new ProviderError("invalid request", "anthropic", 400);
+    const backup = failingProvider("anthropic", () => backupError);
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed({ upstream: "openai" }, Date.now() - 11 * 60_000);
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(thrown).toBe(originalError);
+    expect(primary.calls()).toBe(1);
     expect(route.calls()).toBe(1);
     expect(backup.calls()).toBe(1);
   });

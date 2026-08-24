@@ -16,6 +16,7 @@ import {
 } from "../config/default-profile-names.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { renameCollidingBackupProfileNamesMigration } from "../workspace/migrations/147-rename-colliding-backup-profile-names.js";
+import { stripUnsupportedFallbackProfilesMigration } from "../workspace/migrations/148-strip-unsupported-fallback-profiles.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import {
   loadCheckpoints,
@@ -150,7 +151,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     expect(llm.advisorProfile).toBe("balanced-backup-custom");
     expect(llm.callSites.recall.profile).toBe("balanced-backup-custom");
     expect(llm.callSites.recall.maxTokens).toBe(4096);
-    expect(llm.profiles.scratch.fallbackProfile).toBeUndefined();
+    expect(llm.profiles.scratch.fallbackProfile).toBe("balanced-backup-custom");
     expect(llm.profiles.blend.mix[0].profile).toBe("balanced-backup-custom");
     expect(llm.profiles.blend.mix[1].profile).toBe("armA");
     expect(llm.profileOrder).toEqual([
@@ -192,7 +193,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     expect(parsed.success).toBe(true);
   });
 
-  test("the migrated config parses under LLMSchema", async () => {
+  test("the 147-to-148 migration sequence parses under LLMSchema", async () => {
     writeConfig({
       llm: {
         defaultProvider: { provider: "vellum" },
@@ -214,12 +215,15 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     });
 
     await renameCollidingBackupProfileNamesMigration.run(workspaceDir);
+    await stripUnsupportedFallbackProfilesMigration.run(workspaceDir);
 
-    const parsed = LLMSchema.safeParse(readConfig().llm);
+    const migrated = readConfig().llm;
+    const parsed = LLMSchema.safeParse(migrated);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.activeProfile).toBe("cost-optimized-backup-custom");
     }
+    expect(migrated.profiles.scratch.fallbackProfile).toBeUndefined();
   });
 
   test("renames every colliding key and keeps suffixing past taken names", async () => {
