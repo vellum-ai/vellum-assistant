@@ -4342,6 +4342,15 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         interactionCount:
                           type: number
                         hasInterceptableVerificationSession:
