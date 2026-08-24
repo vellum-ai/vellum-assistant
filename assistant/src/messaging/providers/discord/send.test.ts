@@ -30,7 +30,8 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
-const { sendDiscordReply, sendDiscordAttachments } = await import("./send.js");
+const { sendDiscordReply, sendDiscordAttachments, editDiscordMessage } =
+  await import("./send.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -175,5 +176,49 @@ describe("sendDiscordAttachments", () => {
     expect(result.allFailed).toBe(true);
     // Only the failure notice, never a zero-byte upload.
     expect(calls.every((c) => typeof c.body === "string")).toBe(true);
+  });
+});
+
+describe("editDiscordMessage", () => {
+  const bodyOf = (index = 0): Record<string, unknown> =>
+    JSON.parse(String(calls[index]?.body)) as Record<string, unknown>;
+
+  test("patches the message rather than posting a new one", async () => {
+    await editDiscordMessage({ channelId: "C1" }, "M9", "revised");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.url).toContain("/channels/C1/messages/M9");
+    expect(bodyOf().content).toBe("revised");
+  });
+
+  test("marks every line of a muted edit, not just the first", async () => {
+    // Discord's subtext applies per line, so one marker would render the first
+    // line small and leave the rest at body size.
+    await editDiscordMessage({ channelId: "C1" }, "M9", "Resolved.\nBy Ada.", {
+      emphasis: "muted",
+    });
+
+    expect(bodyOf().content).toBe("-# Resolved.\n-# By Ada.");
+  });
+
+  test("leaves a blank line alone", async () => {
+    // A bare `-# ` renders an empty subtext line rather than a gap.
+    await editDiscordMessage({ channelId: "C1" }, "M9", "One.\n\nTwo.", {
+      emphasis: "muted",
+    });
+
+    expect(bodyOf().content).toBe("-# One.\n\n-# Two.");
+  });
+
+  test("a rejected edit throws rather than posting a replacement", async () => {
+    // The reason editing is its own capability: falling back to a post would
+    // leave the original standing beside a duplicate.
+    stubFetch(400, { message: "Invalid Form Body" });
+
+    await expect(
+      editDiscordMessage({ channelId: "C1" }, "M9", "revised"),
+    ).rejects.toThrow();
+    expect(calls.every((call) => call.method === "PATCH")).toBe(true);
   });
 });
