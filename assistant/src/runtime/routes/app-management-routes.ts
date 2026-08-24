@@ -22,6 +22,8 @@ import { z } from "zod";
 import {
   type AppPin,
   listAppPins,
+  pruneAppPins,
+  removeAppPin,
   updateAppPin,
 } from "../../apps/app-pin-store.js";
 import {
@@ -855,8 +857,8 @@ function assertNotPluginApp(appId: string, action: string): void {
 function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   assertNotPluginApp(appId, "delete a plugin app");
-  // `deleteApp` drops the app's pin, so every deletion path clears it.
   deleteApp(appId);
+  removeAppPin(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
 }
@@ -865,11 +867,12 @@ function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
  * Pin, unpin, or recolour an app. Plugin apps are pinnable: a pin says nothing
  * about the app's content, so `assertNotPluginApp` does not apply here.
  */
-/** True when this workspace has an app with that id, plugin apps included. */
-function appExists(appId: string): boolean {
-  return isPluginAppId(appId)
-    ? listPluginApps().some((app) => app.id === appId)
-    : listApps().some((app) => app.id === appId);
+/** Every app id this workspace has, plugin apps included. */
+function existingAppIds(): string[] {
+  return [
+    ...listApps().map((app) => app.id),
+    ...listPluginApps().map((app) => app.id),
+  ];
 }
 
 function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
@@ -879,13 +882,18 @@ function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
   if (pinned === undefined && color === undefined) {
     throw new BadRequestError("pinned or color is required");
   }
+  const existing = existingAppIds();
   /* A pin only means anything against an app that exists: the list starts from
-     the real apps, so a pin for anything else could never be read back and
-     would sit in the table forever. Unpinning is exempt, since that is how a
-     client clears state left over from an app that has since gone. */
-  if (pinned === true && !appExists(appId)) {
+     the real apps, so a pin for anything else could never be read back.
+     Unpinning is exempt, since that is how a client clears state left over from
+     an app that has since gone. */
+  if (pinned === true && !existing.includes(appId)) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
+  /* Reconcile while the live set is already in hand. Deletions that cannot
+     clear their own pin (the `app_delete` tool, a plugin uninstall, a directory
+     removed by hand) leave a row the list hides but nothing collects. */
+  pruneAppPins(existing);
   const pin = updateAppPin(appId, {
     ...(pinned === undefined ? {} : { pinned: pinned as boolean }),
     ...(color === undefined ? {} : { color: color as string | null }),
