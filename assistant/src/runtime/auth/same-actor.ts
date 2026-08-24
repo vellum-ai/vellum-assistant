@@ -138,7 +138,9 @@ function detectRejection(
     ? args.hub.getActorPrincipalIdForClient(targetClientId)
     : (args.targetActorPrincipalId ??
       (isHttpAuthDisabled()
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
+            targetClientId,
+          )
         : undefined));
 
   let reason: RejectionReason | undefined;
