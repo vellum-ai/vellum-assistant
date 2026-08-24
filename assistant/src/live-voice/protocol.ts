@@ -8,6 +8,15 @@ import { type ClientOs, parseClientOs } from "../channels/types.js";
 // rejects only values that were never going to be real capture rates.
 const MAX_START_FRAME_SAMPLE_RATE = 192_000;
 
+// Lower bound on the same field. 8 kHz is narrowband telephony, below any
+// capture rate a supported client opens with, and it is the floor that makes
+// every rendered buffer non-degenerate: the working cue's shortest legal
+// duration (1ms) still rounds to whole frames at this rate, so a rendered
+// tone can never come out empty. Without a floor a rate of 1 validates and
+// rounds a cue to zero frames, which is a silent frame on the wire holding the
+// floor for a whole interval.
+const MIN_START_FRAME_SAMPLE_RATE = 8_000;
+
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
   "audio",
@@ -417,6 +426,16 @@ export interface LiveVoiceTtsAudioServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "tts_audio";
   readonly mimeType: string;
   readonly sampleRate: number;
+  /**
+   * Set only on audio that is not speech: today the rendered working cue that
+   * holds the floor while a turn works. Omitted for synthesized speech.
+   *
+   * Clients drive speaking state, hands-free barge-in eligibility,
+   * client-heard latency, and the spoken-word cursor off tts_audio frames.
+   * All four are about what the assistant SAID, so a frame carrying this must
+   * play as audio and count as nothing else.
+   */
+  readonly nonSpeech?: true;
   readonly dataBase64: string;
 }
 
@@ -495,6 +514,13 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    * unchanged).
    */
   readonly progressUpdatesSpoken?: number;
+  /**
+   * Working cues played into the turn's silence. Present only when at least
+   * one played (otherwise the field is absent, keeping frames unchanged).
+   * The cue is the default floor-holder, so this is what separates a turn
+   * that hummed while it worked from one that sat silent.
+   */
+  readonly workingCuesPlayed?: number;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
@@ -1033,11 +1059,12 @@ function validateAudioConfig(
 
   if (
     !isPositiveInteger(value.sampleRate) ||
+    value.sampleRate < MIN_START_FRAME_SAMPLE_RATE ||
     value.sampleRate > MAX_START_FRAME_SAMPLE_RATE
   ) {
     return protocolError(
       "invalid_field",
-      `start frame audio.sampleRate must be a positive integer no greater than ${MAX_START_FRAME_SAMPLE_RATE}`,
+      `start frame audio.sampleRate must be an integer between ${MIN_START_FRAME_SAMPLE_RATE} and ${MAX_START_FRAME_SAMPLE_RATE}`,
       "audio.sampleRate",
       "start",
     );

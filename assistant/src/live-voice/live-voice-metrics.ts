@@ -20,6 +20,7 @@ export type LiveVoiceMetricsEvent =
   | "final_transcript"
   | "first_assistant_delta"
   | "progress_spoken"
+  | "working_cue_played"
   | "first_tts_audio"
   | "turn_completed"
   | "turn_cancelled"
@@ -132,6 +133,10 @@ interface LiveVoiceTurnMetrics {
   endpointDecisionMaxLatencyMs?: number;
   endpointDecisionSource?: VoiceEndpointSource;
   progressUpdatesSpoken?: number;
+  // Working cues played into the turn's silence. The cue is the default
+  // floor-holder, so without this a turn that hummed and a turn that sat
+  // silent are indistinguishable in telemetry.
+  workingCuesPlayed?: number;
 }
 
 interface LiveVoiceDurationSummary {
@@ -181,6 +186,7 @@ interface LiveVoiceMetricsAggregateFields {
   endpointDecisionMaxLatencyMs?: number;
   endpointDecisionSource?: VoiceEndpointSource;
   progressUpdatesSpoken?: number;
+  workingCuesPlayed?: number;
 }
 
 export interface LiveVoiceMetricsFrame {
@@ -206,6 +212,7 @@ interface MutableTurn {
   // The decider behind the turn's most recent endpoint decision.
   endpointDecisionSource: VoiceEndpointSource | null;
   progressUpdatesSpoken: number;
+  workingCuesPlayed: number;
 }
 
 const DEFAULT_RECENT_TURN_LIMIT = 50;
@@ -273,6 +280,7 @@ export class LiveVoiceMetricsCollector {
       endpointDecisionMaxLatencyMs: null,
       endpointDecisionSource: null,
       progressUpdatesSpoken: 0,
+      workingCuesPlayed: 0,
     };
     this.applySeedMarks(this.activeTurn, seedMarks);
     this.emit("turn_started", turnId);
@@ -380,6 +388,14 @@ export class LiveVoiceMetricsCollector {
     const turn = this.ensureActiveTurn(turnId);
     turn.progressUpdatesSpoken += 1;
     return this.emit("progress_spoken", turn.turnId);
+  }
+
+  // A counter like markProgressSpoken: every cue played into the turn's
+  // silence bumps the per-turn count.
+  markWorkingCuePlayed(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    turn.workingCuesPlayed += 1;
+    return this.emit("working_cue_played", turn.turnId);
   }
 
   markBargeIn(turnId?: string): LiveVoiceMetricsFrame {
@@ -594,8 +610,8 @@ function aggregateFieldsForTurn(
 // Shared optional fields for turn snapshots and aggregate frame fields: the
 // commit latency is absent unless the turn committed against a local
 // speech-stop mark, and the front-model fields are absent unless the endpoint
-// decider was consulted or a progress narration spoke, so turns
-// that never touch the features are unchanged.
+// decider was consulted, a progress narration spoke, or a working cue played,
+// so turns that never touch the features are unchanged.
 function optionalTurnFields(
   // Accepts both MutableTurn (null = unset) and snapshot (absent = unset).
   turn: {
@@ -604,6 +620,7 @@ function optionalTurnFields(
     endpointDecisionMaxLatencyMs?: number | null;
     endpointDecisionSource?: VoiceEndpointSource | null;
     progressUpdatesSpoken?: number | null;
+    workingCuesPlayed?: number | null;
   },
 ): Pick<
   LiveVoiceTurnMetrics,
@@ -612,8 +629,10 @@ function optionalTurnFields(
   | "endpointDecisionMaxLatencyMs"
   | "endpointDecisionSource"
   | "progressUpdatesSpoken"
+  | "workingCuesPlayed"
 > {
   const progressUpdatesSpoken = turn.progressUpdatesSpoken ?? 0;
+  const workingCuesPlayed = turn.workingCuesPlayed ?? 0;
   return {
     ...(turn.endpointCommitLatencyMs != null
       ? { endpointCommitLatencyMs: turn.endpointCommitLatencyMs }
@@ -627,6 +646,7 @@ function optionalTurnFields(
         }
       : {}),
     ...(progressUpdatesSpoken > 0 ? { progressUpdatesSpoken } : {}),
+    ...(workingCuesPlayed > 0 ? { workingCuesPlayed } : {}),
   };
 }
 
@@ -674,6 +694,7 @@ function cloneMutableTurn(turn: MutableTurn): MutableTurn {
     endpointDecisionMaxLatencyMs: turn.endpointDecisionMaxLatencyMs,
     endpointDecisionSource: turn.endpointDecisionSource,
     progressUpdatesSpoken: turn.progressUpdatesSpoken,
+    workingCuesPlayed: turn.workingCuesPlayed,
   };
 }
 

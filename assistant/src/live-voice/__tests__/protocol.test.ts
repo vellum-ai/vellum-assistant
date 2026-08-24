@@ -254,6 +254,46 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("rejects a capture rate below narrowband telephony", () => {
+    // The cap has a floor for the same reason it has a ceiling: the rate
+    // sizes every rendered buffer. A rate this low rounds the working cue to
+    // zero frames, so the session would send an empty audio frame and still
+    // hold the floor for a whole interval. Refuse it here, where it is still
+    // just a bad field, rather than guarding the render downstream.
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 1,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "audio.sampleRate",
+      frameType: "start",
+    });
+  });
+
+  test("accepts the lowest capture rate a supported client opens with", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 8_000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   test("accepts the highest capture rate real hardware opens with", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",
