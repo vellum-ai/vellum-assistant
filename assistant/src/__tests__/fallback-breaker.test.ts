@@ -852,9 +852,9 @@ describe("RetryProvider under an open breaker", () => {
 describe("the backup's retry budget", () => {
   test("a breaker-open request retries a transient failure on the backup instead of failing the turn", async () => {
     // The breaker trips after a single successful fallback serve, so for the
-    // whole cooldown every request skips the primary. Serving those on one
-    // attempt would make a lone 429 or mid-stream cut fail the turn, a worse
-    // posture than the three retries the same request had before this feature.
+    // whole cooldown every request skips the primary. Those requests spend no
+    // retry budget on the way, so they get one on the backup: on a single
+    // attempt a lone 429 or mid-stream cut fails the turn.
     const primary = primaryProvider();
     const backup = backupProvider(() => transient());
     const route = makeRoute(backup.provider);
@@ -996,11 +996,12 @@ describe("recovery probe verdicts", () => {
     expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(false);
   });
 
-  test("a corrupted-stream probe leaves the request the budget it would have had without probing", async () => {
+  test("a corrupted-stream probe leaves the request the same total budget as one that never probes", async () => {
     // The probe's send counts as this request's first attempt, so continuing
-    // into the retry loop must not hand it a wider budget than everyone else.
-    // Four sends total, then the backup as the loop's ordinary last resort, so
-    // the turn still finishes even when the primary never stops corrupting.
+    // into the retry loop must not hand it a wider budget than a request that
+    // never probes. Four sends total, then the backup as the loop's ordinary
+    // last resort, so the turn finishes even when the primary never stops
+    // corrupting.
     const primary = primaryProvider(
       () => corruptedStream(),
       () => corruptedStream(),
@@ -1029,9 +1030,8 @@ describe("recovery probe verdicts", () => {
   test("a probe that spent a corrective resend keeps the same total budget", async () => {
     // The repaired path: the probe sends twice (the original plus the
     // corrective resend) before the stream corruption hands the request to the
-    // retry loop. A seed that counted only the original probe would let this
-    // request make one more primary send than everyone else, which is the
-    // opposite of what seeding was for.
+    // retry loop. The seed has to count both, or this request makes one more
+    // primary send than a request that never probes.
     const primary = primaryProvider(
       () =>
         new ProviderError(

@@ -1256,11 +1256,10 @@ export class RetryProvider implements Provider {
           options,
           undefined,
           false,
-          // This request never touched the primary, so no retry budget has
-          // been spent anywhere. Without one on the backup a single 429 or
-          // mid-stream cut would fail the turn outright, which is a worse
-          // posture than the three retries the same request would have had
-          // before this feature existed.
+          // The rule this argument encodes: a request gets a retry budget on
+          // the backup only when it has not already spent one. This request
+          // skips the primary outright, so it has spent nothing, and on a
+          // single attempt a lone 429 or mid-stream cut would fail the turn.
           { backupRetryBudget: true },
         );
         if (served !== null) {
@@ -1406,12 +1405,11 @@ export class RetryProvider implements Provider {
               // retries while `retryAttempt < DEFAULT_MAX_RETRIES`, so seeding
               // it with `probeSends` leaves `1 + (DEFAULT_MAX_RETRIES -
               // probeSends)` sends below and `DEFAULT_MAX_RETRIES + 1` in
-              // total, for any number of probe sends. That is exactly what a
-              // request that never probed gets, which is what keeps this from
-              // quietly becoming a wider budget than everyone else's. Counting
-              // the sends rather than the entries into this branch is what
-              // makes a repaired probe (a credential refresh, a corrective
-              // resend) come out at the same total as a plain one.
+              // total, for any number of probe sends: the same budget a request
+              // that never probes gets. Counting sends rather than entries into
+              // this branch is what holds that equality for a probe whose
+              // repairs (a credential refresh, a corrective resend) each cost a
+              // send of their own.
               retryAttempt = probeSends;
               break;
             }
@@ -1528,11 +1526,11 @@ export class RetryProvider implements Provider {
             options,
             error,
             retriesExhausted,
-            // One hop, one attempt stays right here: the primary loop above
-            // already ran to a definitive verdict, either exhausting its whole
+            // No budget here: the primary loop above runs to a definitive
+            // verdict before reaching this point, either exhausting its whole
             // budget against a transient failure or receiving an error no
-            // resend would change. The user has been waiting through all of
-            // that, so the backup answers once or the turn fails.
+            // resend changes. The user has waited through all of that, so the
+            // backup answers once or the turn fails.
             { backupRetryBudget: false },
           );
           if (fallbackResult !== null) {
