@@ -18,7 +18,11 @@
  *   3. Register the client in `ADAPTER_FACTORIES` below.
  */
 
+import { resolveDefaultProfileForProvider } from "../../config/default-profile-catalog.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
 import { normalizeCredentialRef } from "../../security/credential-key.js";
+import { getLogger } from "../../util/logger.js";
 import { AnthropicProvider } from "../anthropic/client.js";
 import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { BasetenProvider } from "../baseten/client.js";
@@ -33,9 +37,12 @@ import { OpenRouterProvider } from "../openrouter/client.js";
 import { PoolsideProvider } from "../poolside/client.js";
 import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
-import type { Provider } from "../types.js";
+import type { Provider, SendMessageOptions } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
-import { isVellumManagedConnection } from "../vellum-model-routing.js";
+import {
+  getManagedUpstream,
+  isVellumManagedConnection,
+} from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
@@ -57,6 +64,15 @@ export interface AdapterCreateOpts {
 }
 
 type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
+
+const log = getLogger("adapter-factory");
+
+/** The backup route `RetryProvider` escalates to; see {@link makeFallbackRouteResolver}. */
+interface FallbackRoute {
+  provider: Provider;
+  overrideProfile: string;
+  forwardUsageAttributionHeaders: boolean;
+}
 
 /**
  * Catalog-keyed factory table. Each entry takes a unified
@@ -284,6 +300,107 @@ export function createAdapterFromConnection(
     };
   }
 
+  /**
+   * Resolve the backup-profile route for a request whose primary route just
+   * failed with an outage-shaped error, so `RetryProvider` can serve it on a
+   * different provider instead of surfacing the outage.
+   *
+   * The winning profile of the FAILED call is re-resolved from the same
+   * inputs `normalizeSendMessageOptions` uses (call site plus the request's
+   * own override/seed fields), and its `fallbackProfile` pointer names the
+   * backup. A `vellum` profile carries no upstream of its own, so the backup's
+   * model determines it.
+   *
+   * Returns a RAW adapter, exactly like `makeCredentialRefresher` above:
+   * `RetryProvider` hands the backup route options it has ALREADY normalized
+   * (call site consumed, wire params resolved from the backup profile, usage
+   * attribution headers stamped). A second `RetryProvider` in between would
+   * re-normalize that call-site-less config and strip those headers, leaving
+   * degraded traffic unattributed on the platform's billing events.
+   *
+   * Never throws: a broken backup lookup must surface the original provider
+   * error, not a new one.
+   */
+  function makeFallbackRouteResolver(): (
+    failedOptions: SendMessageOptions | undefined,
+  ) => Promise<FallbackRoute | null> {
+    return async (failedOptions): Promise<FallbackRoute | null> => {
+      const failedConfig = failedOptions?.config;
+      const callSite = failedConfig?.callSite;
+      if (callSite === undefined) {
+        return null;
+      }
+      try {
+        const { llm } = getConfig();
+        const winner = selectWinningProfile(callSite, llm, {
+          overrideProfile: failedConfig?.overrideProfile,
+          forceOverrideProfile: failedConfig?.forceOverrideProfile,
+          selectionSeed: failedConfig?.selectionSeed,
+        });
+        const overrideProfile = winner.entry?.fallbackProfile;
+        if (overrideProfile === undefined) {
+          return null;
+        }
+        // Resolved the provider-aware way the runtime resolver resolves every
+        // profile name: the backups are companions of the managed column and
+        // must not materialize under a BYOK or ChatGPT default provider.
+        const backup = resolveDefaultProfileForProvider(
+          llm.profiles,
+          overrideProfile,
+          llm.defaultProvider ?? null,
+        );
+        const upstream =
+          backup?.model != null ? getManagedUpstream(backup.model) : null;
+        if (backup?.model == null || upstream === null) {
+          log.warn(
+            {
+              connectionName: connection.name,
+              overrideProfile,
+              backupModel: backup?.model,
+            },
+            "Backup profile does not resolve to a managed upstream; keeping the original error",
+          );
+          return null;
+        }
+        // Re-resolve auth for the BACKUP upstream: the managed proxy's base URL
+        // is per-upstream, so the primary's resolved auth cannot be reused.
+        const backupAuth = await resolveAuth(
+          effectiveConnectionAuth(connection),
+          upstream,
+          { baseUrl: connection.baseUrl },
+        );
+        if (!backupAuth.ok) {
+          return null;
+        }
+        const backupAdapter = buildConnectionAdapter(
+          connection,
+          backupAuth.resolved,
+          // `useNativeWebSearch` carries over from the primary: it is a
+          // property of this request's web-search config, and every managed
+          // backup pin either supports native search or ignores the flag.
+          { ...opts, model: backup.model, provider: upstream },
+        );
+        if (backupAdapter === null) {
+          return null;
+        }
+        return {
+          provider: backupAdapter,
+          overrideProfile,
+          // Always true: this callback is wired only on the managed proxy, so
+          // the backup route runs through it too and its `X-Vellum-*` billing
+          // metadata reaches our own backend, never a third party.
+          forwardUsageAttributionHeaders: true,
+        };
+      } catch (err) {
+        log.warn(
+          { err, connectionName: connection.name, callSite },
+          "Failed to resolve a backup profile route; keeping the original error",
+        );
+        return null;
+      }
+    };
+  }
+
   // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
   // request is routed through the Vellum-managed proxy. They carry billing
   // metadata for our own backend. Forwarding them to a third-party endpoint
@@ -304,8 +421,15 @@ export function createAdapterFromConnection(
               ? "no-auth"
               : undefined,
       connectionName: connection.name,
+      // Both escalations are managed-route only. A BYOK, oauth-subscription,
+      // or no-auth connection must never fall back: the install may hold no
+      // credential for the backup profile's provider, and only the managed
+      // column carries `fallbackProfile` pointers in the first place.
       ...(isManagedProxy
-        ? { refreshCredentialProvider: makeCredentialRefresher() }
+        ? {
+            refreshCredentialProvider: makeCredentialRefresher(),
+            resolveFallbackRoute: makeFallbackRouteResolver(),
+          }
         : {}),
     }),
   );
