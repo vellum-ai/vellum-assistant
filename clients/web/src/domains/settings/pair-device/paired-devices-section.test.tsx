@@ -70,6 +70,9 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 const { PairedDevicesSection } = await import("./paired-devices-section");
 
+/** The list poll's arm delay, telling it apart from the relative-age tick. */
+const POLL_INTERVAL_MS = 5_000;
+
 const HASH_A = "aaaabbbbccccdddd0000111122223333";
 const HASH_B = "eeeeffff00001111aaaabbbbccccdddd";
 
@@ -295,7 +298,10 @@ describe("PairedDevicesSection", () => {
 
   test("polls while a pairing code is live and refreshes once more when it ends", async () => {
     const timerHarness = createTimerHarness();
-    const livePolls = () => timerHarness.timers.filter((t) => !t.cleared);
+    const livePolls = () =>
+      timerHarness.timers.filter(
+        (t) => !t.cleared && t.delay === POLL_INTERVAL_MS,
+      );
     timerHarness.install();
 
     try {
@@ -339,11 +345,38 @@ describe("PairedDevicesSection", () => {
     timerHarness.install();
     try {
       await renderExpanded([device()]);
-      expect(timerHarness.timers).toHaveLength(0);
+      expect(
+        timerHarness.timers.filter((t) => t.delay === POLL_INTERVAL_MS),
+      ).toHaveLength(0);
       expect(listCalls).toEqual(["self"]);
     } finally {
       timerHarness.restore();
     }
+  });
+
+  test("a device seen inside the activity window reads Active now", async () => {
+    await renderExpanded([device({ lastUsedAt: Date.now() - 2 * 60 * 1000 })]);
+
+    expect(screen.getByText(/^Paired \d.+ · Active now$/)).toBeTruthy();
+  });
+
+  test("an older device reads a relative last-used label", async () => {
+    await renderExpanded([
+      device({ lastUsedAt: Date.now() - 3 * 60 * 60 * 1000 }),
+    ]);
+
+    expect(
+      screen.getByText(/^Paired \d.+ · Last used 3 hours ago$/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Active now/)).toBeNull();
+  });
+
+  test("a device never seen drops the last-used clause entirely", async () => {
+    await renderExpanded([device({ lastUsedAt: null })]);
+
+    expect(screen.getByText(/^Paired \d\S+$/)).toBeTruthy();
+    expect(screen.queryByText(/Last used/)).toBeNull();
+    expect(document.body.textContent).not.toContain("unknown");
   });
 
   test("a failed revoke keeps the dialog open with the error", async () => {

@@ -5,8 +5,13 @@ import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 import { currentLocale, useTranslation, type TFunction } from "@/i18n";
+import type { LocalPairedDeviceRecord } from "@/runtime/local-mode-host";
 
+import { formatRelativeAge, useRelativeAgeTick } from "./relative-age";
 import { usePairedDevices } from "./use-paired-devices";
+
+/** Wider than the gateway's stamp debounce, so the label cannot flap. */
+const ACTIVE_NOW_WINDOW_MS = 10 * 60 * 1000;
 
 function shortHash(hashedDeviceId: string): string {
   return hashedDeviceId.slice(0, 12);
@@ -25,6 +30,28 @@ function formatDeviceDate(
   return epochMs === null
     ? t("pairedDevicesSection.dateUnknown")
     : new Date(epochMs).toLocaleDateString(currentLocale());
+}
+
+/**
+ * The pairing date, plus a relative activity label once the device has been
+ * seen. Anything inside the window collapses to "Active now", since the
+ * gateway debounces its stamp and a finer reading would be precision the value
+ * does not have. A device never seen gets no activity clause at all.
+ */
+function activityLine(
+  t: TFunction<"settings">,
+  device: LocalPairedDeviceRecord,
+): string {
+  const paired = formatDeviceDate(t, device.issuedAt);
+  if (device.lastUsedAt === null) {
+    return t("pairedDevicesSection.pairedLine", { paired });
+  }
+  return Date.now() - device.lastUsedAt <= ACTIVE_NOW_WINDOW_MS
+    ? t("pairedDevicesSection.pairedActiveLine", { paired })
+    : t("pairedDevicesSection.pairedAndUsedLine", {
+        paired,
+        lastUsed: formatRelativeAge(device.lastUsedAt),
+      });
 }
 
 interface PairedDevicesSectionProps {
@@ -49,6 +76,10 @@ export function PairedDevicesSection({
   const { t } = useTranslation("settings");
   const controller = usePairedDevices({ pollWhilePairing, revalidateKey });
   const { devices, confirmTarget } = controller;
+
+  // Activity labels are formatted from a fixed instant, and the list only
+  // refetches on its own while pairing, so without a tick they freeze.
+  useRelativeAgeTick(devices?.some((d) => d.lastUsedAt !== null) ?? false);
 
   if (devices === null || devices.length === 0) {
     return null;
@@ -87,10 +118,7 @@ export function PairedDevicesSection({
                       )}
                     </span>
                     <span className="text-body-medium-default text-[var(--content-tertiary)]">
-                      {t("pairedDevicesSection.datesLine", {
-                        paired: formatDeviceDate(t, device.issuedAt),
-                        lastUsed: formatDeviceDate(t, device.lastUsedAt),
-                      })}
+                      {activityLine(t, device)}
                     </span>
                   </div>
                   <Button
