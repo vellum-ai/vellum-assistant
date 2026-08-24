@@ -92,7 +92,7 @@ export const PROVIDER_SEED_DATA: Record<
     // base URL override (see GMAIL_API_BASE_URL) for their short paths.
     baseUrl: "https://www.googleapis.com",
     displayLabel: "Google",
-    description: "Gmail, Calendar, Drive, and Contacts",
+    description: "Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
     logoUrl: "https://cdn.simpleicons.org/google",
@@ -104,6 +104,8 @@ export const PROVIDER_SEED_DATA: Record<
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/calendar.events",
       "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/presentations",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/contacts.readonly",
     ],
@@ -133,6 +135,18 @@ export const PROVIDER_SEED_DATA: Record<
       },
       {
         hostPattern: "docs.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "sheets.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "slides.googleapis.com",
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",

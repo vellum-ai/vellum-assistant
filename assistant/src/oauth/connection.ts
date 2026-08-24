@@ -3,7 +3,12 @@ export interface OAuthConnectionRequest {
   path: string; // relative, e.g. "/2/tweets"
   query?: Record<string, string | string[]>;
   headers?: Record<string, string>;
-  body?: unknown; // JSON-serializable
+  /**
+   * A string is forwarded to the provider verbatim under the caller's own
+   * `Content-Type` (multipart, XML, form-encoded). Anything else is
+   * JSON-serialized and sent as `application/json`.
+   */
+  body?: unknown;
   /**
    * Override the connection's default base URL for this request.
    * Required for providers that span multiple API hosts sharing
