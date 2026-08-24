@@ -20,17 +20,22 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
 let retrieveResponse: AutoTopUpConfigResponse;
+let retrieveShouldFail = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingAutoTopUpRetrieve: () =>
-    Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
+  organizationsBillingAutoTopUpRetrieve: () => {
+    if (retrieveShouldFail) {
+      return Promise.reject(new Error("org header missing"));
+    }
+    return Promise.resolve({ data: retrieveResponse, response: { ok: true } });
+  },
 }));
 
 // Stub the Stripe setup modal: these tests only assert it is opened/closed.
@@ -44,13 +49,14 @@ mock.module(
 
 import * as orgReadyModule from "@/hooks/use-is-org-ready";
 
-// Drives the org-readiness gate. `true` matches the default test environment
-// (no platform session); the gating test flips it to simulate a platform
-// session whose org store has not hydrated yet.
-let orgReady = true;
+// Drives the org-readiness gate. `"ready"` matches the default test
+// environment (no platform session); the gating tests flip it to simulate a
+// platform session whose org store is still hydrating ("resolving") or
+// produced no usable org ("unavailable").
+let orgReadiness: orgReadyModule.OrgHeaderReadiness = "ready";
 mock.module("@/hooks/use-is-org-ready", () => ({
   ...orgReadyModule,
-  useIsOrgReady: () => orgReady,
+  useOrgHeaderReadiness: () => orgReadiness,
 }));
 
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
@@ -99,7 +105,8 @@ function wrap(config?: AutoTopUpConfigResponse) {
 
 beforeEach(() => {
   retrieveResponse = { ...DISABLED_CONFIG };
-  orgReady = true;
+  retrieveShouldFail = false;
+  orgReadiness = "ready";
 });
 
 afterEach(cleanup);
@@ -164,9 +171,9 @@ describe("PaymentMethodsCard add button", () => {
   });
 });
 
-describe("PaymentMethodsCard before the org store is ready", () => {
-  test("shows loading, never the Add button or the error notice", () => {
-    orgReady = false;
+describe("PaymentMethodsCard org readiness", () => {
+  test("shows loading while the org store hydrates, never the Add button or the error notice", () => {
+    orgReadiness = "resolving";
     const { container } = render(wrap());
 
     expect(container.textContent).toContain("Loading…");
@@ -174,6 +181,21 @@ describe("PaymentMethodsCard before the org store is ready", () => {
       container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();
     expect(container.textContent).not.toContain("Failed to load");
+  });
+
+  test("surfaces the error state when org resolution concluded without an org", async () => {
+    orgReadiness = "unavailable";
+    retrieveShouldFail = true;
+    const { container } = render(wrap());
+
+    await waitFor(() => {
+      if (!container.textContent?.includes("Failed to load")) {
+        throw new Error("error notice not shown");
+      }
+    });
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).toBeNull();
   });
 });
 

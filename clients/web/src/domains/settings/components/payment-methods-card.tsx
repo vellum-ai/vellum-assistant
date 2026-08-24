@@ -8,8 +8,8 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
-import { useAutoTopUpConfigQuery } from "@/domains/settings/hooks/use-auto-top-up-config";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useTranslation } from "@/i18n";
 
 export interface PaymentMethodCardEntry {

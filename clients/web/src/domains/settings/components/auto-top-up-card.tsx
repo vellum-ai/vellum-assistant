@@ -24,8 +24,8 @@ import {
   type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
-import { useAutoTopUpConfigQuery } from "@/domains/settings/hooks/use-auto-top-up-config";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import { useTranslation } from "@/i18n";
 import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";

@@ -2,10 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   organizationsBillingAutoTopUpConfirmSetupIntentCreateMutation,
-  organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { organizationsBillingAutoTopUpRetrieve } from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
 export const PM_SAVED_POLL_INTERVAL_MS = 1500;
@@ -14,42 +14,53 @@ export const PM_SAVED_MAX_POLL_MS = 20_000;
 /**
  * Returns the follow-up for `AutoTopUpPaymentMethodModal`'s
  * `onSavedOptimistic`: the `setup_intent.succeeded` webhook persists
- * `stripe_payment_method_id` asynchronously, so a single invalidate+refetch
- * can race the webhook and leave the cache stale. Poll until
- * `stripe_payment_method_updated_at` actually advances past its pre-save
- * value, with a timeout so this never spins forever if the webhook never
- * lands. Always resolves.
+ * `stripe_payment_method_id` asynchronously, so the config GET can keep
+ * answering "no card" for a while after Stripe has confirmed the save.
+ *
+ * Stripe already confirmed the SetupIntent by the time this runs, so the
+ * cached config is flipped to `has_payment_method: true` up front; the
+ * Payment Methods card would otherwise keep offering Add instead of the
+ * saved card until the webhook lands. The poll then reads the endpoint
+ * OUTSIDE the query cache, because a cache-writing refetch would clobber
+ * that flip with a pre-webhook "no card" response. Only a response whose
+ * `stripe_payment_method_updated_at` advanced past its pre-save value is
+ * written back, filling in brand/last4. If the webhook still hasn't landed
+ * at the timeout, the flipped config stays put and the query's normal
+ * refetches (focus, remount) reconcile with the server. Always resolves.
  */
 export function usePaymentMethodSavedPoll(): () => Promise<void> {
   const queryClient = useQueryClient();
 
   return async () => {
-    // Snapshot the marker before invalidating so the comparison below is
-    // against the pre-save value.
-    const priorMarker =
-      queryClient.getQueryData<AutoTopUpConfigResponse>(
-        organizationsBillingAutoTopUpRetrieveQueryKey(),
-      )?.stripe_payment_method_updated_at ?? null;
-    const start = Date.now();
+    const prior = queryClient.getQueryData<AutoTopUpConfigResponse>(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+    );
+    const priorMarker = prior?.stripe_payment_method_updated_at ?? null;
 
-    try {
-      await queryClient.invalidateQueries({
-        queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
-      });
-    } catch {
-      // fall through to polling below
+    if (prior != null && !prior.has_payment_method) {
+      organizationsBillingAutoTopUpRetrieveSetQueryData(
+        queryClient,
+        undefined,
+        { ...prior, has_payment_method: true },
+      );
     }
 
+    const start = Date.now();
     while (Date.now() - start < PM_SAVED_MAX_POLL_MS) {
       try {
-        const refetched = await queryClient.fetchQuery(
-          organizationsBillingAutoTopUpRetrieveOptions(),
-        );
+        const { data: refetched } =
+          await organizationsBillingAutoTopUpRetrieve();
         if (
+          refetched != null &&
           refetched.has_payment_method &&
           refetched.stripe_payment_method_updated_at !== priorMarker
         ) {
-          break;
+          organizationsBillingAutoTopUpRetrieveSetQueryData(
+            queryClient,
+            undefined,
+            refetched,
+          );
+          return;
         }
       } catch {
         // sleep and retry
