@@ -10,7 +10,7 @@ import { getLogger } from "../../util/logger.js";
 import { initializeProviders } from "../registry.js";
 import { findConnectionsUsingCredential } from "./credential-usage.js";
 
-const log = getLogger("runtime-http");
+const log = getLogger("credential-rotation");
 
 export async function refreshProvidersAfterSecretChange(): Promise<void> {
   clearEmbeddingBackendCache();
