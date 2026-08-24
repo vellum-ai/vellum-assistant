@@ -11,8 +11,8 @@
  * gate if another platform grows a home-screen surface.
  *
  * Nothing secret crosses the bridge. The snapshot carries conversation ids,
- * titles, group names and counts, never tokens, and the widget process reads
- * it without ever holding a session of its own.
+ * titles, group names, counts and the assistant's avatar, never tokens, and
+ * the widget process reads it without ever holding a session of its own.
  */
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
@@ -81,7 +81,7 @@ let pendingClearRetry: Promise<boolean> | null = null;
  * how a shell and a web bundle that disagree degrade to the empty state
  * instead of to garbled rows.
  */
-export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 1;
+export const WIDGET_SNAPSHOT_SCHEMA_VERSION = 2;
 
 /**
  * One row as a widget draws it. No timestamp: the producer sends the rows in
@@ -98,6 +98,28 @@ export interface WidgetSnapshotConversation {
   isProcessing: boolean;
 }
 
+/**
+ * The assistant's avatar, so the widgets draw the user's own colors and face
+ * rather than a fixed brand palette.
+ *
+ * The bytes travel with the snapshot for the reason the Live Activity's do:
+ * the widget extension has no network stack and no auth, so an avatar handed
+ * over as a URL would never resolve.
+ *
+ * `kind` mirrors `AvatarRender`. A `character` carries the accent it is drawn
+ * with and a rasterized face; a custom `image` carries the photo and no accent,
+ * since there is no single color to match and the widget blurs the photo
+ * instead; `none` carries neither and leaves the widgets on their static brand
+ * palette. `imageBase64` is raw base64 with no data-URI prefix, and is null
+ * whenever the encode found nothing that fit, which every reader must treat as
+ * ordinary rather than as a failure.
+ */
+export interface WidgetSnapshotAvatar {
+  kind: "character" | "image" | "none";
+  accentHex: string | null;
+  imageBase64: string | null;
+}
+
 export interface WidgetSnapshotPayload {
   schemaVersion: typeof WIDGET_SNAPSHOT_SCHEMA_VERSION;
   /** ISO 8601 UTC, stamped by the producer as the payload is built. */
@@ -106,6 +128,7 @@ export interface WidgetSnapshotPayload {
   inProgressCount: number;
   /** The most recent non-archived conversations, newest first, at most three. */
   conversations: WidgetSnapshotConversation[];
+  avatar: WidgetSnapshotAvatar;
 }
 
 interface WidgetSnapshotPlugin {

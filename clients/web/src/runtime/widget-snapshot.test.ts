@@ -176,6 +176,7 @@ const SNAPSHOT: WidgetSnapshotPayload = {
   unreadCount: 2,
   inProgressCount: 1,
   conversations: [],
+  avatar: { kind: "character", accentHex: "#E9642F", imageBase64: null },
 };
 
 beforeEach(() => {

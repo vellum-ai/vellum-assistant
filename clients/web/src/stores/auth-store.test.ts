@@ -329,7 +329,7 @@ mock.module("@/lib/auth/session-cleanup", () => ({
 // a partial shape would shadow the other exports for later test files.
 const clearWidgetSnapshotMock = mock(async () => true);
 mock.module("@/runtime/widget-snapshot", () => ({
-  WIDGET_SNAPSHOT_SCHEMA_VERSION: 1,
+  WIDGET_SNAPSHOT_SCHEMA_VERSION: 2,
   isWidgetSnapshotSyncAvailable: () => false,
   readWidgetSnapshotAssistantId: () => null,
   syncWidgetSnapshot: async () => false,
