@@ -57,12 +57,23 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+let mintedDraftCount = 0;
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: () => {},
   // What the draft mint calls to bring the chat on screen. Stood in with the
   // plain reveal the real one falls through to, since no app is open here.
   revealConversationView: () => {
     useViewerStore.getState().setMainView("chat");
+  },
+  // The mint's fresh-surface preparation, stood in with the parts this
+  // harness observes: a fresh key, selected and brought on screen. The
+  // process-store resets the real one performs have no readers here.
+  prepareFreshConversation: () => {
+    mintedDraftCount += 1;
+    const draftId = `voice-draft-${mintedDraftCount}`;
+    useViewerStore.getState().setMainView("chat");
+    useConversationStore.getState().setActiveConversationId(draftId);
+    return draftId;
   },
 }));
 
