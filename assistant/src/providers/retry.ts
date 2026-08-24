@@ -25,6 +25,14 @@ import {
   isAnthropicDelegatingGateway,
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
+import {
+  recordFallbackServed,
+  recordPrimaryFailure,
+  recordPrimarySuccess,
+  releaseRecoveryProbe,
+  shouldSkipPrimary,
+  tryAcquireRecoveryProbe,
+} from "./fallback-breaker.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import {
   isAdaptiveThinkingOnlyModel,
@@ -1090,12 +1098,91 @@ export class RetryProvider implements Provider {
         this.options.forwardUsageAttributionHeaders === true,
     });
 
+    // Only a route with a wired backup consults the circuit breaker. BYOK,
+    // oauth-subscription, and no-auth routes have no escalation hook, so they
+    // keep today's behavior exactly.
+    const breakerUpstream =
+      this.options.resolveFallbackRoute !== undefined ? this.name : null;
+
+    if (breakerUpstream !== null && canReRouteToFallbackProfile(options)) {
+      if (shouldSkipPrimary(breakerUpstream)) {
+        // The primary is known to be down, so its retry budget would only add
+        // latency to an answer the backup was always going to give.
+        log.info(
+          {
+            provider: this.name,
+            connectionName: this.options.connectionName,
+          },
+          "Skipping the primary route while its fallback breaker is open",
+        );
+        fallbackAttempted = true;
+        const served = await this.sendOnFallbackRoute(
+          messages,
+          options,
+          undefined,
+          false,
+        );
+        if (served !== null) {
+          return served;
+        }
+        // No backup route applies after all (the config changed under the
+        // remembered outage), so the primary is the only route left. The
+        // escalation path below stays disabled: it would resolve the same
+        // options against the same config and get the same nothing.
+      } else if (tryAcquireRecoveryProbe(breakerUpstream)) {
+        log.info(
+          {
+            provider: this.name,
+            connectionName: this.options.connectionName,
+          },
+          "Probing the primary route for recovery",
+        );
+        try {
+          const response = await this.inner.sendMessage(
+            messagesForAttempt,
+            normalizedOptions,
+          );
+          releaseRecoveryProbe(breakerUpstream, true);
+          return response;
+        } catch (error) {
+          // The single probe stands in for the whole retry budget while the
+          // breaker is open, so a failure the retry loop would have exhausted
+          // itself against means the outage continues. Any other failure means
+          // the route answered the request, which is all the probe asked.
+          const outage = isFallbackEligibleError(error, {
+            retriesExhausted: true,
+            credentialSource: this.options.credentialSource,
+          });
+          releaseRecoveryProbe(breakerUpstream, !outage);
+          this.attributeCredential(error);
+          if (!outage) {
+            throw error;
+          }
+          fallbackAttempted = true;
+          const served = await this.sendOnFallbackRoute(
+            messages,
+            options,
+            error,
+            true,
+          );
+          if (served !== null) {
+            // No trip needed: the failed probe already re-tripped the breaker
+            // with the longer cooldown a repeat outage earns.
+            return served;
+          }
+        }
+      }
+    }
+
     while (true) {
       try {
         const result = await this.inner.sendMessage(
           messagesForAttempt,
           normalizedOptions,
         );
+        if (breakerUpstream !== null) {
+          recordPrimarySuccess(breakerUpstream);
+        }
         return result;
       } catch (error) {
         if (
@@ -1205,6 +1292,9 @@ export class RetryProvider implements Provider {
           })
         ) {
           fallbackAttempted = true;
+          if (breakerUpstream !== null) {
+            recordPrimaryFailure(breakerUpstream);
+          }
           const fallbackResult = await this.sendOnFallbackRoute(
             messages,
             options,
@@ -1212,6 +1302,12 @@ export class RetryProvider implements Provider {
             retriesExhausted,
           );
           if (fallbackResult !== null) {
+            // A completed backup serve is proof the primary is down and the
+            // backup can carry the traffic, so later requests skip the retry
+            // budget until a probe says the primary is back.
+            if (breakerUpstream !== null) {
+              recordFallbackServed(breakerUpstream);
+            }
             return fallbackResult;
           }
         }
@@ -1265,6 +1361,10 @@ export class RetryProvider implements Provider {
    * caller rethrows the original error unchanged); throws the fallback
    * error (with the original error attached as `cause`) when the backup
    * attempt itself fails.
+   *
+   * `originalError` is undefined when the circuit breaker skipped the primary
+   * outright: there is no failure of this request to report or to attach, only
+   * the remembered outage of an earlier one.
    */
   private async sendOnFallbackRoute(
     messages: Message[],
@@ -1376,17 +1476,23 @@ export class RetryProvider implements Provider {
       },
     );
 
+    const escalationCause =
+      originalError === undefined
+        ? { errorType: "breaker_open" }
+        : {
+            errorType: fallbackErrorType(originalError, retriesExhausted),
+            message:
+              originalError instanceof Error
+                ? originalError.message
+                : String(originalError),
+          };
     log.warn(
       {
         provider: this.name,
         connectionName: this.options.connectionName,
         fallbackProvider: route.provider.name,
         overrideProfile: route.overrideProfile,
-        errorType: fallbackErrorType(originalError, retriesExhausted),
-        message:
-          originalError instanceof Error
-            ? originalError.message
-            : String(originalError),
+        ...escalationCause,
       },
       "Falling back to backup profile",
     );
@@ -1416,7 +1522,11 @@ export class RetryProvider implements Provider {
       }
       return response;
     } catch (fallbackError) {
-      if (fallbackError instanceof Error && fallbackError.cause === undefined) {
+      if (
+        originalError !== undefined &&
+        fallbackError instanceof Error &&
+        fallbackError.cause === undefined
+      ) {
         fallbackError.cause = originalError;
       }
       throw fallbackError;
