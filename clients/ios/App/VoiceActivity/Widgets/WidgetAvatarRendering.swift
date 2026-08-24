@@ -226,7 +226,13 @@ extension SnapshotEntry {
     /// and a card that changed color half an hour after the phone was last
     /// unlocked would be the widget lying about something it does know.
     var avatarKind: WidgetAvatarKind {
-        WidgetAvatarKind(snapshotKind: snapshot?.avatar?.kind)
+        let kind = WidgetAvatarKind(snapshotKind: snapshot?.avatar?.kind)
+        if kind == .image && avatarImage == nil {
+            // An image avatar whose bytes were dropped for budget or fail to
+            // decode has no photo to blur; the brand fallback stands in.
+            return .none
+        }
+        return kind
     }
 
     /// The avatar's raster, decoded. `nil` for an avatar carrying none and for
@@ -236,9 +242,14 @@ extension SnapshotEntry {
     }
 
     /// The colors to theme this rendering with, already fallen back to the
-    /// static brand card when there is no accent.
+    /// static brand card when there is no accent. Only a character avatar
+    /// themes the card: any other kind keeps the static palette even if a
+    /// malformed or newer-schema snapshot carries an accent alongside it.
     var avatarPalette: WidgetAvatarPalette {
-        WidgetAvatarPalette(accentHex: snapshot?.avatar?.accentHex)
+        guard avatarKind == .character else {
+            return WidgetAvatarPalette(accentHex: nil)
+        }
+        return WidgetAvatarPalette(accentHex: snapshot?.avatar?.accentHex)
     }
 }
 
