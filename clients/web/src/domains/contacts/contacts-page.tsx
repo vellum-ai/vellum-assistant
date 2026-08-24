@@ -50,13 +50,11 @@ import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
 
 /**
- * Hardcoded fallback for assistants that don't expose
- * `/v1/channels/available` yet. Needed for backward compatibility
- * with older gateway versions.
+ * The channel set for an assistant that serves no `/v1/channels/available`.
  *
- * Deliberately not kept in step with the daemon's channel set: an assistant
- * without the route predates every channel added since it, so a row here for
- * one of those would offer a setup flow that assistant cannot run.
+ * Holds only channels such an assistant can actually run, which is why it does
+ * not track the daemon's list: a row here for a channel that assistant lacks
+ * would offer a setup flow that goes nowhere.
  */
 const DEFAULT_CHANNELS: ChannelInfo[] = [
   {
@@ -175,10 +173,10 @@ export function ContactsPage({
         signal,
         throwOnError: false,
       });
-      // Only a 404 means the assistant predates the route. A missing response
-      // is a request that failed, and answering it with the fallback would
-      // render a channel list that looks authoritative and is years stale,
-      // with nothing to tell the reader the fetch never landed.
+      // The fallback answers one case: an assistant with no availability
+      // route, which serves 404. Any other failure means the channel set is
+      // unknown, and a list rendered from a failed request reads as
+      // authoritative while naming channels this assistant may not have.
       if (response?.status === 404) {
         return {
           channels: DEFAULT_CHANNELS,
@@ -196,6 +194,10 @@ export function ContactsPage({
   });
 
   const availableChannels = availabilityQuery.data ?? EMPTY_CHANNELS;
+  // An empty list and a failed lookup both render no channels, so the failure
+  // has to say so. Without this the page claims the assistant has no channels
+  // to set up, which is a different and wrong statement.
+  const channelsLoadFailed = availabilityQuery.isError;
 
   const contactsData = contactsQuery.data;
   const guardian = useMemo(
@@ -578,6 +580,7 @@ export function ContactsPage({
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
+              channelsLoadFailed={channelsLoadFailed}
               a2aEnabled={a2aChannel}
               onSave={(patch) => {
                 updateMutation.mutate({
@@ -604,6 +607,7 @@ export function ContactsPage({
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
+              channelsLoadFailed={channelsLoadFailed}
               a2aEnabled={a2aChannel}
               onSave={(patch) => {
                 updateMutation.mutate({

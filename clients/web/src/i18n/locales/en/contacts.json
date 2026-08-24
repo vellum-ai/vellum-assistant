@@ -110,7 +110,8 @@
     "revokeConfirmTitle": "Revoke {channel}",
     "revokeConfirmMessage": "This will disconnect the verified channel. The contact will need to re-verify to use this channel again.",
     "linkAccount": "Link account",
-    "setupDefault": "Invite"
+    "setupDefault": "Invite",
+    "loadFailed": "Couldn't load channels. Check your connection and try again."
   },
   "linkAccountDialog": {
     "title": "Link {channel} account",

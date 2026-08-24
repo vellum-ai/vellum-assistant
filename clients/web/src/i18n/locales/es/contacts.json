@@ -110,7 +110,8 @@
     "revokeConfirmTitle": "Revocar {channel}",
     "revokeConfirmMessage": "Esto desconectará el canal verificado. El contacto tendrá que volver a verificarse para usarlo de nuevo.",
     "linkAccount": "Vincular cuenta",
-    "setupDefault": "Invitar"
+    "setupDefault": "Invitar",
+    "loadFailed": "No se pudieron cargar los canales. Comprueba tu conexión e inténtalo de nuevo."
   },
   "linkAccountDialog": {
     "title": "Vincular una cuenta de {channel}",

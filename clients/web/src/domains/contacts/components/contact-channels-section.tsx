@@ -119,6 +119,12 @@ export function buildVisibleChannels(
 interface ContactChannelsSectionProps {
   contactChannels: ContactChannelPayload[];
   availableChannels?: ChannelInfo[];
+  /**
+   * The channel list could not be fetched, so an empty list means unknown
+   * rather than none. Rendered as a notice, since the two are indistinguishable
+   * otherwise and only one of them is the assistant's fault.
+   */
+  channelsLoadFailed?: boolean;
   a2aEnabled?: boolean;
   setupLabel?: string;
   verifyLoading?: boolean;
@@ -165,6 +171,7 @@ function ChannelIcon({
 export function ContactChannelsSection({
   contactChannels,
   availableChannels,
+  channelsLoadFailed,
   a2aEnabled,
   setupLabel,
   verifyLoading,
@@ -208,6 +215,15 @@ export function ContactChannelsSection({
   return (
     <>
       <div className="flex flex-col">
+        {channelsLoadFailed && (
+          <div
+            className="px-1 py-2 text-sm"
+            style={{ color: "var(--text-muted)" }}
+            role="status"
+          >
+            {t("contactChannelsSection.loadFailed")}
+          </div>
+        )}
         {visibleChannels.map((info, index) => {
           const existing = channelsByType.get(info.id);
           return (
