@@ -22,6 +22,7 @@ interface ChatConversationHeaderProps {
   showInternalActions: boolean;
   onArchive: (c: Conversation) => void;
   onUnarchive: (c: Conversation) => void;
+  onDelete: (c: Conversation) => void;
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
@@ -35,6 +36,7 @@ export function ChatConversationHeader({
   showInternalActions,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   onMarkRead,
   onPinToggle,
@@ -91,6 +93,11 @@ export function ChatConversationHeader({
       onRename={() => onRename(activeConversation)}
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
+      onDelete={
+        activeConversation.conversationId && !activeConversation.draft
+          ? () => onDelete(activeConversation)
+          : undefined
+      }
       onForkConversation={
         !isReadonly &&
         headerSupplements?.hasPersistedMessage &&

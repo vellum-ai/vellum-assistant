@@ -78,35 +78,62 @@ const messageComplete = (messageId: string): AssistantEvent =>
     messageId,
   }) as AssistantEvent;
 
+/**
+ * The model drawing a plan: a `ui_show` tool call on the turn's own stream,
+ * which is how a plan reaches a channel.
+ *
+ * Built as the tool call rather than as a `ui_surface_show` event, because the
+ * event goes to the conversation sink and no channel consumes that. A helper
+ * that emitted the event would exercise a path production never takes.
+ */
 const taskProgressShow = (
-  surfaceId: string,
   steps: Array<{ label: string; status: string; detail?: string }>,
   templateTitle?: string,
 ): AssistantEvent =>
   ({
-    type: "ui_surface_show",
+    type: "tool_use_start",
+    toolName: "ui_show",
     conversationId: "conv-stream",
-    surfaceId,
-    surfaceType: "card",
-    data: {
+    toolUseId: "tool-ui-show",
+    input: {
+      surface_type: "card",
       title: "Task progress",
-      template: "task_progress",
-      templateData: {
-        ...(templateTitle ? { title: templateTitle } : {}),
-        steps,
+      data: {
+        template: "task_progress",
+        templateData: {
+          ...(templateTitle ? { title: templateTitle } : {}),
+          steps,
+        },
       },
     },
   }) as AssistantEvent;
 
+/**
+ * The successful result of the tool call above. A plan is only applied once its
+ * call reports success, so a test that shows a plan without one asserts that
+ * nothing renders.
+ */
+const toolOk = (toolUseId: string, toolName: string): AssistantEvent =>
+  ({
+    type: "tool_result",
+    toolName,
+    result: "ok",
+    conversationId: "conv-stream",
+    toolUseId,
+  }) as AssistantEvent;
+
 const taskProgressUpdate = (
-  surfaceId: string,
   steps: Array<{ label: string; status: string }>,
 ): AssistantEvent =>
   ({
-    type: "ui_surface_update",
+    type: "tool_use_start",
+    toolName: "ui_update",
     conversationId: "conv-stream",
-    surfaceId,
-    data: { templateData: { steps } },
+    toolUseId: "tool-ui-update",
+    input: {
+      surface_id: "surface-1",
+      data: { templateData: { steps } },
+    },
   }) as AssistantEvent;
 
 const tick = (ms: number): Promise<void> =>
@@ -431,19 +458,21 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(
-      taskProgressShow("surface-1", [
+      taskProgressShow([
         { label: "Search docs", status: "in_progress" },
         { label: "Summarize", status: "pending" },
       ]),
     );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
+      taskProgressUpdate([
         { label: "Search docs", status: "completed" },
         { label: "Summarize", status: "in_progress" },
       ]),
     );
+    session.observeEvent(toolOk("tool-ui-update", "ui_update"));
     await tick(15);
 
     expect(slackStreamOps().at(-1)).toEqual({
@@ -477,22 +506,59 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(
-      taskProgressShow("surface-1", [
-        { label: "Search docs", status: "in_progress" },
-      ]),
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
     );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
-        { label: "Search docs", status: "in_progress" },
-      ]),
+      taskProgressUpdate([{ label: "Search docs", status: "in_progress" }]),
     );
+    session.observeEvent(toolOk("tool-ui-update", "ui_update"));
     await tick(15);
 
     // The start already delivered this exact plan state; a matching update
     // must not spend an append on it.
     expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
+  });
+
+  test("does not advance a plan the surface tool rejected", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
+    );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
+    session.observeEvent(textDelta("Working on it."));
+    await tick(15);
+
+    // A stale surface id or a malformed payload is rejected by the surface
+    // tool. The call is an intention, so a plan applied on sight would show a
+    // step completed that the canonical surface never accepted.
+    session.observeEvent(
+      taskProgressUpdate([{ label: "Search docs", status: "completed" }]),
+    );
+    session.observeEvent({
+      type: "tool_result",
+      toolName: "ui_update",
+      result: "Error: unknown surface_id",
+      isError: true,
+      conversationId: "conv-stream",
+      toolUseId: "tool-ui-update",
+    } as AssistantEvent);
+    await tick(15);
+    await session.finish();
+
+    const statuses = slackStreamOps()
+      .flatMap((op) => (op.tasks ?? []) as Array<{ status?: string }>)
+      .map((task) => task.status);
+    expect(statuses).not.toContain("completed");
   });
 
   test("leaves progress to stop when the task-only append fails", async () => {
@@ -513,16 +579,14 @@ describe("createSlackReplySession", () => {
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressShow("surface-1", [
-        { label: "Search docs", status: "in_progress" },
-      ]),
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
     );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
-        { label: "Search docs", status: "completed" },
-      ]),
+      taskProgressUpdate([{ label: "Search docs", status: "completed" }]),
     );
+    session.observeEvent(toolOk("tool-ui-update", "ui_update"));
     await tick(15);
     const reconciliation = await session.finish();
 
@@ -727,19 +791,21 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(
-      taskProgressShow("surface-1", [
+      taskProgressShow([
         { label: "Search docs", status: "in_progress" },
         { label: "Summarize", status: "pending" },
       ]),
     );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
+      taskProgressUpdate([
         { label: "Search docs", status: "completed" },
         { label: "Summarize", status: "in_progress" },
       ]),
     );
+    session.observeEvent(toolOk("tool-ui-update", "ui_update"));
     session.observeEvent(messageComplete("assistant-msg-1"));
     const reconciliation = await session.finish();
 
@@ -782,11 +848,12 @@ describe("createSlackReplySession", () => {
     session.observeEvent(textDelta("On it — starting now."));
     await tick(15);
     session.observeEvent(
-      taskProgressShow("surface-1", [
+      taskProgressShow([
         { label: "Search docs", status: "in_progress" },
         { label: "Summarize", status: "pending" },
       ]),
     );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
     await tick(15);
     session.observeEvent(messageComplete("assistant-msg-1"));
     await session.finish();
@@ -828,7 +895,6 @@ describe("createSlackReplySession", () => {
 
     session.observeEvent(
       taskProgressShow(
-        "surface-1",
         [
           {
             label: "Check weather",
@@ -840,6 +906,7 @@ describe("createSlackReplySession", () => {
         "Quick Briefing",
       ),
     );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(messageComplete("assistant-msg-1"));

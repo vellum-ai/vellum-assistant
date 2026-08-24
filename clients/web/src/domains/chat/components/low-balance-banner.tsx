@@ -1,6 +1,4 @@
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
-import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 import { useTranslation } from "@/i18n";
@@ -19,25 +17,16 @@ import { useTranslation } from "@/i18n";
 export function LowBalanceBanner() {
   const { t } = useTranslation("chat");
   const dismiss = useLowBalanceBannerStore.use.dismiss();
-  // Native Android is consumption-only: the purchase CTA is hidden and the
-  // subtitle points at the website instead.
-  const isNativeAndroid = useIsNativeAndroid();
-  const subtitle = isNativeAndroid
-    ? ANDROID_BILLING_MESSAGE
-    : t("lowBalanceBanner.subtitle");
+  const subtitle = t("lowBalanceBanner.subtitle");
   return (
     <BillingErrorBanner
       ariaLabel={t("lowBalanceBanner.ariaLabel", { detail: subtitle })}
       title={t("lowBalanceBanner.title")}
       subtitle={subtitle}
-      action={
-        isNativeAndroid
-          ? undefined
-          : {
-              label: t("lowBalanceBanner.addCredits"),
-              onClick: () => useAddCreditsModalStore.getState().setOpen(true),
-            }
-      }
+      action={{
+        label: t("lowBalanceBanner.addCredits"),
+        onClick: () => useAddCreditsModalStore.getState().setOpen(true),
+      }}
       onDismiss={dismiss}
     />
   );

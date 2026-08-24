@@ -175,9 +175,7 @@ const options: BrowserOptions = {
 };
 
 /**
- * Bootstrap Sentry consent gating. Must be called after
- * `migrateDeviceSettings()` so the `device:diagnostics_reporting` key
- * is available when the consent gate reads localStorage.
+ * Bootstrap Sentry consent gating.
  *
  * Also syncs the effective (session-gated) reporting gate to the Electron main
  * process (no-op on web and native mobile) so the main-process Sentry client

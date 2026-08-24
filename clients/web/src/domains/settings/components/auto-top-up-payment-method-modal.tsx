@@ -12,6 +12,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
+import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -98,7 +100,23 @@ function setupIntentIdFromClientSecret(
  *  5. On success, `onSavedOptimistic({ setupIntentId })`, then toast +
  *     `onClose()` once the saved card has settled.
  */
-export function AutoTopUpPaymentMethodModal({
+export function AutoTopUpPaymentMethodModal(
+  props: AutoTopUpPaymentMethodModalProps,
+) {
+  // Native Android saves cards on the web app's billing page in the browser
+  // instead of mounting Stripe Elements in-app.
+  const handsOff = useAndroidBillingHandoff({
+    open: props.open,
+    path: routes.settings.usageBilling,
+    onClose: props.onClose,
+  });
+  if (handsOff) {
+    return null;
+  }
+  return <AutoTopUpPaymentMethodModalContent {...props} />;
+}
+
+function AutoTopUpPaymentMethodModalContent({
   open,
   onClose,
   onSavedOptimistic,

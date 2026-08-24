@@ -24,6 +24,7 @@
     "./connectivity-probe": "./src/connectivity-probe.ts",
     "./csp": "./src/csp.ts",
     "./deep-links": "./src/deep-links.ts",
+    "./desktop-presence-monitor": "./src/desktop-presence-monitor.ts",
     "./device-id": "./src/device-id.ts",
     "./devtools": "./src/devtools.ts",
     "./diagnostics": "./src/diagnostics.ts",

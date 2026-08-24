@@ -48,9 +48,11 @@ import {
   includedMonthlyCreditsUsd,
   usePlanUsageBalance,
 } from "@/hooks/use-plan-usage-balance";
+import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -160,6 +162,9 @@ function RecommendedUpgrade({
   const inverted = useDocumentTheme() === "light" ? "dark" : "light";
   // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
   useCheckoutDismissRefresh();
+  // Native Android renders the same tile but hands the purchase off to this
+  // same billing page on the web app, opened in the browser.
+  const isNativeAndroid = useIsNativeAndroid();
 
   const recommended = nextPackageUp(packages, currentKey);
 
@@ -190,6 +195,10 @@ function RecommendedUpgrade({
 
   const handleUpgrade = async () => {
     if (!recommended) {
+      return;
+    }
+    if (isNativeAndroid) {
+      openBillingPathInBrowser(routes.settings.usageBilling);
       return;
     }
     // Any switch-eligible Pro sub (a clean pin, a customized pin, or an

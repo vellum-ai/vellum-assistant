@@ -27,9 +27,7 @@
   },
   "addCreditsModal": {
     "amount": "Amount",
-    "billingTitle": "Billing",
     "cancel": "Cancel",
-    "close": "Close",
     "configureAutoReload": "Configure Auto-Reload",
     "continue": "Continue",
     "description": "You'll be redirected to Stripe to complete the payment.",

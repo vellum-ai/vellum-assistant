@@ -292,6 +292,7 @@ describe("buildIngressNginxConfig", () => {
 
   test("proxies health and public API traffic to the gateway in remote web mode", () => {
     expect(remoteConf).toContain("location = /healthz {");
+    expect(remoteConf).toContain("location = /readyz {");
     expect(remoteConf).toContain("location ^~ /v1/ {");
     expect(remoteConf).toContain("proxy_pass http://127.0.0.1:7830;");
     expect(remoteConf).toContain("proxy_request_buffering off;");
@@ -319,6 +320,20 @@ describe("buildIngressNginxConfig", () => {
     expect(conf).not.toContain("/healthz { return 404; }");
     expect(conf).toContain("location / {");
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
+  });
+
+  test("proxies /readyz in remote web mode so pairing does not look expired", () => {
+    expect(remoteConf).toContain("location = /readyz {");
+    const readyzStart = remoteConf.indexOf("location = /readyz {");
+    const readyzBlock = remoteConf.slice(
+      readyzStart,
+      remoteConf.indexOf("location ^~ /v1/", readyzStart),
+    );
+    expect(readyzBlock).toContain("proxy_pass http://127.0.0.1:7830;");
+    // Catch-all 404 must come after the exact /readyz location.
+    expect(remoteConf.indexOf("location = /readyz {")).toBeLessThan(
+      remoteConf.lastIndexOf("location / {"),
+    );
   });
 
   test("blocks local-only bootstrap helpers before generic API proxying", () => {
@@ -733,7 +748,7 @@ function spaConfigHash(
   return createHash("sha256")
     .update(
       JSON.stringify({
-        template: 4,
+        template: 5,
         config: {
           mode: "remote-gateway",
           apiBaseUrl: "/v1",
@@ -856,6 +871,7 @@ describe("startRemoteWebIngress", () => {
     );
     expect(conf).toContain("location ^~ /assistant/ {");
     expect(conf).toContain("location ^~ /webhooks/ {");
+    expect(conf).toContain("location = /readyz {");
     const indexHtml = realFs.readFileSync(
       join(ws, "data", "ingress", "assistant-index.html"),
       "utf-8",
@@ -870,6 +886,45 @@ describe("startRemoteWebIngress", () => {
       gatewayPort: 7830,
       remoteWebConfigHash: spaConfigHash(),
     });
+  });
+
+  test("replaces leftover nginx.conf that omitted /readyz when the edge starts", async () => {
+    // sleep stops nginx and leaves the last generated file. The next start
+    // (wake) writes nginx.conf from the current template rather than reuse
+    // that leftover, so a prior file without /readyz cannot keep pairing
+    // broken after boot.
+    const ws = makeWorkspace();
+    mockNginxInstalled();
+    mockNginxSpawn();
+    mockWebDistPresent();
+    mkdirSync(join(ws, "data", "ingress"), { recursive: true });
+    writeFileSync(
+      ingressConfPath(ws),
+      [
+        "location = /healthz {",
+        "  proxy_pass http://127.0.0.1:7830;",
+        "}",
+        "location / {",
+        "  return 404;",
+        "}",
+      ].join("\n"),
+    );
+
+    const result = await startRemoteWebIngress({
+      workspaceDir: ws,
+      gatewayPort: 7830,
+      listenPort: 7845,
+    });
+
+    expect(result.status).toBe("started");
+    const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
+    expect(conf).toContain("location = /readyz {");
+    const readyzStart = conf.indexOf("location = /readyz {");
+    const readyzBlock = conf.slice(
+      readyzStart,
+      conf.indexOf("location ^~ /v1/", readyzStart),
+    );
+    expect(readyzBlock).toContain("proxy_pass http://127.0.0.1:7830;");
   });
 
   test("stamps the assistant label into the served config when provided", async () => {
@@ -1210,6 +1265,8 @@ describe("startRemoteWebIngress", () => {
 
     expect(result.status).toBe("started");
     expect(edge.killed()).toBe(true);
+    const conf = realFs.readFileSync(ingressConfPath(ws), "utf-8");
+    expect(conf).toContain("location = /readyz {");
     expect((readConfig(ws).ingress as Record<string, unknown>).nginx).toEqual({
       listenPort: 7845,
       includeWebApp: true,

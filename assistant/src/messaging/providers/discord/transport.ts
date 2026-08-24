@@ -9,6 +9,7 @@ import { isBusyActivityPhase } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
 import {
+  editDiscordMessage,
   sendDiscordAttachments,
   sendDiscordReply,
   sendDiscordTypingIndicator,
@@ -50,6 +51,16 @@ export const discordTransport: ChannelTransport = {
 
   // Discord clears a typing indicator after ten seconds.
   activityRefreshMs: 8_000,
+
+  async edit(ctx, target) {
+    await editDiscordMessage(
+      await sendTarget(ctx, target.chatId),
+      target.messageId,
+      target.text,
+      { ...(target.emphasis ? { emphasis: target.emphasis } : {}) },
+    );
+    return { ok: true };
+  },
 
   async setActivity(ctx, target) {
     // Discord's typing indicator expires by itself after ten seconds, so a

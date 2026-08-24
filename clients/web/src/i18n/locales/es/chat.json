@@ -231,6 +231,14 @@
   "callSummarySurface": {
     "eventsRecorded": "{count, plural, one {# evento} other {# eventos}} registrados."
   },
+  "cameraDeepLink": {
+    "captureFailed": "No se pudo tomar esa foto. Inténtalo de nuevo.",
+    "close": "Cerrar cámara",
+    "flip": "Cambiar de cámara",
+    "openFailed": "No se pudo abrir la cámara.",
+    "shutter": "Tomar foto",
+    "title": "Tomar una foto"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },
@@ -446,6 +454,7 @@
     "archive": "Archivar",
     "copyConversation": "Copiar conversación completa",
     "copyConversationId": "Copiar ID de conversación",
+    "delete": "Eliminar",
     "forkConversation": "Bifurcar conversación",
     "inspect": "Analizar conversación",
     "markRead": "Marcar como leída",
@@ -529,6 +538,13 @@
     "skipForToday": "Omitir por hoy",
     "subtitle": "El gasto de créditos de Vellum está pausado hasta que tu límite se reinicie a las {resetPhrase}.",
     "title": "Límite diario de créditos alcanzado"
+  },
+  "deleteConversationConfirmDialog": {
+    "cancel": "Cancelar",
+    "confirm": "Eliminar",
+    "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Esta acción no se puede deshacer.",
+    "title": "Eliminar conversación",
+    "untitled": "Sin título"
   },
   "detailPanelStopButton": {
     "tooltip": "Detener"
@@ -1452,6 +1468,9 @@
     "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
     "retryFailed": "No se pudo reintentar la respuesta",
     "summarizeFailed": "No se pudo resumir la conversación"
+  },
+  "useNativeWidgetSnapshotSync": {
+    "untitled": "Sin título"
   },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",

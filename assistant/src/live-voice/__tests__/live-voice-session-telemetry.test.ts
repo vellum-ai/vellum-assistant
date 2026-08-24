@@ -147,9 +147,12 @@ describe("live-voice session telemetry", () => {
 
     await session.close("client_end");
 
+    // These sessions reach `ready` and are closed without ever sending audio,
+    // so they are silent by construction and the reason says which layer
+    // stopped short. See `telemetry/live-voice-funnel.ts`.
     expect(recordLiveVoiceSessionEnded).toHaveBeenCalledWith({
       sessionId: "session-123",
-      screen: "ended_client_end",
+      screen: "ended_client_end:silent_no_audio",
       outcome: "completed",
     });
   });
@@ -164,7 +167,7 @@ describe("live-voice session telemetry", () => {
     // the reason on `screen` is what distinguishes a drop from a hangup.
     expect(recordLiveVoiceSessionEnded).toHaveBeenCalledWith({
       sessionId: "session-123",
-      screen: "ended_websocket_close",
+      screen: "ended_websocket_close:silent_no_audio",
       outcome: "completed",
     });
   });

@@ -31,6 +31,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
+import * as platformDetection from "@/runtime/platform-detection";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -89,6 +90,12 @@ mock.module("@/runtime/browser", () => ({
     return Promise.resolve();
   },
   openUrlFinishedListener: () => () => {},
+}));
+
+let nativeAndroid = false;
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 
 import {
@@ -285,6 +292,7 @@ beforeEach(() => {
   changeMachineTierCall = null;
   changeStorageTierCall = null;
   openedUrl = null;
+  nativeAndroid = false;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
@@ -298,6 +306,38 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe("AdjustPlanModal on native Android", () => {
+  test("opens the web billing adjust deep link and closes instead of rendering", async () => {
+    nativeAndroid = true;
+    const closes: number[] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription("base", null),
+    );
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      proPlansResponse(CREDIT_TIERS),
+    );
+    const { queryByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AdjustPlanModal open onClose={() => closes.push(1)} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        `${window.location.origin}/assistant/settings/usage?tab=billing&adjust_plan`,
+      ),
+    );
+    expect(closes.length).toBe(1);
+    expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
 });
 
 describe("AdjustPlanModal credit bundle — upgrade", () => {

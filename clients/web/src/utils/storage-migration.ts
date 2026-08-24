@@ -217,8 +217,7 @@ function activeOrgSelection(perOrgPrefix: string): string | null {
 /**
  * Run all pending storage key migrations. Called from
  * `run-storage-migrations.ts` (side-effect import at the top of
- * `main.tsx`), after `migrateDeviceSettings()` — device keys must
- * already be in the `device:` namespace before we migrate user keys.
+ * `main.tsx`).
  *
  * Each migration is a one-time rename: read old → write new → remove old.
  * The order within each group doesn't matter since there are no

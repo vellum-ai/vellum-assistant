@@ -278,10 +278,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ///
     /// Called only by the App Intents (the voice intents via
     /// `VoiceModeDeepLink.route()`, `SendMessageToChatIntent` via
-    /// `ThreadDeepLink.route()`), which run in-process and therefore never
-    /// pass through `application(_:open:)`. That exclusivity is load-bearing:
-    /// it is what lets this method vouch for the URL by adding the provenance
-    /// marker the external entry points strip (see `CommandURLProvenance`).
+    /// `ThreadDeepLink.route()`, and `OpenCameraIntent` / `OpenNewChatIntent`
+    /// via `CommandDeepLink.route(host:)`), which run in-process and therefore
+    /// never pass through `application(_:open:)`. A widget tap is no exception:
+    /// those intents declare `openAppWhenRun`, so the system performs them in
+    /// the app process rather than in the appex. That exclusivity is
+    /// load-bearing: it is what lets this method vouch for the URL by adding
+    /// the provenance marker the external entry points strip (see
+    /// `CommandURLProvenance`).
     /// Do not route anything that arrived from outside the process through
     /// here; the terminated-launch path in `didFinishLaunchingWithOptions`
     /// deliberately stashes into `pendingCommandURL` directly instead.

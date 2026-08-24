@@ -34,10 +34,27 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
+import * as platformDetection from "@/runtime/platform-detection";
+import * as runtimeBrowser from "@/runtime/browser";
 import type {
   AutoTopUpConfigResponse,
   DailyCreditLimitResponse,
 } from "@/generated/api/types.gen";
+
+let nativeAndroid = false;
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
+}));
+
+let openedUrl: string | null = null;
+mock.module("@/runtime/browser", () => ({
+  ...runtimeBrowser,
+  openUrl: (url: string) => {
+    openedUrl = url;
+    return Promise.resolve();
+  },
+}));
 
 let updateCalls: Array<Record<string, unknown>> = [];
 let retrieveResponse: AutoTopUpConfigResponse;
@@ -126,6 +143,8 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
 
 beforeEach(() => {
   updateCalls = [];
+  nativeAndroid = false;
+  openedUrl = null;
   retrieveResponse = { ...DISABLED_CONFIG };
   dailyLimitResponse = {
     daily_credit_limit_usd: null,
@@ -167,6 +186,42 @@ describe("AutoTopUpCard enabled-state layout", () => {
 
     expect(html).not.toContain("payment-method-row");
     expect(html).toContain("auto-top-up-summary");
+  });
+});
+
+describe("AutoTopUpCard on native Android", () => {
+  test("toggle-on opens the web configure deep link instead of the form", async () => {
+    nativeAndroid = true;
+    const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
+
+    fireEvent.click(getByLabelText("Enable auto-reload"));
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        `${window.location.origin}/assistant/settings/usage?tab=billing&configure_top_up=1`,
+      ),
+    );
+    expect(updateCalls).toEqual([]);
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
+  });
+
+  test("Adjust opens the web configure deep link instead of the form", async () => {
+    nativeAndroid = true;
+    const { container, getByTestId } = render(wrap(ENABLED_WITH_CARD));
+
+    fireEvent.click(getByTestId("auto-top-up-edit-button"));
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        `${window.location.origin}/assistant/settings/usage?tab=billing&configure_top_up=1`,
+      ),
+    );
+    expect(updateCalls).toEqual([]);
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
   });
 });
 
@@ -521,19 +576,22 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
     expect(updateCalls.length).toBe(0);
   });
 
-  test("arriving with ?configure_top_up=1 while already enabled is a no-op", () => {
+  test("arriving with ?configure_top_up=1 while already enabled opens the Adjust editor", () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(
+    const { container, getByLabelText } = render(
       wrap(ENABLED_WITH_CARD, "/?configure_top_up=1"),
     );
 
-    // Already enabled: the effect strips the param but does not enter the form
-    // or fire a mutation — the enabled summary stays put.
+    // Already enabled: the link opens the same editor the Adjust button does.
+    // The toggle stays on and nothing mutates; persistence still needs Save.
     expect(
-      container.querySelector('[data-testid="auto-top-up-summary"]'),
-    ).not.toBeNull();
+      getByLabelText("Enable auto-reload").getAttribute("aria-checked"),
+    ).toBe("true");
     expect(
       container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="auto-top-up-summary"]'),
     ).toBeNull();
     expect(updateCalls.length).toBe(0);
   });

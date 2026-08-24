@@ -206,6 +206,7 @@ function renderMenu(props: {
   conversationsFailed?: boolean;
   onRetryConversations?: () => void;
   onWidthChange?: (width: number) => void;
+  includeNotificationsAction?: boolean;
 }): string {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
@@ -228,6 +229,9 @@ function renderMenu(props: {
         : undefined,
       tipCard: props.includeTipCard
         ? createElement("span", null, "TipSentinel")
+        : undefined,
+      notificationsAction: props.includeNotificationsAction
+        ? createElement("span", { "data-testid": "bell-stub" }, "Bell")
         : undefined,
     }),
   );
@@ -906,6 +910,23 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     );
   });
 
+  test("search sits in the right cluster beside the notifications bell", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({
+      conversations,
+      variant: "overlay",
+      includeNotificationsAction: true,
+    });
+
+    // Mirrors the chat header's right cluster: search directly left of the
+    // bell, with the close glyph alone on the other side of the row.
+    const cluster = glyph(container, "Search (⌘K)").parentElement;
+    expect(cluster?.querySelector('[data-testid="bell-stub"]')).not.toBeNull();
+    expect(
+      cluster?.querySelector('[aria-label="Close navigation"]'),
+    ).toBeNull();
+  });
+
   test("the scroll body reserves the glyph band and carries both mask declarations", () => {
     const body = classTokens(
       overlayDom().querySelector('[data-slot="side-menu-body"]'),
@@ -926,6 +947,34 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     expect(body).toContain(
       "native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]",
     );
+  });
+});
+
+describe("AssistantSideMenu · overlay section card geometry", () => {
+  // Class-presence pins: 12px vertical inset + 20px header row put the
+  // collapsed section pill at the overlay tile size (44px), level with the
+  // assistant pill.
+  test("the overlay card and its header carry the 44px pill geometry", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({
+      conversations: [makeConversation({ conversationId: "a", title: "Alpha" })],
+      variant: "overlay",
+    });
+
+    const card = container.querySelector('[data-slot="card"]');
+    const cardTokens = card ? Array.from(card.classList) : [];
+    expect(cardTokens).toContain("rounded-[16px]");
+    expect(cardTokens).toContain("pt-3");
+    expect(cardTokens).toContain("pb-3");
+    // Without this the Card's default transparent 1px border grows the
+    // border-box to 46px.
+    expect(cardTokens).toContain("border-0");
+
+    const header = container.querySelector(
+      '[data-slot="collapsible-nav-section-header"]',
+    );
+    const headerTokens = header ? Array.from(header.classList) : [];
+    expect(headerTokens).toContain("h-5");
   });
 });
 

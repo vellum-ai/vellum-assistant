@@ -1,6 +1,10 @@
 import type { SlackStreamOp, SlackStreamTask } from "@vellumai/gateway-client";
 
-import type { AssistantEvent } from "../api/index.js";
+import type {
+  AssistantEvent,
+  ToolResultEvent,
+  ToolUseStartEvent,
+} from "../api/index.js";
 import {
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
@@ -21,7 +25,7 @@ import {
 } from "./no-response.js";
 import type { TaskProgressData } from "./slack-task-progress.js";
 import {
-  getTaskProgressDataFromSurfaceData,
+  getTaskProgressDataFromToolInput,
   mergeTaskProgressData,
   toSlackStreamTasks,
 } from "./slack-task-progress.js";
@@ -155,7 +159,6 @@ export function createSlackReplySession(params: {
   // `renderHistoryContent`'s `joinWithSpacing` on the durable delivery path).
   let pendingSegmentBoundary = false;
 
-  const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
   let activeProgress: TaskProgressData | undefined;
   // Fingerprint of the plan state last delivered to Slack, so progress that
   // advances without new body text still flushes as a task-only append.
@@ -363,24 +366,68 @@ export function createSlackReplySession(params: {
     }
   };
 
-  const observeTaskProgress = (msg: AssistantEvent): void => {
-    if (msg.type === "ui_surface_show") {
-      const progress = getTaskProgressDataFromSurfaceData(msg.data);
-      if (!progress) {
-        return;
-      }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else if (msg.type === "ui_surface_update") {
-      const existing = taskProgressBySurfaceId.get(msg.surfaceId);
-      const progress = mergeTaskProgressData(existing, msg.data);
-      if (!progress) {
-        return;
-      }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else {
+  /**
+   * The plan tool calls this turn has made, awaiting their results.
+   *
+   * `ui_show` and `ui_update` are tools the model reaches for, so a plan is
+   * turn output and arrives on this session's own stream. The daemon also
+   * publishes `ui_surface_show`, but that goes to the conversation sink, which
+   * no channel consumes.
+   *
+   * Held rather than applied on sight, because a `tool_use_start` is an
+   * intention: the surface tool rejects a stale `surface_id` or a malformed
+   * payload, and showing a plan the canonical surface refused is worse than
+   * showing none. An update is also merged at result time so it composes onto
+   * the plan actually in effect rather than the one in effect when the call
+   * began.
+   *
+   * `ui_show` carries no surface id in its input, since the id is minted when
+   * the tool runs, so a later `ui_update` cannot be matched to the card it
+   * targets. One plan per turn is tracked instead, which is what a map keyed by
+   * surface id collapsed to in practice: whichever entry was touched last was
+   * the one rendered.
+   */
+  const pendingPlanCalls = new Map<
+    string,
+    {
+      readonly kind: "show" | "update";
+      readonly input: Record<string, unknown>;
+    }
+  >();
+
+  const observePlanToolStart = (msg: ToolUseStartEvent): void => {
+    const kind =
+      msg.toolName === "ui_show"
+        ? "show"
+        : msg.toolName === "ui_update"
+          ? "update"
+          : undefined;
+    if (!kind || !msg.toolUseId) {
       return;
     }
-    activeProgress = taskProgressBySurfaceId.get(msg.surfaceId);
+    pendingPlanCalls.set(msg.toolUseId, { kind, input: msg.input });
+  };
+
+  const observePlanToolResult = (msg: ToolResultEvent): void => {
+    if (!msg.toolUseId) {
+      return;
+    }
+    const pending = pendingPlanCalls.get(msg.toolUseId);
+    if (!pending) {
+      return;
+    }
+    pendingPlanCalls.delete(msg.toolUseId);
+    if (msg.isError === true) {
+      return;
+    }
+    const progress =
+      pending.kind === "show"
+        ? getTaskProgressDataFromToolInput(pending.input)
+        : mergeTaskProgressData(activeProgress, pending.input.data);
+    if (!progress) {
+      return;
+    }
+    activeProgress = progress;
     scheduleFlush();
   };
 
@@ -390,9 +437,15 @@ export function createSlackReplySession(params: {
         return;
       }
 
-      if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
-        observeTaskProgress(msg);
-        return;
+      if (msg.type === "tool_use_start") {
+        observePlanToolStart(msg);
+      }
+      // guard:allow-tool-result-only. This reads `AssistantEvent`, not the
+      // provider content blocks the guard protects: `web_search_tool_result`
+      // is a block type in conversation history and never an event, so no
+      // result can be dropped by omitting it.
+      if (msg.type === "tool_result") {
+        observePlanToolResult(msg);
       }
       if (msg.type === "assistant_text_delta") {
         if (pendingSegmentBoundary && msg.text.length > 0) {

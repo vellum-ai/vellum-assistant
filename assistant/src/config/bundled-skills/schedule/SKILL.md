@@ -158,7 +158,7 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
   2. **`interface` fallback** — if `source_channel` is absent (common for guardian/direct users), map the `interface` value to a channel name:
      | `interface` value | Channel name |
      | --- | --- |
-     | `macos`, `ios` | `vellum` |
+     | `macos`, `windows`, `ios` | `vellum` |
      | `telegram` | `telegram` |
      | `slack` | `slack` |
      | `cli` | _(omit — no routable channel)_ |

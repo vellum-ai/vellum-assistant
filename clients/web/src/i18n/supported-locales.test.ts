@@ -17,6 +17,7 @@ describe("negotiateLocale", () => {
   test("falls back to the primary subtag for a regional variant", () => {
     expect(negotiateLocale(["es-MX"])).toBe("es");
     expect(negotiateLocale(["es-419"])).toBe("es");
+    expect(negotiateLocale(["ru-RU"])).toBe("ru");
   });
 
   test("is case-insensitive", () => {

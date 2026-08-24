@@ -39,6 +39,7 @@ import * as toastMod from "@vellumai/design-library/components/toast";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { routes } from "@/utils/routes";
 import {
   clearTakeoverAvatarStash,
   readTakeoverAvatarStash,
@@ -643,18 +644,44 @@ afterEach(() => {
 });
 
 describe("PlansPage on native Android", () => {
-  test("redirects to billing without exposing plan actions", async () => {
+  test("renders the takeover in place, same as iOS", async () => {
     nativeAndroid = true;
-    const { getByTestId, queryByRole } = renderInteractive(freeSubscription());
+    const { findByRole, getByTestId } = renderInteractive(freeSubscription());
+
+    expect(await findByRole("button", { name: "Power Up" })).toBeTruthy();
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+  });
+
+  test("a plan CTA opens this page on the web app instead of checking out", async () => {
+    nativeAndroid = true;
+    const { findByRole } = renderInteractive(freeSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
     await waitFor(() =>
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing",
+      expect(openedUrl).toBe(
+        new URL(routes.plans, window.location.origin).toString(),
       ),
     );
-    expect(queryByRole("button")).toBeNull();
     expect(upgradeCall).toBeNull();
-    expect(openedUrl).toBeNull();
+    expect(changePackageCall).toBeNull();
+  });
+
+  test("Configure opens this page on the web app instead of the custom modal", async () => {
+    nativeAndroid = true;
+    const { findByRole, queryByRole } = renderInteractive(freeSubscription(), {
+      plans: customCatalog(),
+    });
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        new URL(routes.plans, window.location.origin).toString(),
+      ),
+    );
+    expect(queryByRole("dialog")).toBeNull();
+    expect(upgradeCall).toBeNull();
   });
 });
 

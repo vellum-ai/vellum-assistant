@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   MAX_OPEN_THREAD_MESSAGE_LENGTH,
   MAX_START_VOICE_PROMPT_LENGTH,
+  parseNewChatDeepLink,
+  parseOpenCameraDeepLink,
   parseOpenThreadDeepLink,
   parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
@@ -439,5 +441,79 @@ describe("command URL provenance", () => {
         opts,
       ),
     ).toEqual({ threadId: THREAD_ID, message: null, provenance: "intent" });
+  });
+});
+
+describe("parseOpenCameraDeepLink / parseNewChatDeepLink", () => {
+  const hosts = [
+    ["camera", parseOpenCameraDeepLink],
+    ["new-chat", parseNewChatDeepLink],
+  ] as const;
+
+  test("accepts every registered build-target scheme", () => {
+    for (const [host, parse] of hosts) {
+      for (const scheme of [
+        "vellum-assistant",
+        "vellum-assistant-staging",
+        "vellum-assistant-dev",
+      ]) {
+        expect(parse(`${scheme}://${host}`)).toEqual({ provenance: null });
+      }
+    }
+  });
+
+  test("rejects look-alike schemes, as a prefix match would let a hostile app in", () => {
+    for (const [host, parse] of hosts) {
+      expect(parse(`vellum-assistant-evil://${host}`)).toBeNull();
+      expect(parse(`vellum://${host}`)).toBeNull();
+      expect(parse(`https://${host}`)).toBeNull();
+    }
+  });
+
+  test("rejects other hosts on a valid scheme, including each other's", () => {
+    expect(parseOpenCameraDeepLink("vellum-assistant://new-chat")).toBeNull();
+    expect(parseNewChatDeepLink("vellum-assistant://camera")).toBeNull();
+    for (const [, parse] of hosts) {
+      expect(parse("vellum-assistant://voice")).toBeNull();
+      expect(parse("vellum-assistant://cameras")).toBeNull();
+      expect(parse("not a url")).toBeNull();
+    }
+  });
+
+  test("accepts a trailing slash, which is the same bare command", () => {
+    for (const [host, parse] of hosts) {
+      expect(parse(`vellum-assistant://${host}/`)).toEqual({
+        provenance: null,
+      });
+      expect(parse(`vellum-assistant://${host}/?src=intent`)).toEqual({
+        provenance: null,
+      });
+    }
+  });
+
+  test("rejects a path, since the host is the whole request", () => {
+    for (const [host, parse] of hosts) {
+      expect(parse(`vellum-assistant://${host}/unrelated`)).toBeNull();
+      expect(parse(`vellum-assistant://${host}/unrelated?x=1`)).toBeNull();
+      expect(parse(`vellum-assistant://${host}//`)).toBeNull();
+    }
+  });
+
+  test("ignores extra params, so a producer that grows one degrades to the plain command", () => {
+    for (const [host, parse] of hosts) {
+      expect(parse(`vellum-assistant://${host}?mode=new&x=1#frag`)).toEqual({
+        provenance: null,
+      });
+    }
+  });
+
+  test("reads the provenance marker only when the caller opts in", () => {
+    for (const [host, parse] of hosts) {
+      const link = `vellum-assistant://${host}?src=intent`;
+      expect(parse(link)).toEqual({ provenance: null });
+      expect(parse(link, { acceptProvenance: true })).toEqual({
+        provenance: "intent",
+      });
+    }
   });
 });

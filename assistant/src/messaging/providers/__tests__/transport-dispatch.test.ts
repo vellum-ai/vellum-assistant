@@ -45,6 +45,7 @@ const discord = {
   sendDiscordTypingIndicator: mock((..._args: unknown[]) =>
     Promise.resolve(true),
   ),
+  editDiscordMessage: mock((..._args: unknown[]) => Promise.resolve()),
   sendDiscordAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
   ),
@@ -242,17 +243,46 @@ describe("capability gating across channels", () => {
   });
 
   test("a channel that cannot revise a sent message resolves quietly", async () => {
-    // Discord has no `edit` yet. A channel without the method is not a failed
+    // WhatsApp has no `edit`. A channel without the method is not a failed
     // delivery: nothing is attempted, nothing throws, and no fresh message is
     // posted in place of the revision.
     expect(
-      await editChannelMessage(`${BASE}/deliver/discord`, {
+      await editChannelMessage(`${BASE}/deliver/whatsapp`, {
         chatId: "C1",
         messageId: "1",
         text: "revised",
       }),
     ).toEqual({ ok: true });
+    expect(whatsapp.sendWhatsAppReply).not.toHaveBeenCalled();
+  });
+
+  test("Discord edits in place instead of posting", async () => {
+    await editChannelMessage(`${BASE}/deliver/discord`, {
+      chatId: "C1",
+      messageId: "M9",
+      text: "revised",
+    });
+
+    expect(discord.editDiscordMessage).toHaveBeenCalledTimes(1);
+    // Same distinction the Slack case asserts: an edit never reaches the post
+    // path, so a failed edit cannot become a second visible message.
     expect(discord.sendDiscordReply).not.toHaveBeenCalled();
+  });
+
+  test("Discord renders a muted edit as subtext", async () => {
+    await editChannelMessage(`${BASE}/deliver/discord`, {
+      chatId: "C1",
+      messageId: "M9",
+      text: "This approval request has been resolved.",
+      emphasis: "muted",
+    });
+
+    // `muted` is surface-agnostic and each channel picks its own token. Slack
+    // uses a context block; Discord's nearest equivalent is subtext, which it
+    // renders at the size and colour of a dismiss line.
+    expect(discord.editDiscordMessage.mock.calls[0][3]).toEqual({
+      emphasis: "muted",
+    });
   });
 
   test("the activity capability is read from the transport, not the channel name", () => {

@@ -132,12 +132,12 @@ describe("ResourcePressureBannerSlot", () => {
     expect(navigateMock).toHaveBeenCalledWith(routes.plans);
   });
 
-  test("hides the Upgrade action on native Android", () => {
+  test("keeps the Upgrade action on native Android, same as iOS", () => {
     nativeAndroid = true;
     render(slot(elevatedStatus));
 
     expect(queryBanner()).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Upgrade" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeTruthy();
   });
 
   test("hides the Upgrade action for non-active assistant states", () => {
@@ -253,8 +253,7 @@ describe("ResourcePressureBannerSlot", () => {
   });
 
   test("the body drops the upgrade clause when there is no upgrade path", () => {
-    nativeAndroid = true;
-    render(slot(elevatedStatus));
+    render(slot(elevatedStatus, "retired"));
 
     expect(
       screen.getByText(

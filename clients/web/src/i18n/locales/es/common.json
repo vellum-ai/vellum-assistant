@@ -27,9 +27,7 @@
   },
   "addCreditsModal": {
     "amount": "Importe",
-    "billingTitle": "Facturación",
     "cancel": "Cancelar",
-    "close": "Cerrar",
     "configureAutoReload": "Configurar la recarga automática",
     "continue": "Continuar",
     "description": "Se te redirigirá a Stripe para completar el pago.",
