@@ -10,7 +10,7 @@
  */
 
 import {
-  listProcessTable,
+  listProcessTableAsync,
   type ProcessTableRow,
   readRawProcessCommand,
 } from "./process-table.js";
@@ -50,6 +50,12 @@ export interface ProcTreeNode {
   /** Whether this process was spawned from a plugin or from the workspace. */
   origin: ProcessOrigin;
   children: ProcTreeNode[];
+}
+
+interface ProcessTreeBuilder {
+  build: (pid: number, syntheticName?: string) => ProcTreeNode;
+  byPid: Map<number, ProcInfo>;
+  visited: Set<number>;
 }
 
 /** Interpreters whose script argument is more descriptive than argv[0]. */
@@ -179,14 +185,49 @@ export function deriveOrigin(command: string): ProcessOrigin {
  * Linux `/proc`, uses `ps` on macOS, and queries Win32_Process on Windows.
  */
 export async function listProcesses(
-  rows: ProcessTableRow[] = listProcessTable(),
+  rows?: ProcessTableRow[],
 ): Promise<ProcInfo[]> {
-  return rows.map(({ pid, ppid, command }) => ({
+  const processRows = rows ?? (await listProcessTableAsync());
+  return processRows.map(({ pid, ppid, command }) => ({
     pid,
     ppid,
     command: deriveName(command),
     origin: deriveOrigin(command),
   }));
+}
+
+function createProcessTreeBuilder(procs: ProcInfo[]): ProcessTreeBuilder {
+  const byPid = new Map<number, ProcInfo>();
+  const childrenOf = new Map<number, number[]>();
+  for (const processInfo of procs) {
+    byPid.set(processInfo.pid, processInfo);
+    const siblings = childrenOf.get(processInfo.ppid);
+    if (siblings) {
+      siblings.push(processInfo.pid);
+    } else {
+      childrenOf.set(processInfo.ppid, [processInfo.pid]);
+    }
+  }
+
+  const visited = new Set<number>();
+  const build = (pid: number, syntheticName = "assistant"): ProcTreeNode => {
+    visited.add(pid);
+    const info = byPid.get(pid);
+    const command = info?.command ?? "";
+    const children = (childrenOf.get(pid) ?? [])
+      .filter((child) => child !== pid && !visited.has(child))
+      .sort((a, b) => a - b)
+      .map((child) => build(child));
+    return {
+      pid,
+      name: info ? deriveName(command) : syntheticName,
+      command,
+      origin: info?.origin ?? "workspace",
+      children,
+    };
+  };
+
+  return { build, byPid, visited };
 }
 
 /**
@@ -198,36 +239,37 @@ export function buildProcessTree(
   procs: ProcInfo[],
   rootPid: number,
 ): ProcTreeNode {
-  const byPid = new Map<number, ProcInfo>();
-  const childrenOf = new Map<number, number[]>();
-  for (const p of procs) {
-    byPid.set(p.pid, p);
-    const siblings = childrenOf.get(p.ppid);
-    if (siblings) {
-      siblings.push(p.pid);
-    } else {
-      childrenOf.set(p.ppid, [p.pid]);
+  return createProcessTreeBuilder(procs).build(rootPid);
+}
+
+/** Build a synthetic system root containing every enumerated process once. */
+export function buildSystemProcessTree(procs: ProcInfo[]): ProcTreeNode {
+  const { build, byPid, visited } = createProcessTreeBuilder(procs);
+  const children: ProcTreeNode[] = [];
+  const orderedProcesses = [...byPid.values()].sort((a, b) => a.pid - b.pid);
+
+  for (const processInfo of orderedProcesses) {
+    if (
+      processInfo.ppid !== processInfo.pid &&
+      !byPid.has(processInfo.ppid) &&
+      !visited.has(processInfo.pid)
+    ) {
+      children.push(build(processInfo.pid));
     }
   }
 
-  const visited = new Set<number>();
-  const build = (pid: number): ProcTreeNode => {
-    visited.add(pid);
-    const info = byPid.get(pid);
-    const command = info?.command ?? "";
-    const children = (childrenOf.get(pid) ?? [])
-      .filter((child) => child !== pid && !visited.has(child))
-      .sort((a, b) => a - b)
-      .map(build);
-    return {
-      pid,
-      name: info ? deriveName(command) : "assistant",
-      command,
-      // A synthesized root (daemon PID absent from the table) is the workspace.
-      origin: info?.origin ?? "workspace",
-      children,
-    };
-  };
+  // Malformed process tables can contain parent cycles with no natural root.
+  for (const processInfo of orderedProcesses) {
+    if (!visited.has(processInfo.pid)) {
+      children.push(build(processInfo.pid));
+    }
+  }
 
-  return build(rootPid);
+  return {
+    pid: 0,
+    name: "system",
+    command: "",
+    origin: "workspace",
+    children,
+  };
 }

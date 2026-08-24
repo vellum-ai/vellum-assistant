@@ -35,10 +35,14 @@ import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import {
-  listProcessTable,
+  listProcessTableAsync,
   type ProcessTableRow,
 } from "../util/process-table.js";
-import { buildProcessTree, listProcesses } from "../util/process-tree.js";
+import {
+  buildProcessTree,
+  buildSystemProcessTree,
+  listProcesses,
+} from "../util/process-tree.js";
 import { readActiveConversations } from "./active-conversations.js";
 import { topProcessesByFd } from "./file-descriptors.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
@@ -155,10 +159,12 @@ export async function writeSnapshot(
   let tree: unknown = null;
   let processTable: ProcessTableRow[] | null = null;
   try {
-    processTable = listProcessTable();
+    processTable = await listProcessTableAsync();
     const procs = await listProcesses(processTable);
-    const rootPid = process.platform === "win32" ? process.pid : 1;
-    tree = buildProcessTree(procs, rootPid);
+    tree =
+      process.platform === "win32"
+        ? buildSystemProcessTree(procs)
+        : buildProcessTree(procs, 1);
   } catch (err) {
     log.warn({ err }, "Failed to enumerate process tree for snapshot");
   }
@@ -172,32 +178,20 @@ export async function writeSnapshot(
     log.warn({ err }, "Failed to read page-cache residency for snapshot");
   }
 
-  const capturedProcessTable = processTable;
-  const enumerateProcesses =
-    capturedProcessTable == null
-      ? listProcessTable
-      : () => capturedProcessTable;
+  const processOptions = { platform: process.platform, processTable };
   const snapshot = {
     ts: sample.ts,
     kind,
     sample,
     fileResidency,
     // Linux uses PSS with an anon/file split. Windows uses working-set size.
-    topProcesses: topProcessesByMemory(
-      15,
-      process.platform,
-      enumerateProcesses,
-    ),
+    topProcesses: topProcessesByMemory(15, processOptions),
     // Slab memory belongs to no process; without this, cgroup usage that
     // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
     // Linux ranks descriptor pressure against the soft limit. Windows records
     // handle counts because it has no comparable per-process soft limit.
-    topProcessesByFd: topProcessesByFd(
-      15,
-      process.platform,
-      enumerateProcesses,
-    ),
+    topProcessesByFd: topProcessesByFd(15, processOptions),
     processTree: tree,
   };
 

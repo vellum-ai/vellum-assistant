@@ -1,4 +1,23 @@
+import { execFile } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+const PS_PROCESS_TABLE_COMMAND = [
+  "ps",
+  "-A",
+  "-ww",
+  "-o",
+  "pid=,ppid=,command=",
+];
+const WINDOWS_PROCESS_TABLE_COMMAND = [
+  "powershell.exe",
+  "-NoProfile",
+  "-NonInteractive",
+  "-Command",
+  "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(); Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,Name,WorkingSetSize,HandleCount | ConvertTo-Json -Compress",
+];
 
 export interface ProcessTableRow {
   pid: number;
@@ -7,6 +26,20 @@ export interface ProcessTableRow {
   command: string;
   rssBytes?: number;
   handleCount?: number;
+}
+
+export interface ProcessTableOptions {
+  platform?: NodeJS.Platform;
+  processTable?: readonly ProcessTableRow[] | null;
+}
+
+export function getProcessTableRows(
+  options: ProcessTableOptions = {},
+): readonly ProcessTableRow[] {
+  if (options.processTable !== undefined) {
+    return options.processTable ?? [];
+  }
+  return listProcessTable(options.platform);
 }
 
 interface WindowsProcessRow {
@@ -133,22 +166,24 @@ function runProcessTableCommand(
   return parser(new TextDecoder().decode(result.stdout));
 }
 
+async function runProcessTableCommandAsync(
+  command: string[],
+  parser: (output: string) => ProcessTableRow[],
+): Promise<ProcessTableRow[]> {
+  const { stdout } = await execFileAsync(command[0], command.slice(1), {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return parser(stdout);
+}
+
 function listProcessesFromPs(): ProcessTableRow[] {
-  return runProcessTableCommand(
-    ["ps", "-A", "-ww", "-o", "pid=,ppid=,command="],
-    parsePsProcessTable,
-  );
+  return runProcessTableCommand(PS_PROCESS_TABLE_COMMAND, parsePsProcessTable);
 }
 
 function listProcessesFromPowerShell(): ProcessTableRow[] {
   return runProcessTableCommand(
-    [
-      "powershell.exe",
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(); Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,Name,WorkingSetSize,HandleCount | ConvertTo-Json -Compress",
-    ],
+    WINDOWS_PROCESS_TABLE_COMMAND,
     parseWindowsProcessTable,
   );
 }
@@ -167,6 +202,31 @@ export function listProcessTable(
     }
   }
   return listProcessesFromPs();
+}
+
+export async function listProcessTableAsync(
+  platform: NodeJS.Platform = process.platform,
+): Promise<ProcessTableRow[]> {
+  if (platform === "win32") {
+    return runProcessTableCommandAsync(
+      WINDOWS_PROCESS_TABLE_COMMAND,
+      parseWindowsProcessTable,
+    );
+  }
+  if (platform === "linux") {
+    try {
+      return listProcessesFromProc();
+    } catch {
+      return runProcessTableCommandAsync(
+        PS_PROCESS_TABLE_COMMAND,
+        parsePsProcessTable,
+      );
+    }
+  }
+  return runProcessTableCommandAsync(
+    PS_PROCESS_TABLE_COMMAND,
+    parsePsProcessTable,
+  );
 }
 
 export function readRawProcessCommand(pid: number): string | null {

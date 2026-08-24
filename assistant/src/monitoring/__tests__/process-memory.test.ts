@@ -72,15 +72,18 @@ describe("effectiveSizeBytes", () => {
 
 describe("topProcessesByMemory", () => {
   test("uses Win32 working-set data on Windows", () => {
-    const result = topProcessesByMemory(1, "win32", () => [
-      { pid: 10, ppid: 4, command: "helper.exe", rssBytes: 1024 },
-      {
-        pid: 11,
-        ppid: 4,
-        command: '"C:\\Program Files\\Bun\\bun.exe" worker.ts',
-        rssBytes: 4096,
-      },
-    ]);
+    const result = topProcessesByMemory(1, {
+      platform: "win32",
+      processTable: [
+        { pid: 10, ppid: 4, command: "helper.exe", rssBytes: 1024 },
+        {
+          pid: 11,
+          ppid: 4,
+          command: '"C:\\Program Files\\Bun\\bun.exe" worker.ts',
+          rssBytes: 4096,
+        },
+      ],
+    });
 
     expect(result).toEqual([
       {

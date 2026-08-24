@@ -12,7 +12,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 
 import {
-  listProcessTable,
+  getProcessTableRows,
+  type ProcessTableOptions,
   type ProcessTableRow,
 } from "../util/process-table.js";
 import { deriveName, readProcessCommand } from "../util/process-tree.js";
@@ -92,12 +93,12 @@ function readProcessMemory(pid: number): SmapsRollup | null {
  */
 export function topProcessesByMemory(
   limit: number,
-  platform: NodeJS.Platform = process.platform,
-  enumerateProcesses: () => ProcessTableRow[] = listProcessTable,
+  options: ProcessTableOptions = {},
 ): ProcessMemory[] {
+  const platform = options.platform ?? process.platform;
   if (platform === "win32") {
     try {
-      return enumerateProcesses()
+      return getProcessTableRows(options)
         .filter(
           (row): row is ProcessTableRow & { rssBytes: number } =>
             row.rssBytes != null,

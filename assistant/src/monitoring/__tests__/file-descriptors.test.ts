@@ -72,10 +72,13 @@ describe("parseOpenFileLimits", () => {
 describe("collectFdUsage", () => {
   test("uses Win32 handle counts on Windows", () => {
     expect(
-      collectFdUsage("win32", () => [
-        { pid: 10, ppid: 4, command: "low.exe", handleCount: 5 },
-        { pid: 11, ppid: 4, command: "high.exe", handleCount: 20 },
-      ]),
+      collectFdUsage({
+        platform: "win32",
+        processTable: [
+          { pid: 10, ppid: 4, command: "low.exe", handleCount: 5 },
+          { pid: 11, ppid: 4, command: "high.exe", handleCount: 20 },
+        ],
+      }),
     ).toEqual([
       {
         pid: 11,

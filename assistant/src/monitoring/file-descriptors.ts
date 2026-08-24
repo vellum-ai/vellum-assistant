@@ -23,7 +23,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import type { MonitoringConfig } from "../config/schemas/monitoring.js";
 import { getLogger } from "../util/logger.js";
 import {
-  listProcessTable,
+  getProcessTableRows,
+  type ProcessTableOptions,
   type ProcessTableRow,
 } from "../util/process-table.js";
 import { deriveName, readProcessCommand } from "../util/process-tree.js";
@@ -116,12 +117,12 @@ function readProcessFdUsage(pid: number): ProcessFdUsage | null {
  * comparable soft limit.
  */
 export function collectFdUsage(
-  platform: NodeJS.Platform = process.platform,
-  enumerateProcesses: () => ProcessTableRow[] = listProcessTable,
+  options: ProcessTableOptions = {},
 ): ProcessFdUsage[] {
+  const platform = options.platform ?? process.platform;
   if (platform === "win32") {
     try {
-      return enumerateProcesses()
+      return getProcessTableRows(options)
         .filter(
           (row): row is ProcessTableRow & { handleCount: number } =>
             row.handleCount != null,
@@ -164,10 +165,9 @@ export function collectFdUsage(
 /** The top `limit` processes by descriptor pressure, most pressured first. */
 export function topProcessesByFd(
   limit: number,
-  platform: NodeJS.Platform = process.platform,
-  enumerateProcesses: () => ProcessTableRow[] = listProcessTable,
+  options: ProcessTableOptions = {},
 ): ProcessFdUsage[] {
-  return collectFdUsage(platform, enumerateProcesses).slice(0, limit);
+  return collectFdUsage(options).slice(0, limit);
 }
 
 /** What a pass concluded about the container's descriptor pressure. */
