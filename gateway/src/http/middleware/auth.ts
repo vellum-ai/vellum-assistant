@@ -1,9 +1,6 @@
 import type { Server } from "bun";
 
-import {
-  isActorTokenRevoked,
-  recordActorTokenUse,
-} from "../../auth/actor-token-revocation.js";
+import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
@@ -353,12 +350,12 @@ export function createAuthMiddleware(
   }
 
   /**
-   * Reject a validated edge token whose actor record has been revoked. Returns
-   * a 401 response when revoked, or null to continue. Fail-open for non-actor
-   * and unrecorded tokens (see isActorTokenRevoked). On the allow path, stamps
-   * the presenting device's last-used activity (debounced, fail-open).
+   * Run a validated edge token through actor-token admission: revoked records
+   * get a 401, everything else continues (null) with the presenting device's
+   * last-used activity stamped. Fail-open for non-actor and unrecorded tokens
+   * (see admitActorToken).
    *
-   * The stamp runs here, before the scope and guardian-match checks that
+   * Admission runs here, before the scope and guardian-match checks that
    * callers apply afterwards, so "last used" means "presented a valid,
    * unrevoked credential" rather than "made a request we served". That is
    * deliberate: a device refused for insufficient scope is still demonstrably
@@ -370,7 +367,7 @@ export function createAuthMiddleware(
     token: string,
     claims: TokenClaims,
   ): Response | null {
-    if (isActorTokenRevoked(token, claims)) {
+    if (!admitActorToken(token, claims)) {
       authRateLimiter.recordFailure(getClientIp());
       log.warn(
         { path: new URL(req.url).pathname },
@@ -378,7 +375,6 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-    recordActorTokenUse(token, claims);
     return null;
   }
 

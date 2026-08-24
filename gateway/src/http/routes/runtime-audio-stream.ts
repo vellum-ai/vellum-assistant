@@ -35,10 +35,7 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
-import {
-  isActorTokenRevoked,
-  recordActorTokenUse,
-} from "../../auth/actor-token-revocation.js";
+import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 
@@ -122,14 +119,13 @@ export function authorizeRuntimeAudioStream(
     };
   }
 
-  if (isActorTokenRevoked(rawToken, result.claims)) {
+  if (!admitActorToken(rawToken, result.claims)) {
     log.warn("audio stream WS: rejected, actor token revoked");
     return {
       ok: false,
       response: new Response("Unauthorized", { status: 401 }),
     };
   }
-  recordActorTokenUse(rawToken, result.claims);
 
   // An actor principal and nothing else. These are client-facing paths, and a
   // service token reaching one would let a credential minted for machine to
