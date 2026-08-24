@@ -1480,12 +1480,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // surfaces as a non-recoverable error frame instead of a start rejection.
     this.state = "active";
     this.reachedActive = true;
-    // Nothing to arm without a speech-to-text leg: a transcriber resolve would
-    // fail the session through armUtterance's error path, which is the outcome
-    // opening text-only exists to avoid.
-    if (this.audioInput) {
-      void this.armUtterance().catch(() => {});
-    }
+    void this.armUtterance().catch(() => {});
     this.metrics.markReady();
     await this.sendFrame({
       type: "ready",
@@ -1944,6 +1939,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async armUtterance(): Promise<void> {
+    // Nothing to arm without a speech-to-text leg. Guarded here rather than at
+    // the call sites because there are several, and the post-turn re-arm
+    // reaches this through `scheduleRearmAfterTurn` from five of them: a
+    // text-only session that requested `server_vad` still holds a turn
+    // detector, so the re-arm is not skipped for want of one. Arming anyway
+    // would resolve a transcriber the preflight already said has no
+    // credential, fail the session, and close it after its first typed turn.
+    if (!this.audioInput) {
+      return;
+    }
+
     const result = await this.beginUtterance();
     if (result.status === "started" || result.status === "stale") {
       return;

@@ -73,6 +73,13 @@ function createHarness(
     startFrame?: LiveVoiceClientStartFrame;
     resolveCredentialReadiness?: () => Promise<LiveVoiceCredentialReadiness>;
     startVoiceTurn?: LiveVoiceTurnStarter;
+    /**
+     * Complete each turn as soon as it starts. Needed by any test that runs a
+     * second turn: the floor gate refuses one while a turn is still in flight,
+     * so a turn that never finishes makes every later turn look refused for
+     * the wrong reason.
+     */
+    autoCompleteTurns?: boolean;
   } = {},
 ) {
   const sequencer = createLiveVoiceServerFrameSequencer();
@@ -92,7 +99,14 @@ function createHarness(
     options.startVoiceTurn ??
     (mock(async (opts: VoiceTurnOptions) => {
       turnOptions.push(opts);
-      return { turnId: "bridge-turn-1", abort: mock() };
+      if (options.autoCompleteTurns) {
+        opts.callbacks?.message_complete?.({
+          type: "message_complete",
+          conversationId: opts.conversationId,
+          messageId: `assistant-message-${turnOptions.length}`,
+        });
+      }
+      return { turnId: `bridge-turn-${turnOptions.length}`, abort: mock() };
     }) as unknown as LiveVoiceTurnStarter);
 
   const resolveTranscriber = mock(async () => new MockStreamingTranscriber());
@@ -212,6 +226,38 @@ describe("typed live-voice turns", () => {
     await waitFor(() => turnOptions.length > 0);
     expect(turnOptions[0]?.content).toContain("still works");
     expect(resolveTranscriber).not.toHaveBeenCalled();
+
+    await session.close("websocket_close");
+  });
+
+  test("a text-only server_vad session survives more than one typed turn", async () => {
+    // The post-turn re-arm is skipped when there is no turn detector, and a
+    // session that asked for server_vad has one even with the microphone leg
+    // dead. Without a guard on the arm itself, the re-arm after the first
+    // typed turn resolves a transcriber the preflight already rejected, fails
+    // the session, and closes it: the first turn works and the second never
+    // gets the chance.
+    const { frames, resolveTranscriber, session, turnOptions } = createHarness({
+      startFrame: { ...START_FRAME, turnDetection: "server_vad" },
+      resolveCredentialReadiness: async () => STT_ONLY_GAP,
+      autoCompleteTurns: true,
+    });
+    await session.start();
+
+    expect(frames[0]).toMatchObject({ type: "ready", audioInput: false });
+
+    await session.handleClientFrame({ type: "text", text: "first turn" });
+    await waitFor(() => turnOptions.length === 1);
+
+    // Let the post-turn re-arm run before asking for the second turn.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(errorFrames(frames)).toHaveLength(0);
+    expect(resolveTranscriber).not.toHaveBeenCalled();
+
+    await session.handleClientFrame({ type: "text", text: "second turn" });
+    await waitFor(() => turnOptions.length === 2);
+    expect(turnOptions[1]?.content).toContain("second turn");
 
     await session.close("websocket_close");
   });
