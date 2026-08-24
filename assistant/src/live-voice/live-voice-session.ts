@@ -519,6 +519,12 @@ type UtteranceStartResult =
   | { status: "unavailable"; message: string }
   | { status: "error"; message: string };
 
+// The block sequence for a segment that came from no model text block: a
+// fixed session phrase (the escalation bridge, the approval-pending line,
+// progress narration). Those exist to be heard while the turn works, so they
+// are never held, and no block-scoped selector can ever match them.
+const NON_BLOCK_TTS_SEQ = -1;
+
 // One TTS segment flowing through the turn's synthesis pipeline. Synthesis
 // may run ahead of the emission slot (prefetch), but frames only reach the
 // client in job-list order.
@@ -529,6 +535,10 @@ interface TtsSegmentJob {
   // the English fallback text carries "en" so an enforcing provider never
   // renders English words as ar/ko/ta. Undefined means the turn language.
   readonly language: string | undefined;
+  // Which of the leg's model text blocks this segment came from, so a
+  // block-scoped promotion or retraction selects exactly that block's
+  // segments. NON_BLOCK_TTS_SEQ marks a segment that belongs to no block.
+  readonly blockSeq: number;
   // The provider stream was started (the job holds an open-job slot).
   started: boolean;
   // The provider is done with this job, either because emission finished or
@@ -752,6 +762,14 @@ interface ActiveAssistantTurn {
   // front-door leg's trailing completion from finalizing the turn, and makes
   // the hand-off idempotent.
   escalationHandedOff: boolean;
+  // The leg currently streaming into this turn. An escalated leg is doing
+  // work, so its model text is held until the turn's shape says whether that
+  // text was working commentary or the report back.
+  routingLeg: VoiceRoutingLeg;
+  // Which of the current leg's model text blocks the turn is accumulating.
+  // A tool-use block opening closes the current one and bumps this, so each
+  // block's held segments are selectable as a unit.
+  textBlockSeq: number;
   ttsBuffer: string;
   // The turn is finalizing its TTS: every remaining enqueue is terminal by
   // construction, so holds are ignored past this point (see
@@ -862,6 +880,13 @@ const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
 const LIVE_VOICE_SETUP_FLOW_TEACHING =
   "This includes connecting accounts. If a task needs an account connected or a sign-in completed, put the connection up on screen and let the user do it now. Do not decline it, and do not defer it to text chat. Say what you are connecting and that it is in front of them. ";
 
+// Holding stops the caller hearing the working commentary; nothing makes the
+// closing report short. A one-time instruction, not a per-block protocol the
+// model must keep executing. It also directly bounds the report's onset
+// delay, since the hold ends when this block finishes generating.
+const LIVE_VOICE_SPOKEN_CLOSE_TEACHING =
+  "You already told the caller you were on it, and they have heard nothing since. When you finish, close with one or two short sentences saying what you did or what you found: the result, not the route you took to it. If you need something from them to continue, ask for everything you need in one go. ";
+
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
 // off answering, rather than a fresh follow-up. Reaches the model only; it is
@@ -919,9 +944,10 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
 }
 
 // Assemble a leg's model-facing control prompt: the base live-voice rules, the
-// screen-reveal and setup-flow teaching (both withheld from the front-door leg,
-// see LIVE_VOICE_SCREEN_REVEAL_TEACHING), plus any pending barge-in merge
-// context, completed-continuation context, and/or the announcement instruction.
+// screen-reveal, setup-flow, and spoken-close teaching (all withheld from the
+// front-door leg, see LIVE_VOICE_SCREEN_REVEAL_TEACHING), plus any pending
+// barge-in merge context, completed-continuation context, and/or the
+// announcement instruction.
 // A turn can carry several (a barge-in follow-up that also has a continuation
 // result waiting); the notes are model-only and never render as user bubbles.
 function buildVoiceControlPrompt(
@@ -932,7 +958,9 @@ function buildVoiceControlPrompt(
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true
       ? ""
-      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
+      : LIVE_VOICE_SCREEN_REVEAL_TEACHING +
+        LIVE_VOICE_SETUP_FLOW_TEACHING +
+        LIVE_VOICE_SPOKEN_CLOSE_TEACHING);
   if (turn.language !== undefined) {
     prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
   }
@@ -4804,6 +4832,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       hiddenPrompt: opts?.hiddenPrompt === true,
       deltaEpoch: 0,
       escalationHandedOff: false,
+      routingLeg: "front-door",
+      textBlockSeq: 0,
       ttsBuffer: "",
       ttsCompleting: false,
       ttsReasoningFilter: createReasoningTagFilter(),
@@ -4916,6 +4946,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return false;
     }
     const { token, utterance, turnId } = activeTurn;
+    // Set before anything of this leg can stream, so the TTS path knows which
+    // leg's text it is segmenting. The escalation bridge is enqueued before
+    // this runs, which is what keeps it on the front-door leg's terms.
+    activeTurn.routingLeg = leg.routingLeg ?? "front-door";
 
     // `rawText` accumulates this leg's full stream. A front-door leg starts
     // in `deciding` until its leading tokens classify as hold / escalate /
@@ -5156,9 +5190,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // emitted rather than dropped.
             if (!leg.frontDoor && msg.type === "message_complete") {
               flushLegText(rawText, { force: true });
+              if (leg.routingLeg === "escalated") {
+                // Nothing followed this block, so it is the turn's report
+                // back: the answer, or the question it needs answered. Its
+                // first segment is already synthesized, so promotion starts
+                // audio without a TTS round trip. Ordering is load-bearing:
+                // the force-flush above segments the block's tail first, and
+                // this runs before assistantCompleted closes the TTS path.
+                this.promoteHeldTtsSegments(
+                  token,
+                  (job) => job.blockSeq === current.textBlockSeq,
+                );
+              }
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
+              // The turn produced no report, so its held blocks have nothing
+              // to be promoted onto. Retracting them here tears their
+              // provider streams down at once rather than leaving them
+              // running behind a cancelled turn.
+              this.retractHeldTtsSegments(token, (job) => job.held, {
+                discardPendingTail: true,
+              });
               void this.finalizeAssistantTurn(
                 current,
                 "cancelled",
@@ -5185,6 +5238,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.assistantMessageId = messageId;
+          },
+          tool_block_opened: (toolName) => {
+            const current = this.activeAssistantTurn;
+            if (current?.token !== token || leg.routingLeg !== "escalated") {
+              return;
+            }
+            // The provider opened a tool-use block, so the text block before
+            // it is closed and was working commentary, not this turn's
+            // report. It was never emitted, so dropping it is silent.
+            // Deterministic: this reads the response structure, not the text.
+            const seq = current.textBlockSeq;
+            const dropped = this.retractHeldTtsSegments(
+              token,
+              (job) => job.blockSeq === seq,
+              // The retraction owns the block's un-segmented tail: text short
+              // of a segment boundary is still this block's commentary.
+              { discardPendingTail: true },
+            );
+            current.textBlockSeq += 1;
+            log.debug(
+              { turnId, toolName, dropped },
+              "Dropped held commentary segments at tool-use block open",
+            );
           },
           tool_use_start: (toolName, detail) => {
             const current = this.activeAssistantTurn;
@@ -5415,6 +5491,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         { type: "assistant_text_delta", text: spokenBridge },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
       );
+      // Enqueued while the turn is still on the front-door leg, so the bridge
+      // is not held: it is the one thing the caller is meant to hear before
+      // the escalated leg reports back, and only held segments can be
+      // retracted.
       this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
       // Force-flush now: on the TTS path an unpunctuated bridge would
       // otherwise sit buffered until a sentence boundary and leave the
@@ -5427,6 +5507,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const speakable = sanitizeForTts(spokenBridge).trim();
       if (speakable.length > 0) {
         this.enqueueTtsSegment(activeTurn.token, speakable, {
+          blockSeq: NON_BLOCK_TTS_SEQ,
           language: this.fixedPhraseLanguage(
             activeTurn,
             FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
@@ -5793,6 +5874,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.enqueueTtsSegment(turn.token, phrase, {
       countsAsFirstSegment: false,
+      // A filler exists to be heard while the turn works, so it is never held
+      // and never retracted with the block it happens to land beside.
+      blockSeq: NON_BLOCK_TTS_SEQ,
       ...(language !== undefined ? { language } : {}),
     });
     // A spoken filler holds the floor, so narration's minGapMs spaces from it.
@@ -6059,7 +6143,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (speakable.length === 0) {
         continue;
       }
-      this.enqueueTtsSegment(token, speakable);
+      // An escalated leg is working, so what it says mid-turn is usually
+      // commentary on that work rather than the answer. Hold it: it is
+      // synthesized now (so promotion costs no provider round trip) and only
+      // the block the turn ends on is ever spoken.
+      this.enqueueTtsSegment(token, speakable, {
+        held: activeTurn.routingLeg === "escalated",
+      });
     }
   }
 
@@ -6073,6 +6163,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // provider but stays off the emission chain until promoteHeldTtsSegments
       // puts it there, or retractHeldTtsSegments drops it.
       held?: boolean;
+      // Which model text block the segment came from. Defaults to the block
+      // the turn is accumulating; a fixed session phrase passes
+      // NON_BLOCK_TTS_SEQ so no block-scoped selector can reach it.
+      blockSeq?: number;
     } = {},
   ): void {
     const activeTurn = this.activeAssistantTurn;
@@ -6094,6 +6188,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const job: TtsSegmentJob = {
       text: segment,
       language: options.language,
+      blockSeq: options.blockSeq ?? activeTurn.textBlockSeq,
       started: false,
       settled: false,
       emitting: false,
