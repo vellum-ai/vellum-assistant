@@ -20,7 +20,9 @@ import { createTimerHarness } from "./pair-device-test-helpers";
 
 let listImpl: (assistantId: string) => Promise<LocalListDevicesResult>;
 let listCalls: string[] = [];
-let revokeResult: LocalRevokeDeviceResult = { ok: true };
+let revokeResult: LocalRevokeDeviceResult | Promise<LocalRevokeDeviceResult> = {
+  ok: true,
+};
 let revokeCalls: Array<{ assistantId: string; hashedDeviceId: string }> = [];
 let selectedAssistantId = "self";
 
@@ -70,8 +72,11 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 const { PairedDevicesSection } = await import("./paired-devices-section");
 
-/** The list poll's arm delay, telling it apart from the relative-age tick. */
+/** The pairing poll's arm delay, telling it apart from the other intervals. */
 const POLL_INTERVAL_MS = 5_000;
+
+/** The activity refresh's arm delay; the relative-age tick's 30s is neither. */
+const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
 
 const HASH_A = "aaaabbbbccccdddd0000111122223333";
 const HASH_B = "eeeeffff00001111aaaabbbbccccdddd";
@@ -107,6 +112,16 @@ async function renderExpanded(devices: LocalPairedDeviceRecord[]) {
 function clickConfirm() {
   fireEvent.click(
     document.querySelector<HTMLButtonElement>("[data-confirm-dialog-confirm]")!,
+  );
+}
+
+/** Timers armed at `delay` and still live, so cleared arms drop out. */
+function liveTimers(
+  harness: ReturnType<typeof createTimerHarness>,
+  delay: number,
+) {
+  return harness.timers.filter(
+    (timer) => !timer.cleared && timer.delay === delay,
   );
 }
 
@@ -306,10 +321,7 @@ describe("PairedDevicesSection", () => {
 
   test("polls while a pairing code is live and refreshes once more when it ends", async () => {
     const timerHarness = createTimerHarness();
-    const livePolls = () =>
-      timerHarness.timers.filter(
-        (t) => !t.cleared && t.delay === POLL_INTERVAL_MS,
-      );
+    const livePolls = () => liveTimers(timerHarness, POLL_INTERVAL_MS);
     timerHarness.install();
 
     try {
@@ -353,10 +365,138 @@ describe("PairedDevicesSection", () => {
     timerHarness.install();
     try {
       await renderExpanded([device()]);
+      expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(0);
+      // The slow activity refresh is the only list timer without a live code.
       expect(
-        timerHarness.timers.filter((t) => t.delay === POLL_INTERVAL_MS),
-      ).toHaveLength(0);
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
       expect(listCalls).toEqual(["self"]);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("refreshes on the activity interval so the label tracks a fresh sample", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      await renderExpanded([
+        device({ lastUsedAt: Date.now() - 3 * 60 * 60 * 1000 }),
+      ]);
+      expect(
+        screen.getByText(/^Paired \d.+ · Last used 3 hours ago$/),
+      ).toBeTruthy();
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      // The device never stopped talking to the gateway; the refresh
+      // resamples `lastUsedAt` instead of aging the one taken at mount.
+      setListResult({
+        ok: true,
+        devices: [device({ lastUsedAt: Date.now() })],
+      });
+      await act(async () => {
+        for (const refreshTimer of liveTimers(
+          timerHarness,
+          ACTIVITY_REFRESH_INTERVAL_MS,
+        )) {
+          refreshTimer.handler();
+        }
+      });
+
+      expect(listCalls).toEqual(["self", "self"]);
+      expect(screen.getByText(/^Paired \d.+ · Active now$/)).toBeTruthy();
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("stands the activity refresh down while the pairing poll runs", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      const { rerender } = render(<PairedDevicesSection pollWhilePairing />);
+      await act(async () => {});
+      expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(1);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+
+      // A tick of the live code's poll is the only fetch it produces.
+      await act(async () => {
+        for (const poll of liveTimers(timerHarness, POLL_INTERVAL_MS)) {
+          poll.handler();
+        }
+      });
+      expect(listCalls).toEqual(["self", "self"]);
+
+      // Code consumed/expired: the poll clears and the slow refresh takes over.
+      rerender(<PairedDevicesSection pollWhilePairing={false} />);
+      await act(async () => {});
+      expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(0);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+      expect(listCalls).toEqual(["self", "self", "self"]);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("pauses the activity refresh while a revoke is in flight", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      await renderExpanded([device()]);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      let resolveRevoke!: (result: LocalRevokeDeviceResult) => void;
+      revokeResult = new Promise<LocalRevokeDeviceResult>((resolve) => {
+        resolveRevoke = resolve;
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+      await act(async () => {
+        clickConfirm();
+      });
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+
+      await act(async () => {
+        resolveRevoke({ ok: true });
+      });
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("clears the activity refresh on unmount", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      const { unmount } = render(<PairedDevicesSection />);
+      await act(async () => {});
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      unmount();
+
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
     } finally {
       timerHarness.restore();
     }

@@ -51,6 +51,9 @@ export interface UsePairedDevicesOptions {
 
 const PAIRING_POLL_INTERVAL_MS = 5_000;
 
+/** Keeps the rendered activity label honest by resampling `lastUsedAt`. */
+const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+
 /**
  * Drives the "Paired devices" accordion: fetches the selected assistant's
  * paired devices through the host seam and runs the confirm-then-revoke flow.
@@ -149,6 +152,20 @@ export function usePairedDevices({
     }
     return undefined;
   }, [pollWhilePairing, isRevoking, refresh]);
+
+  // Each row's activity label is formatted from the `lastUsedAt` this fetch
+  // sampled, so a list left open ages one fixed instant and ends up claiming
+  // a device is idle while it is still talking to the gateway. Resample on a
+  // slow cadence while rows are on screen; the pairing poll already refreshes
+  // faster than this, so stand down whenever it is running.
+  const hasDevices = (list?.devices.length ?? 0) > 0;
+  useEffect(() => {
+    if (!hasDevices || pollWhilePairing || isRevoking) {
+      return undefined;
+    }
+    const id = setInterval(() => refresh(), ACTIVITY_REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [hasDevices, pollWhilePairing, isRevoking, refresh]);
 
   const requestRevoke = useCallback((device: LocalPairedDeviceRecord) => {
     setRevokeError(null);
