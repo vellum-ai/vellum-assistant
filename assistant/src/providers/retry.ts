@@ -38,9 +38,11 @@ import {
 import {
   isContextOverflowError,
   type Message,
+  NATIVE_WEB_SEARCH_TOOL_NAME,
   type Provider,
   type ProviderResponse,
   type SendMessageOptions,
+  type ToolDefinition,
 } from "./types.js";
 import { UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE } from "./unparseable-tool-args.js";
 
@@ -521,17 +523,18 @@ function normalizeSendMessageOptions(
     nextConfig.promptCacheKey = config.selectionSeed;
   }
 
-  // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`, and
-  // `conversationId` are routing/resolution-time concerns (consumed by the
-  // resolver below, `CallSiteRoutingProvider`'s provider selection, and
-  // `UsageTrackingProvider`'s ledger attribution); none is a wire-format
-  // field. Strip unconditionally (after the `openai` promptCacheKey copy
-  // above) so they never leak into provider request bodies even when callers
-  // set them without a `callSite`.
+  // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`,
+  // `conversationId`, and `nativeWebSearchSentinel` are routing/resolution-time
+  // concerns (consumed by the resolver below, `CallSiteRoutingProvider`'s
+  // provider selection, `UsageTrackingProvider`'s ledger attribution, and the
+  // fallback tool filter); none is a wire-format field. Strip unconditionally
+  // (after the `openai` promptCacheKey copy above) so they never leak into
+  // provider request bodies even when callers set them without a `callSite`.
   delete nextConfig.overrideProfile;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
   delete nextConfig.conversationId;
+  delete nextConfig.nativeWebSearchSentinel;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
@@ -1219,6 +1222,44 @@ export class RetryProvider implements Provider {
   }
 
   /**
+   * The `tools` override for the fallback send, or nothing when the original
+   * list carries over unchanged.
+   *
+   * The caller decided whether to append the native web search sentinel from
+   * the PRIMARY route's capability (see `AgentLoop`), so a backup that runs
+   * no server-side search would receive a tool it cannot execute and answer
+   * with a tool call nothing can service. The sentinel is dropped for those
+   * routes: degraded mode loses native search rather than the whole turn.
+   *
+   * Gated on `config.nativeWebSearchSentinel`, never on the name alone: with a
+   * search backend like Brave or the platform search proxy configured, a tool
+   * of the same name is app-executed and works on every route, so filtering it
+   * would take away a capability the backup can still serve.
+   */
+  private fallbackTools(
+    options: SendMessageOptions | undefined,
+    route: { provider: Provider },
+  ): { tools?: ToolDefinition[] } {
+    const tools = options?.tools;
+    if (
+      options?.config?.nativeWebSearchSentinel !== true ||
+      tools === undefined ||
+      !tools.some((tool) => tool.name === NATIVE_WEB_SEARCH_TOOL_NAME)
+    ) {
+      return {};
+    }
+    const backupServesNativeSearch = route.provider.supportsNativeWebSearchFor
+      ? route.provider.supportsNativeWebSearchFor(options)
+      : route.provider.supportsNativeWebSearch === true;
+    if (backupServesNativeSearch) {
+      return {};
+    }
+    return {
+      tools: tools.filter((tool) => tool.name !== NATIVE_WEB_SEARCH_TOOL_NAME),
+    };
+  }
+
+  /**
    * Attempt the failed request once on the backup route resolved by
    * `resolveFallbackRoute`. Returns null when no backup route applies (the
    * caller rethrows the original error unchanged); throws the fallback
@@ -1324,7 +1365,11 @@ export class RetryProvider implements Provider {
     fallbackConfig.forceOverrideProfile = true;
     const fallbackOptions = normalizeSendMessageOptions(
       route.provider.name,
-      { ...options, config: fallbackConfig },
+      {
+        ...options,
+        config: fallbackConfig,
+        ...this.fallbackTools(options, route),
+      },
       {
         forwardUsageAttributionHeaders:
           route.forwardUsageAttributionHeaders === true,
