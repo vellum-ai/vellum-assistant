@@ -1292,6 +1292,7 @@
     "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes",
+    "usageIncludedChip": "{label} incluido",
     "viewAllPlans": "Ver todos los planes"
   },
   "planCardContent": {
@@ -1328,6 +1329,7 @@
     "featureComputer": "Ordenador {machine}",
     "featureCreditsIncluded": "{amount} en créditos incluidos",
     "featureStorage": "{gib} GB de almacenamiento",
+    "featureUsageIncluded": "{label} incluido",
     "foreverCaption": "Para siempre",
     "freeFeaturePayAsYouGo": "Créditos de pago por uso",
     "freeFeatureSmallComputer": "Ordenador pequeño",

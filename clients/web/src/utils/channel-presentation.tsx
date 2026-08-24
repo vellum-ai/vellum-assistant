@@ -30,24 +30,66 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { ChannelId } from "@vellumai/service-contracts/channels";
+
+import { DiscordLogo } from "@/components/icons/discord-logo";
+
 import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { useTranslation } from "@/i18n";
 import type { AssistantChannelState } from "@/types/channel-types";
 
-const CHANNEL_LABELS: Record<string, string> = {
+/**
+ * Channels a client may be asked to draw before the availability response
+ * arrives, which is why these are declared here rather than read from it:
+ * several call sites are plain functions that cannot await a query.
+ *
+ * Listed once and shared by both maps below, so a channel cannot gain a label
+ * and lose an icon. `satisfies` ties the list to the canonical vocabulary, so
+ * a typo or a retired channel fails to compile rather than rendering a
+ * fallback nobody notices.
+ */
+const RENDERED_CHANNELS = [
+  "slack",
+  "telegram",
+  "discord",
+  "whatsapp",
+  "phone",
+  "email",
+  "a2a",
+] as const satisfies readonly ChannelId[];
+
+type RenderedChannel = (typeof RENDERED_CHANNELS)[number];
+
+/** A channel's own svg mark, which sizes itself rather than taking a class. */
+type BrandMark = typeof DiscordLogo;
+
+/**
+ * Whether an id is one of the channels drawn here. A plugin channel's id is
+ * its plugin name, so what arrives at these lookups is any string, and this
+ * is what separates the ones with an entry from the ones that fall back.
+ */
+function isRenderedChannel(id: string): id is RenderedChannel {
+  return (RENDERED_CHANNELS as readonly string[]).includes(id);
+}
+
+const CHANNEL_LABELS: Record<RenderedChannel, string> = {
   slack: "Slack",
   telegram: "Telegram",
+  discord: "Discord",
   whatsapp: "WhatsApp",
   phone: "Phone",
   email: "Email",
   a2a: "Assistant",
 };
 
-const CHANNEL_ICONS: Record<string, LucideIcon> = {
+const CHANNEL_ICONS: Record<RenderedChannel, LucideIcon> = {
   // Slack has a brand SVG used in the header; this `#` glyph is its
   // Lucide stand-in for compact surfaces (sidebar section, footer fallback).
   slack: Hash,
+  // Discord names its text channels the way Slack does, so it borrows the same
+  // stand-in here. The brand mark is used where a surface has room for one.
+  discord: Hash,
   telegram: Send,
   whatsapp: MessageCircle,
   phone: Phone,
@@ -107,10 +149,9 @@ export function getChannelLabel(channelId: string | null | undefined): string {
   if (!channelId) {
     return "channel";
   }
-  return (
-    CHANNEL_LABELS[channelId] ??
-    channelId.charAt(0).toUpperCase() + channelId.slice(1)
-  );
+  return isRenderedChannel(channelId)
+    ? CHANNEL_LABELS[channelId]
+    : channelId.charAt(0).toUpperCase() + channelId.slice(1);
 }
 
 /**
@@ -126,14 +167,15 @@ export function getOpenInChannelLabel(
 
 /**
  * Lucide icon component for a channel id, for use as a small inline glyph
- * (header tag, footer secondary label). Slack is intentionally absent — it
- * has a brand SVG that callers render directly — so this returns a neutral
- * message icon for it, matching the fallback for unknown channels.
+ * (header tag, footer secondary label). Channels with a brand mark still
+ * answer with a Lucide stand-in here, since these surfaces are too small to
+ * carry one; a caller with room renders the brand svg itself. An id with no
+ * entry, which includes every plugin channel, gets the neutral message icon.
  */
 export function getChannelIcon(
   channelId: string | null | undefined,
 ): LucideIcon {
-  if (channelId && CHANNEL_ICONS[channelId]) {
+  if (channelId && isRenderedChannel(channelId)) {
     return CHANNEL_ICONS[channelId];
   }
   return MessageSquare;
@@ -181,6 +223,28 @@ const PLUGIN_CHANNEL_ICONS: Record<string, LucideIcon> = {
   smartphone: Smartphone,
   video: Video,
 };
+
+/**
+ * Brand marks for channels that ship one, keyed by channel rather than by the
+ * declared glyph: `ChannelInfo.icon` carries a Lucide name and a brand svg is
+ * not one. A channel absent here draws the Lucide glyph it declared, which
+ * every client can resolve.
+ */
+const CHANNEL_BRAND_MARKS: Partial<Record<RenderedChannel, BrandMark>> = {
+  discord: DiscordLogo,
+};
+
+/**
+ * The brand mark for a channel, for a surface with room to draw one. Returns
+ * nothing when the channel has none, and the caller falls back to the glyph.
+ */
+export function getChannelBrandMark(
+  channelId: string | null | undefined,
+): BrandMark | undefined {
+  return channelId && isRenderedChannel(channelId)
+    ? CHANNEL_BRAND_MARKS[channelId]
+    : undefined;
+}
 
 /**
  * Renders a plugin channel's declared glyph. Same static-component treatment

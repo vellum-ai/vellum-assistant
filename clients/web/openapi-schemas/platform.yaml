@@ -4856,14 +4856,20 @@ paths:
   /v1/organizations/billing/subscription/change-credit-tier/:
     post:
       operationId: organizations_billing_subscription_change_credit_tier_create
-      description: Add, swap, or remove the included-credit bundle on the org's active
-        Pro subscription without re-checkout. A null ``credit_tier`` removes the bundle
-        (back to the $0 default); a set value adds (when none today) or swaps the
-        existing bundle. All transitions use proration_behavior=none, so the change
-        — and the matching monthly credit grant — take effect at the next cycle boundary
-        (no immediate partial charge). Rejected with HTTP 409 while a cancellation
-        is pending. Requires an active Pro subscription with a provisioned Stripe
-        subscription.
+      description: 'Add, swap, or remove the included-credit bundle on the org''s
+        active Pro subscription without re-checkout. A null ``credit_tier`` removes
+        the bundle (back to the $0 default); a set value adds (when none today) or
+        swaps the existing bundle. UPGRADES (the credit value strictly increases;
+        adding a bundle counts) charge the full price difference between the two tiers
+        immediately — a flat difference, not a time-based Stripe proration — and grant
+        the credit difference immediately; the renewal then bills the full new price.
+        A declined difference charge returns HTTP 402 and reverts the change. Subscriptions
+        carrying an active discount defer upgrades to the next cycle instead (the
+        flat difference would ignore the coupon). DOWNGRADES and removals still use
+        proration_behavior=none: the change — and the smaller monthly grant — take
+        effect at the next cycle boundary, with no immediate charge or refund. Rejected
+        with HTTP 409 while a cancellation is pending. Requires an active Pro subscription
+        with a provisioned Stripe subscription.'
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4955,9 +4961,14 @@ paths:
         atomic Stripe updates: the machine/storage/fee items (adding, swapping, or
         removing — including the ``vellum_pro_base`` fee) settle in a first ``Subscription.modify``
         that bills immediately, while any included-credit bundle change settles in
-        a separate ``proration_behavior=none`` modify at the next cycle. A net price
-        increase on the primary items invoices immediately and gates on payment success
-        (HTTP 402 on a declined card, leaving the plan unchanged); a net decrease
+        a separate ``proration_behavior=none`` modify. A credit-tier INCREASE additionally
+        charges the flat price difference between the two bundles immediately and
+        grants the credit difference immediately (mirroring change-credit-tier); when
+        that difference cannot be charged (active discount, no chargeable payment
+        method, or a declined charge) the credits simply apply at the next cycle and
+        the package switch stands. Credit decreases settle at the next cycle. A net
+        price increase on the primary items invoices immediately and gates on payment
+        success (HTTP 402 on a declined card, leaving the plan unchanged); a net decrease
         nets onto the next invoice. Machines above the new package''s ceiling are
         capped via vembda and lower ceilings grow asynchronously; PVCs are never shrunk.
         Rejected with HTTP 409 while a cancellation is pending, and gated on the ``pro-packages``
@@ -7067,6 +7078,12 @@ components:
         credit_tier:
           type: string
           nullable: true
+        charged_usd:
+          type: string
+          nullable: true
+        granted_credits_usd:
+          type: string
+          nullable: true
       required:
       - credit_tier
       - status
@@ -8854,6 +8871,12 @@ components:
           $ref: '#/components/schemas/TierChangeStatusEnum'
         package:
           $ref: '#/components/schemas/SubscriptionPackage'
+        credit_charged_usd:
+          type: string
+          nullable: true
+        credit_granted_usd:
+          type: string
+          nullable: true
       required:
       - package
       - status
@@ -9315,6 +9338,14 @@ components:
           type: integer
           minimum: 0
           nullable: true
+        usage_label:
+          type: string
+          nullable: true
+          description: 'Customer-facing name for the included-usage line item, e.g.
+            "Mighty Usage". Render verbatim rather than composing a string from credits_usd:
+            this is the same wording the Stripe product carries, so the plan card
+            and the invoice line agree. Null exactly when credits_usd is — a package
+            with no credit bundle has no usage line item to name.'
         include_platform_fee:
           type: boolean
         base_price_cents:
@@ -9348,6 +9379,7 @@ components:
       - storage_price_cents
       - storage_tier
       - total_price_cents
+      - usage_label
       - version
     ProPlan:
       type: object

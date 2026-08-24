@@ -2610,10 +2610,13 @@ async function main() {
   }
 
   // ── Discord Gateway lifecycle ──
-  // Credential-gated and UI-invisible: the client exists only while a
-  // `discord_channel:bot_token` credential does. There is no feature flag —
-  // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
-  // credential tears the connection down on the next watcher tick.
+  // Credential-gated: the client exists only while a
+  // `discord_channel:bot_token` credential does. There is no feature flag, and
+  // removing the credential tears the connection down on the next watcher
+  // tick. Whether Discord is offered for setup is a separate question, decided
+  // by BASE_AVAILABLE_CHANNELS in the daemon, which lists it: a channel can be
+  // offered while no credential is stored, and the connection is what a stored
+  // one buys.
   //
   // Startup is the credential watcher's initial poll: it diffs against an
   // empty baseline, so a token already stored at boot surfaces as

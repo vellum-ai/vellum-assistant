@@ -1292,6 +1292,7 @@
     "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly",
+    "usageIncludedChip": "{label} included",
     "viewAllPlans": "View All Plans"
   },
   "planCardContent": {
@@ -1328,6 +1329,7 @@
     "featureComputer": "{machine} Computer",
     "featureCreditsIncluded": "{amount} in credits included",
     "featureStorage": "{gib} GB Storage",
+    "featureUsageIncluded": "{label} included",
     "foreverCaption": "Forever",
     "freeFeaturePayAsYouGo": "Pay-as-you-go credits",
     "freeFeatureSmallComputer": "Small Computer",

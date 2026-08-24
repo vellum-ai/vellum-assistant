@@ -5,7 +5,6 @@
  */
 
 import {
-  creditRowLabel,
   formatMonthly,
   storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
@@ -180,7 +179,9 @@ export function computeCustomPlanDiff(input: {
     creditChoice === NO_EXTRA_CREDITS
       ? NO_CREDITS_LABEL
       : selectedCredit != null
-        ? creditRowLabel(selectedCredit.credits_usd)
+        ? // The catalog label ("Mighty Usage") is the bundle's Stripe product
+          // name, so the row matches the invoice line.
+          selectedCredit.label
         : null;
 
   if (selectedCreditLabel != null) {
@@ -192,7 +193,7 @@ export function computeCustomPlanDiff(input: {
       seed?.creditTier == null
         ? NO_CREDITS_LABEL
         : seedCredit != null
-          ? creditRowLabel(seedCredit.credits_usd)
+          ? seedCredit.label
           : undefined;
     rows.push({
       key: "credit",

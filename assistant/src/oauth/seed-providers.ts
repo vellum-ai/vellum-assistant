@@ -92,7 +92,7 @@ export const PROVIDER_SEED_DATA: Record<
     // base URL override (see GMAIL_API_BASE_URL) for their short paths.
     baseUrl: "https://www.googleapis.com",
     displayLabel: "Google",
-    description: "Gmail, Calendar, Drive, and Contacts",
+    description: "Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
     logoUrl: "https://cdn.simpleicons.org/google",
@@ -133,6 +133,20 @@ export const PROVIDER_SEED_DATA: Record<
       },
       {
         hostPattern: "docs.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      // The Sheets and Slides APIs accept the auth/drive scope, so the
+      // existing token covers them; only the hosts need injection entries.
+      {
+        hostPattern: "sheets.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "slides.googleapis.com",
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",

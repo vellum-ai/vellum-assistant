@@ -22,7 +22,8 @@
     "whatsapp": "WhatsApp",
     "a2a": "A2A",
     "phone": "Телефон",
-    "email": "Почта"
+    "email": "Почта",
+    "discord": "Discord"
   },
   "contact": {
     "nameLabel": "Имя",
@@ -110,7 +111,8 @@
     "revokeConfirmTitle": "Отозвать {channel}",
     "revokeConfirmMessage": "Подтверждённый канал будет отключён. Контакту нужно будет подтвердить его снова, чтобы пользоваться этим каналом.",
     "linkAccount": "Связать аккаунт",
-    "setupDefault": "Пригласить"
+    "setupDefault": "Пригласить",
+    "loadFailed": "Не удалось загрузить каналы. Проверьте подключение и повторите попытку."
   },
   "linkAccountDialog": {
     "title": "Связать аккаунт {channel}",

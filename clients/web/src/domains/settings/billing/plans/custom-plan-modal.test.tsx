@@ -526,7 +526,7 @@ describe("CustomPlanModal — base subscriber", () => {
       "Platform fee: $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GB storage",
-      "$50 of bundled credits",
+      "50 credits",
     ]);
   });
 
@@ -946,7 +946,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
-      "$25 of bundled credits",
+      "25 credits",
     ]);
   });
 
@@ -1013,7 +1013,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
-      "$25 of bundled credits",
+      "25 credits",
     ]);
     expect(strikethroughs()).toEqual([]);
     expect(deltaLine()).toBeNull();

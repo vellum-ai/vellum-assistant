@@ -297,16 +297,17 @@ function RecommendedUpgrade({
             {t("planCard.nextPlan")}
           </Tag>
         }
-        specs={packageSpecs(
-          recommended,
-          obscureCredits
-            ? {
-                obscuredUsageLabel: t("planCard.usageChip", {
-                  name: recommended.name,
-                }),
-              }
+        specs={packageSpecs(recommended, {
+          obscuredUsageLabel: obscureCredits
+            ? t("planCard.usageChip", { name: recommended.name })
             : undefined,
-        )}
+          usageIncludedLabel:
+            recommended.usage_label != null
+              ? t("planCard.usageIncludedChip", {
+                  label: recommended.usage_label,
+                })
+              : undefined,
+        })}
         specsWrap={obscureCredits}
         footer={
           <Button
@@ -481,16 +482,17 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const currentSpecs = isFreePlan
     ? freePlanSpecs()
     : currentPackage
-      ? packageSpecs(
-          currentPackage,
-          obscureCredits
-            ? {
-                obscuredUsageLabel: t("planCard.usageChip", {
-                  name: currentPackage.name,
-                }),
-              }
+      ? packageSpecs(currentPackage, {
+          obscuredUsageLabel: obscureCredits
+            ? t("planCard.usageChip", { name: currentPackage.name })
             : undefined,
-        )
+          usageIncludedLabel:
+            currentPackage.usage_label != null
+              ? t("planCard.usageIncludedChip", {
+                  label: currentPackage.usage_label,
+                })
+              : undefined,
+        })
       : null;
   const currentPriceCents = isFreePlan
     ? 0

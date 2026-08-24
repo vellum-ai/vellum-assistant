@@ -129,9 +129,14 @@ function packageFeatures(
   return [
     machineComputerLabel(pkg, translate),
     translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
-    translate("plansPage.featureCreditsIncluded", {
-      amount: formatDollars(credits * 100),
-    }),
+    // The catalog's `usage_label` ("Mighty Usage") matches the bundle's
+    // Stripe product and thus the invoice; the amount wording covers a
+    // package with no usage label.
+    pkg.usage_label != null
+      ? translate("plansPage.featureUsageIncluded", { label: pkg.usage_label })
+      : translate("plansPage.featureCreditsIncluded", {
+          amount: formatDollars(credits * 100),
+        }),
     ...extra,
   ];
 }

@@ -1292,6 +1292,7 @@
     "usageBalanceResets": "Сброс {date}",
     "usageBalanceTitle": "Баланс использования",
     "usageChip": "Использование {name}, сброс каждый месяц",
+    "usageIncludedChip": "Входит {label}",
     "viewAllPlans": "Все планы"
   },
   "planCardContent": {
@@ -1328,6 +1329,7 @@
     "featureComputer": "Компьютер {machine}",
     "featureCreditsIncluded": "Входит {amount} кредитами",
     "featureStorage": "{gib} ГБ хранилища",
+    "featureUsageIncluded": "Входит {label}",
     "foreverCaption": "Навсегда",
     "freeFeaturePayAsYouGo": "Кредиты по мере использования",
     "freeFeatureSmallComputer": "Небольшой компьютер",
