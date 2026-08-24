@@ -21,8 +21,7 @@ function sessionReplaySurface(): SessionReplayConfig["surface"] {
 }
 
 /**
- * Bootstrap session-replay consent gating. Must run after
- * `migrateDeviceSettings()` so the device gate is readable. No-ops when
+ * Bootstrap session-replay consent gating. No-ops when
  * `VITE_SESSION_REPLAY_APP_ID` is unset (mirrors Sentry's no-DSN no-op), so the
  * plumbing stays dark until a real provider and the app ID are configured.
  */
