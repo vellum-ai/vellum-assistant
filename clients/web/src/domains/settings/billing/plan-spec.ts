@@ -63,6 +63,13 @@ export interface PackageSpecsOptions {
    * instead of naming an amount.
    */
   obscuredUsageLabel?: string;
+  /**
+   * Localized chip text for a package with a `usage_label` (e.g.
+   * "Mighty Usage included" via `planCard.usageIncludedChip`). Supplied by
+   * the caller because this pure module has no `t()`; without it the chip
+   * falls back to the untranslated dollar wording.
+   */
+  usageIncludedLabel?: string;
 }
 
 /**
@@ -84,18 +91,18 @@ export function packageSpecs(
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    // The catalog's `usage_label` ("Mighty Usage") is the bundle's Stripe
-    // product name, so the chip matches the invoice line. The dollar fallback
-    // covers a package with no usage label — cents-aware like every other
-    // price on these surfaces, so a sub-dollar bundle reads "$0.50 in credits
-    // included" rather than "$0.5".
+    // `usageIncludedLabel` carries the localized wording for the catalog's
+    // `usage_label` ("Mighty Usage"), the bundle's Stripe product name, so
+    // the chip matches the invoice line. The dollar fallback covers a package
+    // with no usage label. It is cents-aware like every other price on these
+    // surfaces, so a sub-dollar bundle reads "$0.50 in credits included"
+    // rather than "$0.5".
     {
       icon: Coins,
       label:
         opts?.obscuredUsageLabel ??
-        (pkg.usage_label != null
-          ? `${pkg.usage_label} included`
-          : `${formatDollars(credits * 100)} in credits included`),
+        opts?.usageIncludedLabel ??
+        `${formatDollars(credits * 100)} in credits included`,
       ownRow: true,
     },
     ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),

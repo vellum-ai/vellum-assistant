@@ -266,8 +266,8 @@ describe("currentTierRows", () => {
   });
 
   test("labels all three dimensions from the sub's own tiers", () => {
-    // The credit row is the catalog label verbatim — the bundle's Stripe
-    // product name — so the card matches the subscriber's invoice line.
+    // The credit row is the catalog label verbatim (the bundle's Stripe
+    // product name), so the card matches the subscriber's invoice line.
     expect(currentTierRows(tiers(), proPlan)).toEqual([
       "Large Machine",
       "30 GB",
@@ -306,7 +306,7 @@ describe("currentTierRows", () => {
   test("renders the catalog label verbatim, cadence included", () => {
     // The label is server-owned copy rendered as-is (it is the bundle's
     // Stripe product name), so a label that carries its own cadence cannot
-    // double up — nothing is composed onto it.
+    // double up, because nothing is composed onto it.
     const cadenced = {
       id: "pro",
       credit_tiers: [

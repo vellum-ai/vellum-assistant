@@ -1293,6 +1293,7 @@
     "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly",
+    "usageIncludedChip": "{label} included",
     "viewAllPlans": "View All Plans"
   },
   "planCardContent": {
