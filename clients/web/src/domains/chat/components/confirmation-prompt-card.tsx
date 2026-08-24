@@ -1,6 +1,8 @@
 import { ChevronDown, ChevronRight, Loader2, Shield } from "lucide-react";
 import { useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { AllowOptionsMenu } from "@/domains/chat/components/allow-options-menu";
 import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
@@ -37,6 +39,7 @@ export function ConfirmationPromptCard({
   onSubmit,
   onAllowAndCreateRule,
 }: ConfirmationPromptCardProps) {
+  const { t } = useTranslation("chat");
   const [showDetails, setShowDetails] = useState(false);
   const offersRule = offersRuleOption(confirmation);
 
@@ -55,7 +58,7 @@ export function ConfirmationPromptCard({
           <div className="flex items-start gap-2">
             <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]" />
             <span className="text-body-medium-default text-[var(--content-default)]">
-              {confirmation.title || "Confirmation required"}
+              {confirmation.title || t("confirmationPromptCard.titleFallback")}
             </span>
             {riskBadge && (
               <span
@@ -88,7 +91,7 @@ export function ConfirmationPromptCard({
                 {isSubmitting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : null}
-                Allow
+                {t("confirmationPromptCard.allow")}
               </button>
               <AllowOptionsMenu
                 align="end"
@@ -114,7 +117,7 @@ export function ConfirmationPromptCard({
               {isSubmitting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : null}
-              Allow
+              {t("confirmationPromptCard.allow")}
             </button>
           )}
           <button
@@ -123,7 +126,7 @@ export function ConfirmationPromptCard({
             onClick={() => onSubmit("deny")}
             className="flex items-center gap-1.5 rounded-md bg-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-white transition-colors hover:opacity-90 disabled:opacity-50"
           >
-            Deny
+            {t("confirmationPromptCard.deny")}
           </button>
         </div>
       </div>
@@ -138,13 +141,13 @@ export function ConfirmationPromptCard({
             <ChevronRight
               className={`h-3 w-3 transition-transform ${showDetails ? "rotate-90" : ""}`}
             />
-            {showDetails ? "Hide details" : "Show details"}
+            {showDetails ? t("confirmationPromptCard.hideDetails") : t("confirmationPromptCard.showDetails")}
           </button>
           {showDetails && (
             <div className="mt-2 space-y-1.5">
               {confirmation.toolName && (
                 <div className="flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]">
-                  <span>Tool:</span>
+                  <span>{t("confirmationPromptCard.toolLabel")}</span>
                   <code className="rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
                     {confirmation.toolName}
                   </code>

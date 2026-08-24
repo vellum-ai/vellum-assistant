@@ -200,6 +200,17 @@ function makeMacOriginatedMessage(): MessageRow {
   });
 }
 
+function makeWindowsOriginatedMessage(): MessageRow {
+  return makeMessage({
+    metadata: JSON.stringify({
+      userMessageChannel: "vellum",
+      userMessageInterface: "web",
+      client: { os: "windows" },
+      clientOsFromRequest: true,
+    }),
+  });
+}
+
 /**
  * A turn opened from a plain browser tab, as opposed to the Electron desktop
  * renderer sharing the same web bundle: `client.os` is `"web"` only when
@@ -347,7 +358,7 @@ describe("emitAssistantReplyNotification", () => {
       desktopAttended = true;
     });
 
-    test("marks the signal source-active while a Mac reports itself attended", async () => {
+    test("marks the signal source-active while a desktop reports itself attended", async () => {
       await run();
 
       expect(emitCalls).toHaveLength(1);
@@ -357,7 +368,16 @@ describe("emitAssistantReplyNotification", () => {
       expect(desktopPresenceArgs).toEqual([[]]);
     });
 
-    test("leaves the signal live when no Mac is attended", async () => {
+    test("marks a Windows-originated signal source-active while attended", async () => {
+      initiatingRow = makeWindowsOriginatedMessage();
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+    });
+
+    test("leaves the signal live when no desktop is attended", async () => {
       desktopAttended = false;
 
       await run();
@@ -386,10 +406,13 @@ describe("emitAssistantReplyNotification", () => {
       expect(warnCalls).toHaveLength(1);
     });
 
-    // An attended Mac only speaks for a turn the Mac itself opened: the user
-    // can send from the phone minutes after last touching the keyboard, which
+    // An attended desktop only speaks for a turn that desktop itself opened.
+    // The user can send from the phone minutes after last touching the keyboard,
     // is exactly the reply this producer exists to push.
-    const NON_MAC_ORIGIN_CASES: Array<{ name: string; metadata: unknown }> = [
+    const NON_DESKTOP_ORIGIN_CASES: Array<{
+      name: string;
+      metadata: unknown;
+    }> = [
       {
         name: "the iOS app",
         metadata: { client: { os: "ios" }, clientOsFromRequest: true },
@@ -412,7 +435,7 @@ describe("emitAssistantReplyNotification", () => {
       // `macos` the conversation's live client state kept from an earlier
       // desktop send. Without the marker that OS names an earlier turn, not
       // this one, and the push the user is waiting for on their phone would
-      // be dropped by the attended Mac.
+      // be dropped by the attended desktop.
       {
         name: "a row whose macOS OS was inherited, not reported",
         metadata: { userMessageInterface: "web", client: { os: "macos" } },
@@ -424,7 +447,7 @@ describe("emitAssistantReplyNotification", () => {
       },
     ];
 
-    for (const { name, metadata } of NON_MAC_ORIGIN_CASES) {
+    for (const { name, metadata } of NON_DESKTOP_ORIGIN_CASES) {
       test(`leaves the signal live for a turn opened from ${name}`, async () => {
         initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
 

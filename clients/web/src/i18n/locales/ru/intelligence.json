@@ -1,0 +1,426 @@
+{
+  "applyPersonalityUpdate": {
+    "conversationTitle": "Обновляю личность"
+  },
+  "applyRename": {
+    "conversationTitle": "Обновляю имя"
+  },
+  "assistantNameEditor": {
+    "greeting": "Привет, я {name}",
+    "renamingInProgressAriaLabel": "Идёт смена имени"
+  },
+  "categorySidebar": {
+    "all": "Все",
+    "skillCategoriesAriaLabel": "Категории навыков"
+  },
+  "conceptDetailPanel": {
+    "askAboutThis": "Спросить об этом",
+    "askPrompt": "Расскажи, что ты помнишь про \"{title}\" и как это связано с остальным, что ты знаешь.",
+    "backAriaLabel": "Назад",
+    "closeAriaLabel": "Закрыть",
+    "connectionCount": "{count, plural, one {# связь} few {# связи} many {# связей} other {# связи}}",
+    "emptyContent": "У этого понятия пока нет текста. Оно есть как связь в графе, но страница пустая.",
+    "loadError": "Не получилось загрузить это понятие. Повторите попытку через минуту.",
+    "readFullNote": "Читать заметку целиком",
+    "refine": "Уточнить",
+    "refinePrompt": "Хочу уточнить, что ты помнишь про \"{title}\". Спроси, что не так, и мы поправим вместе.",
+    "showLess": "Свернуть",
+    "trailAriaLabel": "Цепочка понятий",
+    "updated": "Обновлено {date}",
+    "wiredTo": "Связано с"
+  },
+  "conceptGraphConstants": {
+    "nodeKind": {
+      "capability": "Способность",
+      "concept": "Понятие",
+      "other": "Другое",
+      "pending": "Ожидает",
+      "skill": "Навык"
+    }
+  },
+  "conceptGraphIntroBanner": {
+    "description": "Каждая идея, которую он учит, и связи между ними появляются здесь. Карта растёт и перестраивается по мере разговора: чем больше сведений, тем она богаче.",
+    "dismissAriaLabel": "Скрыть",
+    "title": "Это разум ассистента"
+  },
+  "conceptGraphLegend": {
+    "coloredByTheme": "Цвет по теме",
+    "learned": "Выучено",
+    "link": "Связь",
+    "moreThemes": "{count, plural, one {+# ещё} few {+# ещё} many {+# ещё} other {+# ещё}}"
+  },
+  "conceptGraphView": {
+    "clearSearchAriaLabel": "Очистить поиск",
+    "dragToRotateHint": "перетащи, чтобы вращать · прокрути, чтобы масштабировать",
+    "emptyDetail": "Когда ассистент будет учиться и связывать идеи, они появятся здесь живой картой его памяти.",
+    "emptyTitle": "Понятий пока нет",
+    "enterFullscreenAriaLabel": "На весь экран",
+    "exitFullscreenAriaLabel": "Выйти из полного экрана",
+    "loadErrorDetail": "Не получилось загрузить память ассистента. Повторите попытку через минуту.",
+    "loadErrorTitle": "Не получилось загрузить граф памяти",
+    "resetViewAriaLabel": "Сбросить вид",
+    "searchConceptsAriaLabel": "Искать понятия",
+    "searchConceptsPlaceholder": "Искать понятия…",
+    "truncatedNotice": "{count, plural, one {Показано # наиболее связанное понятие} few {Показаны # наиболее связанных понятия} many {Показано # наиболее связанных понятий} other {Показаны # наиболее связанных понятия}}",
+    "zoomInAriaLabel": "Приблизить",
+    "zoomOutAriaLabel": "Отдалить"
+  },
+  "createMemoryModal": {
+    "cancel": "Отмена",
+    "contentLabel": "Что мне запомнить?",
+    "contentPlaceholder": "напр. Я предпочитаю короткие списки.",
+    "create": "Создать воспоминание",
+    "createError": "Не получилось создать воспоминание.",
+    "creating": "Создаю…",
+    "helperText": "Сразу появится на карте, а потом станет понятием, когда я его разложу.",
+    "savedFoundToast": "Понял. Сейчас открою.",
+    "savedPendingToast": "Понял. Оно уже на карте, пока я его раскладываю.",
+    "saveError": "Не получилось сохранить это воспоминание.",
+    "title": "Новое воспоминание"
+  },
+  "getMemoryGraph": {
+    "failureMessage": "Не получилось загрузить граф памяти."
+  },
+  "getMemoryGraphNode": {
+    "failureMessage": "Не получилось загрузить это понятие."
+  },
+  "identityOverview": {
+    "cardHoverLine": {
+      "channels": "Все места, где можно меня найти",
+      "contacts": "Люди, которых я знаю и которым доверяю",
+      "library": "Приложения и документы, которые я сделал",
+      "memory": "Всё, что я помню",
+      "personality": "Давай, подкрути мне душу",
+      "schedules": "Что я делаю по кругу",
+      "superpowers": "Всё, что я умею",
+      "workspace": "Все файлы, на которых я работаю"
+    },
+    "defaultAssistantName": "Ассистент",
+    "memoryCount": "{count, plural, one {# воспоминание} few {# воспоминания} many {# воспоминаний} other {# воспоминания}}",
+    "memoryCountLabel": "{count, plural, one {воспоминание} few {воспоминания} many {воспоминаний} other {воспоминания}}",
+    "renameErrorToast": "Имя не сменилось. Повторите попытку.",
+    "renameSuccessToast": "Знакомься, это {newName}!",
+    "scheduleCadence": "{cadence} · следующее {nextRun}",
+    "updateAvatarAndName": "Изменить аватар и имя",
+    "viewMoreSchedules": "{count, plural, one {Показать ещё #…} few {Показать ещё #…} many {Показать ещё #…} other {Показать ещё #…}}"
+  },
+  "identitySections": {
+    "channels": {
+      "description": "Где я слушаю",
+      "label": "Каналы"
+    },
+    "contacts": {
+      "description": "Кого я знаю",
+      "label": "Контакты"
+    },
+    "library": {
+      "description": "Мои приложения и документы",
+      "label": "Библиотека"
+    },
+    "memory": {
+      "description": "Что я помню",
+      "label": "Память"
+    },
+    "personality": {
+      "description": "Настройка того, как я говорю",
+      "label": "Личность"
+    },
+    "schedules": {
+      "description": "Мои ритуалы",
+      "label": "Расписания"
+    },
+    "superpowers": {
+      "description": "Что я умею",
+      "label": "Суперсилы"
+    },
+    "workspace": {
+      "description": "Мои файлы",
+      "label": "Рабочая область"
+    }
+  },
+  "installSkill": {
+    "failureMessage": "Не получилось установить навык."
+  },
+  "intelligenceLayout": {
+    "backToAriaLabel": "Назад к {name}",
+    "backToTitle": "Назад к {name}"
+  },
+  "listConceptPages": {
+    "failureMessage": "Не получилось загрузить страницы понятий."
+  },
+  "memoryFormat": {
+    "justNow": "только что"
+  },
+  "memoryPage": {
+    "createMemory": "Создать воспоминание"
+  },
+  "memoryTypes": {
+    "sourceType": {
+      "direct": "Сказано напрямую",
+      "inferred": "Выведено",
+      "observed": "Замечено",
+      "toldByOther": "Сказано кем-то ещё"
+    }
+  },
+  "memoryUpgradePrompt": {
+    "memorySettings": "Настройки памяти",
+    "tryAgain": "Повторить",
+    "turnMemoryOn": "Включить память",
+    "upgradeMemory": "Обновить память"
+  },
+  "personalityAxes": {
+    "companionCoworker": {
+      "left": "Компаньон",
+      "right": "Коллега"
+    },
+    "executeCollaborate": {
+      "left": "Самостоятельный",
+      "right": "Совместный"
+    },
+    "genzBoomer": {
+      "left": "Gen Z",
+      "right": "Baby Boomer"
+    },
+    "playfulSerious": {
+      "left": "Игривый",
+      "right": "Серьёзный"
+    },
+    "politeUnfiltered": {
+      "left": "Вежливый",
+      "right": "Без фильтра"
+    }
+  },
+  "personalityPage": {
+    "back": "Назад",
+    "subtitle": "Сдвиг ползунков и нажатие «обновить»: я перепишу себя под это.",
+    "title": "Формирование личности",
+    "updateErrorToast": "Личность не обновилась. Повторите попытку.",
+    "updatePersonality": "Обновить личность",
+    "updateSuccessToast": "Личность обновлена. Иди поздоровайся!",
+    "updatingPersonality": "Обновляю личность {name}…"
+  },
+  "personalitySignature": {
+    "ariaLabel": "Личность: {summary}",
+    "axisBalanced": "{left} и {right} в балансе",
+    "axisLean": "{percent}% {label}"
+  },
+  "personalitySliderRow": {
+    "rangeAriaLabel": "От {left} до {right}"
+  },
+  "pluginConstants": {
+    "installError": "Не получилось установить плагин. Повторите попытку.",
+    "removeConfirmMessage": "Удалить \"{name}\" у этого ассистента?",
+    "removeError": "Не получилось удалить плагин. Повторите попытку.",
+    "riskyUpgradeConfirmLabel": "Всё равно обновить",
+    "riskyUpgradeConfirmMessage": "У \"{name}\" есть локальные правки, которые пропадут при обновлении. Продолжить?",
+    "toggleError": "Не получилось обновить плагин. Повторите попытку.",
+    "upgradeError": "Не получилось обновить плагин. Повторите попытку."
+  },
+  "pluginDetail": {
+    "backToPluginsAriaLabel": "Назад к плагинам",
+    "noReadme": "У этого плагина нет README.",
+    "version": "v{version}"
+  },
+  "pluginDetailShared": {
+    "autoIncludeInChat": "Автоматически включать в диалог",
+    "download": "Скачать",
+    "homepageLabel": "Сайт",
+    "hooksLabel": "Hooks",
+    "install": "Установить",
+    "licenseLabel": "Лицензия",
+    "loadErrorDetail": "Его может не быть, или у ассистента старая сборка.",
+    "loadErrorTitle": "Не получилось загрузить этот плагин.",
+    "localSource": "Локальный",
+    "remove": "Удалить",
+    "removePluginTitle": "Удалить плагин",
+    "skillsLabel": "Навыки",
+    "sourceLabel": "Источник",
+    "toolsLabel": "Инструменты",
+    "upgrade": "Обновить",
+    "upgradePluginTitle": "Обновить плагин",
+    "upgradeTitle": "Обновить {fromSha} → {toSha}"
+  },
+  "pluginListRow": {
+    "disabled": "Выключен",
+    "enabled": "Включён",
+    "installingAriaLabel": "Установка",
+    "installPluginAriaLabel": "Установить плагин",
+    "moreIssues": "{count, plural, one { (+# ещё)} few { (+# ещё)} many { (+# ещё)} other { (+# ещё)}}",
+    "noDescription": "Описания нет.",
+    "pluginTag": "Плагин",
+    "removePluginAriaLabel": "Удалить плагин",
+    "version": "v{version}"
+  },
+  "pluginOriginBadge": {
+    "external": "Внешний",
+    "local": "Локальный"
+  },
+  "pluginToast": {
+    "alreadyUpToDate": "{name} уже в актуальной версии",
+    "installed": "Установлен {name}",
+    "pluginFallback": "плагин",
+    "pluginFallbackCapitalized": "Плагин",
+    "removed": "Удалён {name}",
+    "upgraded": "{name} обновлён до {sha}"
+  },
+  "recencyLens": {
+    "all": "Всё",
+    "ariaLabel": "Период",
+    "month": "Месяц",
+    "week": "Неделя"
+  },
+  "sections": {
+    "channels": "Каналы",
+    "contacts": "Контакты",
+    "library": "Библиотека",
+    "memory": "Память",
+    "schedules": "Расписания",
+    "superpowers": "Мои суперсилы",
+    "workspace": "Рабочая область"
+  },
+  "skillDetail": {
+    "backToSkillsAriaLabel": "Назад к навыкам",
+    "filesTab": "Файлы",
+    "fileViewModeAriaLabel": "Режим просмотра файла",
+    "historyTab": "История",
+    "install": "Установить",
+    "noFilesAvailable": "Файлов нет.",
+    "openInWorkspaceAriaLabel": "Открыть в рабочей области",
+    "pendingAriaLabel": "Ожидание",
+    "preview": "Предпросмотр",
+    "remove": "Удалить",
+    "saveFailed": "Не удалось сохранить",
+    "selectAFile": "Выбор файла",
+    "selectFilePrompt": "Выбор файла, чтобы посмотреть содержимое.",
+    "source": "Код"
+  },
+  "skillDetailPage": {
+    "backToSuperpowers": "Назад к моим суперсилам",
+    "notFoundSubtitle": "Этот навык могли удалить, или ссылка устарела.",
+    "notFoundTitle": "Навык не найден"
+  },
+  "skillFileContent": {
+    "binaryFile": "Двоичный файл. Предпросмотра нет.",
+    "noPreviewAvailable": "Для {fileName} нет предпросмотра."
+  },
+  "skillOriginBadge": {
+    "assistantMemory": "Память ассистента",
+    "custom": "Свой"
+  },
+  "skillRevisionHistory": {
+    "loadError": "Не получилось загрузить историю правок.",
+    "noChanges": "Изменений пока нет.",
+    "noPreviewForChange": "Для этого изменения нет предпросмотра.",
+    "truncatedNotice": "Показаны недавние изменения. Старая история периодически сжимается, поэтому она может не доходить до создания навыка."
+  },
+  "skillRow": {
+    "bundledSkillCannotBeRemovedAriaLabel": "Встроенный навык нельзя удалить",
+    "bundledSkillsCannotBeRemoved": "Встроенные навыки нельзя удалить",
+    "installingAriaLabel": "Установка",
+    "installSkillAriaLabel": "Установить навык",
+    "removeSkillAriaLabel": "Удалить навык"
+  },
+  "skillsErrorState": {
+    "subtitle": "Что-то пошло не так. Обновите страницу.",
+    "title": "Не получилось загрузить навыки"
+  },
+  "superpowersFilters": {
+    "categoriesLabel": "Категории",
+    "done": "Готово",
+    "filterAriaLabel": "Фильтровать суперсилы",
+    "filterLabel": {
+      "all": "Все",
+      "assistantMemory": "Память ассистента",
+      "available": "Доступные",
+      "custom": "Свои",
+      "installed": "Установленные",
+      "plugins": "Плагины",
+      "skills": "Навыки"
+    },
+    "filtersTitle": "Фильтры",
+    "searchAriaLabel": "Искать суперсилы",
+    "searchPlaceholder": "Искать суперсилы",
+    "sourceLabel": "Источник",
+    "statusLabel": "Статус",
+    "typeLabel": "Тип"
+  },
+  "superpowersTab": {
+    "catalogBrowsingUnavailableNotice": "Каталог плагинов временно недоступен. Установленные плагины по-прежнему ниже.",
+    "categoriesAriaLabel": "Категории суперсил",
+    "dismissTipAriaLabel": "Скрыть подсказку",
+    "emptyState": {
+      "assistantMemorySubtitle": "Здесь появятся навыки, которые ассистент напишет по прошлым диалогам.",
+      "assistantMemoryTitle": "Нет навыков из памяти",
+      "availableSubtitle": "Все доступные навыки и плагины уже установлены.",
+      "availableTitle": "Устанавливать больше нечего",
+      "categorySubtitle": "Выбор другой категории или сброс фильтра.",
+      "categoryTitle": "В этой категории пусто",
+      "clawhubSubtitle": "Навыков Clawhub нет. Поиск в каталоге.",
+      "clawhubTitle": "Нет навыков Clawhub",
+      "customSubtitle": "Создание навыка: описание в диалоге, что нужно.",
+      "customTitle": "Нет своих навыков",
+      "defaultSubtitle": "Проверка связи с каталогом Vellum.",
+      "defaultTitle": "Нет доступных суперсил",
+      "installedSubtitle": "В диалоге можно попросить ассистента найти и установить новые навыки и плагины.",
+      "installedTitle": "Нет установленных суперсил",
+      "pluginsSubtitle": "Каталог плагинов, которые расширят ассистента.",
+      "pluginsTitle": "Плагины не найдены",
+      "skillsshSubtitle": "Навыков skills.sh нет. Поиск в каталоге.",
+      "skillsshTitle": "Нет навыков skills.sh",
+      "skillsSubtitle": "В диалоге можно попросить ассистента найти и установить новые навыки.",
+      "skillsTitle": "Навыки не найдены",
+      "vellumSubtitle": "Встроенных навыков Vellum нет.",
+      "vellumTitle": "Нет навыков Vellum"
+    },
+    "errorStateSubtitle": "Что-то пошло не так. Обновите страницу.",
+    "errorStateTitle": "Не получилось загрузить суперсилы",
+    "pluginsUnavailableNotice": "Плагины временно недоступны. Навыки по-прежнему ниже.",
+    "skillsUnavailableNotice": "Навыки временно недоступны. Плагины по-прежнему ниже.",
+    "tipBannerText": "Описание в диалоге нужного навыка или установка плагинов, чтобы расширить ассистента."
+  },
+  "updateAvailableBadge": {
+    "updateAvailable": "Есть обновление",
+    "upgradePluginAriaLabel": "Обновить плагин"
+  },
+  "useIdentitySectionStats": {
+    "activeCount": "{count, plural, one {# активное} few {# активных} many {# активных} other {# активных}}",
+    "activeLabel": "{count, plural, one {активное} few {активных} many {активных} other {активных}}",
+    "appAndDocCount": "{count, plural, one {# приложение или документ} few {# приложения и документа} many {# приложений и документов} other {# приложения и документа}}",
+    "appCount": "{count, plural, one {# приложение} few {# приложения} many {# приложений} other {# приложения}}",
+    "connectedCount": "{count, plural, one {# подключённый} few {# подключённых} many {# подключённых} other {# подключённых}}",
+    "connectedLabel": "{count, plural, one {подключённый} few {подключённых} many {подключённых} other {подключённых}}",
+    "itemCount": "{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}",
+    "itemLabel": "{count, plural, one {элемент} few {элемента} many {элементов} other {элемента}}",
+    "noSchedulesText": "Пока ничего не запланировано",
+    "personCount": "{count, plural, one {# человек} few {# человека} many {# человек} other {# человека}}",
+    "personLabel": "{count, plural, one {человек} few {человека} many {человек} other {человека}}",
+    "skillAndPluginCount": "{count, plural, one {# навык или плагин} few {# навыка и плагина} many {# навыков и плагинов} other {# навыка и плагина}}",
+    "skillCount": "{count, plural, one {# навык} few {# навыка} many {# навыков} other {# навыка}}"
+  },
+  "usePluginsList": {
+    "failureMessage": "Не получилось загрузить плагины"
+  },
+  "memoryUnavailable": {
+    "statusError": {
+      "title": "Не получилось проверить настройки памяти",
+      "detail": "Не вышло прочитать статус памяти этого ассистента, так что пока нечего надёжного сообщить."
+    },
+    "off": {
+      "title": "Память выключена",
+      "detail": "Ассистент ничего не сохраняет из диалогов, так что рисовать карту не из чего. Включение Памяти снова запускает запоминание."
+    },
+    "legacy": {
+      "title": "Переход на память v3",
+      "detail": "У ассистента старый движок памяти. Память v3 раскладывает то, что он знает, в связанную wiki понятий, и именно эту wiki рисует карта."
+    },
+    "unknown": {
+      "title": "Граф памяти недоступен",
+      "detail": "Система памяти этого ассистента сообщает слишком мало, чтобы понять почему. Обновление ассистента даст этой странице понять, чего не хватает."
+    },
+    "prompts": {
+      "v2": "Перенеси мою память с v2 на v3. Скорее всего это твой навык \"Memory v3 Migration\", но разберись, что на самом деле нужно моему корпусу, и точно следуй тому навыку, которым пользуешься.\n\nЗапусти в фоне и скажи, когда закончишь, или если что-то помешает.",
+      "v1": "Перенеси мою память с v1 на v3. Скорее всего это два шага: твой навык \"Memory v2 Migration\", а затем \"Memory v3 Migration\". Но разберись, что на самом деле нужно моему ассистенту, и точно следуй тем навыкам, которыми пользуешься.\n\nЗапусти в фоне и скажи, когда закончишь, или если что-то помешает.",
+      "enable": "Включи мою память снова. Хочу, чтобы ты опять запоминал вещи из наших диалогов."
+    }
+  }
+}

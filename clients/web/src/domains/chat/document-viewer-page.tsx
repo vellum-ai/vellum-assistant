@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Route component for viewing a single document with comment integration.
  *
@@ -41,6 +43,7 @@ import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
 // ---------------------------------------------------------------------------
 
 export function DocumentViewerPage() {
+  const { t } = useTranslation("chat");
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -214,7 +217,7 @@ export function DocumentViewerPage() {
           variant="body-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          {error ?? "Document not found."}
+          {error ?? t("documentViewerPage.notFound")}
         </Typography>
       </div>
     );

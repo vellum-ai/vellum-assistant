@@ -15,6 +15,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { cn } from "@/utils/misc";
+import { useTranslation } from "@/i18n";
 
 // Weather card has its own data-shape parsing and forecast UI that is only
 // rendered when a card surface advertises a weather template. Defer loading
@@ -190,6 +191,7 @@ function TaskProgressBar({
 }: {
   templateData: Record<string, unknown>;
 }) {
+  const { t } = useTranslation("chat");
   const completed = Number(templateData.completed ?? 0);
   const total = Number(templateData.total ?? 0);
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -198,7 +200,7 @@ function TaskProgressBar({
     <div className="mt-3">
       <div className="mb-1 flex items-center justify-between text-body-small-default text-[var(--content-quiet)]">
         <span>
-          {completed} / {total} tasks
+          {t("cardSurface.tasksProgress", { completed, total })}
         </span>
         <span>{percent}%</span>
       </div>

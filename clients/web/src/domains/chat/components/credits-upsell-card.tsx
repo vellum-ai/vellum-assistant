@@ -8,6 +8,7 @@ import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only"
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { routes } from "@/utils/routes";
+import { useTranslation } from "@/i18n";
 
 /** Free-plan copy: the wall points at plans rather than at credits. */
 export const UPGRADE_COPY = {
@@ -33,6 +34,7 @@ export const ADD_CREDITS_COPY = {
  * mount outside that tree would have a dead Add Credits CTA.
  */
 export function CreditsUpsellCard() {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
 
   // Managed credits are platform-hosted billing, so the card follows the
@@ -69,7 +71,7 @@ export function CreditsUpsellCard() {
     // offer the shared login affordance instead of a dead-end CTA.
     return (
       <PlatformLoginNotice className="mx-auto max-w-[calc(100%-24px)]">
-        Log in to the Vellum platform to add credits.
+        {t("creditsUpsellCard.loginToAddCredits")}
       </PlatformLoginNotice>
     );
   }

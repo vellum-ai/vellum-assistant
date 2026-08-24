@@ -38,6 +38,8 @@ export interface ConversationListContextValue {
   onRename?: (conversation: Conversation) => void;
   onArchive?: (conversation: Conversation) => void;
   onUnarchive?: (conversation: Conversation) => void;
+  /** Permanently delete a conversation after the host's confirmation gate. */
+  onDelete?: (conversation: Conversation) => void;
   onMarkRead?: (conversation: Conversation) => void;
   onMarkUnread?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
