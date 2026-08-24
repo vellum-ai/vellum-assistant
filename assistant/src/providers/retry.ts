@@ -301,6 +301,16 @@ function isRetryableTransportAbort(error: unknown): boolean {
   return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
+/**
+ * A daemon or user cancellation. The provider catch-sites tag these with
+ * `abortReason` exactly when `signal.aborted` was true at the time of failure,
+ * which is what separates them from transport-level aborts: both surface as
+ * "Request was aborted" from the SDK, and only the tag says who stopped it.
+ */
+function isCallerAbort(error: unknown): boolean {
+  return error instanceof ProviderError && error.abortReason !== undefined;
+}
+
 function isRetryableError(error: unknown): boolean {
   // Context overflow is deterministic — retrying the same oversized prompt
   // will never succeed. Short-circuit before the generic 429/5xx check so
@@ -309,12 +319,11 @@ function isRetryableError(error: unknown): boolean {
   if (isContextOverflowError(error)) {
     return false;
   }
-  // Daemon/user-initiated aborts are never retryable. The catch-site tags
-  // these with `abortReason` exactly when `signal.aborted` was true at the
-  // time of failure, so this short-circuits before any message-based pattern
-  // matches — which matters because transport-level aborts (retryable) and
-  // caller-cancels both surface as "Request was aborted" from the SDK.
-  if (error instanceof ProviderError && error.abortReason !== undefined) {
+  // Daemon/user-initiated aborts are never retryable. This short-circuits
+  // before any message-based pattern matches, which matters because
+  // transport-level aborts (retryable) and caller-cancels both surface as
+  // "Request was aborted" from the SDK.
+  if (isCallerAbort(error)) {
     return false;
   }
   // Prefer the provider-stamped semantic reason: a known reason decides
@@ -400,7 +409,7 @@ function isFallbackEligibleError(
   if (isContextOverflowError(error)) {
     return false;
   }
-  if (error instanceof ProviderError && error.abortReason !== undefined) {
+  if (isCallerAbort(error)) {
     return false;
   }
   // (a) The retry loop burned its whole budget on a transient error
@@ -1224,9 +1233,19 @@ export class RetryProvider implements Provider {
               messagesForAttempt,
               normalizedOptions,
             );
-            releaseRecoveryProbe(breakerRoute, { succeeded: true });
+            releaseRecoveryProbe(breakerRoute, { verdict: "recovered" });
             return response;
           } catch (error) {
+            // A cancelled request asked the route nothing, so the probe has no
+            // verdict to report. Hand the claim back and leave the breaker as
+            // it was: reporting recovery here would delete an entry nothing
+            // retested and send the next request through the full retry budget
+            // of a route still known to be down.
+            if (isCallerAbort(error)) {
+              releaseRecoveryProbe(breakerRoute, { verdict: "abandoned" });
+              this.attributeCredential(error);
+              throw error;
+            }
             if (
               !credentialRefreshAttempted &&
               this.shouldRefreshManagedCredential(error)
@@ -1249,12 +1268,15 @@ export class RetryProvider implements Provider {
             // answers with a retired-model 404 has stopped being an outage,
             // and a model outage that turns into a 503 has stopped being about
             // the model.
-            releaseRecoveryProbe(breakerRoute, {
-              succeeded: !outage,
-              failedRoute: outage
-                ? failureBreakerRoute(breakerRoute, error)
-                : null,
-            });
+            releaseRecoveryProbe(
+              breakerRoute,
+              outage
+                ? {
+                    verdict: "failing",
+                    failedRoute: failureBreakerRoute(breakerRoute, error),
+                  }
+                : { verdict: "recovered" },
+            );
             this.attributeCredential(error);
             if (!outage) {
               throw error;

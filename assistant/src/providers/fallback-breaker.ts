@@ -271,36 +271,60 @@ export function tryAcquireRecoveryProbe(
   return true;
 }
 
-/** What a recovery probe learned about the route it tested. */
-export interface ProbeOutcome {
-  /** Whether the primary route served the probe. */
-  succeeded: boolean;
-  /**
-   * On failure, the route THIS failure indicts, scoped the same way an initial
-   * trip is: the whole upstream for an outage, one model for a retirement.
-   * Null when the failure names nothing the breaker can remember, in which
-   * case the probed entries simply close.
-   */
-  failedRoute?: BreakerRoute | null;
-}
+/**
+ * What a recovery probe learned about the route it tested.
+ *
+ * - `recovered`: the primary served the probe.
+ * - `failing`: it did not, and `failedRoute` names what THIS failure indicts,
+ *   scoped the same way an initial trip is (the whole upstream for an outage,
+ *   one model for a retirement). Null when the failure names nothing the
+ *   breaker can remember, in which case the probed entries simply close.
+ * - `abandoned`: the probe never reached a verdict, because the caller
+ *   cancelled the request. No evidence either way.
+ */
+export type ProbeOutcome =
+  | { verdict: "recovered" }
+  | { verdict: "failing"; failedRoute: BreakerRoute | null }
+  | { verdict: "abandoned" };
 
 /**
  * Report the outcome of the probe claimed by {@link tryAcquireRecoveryProbe}.
  *
- * Every entry the probe was testing closes either way. The probe is the
+ * A probe that reached a verdict closes every entry it was testing. It is the
  * freshest evidence about those entries and it supersedes whatever opened
  * them: an upstream that answers a probe with a retired-model 404 is an
  * upstream that answers, so continuing to divert its healthy models would be
- * acting on stale evidence. What the probe failure does establish is then
+ * acting on stale evidence. What a failing probe does establish is then
  * recorded anew under `failedRoute`, carrying the escalated cooldown forward,
  * so a route that keeps failing the same way still doubles its wait while a
  * route whose failure changed shape is remembered at its true scope.
+ *
+ * An `abandoned` probe only hands the claim back. A cancelled request never
+ * asked the route anything, so treating it as recovery would delete a breaker
+ * that nothing has retested and send the next request through the full retry
+ * budget of a route still known to be down. The entry keeps its deadline and
+ * its escalation count: the cancellation neither counts as a failed probe nor
+ * restarts the wait, it just leaves the probe due again.
  */
 export function releaseRecoveryProbe(
   route: BreakerRoute,
   outcome: ProbeOutcome,
   now: number = Date.now(),
 ): void {
+  if (outcome.verdict === "abandoned") {
+    for (const key of coveringKeys(route)) {
+      const state = breakers.get(key);
+      if (state === undefined || !state.probeInFlight) {
+        continue;
+      }
+      state.probeInFlight = false;
+      log.info(
+        { route: key, failedProbes: state.failedProbes },
+        "Recovery probe was cancelled before it reached the upstream; the fallback breaker keeps its cooldown",
+      );
+    }
+    return;
+  }
   // Consecutive failed probes decide the next cooldown, so the count survives
   // a change of scope: an outage that narrows to one model keeps escalating
   // rather than restarting at the base wait.
@@ -312,7 +336,7 @@ export function releaseRecoveryProbe(
     }
     state.probeInFlight = false;
     escalation = Math.max(escalation, state.failedProbes);
-    if (outcome.succeeded) {
+    if (outcome.verdict === "recovered") {
       log.info(
         { route: key, failedProbes: state.failedProbes },
         "Recovery probe succeeded; closing the fallback breaker",
@@ -320,7 +344,8 @@ export function releaseRecoveryProbe(
     }
     breakers.delete(key);
   }
-  const failedRoute = outcome.succeeded ? null : (outcome.failedRoute ?? null);
+  const failedRoute =
+    outcome.verdict === "recovered" ? null : outcome.failedRoute;
   if (failedRoute === null) {
     return;
   }

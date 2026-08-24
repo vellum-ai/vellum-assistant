@@ -273,7 +273,7 @@ describe("fallback breaker state machine", () => {
     const ready = T0 + observedCooldownMs(UPSTREAM_ROUTE, T0);
     expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
 
-    releaseRecoveryProbe(UPSTREAM_ROUTE, { succeeded: true }, ready + 500);
+    releaseRecoveryProbe(UPSTREAM_ROUTE, { verdict: "recovered" }, ready + 500);
 
     expect(shouldSkipPrimary(UPSTREAM_ROUTE, ready + 500)).toBe(false);
     expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready + 500)).toBe(false);
@@ -297,7 +297,7 @@ describe("fallback breaker state machine", () => {
       expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, at)).toBe(true);
       releaseRecoveryProbe(
         UPSTREAM_ROUTE,
-        { succeeded: false, failedRoute: UPSTREAM_ROUTE },
+        { verdict: "failing", failedRoute: UPSTREAM_ROUTE },
         at,
       );
       expectWithinJitterBand(
@@ -341,7 +341,7 @@ describe("fallback breaker scope", () => {
     recordFallbackServed(OTHER_ROUTE, T0 - MAX_COOLDOWN_MS - 1);
 
     expect(tryAcquireRecoveryProbe(OTHER_ROUTE, T0)).toBe(true);
-    releaseRecoveryProbe(OTHER_ROUTE, { succeeded: true }, T0);
+    releaseRecoveryProbe(OTHER_ROUTE, { verdict: "recovered" }, T0);
 
     expect(shouldSkipPrimary(OTHER_ROUTE, T0)).toBe(false);
     expect(shouldSkipPrimary(PRIMARY_ROUTE, T0)).toBe(true);
@@ -381,7 +381,7 @@ describe("fallback breaker scope", () => {
 
     releaseRecoveryProbe(
       PRIMARY_ROUTE,
-      { succeeded: false, failedRoute: PRIMARY_ROUTE },
+      { verdict: "failing", failedRoute: PRIMARY_ROUTE },
       ready,
     );
 
@@ -399,7 +399,7 @@ describe("fallback breaker scope", () => {
     // And it is still clearable: nothing is stranded by the narrowing.
     const modelReady = ready + observedCooldownMs(PRIMARY_ROUTE, ready);
     expect(tryAcquireRecoveryProbe(PRIMARY_ROUTE, modelReady)).toBe(true);
-    releaseRecoveryProbe(PRIMARY_ROUTE, { succeeded: true }, modelReady);
+    releaseRecoveryProbe(PRIMARY_ROUTE, { verdict: "recovered" }, modelReady);
     expect(shouldSkipPrimary(PRIMARY_ROUTE, modelReady)).toBe(false);
   });
 
@@ -410,7 +410,7 @@ describe("fallback breaker scope", () => {
 
     releaseRecoveryProbe(
       PRIMARY_ROUTE,
-      { succeeded: false, failedRoute: UPSTREAM_ROUTE },
+      { verdict: "failing", failedRoute: UPSTREAM_ROUTE },
       ready,
     );
 
@@ -430,13 +430,53 @@ describe("fallback breaker scope", () => {
 
     releaseRecoveryProbe(
       UPSTREAM_ROUTE,
-      { succeeded: false, failedRoute: null },
+      { verdict: "failing", failedRoute: null },
       ready,
     );
 
     // Better to rediscover the outage on the next request than to keep an
     // entry open that names something no future probe can clear.
     expect(shouldSkipPrimary(PRIMARY_ROUTE, ready)).toBe(false);
+  });
+
+  test("an abandoned probe hands the claim back and changes nothing else", () => {
+    recordFallbackServed(UPSTREAM_ROUTE, T0);
+    const cooldown = observedCooldownMs(UPSTREAM_ROUTE, T0);
+    const ready = T0 + cooldown;
+    expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
+
+    releaseRecoveryProbe(UPSTREAM_ROUTE, { verdict: "abandoned" }, ready);
+
+    // The entry survives with the same deadline: a cancelled probe neither
+    // recovers the route nor restarts its wait.
+    expect(observedCooldownMs(UPSTREAM_ROUTE, T0)).toBe(cooldown);
+    // Concurrent traffic during the cancelled probe was skipping the primary;
+    // now the claim is free, so the next request can probe instead.
+    expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
+    releaseRecoveryProbe(UPSTREAM_ROUTE, { verdict: "recovered" }, ready);
+    expect(shouldSkipPrimary(UPSTREAM_ROUTE, ready)).toBe(false);
+  });
+
+  test("an abandoned probe does not count toward the escalation", () => {
+    recordFallbackServed(UPSTREAM_ROUTE, T0);
+    const ready = T0 + observedCooldownMs(UPSTREAM_ROUTE, T0);
+
+    expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
+    releaseRecoveryProbe(UPSTREAM_ROUTE, { verdict: "abandoned" }, ready);
+    expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
+    releaseRecoveryProbe(
+      UPSTREAM_ROUTE,
+      { verdict: "failing", failedRoute: UPSTREAM_ROUTE },
+      ready,
+    );
+
+    // The first real failure earns the first doubling. Counting the
+    // cancellation would have skipped a rung and made the route wait twice as
+    // long for no evidence.
+    expectWithinJitterBand(
+      observedCooldownMs(UPSTREAM_ROUTE, ready),
+      BASE_COOLDOWN_MS * 2,
+    );
   });
 });
 
@@ -573,6 +613,46 @@ describe("RetryProvider under an open breaker", () => {
     expect(primary.calls()).toBe(1);
     expect(backup.calls()).toBe(0);
     expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(false);
+  });
+
+  test("a cancelled probe leaves the breaker tripped instead of reporting recovery", async () => {
+    const cancelled = new ProviderError(
+      "Request was aborted.",
+      UPSTREAM,
+      undefined,
+      { abortReason: "user_cancelled" },
+    );
+    const primary = primaryProvider(
+      () => cancelled,
+      () => new ProviderError("Service Unavailable", UPSTREAM, 503),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    // The cancellation surfaces as itself and nothing is re-routed: a request
+    // the caller stopped must stay stopped.
+    expect(thrown).toBe(cancelled);
+    expect(primary.calls()).toBe(1);
+    expect(backup.calls()).toBe(0);
+
+    // The entry survived the cancellation, so the next request probes once and
+    // escalates. Had the cancellation been read as recovery, this request would
+    // have paid the primary's whole retry budget instead.
+    const next = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+    expect(next.model).toBe("backup-model");
+    expect(primary.calls()).toBe(2);
+    expect(backup.calls()).toBe(1);
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
   });
 
   test("a route without resolveFallbackRoute never consults the breaker", async () => {
