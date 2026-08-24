@@ -338,6 +338,48 @@ describe("POST /v1/devices/revoke", () => {
     expect(activeRefreshCount("device-B")).toBe(1);
   });
 
+  test("clears the device's activity stamp so a re-pair starts fresh", async () => {
+    // Device ids hash stably, so re-pairing reuses the same hashedDeviceId. The
+    // list reads the max stamp across statuses, so an uncleared revoked row
+    // would report a last use predating the new pairing.
+    seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
+    seedRefresh({ device: "device-A" });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    // Re-pair: a fresh, unstamped active row for the same device.
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("leaves another device's stamp intact", async () => {
+    seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
+    seedActor({ device: "device-B", lastUsedAt: 1_800_000_000_000 });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    const b = body.devices.find(
+      (d) => d.hashedDeviceId === hashToken("device-B"),
+    );
+    expect(b?.lastUsedAt).toBe(1_800_000_000_000);
+  });
+
   test("rejects a request without hashedDeviceId (400)", async () => {
     const res = await handleRevokeDevice(revokeRequest({}), LOOPBACK_IP);
     expect(res.status).toBe(400);

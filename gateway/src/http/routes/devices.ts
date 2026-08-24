@@ -53,7 +53,6 @@ export async function handleListDevices(
       platform: actorTokenRecords.platform,
       issuedAt: actorTokenRecords.issuedAt,
       expiresAt: actorTokenRecords.expiresAt,
-      lastUsedAt: actorTokenRecords.lastUsedAt,
     })
     .from(actorTokenRecords)
     .where(
@@ -67,6 +66,8 @@ export async function handleListDevices(
   // Refreshing credentials revokes the active row and mints an unstamped
   // replacement, so the newest stamp for a device can live on a revoked row.
   // Take the max across every status to keep activity history across rotation.
+  // Same principal filter as above with no status filter, so every listed
+  // device is covered by a group here.
   const lastUsedRows = db
     .select({
       hashedDeviceId: actorTokenRecords.hashedDeviceId,
@@ -86,7 +87,7 @@ export async function handleListDevices(
     platform: t.platform,
     issuedAt: t.issuedAt,
     expiresAt: t.expiresAt ?? null,
-    lastUsedAt: lastUsedByDevice.get(t.hashedDeviceId) ?? t.lastUsedAt ?? null,
+    lastUsedAt: lastUsedByDevice.get(t.hashedDeviceId) ?? null,
   }));
 
   return Response.json({ devices });
