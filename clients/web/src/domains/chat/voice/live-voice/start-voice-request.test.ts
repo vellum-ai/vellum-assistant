@@ -235,9 +235,8 @@ describe("starting a session", () => {
   });
 
   test("the started session is owned by the composer the drain lands on", async () => {
-    // The bug this replaced: a session bound to a conversation no composer on
-    // screen is bound to is owned by nobody, so the room never opens and the
-    // title-bar pill stands in for it.
+    // A session without an owning on-screen composer cannot open the room;
+    // the title-bar pill stands in for it instead.
     identityHydrated();
     registerStarter();
 
