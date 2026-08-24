@@ -4905,12 +4905,13 @@ paths:
         active Pro subscription. A set value swaps the Stripe subscription item in
         place (or adds one when the subscription has no machine item); a null ``machine_tier``
         removes the item entirely (back to the small baseline). Upgrades — including
-        adding a tier — invoice immediately (always_invoice) and only raise the ceiling;
-        pods are left untouched (grow later via the per-assistant resize). Downgrades
-        and removals net onto the next invoice (create_prorations, no refund) and
-        cap any pods above the new ceiling via vembda. Rejected with HTTP 409 while
-        a cancellation is pending. Requires an active Pro subscription with the multi-item
-        structure; legacy single-price subscriptions get HTTP 409 until they are migrated.
+        adding a tier — invoice immediately (always_invoice) and grow the org's assistants
+        up to the new ceiling asynchronously, the same way a Base→Pro subscribe does;
+        the response does not wait on that rollout. Downgrades and removals net onto
+        the next invoice (create_prorations, no refund) and cap any pods above the
+        new ceiling via vembda. Rejected with HTTP 409 while a cancellation is pending.
+        Requires an active Pro subscription with the multi-item structure; legacy
+        single-price subscriptions get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -5003,10 +5004,11 @@ paths:
         Storage is upgrade-only — equal-tier requests are a no-op and smaller-tier
         requests are rejected with HTTP 400 before any Stripe call. Legacy (no-longer-offered)
         tiers are rejected with HTTP 400 unless they equal the current tier (which
-        no-ops). PVCs are never grown here; the per-assistant resize card applies
-        the new ceiling. Rejected with HTTP 409 while a cancellation is pending. Requires
-        an active Pro subscription with storage_tier metadata; legacy subscriptions
-        get HTTP 409 until they are migrated.
+        no-ops). On a successful change the org's assistants grow up to the new ceiling
+        asynchronously, the same way a Base→Pro subscribe does; the response does
+        not wait on that rollout. PVCs are never shrunk. Rejected with HTTP 409 while
+        a cancellation is pending. Requires an active Pro subscription with storage_tier
+        metadata; legacy subscriptions get HTTP 409 until they are migrated.
       parameters:
       - in: header
         name: Vellum-Organization-Id
