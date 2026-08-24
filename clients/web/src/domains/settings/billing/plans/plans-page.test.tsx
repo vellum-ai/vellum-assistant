@@ -37,6 +37,7 @@ import * as platformGateMod from "@/hooks/use-platform-gate";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as toastMod from "@vellumai/design-library/components/toast";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { routes } from "@/utils/routes";
@@ -1637,5 +1638,49 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// obscure-credits flag: the package rows never name a credit amount
+// ---------------------------------------------------------------------------
+
+/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
+function setObscureCredits(value: boolean): void {
+  act(() => {
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ obscureCredits: value }, null);
+  });
+}
+
+describe("PlansPage: obscure-credits flag", () => {
+  afterEach(() => {
+    setObscureCredits(false);
+  });
+
+  test("flag on: every package row reads as the package's usage, never as credits", async () => {
+    setObscureCredits(true);
+    const { findByText, getByText, queryByText, container } =
+      renderInteractive(freeSubscription());
+
+    // The name-derived usage rows, matching the plan card's obscured chip.
+    await findByText("Mighty usage, reset monthly");
+    getByText("Super usage, reset monthly");
+    getByText("Ultra usage, reset monthly");
+    // The obscured wording wins even though the fixtures carry a usage_label.
+    expect(queryByText("Mighty Usage included")).toBeNull();
+    // No card names a credit amount.
+    expect(container.textContent).not.toContain("in credits included");
+  });
+
+  test("flag on: a package with no usage_label still never falls back to credits", async () => {
+    setObscureCredits(true);
+    const { findByText, container } = renderInteractive(freeSubscription(), {
+      plans: plansWith([makeProPackage({ usage_label: null })]),
+    });
+
+    await findByText("Mighty usage, reset monthly");
+    expect(container.textContent).not.toContain("in credits included");
   });
 });

@@ -550,6 +550,10 @@
     "subtitle": "Simplemente mejor.",
     "title": "Crear un plan personalizado",
     "totalBilledMonthly": "Total · Facturación mensual",
+    "usageBundleAriaLabel": "Paquete de uso",
+    "usageBundleDocsAriaLabel": "Más información sobre paquetes de uso",
+    "usageBundleLabel": "Añade un paquete de uso:",
+    "usageBundlePlaceholder": "Selecciona un paquete de uso",
     "yourSelection": "Tu selección:"
   },
   "customPlanRow": {
@@ -1330,6 +1334,7 @@
     "featureComputer": "Ordenador {machine}",
     "featureCreditsIncluded": "{amount} en créditos incluidos",
     "featureStorage": "{gib} GB de almacenamiento",
+    "featureUsage": "Uso de {name}, se restablece cada mes",
     "featureUsageIncluded": "{label} incluido",
     "foreverCaption": "Para siempre",
     "freeFeaturePayAsYouGo": "Créditos de pago por uso",

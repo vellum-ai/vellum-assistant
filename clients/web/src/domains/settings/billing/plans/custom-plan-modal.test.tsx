@@ -20,7 +20,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -34,6 +40,7 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as nativeAuth from "@/runtime/native-auth";
 import * as platformGate from "@/hooks/use-platform-gate";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
@@ -1074,5 +1081,63 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
 
     expect(deltaLine()).toBeNull();
+  });
+});
+
+/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
+function setObscureCredits(value: boolean): void {
+  act(() => {
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ obscureCredits: value }, null);
+  });
+}
+
+describe("CustomPlanModal: obscure-credits flag", () => {
+  afterEach(() => {
+    setObscureCredits(false);
+  });
+
+  test("flag on: the bundle picker's chrome reads as usage, not credits", () => {
+    setObscureCredits(true);
+    const { getByRole, getByText } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // Label, trigger aria-label, placeholder, and docs aria-label all use the
+    // usage wording; the catalog options themselves are untouched.
+    getByText("Add a usage bundle:");
+    const trigger = selectTrigger("Usage bundle");
+    expect(trigger.textContent).toContain("Select a usage bundle");
+    expect(docsLink(CREDIT_DOCS_URL).getAttribute("aria-label")).toBe(
+      "Learn more about usage bundles",
+    );
+
+    // The sentinel option and its recap row follow suit.
+    selectOption("Usage bundle", "No extra usage");
+    expect(recapRows()).toContain("No extra usage");
+  });
+
+  test("flag on: a seeded no-bundle Pro sub strikes through the usage wording", () => {
+    setObscureCredits(true);
+    const { getByRole } = renderPage(proMightySubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    selectOption("Usage bundle", "50 credits");
+
+    // The previous "none" value is struck with the same usage wording the
+    // sentinel row uses, so the recap never mixes the two vocabularies.
+    expect(strikethroughs()).toEqual(["No extra usage"]);
+  });
+
+  test("flag off: the picker keeps its credits wording", () => {
+    const { getByRole, getByText } = renderPage(freeSubscription());
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    getByText("Bundle some credits:");
+    selectTrigger("Credit bundle");
+    selectOption("Credit bundle", "No extra credits");
+    expect(recapRows()).toContain("No extra credits");
   });
 });

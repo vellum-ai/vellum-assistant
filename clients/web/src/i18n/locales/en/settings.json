@@ -550,6 +550,10 @@
     "subtitle": "Just better.",
     "title": "Create a custom plan",
     "totalBilledMonthly": "Total · Billed monthly",
+    "usageBundleAriaLabel": "Usage bundle",
+    "usageBundleDocsAriaLabel": "Learn more about usage bundles",
+    "usageBundleLabel": "Add a usage bundle:",
+    "usageBundlePlaceholder": "Select a usage bundle",
     "yourSelection": "Your selection:"
   },
   "customPlanRow": {
@@ -1330,6 +1334,7 @@
     "featureComputer": "{machine} Computer",
     "featureCreditsIncluded": "{amount} in credits included",
     "featureStorage": "{gib} GB Storage",
+    "featureUsage": "{name} usage, reset monthly",
     "featureUsageIncluded": "{label} included",
     "foreverCaption": "Forever",
     "freeFeaturePayAsYouGo": "Pay-as-you-go credits",

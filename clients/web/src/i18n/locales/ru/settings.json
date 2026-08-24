@@ -550,6 +550,10 @@
     "subtitle": "Просто лучше.",
     "title": "Сборка плана",
     "totalBilledMonthly": "Итого · Ежемесячная оплата",
+    "usageBundleAriaLabel": "Пакет использования",
+    "usageBundleDocsAriaLabel": "Подробнее о пакетах использования",
+    "usageBundleLabel": "Добавить пакет использования:",
+    "usageBundlePlaceholder": "Выбор пакета использования",
     "yourSelection": "Выбор:"
   },
   "customPlanRow": {
@@ -1330,6 +1334,7 @@
     "featureComputer": "Компьютер {machine}",
     "featureCreditsIncluded": "Входит {amount} кредитами",
     "featureStorage": "{gib} ГБ хранилища",
+    "featureUsage": "Использование {name}, сброс каждый месяц",
     "featureUsageIncluded": "Входит {label}",
     "foreverCaption": "Навсегда",
     "freeFeaturePayAsYouGo": "Кредиты по мере использования",
