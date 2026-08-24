@@ -280,7 +280,7 @@ matches_safe_line_pattern() {
             # `.yaml`/`.yml` file path AND a following line that looks like
             # a YAML schema annotation (`type:`, `$ref:`, `description:`,
             # etc.). Without either, treat the line as a potential secret.
-            if [ "$pattern" = '^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
+            if [ "$pattern" = '^[[:space:]]+[a-zA-Z0-9_-]*[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
                 if [[ ! "$file" =~ \.(yaml|yml)$ ]]; then
                     continue
                 fi
@@ -966,6 +966,14 @@ while IFS= read -r -d '' FILE; do
     # (e.g. telegramWebhookSecret: "test-webhook-secret") that trigger
     # false positives.
     if [[ "$FILE" =~ \.(test|spec)\.(ts|js|tsx|jsx)$ ]] || [[ "$FILE" =~ /__tests__/ ]]; then
+        continue
+    fi
+
+    # Skip i18n catalogs. Their values are user-facing display copy, so a
+    # credential-field label ("Client Secret", "Enter your client secret")
+    # reads as a secret assignment to the keyword patterns. A real credential
+    # cannot live here: every value is rendered in the UI.
+    if [[ "$FILE" =~ /i18n/locales/.*\.json$ ]]; then
         continue
     fi
 

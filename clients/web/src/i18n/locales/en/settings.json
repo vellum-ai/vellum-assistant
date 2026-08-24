@@ -34,7 +34,9 @@
     "title": "Advisor"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "Default"
+    "defaultEntryMeta": "Default",
+    "selfHostedOnlyMeta": "Self-hosted only",
+    "selfHostedOnlyTooltip": "{name} runs on your own machine, so it is only available to self-hosted assistants."
   },
   "allConversationsView": {
     "archive": "Archive",

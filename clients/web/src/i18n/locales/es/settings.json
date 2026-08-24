@@ -34,7 +34,9 @@
     "title": "Asesor"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "Predeterminado"
+    "defaultEntryMeta": "Predeterminado",
+    "selfHostedOnlyMeta": "Solo autoalojado",
+    "selfHostedOnlyTooltip": "{name} se ejecuta en tu propia máquina, por lo que solo está disponible para asistentes autoalojados."
   },
   "allConversationsView": {
     "archive": "Archivar",

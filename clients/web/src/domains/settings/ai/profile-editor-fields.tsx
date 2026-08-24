@@ -9,17 +9,18 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
-import {
-  PickerMeta,
-  ProfileEditorProviderSection,
-} from "@/domains/settings/ai/profile-editor-provider-section";
+import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import {
   entryPickerValue,
   expandEndpointEntries,
   parseEntryPickerValue,
   providersServedByConnections,
-  unconnectedSelectableProviders,
+  unconnectedProviders,
 } from "@/domains/settings/ai/provider-availability";
+import {
+  PickerMeta,
+  useProviderPickerAvailability,
+} from "@/domains/settings/ai/provider-picker-availability";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { connectionAuthTypeForProvider } from "@/domains/settings/ai/provider-editor-constants";
 import type { ProfileEditor } from "@/domains/settings/ai/use-profile-editor";
@@ -27,7 +28,6 @@ import type {
   ConnectionProvider,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 import { useTranslation, Trans } from "@/i18n";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
@@ -66,7 +66,7 @@ export function ProfileEditorFields({
   variant,
 }: ProfileEditorFieldsProps) {
   const { t } = useTranslation("settings");
-  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const providerAvailability = useProviderPickerAvailability();
   const isCreate = editor.effectiveMode === "create";
   const flat = variant === "panel";
 
@@ -192,42 +192,38 @@ export function ProfileEditorFields({
 
   // ---- Create-mode: provider-first picker with inline create ----
 
-  // Supported providers with no connection yet. Listed after the connected
-  // entries so a ready-to-use provider is never buried, and routed into the
-  // inline create form on selection.
-  const unconnectedProviders = useMemo(
-    () =>
-      unconnectedSelectableProviders(
-        editor.effectiveConnections,
-        activeAssistantIsSelfHosted,
-      ),
-    [editor.effectiveConnections, activeAssistantIsSelfHosted],
+  // Providers with no connection yet. Listed after the connected entries so a
+  // ready-to-use provider is never buried, and routed into the inline create
+  // form on selection.
+  const providersNeedingSetup = useMemo(
+    () => unconnectedProviders(editor.effectiveConnections),
+    [editor.effectiveConnections],
   );
 
-  // Every provider this assistant can dispatch through, connected ones first,
-  // then the rest annotated with what they still need, then the always-present
-  // "+ Create new provider" sentinel for custom endpoints.
+  // Every provider the catalog knows, connected ones first, then the rest
+  // annotated with what they still need, then the always-present "+ Create new
+  // provider" sentinel for custom endpoints. A provider this assistant cannot
+  // reach keeps its row, disabled and annotated with why.
   const createModeProviderOptions = useMemo(() => {
     const opts: {
       value: string;
       label: string;
       suffix?: ReactNode;
       sticky?: boolean;
-    }[] =
-      expandEndpointEntries(
-        providersServedByConnections(
-          editor.effectiveConnections,
-          activeAssistantIsSelfHosted,
-        ),
-        editor.effectiveConnections,
-        (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-        t("aiProviderPicker.defaultEntryMeta"),
-      ).map(({ value, label, meta }) => ({
-        value,
-        label,
-        suffix: meta ? <PickerMeta text={meta} /> : undefined,
-      }));
-    for (const unconnected of unconnectedProviders) {
+      disabled?: boolean;
+      tooltip?: ReactNode;
+    }[] = expandEndpointEntries(
+      providersServedByConnections(editor.effectiveConnections),
+      editor.effectiveConnections,
+      (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
+      t("aiProviderPicker.defaultEntryMeta"),
+    ).map(({ value, label, meta }) => ({
+      value,
+      label,
+      suffix: meta ? <PickerMeta text={meta} /> : undefined,
+      ...providerAvailability(value),
+    }));
+    for (const unconnected of providersNeedingSetup) {
       const meta =
         connectionAuthTypeForProvider(unconnected) === "api_key"
           ? t("profileEditorFields.addApiKey")
@@ -236,6 +232,7 @@ export function ProfileEditorFields({
         value: unconnected,
         label: PROVIDER_DISPLAY_NAMES[unconnected] ?? unconnected,
         suffix: <PickerMeta text={meta} />,
+        ...providerAvailability(unconnected),
       });
     }
     opts.push({
@@ -247,9 +244,9 @@ export function ProfileEditorFields({
     });
     return opts;
   }, [
-    activeAssistantIsSelfHosted,
     editor.effectiveConnections,
-    unconnectedProviders,
+    providerAvailability,
+    providersNeedingSetup,
     t,
   ]);
 
@@ -306,7 +303,7 @@ export function ProfileEditorFields({
               return;
             }
             const picked = next as ConnectionProvider;
-            if (unconnectedProviders.includes(picked)) {
+            if (providersNeedingSetup.includes(picked)) {
               // Nothing to dispatch through yet — hand the user straight to
               // the create form for that provider instead of a dead selection.
               editor.setCreatingProvider(true);

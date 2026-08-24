@@ -34,7 +34,9 @@
     "title": "Советник"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "По умолчанию"
+    "defaultEntryMeta": "По умолчанию",
+    "selfHostedOnlyMeta": "Только свой хостинг",
+    "selfHostedOnlyTooltip": "{name} работает на вашей машине, поэтому доступен только ассистентам на своём хостинге."
   },
   "allConversationsView": {
     "archive": "В архив",
