@@ -163,6 +163,7 @@ beforeEach(() => {
   useConversationStore
     .getState()
     .setActiveConversationId(PRIOR_CONVERSATION_ID);
+  useViewerStore.getState().reset();
   useViewerStore.getState().setMainView("app");
   navigate.mockClear();
   starter.mockClear();
@@ -261,6 +262,24 @@ describe("starting a session", () => {
     requestVoiceStart(navigate);
     await flushDrain();
 
+    expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
+  test("leaves no side panel from the previous conversation on the fresh draft", async () => {
+    // A files panel is one message's attachments, so it belongs to the thread
+    // the app was left on. Carried into a conversation with no messages at all
+    // it shows the new call someone else's payload.
+    identityHydrated();
+    registerStarter();
+    useViewerStore.getState().openMessageFiles({
+      messageId: "msg-prior",
+      attachments: [],
+    });
+
+    requestVoiceStart(navigate);
+    await flushDrain();
+
+    expect(useViewerStore.getState().activeMessageFiles).toBeNull();
     expect(useViewerStore.getState().mainView).toBe("chat");
   });
 
@@ -572,5 +591,107 @@ describe("entry guards", () => {
 
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The app moving on while the preflight is in flight
+// ---------------------------------------------------------------------------
+
+/**
+ * The preflight is a network round trip, and the whole tail of the drain runs
+ * after it: minting a conversation, navigating onto it, starting a session on
+ * the assistant that was active when the drain began. A user is free to do
+ * anything at all in that window, so every one of those three has to be
+ * decided on state re-read afterwards rather than on what the drain captured.
+ */
+describe("state read before the preflight is re-read after it", () => {
+  /**
+   * Park a request and run the drain as far as the preflight, which is held
+   * open until the returned `release` is called. Awaits the two microtasks the
+   * drain needs to get there, so callers change state with it genuinely
+   * in flight.
+   */
+  async function drainBlockedOnPreflight(): Promise<{
+    drain: Promise<void>;
+    release: () => void;
+  }> {
+    let release: () => void = () => {};
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(preflightVerdict);
+        }),
+    );
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    const drain = drainPendingVoiceStart(navigate);
+    await Promise.resolve();
+    await Promise.resolve();
+    return { drain, release: () => release() };
+  }
+
+  test("a session started from the composer mid-preflight spends the press", async () => {
+    // The user got to the chat and pressed the voice button themselves. That
+    // session is the one they are in: starting is refused anyway, and the
+    // navigation would walk the app off the composer that owns it.
+    identityHydrated();
+    registerStarter();
+    const { drain, release } = await drainBlockedOnPreflight();
+
+    useLiveVoiceStore
+      .getState()
+      .setSessionContext("assistant-1", "conv-composer");
+    useLiveVoiceStore.getState().setState("listening");
+    release();
+    await drain;
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      PRIOR_CONVERSATION_ID,
+    );
+    expect(isParked()).toBe(false);
+  });
+
+  test("an assistant switched mid-preflight leaves the request parked", async () => {
+    // Both the eligibility gate and the verdict answered for the assistant the
+    // user has just left, so neither authorizes a start on the one they moved
+    // to. Nothing was minted or navigated, so the press survives for a drain
+    // that can run both gates against whoever is active then.
+    identityHydrated();
+    registerStarter();
+    const { drain, release } = await drainBlockedOnPreflight();
+
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    release();
+    await drain;
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      PRIOR_CONVERSATION_ID,
+    );
+    expect(isParked()).toBe(true);
+
+    // Back on the assistant the press was made for, the next drain serves it.
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    await drainPendingVoiceStart(navigate);
+    expectStartedOnFreshDraft();
+  });
+
+  test("a verdict about the assistant the user left publishes no notice", async () => {
+    // The notice is drawn against whatever conversation is on screen, which by
+    // now belongs to another assistant, so it would read as that assistant's
+    // voice being unconfigured.
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
+    const { drain, release } = await drainBlockedOnPreflight();
+
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    release();
+    await drain;
+
+    expect(useLiveVoiceStore.getState().configNotice).toBeNull();
   });
 });

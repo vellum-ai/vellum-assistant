@@ -181,10 +181,11 @@ export async function drainPendingVoiceStart(
     return;
   }
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  // Every remaining branch is a decision rather than a race, so each of them
-  // spends the request. The consume itself stays at the bottom, below the last
-  // await, so the one thing that can still become true — a controller that has
-  // not registered yet — leaves the request parked rather than losing it.
+  // Every branch from here that is a decision rather than a race spends the
+  // request. The consume itself stays at the bottom, below the last await, so
+  // the things that can still become true (a controller that has not
+  // registered yet, an assistant switched away from mid-preflight) leave the
+  // request parked rather than losing it.
   const consume = (): boolean =>
     usePendingDeepLinkStore
       .getState()
@@ -213,6 +214,30 @@ export async function drainPendingVoiceStart(
     return;
   }
   const readiness = await voiceReadiness(assistantId);
+  // Everything below decides on state read before a network round trip, so
+  // re-read it first. This is the same re-check the composer's voice button
+  // runs across its own preflight, and for the same reason: the tail of this
+  // drain navigates and mints, and doing either against state the app has
+  // moved on from walks the user away from what they are actually doing. The
+  // notice waits until after the guards too, so an answer about the assistant
+  // the user left never surfaces against the one they moved to.
+  //
+  // A session started from the composer mid-preflight is the session the user
+  // is in, so the press is spent exactly as `startVoiceFromSurface` spends one
+  // it finds already running: the starter would refuse a second anyway, and
+  // navigating would only leave the composer that owns it.
+  if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+    consume();
+    return;
+  }
+  // A switch to another assistant mid-preflight, on the other hand, is a race
+  // rather than a decision: both the eligibility gate and this verdict answered
+  // for an assistant that is no longer the one a fresh start means. Nothing has
+  // been navigated or minted yet, so the request stays parked and the next
+  // drain runs both against whoever is active by then.
+  if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) {
+    return;
+  }
   publishConfigNotice(readiness.notice);
   if (!readiness.allowed) {
     consume();

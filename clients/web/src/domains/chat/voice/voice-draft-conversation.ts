@@ -13,23 +13,34 @@
  * outside the chat is a new call), while push-to-talk dictates into whatever
  * conversation is already selected and only mints when none is.
  *
- * `setMainView("chat")` is part of the mint rather than a step after it. On
- * desktop the composer counts as on screen only while the main view is the
- * chat ({@link useComposerOnScreen}), so a draft minted behind the app viewer
- * would be a conversation with no composer to speak into.
+ * Bringing the chat on screen is part of the mint rather than a step after it.
+ * On desktop the composer counts as on screen only while the main view is not
+ * the fullscreen app viewer ({@link useComposerOnScreen}), so a draft minted
+ * behind that viewer would be a conversation with no composer to speak into.
+ * It goes through {@link revealConversationView} for the same reason every
+ * other new-conversation path does: an app already open on a wide viewport
+ * keeps its side-by-side layout with the draft as the chat pane, and
+ * `app-editing` still counts as on screen, so the voice room opens either way.
  */
 
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { revealConversationView } from "@/utils/conversation-navigation";
 
 /**
- * Mint a fresh draft conversation, select it, and put the chat on screen.
+ * Mint a fresh draft conversation, select it, and bring the chat on screen.
  * Returns the draft's id, which is the key its composer is bound to.
+ *
+ * The transcript side panels are cleared with it, exactly as
+ * {@link navigateToNewConversation} does: a files or tool-detail panel opened
+ * against the previous conversation is about messages this draft does not
+ * have, so carrying it over shows the new chat someone else's payload.
  */
 export function mintVoiceDraftConversation(): string {
   const draftId = createDraftConversationId();
   useConversationStore.getState().setActiveConversationId(draftId);
-  useViewerStore.getState().setMainView("chat");
+  useViewerStore.getState().clearTranscriptPanelPayloads();
+  revealConversationView(draftId);
   return draftId;
 }
