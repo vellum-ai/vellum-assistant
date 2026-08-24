@@ -124,6 +124,7 @@ export function Slider({
       <SliderPrimitive.Root
         id={resolvedId}
         name={name}
+        data-owns-horizontal-drag=""
         value={valueArray}
         onValueChange={handleValueChange}
         min={min}

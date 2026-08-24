@@ -8,6 +8,7 @@ import {
   decideDirection,
   isCommitted,
   isVerticalEscape,
+  ownsHorizontalDrag,
   ownsHorizontalTextDrag,
   shouldArmAt,
 } from "@/hooks/use-edge-swipe";
@@ -64,6 +65,41 @@ describe("ownsHorizontalTextDrag", () => {
     readOnly.setAttribute("contenteditable", "false");
     expect(ownsHorizontalTextDrag(readOnly)).toBe(false);
     expect(ownsHorizontalTextDrag(null)).toBe(false);
+  });
+});
+
+describe("ownsHorizontalDrag", () => {
+  test("is true for a native range input (covered as a caret surface)", () => {
+    const range = document.createElement("input");
+    range.setAttribute("type", "range");
+    expect(ownsHorizontalDrag(range)).toBe(true);
+  });
+
+  test("is true anywhere inside a marked slider widget", () => {
+    // A composite slider (e.g. a Radix Root) marks itself; touches landing on
+    // its track or range children must yield, not only thumb touches.
+    const root = document.createElement("span");
+    root.setAttribute("data-owns-horizontal-drag", "");
+    const track = document.createElement("span");
+    root.appendChild(track);
+    document.body.appendChild(root);
+    expect(ownsHorizontalDrag(track)).toBe(true);
+    root.remove();
+  });
+
+  test("is true on an ARIA slider thumb", () => {
+    const thumb = document.createElement("span");
+    thumb.setAttribute("role", "slider");
+    expect(ownsHorizontalDrag(thumb)).toBe(true);
+  });
+
+  test("still covers text-drag surfaces", () => {
+    expect(ownsHorizontalDrag(document.createElement("textarea"))).toBe(true);
+  });
+
+  test("is false for plain content and null", () => {
+    expect(ownsHorizontalDrag(document.createElement("div"))).toBe(false);
+    expect(ownsHorizontalDrag(null)).toBe(false);
   });
 });
 

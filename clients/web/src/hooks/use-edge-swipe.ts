@@ -96,21 +96,48 @@ export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
 }
 
 /**
+ * Selector for drag-to-set controls that own horizontal drags: ARIA slider
+ * thumbs, and composite slider widgets opted in via
+ * `data-owns-horizontal-drag` (a Radix slider's root and track carry no
+ * `role="slider"` of their own, so a touch landing there needs the marker).
+ * Native `<input type="range">` needs no entry here: every input is already
+ * a caret surface via {@link ownsHorizontalTextDrag}.
+ */
+const HORIZONTAL_DRAG_SURFACE_SELECTOR =
+  '[role="slider"], [data-owns-horizontal-drag]';
+
+/**
+ * Whether the touched element is (or sits inside) any surface that owns
+ * horizontal drags: text interaction ({@link ownsHorizontalTextDrag}) or a
+ * drag-to-set control such as a slider, where a rightward thumb drag would
+ * otherwise read as an open/back swipe and pull the drawer over the page.
+ */
+export function ownsHorizontalDrag(target: EventTarget | null): boolean {
+  if (ownsHorizontalTextDrag(target)) {
+    return true;
+  }
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return target.closest(HORIZONTAL_DRAG_SURFACE_SELECTOR) !== null;
+}
+
+/**
  * Whether a touch at `clientX` may arm the gesture, given the viewport width
- * and whether it began on a surface that owns horizontal text drags. Edge
+ * and whether it began on a surface that owns horizontal drags. Edge
  * touches (within `EDGE_SWIPE_HIT_ZONE_PX`) always arm, preserving deliberate
  * edge swipe-back everywhere; the widened band beyond the edge arms only off
- * text-drag surfaces.
+ * drag-owning surfaces.
  */
 export function shouldArmAt(
   clientX: number,
   viewportWidth: number,
-  ownsTextDrag: boolean,
+  ownsDrag: boolean,
 ): boolean {
   if (clientX > activationZonePx(viewportWidth)) {
     return false;
   }
-  if (ownsTextDrag && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
+  if (ownsDrag && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
     return false;
   }
   return true;
@@ -291,7 +318,7 @@ export function useEdgeSwipe({
         !shouldArmAt(
           touch.clientX,
           window.innerWidth,
-          ownsHorizontalTextDrag(event.target),
+          ownsHorizontalDrag(event.target),
         )
       ) {
         return;
