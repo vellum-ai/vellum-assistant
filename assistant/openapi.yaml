@@ -790,6 +790,12 @@ paths:
                           type: string
                         origin:
                           type: string
+                        pinnedOrder:
+                          description: 1-based sidebar position; absent when not pinned
+                          type: number
+                        pinColor:
+                          description: Pin colour id; absent when no colour is set
+                          type: string
                       required:
                         - id
                         - name
@@ -1024,6 +1030,62 @@ paths:
                   - name
                   - html
                   - origin
+                additionalProperties: false
+  /v1/apps/{id}/pin:
+    post:
+      operationId: apps_by_id_pin_post
+      summary: Pin or unpin an app
+      description:
+        Pin an app to the sidebar, unpin it, or set the colour it is tinted with. Pin state is read back from the
+        app list as `pinnedOrder` and `pinColor`.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pinned:
+                  description: Pin (true) or unpin (false). Omit to leave unchanged.
+                  type: boolean
+                color:
+                  description: Colour id, or null to clear. Omit to leave unchanged.
+                  anyOf:
+                    - type: string
+                    - type: "null"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                  pinnedOrder:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  pinColor:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - success
+                  - appId
+                  - pinnedOrder
+                  - pinColor
                 additionalProperties: false
   /v1/apps/{id}/preview:
     get:

@@ -20,6 +20,12 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import {
+  type AppPin,
+  listAppPins,
+  removeAppPin,
+  updateAppPin,
+} from "../../apps/app-pin-store.js";
+import {
   type AppDefinition,
   type AppOrigin,
   createApp,
@@ -91,6 +97,26 @@ interface AppListItem {
   contentId: string;
   /** "workspace" or "plugin:<name>" — identifies where the app comes from. */
   origin: string;
+  /**
+   * 1-based sidebar position, absent when the app is not pinned. Joined from
+   * the pin store rather than stored on the app, so a pin whose app is gone
+   * never reaches a client and a plugin app can be pinned like any other.
+   */
+  pinnedOrder?: number;
+  /** The pin's colour, as an id from the client's colour registry. */
+  pinColor?: string;
+}
+
+/** Merge an app's pin, if it has one, onto its list entry. */
+function withPin(item: AppListItem, pin: AppPin | undefined): AppListItem {
+  if (!pin) {
+    return item;
+  }
+  return {
+    ...item,
+    pinnedOrder: pin.pinnedOrder,
+    ...(pin.color !== undefined ? { pinColor: pin.color } : {}),
+  };
 }
 
 function workspaceAppItem(a: AppDefinition): AppListItem {
@@ -578,17 +604,24 @@ async function importBundle(
 // ---------------------------------------------------------------------------
 
 function handleListApps({ queryParams }: RouteHandlerArgs) {
+  const pinsById = new Map(listAppPins().map((pin) => [pin.appId, pin]));
   const conversationId = queryParams?.conversationId;
   if (conversationId) {
     // Conversation scoping is a workspace-app concept; plugin apps are not
     // associated with conversations, so they are omitted from this view.
     return {
-      apps: listAppsByConversation(conversationId).map(workspaceAppItem),
+      apps: listAppsByConversation(conversationId).map((app) =>
+        withPin(workspaceAppItem(app), pinsById.get(app.id)),
+      ),
     };
   }
   const apps: AppListItem[] = [
-    ...listApps().map(workspaceAppItem),
-    ...listPluginApps().map(pluginAppItem),
+    ...listApps().map((app) =>
+      withPin(workspaceAppItem(app), pinsById.get(app.id)),
+    ),
+    ...listPluginApps().map((app) =>
+      withPin(pluginAppItem(app), pinsById.get(app.id)),
+    ),
   ];
   return { apps };
 }
@@ -818,8 +851,35 @@ function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   assertNotPluginApp(appId, "delete a plugin app");
   deleteApp(appId);
+  // The pin outlives the app otherwise, and would be restored to the sidebar by
+  // an app that later reuses the id.
+  removeAppPin(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
+}
+
+/**
+ * Pin, unpin, or recolour an app. Plugin apps are pinnable: a pin says nothing
+ * about the app's content, so `assertNotPluginApp` does not apply here.
+ */
+function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
+  const appId = pathParams?.id as string;
+  const pinned = body?.pinned;
+  const color = body?.color;
+  if (pinned === undefined && color === undefined) {
+    throw new BadRequestError("pinned or color is required");
+  }
+  const pin = updateAppPin(appId, {
+    ...(pinned === undefined ? {} : { pinned: pinned as boolean }),
+    ...(color === undefined ? {} : { color: color as string | null }),
+  });
+  publishAppsChanged(getOriginClientId(headers));
+  return {
+    success: true,
+    appId,
+    pinnedOrder: pin?.pinnedOrder ?? null,
+    pinColor: pin?.color ?? null,
+  };
 }
 
 function handleGetPreview({ pathParams }: RouteHandlerArgs) {
@@ -899,6 +959,14 @@ export const ROUTES: RouteDefinition[] = [
           version: z.string(),
           contentId: z.string(),
           origin: z.string(),
+          pinnedOrder: z
+            .number()
+            .optional()
+            .describe("1-based sidebar position; absent when not pinned"),
+          pinColor: z
+            .string()
+            .optional()
+            .describe("Pin colour id; absent when no colour is set"),
         }),
       ),
     }),
@@ -1145,6 +1213,39 @@ export const ROUTES: RouteDefinition[] = [
     description: "Permanently remove an app and its data.",
     tags: ["apps"],
     responseBody: z.object({ success: z.boolean() }),
+  },
+  {
+    operationId: "apps_pin",
+    endpoint: "apps/:id/pin",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handlePinApp,
+    summary: "Pin or unpin an app",
+    description:
+      "Pin an app to the sidebar, unpin it, or set the colour it is tinted " +
+      "with. Pin state is read back from the app list as `pinnedOrder` and " +
+      "`pinColor`.",
+    tags: ["apps"],
+    requestBody: z.object({
+      pinned: z
+        .boolean()
+        .optional()
+        .describe("Pin (true) or unpin (false). Omit to leave unchanged."),
+      color: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Colour id, or null to clear. Omit to leave unchanged."),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      appId: z.string(),
+      pinnedOrder: z.number().nullable(),
+      pinColor: z.string().nullable(),
+    }),
   },
   {
     operationId: "apps_preview_get",
