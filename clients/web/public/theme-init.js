@@ -101,14 +101,31 @@
       if (splash) {
         splash.setAttribute("aria-label", label);
       }
+      return !!splash;
     };
 
-    // This script runs in <head>, so the splash is not parsed yet on a cold
-    // load. It is on a bfcache restore or any re-execution.
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", apply);
-    } else {
-      apply();
+    // This script runs in <head>, so on a cold load the splash is not parsed
+    // yet. The label has to land while the splash is still what the page
+    // shows, and DOMContentLoaded is too late for that: the module script at
+    // the end of the body defers it until the whole bundle graph has loaded,
+    // which is exactly the interval the splash covers. A parser-driven
+    // MutationObserver applies the label the moment the node exists instead.
+    if (!apply()) {
+      var observer = new MutationObserver(function () {
+        if (apply()) {
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+      // The splash is in the initial markup, so if the document finishes
+      // parsing without the observer having found it, it is not coming.
+      document.addEventListener("DOMContentLoaded", function () {
+        observer.disconnect();
+        apply();
+      });
     }
   } catch {
     // Best-effort. A failure leaves the English label the markup ships with.

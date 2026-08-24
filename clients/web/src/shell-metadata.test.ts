@@ -161,4 +161,12 @@ describe("SPA shell: boot splash", () => {
       /try\s*\{\s*stored\s*=\s*window\.localStorage\.getItem\("device:locale"\);\s*\}\s*catch/,
     );
   });
+
+  // DOMContentLoaded is gated on the module script's whole dependency graph,
+  // which is the very download the splash covers, so waiting for it would
+  // localize the label only after the splash is gone. The observer is what
+  // lands the label while the splash is still on screen.
+  test("theme-init applies the label without waiting for DOMContentLoaded", () => {
+    expect(THEME_INIT).toContain("new MutationObserver");
+  });
 });
