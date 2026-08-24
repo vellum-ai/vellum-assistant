@@ -5,11 +5,14 @@ import {
   LiveVoiceFluxConfigSchema,
   LiveVoiceFrontModelConfigSchema,
   LiveVoiceVadConfigSchema,
+  LiveVoiceWorkingCueConfigSchema,
   VALID_LIVE_VOICE_MODES,
 } from "../live-voice.js";
 
 const PROGRESS_DEFAULTS = {
-  enabled: true,
+  // Off by default: the wordless working cue holds a long turn's silence, and
+  // spoken narration is the opt-in that replaces it.
+  enabled: false,
   opsThreshold: 3,
   idleIntervalMs: 5_000,
   maxSilenceMs: 35_000,
@@ -23,6 +26,14 @@ const FRONT_MODEL_DEFAULTS = {
   endpointExtensionMs: 1500,
   endpointMaxExtensions: 2,
   progress: PROGRESS_DEFAULTS,
+};
+
+const WORKING_CUE_DEFAULTS = {
+  enabled: true,
+  intervalMs: 12_000,
+  frequencyHz: 220,
+  durationMs: 260,
+  gain: 0.09,
 };
 
 // `eagerEotThreshold` is deliberately absent: it has no default, and leaving it
@@ -164,9 +175,9 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
 
   test("partial progress overrides merge with defaults", () => {
     const parsed = LiveVoiceFrontModelConfigSchema.parse({
-      progress: { enabled: false, opsThreshold: 5 },
+      progress: { enabled: true, opsThreshold: 5 },
     });
-    expect(parsed.progress.enabled).toBe(false);
+    expect(parsed.progress.enabled).toBe(true);
     expect(parsed.progress.opsThreshold).toBe(5);
     // Unspecified progress fields still get defaults
     expect(parsed.progress.idleIntervalMs).toBe(5_000);
@@ -225,6 +236,107 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
         msgs.some((m) => m.includes("liveVoice.frontModel.progress.enabled")),
       ).toBe(true);
     }
+  });
+});
+
+describe("LiveVoiceWorkingCueConfigSchema", () => {
+  test("empty object parses to defaults", () => {
+    expect(LiveVoiceWorkingCueConfigSchema.parse({})).toEqual(
+      WORKING_CUE_DEFAULTS,
+    );
+  });
+
+  test("partial overrides merge with defaults", () => {
+    const parsed = LiveVoiceWorkingCueConfigSchema.parse({
+      intervalMs: 8_000,
+      frequencyHz: 440,
+    });
+    expect(parsed.intervalMs).toBe(8_000);
+    expect(parsed.frequencyHz).toBe(440);
+    expect(parsed.enabled).toBe(true);
+    expect(parsed.durationMs).toBe(260);
+    expect(parsed.gain).toBe(0.09);
+  });
+
+  test("the cue can be turned off", () => {
+    expect(
+      LiveVoiceWorkingCueConfigSchema.parse({ enabled: false }).enabled,
+    ).toBe(false);
+  });
+
+  test("rejects a non-positive intervalMs", () => {
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({ intervalMs: 0 });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.workingCue.intervalMs")),
+      ).toBe(true);
+    }
+  });
+
+  test("rejects an intervalMs past the timer maximum", () => {
+    // setTimeout holds its delay in a signed 32-bit int, so a larger value
+    // wraps and fires almost immediately: the cue would become a continuous
+    // tone rather than the very long silence the number asks for.
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({
+      intervalMs: 2_147_483_648,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.workingCue.intervalMs")),
+      ).toBe(true);
+    }
+  });
+
+  test("accepts the largest interval a timer can hold", () => {
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({
+      intervalMs: 2_147_483_647,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a durationMs past the cue-length cap", () => {
+    // The value sizes a PCM buffer at the client's sample rate, so an
+    // unbounded one is an unbounded Buffer.alloc from a timer callback.
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({
+      durationMs: 1_000_000_000,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.workingCue.durationMs")),
+      ).toBe(true);
+    }
+    // The cap is a ceiling on a short tone, not a ban on tuning it.
+    expect(
+      LiveVoiceWorkingCueConfigSchema.parse({ durationMs: 2_000 }).durationMs,
+    ).toBe(2_000);
+  });
+
+  test("rejects a frequencyHz past the top of hearing", () => {
+    expect(
+      LiveVoiceWorkingCueConfigSchema.safeParse({ frequencyHz: 96_000 })
+        .success,
+    ).toBe(false);
+    expect(
+      LiveVoiceWorkingCueConfigSchema.parse({ frequencyHz: 20_000 })
+        .frequencyHz,
+    ).toBe(20_000);
+  });
+
+  test("rejects a gain outside 0..1", () => {
+    // The renderer clamps, so an out-of-range gain would otherwise be a
+    // silently ignored setting rather than a visible mistake.
+    expect(
+      LiveVoiceWorkingCueConfigSchema.safeParse({ gain: 1.5 }).success,
+    ).toBe(false);
+    expect(
+      LiveVoiceWorkingCueConfigSchema.safeParse({ gain: -0.1 }).success,
+    ).toBe(false);
   });
 });
 
@@ -324,6 +436,9 @@ describe("LiveVoiceConfigSchema", () => {
         echoDrainSlackMs: 300,
       },
       frontModel: FRONT_MODEL_DEFAULTS,
+      // On by default: a working turn holds its silence with the cue rather
+      // than narrating over it.
+      workingCue: WORKING_CUE_DEFAULTS,
       // Off by default: Flux turn detection is opt-in, so the front-door hold
       // verdict keeps committing turns until it is enabled.
       flux: FLUX_DEFAULTS,
@@ -354,6 +469,7 @@ describe("LiveVoiceConfigSchema", () => {
       mode: "ptt",
       vad: { silenceThresholdMs: 900 },
       frontModel: { endpointDecisionTimeoutMs: 300 },
+      workingCue: { intervalMs: 20_000 },
       flux: { turnEnd: { enabled: true } },
       maxSessionDurationSeconds: 600,
     });
@@ -365,6 +481,9 @@ describe("LiveVoiceConfigSchema", () => {
     // Partial frontModel overrides merge with defaults
     expect(parsed.frontModel.endpointDecisionTimeoutMs).toBe(300);
     expect(parsed.frontModel.endpointExtensionMs).toBe(1500);
+    // Partial workingCue overrides merge with defaults
+    expect(parsed.workingCue.intervalMs).toBe(20_000);
+    expect(parsed.workingCue.enabled).toBe(true);
     // Partial flux overrides merge with defaults
     expect(parsed.flux.turnEnd.enabled).toBe(true);
     expect(parsed.flux.eotThreshold).toBe(0.7);
