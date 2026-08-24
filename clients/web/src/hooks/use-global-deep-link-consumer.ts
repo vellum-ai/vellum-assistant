@@ -60,10 +60,11 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  *   way. See below.
  * - `deeplink.newChat` → `ensureMainWindowVisible()` +
  *   `navigateToNewConversation()`, the Home Screen widgets' New Chat button.
- * - `deeplink.openCamera` → `ensureMainWindowVisible()` + park the request in
- *   `usePendingDeepLinkStore` for the composer's attachment layer to drain
- *   (`useCameraDeepLink`), then reveal the chat and stay put on a conversation
- *   route, or land on a fresh draft from anywhere else.
+ * - `deeplink.openCamera` → `ensureMainWindowVisible()`, then reveal the chat
+ *   and stay put on a conversation route, or land on a fresh draft from
+ *   anywhere else, and park the request in `usePendingDeepLinkStore` addressed
+ *   to whichever conversation that was, for its composer's attachment layer to
+ *   drain (`useCameraDeepLink`).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -316,17 +317,26 @@ export function useGlobalDeepLinkConsumer(): void {
   // and not for a new chat's flourish.
   useBusSubscription("deeplink.openCamera", () => {
     void ensureMainWindowVisible();
-    usePendingDeepLinkStore.getState().setPendingCamera();
     // A named conversation only. The `/assistant` index mounts a composer too,
     // but `useConversationLoader` replace-navigates off it to a conversation
     // key on arrival, so a composer mounted there is remounted a beat later and
     // anything it holds in local state goes with it.
     const settledId = conversationIdForPath(pathname);
+    let targetId: string;
     if (settledId !== null) {
       revealConversationView(settledId);
-      return;
+      targetId = settledId;
+    } else {
+      targetId = navigateToNewConversation(navigateRef.current, {
+        silent: true,
+      });
     }
-    navigateToNewConversation(navigateRef.current, { silent: true });
+    // Addressed to the conversation the tap lands on rather than broadcast to
+    // whichever composer wakes first. The draft branch above has only *started*
+    // its route transition, so a composer on the outgoing route is still
+    // mounted and would otherwise spend this one-shot park on a viewfinder the
+    // navigation takes down with it, leaving the draft's composer nothing.
+    usePendingDeepLinkStore.getState().setPendingCamera(targetId);
   });
 
   useBusSubscription(

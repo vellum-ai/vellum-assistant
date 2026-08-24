@@ -1062,7 +1062,6 @@ describe("deeplink.openCamera", () => {
     });
 
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
     // The index route replace-navigates off itself, remounting the composer
     // that holds the open viewfinder in local state.
     expect(navigateMock).not.toHaveBeenCalledWith(routes.assistant);
@@ -1073,6 +1072,11 @@ describe("deeplink.openCamera", () => {
       useConversationStore.getState().draftConversationIds.has(draftId),
     ).toBe(true);
     expect(useConversationStore.getState().activeConversationId).toBe(draftId);
+    // Addressed to the draft it navigated to, so a composer still mounted on
+    // the outgoing route cannot spend the one-shot park on its way out.
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe(draftId);
   });
 
   test("a composer already on screen keeps its conversation: the tap navigates nowhere", () => {
@@ -1083,7 +1087,9 @@ describe("deeplink.openCamera", () => {
       publish("deeplink.openCamera", { provenance: "intent" });
     });
 
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe("conv-1");
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
@@ -1097,7 +1103,9 @@ describe("deeplink.openCamera", () => {
     });
 
     expect(useViewerStore.getState().mainView).toBe("chat");
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe("conv-1");
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
@@ -1123,7 +1131,9 @@ describe("deeplink.openCamera", () => {
       expect(useConversationStore.getState().editingConversationId).toBe(
         "conv-1",
       );
-      expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+      expect(
+        usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+      ).toBe("conv-1");
       expect(navigateMock).not.toHaveBeenCalled();
     } finally {
       restoreViewport();
@@ -1151,15 +1161,16 @@ describe("deeplink.openCamera", () => {
     act(() => {
       publish("deeplink.openCamera", { provenance: null });
     });
-    const first = usePendingDeepLinkStore.getState().pendingCameraAt;
+    const first = usePendingDeepLinkStore.getState().pendingCamera;
     act(() => {
       publish("deeplink.openCamera", { provenance: "intent" });
     });
-    const second = usePendingDeepLinkStore.getState().pendingCameraAt;
+    const second = usePendingDeepLinkStore.getState().pendingCamera;
 
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
-    expect(second!).toBeGreaterThanOrEqual(first!);
+    expect(second!.targetConversationId).toBe("conv-1");
+    expect(second!.parkedAt).toBeGreaterThanOrEqual(first!.parkedAt);
     expect(navigateMock).not.toHaveBeenCalled();
   });
 });

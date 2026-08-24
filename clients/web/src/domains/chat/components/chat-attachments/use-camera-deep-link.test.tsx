@@ -47,6 +47,9 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 
 const onFiles = mock((_files: File[]) => {});
 
+/** The conversation the host below is mounted on, and so the park's address. */
+const HOST_CONVERSATION_ID = "conv-host";
+
 function Host({ enabled }: { enabled: boolean }) {
   const { overlayNode, captureOpen } = useCameraDeepLink({ onFiles, enabled });
   return createElement(
@@ -56,8 +59,17 @@ function Host({ enabled }: { enabled: boolean }) {
   );
 }
 
-const renderCameraDeepLink = (enabled = true) =>
-  render(createElement(Host, { enabled }));
+// The drain reads its conversation off the route, so the host lives on one.
+const hostTree = (enabled: boolean) => (
+  <MemoryRouter initialEntries={[routes.conversation(HOST_CONVERSATION_ID)]}>
+    <Host enabled={enabled} />
+  </MemoryRouter>
+);
+
+const renderCameraDeepLink = (enabled = true) => render(hostTree(enabled));
+
+const parkForHost = () =>
+  usePendingDeepLinkStore.getState().setPendingCamera(HOST_CONVERSATION_ID);
 
 const surface = () => screen.queryByTestId("camera-surface");
 const captureOpen = () =>
@@ -85,13 +97,13 @@ describe("useCameraDeepLink", () => {
   });
 
   test("drains a park made before the composer mounted, the cold-launch case", () => {
-    usePendingDeepLinkStore.getState().setPendingCamera();
+    parkForHost();
 
     renderCameraDeepLink();
 
     expect(surface()).not.toBeNull();
     expect(captureOpen()).toBe("true");
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingCamera).toBeNull();
   });
 
   test("drains a park that arrives while already mounted, the warm case", () => {
@@ -99,14 +111,14 @@ describe("useCameraDeepLink", () => {
     expect(surface()).toBeNull();
 
     act(() => {
-      usePendingDeepLinkStore.getState().setPendingCamera();
+      parkForHost();
     });
 
     expect(surface()).not.toBeNull();
   });
 
   test("hands the photo to the composer's attachment pipeline as files", () => {
-    usePendingDeepLinkStore.getState().setPendingCamera();
+    parkForHost();
     renderCameraDeepLink();
 
     const photo = new File([new Uint8Array([1, 2, 3])], "photo-1.jpg", {
@@ -123,7 +135,7 @@ describe("useCameraDeepLink", () => {
   });
 
   test("closing without a photo takes the surface down and attaches nothing", () => {
-    usePendingDeepLinkStore.getState().setPendingCamera();
+    parkForHost();
     renderCameraDeepLink();
 
     act(() => {
@@ -136,31 +148,37 @@ describe("useCameraDeepLink", () => {
   });
 
   test("delivers exactly once: a closed surface does not come back on re-render", () => {
-    usePendingDeepLinkStore.getState().setPendingCamera();
+    parkForHost();
     const { rerender } = renderCameraDeepLink();
 
     act(() => {
       overlayProps?.onClose();
     });
-    rerender(createElement(Host, { enabled: true }));
+    rerender(hostTree(true));
 
     expect(surface()).toBeNull();
   });
 
   test("a park older than the TTL is spent, not acted on: no camera minutes later", () => {
     usePendingDeepLinkStore.setState({
-      pendingCameraAt: Date.now() - PENDING_CAMERA_TTL_MS - 1,
+      pendingCamera: {
+        targetConversationId: HOST_CONVERSATION_ID,
+        parkedAt: Date.now() - PENDING_CAMERA_TTL_MS - 1,
+      },
     });
 
     renderCameraDeepLink();
 
     expect(surface()).toBeNull();
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingCamera).toBeNull();
   });
 
   test("a park just inside the TTL still opens the camera", () => {
     usePendingDeepLinkStore.setState({
-      pendingCameraAt: Date.now() - PENDING_CAMERA_TTL_MS + 1_000,
+      pendingCamera: {
+        targetConversationId: HOST_CONVERSATION_ID,
+        parkedAt: Date.now() - PENDING_CAMERA_TTL_MS + 1_000,
+      },
     });
 
     renderCameraDeepLink();
@@ -172,7 +190,7 @@ describe("useCameraDeepLink", () => {
     // The room's viewfinder and this one are two hooks over one native preview
     // layer, so the drain gives way rather than fighting it for the camera.
     useLiveVoiceStore.setState({ state: "listening" });
-    usePendingDeepLinkStore.getState().setPendingCamera();
+    parkForHost();
 
     const { rerender } = renderCameraDeepLink();
 
@@ -180,25 +198,54 @@ describe("useCameraDeepLink", () => {
     expect(captureOpen()).toBe("false");
     // Spent rather than parked: a call outlives the TTL, so a held request
     // would raise a viewfinder long after the tap asked for one.
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingCamera).toBeNull();
 
     useLiveVoiceStore.setState({ state: "idle" });
-    rerender(createElement(Host, { enabled: true }));
+    rerender(hostTree(true));
 
     expect(surface()).toBeNull();
   });
 
   test("a disabled composer leaves the park alone for the one that answers it", () => {
-    usePendingDeepLinkStore.getState().setPendingCamera();
+    parkForHost();
 
     const { rerender } = renderCameraDeepLink(false);
 
     expect(surface()).toBeNull();
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingCamera).not.toBeNull();
 
-    rerender(createElement(Host, { enabled: true }));
+    rerender(hostTree(true));
 
     expect(surface()).not.toBeNull();
+  });
+
+  test("a park addressed to another conversation is left where it is", () => {
+    usePendingDeepLinkStore.getState().setPendingCamera("some-other-conv");
+
+    renderCameraDeepLink();
+
+    expect(surface()).toBeNull();
+    expect(captureOpen()).toBe("false");
+    // Untouched, not spent: the composer it names still has to find it.
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe("some-other-conv");
+  });
+
+  test("a park addressed to another conversation still ages out", () => {
+    // Expiry is not addressed: whichever composer notices a park past its TTL
+    // clears it, so a landing that never happened cannot leave one behind.
+    usePendingDeepLinkStore.setState({
+      pendingCamera: {
+        targetConversationId: "some-other-conv",
+        parkedAt: Date.now() - PENDING_CAMERA_TTL_MS - 1,
+      },
+    });
+
+    renderCameraDeepLink();
+
+    expect(surface()).toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingCamera).toBeNull();
   });
 });
 
@@ -295,6 +342,33 @@ describe("the camera link across the app's landings", () => {
     expect(useConversationStore.getState().activeConversationId).toBe(
       landedConversationId(),
     );
+  });
+
+  test("the composer on the route being left alone lets the draft's have the park", async () => {
+    // The navigating branch publishes the park while the outgoing route is
+    // still mounted, so a composer sitting on it sees the park first. It must
+    // not take it: the navigation would unmount the viewfinder it raised a beat
+    // later, and the one-shot park would already be gone.
+    renderAt(routes.conversation("A"));
+
+    await act(async () => {
+      usePendingDeepLinkStore.getState().setPendingCamera("draft-B");
+    });
+
+    expect(surface()).toBeNull();
+    expect(landedConversationId()).toBe("A");
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe("draft-B");
+
+    // The landing the deep link was navigating to.
+    await act(async () => {
+      publish("deeplink.openThread", { threadId: "draft-B" });
+    });
+
+    expect(landedConversationId()).toBe("draft-B");
+    expect(surface()).not.toBeNull();
+    expect(usePendingDeepLinkStore.getState().pendingCamera).toBeNull();
   });
 
   test("a second tap does not raise a second camera", async () => {
