@@ -609,10 +609,10 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
 
   // llm.defaultProvider: guards both the convention-resolved connection name
   // and the case where the convention name is dangling but this is the last
-  // remaining connection for the default's provider — resolution treats a
+  // remaining connection for the default's provider: resolution treats a
   // dangling default as an explainable error; this guard keeps UI deletes
   // from orphaning it silently. Legacy managed rows are excluded from the
-  // count for the same reason the list route hides them — they aren't
+  // count for the same reason the list route hides them: they aren't
   // user-manageable connections.
   const dp = getDefaultProviderFromConfig(config);
   // A `vellum` default resolves to the canonical name, so this guard would

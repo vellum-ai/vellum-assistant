@@ -18,7 +18,7 @@ export function getDefaultProviderFromConfig(
 }
 
 /**
- * Pure by design — no connection-existence check. A dangling conventional
+ * Pure by design: no connection-existence check. A dangling conventional
  * name is allowed; see `DefaultProviderSchema`.
  *
  * The single home of the conventional-row naming: identities resolve to

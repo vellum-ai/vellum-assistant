@@ -213,7 +213,7 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result)).toEqual({ status: "ok" });
   });
 
-  test("a legacy stored connectionName pin strips at parse — convention wins", async () => {
+  test("a legacy stored connectionName pin strips at parse; convention wins", async () => {
     seedConnection({
       name: "openai-personal",
       provider: "openai",
