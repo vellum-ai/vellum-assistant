@@ -73,6 +73,30 @@ function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
 }
 
 /**
+ * Task progress from a `ui_show` or `ui_update` tool call's input.
+ *
+ * The model reaches for `ui_show` to draw a plan, so the card's contents ride
+ * the turn's own tool-call stream, which every channel consumer already reads.
+ * The `ui_surface_show` event the daemon publishes alongside it goes to the
+ * conversation sink instead, and no channel consumes that, so reading the tool
+ * input is what lets a channel render a plan at all.
+ *
+ * The template may sit at the top level of the input or nested under `data`,
+ * matching the tolerance the server-side normalization already allows.
+ */
+export function getTaskProgressDataFromToolInput(
+  input: unknown,
+): TaskProgressData | undefined {
+  if (!isRecord(input)) {
+    return undefined;
+  }
+  return (
+    getTaskProgressDataFromSurfaceData(input) ??
+    getTaskProgressDataFromSurfaceData(input.data)
+  );
+}
+
+/**
  * Apply a `ui_surface_update` payload onto the steps already known for a
  * surface. A full `task_progress` payload replaces the steps; a partial
  * `templateData` update is merged over the existing steps.

@@ -21,7 +21,7 @@ import {
 } from "./no-response.js";
 import type { TaskProgressData } from "./slack-task-progress.js";
 import {
-  getTaskProgressDataFromSurfaceData,
+  getTaskProgressDataFromToolInput,
   mergeTaskProgressData,
   toSlackStreamTasks,
 } from "./slack-task-progress.js";
@@ -155,7 +155,6 @@ export function createSlackReplySession(params: {
   // `renderHistoryContent`'s `joinWithSpacing` on the durable delivery path).
   let pendingSegmentBoundary = false;
 
-  const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
   let activeProgress: TaskProgressData | undefined;
   // Fingerprint of the plan state last delivered to Slack, so progress that
   // advances without new body text still flushes as a task-only append.
@@ -363,24 +362,39 @@ export function createSlackReplySession(params: {
     }
   };
 
-  const observeTaskProgress = (msg: AssistantEvent): void => {
-    if (msg.type === "ui_surface_show") {
-      const progress = getTaskProgressDataFromSurfaceData(msg.data);
+  /**
+   * Track the plan the model is drawing, from the tool calls that draw it.
+   *
+   * `ui_show` and `ui_update` are tools the model reaches for, so a plan is
+   * turn output and arrives on this session's own stream. The daemon also
+   * publishes `ui_surface_show`, but that goes to the conversation sink, which
+   * no channel consumes.
+   *
+   * `ui_show` carries no surface id in its input, since the id is minted when
+   * the tool runs, so a later `ui_update` cannot be matched to the card it
+   * targets. One plan per turn is tracked instead, which is what the previous
+   * shape collapsed to anyway: it kept a map and always rendered whichever
+   * entry was touched last.
+   */
+  const observeTaskProgressTool = (msg: AssistantEvent): void => {
+    if (msg.type !== "tool_use_start") {
+      return;
+    }
+    if (msg.toolName === "ui_show") {
+      const progress = getTaskProgressDataFromToolInput(msg.input);
       if (!progress) {
         return;
       }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else if (msg.type === "ui_surface_update") {
-      const existing = taskProgressBySurfaceId.get(msg.surfaceId);
-      const progress = mergeTaskProgressData(existing, msg.data);
+      activeProgress = progress;
+    } else if (msg.toolName === "ui_update") {
+      const progress = mergeTaskProgressData(activeProgress, msg.input.data);
       if (!progress) {
         return;
       }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
+      activeProgress = progress;
     } else {
       return;
     }
-    activeProgress = taskProgressBySurfaceId.get(msg.surfaceId);
     scheduleFlush();
   };
 
@@ -390,9 +404,8 @@ export function createSlackReplySession(params: {
         return;
       }
 
-      if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
-        observeTaskProgress(msg);
-        return;
+      if (msg.type === "tool_use_start") {
+        observeTaskProgressTool(msg);
       }
       if (msg.type === "assistant_text_delta") {
         if (pendingSegmentBoundary && msg.text.length > 0) {

@@ -78,35 +78,49 @@ const messageComplete = (messageId: string): AssistantEvent =>
     messageId,
   }) as AssistantEvent;
 
+/**
+ * The model drawing a plan, as it actually reaches a channel: a `ui_show` tool
+ * call on the turn's own stream.
+ *
+ * Previously built as a `ui_surface_show` event, which the daemon does publish
+ * but only to the conversation sink. No channel consumes that, so these tests
+ * exercised a path production never took and passed while plan mode did not
+ * render at all.
+ */
 const taskProgressShow = (
-  surfaceId: string,
   steps: Array<{ label: string; status: string; detail?: string }>,
   templateTitle?: string,
 ): AssistantEvent =>
   ({
-    type: "ui_surface_show",
+    type: "tool_use_start",
+    toolName: "ui_show",
     conversationId: "conv-stream",
-    surfaceId,
-    surfaceType: "card",
-    data: {
+    toolUseId: "tool-ui-show",
+    input: {
+      surface_type: "card",
       title: "Task progress",
-      template: "task_progress",
-      templateData: {
-        ...(templateTitle ? { title: templateTitle } : {}),
-        steps,
+      data: {
+        template: "task_progress",
+        templateData: {
+          ...(templateTitle ? { title: templateTitle } : {}),
+          steps,
+        },
       },
     },
   }) as AssistantEvent;
 
 const taskProgressUpdate = (
-  surfaceId: string,
   steps: Array<{ label: string; status: string }>,
 ): AssistantEvent =>
   ({
-    type: "ui_surface_update",
+    type: "tool_use_start",
+    toolName: "ui_update",
     conversationId: "conv-stream",
-    surfaceId,
-    data: { templateData: { steps } },
+    toolUseId: "tool-ui-update",
+    input: {
+      surface_id: "surface-1",
+      data: { templateData: { steps } },
+    },
   }) as AssistantEvent;
 
 const tick = (ms: number): Promise<void> =>
@@ -431,7 +445,7 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(
-      taskProgressShow("surface-1", [
+      taskProgressShow([
         { label: "Search docs", status: "in_progress" },
         { label: "Summarize", status: "pending" },
       ]),
@@ -439,7 +453,7 @@ describe("createSlackReplySession", () => {
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
+      taskProgressUpdate([
         { label: "Search docs", status: "completed" },
         { label: "Summarize", status: "in_progress" },
       ]),
@@ -477,16 +491,12 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(
-      taskProgressShow("surface-1", [
-        { label: "Search docs", status: "in_progress" },
-      ]),
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
     );
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
-        { label: "Search docs", status: "in_progress" },
-      ]),
+      taskProgressUpdate([{ label: "Search docs", status: "in_progress" }]),
     );
     await tick(15);
 
@@ -513,15 +523,11 @@ describe("createSlackReplySession", () => {
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressShow("surface-1", [
-        { label: "Search docs", status: "in_progress" },
-      ]),
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
     );
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
-        { label: "Search docs", status: "completed" },
-      ]),
+      taskProgressUpdate([{ label: "Search docs", status: "completed" }]),
     );
     await tick(15);
     const reconciliation = await session.finish();
@@ -727,7 +733,7 @@ describe("createSlackReplySession", () => {
     })!;
 
     session.observeEvent(
-      taskProgressShow("surface-1", [
+      taskProgressShow([
         { label: "Search docs", status: "in_progress" },
         { label: "Summarize", status: "pending" },
       ]),
@@ -735,7 +741,7 @@ describe("createSlackReplySession", () => {
     session.observeEvent(textDelta("Working on it."));
     await tick(15);
     session.observeEvent(
-      taskProgressUpdate("surface-1", [
+      taskProgressUpdate([
         { label: "Search docs", status: "completed" },
         { label: "Summarize", status: "in_progress" },
       ]),
@@ -782,7 +788,7 @@ describe("createSlackReplySession", () => {
     session.observeEvent(textDelta("On it — starting now."));
     await tick(15);
     session.observeEvent(
-      taskProgressShow("surface-1", [
+      taskProgressShow([
         { label: "Search docs", status: "in_progress" },
         { label: "Summarize", status: "pending" },
       ]),
@@ -828,7 +834,6 @@ describe("createSlackReplySession", () => {
 
     session.observeEvent(
       taskProgressShow(
-        "surface-1",
         [
           {
             label: "Check weather",
