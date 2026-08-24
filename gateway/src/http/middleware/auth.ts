@@ -357,6 +357,13 @@ export function createAuthMiddleware(
    * a 401 response when revoked, or null to continue. Fail-open for non-actor
    * and unrecorded tokens (see isActorTokenRevoked). On the allow path, stamps
    * the presenting device's last-used activity (debounced, fail-open).
+   *
+   * The stamp runs here, before the scope and guardian-match checks that
+   * callers apply afterwards, so "last used" means "presented a valid,
+   * unrevoked credential" rather than "made a request we served". That is
+   * deliberate: a device refused for insufficient scope is still demonstrably
+   * active, and a guardian-mismatched device never appears in /v1/devices
+   * anyway (it scopes to the local guardian principal).
    */
   function rejectIfActorTokenRevoked(
     req: Request,
