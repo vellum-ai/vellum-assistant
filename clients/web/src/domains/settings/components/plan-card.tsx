@@ -577,10 +577,10 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
               </Typography>
             )}
           </div>
-          {/* No shrink-0: the group must be able to compress so the nowrap
-              buttons wrap onto a second row at phone widths instead of
-              pushing past the card (the es/ru labels are long). Its floor is
-              the widest single button, same as the lone button had. */}
+          {/* The buttons never break their labels, so the group must stay
+              free to shrink and wrap them onto a second row at phone widths;
+              a fixed-width group would push the long es/ru labels past the
+              card. */}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!isFreePlan && (
               <Button
