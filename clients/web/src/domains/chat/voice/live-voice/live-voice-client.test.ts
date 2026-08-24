@@ -295,7 +295,7 @@ describe("connect", () => {
 // ---------------------------------------------------------------------------
 
 describe("server frame dispatch", () => {
-  async function ready(): Promise<{
+  async function ready(extra: Record<string, unknown> = {}): Promise<{
     client: LiveVoiceChannelClientType;
     ws: FakeWebSocket;
   }> {
@@ -307,6 +307,7 @@ describe("server frame dispatch", () => {
       seq: 1,
       sessionId: "s1",
       conversationId: "c1",
+      ...extra,
     });
     return { client, ws };
   }
@@ -523,6 +524,63 @@ describe("server frame dispatch", () => {
     expect(seen).toEqual([
       { type: "stt_partial", seq: 11, text: "still here" },
     ]);
+  });
+
+  test("sendText refuses when the assistant did not echo textInput", async () => {
+    // The gate that keeps an `unknown_type` rejection from ever happening: an
+    // assistant predating typed turns rejects the frame identically to
+    // `update_config`, which would latch in-session settings off.
+    const { client, ws } = await ready();
+    const sentBefore = ws.sentJson.length;
+
+    expect(client.supportsTextInput).toBe(false);
+    expect(client.sendText("hello")).toBe(false);
+    expect(ws.sentJson.length).toBe(sentBefore);
+  });
+
+  test("sendText sends a text frame when the assistant echoed textInput", async () => {
+    const { client, ws } = await ready({ textInput: true });
+
+    expect(client.supportsTextInput).toBe(true);
+    expect(client.sendText("what is on my calendar")).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "text",
+      text: "what is on my calendar",
+    });
+  });
+
+  test("sendText trims and refuses an empty turn", async () => {
+    const { client, ws } = await ready({ textInput: true });
+
+    expect(client.sendText("   \n  ")).toBe(false);
+    expect(client.sendText("  padded  ")).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({ type: "text", text: "padded" });
+  });
+
+  test("a text-attributed error does not latch config updates off", async () => {
+    // The daemon refuses a typed turn sent mid-reply with a recoverable error
+    // carrying frameType "text". Falling through to the unattributed
+    // `unknown_type` fallback would silently disable the voice-room settings
+    // for the rest of the session.
+    const { client, ws } = await ready({ textInput: true });
+    const errors: unknown[] = [];
+    client.on("error", (e) => errors.push(e));
+
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_frame",
+      message: "The assistant is busy with the current turn. Send again.",
+      frameType: "text",
+      recoverable: true,
+    });
+
+    // Not surfaced as a session error: the session is fine.
+    expect(errors).toEqual([]);
+    // And settings still work.
+    const sentBefore = ws.sentJson.length;
+    client.updateConfig({ silenceThresholdMs: 1400 });
+    expect(ws.sentJson.length).toBe(sentBefore + 1);
   });
 
   test("recoverable error frame emits the error but keeps the session alive", async () => {

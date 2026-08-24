@@ -205,6 +205,13 @@ export class LiveVoiceChannelClient {
   // voice-room settings (version-skew forward-compat).
   private configUpdatesUnsupported = false;
 
+  // Set from the `ready` frame's `textInput` echo. Typed turns are refused
+  // locally until an assistant says it takes them, for the same reason the
+  // camera is gated: an assistant that predates the frame answers with
+  // `unknown_type`, which is indistinguishable from the `update_config`
+  // rejection and would latch in-session settings off for the whole session.
+  private textInputSupported = false;
+
   private readonly listeners: {
     [E in LiveVoiceClientEventName]: Set<LiveVoiceClientEventHandler<E>>;
   } = {
@@ -391,6 +398,35 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Take a turn by typing it instead of speaking it. The daemon answers on the
+   * same session, out loud.
+   *
+   * Returns whether the frame went out. False means the turn was not taken:
+   * the session is not active, or this assistant predates typed turns. Callers
+   * must surface that rather than clear their input, because nothing else will
+   * tell the user their message went nowhere.
+   *
+   * A turn the daemon refuses because it is mid-reply comes back as a
+   * `recoverable` error frame carrying `frameType: "text"`, not as a false
+   * here: the frame went out, and the answer arrived later.
+   */
+  sendText(text: string): boolean {
+    if (this.state !== "active" || !this.textInputSupported) {
+      return false;
+    }
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      return false;
+    }
+    return this.trySend(JSON.stringify({ type: "text", text: trimmed }));
+  }
+
+  /** Whether this session's assistant accepts typed turns. */
+  get supportsTextInput(): boolean {
+    return this.textInputSupported;
+  }
+
+  /**
    * End the session gracefully: best-effort send `end`, then always close the
    * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
    * `end` send and resolves as a clean close rather than a timeout failure.
@@ -456,6 +492,7 @@ export class LiveVoiceChannelClient {
         }
         this.clearConnectTimeout();
         this.state = "active";
+        this.textInputSupported = frame.textInput === true;
         this.emit("ready", frame);
         return;
       case "busy":
@@ -526,6 +563,17 @@ export class LiveVoiceChannelClient {
             reason: frame.code === "unknown_type" ? "unsupported" : "failed",
             message: frame.message,
           });
+          return;
+        }
+        if (about === "text") {
+          // Both shapes land here and neither is a session problem: a refusal
+          // because the assistant is mid-reply (recoverable), and an
+          // `unknown_type` from an assistant too old to know the frame, which
+          // `sendText`'s gate should already have prevented. Reported and
+          // dropped rather than falling through, where the first would be
+          // filed with the transient transcriber blips and the second would
+          // wrongly latch in-session settings off.
+          console.warn(`live-voice: typed turn not taken: ${frame.message}`);
           return;
         }
         // Daemons predating `frameType` omit it, so an unattributed

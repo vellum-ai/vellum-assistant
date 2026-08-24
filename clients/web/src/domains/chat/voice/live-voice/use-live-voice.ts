@@ -699,6 +699,20 @@ export function useLiveVoice(
       const client = (
         opts.createClient ?? (() => new LiveVoiceChannelClient())
       )();
+      // Dev-only handle for driving a typed turn from the console while no UI
+      // sends one yet:
+      //
+      //   __vellumVoice.sendText("what is on my calendar")
+      //
+      // Returns false if the session is not active or the assistant predates
+      // typed turns, which is also what a handle left over from an ended
+      // session returns. Stripped from production builds.
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vellumVoice = {
+          sendText: (text: string) => client.sendText(text),
+          supportsTextInput: () => client.supportsTextInput,
+        };
+      }
       const prewarmedPlayer = standbyPlayerRef.current;
       const player = prewarmedPlayer ?? createPlayer();
       standbyPlayerRef.current = null;
