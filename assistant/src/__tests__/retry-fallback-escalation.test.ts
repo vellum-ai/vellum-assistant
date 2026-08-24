@@ -428,29 +428,67 @@ describe("RetryProvider fallback-route escalation", () => {
     expect(route.calls()).toBe(0);
   });
 
-  test("explicit config.model pin + outage-shaped error → callback never invoked, original error rethrown", async () => {
-    // Per-conversation `modelOverride` is a live feature; a pinned
-    // conversation keeps today's retry-then-error behavior. The fallback
-    // must never silently serve a different model against an explicit pin.
-    const finalError = new ProviderError("Service Unavailable", "openai", 503);
-    const primary = failingProvider("openai", () => finalError);
-    const route = makeRoute(backupProvider().provider);
-    const wrapped = new RetryProvider(primary.provider, {
-      resolveFallbackRoute: route.resolveFallbackRoute,
-    });
+  test.each([
+    ["model", "pinned-model"],
+    ["provider", "openai"],
+    ["provider_connection", "vellum"],
+  ] as const)(
+    "explicit config.%s pin + outage-shaped error → callback never invoked, original error rethrown",
+    async (field, value) => {
+      const finalError = new ProviderError(
+        "Service Unavailable",
+        "openai",
+        503,
+      );
+      const primary = failingProvider("openai", () => finalError);
+      const route = makeRoute(backupProvider().provider);
+      const wrapped = new RetryProvider(primary.provider, {
+        resolveFallbackRoute: route.resolveFallbackRoute,
+      });
 
-    const thrown = await captureError(
-      wrapped.sendMessage(MESSAGES, {
-        config: { callSite: "mainAgent", model: "pinned-model" },
-      }),
-    );
+      const thrown = await captureError(
+        wrapped.sendMessage(MESSAGES, {
+          config: { callSite: "mainAgent", [field]: value },
+        }),
+      );
 
-    expect(thrown).toBe(finalError);
-    expect(route.calls()).toBe(0);
-    expect((thrown as { retriesExhausted?: boolean }).retriesExhausted).toBe(
-      true,
-    );
-  });
+      expect(thrown).toBe(finalError);
+      expect(route.calls()).toBe(0);
+      expect((thrown as { retriesExhausted?: boolean }).retriesExhausted).toBe(
+        true,
+      );
+    },
+  );
+
+  test.each([
+    ["model", "pinned-model"],
+    ["provider", "openai"],
+  ] as const)(
+    "persisted call-site %s pin + outage-shaped error → callback never invoked",
+    async (field, value) => {
+      setConfig("llm", {
+        ...LLM_FIXTURE,
+        callSites: { mainAgent: { [field]: value } },
+      });
+      const finalError = new ProviderError(
+        "Service Unavailable",
+        "openai",
+        503,
+      );
+      const primary = failingProvider("openai", () => finalError);
+      const route = makeRoute(backupProvider().provider);
+      const wrapped = new RetryProvider(primary.provider, {
+        resolveFallbackRoute: route.resolveFallbackRoute,
+      });
+
+      const thrown = await captureError(
+        wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+      );
+
+      expect(thrown).toBe(finalError);
+      expect(route.calls()).toBe(0);
+    },
+  );
 
   test("callback returns null (no fallbackProfile) → original error rethrown with retriesExhausted tagging", async () => {
     const finalError = new ProviderError("Service Unavailable", "openai", 503);
@@ -580,7 +618,7 @@ describe("RetryProvider fallback-route escalation", () => {
     expect(backup.calls()).toBe(0);
   });
 
-  test("backup also fails → fallback error rethrown with original as cause, no second fallback attempt", async () => {
+  test("backup also fails → original error is preserved, no second fallback attempt", async () => {
     const originalError = new ProviderError("model not found", "openai", 404);
     const primary = failingProvider("openai", () => originalError);
     const fallbackError = new ProviderError("backup down", "anthropic", 500);
@@ -594,8 +632,8 @@ describe("RetryProvider fallback-route escalation", () => {
       wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
     );
 
-    expect(thrown).toBe(fallbackError);
-    expect((thrown as Error).cause).toBe(originalError);
+    expect(thrown).toBe(originalError);
+    expect((thrown as Error).cause).toBeUndefined();
     expect(route.calls()).toBe(1);
     expect(backup.calls()).toBe(1);
   });

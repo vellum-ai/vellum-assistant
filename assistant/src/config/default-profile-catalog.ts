@@ -17,6 +17,7 @@ import {
   type DefaultProfileProvider,
   FALLBACK_PROFILE_BY_KEY,
   isBackupProfileKey,
+  isDefaultProfileKey,
   isDefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
@@ -811,9 +812,7 @@ export function resolveDefaultProfileForProvider(
   );
 }
 
-export function isDefaultProfileKey(name: string): name is DefaultProfileKey {
-  return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
-}
+export { isDefaultProfileKey } from "./default-profile-names.js";
 
 /**
  * The implementation of default profile `key` on `provider`: the named matrix

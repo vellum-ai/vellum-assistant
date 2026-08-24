@@ -14,7 +14,9 @@ import {
   BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
+  FALLBACK_PROFILE_BY_KEY,
   isBackupProfileKey,
+  isDefaultProfileKey,
 } from "../default-profile-names.js";
 
 /**
@@ -625,14 +627,12 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   mix: MixSchema.optional(),
   /**
-   * Name of another profile to fall back to when this profile's model
-   * fails with an outage-type error (retries exhausted, invalid managed
-   * credential, unknown model). Single hop: the referenced profile must
-   * not declare its own fallbackProfile. Managed (`vellum`) profiles
-   * only, since BYOK installs may hold no credential for the backup
-   * provider.
+   * Code-owned backup profile for a Vellum-managed default profile. This is
+   * read-only metadata from the default-profile catalog. Config write paths
+   * reject user-authored values because custom and BYOK fallback routes are
+   * not supported.
    */
-  fallbackProfile: z.string().min(1).optional(),
+  fallbackProfile: z.string().min(1).optional().meta({ readOnly: true }),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
@@ -769,13 +769,10 @@ function referenceableProfileKeys(
 // ---------------------------------------------------------------------------
 
 /**
- * Cross-profile integrity checks for `fallbackProfile` pointers: (a) the
- * referenced profile exists, (b) a profile does not fall back to itself,
- * (c) the referenced profile is not a mix (a fallback must be a directly
- * dispatchable route), (d) the referenced profile does not itself set
- * `fallbackProfile` (fallback is a single hop in v1, never a chain), and
- * (e) a mix profile carries no `fallbackProfile` of its own (a mix has no
- * route of its own to fall back from).
+ * Cross-profile integrity checks for `fallbackProfile` metadata. Only the
+ * exact code-owned mapping on managed default profiles is accepted. The
+ * referenced profile must exist, must not be a mix, and must not declare a
+ * fallback of its own.
  *
  * Shared by `LLMSchema.superRefine` (full-config load) and the config write
  * paths (`commitConfigWrite`), which persist raw config without a
@@ -829,6 +826,16 @@ export function collectFallbackProfileIssues(
       issues.push({
         profileName: name,
         message: `Profile "${name}" declares a fallbackProfile that must be a non-empty string naming another profile.`,
+      });
+      continue;
+    }
+    const expectedFallback = isDefaultProfileKey(name)
+      ? FALLBACK_PROFILE_BY_KEY[name]
+      : undefined;
+    if (entry?.source !== "managed" || fallback !== expectedFallback) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" cannot configure fallbackProfile. Automatic fallbacks are code-owned for Vellum-managed default profiles.`,
       });
       continue;
     }

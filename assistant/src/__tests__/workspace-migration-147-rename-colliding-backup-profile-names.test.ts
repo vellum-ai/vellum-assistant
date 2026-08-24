@@ -108,7 +108,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     );
   });
 
-  test("renames a colliding user profile and rewrites every reference", async () => {
+  test("renames a colliding user profile and rewrites supported references", async () => {
     writeConfig({
       llm: {
         defaultProvider: { provider: "vellum" },
@@ -150,7 +150,7 @@ describe("147-rename-colliding-backup-profile-names migration", () => {
     expect(llm.advisorProfile).toBe("balanced-backup-custom");
     expect(llm.callSites.recall.profile).toBe("balanced-backup-custom");
     expect(llm.callSites.recall.maxTokens).toBe(4096);
-    expect(llm.profiles.scratch.fallbackProfile).toBe("balanced-backup-custom");
+    expect(llm.profiles.scratch.fallbackProfile).toBeUndefined();
     expect(llm.profiles.blend.mix[0].profile).toBe("balanced-backup-custom");
     expect(llm.profiles.blend.mix[1].profile).toBe("armA");
     expect(llm.profileOrder).toEqual([

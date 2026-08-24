@@ -5,142 +5,68 @@ import { z } from "zod";
 import {
   BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
+  FALLBACK_PROFILE_BY_KEY,
 } from "../config/default-profile-names.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 
 describe("LLMSchema fallbackProfile", () => {
-  test("profile with a valid fallbackProfile pointer parses", () => {
+  test.each([...DEFAULT_PROFILE_KEYS])(
+    "accepts the code-owned managed pointer for %s",
+    (profileName) => {
+      const result = LLMSchema.safeParse({
+        defaultProvider: { provider: "vellum" },
+        profiles: {
+          [profileName]: {
+            source: "managed",
+            fallbackProfile: FALLBACK_PROFILE_BY_KEY[profileName],
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+    },
+  );
+
+  test("rejects a user-authored fallbackProfile even when its target exists", () => {
     const result = LLMSchema.safeParse({
       profiles: {
-        primary: { effort: "high", fallbackProfile: "backup" },
+        primary: { fallbackProfile: "backup" },
         backup: { speed: "fast" },
       },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.profiles["primary"]?.fallbackProfile).toBe("backup");
-    }
-  });
-
-  test("fallbackProfile may reference an always-available default profile key", () => {
-    // Code-defined default profiles resolve without being materialized in
-    // llm.profiles, so they are valid reference targets (same rule as
-    // call-site `profile` references).
-    const defaultKey = DEFAULT_PROFILE_KEYS[0];
-    const result = LLMSchema.safeParse({
-      profiles: {
-        primary: { fallbackProfile: defaultKey },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("fallbackProfile may reference a managed backup profile key", () => {
-    // Backups resolve from the code catalog without being materialized in
-    // llm.profiles, exactly like the always-available defaults, so a pointer
-    // at one is a valid reference. No `defaultProvider` means the managed
-    // column (the reading an install predating the field gets).
-    const backupKey = BACKUP_PROFILE_KEYS[0];
-    const result = LLMSchema.safeParse({
-      profiles: {
-        primary: { fallbackProfile: backupKey },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  test("dangling fallbackProfile pointer fails superRefine", () => {
-    const result = LLMSchema.safeParse({
-      profiles: {
-        primary: { fallbackProfile: "ghost" },
-      },
-    });
     expect(result.success).toBe(false);
     if (!result.success) {
       const issue = result.error.issues.find((i) =>
-        i.message.includes('fallbackProfile "ghost"'),
-      );
-      expect(issue?.message).toContain("is not defined in llm.profiles");
-      expect(issue?.path).toEqual(["profiles", "primary", "fallbackProfile"]);
-    }
-  });
-
-  test("self-referencing fallbackProfile is rejected", () => {
-    const result = LLMSchema.safeParse({
-      profiles: {
-        primary: { fallbackProfile: "primary" },
-      },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const issue = result.error.issues.find((i) =>
-        i.message.includes("cannot declare itself"),
+        i.message.includes("Automatic fallbacks are code-owned"),
       );
       expect(issue?.path).toEqual(["profiles", "primary", "fallbackProfile"]);
     }
   });
 
-  test("fallbackProfile pointing at a mix profile is rejected", () => {
+  test("rejects a fallbackProfile on a user-owned default-profile shadow", () => {
+    const profileName = DEFAULT_PROFILE_KEYS[0];
     const result = LLMSchema.safeParse({
       profiles: {
-        primary: { fallbackProfile: "blend" },
-        armA: { speed: "fast" },
-        armB: { effort: "high" },
-        blend: {
-          mix: [
-            { profile: "armA", weight: 1 },
-            { profile: "armB", weight: 1 },
-          ],
+        [profileName]: {
+          source: "user",
+          fallbackProfile: FALLBACK_PROFILE_BY_KEY[profileName],
         },
       },
     });
     expect(result.success).toBe(false);
-    if (!result.success) {
-      const issue = result.error.issues.find((i) =>
-        i.message.includes("is a mix profile"),
-      );
-      expect(issue?.path).toEqual(["profiles", "primary", "fallbackProfile"]);
-    }
   });
 
-  test("two-hop fallback chain is rejected (single hop only)", () => {
+  test("rejects a managed default pointing anywhere except its code-owned backup", () => {
+    const profileName = DEFAULT_PROFILE_KEYS[0];
     const result = LLMSchema.safeParse({
       profiles: {
-        primary: { fallbackProfile: "middle" },
-        middle: { fallbackProfile: "last" },
-        last: { speed: "fast" },
-      },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const issue = result.error.issues.find((i) =>
-        i.message.includes("chains are not allowed"),
-      );
-      expect(issue?.path).toEqual(["profiles", "primary", "fallbackProfile"]);
-    }
-  });
-
-  test("mix profile carrying fallbackProfile is rejected", () => {
-    const result = LLMSchema.safeParse({
-      profiles: {
-        armA: { speed: "fast" },
-        armB: { effort: "high" },
-        blend: {
-          mix: [
-            { profile: "armA", weight: 1 },
-            { profile: "armB", weight: 1 },
-          ],
-          fallbackProfile: "armA",
+        [profileName]: {
+          source: "managed",
+          fallbackProfile: "custom-backup",
         },
+        "custom-backup": { speed: "fast" },
       },
     });
     expect(result.success).toBe(false);
-    if (!result.success) {
-      const issue = result.error.issues.find((i) =>
-        i.message.includes('cannot also set "fallbackProfile"'),
-      );
-      expect(issue?.path).toEqual(["profiles", "blend", "fallbackProfile"]);
-    }
   });
 
   test("empty-string fallbackProfile is rejected at field level", () => {
@@ -168,56 +94,47 @@ describe("LLMSchema fallbackProfile", () => {
     }
   });
 
-  test("a backup fallbackProfile target is rejected on a non-managed column", () => {
-    // The backups exist only on the managed column, so under a BYOK or
-    // ChatGPT default provider the pointer names a target that can never
-    // resolve, and keeping it would leave the primary silently unprotected.
-    const backupKey = BACKUP_PROFILE_KEYS[0];
+  test("a code-owned fallback pointer is rejected on a non-managed column", () => {
+    const profileName = DEFAULT_PROFILE_KEYS[0];
     for (const provider of ["anthropic", "chatgpt"] as const) {
       const result = LLMSchema.safeParse({
         defaultProvider: { provider },
         profiles: {
-          primary: { fallbackProfile: backupKey },
+          [profileName]: {
+            source: "managed",
+            fallbackProfile: FALLBACK_PROFILE_BY_KEY[profileName],
+          },
         },
       });
       expect(result.success).toBe(false);
       if (!result.success) {
         const issue = result.error.issues.find((i) =>
-          i.message.includes(`fallbackProfile "${backupKey}"`),
+          i.path.join(".").endsWith("fallbackProfile"),
         );
         expect(issue?.message).toContain("managed backup profile");
-        expect(issue?.path).toEqual(["profiles", "primary", "fallbackProfile"]);
+        expect(issue?.path).toEqual([
+          "profiles",
+          profileName,
+          "fallbackProfile",
+        ]);
       }
     }
   });
 
-  test("a user-owned materialized backup entry is a valid target on any column", () => {
-    // Conditioning applies to the code-defined name, not to a user-owned
-    // workspace entry: that entry carries its own body, and with no
-    // code-owned body to lose on a BYOK column it is what the name resolves
-    // to, so a pointer at it stays valid. A `source` other than `managed`,
-    // absent included, is what makes an entry user-owned, matching
-    // `resolveAgainstBody`.
-    const backupKey = BACKUP_PROFILE_KEYS[0];
-    const result = LLMSchema.safeParse({
-      defaultProvider: { provider: "anthropic" },
-      profiles: {
-        primary: { fallbackProfile: backupKey },
-        [backupKey]: { provider: "anthropic", model: "claude-opus-4-7" },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
   test("z.toJSONSchema still generates for LLMSchema (config docs/routes)", () => {
-    // Same options as handleGetConfigSchema in
-    // runtime/routes/conversation-query-routes.ts. The field must not
-    // introduce any callback-bearing zod construct that breaks generation.
     const json = z.toJSONSchema(LLMSchema, {
       unrepresentable: "any",
       io: "input",
     });
-    expect(json).toBeTruthy();
+    expect(json).toMatchObject({
+      properties: {
+        profiles: {
+          additionalProperties: {
+            properties: { fallbackProfile: { readOnly: true } },
+          },
+        },
+      },
+    });
   });
 });
 
@@ -403,7 +320,7 @@ describe("LLMSchema backup profile references vs llm.defaultProvider", () => {
         const issue = result.error.issues.find(
           (i) => i.path.join(".") === "profiles.primary.fallbackProfile",
         );
-        expect(issue?.message).toContain("managed backup profile");
+        expect(issue?.message).toContain("Automatic fallbacks are code-owned");
       }
     }
   });
@@ -415,7 +332,6 @@ describe("LLMSchema backup profile references vs llm.defaultProvider", () => {
       defaultProvider: managed,
       profiles: {
         [backupKey]: stub,
-        primary: { fallbackProfile: backupKey },
       },
       activeProfile: backupKey,
       callSites: { recall: { profile: backupKey } },
@@ -423,7 +339,7 @@ describe("LLMSchema backup profile references vs llm.defaultProvider", () => {
     expect(result.success).toBe(true);
   });
 
-  test("a user-owned entry under a backup name keeps its references on every column", () => {
+  test("a user-owned entry under a backup name cannot enable custom fallback", () => {
     for (const defaultProvider of [managed, ...nonManaged]) {
       const result = LLMSchema.safeParse({
         defaultProvider,
@@ -437,7 +353,7 @@ describe("LLMSchema backup profile references vs llm.defaultProvider", () => {
         },
         activeProfile: backupKey,
       });
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     }
   });
 });

@@ -8,22 +8,24 @@
  * matter what `llm.profiles` holds, so a user-created profile that happens
  * to carry one of those names is silently replaced in the effective catalog:
  * the user's own model, provider, and tuning stop being what their
- * `activeProfile`, call-site pin, mix arm, or `fallbackProfile` reference
- * routes through.
+ * `activeProfile`, call-site pin, or mix arm routes through.
  *
  * This migration runs before the reservation can take effect (workspace
  * migrations run ahead of the first config load and the profile seeder) and
- * gives any such profile a fresh key, rewriting every reference to it so the
- * user keeps both the profile and its wiring:
+ * gives any such profile a fresh key, rewriting supported references to it so
+ * the user keeps both the profile and its wiring:
  *
  *   - `llm.profiles` key (insertion order preserved)
  *   - `llm.activeProfile`, `llm.advisorProfile`
  *   - `llm.profileOrder` entries
  *   - `llm.callSites.<site>.profile` pins
  *   - `llm.profiles.<key>.mix[].profile` arms
- *   - `llm.profiles.<key>.fallbackProfile` targets
  *   - `conversations.inference_profile` and `cron_jobs.inference_profile`
  *     rows (see below)
+ *
+ * A user-authored `fallbackProfile` targeting the colliding name is removed.
+ * Automatic fallbacks are code-owned metadata for managed defaults, so a
+ * custom pointer cannot be preserved as executable configuration.
  *
  * The new key is `<name>-custom`, suffixed `-custom-2`, `-custom-3`, ... when
  * that is taken. Candidates are checked against every existing profile key
@@ -260,7 +262,7 @@ function rewriteConfigReferences(
       typeof entry.fallbackProfile === "string" &&
       renames.has(entry.fallbackProfile)
     ) {
-      entry.fallbackProfile = renames.get(entry.fallbackProfile);
+      delete entry.fallbackProfile;
     }
     if (!Array.isArray(entry.mix)) {
       continue;

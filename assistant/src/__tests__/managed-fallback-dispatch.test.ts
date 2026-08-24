@@ -1,15 +1,9 @@
 /**
- * Managed backup-profile dispatch, end to end against a mocked upstream.
+ * Managed backup-profile dispatch against a mocked platform proxy.
  *
- * Everything below the test is production code: the real adapter factory, the
- * real managed-proxy auth resolution, the real `RetryProvider` escalation, and
- * the real Anthropic client. Only the upstream is faked, by a local
- * `Bun.serve` standing in for the platform's runtime proxy, so the assertions
- * are made on the bytes the backup route actually puts on the wire.
- *
- * Deliberately mock-free at the module level: `mock.module` is process-wide in
- * bun, and stubbing the provider clients here would leak into every other file
- * that exercises them.
+ * The primary test path includes `CallSiteRoutingProvider`, connection
+ * selection, the real adapter factory, retry escalation, and provider clients.
+ * Only the remote platform proxy is replaced with a local HTTP server.
  */
 
 import {
@@ -22,9 +16,8 @@ import {
   test,
 } from "bun:test";
 
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import {
-  type BreakerRoute,
-  recordFallbackServed,
   resetFallbackBreaker,
   shouldSkipPrimary,
 } from "../providers/fallback-breaker.js";
@@ -33,12 +26,15 @@ import type {
   ProviderConnection,
   ResolvedAuth,
 } from "../providers/inference/auth.js";
-import type { Message, ProviderResponse } from "../providers/types.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+} from "../providers/types.js";
+import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { setConfig } from "./helpers/set-config.js";
-
-// ── Mocked upstream ─────────────────────────────────────────────────────────
 
 interface UpstreamRequest {
   path: string;
@@ -47,31 +43,11 @@ interface UpstreamRequest {
 }
 
 const requests: UpstreamRequest[] = [];
-
-/**
- * What the anthropic proxy path does. `retired` is the model rename/retirement
- * shape: fallback-eligible but not retryable, so the escalation decision is
- * reached on the first attempt instead of after a full retry budget.
- */
-let anthropicMode: "serve" | "retired" = "serve";
-
-/**
- * Models the anthropic path answers with the retired shape whatever
- * `anthropicMode` says, so one case can fail a primary pin while its backup pin
- * keeps serving on the same upstream.
- */
-const retiredModels = new Set<string>();
-
-/** The primary pin of the breaker case below, as its 404 marks it. */
-const RETIRED_ROUTE: BreakerRoute = {
-  upstream: "anthropic",
-  model: "claude-opus-5",
-};
+let anthropicMode: "serve" | "retired" | "unavailable" = "serve";
 
 const ANTHROPIC_PATH = "/v1/runtime-proxy/anthropic";
 const OPENAI_PATH = "/v1/runtime-proxy/openai";
 
-/** A complete Anthropic Messages SSE stream for a one-word reply. */
 function anthropicCompletion(): Response {
   const events = [
     {
@@ -123,8 +99,6 @@ function anthropicCompletion(): Response {
   });
 }
 
-/** The outage the primary route keeps returning. `retry-after: 0` keeps the
- *  retry loop honest without making the test wait out real backoff. */
 function upstreamUnavailable(): Response {
   return new Response(
     JSON.stringify({ error: { message: "upstream unavailable" } }),
@@ -135,7 +109,6 @@ function upstreamUnavailable(): Response {
   );
 }
 
-/** A retired model id, the other outage shape fallback exists for. */
 function modelRetired(): Response {
   return new Response(
     JSON.stringify({
@@ -146,9 +119,7 @@ function modelRetired(): Response {
   );
 }
 
-let server: ReturnType<typeof Bun.serve>;
-
-// ── Fixtures ────────────────────────────────────────────────────────────────
+let server: ReturnType<typeof Bun.serve> | undefined;
 
 const MESSAGES: Message[] = [
   { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -176,6 +147,9 @@ const byokConnection = {
 } as unknown as ProviderConnection;
 
 function managedAuth(proxyPath: string): ResolvedAuth {
+  if (server === undefined) {
+    throw new Error("test proxy is not running");
+  }
   return {
     kind: "header",
     headers: { Authorization: "Bearer test-assistant-key" },
@@ -184,11 +158,72 @@ function managedAuth(proxyPath: string): ResolvedAuth {
 }
 
 function requestsTo(proxyPath: string): UpstreamRequest[] {
-  return requests.filter((r) => r.path.startsWith(proxyPath));
+  return requests.filter((request) => request.path.startsWith(proxyPath));
+}
+
+function createManagedAdapter(upstream: string, model: string): Provider {
+  const proxyPath =
+    upstream === "openai"
+      ? OPENAI_PATH
+      : upstream === "anthropic"
+        ? ANTHROPIC_PATH
+        : null;
+  if (proxyPath === null) {
+    throw new Error(`unsupported test upstream: ${upstream}`);
+  }
+  const provider = createAdapterFromConnection(
+    vellumConnection,
+    managedAuth(proxyPath),
+    {
+      model,
+      provider: upstream,
+      streamTimeoutMs: 30_000,
+    },
+  );
+  if (provider === null) {
+    throw new Error(`failed to create ${upstream} test adapter`);
+  }
+  return provider;
+}
+
+/**
+ * Construct the production wrapper order that calls use. The connection
+ * resolver builds the managed adapter for the provider/model selected by the
+ * call-site router, so fallback eligibility sees the original call-site
+ * options while the primary transport matches the resolved route.
+ */
+function createRoutedManagedProvider(): Provider {
+  const defaultProvider = createManagedAdapter("openai", "gpt-5.6-sol");
+  return new CallSiteRoutingProvider(
+    defaultProvider,
+    async (connectionName, expectedProvider, model) => {
+      if (connectionName !== "vellum" || model === undefined) {
+        return null;
+      }
+      const upstream =
+        expectedProvider === "vellum"
+          ? getManagedUpstream(model)
+          : expectedProvider;
+      return upstream === undefined || upstream === null
+        ? null
+        : createManagedAdapter(upstream, model);
+    },
+    defaultProvider.routeAttribution,
+  );
+}
+
+async function captureError(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected the promise to reject");
 }
 
 beforeAll(async () => {
   server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
@@ -196,7 +231,7 @@ beforeAll(async () => {
       try {
         body = (await req.json()) as Record<string, unknown>;
       } catch {
-        // Not every probe carries a JSON body; the path alone is enough.
+        // The request path is sufficient for non-JSON probes.
       }
       requests.push({
         path: url.pathname,
@@ -204,78 +239,49 @@ beforeAll(async () => {
         body,
       });
       if (url.pathname.startsWith(ANTHROPIC_PATH)) {
-        return anthropicMode === "retired" ||
-          retiredModels.has(String(body.model))
-          ? modelRetired()
+        if (anthropicMode === "retired") {
+          return modelRetired();
+        }
+        return anthropicMode === "unavailable"
+          ? upstreamUnavailable()
           : anthropicCompletion();
       }
       return upstreamUnavailable();
     },
   });
-  // Managed-proxy prerequisites: the platform base URL points at the mock
-  // upstream, so `buildManagedBaseUrl` derives the per-provider proxy paths
-  // above and the backup route resolves its auth for real.
   setConfig("platform", { baseUrl: `http://127.0.0.1:${server.port}` });
   await setSecureKeyAsync(ASSISTANT_API_KEY, "test-assistant-key");
   await setSecureKeyAsync(BYOK_CREDENTIAL, "test-byok-key");
 });
 
 afterAll(() => {
-  server.stop(true);
+  server?.stop(true);
 });
 
 beforeEach(() => {
-  // A served fallback is remembered for the whole process, and bun shares
-  // module state between test files, so without this a case here would skip
-  // the primary route it means to exercise.
   resetFallbackBreaker();
 });
 
 afterEach(() => {
   requests.length = 0;
   anthropicMode = "serve";
-  retiredModels.clear();
 });
 
-// ── Tests ───────────────────────────────────────────────────────────────────
-
 describe("managed fallback dispatch", () => {
-  test("a managed quality-optimized outage is served on the backup profile", async () => {
+  test("a managed default outage is served through the routed backup profile", async () => {
     setConfig("llm", { activeProfile: "quality-optimized" });
+    const provider = createRoutedManagedProvider();
 
-    // The managed adapter for the primary route: the quality profile's own
-    // pin (`gpt-5.6-sol`), whose managed upstream is openai.
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(OPENAI_PATH),
-      {
-        model: "gpt-5.6-sol",
-        provider: "openai",
-        streamTimeoutMs: 30_000,
-      },
-    );
-    expect(provider).not.toBeNull();
-
-    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+    const response: ProviderResponse = await provider.sendMessage(MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
-    // The primary was tried and kept failing before anything escalated.
     expect(requestsTo(OPENAI_PATH).length).toBeGreaterThan(1);
-
-    // The backup profile's pin served the request, through the same managed
-    // connection, on the upstream its own model resolves to.
     const backup = requestsTo(ANTHROPIC_PATH);
     expect(backup.length).toBe(1);
     expect(backup[0].body.model).toBe("claude-opus-5");
-    // The backup profile's own settings win over the failed primary's.
     expect(backup[0].body.max_tokens).toBe(32000);
-    // `adaptive` is the wire form an adaptive-thinking-only model takes for the
-    // backup profile's `thinking.enabled`.
     expect(backup[0].body.thinking).toMatchObject({ type: "adaptive" });
-
-    // Degraded traffic is attributed to the backup profile, both on the wire
-    // for the platform's usage events and on the response for the local ledger.
     expect(backup[0].headers["x-vellum-inference-profile"]).toBe(
       "quality-optimized-backup",
     );
@@ -283,429 +289,142 @@ describe("managed fallback dispatch", () => {
     expect(response.actualProvider).toBe("anthropic");
   });
 
-  test("a BYOK connection never falls back, even on an eligible error", async () => {
-    // Pointers like this never exist on a BYOK column, but seeding one proves
-    // the gate is the connection identity rather than the absence of a target.
+  test.each([
+    ["model", "gpt-5.6-sol"],
+    ["provider", "openai"],
+  ] as const)(
+    "a persisted call-site %s pin never falls back",
+    async (field, value) => {
+      setConfig("llm", {
+        activeProfile: "quality-optimized",
+        callSites: { mainAgent: { [field]: value } },
+      });
+      const provider = createRoutedManagedProvider();
+
+      const error = await captureError(
+        provider.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+      );
+
+      expect((error as { provider?: string }).provider).toBe("openai");
+      expect(requestsTo(OPENAI_PATH).length).toBeGreaterThan(1);
+      expect(requestsTo(ANTHROPIC_PATH)).toHaveLength(0);
+      expect(shouldSkipPrimary({ upstream: "openai" })).toBe(false);
+    },
+  );
+
+  test("a BYOK connection never installs automatic fallback routing", async () => {
     setConfig("llm", {
       profiles: {
         "byok-primary": {
           source: "user",
           provider: "anthropic",
           model: "claude-opus-5",
-          fallbackProfile: "byok-backup",
           maxTokens: 1024,
-        },
-        "byok-backup": {
-          source: "user",
-          provider: "anthropic",
-          model: "claude-sonnet-5",
-          maxTokens: 2048,
         },
       },
       activeProfile: "byok-primary",
     });
     anthropicMode = "retired";
-
     const provider = createAdapterFromConnection(
       byokConnection,
       {
         kind: "header",
         headers: { Authorization: "Bearer test-byok-key" },
-        baseUrl: `http://127.0.0.1:${server.port}${ANTHROPIC_PATH}`,
+        baseUrl: `http://127.0.0.1:${server?.port}${ANTHROPIC_PATH}`,
       },
       { model: "claude-opus-5", streamTimeoutMs: 30_000 },
     );
     expect(provider).not.toBeNull();
 
-    const error = await provider!
-      .sendMessage(MESSAGES, { config: { callSite: "mainAgent" } })
-      .then(
-        () => null,
-        (err: unknown) => err,
-      );
+    const error = await captureError(
+      provider!.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
 
-    // The primary's own error surfaces. A BYOK install may hold no credential
-    // for the backup's provider, so an escalation here would leave the vendor's
-    // answer to a foreign route in place of the real failure.
     expect((error as { statusCode?: number }).statusCode).toBe(404);
-    // Every attempt used the primary's pin: no route was ever escalated.
-    const models = new Set(requests.map((r) => r.body.model));
-    expect(models).toEqual(new Set(["claude-opus-5"]));
+    expect(new Set(requests.map((request) => request.body.model))).toEqual(
+      new Set(["claude-opus-5"]),
+    );
   });
 
-  test("a managed profile with no fallbackProfile rethrows the original error", async () => {
+  test("a custom managed profile has no automatic fallback contract", async () => {
     setConfig("llm", {
       profiles: {
-        "managed-no-backup": {
+        custom: {
           source: "user",
-          provider: "anthropic",
+          provider: "vellum",
           model: "claude-opus-5",
           maxTokens: 1024,
         },
       },
-      activeProfile: "managed-no-backup",
+      activeProfile: "custom",
     });
     anthropicMode = "retired";
+    const provider = createRoutedManagedProvider();
 
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(ANTHROPIC_PATH),
-      {
-        model: "claude-opus-5",
-        provider: "anthropic",
-        streamTimeoutMs: 30_000,
-      },
+    const error = await captureError(
+      provider.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
     );
-    expect(provider).not.toBeNull();
 
-    const error = await provider!
-      .sendMessage(MESSAGES, { config: { callSite: "mainAgent" } })
-      .then(
-        () => null,
-        (err: unknown) => err,
-      );
-
-    // The original upstream failure surfaces unchanged: the callback found no
-    // pointer, so nothing was re-routed and no fallback error replaced it.
-    expect(error).toBeInstanceOf(Error);
     expect((error as { statusCode?: number }).statusCode).toBe(404);
-    expect((error as { cause?: unknown }).cause).toBeUndefined();
-    const models = new Set(requests.map((r) => r.body.model));
-    expect(models).toEqual(new Set(["claude-opus-5"]));
+    expect(new Set(requests.map((request) => request.body.model))).toEqual(
+      new Set(["claude-opus-5"]),
+    );
   });
 
-  test("the backup adapter serves the model a call-site tweak resolves to", async () => {
-    // A call site's own tuning fragment layers OVER the winning profile, so a
-    // `model` tweak decides the model even when the backup profile is forced.
-    // The adapter has to be built for THAT model's upstream: deriving it from
-    // the backup profile's own pin would send an OpenAI-shaped request through
-    // an Anthropic adapter (or the reverse).
+  test("a user shadow cannot change the code-owned backup route", async () => {
     setConfig("llm", {
       profiles: {
-        "tweaked-primary": {
+        "quality-optimized-backup": {
           source: "user",
-          provider: "vellum",
-          model: "gpt-5.6-sol",
-          fallbackProfile: "tweaked-backup",
-          maxTokens: 1024,
-        },
-        // Deliberately an OpenAI pin, so the backup profile's own model and the
-        // call-site tweak below resolve to different upstreams.
-        "tweaked-backup": {
-          source: "user",
-          provider: "vellum",
-          model: "gpt-5.6-terra",
-          maxTokens: 2048,
+          provider: "missing-connection-entry",
+          model: "custom-model",
         },
       },
-      activeProfile: "tweaked-primary",
-      callSites: { mainAgent: { model: "claude-opus-5" } },
+      activeProfile: "quality-optimized",
     });
+    const provider = createRoutedManagedProvider();
 
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(OPENAI_PATH),
-      {
-        model: "gpt-5.6-sol",
-        provider: "openai",
-        streamTimeoutMs: 30_000,
-      },
-    );
-    expect(provider).not.toBeNull();
-
-    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+    const response = await provider.sendMessage(MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
-    // The escalation followed the tweak, not the backup profile's own pin: the
-    // request reached the Anthropic upstream carrying the Anthropic model.
     const backup = requestsTo(ANTHROPIC_PATH);
-    expect(backup.length).toBe(1);
+    expect(backup).toHaveLength(1);
     expect(backup[0].body.model).toBe("claude-opus-5");
-    // Deriving the upstream from the backup profile's own OpenAI pin instead
-    // would have escalated straight back to the failing OpenAI path, so the
-    // request never reaches Anthropic at all.
-    expect(requestsTo(OPENAI_PATH).length).toBeGreaterThan(0);
-    expect(response.actualProvider).toBe("anthropic");
-    expect(response.actualInferenceProfile).toBe("tweaked-backup");
+    expect(response.actualInferenceProfile).toBe("quality-optimized-backup");
   });
 
-  test("a backup routing outside the managed connection is refused", async () => {
-    // The schema allows a pointer at a user-defined profile that carries its
-    // own BYOK provider. Serving it here would authenticate someone's personal
-    // route with the managed credential and bill it as managed traffic, so the
-    // escalation is declined and the primary's failure stands.
-    setConfig("llm", {
-      profiles: {
-        "managed-primary": {
-          source: "user",
-          provider: "vellum",
-          model: "claude-opus-5",
-          fallbackProfile: "byok-target",
-          maxTokens: 1024,
-        },
-        "byok-target": {
-          source: "user",
-          provider: "anthropic",
-          model: "claude-sonnet-5",
-          maxTokens: 2048,
-        },
-      },
-      activeProfile: "managed-primary",
-    });
-    anthropicMode = "retired";
+  test("a failed backup preserves the primary error and does not count as served", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    anthropicMode = "unavailable";
+    const provider = createRoutedManagedProvider();
 
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(ANTHROPIC_PATH),
-      {
-        model: "claude-opus-5",
-        provider: "anthropic",
-        streamTimeoutMs: 30_000,
-      },
+    const error = await captureError(
+      provider.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
     );
-    expect(provider).not.toBeNull();
 
-    const error = await provider!
-      .sendMessage(MESSAGES, { config: { callSite: "mainAgent" } })
-      .then(
-        () => null,
-        (err: unknown) => err,
-      );
-
-    expect(error).toBeInstanceOf(Error);
-    expect((error as { statusCode?: number }).statusCode).toBe(404);
-    // Nothing was re-routed: the backup's model never went on the wire.
-    const models = new Set(requests.map((r) => r.body.model));
-    expect(models).toEqual(new Set(["claude-opus-5"]));
+    expect((error as { provider?: string }).provider).toBe("openai");
+    expect(requestsTo(OPENAI_PATH).length).toBeGreaterThan(1);
+    expect(requestsTo(ANTHROPIC_PATH).length).toBeGreaterThan(0);
+    expect(shouldSkipPrimary({ upstream: "openai" })).toBe(false);
   });
 
-  test("a managed backup still serves under a call-site provider tweak", async () => {
-    // A call-site fragment pinning a concrete upstream over a managed winner
-    // resolves to that provider while the resolver keeps the managed
-    // connection, so this is managed traffic and must still fall back. The
-    // guard above keys on the connection precisely so this case survives.
-    setConfig("llm", {
-      profiles: {
-        "tweak-primary": {
-          source: "user",
-          provider: "vellum",
-          model: "gpt-5.6-sol",
-          fallbackProfile: "tweak-managed-backup",
-          maxTokens: 1024,
-        },
-        "tweak-managed-backup": {
-          source: "user",
-          provider: "vellum",
-          model: "claude-opus-5",
-          maxTokens: 2048,
-        },
-      },
-      activeProfile: "tweak-primary",
-      callSites: { mainAgent: { provider: "anthropic" } },
-    });
+  test("a served backup opens the breaker for the routed primary", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const provider = createRoutedManagedProvider();
 
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(OPENAI_PATH),
-      {
-        model: "gpt-5.6-sol",
-        provider: "openai",
-        streamTimeoutMs: 30_000,
-      },
-    );
-    expect(provider).not.toBeNull();
-
-    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+    await provider.sendMessage(MESSAGES, {
       config: { callSite: "mainAgent" },
     });
+    expect(shouldSkipPrimary({ upstream: "openai" })).toBe(true);
 
-    const backup = requestsTo(ANTHROPIC_PATH);
-    expect(backup.length).toBe(1);
-    expect(backup[0].body.model).toBe("claude-opus-5");
-    expect(response.actualInferenceProfile).toBe("tweak-managed-backup");
-  });
-
-  test("the backup upstream follows the resolved provider, not the model's catalog owner", async () => {
-    // The divergent shape: a call-site fragment pins a concrete upstream while
-    // the backup profile's own model belongs to a different one. Normal
-    // dispatch routes this by the resolved provider (`connection-resolution`
-    // threads it through as `providerOverride` for the managed connection), so
-    // the fallback has to as well. Deriving the upstream from the model instead
-    // sends the request somewhere the primary route never would have.
-    setConfig("llm", {
-      profiles: {
-        "divergent-primary": {
-          source: "user",
-          provider: "vellum",
-          model: "gpt-5.6-sol",
-          fallbackProfile: "divergent-backup",
-          maxTokens: 1024,
-        },
-        // An OpenAI-owned model under an Anthropic call-site pin: the resolved
-        // provider and the model's catalog owner disagree.
-        "divergent-backup": {
-          source: "user",
-          provider: "vellum",
-          model: "gpt-5.6-terra",
-          maxTokens: 2048,
-        },
-      },
-      activeProfile: "divergent-primary",
-      callSites: { mainAgent: { provider: "anthropic" } },
-    });
-
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(OPENAI_PATH),
-      {
-        model: "gpt-5.6-sol",
-        provider: "openai",
-        streamTimeoutMs: 30_000,
-      },
-    );
-    expect(provider).not.toBeNull();
-
-    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
-      config: { callSite: "mainAgent" },
-    });
-
-    // The escalation went to the pinned provider's upstream carrying the
-    // resolved model. Routing by the model's catalog owner would have escalated
-    // straight back onto the failing OpenAI path, so nothing reaches Anthropic.
-    const backup = requestsTo(ANTHROPIC_PATH);
-    expect(backup.length).toBe(1);
-    expect(backup[0].body.model).toBe("gpt-5.6-terra");
-    expect(response.actualProvider).toBe("anthropic");
-    expect(response.actualInferenceProfile).toBe("divergent-backup");
-  });
-
-  test("a backup whose resolved provider cannot front the managed proxy is refused", async () => {
-    // The connection guard passes (the resolver keeps the managed connection),
-    // but the pinned provider is not one the platform proxy serves. There is no
-    // upstream to build an adapter for, so the primary's failure stands rather
-    // than the request being quietly rerouted to the model's catalog owner.
-    setConfig("llm", {
-      profiles: {
-        "unroutable-primary": {
-          source: "user",
-          provider: "vellum",
-          model: "claude-opus-5",
-          fallbackProfile: "unroutable-backup",
-          maxTokens: 1024,
-        },
-        // Named on the managed connection, so the connection guard lets it
-        // through, but `openrouter` is not a managed-routable upstream.
-        "unroutable-backup": {
-          source: "user",
-          provider: "openrouter",
-          provider_connection: "vellum",
-          model: "claude-sonnet-5",
-          maxTokens: 2048,
-        },
-      },
-      activeProfile: "unroutable-primary",
-    });
-    anthropicMode = "retired";
-
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(ANTHROPIC_PATH),
-      {
-        model: "claude-opus-5",
-        provider: "anthropic",
-        streamTimeoutMs: 30_000,
-      },
-    );
-    expect(provider).not.toBeNull();
-
-    const error = await provider!
-      .sendMessage(MESSAGES, { config: { callSite: "mainAgent" } })
-      .then(
-        () => null,
-        (err: unknown) => err,
-      );
-
-    expect(error).toBeInstanceOf(Error);
-    expect((error as { statusCode?: number }).statusCode).toBe(404);
-    const models = new Set(requests.map((r) => r.body.model));
-    expect(models).toEqual(new Set(["claude-opus-5"]));
-  });
-
-  test("a remembered outage skips the primary, and a probe restores it once it recovers", async () => {
-    // Both pins sit on the same upstream, which is what the breaker is keyed
-    // on: the point here is the route being skipped and probed, not the
-    // cross-provider hop the cases above cover.
-    setConfig("llm", {
-      profiles: {
-        "breaker-primary": {
-          source: "user",
-          provider: "vellum",
-          model: "claude-opus-5",
-          fallbackProfile: "breaker-backup",
-          maxTokens: 1024,
-        },
-        "breaker-backup": {
-          source: "user",
-          provider: "vellum",
-          model: "claude-sonnet-5",
-          maxTokens: 2048,
-        },
-      },
-      activeProfile: "breaker-primary",
-    });
-    retiredModels.add("claude-opus-5");
-
-    const provider = createAdapterFromConnection(
-      vellumConnection,
-      managedAuth(ANTHROPIC_PATH),
-      {
-        model: "claude-opus-5",
-        provider: "anthropic",
-        streamTimeoutMs: 30_000,
-      },
-    );
-    expect(provider).not.toBeNull();
-
-    // The first request discovers the outage the expensive way and escalates.
-    const first: ProviderResponse = await provider!.sendMessage(MESSAGES, {
-      config: { callSite: "mainAgent" },
-    });
-    expect(first.actualInferenceProfile).toBe("breaker-backup");
-    expect(requests.map((r) => r.body.model)).toEqual([
-      "claude-opus-5",
-      "claude-sonnet-5",
-    ]);
-    // A retired pin is remembered for that model, not for the upstream, so the
-    // backup's own model on the same upstream stays available.
-    expect(shouldSkipPrimary(RETIRED_ROUTE)).toBe(true);
-    expect(
-      shouldSkipPrimary({ upstream: "anthropic", model: "claude-sonnet-5" }),
-    ).toBe(false);
-
-    // The second request reaches the backup without touching the dead pin.
     requests.length = 0;
-    const second: ProviderResponse = await provider!.sendMessage(MESSAGES, {
-      config: { callSite: "mainAgent" },
-    });
-    expect(second.actualInferenceProfile).toBe("breaker-backup");
-    expect(requests.map((r) => r.body.model)).toEqual(["claude-sonnet-5"]);
-
-    // The upstream recovers and the cooldown elapses: re-trip the breaker at a
-    // timestamp older than the longest cooldown it can pick, which is how a
-    // process that has been degraded for a while looks.
-    retiredModels.clear();
-    resetFallbackBreaker();
-    recordFallbackServed(RETIRED_ROUTE, Date.now() - 11 * 60_000);
-    requests.length = 0;
-
-    const third: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+    const response = await provider.sendMessage(MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
-    // The probe went to the primary pin, served, and closed the breaker.
-    expect(requests.map((r) => r.body.model)).toEqual(["claude-opus-5"]);
-    expect(third.actualInferenceProfile).toBeUndefined();
-    expect(shouldSkipPrimary(RETIRED_ROUTE)).toBe(false);
+    expect(requestsTo(OPENAI_PATH)).toHaveLength(0);
+    expect(requestsTo(ANTHROPIC_PATH)).toHaveLength(1);
+    expect(response.actualInferenceProfile).toBe("quality-optimized-backup");
   });
 });

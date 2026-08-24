@@ -20,7 +20,11 @@
 
 import { resolveDefaultProfileForProvider } from "../../config/default-profile-catalog.js";
 import {
-  resolveCallSiteConfig,
+  FALLBACK_PROFILE_BY_KEY,
+  isDefaultProfileKey,
+} from "../../config/default-profile-names.js";
+import {
+  resolveCallSiteConfigWithProfile,
   selectWinningProfile,
 } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
@@ -38,6 +42,7 @@ import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provid
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
 import { PoolsideProvider } from "../poolside/client.js";
+import { dispatchProviderResolvable } from "../provider-resolvability.js";
 import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider, SendMessageOptions } from "../types.js";
@@ -342,11 +347,25 @@ export function createAdapterFromConnection(
           overrideProfile: failedConfig?.overrideProfile,
           forceOverrideProfile: failedConfig?.forceOverrideProfile,
           selectionSeed: failedConfig?.selectionSeed,
+          isResolvableProvider: dispatchProviderResolvable,
         });
-        const overrideProfile = winner.entry?.fallbackProfile;
-        if (overrideProfile === undefined) {
+        const primaryProfile =
+          winner.profileName ??
+          (winner.source === "default" ? "balanced" : undefined);
+        if (
+          primaryProfile === undefined ||
+          !isDefaultProfileKey(primaryProfile)
+        ) {
           return null;
         }
+        const expectedFallback = FALLBACK_PROFILE_BY_KEY[primaryProfile];
+        if (
+          winner.entry?.source !== "managed" ||
+          winner.entry.fallbackProfile !== expectedFallback
+        ) {
+          return null;
+        }
+        const overrideProfile = expectedFallback;
         // Resolved the provider-aware way the runtime resolver resolves every
         // profile name: the backups are companions of the managed column and
         // must not materialize under a BYOK or ChatGPT default provider.
@@ -362,25 +381,30 @@ export function createAdapterFromConnection(
           );
           return null;
         }
-        // The model the adapter serves must be the model the request will
-        // actually carry, so it comes from the same resolution the fallback
-        // send runs (`sendOnFallbackRoute` forces this profile through
-        // `normalizeSendMessageOptions`). Building from `backup.model` alone
-        // would ignore a call-site fragment that pins a model, and a pinned
-        // Gemini model on an Anthropic backup would send Gemini wire params to
-        // an Anthropic adapter.
-        const resolvedBackup = resolveCallSiteConfig(callSite, llm, {
-          overrideProfile,
-          forceOverrideProfile: true,
-          selectionSeed: failedConfig?.selectionSeed,
-        });
+        const { config: resolvedBackup, profileName: resolvedBackupProfile } =
+          resolveCallSiteConfigWithProfile(callSite, llm, {
+            overrideProfile,
+            forceOverrideProfile: true,
+            selectionSeed: failedConfig?.selectionSeed,
+            isResolvableProvider: dispatchProviderResolvable,
+          });
+        if (resolvedBackupProfile !== overrideProfile) {
+          log.warn(
+            {
+              connectionName: connection.name,
+              overrideProfile,
+              selectedProfile: resolvedBackupProfile,
+            },
+            "Backup profile is not dispatch-resolvable; keeping the original error",
+          );
+          return null;
+        }
+        // The model the adapter serves must be the model the fallback send
+        // carries, so it comes from the same forced-profile resolution.
         // This callback authenticates the backup with the managed connection
         // it was built for, so it can only serve a backup that routes through
-        // the managed column. The schema permits a pointer at a user-defined
-        // profile carrying its own `provider_connection` or a BYOK `provider`;
-        // serving one here would bill it as managed traffic and authenticate
-        // it with a credential its author never chose, so it is refused and
-        // the original error stands.
+        // the managed column. Refusing any other route keeps managed billing
+        // and credentials from being applied to user-owned traffic.
         // Keyed on the connection, not the provider: a call-site fragment that
         // pins a concrete upstream over a managed winner keeps the managed
         // routing and is stamped with this connection's name by the resolver
