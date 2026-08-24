@@ -48,6 +48,14 @@ describe("buildMenuProps", () => {
     expect(typeof wired.onDelete).toBe("function");
   });
 
+  test("does not wire delete for unresolved draft conversations", () => {
+    const wired = buildMenuProps(
+      makeCtx({ onDelete: () => {} }),
+      conv({ draft: true }),
+    );
+    expect(wired.onDelete).toBeUndefined();
+  });
+
   test("offers mark-read for unread rows and mark-unread for read rows", () => {
     const ctx = makeCtx({ onMarkRead: () => {}, onMarkUnread: () => {} });
 

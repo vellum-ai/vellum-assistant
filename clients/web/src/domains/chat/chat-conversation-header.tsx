@@ -94,7 +94,7 @@ export function ChatConversationHeader({
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
       onDelete={
-        activeConversation.conversationId
+        activeConversation.conversationId && !activeConversation.draft
           ? () => onDelete(activeConversation)
           : undefined
       }

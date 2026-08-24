@@ -77,7 +77,9 @@ export function buildMenuProps(
       ? () => ctx.onUnarchive?.(conversation)
       : undefined,
     onDelete:
-      ctx.onDelete && hasId ? () => ctx.onDelete?.(conversation) : undefined,
+      ctx.onDelete && hasId && !conversation.draft
+        ? () => ctx.onDelete?.(conversation)
+        : undefined,
     onMarkRead:
       ctx.onMarkRead && canMarkRead(conversation)
         ? () => ctx.onMarkRead?.(conversation)

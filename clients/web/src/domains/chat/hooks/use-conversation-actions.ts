@@ -18,7 +18,10 @@ import {
 import {
   adjustSectionUnreadCache,
   adjustUnreadCountCache,
+  recordConversationPlacements,
   removeConversation,
+  restoreRemovedConversation,
+  type ConversationCachePlacement,
 } from "@/utils/conversation-cache-mutations";
 import { sidebarSectionsQueryKey } from "@/utils/conversation-list-fetchers";
 import {
@@ -119,12 +122,13 @@ type MarkUnreadContext = MutationContext & {
 };
 
 /**
- * Context for a per-conversation delete. Restores only the list caches that
- * held the row, so a failed delete does not clobber concurrent placements
- * in other sections. Unread deltas reverse the same way mark-unread does.
+ * Context for a per-conversation delete. Restores only the deleted row at
+ * the indexes it left, so a failed delete does not rewind concurrent
+ * mutations of other conversations in the same list cache. Unread deltas
+ * reverse the same way mark-unread does.
  */
 type DeleteContext = {
-  snapshot: ConversationCacheSnapshot;
+  placements: ConversationCachePlacement[];
   unreadCountDelta: number;
   unreadRow?: Conversation;
 };
@@ -335,11 +339,10 @@ export function useConversationActions({
     },
     onMutate: async ({ assistantId: aid, conversation }) => {
       await cancelConversationQueries(queryClient, aid);
-      const snapshot = snapshotConversationCaches(queryClient, aid).filter(
-        ([, data]) =>
-          data?.conversations.some(
-            (row) => row.conversationId === conversation.conversationId,
-          ),
+      const placements = recordConversationPlacements(
+        queryClient,
+        aid,
+        conversation.conversationId,
       );
       const unreadRow =
         conversation.hasUnseenLatestAssistantMessage &&
@@ -352,11 +355,15 @@ export function useConversationActions({
         adjustSectionUnreadCache(queryClient, aid, unreadRow, unreadCountDelta);
       }
       removeConversation(queryClient, aid, conversation.conversationId);
-      return { snapshot, unreadCountDelta, unreadRow };
+      return { placements, unreadCountDelta, unreadRow };
     },
-    onError: (err, { assistantId: aid }, context) => {
-      if (context?.snapshot) {
-        restoreConversationCaches(queryClient, context.snapshot);
+    onError: (err, { assistantId: aid, conversation }, context) => {
+      if (context?.placements) {
+        restoreRemovedConversation(
+          queryClient,
+          conversation,
+          context.placements,
+        );
       }
       if (context && context.unreadCountDelta !== 0 && context.unreadRow) {
         adjustUnreadCountCache(queryClient, aid, -context.unreadCountDelta);
@@ -605,7 +612,7 @@ export function useConversationActions({
 
   const handleDeleteConversation = useCallback(
     (conversation: Conversation) => {
-      if (!assistantId || !conversation.conversationId) {
+      if (!assistantId || !conversation.conversationId || conversation.draft) {
         return;
       }
       haptic.medium();

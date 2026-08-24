@@ -257,6 +257,60 @@ describe("handleDeleteConversation — optimistic update", () => {
     });
   });
 
+  test("does not delete unresolved draft conversations", async () => {
+    const draft = makeConversation({
+      conversationId: "draft-123",
+      draft: true,
+    });
+    const { result, client } = setupHook({ conversations: [draft] });
+
+    let requestedId: string | undefined;
+    deleteImpl = async (opts) => {
+      requestedId = opts.path.id;
+      return { data: undefined, response: { ok: true } };
+    };
+
+    await act(async () => {
+      result.current.handleDeleteConversation(draft);
+    });
+
+    expect(requestedId).toBeUndefined();
+    expect(readList(client).map((c) => c.conversationId)).toEqual(["draft-123"]);
+  });
+
+  test("failed delete restores only the deleted row", async () => {
+    const deleted = makeConversation({ conversationId: "conv-1" });
+    const other = makeConversation({ conversationId: "conv-2" });
+    const { result, client } = setupHook({
+      conversations: [deleted, other],
+    });
+
+    const d = deferred();
+    deleteImpl = () => d.promise;
+
+    await act(async () => {
+      result.current.handleDeleteConversation(deleted);
+    });
+    expect(readList(client).map((c) => c.conversationId)).toEqual(["conv-2"]);
+
+    client.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([{ ...other, archivedAt: 1234 }]),
+    );
+
+    await act(async () => {
+      d.reject(new Error("network failure"));
+    });
+
+    await waitFor(() => {
+      const list = readList(client);
+      expect(list.map((c) => c.conversationId)).toEqual(["conv-1", "conv-2"]);
+      expect(list.find((c) => c.conversationId === "conv-2")?.archivedAt).toBe(
+        1234,
+      );
+    });
+  });
+
   test("calls DELETE /conversations/:id with the conversation id", async () => {
     const conv = makeConversation({ conversationId: "conv-xyz" });
     const { result } = setupHook({ conversations: [conv] });
