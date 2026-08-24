@@ -45,6 +45,7 @@ import { UsageTrackingProvider } from "../usage-tracking.js";
 import {
   getManagedUpstream,
   isVellumManagedConnection,
+  VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
@@ -371,6 +372,30 @@ export function createAdapterFromConnection(
           forceOverrideProfile: true,
           selectionSeed: failedConfig?.selectionSeed,
         });
+        // This callback authenticates the backup with the managed connection
+        // it was built for, so it can only serve a backup that routes through
+        // the managed column. The schema permits a pointer at a user-defined
+        // profile carrying its own `provider_connection` or a BYOK `provider`;
+        // serving one here would bill it as managed traffic and authenticate
+        // it with a credential its author never chose, so it is refused and
+        // the original error stands.
+        const backupConnection = resolvedBackup.provider_connection;
+        if (
+          (backupConnection !== undefined &&
+            backupConnection !== connection.name) ||
+          resolvedBackup.provider !== VELLUM_MANAGED_PROVIDER
+        ) {
+          log.warn(
+            {
+              connectionName: connection.name,
+              overrideProfile,
+              backupProvider: resolvedBackup.provider,
+              backupConnection,
+            },
+            "Backup profile routes outside the managed connection; keeping the original error",
+          );
+          return null;
+        }
         const upstream = getManagedUpstream(resolvedBackup.model);
         if (upstream === null) {
           log.warn(

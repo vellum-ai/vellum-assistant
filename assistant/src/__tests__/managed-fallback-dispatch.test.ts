@@ -400,4 +400,54 @@ describe("managed fallback dispatch", () => {
     expect(response.actualProvider).toBe("anthropic");
     expect(response.actualInferenceProfile).toBe("tweaked-backup");
   });
+
+  test("a backup routing outside the managed connection is refused", async () => {
+    // The schema allows a pointer at a user-defined profile that carries its
+    // own BYOK provider. Serving it here would authenticate someone's personal
+    // route with the managed credential and bill it as managed traffic, so the
+    // escalation is declined and the primary's failure stands.
+    setConfig("llm", {
+      profiles: {
+        "managed-primary": {
+          source: "user",
+          provider: "vellum",
+          model: "claude-opus-5",
+          fallbackProfile: "byok-target",
+          maxTokens: 1024,
+        },
+        "byok-target": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-sonnet-5",
+          maxTokens: 2048,
+        },
+      },
+      activeProfile: "managed-primary",
+    });
+    anthropicMode = "retired";
+
+    const provider = createAdapterFromConnection(
+      vellumConnection,
+      managedAuth(ANTHROPIC_PATH),
+      {
+        model: "claude-opus-5",
+        provider: "anthropic",
+        streamTimeoutMs: 30_000,
+      },
+    );
+    expect(provider).not.toBeNull();
+
+    const error = await provider!
+      .sendMessage(MESSAGES, { config: { callSite: "mainAgent" } })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { statusCode?: number }).statusCode).toBe(404);
+    // Nothing was re-routed: the backup's model never went on the wire.
+    const models = new Set(requests.map((r) => r.body.model));
+    expect(models).toEqual(new Set(["claude-opus-5"]));
+  });
 });
