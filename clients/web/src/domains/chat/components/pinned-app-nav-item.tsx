@@ -4,13 +4,9 @@ import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
-import type { PinnedAppView } from "@/hooks/use-pinned-apps";
+import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import {
-  ContextMenu,
-  PanelItem,
-  SideMenu,
-} from "@vellumai/design-library";
+import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppView;

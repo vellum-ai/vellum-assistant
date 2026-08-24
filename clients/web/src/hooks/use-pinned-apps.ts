@@ -34,8 +34,6 @@ import { useLegacyPinnedApps } from "@/hooks/use-legacy-pinned-apps";
 import { useSupportsDaemonAppPins } from "@/lib/backwards-compat/daemon-app-pins";
 import type { AppSummary } from "@/types/app-types";
 
-export type { PinnedAppView };
-
 export interface PinnedApps extends PinnedAppsBackend {
   pinnedAppIds: Set<string>;
   /**
