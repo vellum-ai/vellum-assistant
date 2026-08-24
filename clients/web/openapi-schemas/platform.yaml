@@ -4853,6 +4853,38 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/subscription/cancel/:
+    post:
+      operationId: organizations_billing_subscription_cancel_create
+      description: 'Cancel the org''s Pro subscription at the end of the current billing
+        period — the server-side equivalent of cancelling through the Stripe Customer
+        Portal. The subscription (and its entitlements) stays active until the period
+        ends, when Stripe terminates it and the org returns to the Base plan; no refund
+        or proration is issued. Idempotent: a subscription already pending cancellation
+        returns no_op. Requires an active Pro subscription with a provisioned Stripe
+        subscription.'
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionCancelResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/subscription/change-credit-tier/:
     post:
       operationId: organizations_billing_subscription_change_credit_tier_create
@@ -9653,6 +9685,18 @@ components:
         * `l` - l
         * `xl` - xl
         * `xxl` - xxl
+    SubscriptionCancelResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TierChangeStatusEnum'
+        cancel_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - cancel_at
+      - status
     SubscriptionEntitlements:
       type: object
       description: |-
