@@ -353,6 +353,53 @@ function isRetryableError(error: unknown): boolean {
   return isRetryableNetworkError(error);
 }
 
+/** Cap server-suggested delays at 60s. */
+const MAX_RETRY_DELAY_MS = 60_000;
+
+/**
+ * How long to wait before the next attempt, and whether the upstream named the
+ * wait itself. A server-provided `Retry-After` wins over exponential backoff,
+ * capped so a pathological header cannot stall a turn.
+ */
+function retryPlan(
+  error: unknown,
+  attempt: number,
+): { delay: number; retryAfterHeader: boolean } {
+  const retryAfter =
+    error instanceof ProviderError ? error.retryAfterMs : undefined;
+  return {
+    delay: Math.min(
+      retryAfter ?? computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS),
+      MAX_RETRY_DELAY_MS,
+    ),
+    retryAfterHeader: retryAfter !== undefined,
+  };
+}
+
+/** Structured `errorType` for the "Retrying after transient error" logs. */
+function retryErrorType(error: unknown): string {
+  if (error instanceof ProviderError && error.statusCode === 429) {
+    return "rate_limit";
+  }
+  if (
+    error instanceof ProviderError &&
+    error.statusCode !== undefined &&
+    error.statusCode >= 500
+  ) {
+    return `server_error_${error.statusCode}`;
+  }
+  if (isRetryableProviderMessage(error)) {
+    return "provider_overloaded";
+  }
+  if (isRetryableStreamError(error)) {
+    return "stream_corruption";
+  }
+  if (isRetryableTransportAbort(error)) {
+    return "transport_abort";
+  }
+  return "network_error";
+}
+
 /**
  * The managed proxy's preflight guard rejects a model with no billing rate
  * card using a 400 whose body carries this phrase (django
@@ -1072,8 +1119,11 @@ export class RetryProvider implements Provider {
        * the primary: managed-proxy routes pass true, BYOK and other
        * third-party routes pass false. The fallback send normalizes with the
        * returned policy so `X-Vellum-*` billing metadata never leaks to a
-       * third party and is never omitted from the managed proxy. One hop
-       * max; the fallback attempt itself gets no retry loop.
+       * third party and is never omitted from the managed proxy. One hop max:
+       * the returned adapter must be RAW, so the backup can never escalate
+       * again whatever happens to it. Whether the backup send gets a retry
+       * budget depends on which entry point escalated; see
+       * `sendOnFallbackRoute`.
        */
       resolveFallbackRoute?: (
         failedOptions: SendMessageOptions | undefined,
@@ -1157,9 +1207,9 @@ export class RetryProvider implements Provider {
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    let didRetry = false;
     let retryAttempt = 0;
     let credentialRefreshAttempted = false;
+    let correctiveResendAttempted = false;
     let fallbackAttempted = false;
     let messagesForAttempt = messages;
 
@@ -1205,6 +1255,11 @@ export class RetryProvider implements Provider {
           options,
           undefined,
           false,
+          // The rule this argument encodes: a request gets a retry budget on
+          // the backup only when it has not already spent one. This request
+          // skips the primary outright, so it has spent nothing, and on a
+          // single attempt a lone 429 or mid-stream cut would fail the turn.
+          { backupRetryBudget: true },
         );
         if (served !== null) {
           return served;
@@ -1222,13 +1277,28 @@ export class RetryProvider implements Provider {
           },
           "Probing the primary route for recovery",
         );
-        // One probe, one attempt: no retry loop. A managed credential that
-        // expired during the outage is the exception, because the probe would
-        // otherwise read its own 401 as the outage continuing and the route
-        // could never come back. The refresh is the same one-shot step the
-        // retry loop runs, and it shares the send's budget for it.
+        // One probe, one attempt: no retry loop. Two one-shot repairs are the
+        // exception, both because the probe would otherwise misread its own
+        // failure as the route still being down. A managed credential that
+        // expired during the outage is refreshed, or the route could never come
+        // back. Malformed tool-argument JSON gets the same corrective note the
+        // retry loop appends, because that failure is conditioned on the
+        // request rather than the route.
+        //
+        // The probe ends the moment it reports a verdict. What happens to the
+        // request that carried it then depends on that verdict: an outage sends
+        // it to the backup, and a recovery hands it back to the ordinary retry
+        // loop below, which is now the right place for it because the route it
+        // just cleared is the one that loop sends to.
+        //
+        // Every send the probe makes is counted, repairs included. A repair is
+        // still a send against the primary, so it is what the seed below has to
+        // be built from: a constant would only be right on the path where no
+        // repair ran.
+        let probeSends = 0;
         while (true) {
           try {
+            probeSends += 1;
             const response = await this.inner.sendMessage(
               messagesForAttempt,
               normalizedOptions,
@@ -1255,14 +1325,47 @@ export class RetryProvider implements Provider {
                 continue;
               }
             }
+            // The same one-shot corrective resend the retry loop performs. A
+            // byte-identical resend can reproduce malformed tool-argument JSON
+            // indefinitely, so without the note the probe would report an
+            // outage the route had nothing to do with. Skipped when the hint
+            // has nowhere to go (an assistant prefill tail), since an
+            // unchanged resend would only cost another round trip.
+            if (
+              !correctiveResendAttempted &&
+              isUnparseableToolArgsError(error)
+            ) {
+              correctiveResendAttempted = true;
+              const repaired = withUnparseableToolArgsHint(messages);
+              if (repaired !== messages) {
+                messagesForAttempt = repaired;
+                continue;
+              }
+            }
             // The probe stands in for the whole retry budget while the breaker
             // is open, so a failure the retry loop would have exhausted itself
             // against means the outage continues. Any other failure means the
             // route answered the request, which is all the probe asked.
-            const outage = isFallbackEligibleError(error, {
-              retriesExhausted: true,
-              credentialSource: this.options.credentialSource,
-            });
+            //
+            // A mid-stream corruption is such an answer: every pattern in
+            // `RETRYABLE_STREAM_PATTERNS` requires an absent HTTP status, which
+            // means the upstream accepted the request, returned 200, and
+            // streamed content. The failure is in the bytes it produced, not in
+            // its ability to serve, so it is evidence the primary is HEALTHY
+            // and must not extend a remembered outage that can reach ten
+            // minutes. A 429 is deliberately NOT treated the same way: the
+            // route refused to do the work, no resend repairs it (only waiting
+            // does, which is exactly what the cooldown provides), and reading a
+            // rate limit as recovery would send the whole fleet back to a
+            // primary that rejects every request. Provider-declared
+            // `overloaded` and transport aborts stay outages for the same
+            // reason: neither produced a usable answer.
+            const outage =
+              !isRetryableStreamError(error) &&
+              isFallbackEligibleError(error, {
+                retriesExhausted: true,
+                credentialSource: this.options.credentialSource,
+              });
             // The probe's own error decides what stays remembered, not the
             // scope of the entry it was acquired under: an upstream that
             // answers with a retired-model 404 has stopped being an outage,
@@ -1279,7 +1382,35 @@ export class RetryProvider implements Provider {
             );
             this.attributeCredential(error);
             if (!outage) {
-              throw error;
+              // The route answered, the breaker is closed, and this request is
+              // an ordinary request again. A deterministic rejection (a plain
+              // 400, a classified 404, a context overflow) is the route's real
+              // answer and no resend changes it, so it surfaces as itself.
+              if (!isRetryableError(error)) {
+                throw error;
+              }
+              // Anything still standing here is the stream-corruption family
+              // the exclusion above lets through: exactly the failure the main
+              // loop repairs by resending, against a route that was just
+              // cleared. Throwing it would sacrifice the request that carried
+              // the probe to establish a verdict every LATER request gets to
+              // use, so it falls through into the ordinary loop instead. That
+              // loop also keeps the backup as its last resort, so a primary
+              // that streams corruption all the way through still finishes the
+              // turn somewhere.
+              //
+              // Every send the probe made WAS this request spending its own
+              // attempts, so the loop starts that many attempts in. The loop
+              // retries while `retryAttempt < DEFAULT_MAX_RETRIES`, so seeding
+              // it with `probeSends` leaves `1 + (DEFAULT_MAX_RETRIES -
+              // probeSends)` sends below and `DEFAULT_MAX_RETRIES + 1` in
+              // total, for any number of probe sends: the same budget a request
+              // that never probes gets. Counting sends rather than entries into
+              // this branch is what holds that equality for a probe whose
+              // repairs (a credential refresh, a corrective resend) each cost a
+              // send of their own.
+              retryAttempt = probeSends;
+              break;
             }
             fallbackAttempted = true;
             const served = await this.sendOnFallbackRoute(
@@ -1287,6 +1418,10 @@ export class RetryProvider implements Provider {
               options,
               error,
               true,
+              // The probe is one attempt on the primary, not a retry loop, so
+              // this request has spent no retry budget either. Same reasoning
+              // as the breaker-open skip above.
+              { backupRetryBudget: true },
             );
             if (served !== null) {
               // No trip needed: the failed probe already re-tripped the breaker
@@ -1329,54 +1464,42 @@ export class RetryProvider implements Provider {
             messagesForAttempt = withUnparseableToolArgsHint(messages);
           }
           // Prefer server-provided Retry-After; fall back to exponential backoff.
-          const retryAfter =
-            error instanceof ProviderError ? error.retryAfterMs : undefined;
-          const MAX_RETRY_DELAY_MS = 60_000; // Cap server-suggested delays at 60s
-          const delay = Math.min(
-            retryAfter ??
-              computeRetryDelay(retryAttempt, DEFAULT_BASE_DELAY_MS),
-            MAX_RETRY_DELAY_MS,
-          );
-          const errorType =
-            error instanceof ProviderError && error.statusCode === 429
-              ? "rate_limit"
-              : error instanceof ProviderError &&
-                  error.statusCode !== undefined &&
-                  error.statusCode >= 500
-                ? `server_error_${error.statusCode}`
-                : isRetryableProviderMessage(error)
-                  ? "provider_overloaded"
-                  : isRetryableStreamError(error)
-                    ? "stream_corruption"
-                    : isRetryableTransportAbort(error)
-                      ? "transport_abort"
-                      : "network_error";
+          const { delay, retryAfterHeader } = retryPlan(error, retryAttempt);
           log.warn(
             {
               attempt: retryAttempt + 1,
               maxRetries: DEFAULT_MAX_RETRIES,
               delay,
-              retryAfterHeader: retryAfter !== undefined,
-              errorType,
+              retryAfterHeader,
+              errorType: retryErrorType(error),
               correctiveHint: messagesForAttempt !== messages,
               provider: this.name,
               message: error instanceof Error ? error.message : String(error),
             },
             "Retrying after transient error",
           );
-          didRetry = true;
           retryAttempt++;
           await sleep(delay);
           continue;
         }
 
         // If we exhausted retries on a retryable error, tag the error so
-        // downstream consumers (Sentry capture, etc.) can recognize that the
-        // retry loop already tried its best. The catch-site logic above only
-        // stops retrying when either (a) retries are exhausted, or (b) the
-        // error isn't retryable — so we check the retryable predicate here to
-        // distinguish the two cases.
-        const retriesExhausted = didRetry && isRetryableError(error);
+        // downstream consumers (Sentry capture, escalation eligibility) can
+        // recognize that the retry loop already tried its best. Control
+        // reaches here for two reasons only, and the retryable predicate is
+        // what separates them: either the budget is gone, or the error was
+        // never retryable in the first place.
+        //
+        // Exhaustion is read off the same counter the retry guard above reads,
+        // never off whether this loop happened to perform a retry itself. A
+        // request can arrive here with its budget already consumed elsewhere:
+        // a recovery probe seeds `retryAttempt` with the sends it made, so a
+        // probe that spent the budget on its own repairs leaves the loop below
+        // no retry to perform and would otherwise look like a request that had
+        // never tried at all. Reading the counter keeps the two definitions
+        // from drifting apart however the seed changes.
+        const retriesExhausted =
+          retryAttempt >= DEFAULT_MAX_RETRIES && isRetryableError(error);
         if (retriesExhausted && error instanceof Error) {
           (error as Error & { retriesExhausted?: boolean }).retriesExhausted =
             true;
@@ -1411,6 +1534,12 @@ export class RetryProvider implements Provider {
             options,
             error,
             retriesExhausted,
+            // No budget here: the primary loop above runs to a definitive
+            // verdict before reaching this point, either exhausting its whole
+            // budget against a transient failure or receiving an error no
+            // resend changes. The user has waited through all of that, so the
+            // backup answers once or the turn fails.
+            { backupRetryBudget: false },
           );
           if (fallbackResult !== null) {
             // A completed backup serve is proof the primary is down and the
@@ -1442,32 +1571,126 @@ export class RetryProvider implements Provider {
    * search backend like Brave or the platform search proxy configured, a tool
    * of the same name is app-executed and works on every route, so filtering it
    * would take away a capability the backup can still serve.
+   *
+   * `dropToolChoice` reports that filtering emptied the list. `AgentLoop` sets
+   * `tool_choice: { type: "auto" }` under the same condition that appends the
+   * sentinel, so a tool-less call site with native search enabled carries the
+   * sentinel as its ONLY tool. Filtering it and leaving the paired
+   * `tool_choice` behind would put a choice with nothing to choose from on the
+   * wire. The Anthropic Messages API rejects that (its client spreads
+   * `tool_choice` out of the request config whether or not any `tools`
+   * survived), and the OpenAI Responses API would too if its client did not
+   * happen to gate the field on a non-empty tool list. A recoverable outage
+   * would become a hard 400 on the backup.
+   *
+   * Deliberately narrow: the flag is raised only for an EMPTY filtered list,
+   * the one case that is invalid on the wire. A non-empty list keeps whatever
+   * `tool_choice` the caller set. A conversation-level `toolChoice` takes
+   * precedence over the sentinel's `auto` in `AgentLoop`, so it is caller
+   * intent that a route change must not quietly discard, and the request it
+   * produces is still valid.
    */
   private fallbackTools(
     options: SendMessageOptions | undefined,
     route: { provider: Provider },
-  ): { tools?: ToolDefinition[] } {
+  ): { tools?: ToolDefinition[]; dropToolChoice: boolean } {
     const tools = options?.tools;
     if (
       options?.config?.nativeWebSearchSentinel !== true ||
       tools === undefined ||
       !tools.some((tool) => tool.name === NATIVE_WEB_SEARCH_TOOL_NAME)
     ) {
-      return {};
+      return { dropToolChoice: false };
     }
     const backupServesNativeSearch = route.provider.supportsNativeWebSearchFor
       ? route.provider.supportsNativeWebSearchFor(options)
       : route.provider.supportsNativeWebSearch === true;
     if (backupServesNativeSearch) {
-      return {};
+      return { dropToolChoice: false };
     }
-    return {
-      tools: tools.filter((tool) => tool.name !== NATIVE_WEB_SEARCH_TOOL_NAME),
-    };
+    const filtered = tools.filter(
+      (tool) => tool.name !== NATIVE_WEB_SEARCH_TOOL_NAME,
+    );
+    return { tools: filtered, dropToolChoice: filtered.length === 0 };
   }
 
   /**
-   * Attempt the failed request once on the backup route resolved by
+   * Send on the backup adapter, optionally with a retry budget of its own.
+   *
+   * The one-hop rule is structural rather than conditional here: `route
+   * .provider` is the RAW adapter the route callback built, with no
+   * `RetryProvider` of its own and therefore no `resolveFallbackRoute`, so
+   * nothing this loop calls can escalate to a second backup no matter how many
+   * times it retries.
+   *
+   * `fallbackOptions` is sent verbatim on every attempt, never re-normalized.
+   * `normalizeSendMessageOptions` has already consumed the `callSite` and
+   * stamped the backup route's `usageAttributionHeaders`; running it again over
+   * that now callSite-less config would delete the headers and have no way to
+   * rebuild them, leaving degraded traffic unattributed on the platform's
+   * billing events. This is the same reason the route callback hands back a raw
+   * adapter instead of a wrapped one.
+   */
+  private async sendOnBackupAdapter(
+    route: { provider: Provider },
+    messages: Message[],
+    fallbackOptions: SendMessageOptions | undefined,
+    retryBudget: boolean,
+  ): Promise<ProviderResponse> {
+    let attempt = 0;
+    let didRetry = false;
+    let messagesForAttempt = messages;
+    while (true) {
+      try {
+        return await route.provider.sendMessage(
+          messagesForAttempt,
+          fallbackOptions,
+        );
+      } catch (error) {
+        if (
+          !retryBudget ||
+          attempt >= DEFAULT_MAX_RETRIES ||
+          !isRetryableError(error)
+        ) {
+          // Same tagging contract as the primary loop, so a backup that flapped
+          // its way through the whole budget is recognizable to Sentry capture
+          // as noise no engineering action would change.
+          if (didRetry && isRetryableError(error) && error instanceof Error) {
+            (error as Error & { retriesExhausted?: boolean }).retriesExhausted =
+              true;
+          }
+          throw error;
+        }
+        // Built from the original `messages` each time, so the corrective note
+        // appears exactly once however many attempts fail this way.
+        if (isUnparseableToolArgsError(error)) {
+          messagesForAttempt = withUnparseableToolArgsHint(messages);
+        }
+        const { delay, retryAfterHeader } = retryPlan(error, attempt);
+        log.warn(
+          {
+            attempt: attempt + 1,
+            maxRetries: DEFAULT_MAX_RETRIES,
+            delay,
+            retryAfterHeader,
+            errorType: retryErrorType(error),
+            correctiveHint: messagesForAttempt !== messages,
+            provider: this.name,
+            backupProvider: route.provider.name,
+            connectionName: this.options.connectionName,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          "Retrying the backup route after a transient error",
+        );
+        didRetry = true;
+        attempt++;
+        await sleep(delay);
+      }
+    }
+  }
+
+  /**
+   * Attempt the failed request on the backup route resolved by
    * `resolveFallbackRoute`. Returns null when no backup route applies (the
    * caller rethrows the original error unchanged); throws the fallback
    * error (with the original error attached as `cause`) when the backup
@@ -1476,12 +1699,18 @@ export class RetryProvider implements Provider {
    * `originalError` is undefined when the circuit breaker skipped the primary
    * outright: there is no failure of this request to report or to attach, only
    * the remembered outage of an earlier one.
+   *
+   * `backupRetryBudget` says whether the backup send gets a retry loop of its
+   * own. It is the caller's answer to one question: has this request already
+   * spent a retry budget somewhere? See the three call sites for the reasoning
+   * behind each answer.
    */
   private async sendOnFallbackRoute(
     messages: Message[],
     options: SendMessageOptions | undefined,
     originalError: unknown,
     retriesExhausted: boolean,
+    { backupRetryBudget }: { backupRetryBudget: boolean },
   ): Promise<ProviderResponse | null> {
     let route: {
       provider: Provider;
@@ -1574,12 +1803,22 @@ export class RetryProvider implements Provider {
     delete fallbackConfig.thinking;
     fallbackConfig.overrideProfile = route.overrideProfile;
     fallbackConfig.forceOverrideProfile = true;
+    const { dropToolChoice, ...toolsOverride } = this.fallbackTools(
+      options,
+      route,
+    );
+    // Filtering the sentinel emptied the tool list, so the `tool_choice` the
+    // call site paired with it now names a choice among no tools. See
+    // `fallbackTools` for why that is a hard 400 rather than a no-op.
+    if (dropToolChoice) {
+      delete fallbackConfig.tool_choice;
+    }
     const fallbackOptions = normalizeSendMessageOptions(
       route.provider.name,
       {
         ...options,
         config: fallbackConfig,
-        ...this.fallbackTools(options, route),
+        ...toolsOverride,
       },
       {
         forwardUsageAttributionHeaders:
@@ -1609,10 +1848,11 @@ export class RetryProvider implements Provider {
     );
 
     try {
-      // One hop, one attempt: the fallback send gets no retry loop in v1.
-      const response = await route.provider.sendMessage(
+      const response = await this.sendOnBackupAdapter(
+        route,
         messages,
         fallbackOptions,
+        backupRetryBudget,
       );
       // Stamp the provider that actually served the response. Without this,
       // a backup adapter that does not set `actualProvider` leaves the outer

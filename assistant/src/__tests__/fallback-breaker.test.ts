@@ -27,7 +27,9 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE } from "../providers/unparseable-tool-args.js";
 import { ProviderError } from "../util/errors.js";
+import { DEFAULT_MAX_RETRIES } from "../util/retry.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -135,14 +137,17 @@ function primaryProvider(...errors: (() => unknown)[]): {
   provider: Provider;
   calls: () => number;
   seenModels: () => (string | undefined)[];
+  seenMessages: () => Message[][];
 } {
   const seen: (string | undefined)[] = [];
+  const seenMessages: Message[][] = [];
   let calls = 0;
   const provider: Provider = {
     name: UPSTREAM,
-    sendMessage: async (_messages: Message[], options?: SendMessageOptions) => {
+    sendMessage: async (messages: Message[], options?: SendMessageOptions) => {
       calls += 1;
       seen.push(options?.config?.model);
+      seenMessages.push(messages);
       const next = errors.shift();
       if (next) {
         throw next();
@@ -150,20 +155,60 @@ function primaryProvider(...errors: (() => unknown)[]): {
       return okResponse(options?.config?.model ?? "unresolved");
     },
   };
-  return { provider, calls: () => calls, seenModels: () => seen };
+  return {
+    provider,
+    calls: () => calls,
+    seenModels: () => seen,
+    seenMessages: () => seenMessages,
+  };
 }
 
-/** Backup stub that serves whatever model the re-normalized options resolved. */
-function backupProvider(): { provider: Provider; calls: () => number } {
+/**
+ * Backup stub that serves whatever model the re-normalized options resolved,
+ * after throwing the next error from `errors` while any remain.
+ */
+function backupProvider(...errors: (() => unknown)[]): {
+  provider: Provider;
+  calls: () => number;
+} {
   let calls = 0;
   const provider: Provider = {
     name: "anthropic",
     sendMessage: async (_messages: Message[], options?: SendMessageOptions) => {
       calls += 1;
+      const next = errors.shift();
+      if (next) {
+        throw next();
+      }
       return okResponse(options?.config?.model ?? "unresolved");
     },
   };
   return { provider, calls: () => calls };
+}
+
+/**
+ * A transient upstream failure that names a zero wait, so a retry budget can be
+ * exercised without the test sitting through real exponential backoff.
+ */
+function transient(status = 503): ProviderError {
+  return new ProviderError("Service Unavailable", "anthropic", status, {
+    retryAfterMs: 0,
+  });
+}
+
+/**
+ * A mid-stream corruption: the upstream accepted the request and streamed, so
+ * the error carries no HTTP status. `retryAfterMs` is a test convenience only,
+ * standing in for a Retry-After header this shape would not really carry, so a
+ * retry budget can be counted without sitting through real backoff.
+ */
+function corruptedStream(): ProviderError {
+  return new ProviderError(
+    "stream ended without producing a message",
+    UPSTREAM,
+    undefined,
+    { retryAfterMs: 0 },
+  );
 }
 
 function makeRoute(provider: Provider): {
@@ -799,5 +844,445 @@ describe("RetryProvider under an open breaker", () => {
     expect(backup.calls()).toBe(2);
     // Only the first request ever reached the upstream.
     expect(primary.calls()).toBe(1);
+  });
+});
+
+// ── The retry budget a breaker-driven send gets on the backup ───────────────
+
+describe("the backup's retry budget", () => {
+  test("a breaker-open request retries a transient failure on the backup instead of failing the turn", async () => {
+    // The breaker trips after a single successful fallback serve, so for the
+    // whole cooldown every request skips the primary. Those requests spend no
+    // retry budget on the way, so they get one on the backup: on a single
+    // attempt a lone 429 or mid-stream cut fails the turn.
+    const primary = primaryProvider();
+    const backup = backupProvider(() => transient());
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("backup-model");
+    expect(backup.calls()).toBe(2);
+    // The primary is still skipped entirely: the retry budget moved to the
+    // backup, it was not restored to a route known to be down.
+    expect(primary.calls()).toBe(0);
+  });
+
+  test("a retried backup never escalates to a second fallback", async () => {
+    // One hop is structural, not a budget: the route callback is consulted
+    // exactly once however many attempts the backup takes.
+    const primary = primaryProvider();
+    const backup = backupProvider(
+      () => transient(),
+      () => transient(),
+      () => transient(),
+      () => transient(),
+    );
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE);
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(backup.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(route.calls()).toBe(1);
+    expect(primary.calls()).toBe(0);
+    // Tagged like the primary loop's own exhaustion, so Sentry capture reads a
+    // flapping backup as noise rather than an engineering signal.
+    expect((thrown as { retriesExhausted?: boolean }).retriesExhausted).toBe(
+      true,
+    );
+  });
+
+  test("a failed probe hands its request a retry budget on the backup too", async () => {
+    // A probe is one attempt on the primary, not a retry loop, so its request
+    // has spent no budget either by the time it reaches the backup.
+    const primary = primaryProvider(
+      () => new ProviderError("Service Unavailable", UPSTREAM, 503),
+    );
+    const backup = backupProvider(() => transient());
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1);
+    expect(backup.calls()).toBe(2);
+    expect(result.model).toBe("backup-model");
+  });
+
+  test("an escalation after the primary burned its budget still gets one attempt", async () => {
+    // The asymmetry worth keeping: this request already waited out a full
+    // retry loop, so the backup answers once or the turn fails.
+    const primary = primaryProvider(
+      () =>
+        new ProviderError("Service Unavailable", UPSTREAM, 503, {
+          retryAfterMs: 0,
+        }),
+      () =>
+        new ProviderError("Service Unavailable", UPSTREAM, 503, {
+          retryAfterMs: 0,
+        }),
+      () =>
+        new ProviderError("Service Unavailable", UPSTREAM, 503, {
+          retryAfterMs: 0,
+        }),
+      () =>
+        new ProviderError("Service Unavailable", UPSTREAM, 503, {
+          retryAfterMs: 0,
+        }),
+    );
+    const backup = backupProvider(
+      () => transient(),
+      () => transient(),
+    );
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(backup.calls()).toBe(1);
+  });
+});
+
+// ── What a failed probe is allowed to conclude ──────────────────────────────
+
+describe("recovery probe verdicts", () => {
+  test("a probe that fails with a corrupted stream closes the breaker and still completes the turn", async () => {
+    // Every stream-corruption pattern requires an absent HTTP status, which
+    // means the upstream accepted the request, returned 200, and streamed. The
+    // failure is in the bytes it produced, not in its ability to serve, so it
+    // is evidence the primary is healthy. The verdict must not cost the request
+    // that established it: this is exactly the failure the main loop repairs by
+    // resending, so the probe hands the request back to that loop.
+    const primary = primaryProvider(() => corruptedStream());
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // The turn completed on the route the probe just cleared.
+    expect(result.model).toBe("primary-model");
+    expect(primary.calls()).toBe(2);
+    expect(backup.calls()).toBe(0);
+    // The breaker closed rather than re-tripping with a doubled cooldown, so
+    // the next request takes the primary and gets its full retry budget.
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(false);
+  });
+
+  test("a corrupted-stream probe leaves the request the same total budget as one that never probes", async () => {
+    // The probe's send counts as this request's first attempt, so continuing
+    // into the retry loop must not hand it a wider budget than a request that
+    // never probes. Four sends total, then the backup as the loop's ordinary
+    // last resort, so the turn finishes even when the primary never stops
+    // corrupting.
+    const primary = primaryProvider(
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(result.model).toBe("backup-model");
+    // A backup that had to serve is proof the route is down after all, so the
+    // breaker is remembered again on the way out.
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
+  });
+
+  test("a probe that spent a corrective resend keeps the same total budget", async () => {
+    // The repaired path: the probe sends twice (the original plus the
+    // corrective resend) before the stream corruption hands the request to the
+    // retry loop. The seed has to count both, or this request makes one more
+    // primary send than a request that never probes.
+    const primary = primaryProvider(
+      () =>
+        new ProviderError(
+          `Anthropic: ${UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE}`,
+          UPSTREAM,
+          undefined,
+        ),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // Two probe sends plus two loop sends, not two plus three.
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(result.model).toBe("backup-model");
+  });
+
+  test("a probe repairs malformed tool arguments instead of reporting an outage", async () => {
+    // The main retry loop repairs this deterministically with a corrective
+    // note; the probe gets the same one-shot repair rather than reading a
+    // request-conditioned failure as the route still being down.
+    const primary = primaryProvider(
+      () =>
+        new ProviderError(
+          `Anthropic: ${UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE}`,
+          UPSTREAM,
+          undefined,
+        ),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("primary-model");
+    expect(primary.calls()).toBe(2);
+    expect(backup.calls()).toBe(0);
+    // The resend carried the corrective note, which is the whole point of it.
+    const resent = primary.seenMessages()[1];
+    const tail = resent[resent.length - 1].content;
+    expect(JSON.stringify(tail)).toContain("[assistant runtime]");
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(false);
+  });
+
+  test("a probe rate-limited by the primary still reads the outage as continuing", async () => {
+    // Deliberately not treated like a stream corruption. A 429 is the route
+    // refusing to do the work: no resend repairs it, only waiting does, and
+    // that is exactly what the cooldown provides. Reading it as recovery would
+    // send every request back to a primary that rejects all of them.
+    const primary = primaryProvider(
+      () => new ProviderError("Too Many Requests", UPSTREAM, 429),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // Exactly one attempt on a route just judged down: the request goes
+    // straight to the backup rather than spending a retry budget on it.
+    expect(primary.calls()).toBe(1);
+    expect(backup.calls()).toBe(1);
+    expect(result.model).toBe("backup-model");
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
+  });
+
+  test("a probe that fails with a 5xx still extends the outage", async () => {
+    // The control for the two cases above: a genuine server error is what the
+    // breaker exists to remember, and it must keep re-tripping.
+    const primary = primaryProvider(
+      () => new ProviderError("Service Unavailable", UPSTREAM, 503),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    const trippedAt = Date.now() - MAX_COOLDOWN_MS - 1;
+    recordFallbackServed(UPSTREAM_ROUTE, trippedAt);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("backup-model");
+    // No extra attempts on the primary either: an outage verdict fails fast
+    // into the backup instead of continuing into the retry loop.
+    expect(primary.calls()).toBe(1);
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
+    // A failed probe doubles the wait, so the re-trip lands above the base.
+    expectWithinJitterBand(
+      observedCooldownMs(UPSTREAM_ROUTE, Date.now()),
+      BASE_COOLDOWN_MS * 2,
+    );
+  });
+});
+
+// ── What counts as having spent the retry budget ────────────────────────────
+
+describe("retry exhaustion accounting", () => {
+  /**
+   * The primary of a probe that uses both of its repairs before failing for
+   * real. The first send is rejected as an expired managed credential, the
+   * refreshed adapter answers the resend with malformed tool arguments, and the
+   * corrective resend after that comes back as a stream corruption. Three sends
+   * are spent by the time the request reaches the ordinary loop, leaving it
+   * exactly one, which it spends on `lastError`.
+   */
+  function repairedProbeAdapters(lastError: () => unknown): {
+    primary: ReturnType<typeof primaryProvider>;
+    refreshed: ReturnType<typeof primaryProvider>;
+  } {
+    return {
+      primary: primaryProvider(
+        () =>
+          new ProviderError("Unauthorized", UPSTREAM, 401, {
+            reason: "invalid_credentials",
+          }),
+      ),
+      refreshed: primaryProvider(
+        () =>
+          new ProviderError(
+            `Anthropic: ${UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE}`,
+            UPSTREAM,
+            undefined,
+          ),
+        () => corruptedStream(),
+        lastError,
+      ),
+    };
+  }
+
+  test("a probe that spends the whole budget on repairs still reaches the backup", async () => {
+    // Exhaustion decides escalation eligibility, not just Sentry suppression,
+    // so a request whose budget was consumed inside the probe has to be seen as
+    // exhausted. Otherwise the turn this feature exists to rescue fails while a
+    // healthy backup sits unused.
+    const { primary, refreshed } = repairedProbeAdapters(() =>
+      corruptedStream(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      credentialSource: "vellum-managed",
+      refreshCredentialProvider: async () => refreshed.provider,
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("backup-model");
+    expect(backup.calls()).toBe(1);
+    // One send on the original adapter plus three on the refreshed one: the
+    // budget, spent exactly once.
+    expect(primary.calls() + refreshed.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(refreshed.calls()).toBe(3);
+  });
+
+  test("a probe that spends the whole budget on repairs tags the error as exhausted", async () => {
+    // The same sequence with no backup available, so the error surfaces and its
+    // tag can be read. Untagged, this is a Sentry capture for a flap the retry
+    // loop already did everything about.
+    const { primary, refreshed } = repairedProbeAdapters(() =>
+      corruptedStream(),
+    );
+    const wrapped = new RetryProvider(primary.provider, {
+      credentialSource: "vellum-managed",
+      refreshCredentialProvider: async () => refreshed.provider,
+      resolveFallbackRoute: async () => null,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect((thrown as { retriesExhausted?: boolean }).retriesExhausted).toBe(
+      true,
+    );
+    expect(primary.calls() + refreshed.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+  });
+
+  test("a request that spends its budget in the ordinary loop is exhausted", async () => {
+    // The control for a request that never probes: unchanged behavior, tagged
+    // and escalated after the full budget.
+    const primary = primaryProvider(
+      () => transient(),
+      () => transient(),
+      () => transient(),
+      () => transient(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(result.model).toBe("backup-model");
+  });
+
+  test("a request that fails on a non-retryable error is not exhausted", async () => {
+    // The other control: one attempt, no budget spent, so nothing is tagged and
+    // a plain request failure never counts as an outage.
+    const primary = primaryProvider(
+      () => new ProviderError("invalid request", UPSTREAM, 400),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(
+      (thrown as { retriesExhausted?: boolean }).retriesExhausted,
+    ).toBeUndefined();
+    expect(primary.calls()).toBe(1);
+    expect(backup.calls()).toBe(0);
   });
 });
