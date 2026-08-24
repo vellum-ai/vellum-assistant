@@ -962,9 +962,11 @@ describe("createSlackReplySession", () => {
         ],
       },
     });
-    expect(ops.at(-1)).toMatchObject({
-      action: "stop",
-      planTitle: "Quick Briefing",
-    });
+    // toMatchObject ignores unknown keys, so this asserted nothing once the
+    // field was renamed. Reading the plan through the typed op means a rename
+    // fails the build instead of quietly passing.
+    const final = ops.at(-1);
+    expect(final?.action).toBe("stop");
+    expect(final?.plan?.title).toBe("Quick Briefing");
   });
 });
