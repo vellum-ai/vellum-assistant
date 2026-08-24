@@ -8,8 +8,11 @@
  * convention. Reading it off the app list also means a pin renders the app's
  * live name and icon, and an app that no longer exists brings no pin with it.
  *
- * Against a daemon too old to store pins, this falls back to the browser-local
- * list it used to keep. See {@link useSupportsDaemonAppPins}.
+ * Against a daemon too old to store pins, this falls back wholesale to the
+ * browser-local list it used to keep (`utils/app-pin-storage.ts`, legacy). The
+ * two paths are alternatives, not layers: one of them owns every pin for the
+ * session, and each handles workspace and plugin apps alike. Which one is in
+ * play is {@link PinnedApps.source}. See {@link useSupportsDaemonAppPins}.
  *
  * Every caller passes the assistant it is showing. There is deliberately no
  * ambient "current assistant" here: the id a pin is written against is the one
