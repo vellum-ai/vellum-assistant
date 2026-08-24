@@ -4,16 +4,6 @@
  * Rows hold ids alone. Name and icon are read from the app itself at list
  * time, so a renamed app renames its pin, and a pin whose app is gone surfaces
  * nowhere.
- *
- * Known gap, deliberately unhandled. A workspace app's id is a UUID, so a row
- * left behind when one is deleted can never be adopted. A plugin app's id
- * identifies a location rather than an installation
- * (`plugins~<plugin>~<appDir>`), and a disabled or uninstalled plugin drops out
- * of the app list, so retiring one and installing it again rebuilds the same id
- * and its old pin returns. No plugin ships an app today, so nothing can reach
- * this. Fix it by giving plugin apps stable per-installation ids, which is
- * where the problem is, rather than by reconciling pins against the app list on
- * every plugin lifecycle event.
  */
 
 import { eq, max } from "drizzle-orm";
