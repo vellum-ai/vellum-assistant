@@ -1087,6 +1087,49 @@ describe("deeplink.openCamera", () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
+  test("reveals the chat behind a full-screen app viewer, which mounts no composer to drain the park", () => {
+    mockPathname = routes.conversation("conv-1");
+    useViewerStore.setState({ mainView: "app" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("keeps a loaded app in the side-by-side layout, where the composer is mounted beside it", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    mockPathname = routes.conversation("conv-1");
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
+    });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openCamera", { provenance: null });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(useConversationStore.getState().editingConversationId).toBe(
+        "conv-1",
+      );
+      expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+      expect(navigateMock).not.toHaveBeenCalled();
+    } finally {
+      restoreViewport();
+    }
+  });
+
   test("a conversation subroute has no composer, so the tap lands on one", () => {
     const inspector = `${routes.conversation("conv-1")}/inspect`;
     mockPathname = inspector;

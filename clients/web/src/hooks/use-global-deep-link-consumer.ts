@@ -62,8 +62,8 @@ import { isConversationChatPath, routes } from "@/utils/routes";
  *   `navigateToNewConversation()`, the Home Screen widgets' New Chat button.
  * - `deeplink.openCamera` → `ensureMainWindowVisible()` + park the request in
  *   `usePendingDeepLinkStore` for the composer's attachment layer to drain
- *   (`useCameraDeepLink`), then stay put on a conversation route or land on a
- *   fresh draft from anywhere else.
+ *   (`useCameraDeepLink`), then reveal the chat and stay put on a conversation
+ *   route, or land on a fresh draft from anywhere else.
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -147,17 +147,20 @@ function connectGuidanceMessage(url: string | null): string {
 }
 
 /**
- * Whether `pathname` is a route whose composer stays mounted where it is. The
- * `/assistant` index, which {@link isConversationChatPath} accepts, is
- * deliberately excluded: `useConversationLoader` replace-navigates off it to a
- * conversation key on arrival, so a composer mounted there is remounted a beat
- * later and anything it holds in local state goes with it.
+ * The conversation `pathname` is settled on, or `null` when it is not a route
+ * whose composer stays mounted where it is. The `/assistant` index, which
+ * {@link isConversationChatPath} accepts, is deliberately excluded:
+ * `useConversationLoader` replace-navigates off it to a conversation key on
+ * arrival, so a composer mounted there is remounted a beat later and anything
+ * it holds in local state goes with it.
  */
-function isSettledConversationPath(pathname: string): boolean {
-  return (
-    pathname.startsWith(`${routes.conversations}/`) &&
-    isConversationChatPath(pathname)
-  );
+function settledConversationId(pathname: string): string | null {
+  const prefix = `${routes.conversations}/`;
+  if (!pathname.startsWith(prefix) || !isConversationChatPath(pathname)) {
+    return null;
+  }
+  // `isConversationChatPath` already bounded this to one non-empty segment.
+  return pathname.slice(prefix.length).replace(/\/+$/, "");
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -316,15 +319,24 @@ export function useGlobalDeepLinkConsumer(): void {
   // the request is parked in the same one-shot inbox the voice start uses and
   // the composer drains it when it mounts (`useCameraDeepLink`).
   //
-  // The landing has to be a route the composer *stays* mounted on. A composer
-  // already on screen keeps the photo in the conversation the user is looking
-  // at, so the tap navigates nowhere; from anywhere else it lands on a fresh
-  // draft, the same registered-draft landing the New Chat button gets, silent
-  // because the tap was for the camera and not for a new chat's flourish.
+  // The landing has to be a route the composer *stays* mounted on, and a view
+  // that mounts one at all. A composer already on screen keeps the photo in the
+  // conversation the user is looking at, so the tap navigates nowhere and only
+  // reveals the chat, which the full-screen app viewer would otherwise be
+  // holding with `ChatMainPanel` swapped out (`ChatContentLayout`): the park
+  // would sit there with no consumer, the tap would read as doing nothing, and
+  // the camera would open by itself whenever the app was dismissed inside the
+  // TTL. `revealConversationView` is the reveal `navigateToNewConversation`
+  // runs below, so an app open beside the chat is kept either way. From
+  // anywhere else the tap lands on a fresh draft, the same registered-draft
+  // landing the New Chat button gets, silent because the tap was for the camera
+  // and not for a new chat's flourish.
   useBusSubscription("deeplink.openCamera", () => {
     void ensureMainWindowVisible();
     usePendingDeepLinkStore.getState().setPendingCamera();
-    if (isSettledConversationPath(pathname)) {
+    const settledId = settledConversationId(pathname);
+    if (settledId !== null) {
+      revealConversationView(settledId);
       return;
     }
     navigateToNewConversation(navigateRef.current, { silent: true });
