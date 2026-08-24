@@ -56,17 +56,28 @@ export interface TtsAudioChunk {
   sampleRate: number;
   /** MIME type of the audio payload (e.g. "audio/pcm", "audio/wav"). */
   mimeType: string;
+  /**
+   * Rendered non-speech audio (the working cue) rather than a synthesized
+   * utterance. It plays like any other chunk and holds the queue open, but
+   * carries no words, so it is left out of the playback progress that drives
+   * the spoken-word cursor. Absent means speech.
+   */
+  nonSpeech?: boolean;
 }
 
 /**
  * Playback progress of the current response's TTS audio.
  *
- * `totalSeconds` is the cumulative duration of every buffer scheduled since the
- * last reset (new response / stop); `playedSeconds` is how much of it has
- * actually sounded, derived from the audio playhead. During a mid-turn silence
- * (queue drained, more speech coming) `playedSeconds === totalSeconds`, so a
- * consumer's cursor holds at the last spoken word rather than resetting — the
- * next audio burst grows `totalSeconds` and the cursor advances again.
+ * `totalSeconds` is the cumulative duration of every speech buffer scheduled
+ * since the last reset (new response / stop); `playedSeconds` is how much of
+ * it has actually sounded, derived from the audio playhead. Non-speech chunks
+ * ({@link TtsAudioChunk.nonSpeech}) play but enter neither number, so a cue
+ * holding a silent turn's floor never advances a word cursor.
+ *
+ * During a mid-turn silence (queue drained, more speech coming)
+ * `playedSeconds === totalSeconds`, so a consumer's cursor holds at the last
+ * spoken word rather than resetting: the next audio burst grows `totalSeconds`
+ * and the cursor advances again.
  */
 export interface LiveVoicePlaybackProgress {
   /** Seconds of scheduled audio already played, in [0, totalSeconds]. */
@@ -315,8 +326,8 @@ export class LiveVoiceAudioPlayer {
   private playingState = false;
 
   /**
-   * Cumulative duration (seconds) of every buffer scheduled since the last
-   * progress reset. Backs {@link getPlaybackProgress}.
+   * Cumulative duration (seconds) of every speech buffer scheduled since the
+   * last progress reset. Backs {@link getPlaybackProgress}.
    *
    * Deliberately NOT reset in {@link settleIfIdle}: a drain mid-turn (ack →
    * tool run → more speech) zeroes only the playhead, so progress reports
@@ -450,7 +461,7 @@ export class LiveVoiceAudioPlayer {
     const buffer = context.createBuffer(1, samples.length, chunk.sampleRate);
     buffer.getChannelData(0).set(samples);
 
-    this.scheduleBuffer(context, buffer);
+    this.scheduleBuffer(context, buffer, chunk.nonSpeech === true);
   }
 
   /**
@@ -473,6 +484,7 @@ export class LiveVoiceAudioPlayer {
   private enqueueContainer(chunk: TtsAudioChunk, mimeType: string): void {
     const context = this.ensureContext();
     const arrayBuffer = base64ToArrayBuffer(chunk.dataBase64);
+    const nonSpeech = chunk.nonSpeech === true;
     const generation = this.generation;
     this.pendingContainerDecodes += 1;
 
@@ -498,7 +510,7 @@ export class LiveVoiceAudioPlayer {
         ) {
           return;
         }
-        this.scheduleBuffer(context, buffer);
+        this.scheduleBuffer(context, buffer, nonSpeech);
       } finally {
         // A stop() between start and resolution already zeroed the counter (and
         // resolved drain); skip the accounting so we don't go negative.
@@ -512,8 +524,18 @@ export class LiveVoiceAudioPlayer {
     });
   }
 
-  /** Connect a decoded buffer to the destination and start it gaplessly. */
-  private scheduleBuffer(context: AudioContextLike, buffer: AudioBuffer): void {
+  /**
+   * Connect a decoded buffer to the destination and start it gaplessly.
+   *
+   * A non-speech buffer takes its place on the timeline like any other, so
+   * ordering and the echo reference are unchanged; it just contributes no
+   * duration to the progress a word cursor reads.
+   */
+  private scheduleBuffer(
+    context: AudioContextLike,
+    buffer: AudioBuffer,
+    nonSpeech: boolean,
+  ): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
 
@@ -532,7 +554,9 @@ export class LiveVoiceAudioPlayer {
     const startAt = Math.max(this.playheadTime, context.currentTime);
     source.start(startAt);
     this.playheadTime = startAt + buffer.duration;
-    this.totalScheduledSeconds += buffer.duration;
+    if (!nonSpeech) {
+      this.totalScheduledSeconds += buffer.duration;
+    }
 
     this.activeSources.add(source);
     source.onended = () => {
@@ -919,6 +943,12 @@ export class LiveVoiceAudioPlayer {
    * scheduled timeline, so silent gaps between bursts never inflate played
    * time, and after a drain (`playheadTime` zeroed) progress reports
    * `played == total`. Side-effect-free: reading never advances state.
+   *
+   * Non-speech audio still sits on that timeline, so while a cue is playing
+   * ahead of queued speech the tail it occupies reads as unplayed speech and
+   * `playedSeconds` floors at 0 rather than going negative. That understates
+   * played time by at most the cue's own length, and only until the cue
+   * finishes; a consumer's cursor is monotonic, so it holds rather than moves.
    */
   getPlaybackProgress(): LiveVoicePlaybackProgress | null {
     if (this.context === null || this.totalScheduledSeconds === 0) {
