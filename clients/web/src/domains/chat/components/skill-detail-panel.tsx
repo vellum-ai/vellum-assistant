@@ -108,8 +108,8 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
           ) : undefined
         }
         Glyph={Brain}
-        title={skill?.name ?? "Skill"}
-        closeLabel="Close skill details"
+        title={skill?.name ?? t("skillDetailPanel.titleFallback")}
+        closeLabel={t("skillDetailPanel.closeDetails")}
         onClose={onClose}
         headerActions={
           removable ? (
@@ -131,7 +131,7 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
                   leftIcon={<Trash2 size={14} />}
                   onSelect={() => setConfirmingRemoval(true)}
                 >
-                  Remove skill
+                  {t("skillDetailPanel.removeSkill")}
                 </Menu.Item>
               </Menu.Content>
             </Menu.Root>
@@ -140,7 +140,7 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
         footer={
           <div className="flex justify-end">
             <Button onClick={() => navigate(routes.skills.detail(skillId))}>
-              Go to Skill
+              {t("skillDetailPanel.goToSkill")}
             </Button>
           </div>
         }
@@ -156,7 +156,7 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
             as="p"
             className="py-8 text-center text-[var(--content-tertiary)]"
           >
-            This skill could not be loaded. It may have been removed.
+            {t("skillDetailPanel.loadError")}
           </Typography>
         ) : isLoading ? (
           <div className="flex items-center justify-center py-8">

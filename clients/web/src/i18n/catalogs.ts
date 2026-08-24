@@ -111,6 +111,25 @@ const CATALOG_LOADERS: Record<
     onboarding: () => import("@/i18n/locales/es/onboarding.json"),
     intelligence: () => import("@/i18n/locales/es/intelligence.json"),
   },
+  ru: {
+    common: () => import("@/i18n/locales/ru/common.json"),
+    chat: () => import("@/i18n/locales/ru/chat.json"),
+    schedules: () => import("@/i18n/locales/ru/schedules.json"),
+    account: () => import("@/i18n/locales/ru/account.json"),
+    channels: () => import("@/i18n/locales/ru/channels.json"),
+    settings: () => import("@/i18n/locales/ru/settings.json"),
+    workspace: () => import("@/i18n/locales/ru/workspace.json"),
+    terminal: () => import("@/i18n/locales/ru/terminal.json"),
+    "remote-web": () => import("@/i18n/locales/ru/remote-web.json"),
+    "credential-requests": () =>
+      import("@/i18n/locales/ru/credential-requests.json"),
+    logs: () => import("@/i18n/locales/ru/logs.json"),
+    library: () => import("@/i18n/locales/ru/library.json"),
+    home: () => import("@/i18n/locales/ru/home.json"),
+    contacts: () => import("@/i18n/locales/ru/contacts.json"),
+    onboarding: () => import("@/i18n/locales/ru/onboarding.json"),
+    intelligence: () => import("@/i18n/locales/ru/intelligence.json"),
+  },
 };
 
 /**

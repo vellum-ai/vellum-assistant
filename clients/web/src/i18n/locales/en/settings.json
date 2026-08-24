@@ -2155,6 +2155,7 @@
     "microphoneFallbackLabel": "Microphone {index}",
     "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
     "microphoneTitle": "Microphone",
+    "offKeyLabel": "Off",
     "pauseBeforeReplyAriaLabel": "Pause before reply",
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",

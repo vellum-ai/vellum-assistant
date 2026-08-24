@@ -1,0 +1,86 @@
+{
+  "authWaitSpinner": {
+    "loading": "Загрузка"
+  },
+  "signupScreen": {
+    "headlineLead": "Знакомство с новым",
+    "headlineRoles": {
+      "personalIntelligence": "личным интеллектом",
+      "softwareEngineer": "инженером-разработчиком",
+      "financeOps": "специалистом по финансам",
+      "householdManager": "управляющим домом",
+      "gtmEngineer": "инженером GTM",
+      "productLead": "продакт-лидом"
+    },
+    "subtitle": "Самый мощный ассистент для рабочих задач и бытовых дел.",
+    "continue": "Продолжить",
+    "downloadMac": "Скачать для macOS",
+    "haveAccountPrompt": "Уже есть аккаунт? <signIn>Войти</signIn>"
+  },
+  "accountPage": {
+    "loading": "Загрузка...",
+    "welcomeTitle": "Добро пожаловать в Vellum",
+    "welcomeSubtitle": "Войдите чтобы начать.",
+    "signIn": "Войти",
+    "signedInTitle": "Привет!",
+    "signedInTitleNamed": "Привет, {name}!",
+    "signedInSubtitle": "Вход выполнен.",
+    "goToAssistant": "Перейти к ассистенту",
+    "signOut": "Выйти"
+  },
+  "loginPage": {
+    "signUp": "Регистрация",
+    "signIn": "Войти"
+  },
+  "logoutPage": {
+    "title": "Выходим..."
+  },
+  "platformLoopbackPage": {
+    "backToWelcome": "Назад к приветствию",
+    "completing": "Завершаем вход..."
+  },
+  "oauthComplete": {
+    "errorCode": "Ошибка: {code}"
+  },
+  "providerCallbackPage": {
+    "signupClosedTitle": "Регистрация сейчас закрыта",
+    "signupClosedSubtitle": "Вступи в сообщество, чтобы запросить доступ или узнать, когда регистрация откроется.",
+    "joinCommunity": "Вступить в сообщество",
+    "backToSignIn": "Назад ко входу",
+    "failedTitle": "Не удалось войти",
+    "failedSubtitle": "Что-то пошло не так при входе через соцсеть. Повторите попытку или используйте другой способ входа.",
+    "completingTitle": "Завершаем вход...",
+    "completingSubtitle": "Завершение проверки."
+  },
+  "providerSignupPage": {
+    "completingTitle": "Завершаем регистрацию...",
+    "completingSubtitle": "Загрузка данных.",
+    "headingLine1": "Почти готово,",
+    "headingLine2": "ещё одна деталь",
+    "firstNameQuestion": "Имя",
+    "firstNamePlaceholder": "Имя",
+    "lastNameQuestion": "А фамилия?",
+    "lastNamePlaceholder": "Фамилия",
+    "roleQuestion": "Роль",
+    "rolePlaceholder": "например, инженер-разработчик",
+    "submitting": "Настраиваем…",
+    "submit": "Продолжить →",
+    "completeAccountTitle": "Завершение аккаунта",
+    "completeAccountSubtitle": "Нужны ещё некоторые сведения чтобы закончить настройку аккаунта.",
+    "backToSignIn": "← Назад ко входу",
+    "emailPlaceholder": "Почта",
+    "usernamePlaceholder": "Имя пользователя",
+    "completeSignup": "Завершить регистрацию",
+    "completingSignup": "Завершаем..."
+  },
+  "authErrors": {
+    "genericFailure": "Что-то пошло не так. Повторите попытку.",
+    "signupClosed": "Регистрация сейчас закрыта. Переход на {community}, чтобы запросить доступ.",
+    "providerSignup": "К этому входу ещё не привязан аккаунт Vellum. Сначала регистрация, потом вход.",
+    "loginIncomplete": "Чтобы закончить вход, аккаунту нужен ещё один шаг. Войдите в веб-версию и повторите попытку.",
+    "desktopUpdateRequired": "Эта версия приложения Vellum для компьютера не может войти. Обновите приложение и повторите попытку.",
+    "loopbackStateMismatch": "Не удалось войти: не совпало состояние. Повторите попытку.",
+    "loopbackNoToken": "Не удалось войти: не получен токен сессии. Повторите попытку.",
+    "loopbackInvalidToken": "Не удалось войти: недействительный токен сессии."
+  }
+}

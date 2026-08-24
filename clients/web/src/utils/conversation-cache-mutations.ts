@@ -196,6 +196,73 @@ export function removeConversation(
   updateAllConversationCaches(queryClient, assistantId, drop);
 }
 
+/**
+ * The list caches that currently hold a conversation, plus the index of
+ * that row in each. Used by delete so a failed mutation can put the row
+ * back without restoring a whole-page snapshot (which would also rewind
+ * concurrent mutations of other conversations in the same cache).
+ */
+export type ConversationCachePlacement = {
+  queryKey: readonly unknown[];
+  index: number;
+};
+
+export function recordConversationPlacements(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversationId: string,
+): ConversationCachePlacement[] {
+  if (!assistantId) {
+    return [];
+  }
+  const placements: ConversationCachePlacement[] = [];
+  const entries = queryClient.getQueriesData<ConversationListPage>({
+    queryKey: conversationListPrefix(assistantId),
+  });
+  for (const [queryKey, data] of entries) {
+    const index = data?.conversations.findIndex(
+      (c) => c.conversationId === conversationId,
+    );
+    if (index === undefined || index < 0) {
+      continue;
+    }
+    placements.push({ queryKey, index });
+  }
+  return placements;
+}
+
+/**
+ * Re-insert a removed conversation into the caches that held it, at the
+ * recorded index. Skips a cache that already has the row or is no longer
+ * mounted. Other rows in those caches are left as they are.
+ */
+export function restoreRemovedConversation(
+  queryClient: QueryClient,
+  conversation: Conversation,
+  placements: readonly ConversationCachePlacement[],
+): void {
+  for (const { queryKey, index } of placements) {
+    const page = queryClient.getQueryData<ConversationListPage>(queryKey);
+    if (!page) {
+      continue;
+    }
+    if (
+      page.conversations.some(
+        (c) => c.conversationId === conversation.conversationId,
+      )
+    ) {
+      continue;
+    }
+    const next = [...page.conversations];
+    const insertAt = Math.min(Math.max(index, 0), next.length);
+    next.splice(insertAt, 0, conversation);
+    queryClient.setQueryData<ConversationListPage>(queryKey, {
+      ...page,
+      conversations: next,
+    });
+  }
+}
+
 export function shouldSurfaceConversation(conversation: Conversation): boolean {
   if (conversation.archivedAt != null) {
     return false;
