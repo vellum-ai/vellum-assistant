@@ -835,6 +835,82 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("orders tool result media before following text", async () => {
+    /** Gemini receives tool result attachments before text that refers to them. */
+
+    // GIVEN streamed output and a history with an image tool result followed by text
+    fakeChunks = [textChunk("Done"), finishChunk("STOP", 20, 10)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_image",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_image",
+            content: "image result",
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "iVBORw0KGgo=",
+                },
+              },
+            ],
+          },
+          { type: "text", text: "Describe that image." },
+        ],
+      },
+    ];
+
+    // WHEN the provider sends the message
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<Record<string, unknown>>;
+    }>;
+
+    // THEN the tool result Contents are ordered by function response, media, and text
+    expect(contents.slice(2)).toEqual([
+      {
+        role: "user",
+        parts: [
+          {
+            functionResponse: {
+              name: "file_read",
+              response: { output: "image result" },
+            },
+          },
+        ],
+      },
+      {
+        role: "user",
+        parts: [
+          { inlineData: { mimeType: "image/png", data: "iVBORw0KGgo=" } },
+        ],
+      },
+      {
+        role: "user",
+        parts: [{ text: "Describe that image." }],
+      },
+    ]);
+  });
+
   function toolResultWithAudio(mediaType: string, data: string): Message[] {
     return [
       { role: "user", content: [{ type: "text", text: "Read clip" }] },
