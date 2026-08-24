@@ -301,6 +301,18 @@ export interface SendMessageConfig {
    */
   forceOverrideProfile?: boolean;
   /**
+   * True when the caller appended {@link NATIVE_WEB_SEARCH_TOOL_NAME} purely
+   * to activate the route's provider-native web search, rather than passing an
+   * app-executed search tool of the same name (which is what runs when a
+   * search backend like Brave or the platform search proxy is configured).
+   * Only the caller can tell those apart, and a route change after that
+   * decision has to: `RetryProvider` drops the tool on a backup that runs no
+   * native search, and must not touch it when the daemon executes it itself.
+   * A resolution/routing-time concern only; stripped before any provider wire
+   * request.
+   */
+  nativeWebSearchSentinel?: boolean;
+  /**
    * Per-conversation seed for deterministic `mix`-profile expansion. The agent
    * loop sets this to the conversation id so every resolver call this send
    * triggers — provider/transport selection, wire-param normalization, usage

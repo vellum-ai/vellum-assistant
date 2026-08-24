@@ -1470,6 +1470,14 @@ export class AgentLoop {
           providerConfig.tool_choice = { type: "auto" };
         }
 
+        // Mark the sentinel so a route change downstream can tell it from an
+        // app-executed `web_search` of the same name (see
+        // `SendMessageConfig.nativeWebSearchSentinel`). Only set when true so
+        // the wire config stays byte-identical otherwise.
+        if (attachNativeWebSearch) {
+          providerConfig.nativeWebSearchSentinel = true;
+        }
+
         if (this.config.cacheTtl) {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }

@@ -798,7 +798,7 @@ describe("RetryProvider fallback-route escalation", () => {
     });
 
     await wrapped.sendMessage(MESSAGES, {
-      config: { callSite: "mainAgent" },
+      config: { callSite: "mainAgent", nativeWebSearchSentinel: true },
       tools: [
         {
           name: "read_file",
@@ -831,6 +831,40 @@ describe("RetryProvider fallback-route escalation", () => {
     });
 
     await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent", nativeWebSearchSentinel: true },
+      tools: [
+        {
+          name: "read_file",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.seenToolNames()).toEqual(["read_file", "web_search"]);
+  });
+
+  test("an app-executed web_search tool survives the fallback untouched", async () => {
+    // With a search backend such as Brave or the platform search proxy, the
+    // daemon executes `web_search` itself and the caller sets no sentinel
+    // marker. Filtering it by name would strip a capability the backup can
+    // still serve, so the tool list has to carry over unchanged.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("gemini", { supportsNativeWebSearch: false });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
       config: { callSite: "mainAgent" },
       tools: [
         {
@@ -847,5 +881,30 @@ describe("RetryProvider fallback-route escalation", () => {
     });
 
     expect(backup.seenToolNames()).toEqual(["read_file", "web_search"]);
+  });
+
+  test("the sentinel marker never reaches the provider wire config", async () => {
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("gemini", { supportsNativeWebSearch: false });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent", nativeWebSearchSentinel: true },
+      tools: [
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.seenConfig().nativeWebSearchSentinel).toBeUndefined();
   });
 });
