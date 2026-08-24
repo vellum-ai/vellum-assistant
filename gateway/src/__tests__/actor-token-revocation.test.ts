@@ -570,12 +570,36 @@ describe("recordActorTokenUse", () => {
     expect(readRow("token-retry")?.lastUsedAt).toBeGreaterThan(0);
   });
 
-  test("a missing record leaves a later stamp for the same token free to run", () => {
+  test("an unrecorded token hash is looked up at most once per debounce window", () => {
+    // Nothing to find: the definitive "no record" answer arms the debounce.
     recordActorTokenUse("token-late", actorClaims);
 
+    // Seed the row the first call missed. A second call inside the window
+    // leaves it unstamped, which is only possible if the lookup was skipped.
     insertTokenRecord("token-late", "active");
     recordActorTokenUse("token-late", actorClaims);
+    expect(readRow("token-late")?.lastUsedAt).toBeNull();
 
+    // Once the window lapses the lookup runs again and finds the row.
+    __resetLastUsedDebounceForTests();
+    recordActorTokenUse("token-late", actorClaims);
     expect(readRow("token-late")?.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  test("a lookup that throws is retried on the next request", () => {
+    // Distinguishes a transient failure from a stable miss: the DB-error path
+    // arms nothing, so the very next call re-queries.
+    const rawDb = (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    rawDb.exec("ALTER TABLE actor_token_records RENAME TO actor_token_stash");
+
+    recordActorTokenUse("token-transient", actorClaims);
+
+    rawDb.exec("ALTER TABLE actor_token_stash RENAME TO actor_token_records");
+    insertTokenRecord("token-transient", "active");
+    recordActorTokenUse("token-transient", actorClaims);
+
+    expect(readRow("token-transient")?.lastUsedAt).toBeGreaterThan(0);
   });
 });
