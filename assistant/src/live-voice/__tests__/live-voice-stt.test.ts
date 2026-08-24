@@ -257,6 +257,7 @@ describe("LiveVoiceSession STT", () => {
         sessionId: "session-123",
         conversationId: "conversation-123",
         turnDetection: "manual",
+        textInput: true,
       },
     ]);
   });
@@ -611,6 +612,7 @@ describe("LiveVoiceSession STT", () => {
         sessionId: "session-123",
         conversationId: "conversation-123",
         turnDetection: "server_vad",
+        textInput: true,
       },
     ]);
 
@@ -700,6 +702,7 @@ describe("LiveVoiceSession STT", () => {
         sessionId: "session-123",
         conversationId: "conversation-123",
         turnDetection: "manual",
+        textInput: true,
       },
       {
         type: "error",
