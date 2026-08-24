@@ -4,8 +4,7 @@ import { eq } from "drizzle-orm";
 
 import {
   actorTokenRecordHash,
-  isActorTokenRevoked,
-  recordActorTokenUse,
+  admitActorToken,
 } from "../../auth/actor-token-revocation.js";
 import {
   ensureVellumGuardianBinding,
@@ -151,11 +150,10 @@ export async function handleCreateToken(
   // Don't let a revoked token re-mint a fresh one — that would be an escape
   // hatch around device revocation, since the source token still verifies by
   // signature until it expires.
-  if (isActorTokenRevoked(bearerToken, verifyResult.claims)) {
+  if (!admitActorToken(bearerToken, verifyResult.claims)) {
     log.warn("Token create rejected: source token revoked");
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
-  recordActorTokenUse(bearerToken, verifyResult.claims);
 
   const sourceRecord = findSourceActorTokenRecord(bearerToken);
   let guardianPrincipalId = sourceRecord?.guardianPrincipalId;

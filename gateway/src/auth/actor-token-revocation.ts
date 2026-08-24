@@ -1,21 +1,22 @@
 /**
- * Hot-path actor-token revocation check, plus the debounced last-used stamp
- * that rides the same lookup ({@link recordActorTokenUse}).
+ * Hot-path admission for actor tokens ({@link admitActorToken}): one lookup
+ * that both enforces revocation and stamps the presenting device's last-used
+ * activity.
  *
  * Edge-token validation ({@link validateEdgeToken}) only verifies the JWT
- * (signature, audience, expiry, policy epoch) — it never consults the DB. That
- * means marking an actor token "revoked" in `actorTokenRecords` (on re-pair,
- * device unpair, etc.) has no effect on live requests until the token expires.
+ * (signature, audience, expiry, policy epoch), never the DB. That means
+ * marking an actor token "revoked" in `actorTokenRecords` (on re-pair, device
+ * unpair, etc.) has no effect on live requests until the token expires.
  *
- * This check closes that gap: on the request hot path, after the JWT is
+ * Admission closes that gap: on the request hot path, after the JWT is
  * validated, reject an actor token whose recorded row is `status = 'revoked'`.
  *
  * Policy is **fail-OPEN**:
  *   - Non-actor tokens (svc/local) are never checked.
- *   - An actor token with NO record is allowed — legacy/unrecorded tokens (and
+ *   - An actor token with NO record is allowed. Legacy/unrecorded tokens (and
  *     any mint path not yet recording to the DB) must never be broken.
  *   - Any DB error (incl. the gateway DB not being initialized) allows the
- *     request and logs a warning — a revocation check must never take down auth
+ *     request and logs a warning. A revocation check must never take down auth
  *     on a DB hiccup; we are no worse off than before this check existed.
  *
  * Only an explicit `status = 'revoked'` row results in rejection.
@@ -72,7 +73,9 @@ function hashToken(token: string): string {
 function canonicalizeTokenForHash(rawToken: string): string {
   const trimmed = rawToken.trim();
   const parts = trimmed.split(".");
-  if (parts.length !== 3) return trimmed;
+  if (parts.length !== 3) {
+    return trimmed;
+  }
   try {
     return parts
       .map((seg) => Buffer.from(seg, "base64url").toString("base64url"))
@@ -83,10 +86,10 @@ function canonicalizeTokenForHash(rawToken: string): string {
 }
 
 /**
- * Hash a caller-supplied actor token exactly as revocation lookups do.
+ * Hash a caller-supplied actor token exactly as admission lookups do.
  *
  * Use this for DB writes/reads that need to line up with
- * `isActorTokenRevoked`, including token-mint paths that persist derived
+ * {@link admitActorToken}, including token-mint paths that persist derived
  * actor tokens for later device revocation.
  */
 export function actorTokenRecordHash(rawToken: string): string {
@@ -94,45 +97,20 @@ export function actorTokenRecordHash(rawToken: string): string {
 }
 
 /**
- * True only when `rawToken` is an actor token with an explicitly revoked record.
- * Fail-open in every other case (non-actor, no record, DB error).
- */
-export function isActorTokenRevoked(
-  rawToken: string,
-  claims: TokenClaims,
-): boolean {
-  const parsed = parseSub(claims.sub);
-  if (!parsed.ok || parsed.principalType !== "actor") {
-    return false;
-  }
-
-  const tokenHash = actorTokenRecordHash(rawToken);
-
-  try {
-    const record = getGatewayDb()
-      .select({ status: actorTokenRecords.status })
-      .from(actorTokenRecords)
-      .where(eq(actorTokenRecords.tokenHash, tokenHash))
-      .get();
-    return record?.status === "revoked";
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Actor-token revocation lookup failed — allowing request (fail-open)",
-    );
-    return false;
-  }
-}
-
-/**
- * Stamp `lastUsedAt` for the device behind `rawToken`, powering the "Paired
- * devices" list's last-used label.
+ * Decide whether a validated token may proceed, and record the activity of the
+ * device that presented it. Returns false only for an actor token whose record
+ * is explicitly `status = 'revoked'`; every other case is fail-open.
  *
- * Debounced to one DB round-trip per token per {@link STAMP_DEBOUNCE_MS}. The
- * window is armed by a completed stamp, and also by a definitive "no such
- * record" answer: unrecorded tokens are a permanent supported state, so their
- * lookup must not repeat on every request. A DB error arms nothing, leaving the
- * next request free to retry immediately.
+ * One canonicalize + hash + indexed SELECT serves both jobs, and the two are
+ * inseparable by construction: a caller cannot enforce revocation while
+ * forgetting to stamp, which would silently drop that device off the "Paired
+ * devices" list.
+ *
+ * The stamp is debounced to one DB round-trip per token per
+ * {@link STAMP_DEBOUNCE_MS}, armed by a completed stamp and also by a
+ * definitive "no such record" answer (unrecorded tokens are a permanent
+ * supported state). A DB error arms nothing, leaving the next request free to
+ * retry immediately.
  *
  * Resolved through the DEVICE rather than the presented row: `/auth/token`
  * mints `status = 'derived'` rows sharing the source row's `hashed_device_id`
@@ -140,43 +118,47 @@ export function isActorTokenRevoked(
  *
  * Deliberately leaves `updatedAt` alone: that column tracks row lifecycle
  * (status changes), and moving it every few minutes would destroy that signal.
- *
- * Fail-open like the rest of this module: non-actor tokens, unrecorded tokens,
- * and DB errors are all no-ops.
  */
-export function recordActorTokenUse(
+export function admitActorToken(
   rawToken: string,
   claims: TokenClaims,
-): void {
+): boolean {
   const parsed = parseSub(claims.sub);
   if (!parsed.ok || parsed.principalType !== "actor") {
-    return;
+    return true;
   }
 
-  const now = Date.now();
   const tokenHash = actorTokenRecordHash(rawToken);
-  if (stampDebounce.has(tokenHash)) {
-    return;
-  }
 
   try {
     const db = getGatewayDb();
     const record = db
       .select({
+        status: actorTokenRecords.status,
         guardianPrincipalId: actorTokenRecords.guardianPrincipalId,
         hashedDeviceId: actorTokenRecords.hashedDeviceId,
       })
       .from(actorTokenRecords)
       .where(eq(actorTokenRecords.tokenHash, tokenHash))
       .get();
+
+    // Verdict first: a rejected token must never stamp.
+    if (record?.status === "revoked") {
+      return false;
+    }
+
+    if (stampDebounce.has(tokenHash)) {
+      return true;
+    }
+
     if (!record) {
-      // A stable answer, not a failure: hold the lookup off for a window.
+      // A stable answer, not a failure: arm the window like a completed stamp.
       stampDebounce.mark(tokenHash);
-      return;
+      return true;
     }
 
     db.update(actorTokenRecords)
-      .set({ lastUsedAt: now })
+      .set({ lastUsedAt: Date.now() })
       .where(
         and(
           eq(actorTokenRecords.guardianPrincipalId, record.guardianPrincipalId),
@@ -187,11 +169,13 @@ export function recordActorTokenUse(
       .run();
 
     stampDebounce.mark(tokenHash);
+    return true;
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
-      "Actor-token last-used stamp failed, ignoring (fail-open)",
+      "Actor-token admission failed, allowing request (fail-open)",
     );
+    return true;
   }
 }
 

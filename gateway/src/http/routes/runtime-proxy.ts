@@ -11,10 +11,7 @@ import {
   mintExchangeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
-import {
-  isActorTokenRevoked,
-  recordActorTokenUse,
-} from "../../auth/actor-token-revocation.js";
+import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -81,14 +78,13 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
-      if (isActorTokenRevoked(edgeJwt, result.claims)) {
+      if (!admitActorToken(edgeJwt, result.claims)) {
         log.warn(
           { method: req.method, path: url.pathname },
           "Runtime proxy auth rejected: actor token revoked",
         );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
-      recordActorTokenUse(edgeJwt, result.claims);
       exchangeToken = mintExchangeToken(
         result.claims,
         result.claims.scope_profile,
