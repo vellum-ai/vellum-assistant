@@ -151,7 +151,9 @@ describe("usePaymentMethodSavedPoll", () => {
 
     const done = result.current();
 
-    // The flip is synchronous, ahead of the first refetch resolving.
+    // The flip lands right after in-flight fetches are cancelled, ahead of
+    // the first poll response resolving.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(cachedConfig(client)?.has_payment_method).toBe(true);
     await done;
   });
@@ -172,6 +174,33 @@ describe("usePaymentMethodSavedPoll", () => {
     await done;
 
     expect(retrieveCalls).toBe(2);
+    expect(cachedConfig(client)).toEqual(
+      makeConfig("2026-08-19T00:00:01Z", true),
+    );
+  }, 10_000);
+
+  test("flips back when an observer refetch writes pre-webhook data over it", async () => {
+    retrieveResponses = [
+      makeConfig(null, false),
+      makeConfig("2026-08-19T00:00:01Z", true),
+    ];
+    const { result, client } = setup(makeConfig(null, false));
+
+    const done = result.current();
+    // Let the first (still no card) poll response come back; the poll is now
+    // waiting for its next attempt.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Simulate a focus/reconnect refetch landing the server's pre-webhook
+    // config over the flip; the cache subscription restores it.
+    client.setQueryData(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+      makeConfig(null, false),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cachedConfig(client)?.has_payment_method).toBe(true);
+
+    await done;
     expect(cachedConfig(client)).toEqual(
       makeConfig("2026-08-19T00:00:01Z", true),
     );
