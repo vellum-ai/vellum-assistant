@@ -1,10 +1,11 @@
 /**
- * The two states the Share Feedback dialog shows before it exists.
+ * The two states the Share Feedback dialog shows before it exists: the
+ * skeleton drawn while its chunk is in flight, and the failure drawn when the
+ * chunk never arrives.
  *
- * Both render the dialog's own shell (`share-feedback-modal-shell.ts`), so the
- * placeholder and the failure land exactly where the real dialog will. The
- * previous behaviour was a `null` Suspense fallback plus `LazyBoundary`'s
- * inline paragraph, neither of which the user could see.
+ * The skeleton renders the dialog's own shell (`share-feedback-modal-shell.ts`)
+ * so it lands exactly where the real dialog will. The failure renders the
+ * design library modal, which is what gives it a focus trap and dismissal.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
