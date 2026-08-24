@@ -100,30 +100,57 @@ struct QuickActionsWidgetView: View {
     /// dropped on a card; the two at opposite margins read as one row across
     /// the top of it.
     private var markRow: some View {
-        HStack(alignment: .top, spacing: 0) {
-            if unreadCount == nil {
+        GeometryReader { geo in
+            HStack(alignment: .top, spacing: 0) {
+                if unreadCount == nil {
+                    Spacer(minLength: 0)
+                }
+                avatarMark(width: geo.size.width)
                 Spacer(minLength: 0)
+                unreadChip
             }
-            avatarMark
-            Spacer(minLength: 0)
-            unreadChip
         }
+        .frame(height: max(Self.eyeHeight, Self.avatarImageSize))
         .padding(.top, Self.markInset)
     }
+
+    /// Height the eyes can afford beside the chip. The chip's widest form,
+    /// the collapsed `99+`, needs about 66 points, and the pair's own width
+    /// is its height times the pair's aspect; on compact cards the eyes give
+    /// way so the row never compresses either mark.
+    private func fittedEyeHeight(in width: CGFloat) -> CGFloat {
+        guard unreadCount != nil else {
+            return Self.eyeHeight
+        }
+        let pairAspect: CGFloat = 61 / 33
+        let available = (width - Self.chipAllowance) / pairAspect
+        return min(Self.eyeHeight, max(24, available))
+    }
+
+    /// The photo mark under the same constraint as the eyes.
+    private func fittedImageSize(in width: CGFloat) -> CGFloat {
+        guard unreadCount != nil else {
+            return Self.avatarImageSize
+        }
+        return min(Self.avatarImageSize, max(24, width - Self.chipAllowance))
+    }
+
+    /// Width the chip's widest form, the collapsed `99+`, can occupy.
+    private static let chipAllowance: CGFloat = 66
 
     /// The assistant, however this account's assistant can be drawn: its own
     /// photo where there is one, and the eyes the kit draws where the card is
     /// already wearing its color.
     @ViewBuilder
-    private var avatarMark: some View {
+    private func avatarMark(width: CGFloat) -> some View {
         if entry.avatarKind == .image, let image = entry.avatarImage {
             WidgetAvatarImageView(
                 image: image,
-                size: Self.avatarImageSize,
+                size: fittedImageSize(in: width),
                 cornerRadius: Self.avatarImageCornerRadius
             )
         } else {
-            WidgetAvatarEyes(eyeHeight: Self.eyeHeight)
+            WidgetAvatarEyes(eyeHeight: fittedEyeHeight(in: width))
         }
     }
 
