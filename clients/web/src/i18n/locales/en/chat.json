@@ -231,6 +231,14 @@
   "callSummarySurface": {
     "eventsRecorded": "{count, plural, one {# event} other {# events}} recorded."
   },
+  "cameraDeepLink": {
+    "captureFailed": "Could not take that photo. Please try again.",
+    "close": "Close camera",
+    "flip": "Switch camera",
+    "openFailed": "Could not open the camera.",
+    "shutter": "Take photo",
+    "title": "Take a photo"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
@@ -1460,6 +1468,9 @@
     "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
     "retryFailed": "Couldn't retry the response",
     "summarizeFailed": "Couldn't summarize the conversation"
+  },
+  "useNativeWidgetSnapshotSync": {
+    "untitled": "Untitled"
   },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",

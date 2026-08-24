@@ -30,10 +30,12 @@ import type {
   ProPlan,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { useTranslation } from "@/i18n";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -54,7 +56,21 @@ export interface AdjustPlanModalProps {
   onTierUpgraded?: () => void;
 }
 
-export function AdjustPlanModal({
+export function AdjustPlanModal(props: AdjustPlanModalProps) {
+  // Native Android reopens this configurator on the web app (the
+  // `adjust_plan` param seeds it there) instead of selling tiers in-app.
+  const handsOff = useAndroidBillingHandoff({
+    open: props.open,
+    path: `${routes.settings.usageBilling}&adjust_plan`,
+    onClose: props.onClose,
+  });
+  if (handsOff) {
+    return null;
+  }
+  return <AdjustPlanModalContent {...props} />;
+}
+
+function AdjustPlanModalContent({
   open,
   onClose,
   onTierUpgraded,

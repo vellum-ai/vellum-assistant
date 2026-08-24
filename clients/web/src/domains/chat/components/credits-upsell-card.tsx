@@ -4,8 +4,6 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { routes } from "@/utils/routes";
 import { useTranslation } from "@/i18n";
@@ -50,11 +48,6 @@ export function CreditsUpsellCard() {
   const isUpgrade = isFreePlan === true;
   const copy = isUpgrade ? UPGRADE_COPY : ADD_CREDITS_COPY;
 
-  // Native Android is consumption-only: purchase entry points (add credits,
-  // view plans) are hidden and the subtitle points at the website instead.
-  const isNativeAndroid = useIsNativeAndroid();
-  const subtitle = isNativeAndroid ? ANDROID_BILLING_MESSAGE : copy.subtitle;
-
   if (platformGate === "gated") {
     // Self-hosted active assistant: every recovery action the card could
     // offer targets the platform, so there is nothing useful to render.
@@ -78,20 +71,16 @@ export function CreditsUpsellCard() {
 
   return (
     <BillingErrorBanner
-      ariaLabel={`${copy.title}. ${subtitle}`}
+      ariaLabel={`${copy.title}. ${copy.subtitle}`}
       icon={<span className="text-lg opacity-80">💰</span>}
       title={copy.title}
-      subtitle={subtitle}
-      action={
-        isNativeAndroid
-          ? undefined
-          : {
-              label: copy.ctaLabel,
-              onClick: isUpgrade
-                ? () => void navigate(routes.plans)
-                : () => useAddCreditsModalStore.getState().setOpen(true),
-            }
-      }
+      subtitle={copy.subtitle}
+      action={{
+        label: copy.ctaLabel,
+        onClick: isUpgrade
+          ? () => void navigate(routes.plans)
+          : () => useAddCreditsModalStore.getState().setOpen(true),
+      }}
       detached={true}
     />
   );

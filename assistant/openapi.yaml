@@ -21254,8 +21254,9 @@ paths:
       summary: Import a .vbundle archive
       description:
         Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes
-        (application/octet-stream), multipart/form-data, or a JSON body with `{ url }` carrying a signed URL the daemon
-        fetches.
+        (application/octet-stream), multipart/form-data, a JSON body with `{ url }` carrying a signed URL the daemon
+        fetches, or a JSON body with `{ path }` pointing at a file staged under the workspace `.restore-staging`
+        directory.
       tags:
         - migrations
       requestBody:
@@ -21266,11 +21267,13 @@ paths:
               type: object
               properties:
                 url:
+                  description: A signed GCS URL pointing to the .vbundle archive (JSON body path only).
                   type: string
                   format: uri
-                  description: A signed GCS URL pointing to the .vbundle archive (JSON body path only).
-              required:
-                - url
+                path:
+                  description: Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response
@@ -21353,9 +21356,23 @@ paths:
     post:
       operationId: migrations_importpreflight_post
       summary: Dry-run import analysis
-      description: Validate a .vbundle archive and return a report of what would change on import without modifying data.
+      description:
+        Validate a .vbundle archive and return a report of what would change on import without modifying data.
+        Accepts raw bytes, multipart form data, or JSON `{ path }` pointing at a file staged under the workspace
+        `.restore-staging` directory.
       tags:
         - migrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  description: Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response

@@ -3,6 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
+import { noEmDash } from "./eslint-rules/no-em-dash.mjs";
 import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mjs";
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,23 @@ const i18nEnforcedPaths = [
   "src/domains/**/*.{ts,tsx}",
 ];
 
+/**
+ * Paths where em dashes are enforced. See root `AGENTS.md`, "Em Dashes".
+ *
+ * Deliberately short. `src/` carries roughly 8,000 pre-existing em dashes
+ * across some 1,500 files, and `AGENTS.md` says existing text is not swept
+ * retroactively, so this list holds only what is already clean or was cleaned
+ * in the same commit that added it. Entries are globs relative to
+ * `clients/web/`.
+ *
+ * To enroll an area: fix its em dashes, add the glob, run `bun run lint` until
+ * it is quiet. Never add a path with violations still in it.
+ */
+const emDashEnforcedPaths = [
+  "src/i18n/**/*.{ts,tsx}",
+  "src/domains/terminal/**/*.{ts,tsx}",
+];
+
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,
@@ -206,6 +224,7 @@ const eslintConfig = defineConfig([
       local: {
         rules: {
           "no-cross-domain-imports": noCrossDomainImports,
+          "no-em-dash": noEmDash,
           "no-untranslated-strings": noUntranslatedStrings,
         },
       },
@@ -291,6 +310,19 @@ const eslintConfig = defineConfig([
     files: i18nEnforcedPaths,
     rules: {
       "local/no-untranslated-strings": "error",
+    },
+  },
+  // -----------------------------------------------------------------------
+  // Em dash ratchet
+  //
+  // Same shape as the i18n ratchet above, and scoped for the same reason:
+  // repo-wide this reports thousands of pre-existing em dashes, which is how a
+  // rule gets switched off instead of obeyed. See `emDashEnforcedPaths` for
+  // how to enroll an area, and root `AGENTS.md` for the rule itself.
+  {
+    files: emDashEnforcedPaths,
+    rules: {
+      "local/no-em-dash": "error",
     },
   },
 ]);

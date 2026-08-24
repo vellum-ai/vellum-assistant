@@ -2,6 +2,7 @@
 
 #include "Base.xcconfig"
 
+APP_GROUP_ID = group.ai.vocify-inc.vellum-assistant-ios
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
 ASSOCIATED_DOMAIN = www.vellum.ai
 BUNDLE_DISPLAY_NAME = Vellum

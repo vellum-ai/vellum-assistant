@@ -209,7 +209,13 @@ export interface RestoredWindowState {
   y?: number;
   width: number;
   height: number;
-  fullscreen?: boolean;
+  /**
+   * Present only for a saved native-fullscreen session. Callers spread this
+   * into `BrowserWindow` options; Electron treats an explicit
+   * `fullscreen: false` as "hide the macOS fullscreen button", which drops
+   * `AXFullScreenButton` and makes Control+Command+F a no-op.
+   */
+  fullscreen?: true;
   maximized?: boolean;
 }
 
@@ -278,7 +284,7 @@ export const restoreBounds = (
     y,
     width,
     height,
-    fullscreen: saved.isFullScreen,
+    ...(saved.isFullScreen ? { fullscreen: true as const } : {}),
     ...(saved.isMaximized === undefined
       ? {}
       : { maximized: saved.isMaximized }),
@@ -300,9 +306,8 @@ export const restoreBounds = (
  * would leave a tiny window. `getNormalBounds()` also returns the
  * pre-minimize bounds when the window is minimized, so no special
  * handling is needed for the common macOS "minimize to dock, then
- * Cmd+Q" path. `isFullScreen()` is tracked separately and passed
- * through to the `BrowserWindow` constructor on restore, so the window
- * comes back in the same display mode it was left in.
+ * Cmd+Q" path. `isFullScreen()` is tracked separately; restore only
+ * forwards `fullscreen: true` so a windowed session stays fullscreenable.
  *
  * `shouldPersist` gates each save. It defaults to always-on, but callers
  * that reuse one window across multiple layouts (the main window's

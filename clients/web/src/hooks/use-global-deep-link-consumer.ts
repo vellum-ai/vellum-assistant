@@ -58,6 +58,11 @@ import { routes } from "@/utils/routes";
  *   up) is asked as a text turn when its provenance is proven and
  *   pre-fills the composer otherwise; no session starts for it either
  *   way. See below.
+ * - `deeplink.newChat` → `ensureMainWindowVisible()` +
+ *   `navigateToNewConversation()`, the Home Screen widgets' New Chat button.
+ * - `deeplink.openCamera` → `ensureMainWindowVisible()` + navigate to
+ *   `/assistant` + park the request in `usePendingDeepLinkStore` for the
+ *   composer's attachment layer to drain on mount (`useCameraDeepLink`).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -279,6 +284,26 @@ export function useGlobalDeepLinkConsumer(): void {
     // the server assigns it on `ready`.
     navigateRef.current(routes.assistant);
     requestVoiceStart();
+  });
+
+  // The Home Screen widgets' New Chat buttons. `navigateToNewConversation` is
+  // the same helper the in-app new-chat controls use, so the widget lands on a
+  // registered draft with the composer focused rather than on a route the app
+  // has no other way of reaching.
+  useBusSubscription("deeplink.newChat", () => {
+    void ensureMainWindowVisible();
+    navigateToNewConversation(navigateRef.current);
+  });
+
+  // The Quick Actions widget's camera button. The camera input belongs to the
+  // composer's attachment layer, which does not exist yet on a cold launch, so
+  // the request is parked in the same one-shot inbox the voice start uses and
+  // the composer drains it when it mounts (`useCameraDeepLink`). Landing on
+  // `routes.assistant` is what mounts that composer.
+  useBusSubscription("deeplink.openCamera", () => {
+    void ensureMainWindowVisible();
+    usePendingDeepLinkStore.getState().setPendingCamera();
+    navigateRef.current(routes.assistant);
   });
 
   useBusSubscription(

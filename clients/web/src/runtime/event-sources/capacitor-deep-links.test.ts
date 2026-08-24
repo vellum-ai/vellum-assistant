@@ -468,6 +468,62 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.openCamera and deeplink.newChat for the widget hosts", async () => {
+    const cameras: unknown[] = [];
+    const newChats: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubCamera = subscribe("deeplink.openCamera", (p) => {
+      cameras.push(p);
+    });
+    const unsubNewChat = subscribe("deeplink.newChat", (p) => {
+      newChats.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant://camera?src=intent" });
+      urlOpenHandler!({ url: "vellum-assistant://new-chat" });
+
+      // The marker is honored here because the mocked platform is iOS.
+      expect(cameras).toEqual([{ provenance: "intent" }]);
+      expect(newChats).toEqual([{ provenance: null }]);
+      expect(unknowns).toEqual([]);
+    } finally {
+      unsubCamera();
+      unsubNewChat();
+      unsubUnknown();
+    }
+  });
+
+  test("a look-alike scheme falls through to unknown rather than opening the camera", async () => {
+    const cameras: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubCamera = subscribe("deeplink.openCamera", (p) => {
+      cameras.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant-evil://camera" });
+
+      expect(cameras).toEqual([]);
+      expect(unknowns).toEqual([{ url: "vellum-assistant-evil://camera" }]);
+    } finally {
+      unsubCamera();
+      unsubUnknown();
+    }
+  });
+
   test("publishes deeplink.unknown on the bus for a non-OAuth URL", async () => {
     const received: { url: string }[] = [];
     const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {

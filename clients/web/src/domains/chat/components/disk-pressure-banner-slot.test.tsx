@@ -122,12 +122,12 @@ afterEach(() => {
 });
 
 describe("DiskPressureBannerSlot", () => {
-  test("native Android keeps storage management but hides the upgrade action", () => {
+  test("native Android keeps the storage upgrade action, same as iOS", () => {
     nativeAndroid = true;
     renderSlot();
 
     expect(screen.getByRole("button", { name: "Manage Storage" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Upgrade" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeTruthy();
   });
 
   test("web keeps the storage upgrade action", () => {

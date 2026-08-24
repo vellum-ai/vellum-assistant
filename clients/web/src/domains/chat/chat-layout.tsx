@@ -41,6 +41,7 @@ import {
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
+import { useNativeWidgetSnapshotSync } from "@/domains/chat/hooks/use-native-widget-snapshot-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import {
@@ -228,10 +229,11 @@ export function ChatLayout({
     isError: conversationsFailed,
     refetch: retryConversations,
   } = useConversationListQuery(assistantId, isAssistantActive);
-  const { conversationGroups } = useConversationGroupsQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  const {
+    conversationGroups,
+    isPending: isGroupsPending,
+    isError: groupsFailed,
+  } = useConversationGroupsQuery(assistantId, isAssistantActive);
 
   // Whether the transcript is on screen, resolved here because this is where
   // the route, the viewer and the viewport are all in hand. One owner, so
@@ -283,6 +285,26 @@ export function ChatLayout({
   useNativeRecentChatsSync(
     conversations,
     !isConversationListPending && !conversationsFailed,
+  );
+
+  // And into the iOS shell's widget snapshot, which backs the Home Screen
+  // widgets (unread and in-progress counts, the three most recent chats).
+  // No-op off Capacitor iOS, and resolved carries the same meaning it does
+  // for the recent-chats sync above: an unresolved `[]` would blank the
+  // widgets for as long as the list failed to load. It covers BOTH queries
+  // here, because the widget snapshot carries group subtitles as well as the
+  // rows, and the groups query serves its own `[]` fallback while pending,
+  // gated, or errored: either input resolving alone would overwrite a valid
+  // snapshot with one whose subtitles are all missing.
+  useNativeWidgetSnapshotSync(
+    assistantId,
+    conversations,
+    conversationGroups,
+    isAssistantActive,
+    !isConversationListPending &&
+      !conversationsFailed &&
+      !isGroupsPending &&
+      !groupsFailed,
   );
 
   // Header slots come from a module-level store so gated routes
