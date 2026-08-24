@@ -5725,7 +5725,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ));
     this.enqueueTtsAudioCue(turn.token, pcm);
     turn.progress.lastFloorHolderAtMs = Date.now();
-    this.markWorkingCuePlayed(turn);
   }
 
   // Generate and speak one audio-only progress narration. On a null result,
@@ -6529,6 +6528,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // a stale turn's late send from latching a newer turn.
       if (!sent) {
         return;
+      }
+      // Counted here rather than at enqueue: a cue queued behind earlier
+      // speech can be discarded by cancellation or a closing session before
+      // it is ever written, and a metric whose whole purpose is telling a
+      // turn that hummed from one that sat silent must not count a cue the
+      // caller did not hear. A cue is a single pre-buffered chunk, so this
+      // runs once per cue.
+      if (job.audioRole === "cue") {
+        const cueTurn = this.activeAssistantTurn;
+        if (cueTurn?.token === token) {
+          this.markWorkingCuePlayed(cueTurn);
+        }
       }
       // Extend the client playback-tail estimate by this chunk's PCM
       // duration (chunks queue gaplessly client-side, so the tail grows

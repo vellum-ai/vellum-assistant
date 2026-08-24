@@ -1431,6 +1431,35 @@ describe("LiveVoiceSession working cue", () => {
     });
   });
 
+  test("a cue the caller never heard is not counted", async () => {
+    // The counter exists to separate a turn that hummed through its silence
+    // from one that sat in it, so a cue discarded before it reached the wire
+    // must not inflate it. Interrupting mid-turn stops the frame from being
+    // written while the cue job is still queued.
+    const { frames, session, getCallbacks } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitMetrics: true,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await session.handleClientFrame({ type: "interrupt" });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event !== "turn_started",
+      ),
+    );
+
+    const terminal = frames.find(
+      (frame) => frame.type === "metrics" && frame.event !== "turn_started",
+    );
+    expect(terminal).toBeDefined();
+    // Omitted when zero, so absence is the assertion.
+    expect(terminal).not.toHaveProperty("workingCuesPlayed");
+    expect(cueFrames(frames).length).toBe(0);
+  });
+
   test("the cue's chunk enters the echo reference", async () => {
     const { frames, session, getCallbacks } = createProgressHarness({
       frontModelConfig: progressConfig({ enabled: false }),
