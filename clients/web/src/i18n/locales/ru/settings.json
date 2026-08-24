@@ -1282,6 +1282,7 @@
     "heading": "План",
     "loadError": "Не удалось загрузить план.",
     "loading": "Загрузка плана...",
+    "manageSubscription": "Управление подпиской",
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",
     "powerUpFor": "Усилить за +{amount}/мес",

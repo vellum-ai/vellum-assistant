@@ -1,7 +1,8 @@
 /**
  * Tests for the PlanCard: verifies the plan name, renewal text, the header's
- * "View All Plans" button, and the side-by-side current / next plan tiles
- * render correctly, plus the header button's navigation wiring. The card shows
+ * "View All Plans" and paid-only "Manage Subscription" buttons, and the
+ * side-by-side current / next plan tiles render correctly, plus the header
+ * buttons' navigation wiring. The card shows
  * no credit bundle label and no invoices button; invoices render in an inline
  * table on the billing page.
  *
@@ -494,6 +495,20 @@ describe("PlanCard", () => {
     expect(html).toContain("View All Plans");
   });
 
+  test("a base plan shows no Manage Subscription button", () => {
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    expect(html).not.toContain("plan-card-manage-subscription-button");
+    expect(html).not.toContain("Manage Subscription");
+  });
+
+  test("a paid Pro plan shows Manage Subscription beside View All Plans", () => {
+    const html = renderCard(proMightySubscription(), plansWithSuper());
+    expect(html).toContain("plan-card-manage-subscription-button");
+    expect(html).toContain("Manage Subscription");
+    expect(html).toContain("plan-card-plans-button");
+    expect(html).toContain("View All Plans");
+  });
+
   test("does not render the invoices button (moved to inline table)", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).not.toContain("plan-card-invoices-button");
@@ -726,6 +741,38 @@ describe("PlanCard action button", () => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
     });
     expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a Pro user's Manage Subscription click opens the plan-aware takeover", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("an empty catalog's Manage Subscription falls back to onManage", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      emptyCatalogPlans(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
   });
 
   test("an empty catalog falls back to onManage (AdjustPlanModal)", async () => {

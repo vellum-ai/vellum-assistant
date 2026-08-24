@@ -456,6 +456,12 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     (currentPlan.id === "base" ||
       isCleanPin(subscription.package) ||
       isPackageSwitchEligible(subscription));
+  // Shared by both header buttons: "Manage Subscription" is the name a paid
+  // Pro user scans for, but it leads to the same surface as "View All Plans",
+  // which is where a sub is changed or cancelled.
+  const handlePlansClick = canOpenPlansTakeover
+    ? () => navigate(routes.plans)
+    : onManage;
   // The next tile's one-click switch is offered to any switch-eligible Pro sub
   // (a clean pin, a customized pin, or an unpinned Custom sub), inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
@@ -571,16 +577,24 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
               </Typography>
             )}
           </div>
-          <Button
-            variant="outlined"
-            onClick={
-              canOpenPlansTakeover ? () => navigate(routes.plans) : onManage
-            }
-            data-testid="plan-card-plans-button"
-            className="shrink-0"
-          >
-            {t("planCard.viewAllPlans")}
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {!isFreePlan && (
+              <Button
+                variant="outlined"
+                onClick={handlePlansClick}
+                data-testid="plan-card-manage-subscription-button"
+              >
+                {t("planCard.manageSubscription")}
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              onClick={handlePlansClick}
+              data-testid="plan-card-plans-button"
+            >
+              {t("planCard.viewAllPlans")}
+            </Button>
+          </div>
         </div>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
           <PlanTile

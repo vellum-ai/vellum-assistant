@@ -1282,6 +1282,7 @@
     "heading": "Plan",
     "loadError": "No se pudo cargar el plan.",
     "loading": "Cargando plan...",
+    "manageSubscription": "Gestionar suscripción",
     "nextPlan": "Siguiente plan",
     "powerUp": "Potenciar",
     "powerUpFor": "Potenciar por +{amount}/mes",

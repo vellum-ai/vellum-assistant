@@ -1282,6 +1282,7 @@
     "heading": "Plan",
     "loadError": "Failed to load plan.",
     "loading": "Loading plan...",
+    "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",
     "powerUpFor": "Power Up for +{amount}/month",
