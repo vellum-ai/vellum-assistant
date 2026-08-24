@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DEFAULT_WORKING_CUE_SHAPE } from "../../live-voice/working-cue.js";
+
 export const VALID_LIVE_VOICE_MODES = ["ptt", "open-mic"] as const;
 
 export const LiveVoiceVadConfigSchema = z
@@ -78,9 +80,9 @@ export const LiveVoiceProgressConfigSchema = z
       .boolean({
         error: "liveVoice.frontModel.progress.enabled must be a boolean",
       })
-      .default(true)
+      .default(false)
       .describe(
-        "Speak short progress updates during long-running tool-heavy turns; the opt-out for progress narration",
+        "Speak short progress updates during long-running tool-heavy turns. Off by default: a working turn holds its silence with the wordless liveVoice.workingCue instead, which says the same thing without making a claim the user has to listen to. Turning this on replaces the cue with spoken narration.",
       ),
     opsThreshold: z
       .number({
@@ -168,6 +170,50 @@ export const LiveVoiceProgressConfigSchema = z
   })
   .describe(
     "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
+  );
+
+export const LiveVoiceWorkingCueConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "liveVoice.workingCue.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Hold a working turn's silence with a short wordless tone; the opt-out for the working cue. Disabling it leaves the turn silent unless liveVoice.frontModel.progress.enabled speaks instead.",
+      ),
+    intervalMs: z
+      .number({ error: "liveVoice.workingCue.intervalMs must be a number" })
+      .int("liveVoice.workingCue.intervalMs must be an integer")
+      .positive("liveVoice.workingCue.intervalMs must be a positive integer")
+      .default(12_000)
+      .describe(
+        "Audible silence (ms) between cues while a turn works. This is a cadence for punctuation, not for speech, so it can sit far below what a spoken update would tolerate",
+      ),
+    frequencyHz: z
+      .number({ error: "liveVoice.workingCue.frequencyHz must be a number" })
+      .positive("liveVoice.workingCue.frequencyHz must be a positive number")
+      .default(DEFAULT_WORKING_CUE_SHAPE.frequencyHz)
+      .describe(
+        "Fundamental (Hz) of the cue tone. Low reads as a hum under the call, high as a notification chime",
+      ),
+    durationMs: z
+      .number({ error: "liveVoice.workingCue.durationMs must be a number" })
+      .int("liveVoice.workingCue.durationMs must be an integer")
+      .positive("liveVoice.workingCue.durationMs must be a positive integer")
+      .default(DEFAULT_WORKING_CUE_SHAPE.durationMs)
+      .describe(
+        "Length (ms) of the cue tone, fades included. Short enough to read as punctuation rather than as audio the user is meant to attend to",
+      ),
+    gain: z
+      .number({ error: "liveVoice.workingCue.gain must be a number" })
+      .min(0, "liveVoice.workingCue.gain must be between 0 and 1")
+      .max(1, "liveVoice.workingCue.gain must be between 0 and 1")
+      .default(DEFAULT_WORKING_CUE_SHAPE.gain)
+      .describe(
+        "Peak amplitude (0..1) of the cue tone. Well below speech so it sits under the call",
+      ),
+  })
+  .describe(
+    "Working-cue tuning for live voice sessions (the wordless tone that holds a long turn's silence)",
   );
 
 export const LiveVoiceFrontModelConfigSchema = z
@@ -281,6 +327,9 @@ export const LiveVoiceConfigSchema = z
     frontModel: LiveVoiceFrontModelConfigSchema.default(
       LiveVoiceFrontModelConfigSchema.parse({}),
     ),
+    workingCue: LiveVoiceWorkingCueConfigSchema.default(
+      LiveVoiceWorkingCueConfigSchema.parse({}),
+    ),
     flux: LiveVoiceFluxConfigSchema.default(
       LiveVoiceFluxConfigSchema.parse({}),
     ),
@@ -312,5 +361,8 @@ export type LiveVoiceFrontModelConfig = z.infer<
 >;
 export type LiveVoiceProgressConfig = z.infer<
   typeof LiveVoiceProgressConfigSchema
+>;
+export type LiveVoiceWorkingCueConfig = z.infer<
+  typeof LiveVoiceWorkingCueConfigSchema
 >;
 export type LiveVoiceFluxConfig = z.infer<typeof LiveVoiceFluxConfigSchema>;

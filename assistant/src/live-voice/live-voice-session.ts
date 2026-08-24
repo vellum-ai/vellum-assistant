@@ -36,6 +36,8 @@ import {
   LiveVoiceFluxConfigSchema,
   type LiveVoiceFrontModelConfig,
   LiveVoiceFrontModelConfigSchema,
+  type LiveVoiceWorkingCueConfig,
+  LiveVoiceWorkingCueConfigSchema,
 } from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
@@ -132,6 +134,7 @@ import {
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
 } from "./protocol.js";
+import { renderWorkingCuePcm } from "./working-cue.js";
 
 const log = getLogger("live-voice-session");
 
@@ -354,6 +357,13 @@ export interface LiveVoiceSessionOptions {
    * schema-parses the partial into a complete config).
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+  /**
+   * Working-cue tuning: the wordless tone that holds a long turn's silence.
+   * The production factory seeds this from `liveVoice.workingCue` config when
+   * unset; absent fields fall back to the schema defaults, which leave the cue
+   * on.
+   */
+  workingCueConfig?: Partial<LiveVoiceWorkingCueConfig>;
   /**
    * Deepgram Flux turn-detection tuning. The production factory seeds this
    * from `liveVoice.flux` config when unset; absent fields fall back to the
@@ -1310,6 +1320,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // option once, so every field carries its `liveVoice.frontModel` schema
   // default when unset.
   private readonly frontModelConfig: LiveVoiceFrontModelConfig;
+  // Complete working-cue tunables (the constructor schema-parses the partial
+  // option once, so every field carries its `liveVoice.workingCue` default).
+  private readonly workingCueConfig: LiveVoiceWorkingCueConfig;
+  // The session's rendered cue, built on first use. The output sample rate is
+  // whatever the start frame asked for and never changes, so one render
+  // serves every cue the session plays.
+  private workingCuePcm: Buffer | null = null;
   // Complete Flux tunables (the constructor schema-parses the partial option
   // once, so every field carries its `liveVoice.flux` schema default).
   private readonly fluxConfig: LiveVoiceFluxConfig;
@@ -1407,6 +1424,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.progressNarrator = options.progressNarrator ?? null;
     this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
       options.frontModelConfig ?? {},
+    );
+    this.workingCueConfig = LiveVoiceWorkingCueConfigSchema.parse(
+      options.workingCueConfig ?? {},
     );
     this.fluxConfig = LiveVoiceFluxConfigSchema.parse(options.fluxConfig ?? {});
     const turnDetectorConfig: TurnDetectorConfig = {
@@ -3613,11 +3633,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!alreadyReleased) {
       void this.releaseUtterance();
     }
-    if (
-      this.frontModelConfig.progress.enabled &&
-      this.streamTtsAudio &&
-      this.progressNarrator
-    ) {
+    if (this.canHoldFloorWhileWorking()) {
       this.armProgressIdleTimer(turn);
     }
     return true;
@@ -4662,16 +4678,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }, this.frontModelConfig.endpointDecisionTimeoutMs);
     }
 
-    // Progress narration speaks into the turn's audible dead air on a
-    // cadence, wherever in the turn it occurs; without TTS or a narrator there
-    // is nothing to speak (the idle trigger's static fallback still needs a
-    // generation attempt to fall back from).
-    if (
-      this.frontModelConfig.progress.enabled &&
-      this.streamTtsAudio &&
-      this.progressNarrator &&
-      !opts?.speculative
-    ) {
+    // The floor-holder plays into the turn's audible dead air on a cadence,
+    // wherever in the turn it occurs.
+    if (this.canHoldFloorWhileWorking() && !opts?.speculative) {
       this.armProgressIdleTimer(activeTurn);
     }
 
@@ -5289,16 +5298,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     // Escalated legs run the slowest work in the system (strong-model
     // thinking + tool loops), and the bridge only covers the first couple of
-    // seconds of it — exactly the dead air progress narration exists for.
-    // Re-arm the idle narration timer (cleared above with the ack): its
-    // audible-silence gating means nothing speaks until the bridge audio has
-    // fully drained plus a whole idle interval. Acks stay suppressed
-    // post-handoff — the bridge already served that role.
-    if (
-      this.frontModelConfig.progress.enabled &&
-      this.streamTtsAudio &&
-      this.progressNarrator
-    ) {
+    // seconds of it — exactly the dead air the floor-holder exists for.
+    // Re-arm the idle timer (cleared above with the ack): its audible-silence
+    // gating means nothing plays until the bridge audio has fully drained plus
+    // a whole idle interval. Acks stay suppressed post-handoff — the bridge
+    // already served that role.
+    if (this.canHoldFloorWhileWorking()) {
       this.armProgressIdleTimer(activeTurn);
     }
   }
@@ -5376,15 +5381,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn.deltaEpoch += 1;
   }
 
-  // Arms (or re-arms) the dead-air narration timer. The countdown measures
-  // audible silence — time since the turn's audio last (estimatedly) reached
-  // the user's ears — not time since launch, so it covers mid-turn silences
-  // for the whole turn. On expiry with audio still pending, or with the
-  // silence not yet a full interval old, it re-arms for the remainder; only a
-  // full interval of audible silence reaches the narration gatekeeper. The
-  // interval is a polling cadence, not a speaking cadence: most ticks find
-  // nothing new to report and stay quiet, so what the user hears follows the
-  // turn's tool activity (with `maxSilenceMs` as the heartbeat ceiling).
+  // Arms (or re-arms) the dead-air timer. The countdown measures audible
+  // silence — time since the turn's audio last (estimatedly) reached the
+  // user's ears — not time since launch, so it covers mid-turn silences for
+  // the whole turn. On expiry with audio still pending, or with the silence
+  // not yet a full interval old, it re-arms for the remainder; only a full
+  // interval of audible silence reaches the floor-holder gatekeeper.
+  //
+  // For the working cue the interval is the cue's own cadence: silence is the
+  // whole question it answers, so every tick that finds the turn quiet plays
+  // one. For spoken narration it is a polling cadence rather than a speaking
+  // cadence: most ticks find nothing new to report and stay quiet, so what
+  // the user hears follows the turn's tool activity (with `maxSilenceMs` as
+  // the heartbeat ceiling).
   private armProgressIdleTimer(
     turn: ActiveAssistantTurn,
     delayMs?: number,
@@ -5409,14 +5418,35 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       this.maybeNarrateProgress(turn, "idle");
       this.armProgressIdleTimer(turn);
-    }, delayMs ?? this.frontModelConfig.progress.idleIntervalMs);
+    }, delayMs ?? this.floorHolderIntervalMs);
   }
 
   // Wall-clock instant the current audible silence turns a full interval old.
   private progressIdleDeadlineMs(turn: ActiveAssistantTurn): number {
+    return this.progressSilenceSinceMs(turn) + this.floorHolderIntervalMs;
+  }
+
+  // Cadence of whichever floor-holder is configured, and so the resolution of
+  // every silence measurement built on the idle tick. The two are paced
+  // separately on purpose: a tone every few seconds is punctuation, while a
+  // sentence every few seconds is the chatter this design exists to remove.
+  private get floorHolderIntervalMs(): number {
+    return this.workingCueConfig.enabled
+      ? this.workingCueConfig.intervalMs
+      : this.frontModelConfig.progress.idleIntervalMs;
+  }
+
+  // Whether the idle tick has anything to play, and so whether arming it is
+  // worth a timer at all. The cue needs only the TTS path; spoken narration
+  // also needs a narrator to generate from, since its static phrase is what a
+  // failed generation falls back to rather than a substitute for one.
+  private canHoldFloorWhileWorking(): boolean {
+    if (!this.streamTtsAudio) {
+      return false;
+    }
     return (
-      this.progressSilenceSinceMs(turn) +
-      this.frontModelConfig.progress.idleIntervalMs
+      this.workingCueConfig.enabled ||
+      (this.frontModelConfig.progress.enabled && this.progressNarrator !== null)
     );
   }
 
@@ -5506,29 +5536,70 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return false;
   }
 
-  // Gatekeeper for progress narration. It speaks only while the turn is
-  // audibly silent, with one generation at a time and the configured spacing.
+  // Gatekeeper for the turn's mid-work floor-holder. It plays only while the
+  // turn is audibly silent, one at a time and with the configured spacing.
   private maybeNarrateProgress(
     turn: ActiveAssistantTurn,
     trigger: "ops" | "idle" | "op_complete",
   ): void {
     const cfg = this.frontModelConfig.progress;
     const { progress } = turn;
-    const progressNarrator = this.progressNarrator;
     if (
-      !cfg.enabled ||
       !this.streamTtsAudio ||
-      !progressNarrator ||
       !this.turnCanNarrateProgress(turn) ||
       progress.narrationInFlight ||
       (progress.lastFloorHolderAtMs !== null &&
-        Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs) ||
+        Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs)
+    ) {
+      return;
+    }
+
+    if (this.workingCueConfig.enabled) {
+      // The cue answers "am I still here", which is a question about silence
+      // and not about tool activity. A tool starting or finishing changes
+      // nothing a wordless tone could carry, so the activity triggers say
+      // nothing and only the idle tick plays it.
+      if (trigger === "idle") {
+        this.playWorkingCue(turn);
+      }
+      return;
+    }
+
+    const progressNarrator = this.progressNarrator;
+    if (
+      !cfg.enabled ||
+      !progressNarrator ||
       (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||
       (trigger === "idle" && !this.progressIdleHasSomethingToSay(turn))
     ) {
       return;
     }
     void this.speakProgressUpdate(turn, progressNarrator, trigger);
+  }
+
+  // Play one working cue into the turn's silence. It holds the floor exactly
+  // as a spoken filler does, so the next tick spaces from it and the cadence
+  // is silence-to-silence rather than start-to-start.
+  //
+  // The audio is rendered on first use: the output sample rate is fixed for
+  // the session's life, so one render serves every cue it plays.
+  private playWorkingCue(turn: ActiveAssistantTurn): void {
+    const pcm = (this.workingCuePcm ??= renderWorkingCuePcm(
+      this.context.startFrame.audio.sampleRate,
+      {
+        frequencyHz: this.workingCueConfig.frequencyHz,
+        durationMs: this.workingCueConfig.durationMs,
+        gain: this.workingCueConfig.gain,
+      },
+    ));
+    if (pcm.byteLength === 0) {
+      // A shape that rounds to no frames at this sample rate. Enqueuing it
+      // would send an empty frame and still take the floor for a full
+      // interval, which is worse than skipping the tick.
+      return;
+    }
+    this.enqueueTtsAudioCue(turn.token, pcm);
+    turn.progress.lastFloorHolderAtMs = Date.now();
   }
 
   // Generate and speak one audio-only progress narration. On a null result,
@@ -5967,6 +6038,58 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // defeat the hold.
       return;
     }
+    activeTurn.ttsQueue = activeTurn.ttsQueue
+      .catch(() => {})
+      .then(() => this.emitTtsJob(token, job));
+  }
+
+  /**
+   * Enqueue rendered audio as a segment job. The bytes are already in hand, so
+   * the job is constructed `started` with its chunks pre-buffered and a
+   * resolved `synthesis`: `emitTtsJob` then promotes, flushes, and settles it
+   * exactly like a synthesized segment, with no change to the pump or the
+   * emission chain.
+   */
+  private enqueueTtsAudioCue(token: symbol, pcm: Buffer): void {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token || !this.streamTtsAudio) {
+      return;
+    }
+    const job: TtsSegmentJob = {
+      // Nothing synthesizes this job, so the only consumer of `text` (the
+      // provider dispatch in pumpTtsSynthesis) never sees it.
+      text: "",
+      language: undefined,
+      // The cue belongs to no model text block, so no block-scoped promotion
+      // or retraction can reach it.
+      blockSeq: NON_BLOCK_TTS_SEQ,
+      started: true,
+      settled: false,
+      emitting: false,
+      // The cue exists to be heard right now: holding one would be holding
+      // the very silence it was played to fill.
+      held: false,
+      cancelled: false,
+      abort: new AbortController(),
+      bufferedChunks: [
+        {
+          type: "tts_audio",
+          // Bare `audio/pcm` at the session rate is exactly what
+          // appendEchoReference accepts. Get either wrong and the cue still
+          // plays, but the echo canceller never learns the hum was us, so
+          // every cue reads as the user speaking over the assistant and the
+          // cadence becomes a periodic barge-in.
+          contentType: "audio/pcm",
+          sampleRate: this.context.startFrame.audio.sampleRate,
+          dataBase64: pcm.toString("base64"),
+        },
+      ],
+      synthesis: Promise.resolve(),
+      frames: Promise.resolve(),
+    };
+    activeTurn.ttsJobs.push(job);
+    // `ttsSegmentEnqueued` stays where it was: the eager first-clause flush is
+    // for the model's opening words, and a cue must not spend it.
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
       .then(() => this.emitTtsJob(token, job));
@@ -6713,6 +6836,8 @@ export function createLiveVoiceSession(
       options.echoEmaHalfLifeMs ?? vadConfig?.echoEmaHalfLifeMs,
     echoDrainSlackMs: options.echoDrainSlackMs ?? vadConfig?.echoDrainSlackMs,
     frontModelConfig,
+    // Absent config leaves the schema defaults, which keep the cue on.
+    workingCueConfig: options.workingCueConfig ?? liveVoiceConfig?.workingCue,
     // Absent config leaves the schema defaults, which keep provider turn
     // detection off.
     fluxConfig: options.fluxConfig ?? liveVoiceConfig?.flux,
