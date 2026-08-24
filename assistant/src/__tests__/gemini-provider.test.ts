@@ -773,6 +773,59 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("splits functionResponse from following text in a user Content", async () => {
+    fakeChunks = [textChunk("Done"), finishChunk("STOP", 20, 10)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_split",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_split",
+            content: "file content here",
+          },
+          { type: "text", text: "Summarize that." },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<Record<string, unknown>>;
+    }>;
+    expect(contents).toHaveLength(4);
+    expect(contents[2]).toMatchObject({
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "file_read",
+            response: { output: "file content here" },
+          },
+        },
+      ],
+    });
+    expect(contents[3]).toEqual({
+      role: "user",
+      parts: [{ text: "Summarize that." }],
+    });
+  });
+
   function toolResultWithAudio(mediaType: string, data: string): Message[] {
     return [
       { role: "user", content: [{ type: "text", text: "Read clip" }] },

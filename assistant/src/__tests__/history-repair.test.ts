@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { deepRepairHistory } from "../agent/history-repair/history-repair.js";
-import { isRepairableOrderingError } from "../agent/history-repair/history-repair.js";
-import { repairHistory } from "../agent/history-repair/history-repair.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+  isUserTerminalHistoryError,
+  repairHistory,
+} from "../agent/history-repair/history-repair.js";
 import type { Message } from "../providers/types.js";
 
 describe("repairHistory", () => {
@@ -1172,6 +1175,66 @@ describe("deepRepairHistory", () => {
     expect(repaired[1].content[0]).toEqual({ type: "text", text: "Hi" });
   });
 
+  test("removes blank text messages so blank assistant tails become user-terminal", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "  \n" }] },
+      { role: "user", content: [{ type: "text", text: "Continue" }] },
+      { role: "assistant", content: [{ type: "text", text: "" }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    expect(repaired).toHaveLength(1);
+    expect(repaired[0].role).toBe("user");
+    expect(repaired[0].content).toEqual([
+      { type: "text", text: "Hello" },
+      { type: "text", text: "Continue" },
+    ]);
+  });
+
+  test("preserves a non-empty assistant tail by default", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    expect(repaired).toEqual(messages);
+  });
+
+  test("drops a non-empty assistant tail when user-terminal history is required", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages, {
+      requireUserTerminal: true,
+    });
+
+    expect(repaired).toEqual([messages[0]]);
+  });
+
+  test("drops multiple trailing assistant messages and allows an assistant-only history to empty", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "One" }] },
+      { role: "assistant", content: [{ type: "text", text: "Two" }] },
+    ];
+
+    const { messages: repaired } = deepRepairHistory(messages, {
+      requireUserTerminal: true,
+    });
+
+    expect(repaired).toEqual([messages[0]]);
+    expect(
+      deepRepairHistory(messages.slice(1), { requireUserTerminal: true })
+        .messages,
+    ).toEqual([]);
+  });
+
   test("applies standard repair after deep pass", () => {
     // Consecutive assistant messages with tool_use but missing tool_result
     const messages: Message[] = [
@@ -1240,6 +1303,16 @@ describe("isRepairableOrderingError", () => {
         "Invalid parameter: 'tool_call_id' of 'call_abc123' not found in 'tool_calls' of previous message.",
       ),
     ).toBe(true);
+  });
+
+  test("matches user-terminal history rejections", () => {
+    const message = "Requests ending with a model turn are not supported.";
+
+    expect(isRepairableOrderingError(message)).toBe(true);
+    expect(isUserTerminalHistoryError(message)).toBe(true);
+    expect(
+      isUserTerminalHistoryError("The provider returned an unrelated error"),
+    ).toBe(false);
   });
 
   test("does not match unrelated provider errors", () => {

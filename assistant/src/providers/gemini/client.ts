@@ -721,7 +721,18 @@ export class GeminiProvider implements Provider {
         role,
       );
       if (parts.length > 0) {
-        result.push({ role, parts });
+        const functionResponseParts = parts.filter(
+          (part) => part.functionResponse !== undefined,
+        );
+        const otherParts = parts.filter(
+          (part) => part.functionResponse === undefined,
+        );
+        if (functionResponseParts.length > 0 && otherParts.length > 0) {
+          result.push({ role, parts: functionResponseParts });
+          result.push({ role, parts: otherParts });
+        } else {
+          result.push({ role, parts });
+        }
       }
       // Gemini requires that a Content with functionResponse parts must not
       // contain non-functionResponse parts. Emit tool-result images in a
