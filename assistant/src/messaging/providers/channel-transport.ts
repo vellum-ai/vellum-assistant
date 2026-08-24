@@ -1,7 +1,7 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
-  SlackStreamOp,
+  StreamOp,
 } from "@vellumai/gateway-client";
 
 import type { AssistantActivityPhase } from "../../api/index.js";
@@ -132,14 +132,35 @@ export interface ChannelTransport {
   readonly activityRefreshMs?: number;
 
   /**
-   * Advance a streamed reply: open it, add to it, or close it.
+   * Advance a reply that grows while the turn runs: open it, add to it, or end
+   * it.
    *
-   * A channel that can only post a finished message omits this, and the
-   * caller falls back to delivering the reply whole.
+   * A channel with no primitive for this omits the method, and the caller
+   * sends the finished reply instead. Omitting it is the correct answer for a
+   * platform that offers nothing here rather than a gap to paper over: a
+   * channel is not made to simulate streaming by rewriting a sent message,
+   * which is both a worse experience and, on Telegram, discouraged by the
+   * platform that does offer one.
+   *
+   * What the channel leaves behind when the stream ends is its own business.
+   * Slack finalizes the streamed message in place; Telegram's live draft
+   * expires and the reply is persisted by an ordinary send. `stop` carries the
+   * complete reply so either can be true.
    */
   streamReply?(
     ctx: CallbackContext,
     chatId: string,
-    op: SlackStreamOp,
+    op: StreamOp,
   ): Promise<ChannelDeliveryResult>;
+
+  /**
+   * Shortest gap this channel accepts between stream operations, for a caller
+   * deciding when to flush.
+   *
+   * Declared rather than assumed, the way `activityRefreshMs` is: the pace is
+   * a property of the platform's own limits, and a caller that had to know
+   * which channel it was talking to in order to pace itself would be back to
+   * asking by name.
+   */
+  readonly streamMinIntervalMs?: number;
 }

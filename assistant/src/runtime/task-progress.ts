@@ -1,22 +1,16 @@
-import type { SlackStreamTask } from "@vellumai/gateway-client";
+import type { StreamPlan, StreamPlanStep } from "@vellumai/gateway-client";
 
 import { coerceSurfaceDataRecord } from "../api/surfaces.js";
 
 /**
- * A single step of a `task_progress` UI surface: an ordered, status-bearing
- * unit of work the assistant reports while a turn runs.
+ * A `task_progress` surface, read into the plan shape a growing reply carries.
+ *
+ * Aliases rather than redeclares: the outbound contract already names this
+ * shape, every channel that draws a plan receives it, and a second definition
+ * here would be the same fields under a second name waiting to drift.
  */
-export type TaskProgressStep = {
-  label: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-  detail?: string;
-};
-
-export type TaskProgressData = {
-  /** Plan title shown above the steps (e.g. "Q2 Launch Plan"). */
-  title?: string;
-  steps: TaskProgressStep[];
-};
+export type TaskProgressStep = StreamPlanStep;
+export type TaskProgressData = StreamPlan;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -122,34 +116,4 @@ export function mergeTaskProgressData(
     steps: existing.steps,
     ...(isRecord(data.templateData) ? data.templateData : {}),
   });
-}
-
-const TASK_PROGRESS_STATUS_TO_SLACK: Record<
-  TaskProgressStep["status"],
-  SlackStreamTask["status"]
-> = {
-  pending: "pending",
-  in_progress: "in_progress",
-  completed: "complete",
-  failed: "error",
-};
-
-/**
- * Map ordered `task_progress` steps onto Slack streaming task cards. Step
- * position supplies the stable card `id` (a step keeps its index across
- * updates), the label becomes the card title, the step detail becomes the
- * card details, and the surface status maps onto Slack's task-card status
- * vocabulary.
- *
- * @see https://docs.slack.dev/ai/developing-agents
- */
-export function toSlackStreamTasks(
-  progress: TaskProgressData,
-): SlackStreamTask[] {
-  return progress.steps.map((step, index) => ({
-    id: `task-${index}`,
-    title: step.label,
-    status: TASK_PROGRESS_STATUS_TO_SLACK[step.status],
-    ...(step.detail ? { details: step.detail } : {}),
-  }));
 }
