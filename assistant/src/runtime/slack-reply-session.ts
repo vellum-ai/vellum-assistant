@@ -370,31 +370,47 @@ export function createSlackReplySession(params: {
    * publishes `ui_surface_show`, but that goes to the conversation sink, which
    * no channel consumes.
    *
+   * A call is held until its result reports success. A `tool_use_start` is an
+   * intention: the surface tool rejects a stale `surface_id` or a malformed
+   * payload, so applying one on sight would show a plan the canonical surface
+   * refused.
+   *
    * `ui_show` carries no surface id in its input, since the id is minted when
    * the tool runs, so a later `ui_update` cannot be matched to the card it
-   * targets. One plan per turn is tracked instead, which is what the previous
-   * shape collapsed to anyway: it kept a map and always rendered whichever
-   * entry was touched last.
+   * targets. One plan per turn is tracked instead, which is what a map keyed by
+   * surface id collapsed to in practice: whichever entry was touched last was
+   * the one rendered.
    */
-  const observeTaskProgressTool = (msg: AssistantEvent): void => {
-    if (msg.type !== "tool_use_start") {
+  const pendingProgressByToolUseId = new Map<string, TaskProgressData>();
+
+  const observeTaskProgressToolStart = (msg: AssistantEvent): void => {
+    if (msg.type !== "tool_use_start" || !msg.toolUseId) {
       return;
     }
-    if (msg.toolName === "ui_show") {
-      const progress = getTaskProgressDataFromToolInput(msg.input);
-      if (!progress) {
-        return;
-      }
-      activeProgress = progress;
-    } else if (msg.toolName === "ui_update") {
-      const progress = mergeTaskProgressData(activeProgress, msg.input.data);
-      if (!progress) {
-        return;
-      }
-      activeProgress = progress;
-    } else {
+    const progress =
+      msg.toolName === "ui_show"
+        ? getTaskProgressDataFromToolInput(msg.input)
+        : msg.toolName === "ui_update"
+          ? mergeTaskProgressData(activeProgress, msg.input.data)
+          : undefined;
+    if (progress) {
+      pendingProgressByToolUseId.set(msg.toolUseId, progress);
+    }
+  };
+
+  const observeTaskProgressToolResult = (msg: AssistantEvent): void => {
+    if (msg.type !== "tool_result" || !msg.toolUseId) {
       return;
     }
+    const pending = pendingProgressByToolUseId.get(msg.toolUseId);
+    if (!pending) {
+      return;
+    }
+    pendingProgressByToolUseId.delete(msg.toolUseId);
+    if (msg.isError === true) {
+      return;
+    }
+    activeProgress = pending;
     scheduleFlush();
   };
 
@@ -405,7 +421,10 @@ export function createSlackReplySession(params: {
       }
 
       if (msg.type === "tool_use_start") {
-        observeTaskProgressTool(msg);
+        observeTaskProgressToolStart(msg);
+      }
+      if (msg.type === "tool_result") {
+        observeTaskProgressToolResult(msg);
       }
       if (msg.type === "assistant_text_delta") {
         if (pendingSegmentBoundary && msg.text.length > 0) {
