@@ -1,6 +1,18 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, useEffect } from "react";
+import {
+  MemoryRouter,
+  Outlet,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+} from "react-router";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+import { routes } from "@/utils/routes";
 
 // The viewfinder itself is covered by `camera-capture-overlay.test.tsx`; this
 // suite is about the park-and-drain that raises it, so the surface is stubbed
@@ -22,14 +34,16 @@ mock.module(
   }),
 );
 
-const { PENDING_CAMERA_TTL_MS, useCameraDeepLink } = await import(
-  "@/domains/chat/components/chat-attachments/use-camera-deep-link"
-);
+const { PENDING_CAMERA_TTL_MS, useCameraDeepLink } =
+  await import("@/domains/chat/components/chat-attachments/use-camera-deep-link");
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useGlobalDeepLinkConsumer } =
+  await import("@/hooks/use-global-deep-link-consumer");
+const { __resetForTesting, publish } = await import("@/lib/event-bus");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 const onFiles = mock((_files: File[]) => {});
 
@@ -185,5 +199,113 @@ describe("useCameraDeepLink", () => {
     rerender(createElement(Host, { enabled: true }));
 
     expect(surface()).not.toBeNull();
+  });
+});
+
+/**
+ * The camera link end to end, over a route tree shaped like the real one.
+ *
+ * The bare `/assistant` index is the trap: `useConversationLoader` replace
+ * navigates off it to a conversation key the moment it mounts, which swaps the
+ * leaf element and remounts the composer. The overlay lives in composer-local
+ * state, so a link that lands there raises a viewfinder and loses it a beat
+ * later. `LoaderIndex` below is that redirect, so any landing that touches the
+ * index fails these tests the way it fails on a phone.
+ */
+describe("the camera link across the app's landings", () => {
+  function LoaderIndex() {
+    const navigate = useNavigate();
+    useEffect(() => {
+      void navigate(routes.conversation("loaded-1"), { replace: true });
+    }, [navigate]);
+    return null;
+  }
+
+  function ComposerRoute() {
+    const { conversationId } = useParams();
+    const { overlayNode } = useCameraDeepLink({ onFiles, enabled: true });
+    return (
+      <div data-testid="composer" data-conversation-id={conversationId}>
+        {overlayNode}
+      </div>
+    );
+  }
+
+  function Shell() {
+    useGlobalDeepLinkConsumer();
+    return <Outlet />;
+  }
+
+  const renderAt = (initialPath: string) =>
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route path={routes.assistant} element={<Shell />}>
+              <Route index element={<LoaderIndex />} />
+              <Route
+                path="conversations/:conversationId"
+                element={<ComposerRoute />}
+              />
+              <Route path="settings" element={<div />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  const landedConversationId = () =>
+    screen.getByTestId("composer").getAttribute("data-conversation-id");
+
+  beforeEach(() => {
+    __resetForTesting();
+    useConversationStore.getState().reset();
+  });
+
+  afterEach(() => {
+    __resetForTesting();
+    useConversationStore.getState().reset();
+  });
+
+  test("a tap with the composer already up keeps the conversation and the viewfinder", async () => {
+    renderAt(routes.conversation("A"));
+
+    await act(async () => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(surface()).not.toBeNull();
+    expect(landedConversationId()).toBe("A");
+  });
+
+  test("a tap from elsewhere opens the camera on a fresh conversation", async () => {
+    renderAt(`${routes.assistant}/settings`);
+
+    await act(async () => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(surface()).not.toBeNull();
+    // The draft the link minted, not the key the index route redirects to.
+    expect(landedConversationId()).not.toBe("loaded-1");
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      landedConversationId(),
+    );
+  });
+
+  test("a second tap does not raise a second camera", async () => {
+    renderAt(routes.conversation("A"));
+
+    await act(async () => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(screen.getAllByTestId("camera-surface")).toHaveLength(1);
+    expect(landedConversationId()).toBe("A");
   });
 });

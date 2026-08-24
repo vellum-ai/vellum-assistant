@@ -70,13 +70,14 @@ export function useCameraDeepLink({
     if (!enabled || pendingCameraAt === null) {
       return;
     }
-    // Consumed whatever the age: an expired park is spent, not left to be
-    // drained by a later mount.
-    if (
-      !usePendingDeepLinkStore
+    const consume = () =>
+      usePendingDeepLinkStore
         .getState()
-        .consumePendingCamera(PENDING_CAMERA_TTL_MS)
-    ) {
+        .consumePendingCamera(PENDING_CAMERA_TTL_MS);
+    // Spent whatever the age: an expired park is not left behind for a later
+    // mount to drain.
+    if (Date.now() - pendingCameraAt > PENDING_CAMERA_TTL_MS) {
+      consume();
       return;
     }
     // A running call owns the camera. `useVoiceCamera` is a hook over one
@@ -94,9 +95,14 @@ export function useCameraDeepLink({
     // open": nothing publishes the latter, since it lives in the room's own
     // `useVoiceCamera` instance.
     if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+      consume();
       return;
     }
+    // Consumed last, after the surface is actually raised: everything above is
+    // a reason to spend the request deliberately, and nothing between here and
+    // the park can fail with the command silently gone.
     setCaptureOpen(true);
+    consume();
   }, [enabled, pendingCameraAt]);
 
   const closeCapture = useCallback(() => setCaptureOpen(false), []);

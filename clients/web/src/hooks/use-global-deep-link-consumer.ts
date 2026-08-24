@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -22,7 +22,7 @@ import {
   navigateToNewConversation,
   revealConversationView,
 } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import { isConversationChatPath, routes } from "@/utils/routes";
 
 /**
  * Global deep-link consumer — mounted at `RootLayout` so it's alive
@@ -60,9 +60,10 @@ import { routes } from "@/utils/routes";
  *   way. See below.
  * - `deeplink.newChat` → `ensureMainWindowVisible()` +
  *   `navigateToNewConversation()`, the Home Screen widgets' New Chat button.
- * - `deeplink.openCamera` → `ensureMainWindowVisible()` + navigate to
- *   `/assistant` + park the request in `usePendingDeepLinkStore` for the
- *   composer's attachment layer to drain on mount (`useCameraDeepLink`).
+ * - `deeplink.openCamera` → `ensureMainWindowVisible()` + park the request in
+ *   `usePendingDeepLinkStore` for the composer's attachment layer to drain
+ *   (`useCameraDeepLink`), then stay put on a conversation route or land on a
+ *   fresh draft from anywhere else.
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -145,8 +146,23 @@ function connectGuidanceMessage(url: string | null): string {
   return `This link came from a pairing QR code. To connect this Mac, run vellum pair on ${machine} and paste the bundle here.`;
 }
 
+/**
+ * Whether `pathname` is a route whose composer stays mounted where it is. The
+ * `/assistant` index, which {@link isConversationChatPath} accepts, is
+ * deliberately excluded: `useConversationLoader` replace-navigates off it to a
+ * conversation key on arrival, so a composer mounted there is remounted a beat
+ * later and anything it holds in local state goes with it.
+ */
+function isSettledConversationPath(pathname: string): boolean {
+  return (
+    pathname.startsWith(`${routes.conversations}/`) &&
+    isConversationChatPath(pathname)
+  );
+}
+
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const queryClient = useQueryClient();
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
@@ -298,12 +314,20 @@ export function useGlobalDeepLinkConsumer(): void {
   // The Quick Actions widget's camera button. The camera input belongs to the
   // composer's attachment layer, which does not exist yet on a cold launch, so
   // the request is parked in the same one-shot inbox the voice start uses and
-  // the composer drains it when it mounts (`useCameraDeepLink`). Landing on
-  // `routes.assistant` is what mounts that composer.
+  // the composer drains it when it mounts (`useCameraDeepLink`).
+  //
+  // The landing has to be a route the composer *stays* mounted on. A composer
+  // already on screen keeps the photo in the conversation the user is looking
+  // at, so the tap navigates nowhere; from anywhere else it lands on a fresh
+  // draft, the same registered-draft landing the New Chat button gets, silent
+  // because the tap was for the camera and not for a new chat's flourish.
   useBusSubscription("deeplink.openCamera", () => {
     void ensureMainWindowVisible();
     usePendingDeepLinkStore.getState().setPendingCamera();
-    navigateRef.current(routes.assistant);
+    if (isSettledConversationPath(pathname)) {
+      return;
+    }
+    navigateToNewConversation(navigateRef.current, { silent: true });
   });
 
   useBusSubscription(
@@ -338,11 +362,13 @@ export function useGlobalDeepLinkConsumer(): void {
     void ensureMainWindowVisible();
     // Park before navigating so the chooser mounts with the dialog
     // already open (its auto-skip stands down while it is).
-    useConnectDialogStore.getState().openConnectDialog(
-      bundle !== null
-        ? { initialBundle: bundle }
-        : { guidanceMessage: connectGuidanceMessage(url) },
-    );
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog(
+        bundle !== null
+          ? { initialBundle: bundle }
+          : { guidanceMessage: connectGuidanceMessage(url) },
+      );
     navigateRef.current(routes.selectAssistant);
   });
 

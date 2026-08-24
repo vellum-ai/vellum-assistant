@@ -1054,7 +1054,7 @@ describe("deeplink.newChat", () => {
 });
 
 describe("deeplink.openCamera", () => {
-  test("parks the request and lands on /assistant, where the composer that owns the camera mounts", () => {
+  test("parks the request and mints a draft to land on, never the bouncing /assistant index", () => {
     renderConsumer();
 
     act(() => {
@@ -1062,11 +1062,47 @@ describe("deeplink.openCamera", () => {
     });
 
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(routes.assistant);
     expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    // The index route replace-navigates off itself, remounting the composer
+    // that holds the open viewfinder in local state.
+    expect(navigateMock).not.toHaveBeenCalledWith(routes.assistant);
+    const [to] = navigateMock.mock.calls.at(-1) as [string];
+    expect(to).toMatch(/^\/assistant\/conversations\/[^/?]+$/);
+    const draftId = to.split("/").at(-1)!;
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId),
+    ).toBe(true);
+    expect(useConversationStore.getState().activeConversationId).toBe(draftId);
+  });
+
+  test("a composer already on screen keeps its conversation: the tap navigates nowhere", () => {
+    mockPathname = routes.conversation("conv-1");
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("a conversation subroute has no composer, so the tap lands on one", () => {
+    const inspector = `${routes.conversation("conv-1")}/inspect`;
+    mockPathname = inspector;
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    const [to] = navigateMock.mock.calls.at(-1) as [string];
+    expect(to).toMatch(/^\/assistant\/conversations\/[^/?]+$/);
+    expect(to).not.toBe(inspector);
   });
 
   test("a second tap refreshes the park rather than queueing a second camera", () => {
+    mockPathname = routes.conversation("conv-1");
     renderConsumer();
 
     act(() => {
@@ -1081,6 +1117,7 @@ describe("deeplink.openCamera", () => {
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
     expect(second!).toBeGreaterThanOrEqual(first!);
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 
