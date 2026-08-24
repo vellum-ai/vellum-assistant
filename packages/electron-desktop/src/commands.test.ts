@@ -73,7 +73,9 @@ describe("compiled accelerator defaults", () => {
       ...Object.entries(DEFAULT_ACCELERATORS),
       ...Object.entries(GLOBAL_SHORTCUT_DEFAULTS),
     ]) {
-      if (!accelerator) continue;
+      if (!accelerator) {
+        continue;
+      }
       const claimants = owners.get(accelerator);
       if (claimants) {
         claimants.push(kind);
