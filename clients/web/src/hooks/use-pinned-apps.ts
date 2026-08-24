@@ -52,6 +52,13 @@ export interface PinnedApps {
   /** Pinned apps in sidebar order. Empty until the app list has loaded. */
   pinnedApps: PinnedAppView[];
   pinnedAppIds: Set<string>;
+  /**
+   * Where this list came from. It flips once per load, when the daemon version
+   * hydrates and the gate resolves, and the list is replaced wholesale when it
+   * does. A consumer that reads meaning into the list changing has to treat
+   * that swap as a new list rather than as pins going away.
+   */
+  source: "daemon" | "local";
   togglePin: (appId: string) => void;
   /**
    * Remove a pin by id. A no-op when the id is not pinned. Deleting an app
@@ -196,7 +203,14 @@ export function usePinnedApps(
     [daemonOwnsPins, write, pinnedAppIds],
   );
 
-  return { pinnedApps, pinnedAppIds, togglePin, unpin, setColor };
+  return {
+    pinnedApps,
+    pinnedAppIds,
+    source: daemonOwnsPins ? "daemon" : "local",
+    togglePin,
+    unpin,
+    setColor,
+  };
 }
 
 /**

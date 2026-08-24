@@ -134,6 +134,7 @@ mock.module(
     usePinnedApps: () => ({
       pinnedApps: pinnedAppsFixture,
       pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
+      source: "daemon" as const,
       togglePin: () => {},
       unpin: () => {},
       setColor: () => {},

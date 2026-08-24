@@ -13,23 +13,24 @@ import { usePinnedApps } from "@/hooks/use-pinned-apps";
  *
  * Switching assistants replaces the whole list and is not a wave of unpins, so
  * the baseline resets without reporting anything. Same for the first list to
- * arrive: before it there is nothing to have lost.
+ * arrive: before it there is nothing to have lost, and same for the list
+ * changing hands when the daemon version resolves the pin-storage gate.
  */
 export function useActiveAppPinSync(
   assistantId: string | null | undefined,
   onActiveAppUnpinned: (appId: string) => void,
 ) {
-  const { pinnedAppIds } = usePinnedApps(assistantId);
-  const previous = useRef<{ assistantId: string | null; ids: Set<string> }>({
-    assistantId: null,
+  const { pinnedAppIds, source } = usePinnedApps(assistantId);
+  const previous = useRef<{ key: string | null; ids: Set<string> }>({
+    key: null,
     ids: new Set(),
   });
 
   useEffect(() => {
-    const id = assistantId ?? null;
+    const key = `${source}:${assistantId ?? ""}`;
     const baseline = previous.current;
-    previous.current = { assistantId: id, ids: pinnedAppIds };
-    if (baseline.assistantId !== id) {
+    previous.current = { key, ids: pinnedAppIds };
+    if (baseline.key !== key) {
       return;
     }
     for (const appId of baseline.ids) {
@@ -37,5 +38,5 @@ export function useActiveAppPinSync(
         onActiveAppUnpinned(appId);
       }
     }
-  }, [assistantId, pinnedAppIds, onActiveAppUnpinned]);
+  }, [assistantId, source, pinnedAppIds, onActiveAppUnpinned]);
 }
