@@ -325,6 +325,10 @@ export function useGlobalDeepLinkConsumer(): void {
     let targetId: string;
     if (settledId !== null) {
       revealConversationView(settledId);
+      // Re-navigating to the settled conversation is a no-op when the router
+      // is at rest, and cancels any in-flight transition away from it that
+      // would otherwise unmount the composer this park is addressed to.
+      navigateRef.current(routes.conversation(settledId), { replace: true });
       targetId = settledId;
     } else {
       targetId = navigateToNewConversation(navigateRef.current, {

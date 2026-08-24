@@ -1079,7 +1079,7 @@ describe("deeplink.openCamera", () => {
     ).toBe(draftId);
   });
 
-  test("a composer already on screen keeps its conversation: the tap navigates nowhere", () => {
+  test("a composer already on screen keeps its conversation: the tap re-lands on it", () => {
     mockPathname = routes.conversation("conv-1");
     renderConsumer();
 
@@ -1090,7 +1090,11 @@ describe("deeplink.openCamera", () => {
     expect(
       usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
     ).toBe("conv-1");
-    expect(navigateMock).not.toHaveBeenCalled();
+    // The replace re-navigation is a no-op at rest and cancels an in-flight
+    // transition away from the conversation the park is addressed to.
+    expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-1"), {
+      replace: true,
+    });
   });
 
   test("reveals the chat behind a full-screen app viewer, which mounts no composer to drain the park", () => {
@@ -1106,7 +1110,9 @@ describe("deeplink.openCamera", () => {
     expect(
       usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
     ).toBe("conv-1");
-    expect(navigateMock).not.toHaveBeenCalled();
+    expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-1"), {
+      replace: true,
+    });
   });
 
   test("keeps a loaded app in the side-by-side layout, where the composer is mounted beside it", () => {
@@ -1134,7 +1140,9 @@ describe("deeplink.openCamera", () => {
       expect(
         usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
       ).toBe("conv-1");
-      expect(navigateMock).not.toHaveBeenCalled();
+      expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-1"), {
+        replace: true,
+      });
     } finally {
       restoreViewport();
     }
@@ -1171,7 +1179,9 @@ describe("deeplink.openCamera", () => {
     expect(second).not.toBeNull();
     expect(second!.targetConversationId).toBe("conv-1");
     expect(second!.parkedAt).toBeGreaterThanOrEqual(first!.parkedAt);
-    expect(navigateMock).not.toHaveBeenCalled();
+    for (const call of navigateMock.mock.calls) {
+      expect(call).toEqual([routes.conversation("conv-1"), { replace: true }]);
+    }
   });
 });
 
