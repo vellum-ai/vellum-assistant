@@ -104,8 +104,6 @@ export const PROVIDER_SEED_DATA: Record<
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/calendar.events",
       "https://www.googleapis.com/auth/drive",
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/presentations",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/contacts.readonly",
     ],
@@ -139,6 +137,8 @@ export const PROVIDER_SEED_DATA: Record<
         headerName: "Authorization",
         valuePrefix: "Bearer ",
       },
+      // The Sheets and Slides APIs accept the auth/drive scope, so the
+      // existing token covers them; only the hosts need injection entries.
       {
         hostPattern: "sheets.googleapis.com",
         injectionType: "header",

@@ -20,8 +20,6 @@ describe("oauth provider profiles (DB-seeded)", () => {
     expect(provider).toBeDefined();
     const scopes = JSON.parse(provider!.defaultScopes) as string[];
     expect(scopes).toContain("https://www.googleapis.com/auth/drive");
-    expect(scopes).toContain("https://www.googleapis.com/auth/spreadsheets");
-    expect(scopes).toContain("https://www.googleapis.com/auth/presentations");
   });
 
   test("google provider row contains bearer injection templates for 8 Google API hosts", () => {
