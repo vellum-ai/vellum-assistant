@@ -573,6 +573,12 @@ export type DeviceBoundTokenPair = RefreshableTokenPair;
 
 /**
  * Revoke active actor tokens for a device binding.
+ *
+ * Clears `lastUsedAt` as well: the device list takes the max stamp across every
+ * status for a device, so leaving it set would let a re-paired device inherit
+ * the prior pairing's activity and report a last use older than its pairing
+ * date. Rotation revokes via `revokeActiveActorTokensByDevice` instead, which
+ * keeps the stamp so history survives a credential refresh.
  */
 export function revokeActorTokensByDevice(
   guardianPrincipalId: string,
@@ -581,7 +587,7 @@ export function revokeActorTokensByDevice(
   const now = Date.now();
   getGatewayDb()
     .update(actorTokenRecords)
-    .set({ status: "revoked", updatedAt: now })
+    .set({ status: "revoked", lastUsedAt: null, updatedAt: now })
     .where(
       and(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
