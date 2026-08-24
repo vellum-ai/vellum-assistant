@@ -1,5 +1,6 @@
 import { Button, Input, Notice, Typography } from "@vellumai/design-library";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
+import { Trans, useTranslation } from "@/i18n";
 import { validateTelegramToken } from "@/utils/telegram-token-validation";
 
 export interface TelegramSetupConnectStepProps {
@@ -26,6 +27,7 @@ export function TelegramSetupConnectStep({
   onBotTokenChange,
   onSave,
 }: TelegramSetupConnectStepProps) {
+  const { t } = useTranslation();
   const tokenError = validateTelegramToken(botToken);
   const canSave =
     botToken.trim().length > 0 && !tokenError && saveStatus !== "pending";
@@ -37,12 +39,14 @@ export function TelegramSetupConnectStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        Paste the token from BotFather&apos;s reply. It is the whole line after{" "}
-        <strong>Use this token to access the HTTP API</strong>.
+        <Trans
+          i18nKey="telegramSetupConnectStep.instructions"
+          components={{ tokenLine: <strong /> }}
+        />
       </Typography>
 
       <Input
-        label="Bot Token"
+        label={t("telegramSetupConnectStep.botTokenLabel")}
         type="password"
         value={botToken}
         onChange={(e) => onBotTokenChange(e.target.value)}
@@ -59,14 +63,14 @@ export function TelegramSetupConnectStep({
         onClick={onSave}
         disabled={!canSave}
       >
-        {saveStatus === "pending" ? "Saving…" : "Connect Telegram"}
+        {saveStatus === "pending"
+          ? t("telegramSetupConnectStep.saving")
+          : t("telegramSetupConnectStep.connectTelegram")}
       </Button>
 
       {saveStatus === "success" && (
         <Notice tone="success">
-          Token saved. The rest finishes on its own. Your assistant will confirm
-          Telegram is delivering the next time you chat, and make sure it can
-          reach you.
+          {t("telegramSetupConnectStep.successNotice")}
         </Notice>
       )}
       {saveStatus === "error" && saveError && (

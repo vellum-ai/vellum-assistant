@@ -1,6 +1,7 @@
 import { Check, ClipboardCopy } from "lucide-react";
 
 import { Button, Input, Typography } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 import {
   SLACK_APP_DESCRIPTION_MAX_LENGTH,
   SLACK_APP_NAME_MAX_LENGTH,
@@ -33,6 +34,7 @@ export function SlackSetupNameStep({
   onCopyManifest,
   onContinue,
 }: SlackSetupNameStepProps) {
+  const { t } = useTranslation();
   const nameValid = appName.trim().length > 0;
 
   return (
@@ -42,30 +44,29 @@ export function SlackSetupNameStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        Name your Slack app and copy its manifest. Every permission and setting
-        comes pre-configured.
+        {t("slackSetupNameStep.intro")}
       </Typography>
 
       <Input
-        label="App Name"
+        label={t("slackSetupNameStep.appName")}
         value={appName}
         onChange={(e) =>
           onAppNameChange(e.target.value.slice(0, SLACK_APP_NAME_MAX_LENGTH))
         }
-        placeholder="My Assistant"
+        placeholder={t("slackSetupNameStep.appNamePlaceholder")}
         fullWidth
       />
 
       <Input
-        label="Description (optional)"
+        label={t("slackSetupNameStep.description")}
         value={description}
         onChange={(e) =>
           onDescriptionChange(
             e.target.value.slice(0, SLACK_APP_DESCRIPTION_MAX_LENGTH),
           )
         }
-        placeholder="What this assistant helps with"
-        helperText="Shown on the app's Slack profile."
+        placeholder={t("slackSetupNameStep.descriptionPlaceholder")}
+        helperText={t("slackSetupNameStep.descriptionHelper")}
         fullWidth
       />
 
@@ -83,7 +84,9 @@ export function SlackSetupNameStep({
             )
           }
         >
-          {copied ? "Copied!" : "Copy manifest"}
+          {copied
+            ? t("slackSetupNameStep.copied")
+            : t("slackSetupNameStep.copyManifest")}
         </Button>
         <Button
           type="button"
@@ -91,7 +94,7 @@ export function SlackSetupNameStep({
           disabled={!nameValid}
           onClick={onContinue}
         >
-          Next
+          {t("slackSetupNameStep.next")}
         </Button>
       </div>
     </div>

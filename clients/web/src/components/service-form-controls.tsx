@@ -10,6 +10,7 @@ import { ExternalLink, Info } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import type { ProviderCredentialsGuide } from "@/lib/provider-catalogs";
 
 /**
@@ -42,17 +43,19 @@ interface CredentialsGuideProps {
 }
 
 export function SaveButton({ onClick, disabled }: SaveButtonProps) {
+  const { t } = useTranslation();
   return (
     <Button onClick={onClick} disabled={disabled}>
-      Save
+      {t("serviceFormControls.save")}
     </Button>
   );
 }
 
 export function ResetButton({ onClick, filled = false }: ResetButtonProps) {
+  const { t } = useTranslation();
   return (
     <Button variant={filled ? "danger" : "dangerGhost"} onClick={onClick}>
-      Reset
+      {t("serviceFormControls.reset")}
     </Button>
   );
 }

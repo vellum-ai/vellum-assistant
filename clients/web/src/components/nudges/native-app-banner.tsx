@@ -5,6 +5,7 @@ import {
   getNativeAppName,
   type NativeAppPlatform,
 } from "@/hooks/use-native-app-nudge";
+import { useTranslation } from "@/i18n";
 
 interface NativeAppBannerProps {
   platform: NativeAppPlatform;
@@ -17,6 +18,7 @@ export function NativeAppBanner({
   onDownload,
   onDismiss,
 }: NativeAppBannerProps) {
+  const { t } = useTranslation();
   const appName = getNativeAppName(platform);
 
   return (
@@ -28,11 +30,11 @@ export function NativeAppBanner({
           aria-hidden
         />
       }
-      title={`Get the ${appName} app`}
-      subtitle="Push notifications · biometric login · haptics"
-      ctaLabel="Download"
-      ctaAriaLabel={`Download ${appName} app`}
-      ariaLabel={`Download the ${appName} app`}
+      title={t("nativeAppBanner.title", { appName })}
+      subtitle={t("nativeAppBanner.subtitle")}
+      ctaLabel={t("nativeAppBanner.download")}
+      ctaAriaLabel={t("nativeAppBanner.downloadAppAria", { appName })}
+      ariaLabel={t("nativeAppBanner.bannerAria", { appName })}
       onAction={onDownload}
       onDismiss={onDismiss}
     />

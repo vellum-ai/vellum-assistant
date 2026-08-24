@@ -1,65 +1,674 @@
 {
+  "aboutPage": {
+    "build": "Build",
+    "tagline": "AI assistant for your Mac",
+    "version": "Version"
+  },
+  "activeAssistantGate": {
+    "connecting": "Connecting to your assistant…",
+    "logIn": "Log In",
+    "logOut": "Log Out"
+  },
+  "addCredentialModal": {
+    "cancel": "Cancel",
+    "credentialSaved": "Credential saved.",
+    "description": "Add an API key or token to let tools and integrations use it.",
+    "fieldLabel": "Field",
+    "fieldPlaceholder": "e.g. api_token",
+    "labelOptional": "Label (optional)",
+    "labelPlaceholder": "e.g. GitHub personal access token",
+    "save": "Save",
+    "saveFailed": "Failed to save credential",
+    "serviceLabel": "Service",
+    "servicePlaceholder": "e.g. github",
+    "title": "Add credential",
+    "valueLabel": "Value",
+    "valuePlaceholder": "Enter the secret value"
+  },
   "addCreditsModal": {
-    "configureAutoReload": "Configure Auto-Reload"
+    "amount": "Amount",
+    "cancel": "Cancel",
+    "configureAutoReload": "Configure Auto-Reload",
+    "continue": "Continue",
+    "description": "You'll be redirected to Stripe to complete the payment.",
+    "title": "Add Credits"
+  },
+  "appCard": {
+    "openApp": "Open App",
+    "pin": "Pin",
+    "previewTitle": "{name} preview",
+    "unpin": "Unpin"
+  },
+  "appNavBar": {
+    "close": "Close",
+    "copyLink": "Copy link",
+    "deploy": "Deploy",
+    "deployToVercel": "Deploy to Vercel",
+    "deployToVercelSubtitle": "Publish as a static page",
+    "deployedCopyLinkAria": "Deployed to Vercel, copy link",
+    "deployedCopyLinkTooltip": "Deployed: copy link",
+    "deployedToVercel": "Deployed to Vercel",
+    "deploying": "Deploying…",
+    "edit": "Edit",
+    "expandApp": "Expand app",
+    "fullscreen": "Fullscreen",
+    "openApp": "Open app",
+    "redeploy": "Redeploy",
+    "redeploySubtitle": "Publish the current version",
+    "share": "Share",
+    "shareAndDeploy": "Share & deploy",
+    "shareExportSubtitle": "Export as .vellum file",
+    "sharing": "Sharing…"
+  },
+  "appViewerContainer": {
+    "exitFullscreen": "Exit fullscreen"
+  },
+  "avatarManagementModal": {
+    "body": "Body",
+    "color": "Color",
+    "eyes": "Eyes",
+    "keepUploadedDescription": "Saving the character replaces it",
+    "keepUploadedLabel": "Keep your uploaded image",
+    "loadError": "Unable to load avatar components. Make sure your assistant is running.",
+    "name": "Name",
+    "next": "Next {label}",
+    "previous": "Previous {label}",
+    "randomize": "Randomize",
+    "save": "Save",
+    "saving": "Saving…",
+    "title": "Update Avatar",
+    "uploadImage": "Upload image",
+    "uploadedAlt": "Uploaded avatar",
+    "useCharacterDescription": "Pick from our built-in avatars",
+    "useCharacterLabel": "Use a character instead"
+  },
+  "bundleConfirmPage": {
+    "bySigner": "by {name}",
+    "cancel": "Cancel",
+    "capabilities": "Capabilities",
+    "createdBy": "Created by",
+    "hideWarnings": "Hide Warnings ({count})",
+    "install": "Install",
+    "installAnyway": "Install Anyway",
+    "loading": "Loading...",
+    "showWarnings": "Show Warnings ({count})",
+    "size": "Size"
+  },
+  "byoVoiceNote": {
+    "body": "Your assistant speaks through a provider you configured yourself. Set its voice on <settingsLink>Models & Services</settingsLink>."
+  },
+  "chatAvatar": {
+    "alt": "Assistant avatar",
+    "fallbackLetter": "V"
+  },
+  "collapsibleNavSection": {
+    "actionsTitle": "{title} actions"
+  },
+  "commandPalette": {
+    "ariaLabel": "Command palette",
+    "clear": "Clear",
+    "clearSearch": "Clear search",
+    "closeSearch": "Close search",
+    "noResults": "No results",
+    "placeholder": "Search conversations, memories…",
+    "searchAriaLabel": "Search",
+    "searching": "Searching…",
+    "shortcutHint": "⌘K"
   },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
+    "done": "Got it",
     "meet": {
+      "body": "I stay on your desktop, even when Vellum isn’t visible.",
       "title": "This is me",
-      "titleNamed": "I’m {name}",
-      "body": "I stay on your desktop, even when Vellum isn’t visible."
-    },
-    "talk": {
-      "title": "Talk",
-      "body": "Start a voice conversation."
-    },
-    "type": {
-      "title": "Type",
-      "body": "Send a message from here and read the reply here too."
+      "titleNamed": "I’m {name}"
     },
     "menu": {
-      "title": "Right-click me",
-      "body": "That’s where you hide me or change my size."
+      "body": "That’s where you hide me or change my size.",
+      "title": "Right-click me"
     },
-    "skip": "Skip",
     "next": "Next",
-    "done": "Got it"
+    "skip": "Skip",
+    "talk": {
+      "body": "Start a voice conversation.",
+      "title": "Talk"
+    },
+    "type": {
+      "body": "Send a message from here and read the reply here too.",
+      "title": "Type"
+    }
+  },
+  "companionSurface": {
+    "allow": "Allow",
+    "deny": "Deny",
+    "endSession": "End session",
+    "goBack": "Go back",
+    "messagePlaceholder": "Message {name}",
+    "muteAssistant": "Mute assistant",
+    "muteMicrophone": "Mute microphone",
+    "notNow": "Not now",
+    "send": "Send",
+    "showSummary": "Show summary",
+    "stopTeaching": "Stop teaching",
+    "summarizing": "Summarizing",
+    "talk": "Talk",
+    "teach": "Teach",
+    "type": "Type",
+    "unmuteAssistant": "Unmute assistant",
+    "unmuteMicrophone": "Unmute microphone"
+  },
+  "contentActionBar": {
+    "copiedAria": "Copied",
+    "copyFailed": "Couldn't copy the file contents.",
+    "copyFileContentsAria": "Copy file contents",
+    "downloadFileAria": "Download file",
+    "editFileAria": "Edit file"
+  },
+  "createAssistantDialog": {
+    "cancel": "Cancel",
+    "create": "Create",
+    "description": "Provision a new assistant. It will start up in the background.",
+    "namePlaceholder": "Assistant name (optional)",
+    "title": "New Assistant",
+    "toastSuccess": "New assistant created."
+  },
+  "dateRangeSelect": {
+    "ariaLabel": "Date range",
+    "lastDays": "{days, plural, one {Last # day} other {Last # days}}"
+  },
+  "deleteAppDialog": {
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "message": "\"{name}\" will be permanently removed.",
+    "title": "Delete app"
+  },
+  "deployDialogs": {
+    "confirmLabel": "Let your assistant handle it",
+    "confirmLabelNamed": "Let {assistantName} handle it",
+    "message": "\"{appName}\" uses backend services that won't work on a static Vercel page. Your assistant can deploy it properly with serverless functions.",
+    "messageNamed": "\"{appName}\" uses backend services that won't work on a static Vercel page. {assistantName} can deploy it properly with serverless functions.",
+    "title": "This app needs a full deploy"
+  },
+  "detailPrimitives": {
+    "copied": "Copied",
+    "copy": "Copy"
+  },
+  "dictationOverlayPage": {
+    "stopRecording": "Stop recording"
+  },
+  "discordNudgeBanner": {
+    "ariaLabel": "Join the Vellum Discord community",
+    "ctaLong": "Join Discord",
+    "ctaShort": "Join",
+    "subtitleLong": "Talk to the team - share feedback, request features, get answers faster",
+    "subtitleShort": "Share feedback, request features, get answers faster",
+    "title": "Join our community!"
+  },
+  "diskPressureBanner": {
+    "acknowledge": "Acknowledge",
+    "acknowledging": "Acknowledging...",
+    "cleanupBody": "Prompt your assistant to free up space before it runs out and enters a locked state.",
+    "cleanupTitle": "Cleanup mode is active",
+    "criticalBody": "Your assistant will enter a locked state if it runs out of storage.",
+    "criticalModalDescription": "Your assistant will enter a locked state if it runs out of storage. You should either prompt your assistant to free up space or increase your storage.",
+    "criticalTitle": "Storage is critically low",
+    "dontShowAgain": "Don't show again",
+    "manageStorage": "Manage Storage",
+    "review": "Review",
+    "upgrade": "Upgrade",
+    "warningBody": "Free up space to avoid interruptions.",
+    "warningBodyWithUpgrade": "Free up space or add more storage to avoid interruptions.",
+    "warningTitle": "Your storage is almost full"
+  },
+  "editFooter": {
+    "discard": "Discard",
+    "save": "Save",
+    "saving": "Saving…"
+  },
+  "generateInviteLinkDialog": {
+    "copyAriaLabel": "Copy invite link",
+    "createFailed": "Failed to create invite link. Make sure A2A is enabled for your assistant.",
+    "creating": "Creating invite link…",
+    "done": "Done",
+    "shareHint": "Share this link with another assistant owner to establish a connection.",
+    "title": "Share Connection Link",
+    "tryAgain": "Try Again"
+  },
+  "githubNudgeBanner": {
+    "ariaLabel": "Vellum is open source on GitHub",
+    "ctaAriaLabel": "Star Vellum on GitHub",
+    "ctaLabel": "Star us",
+    "subtitle": "Star us on GitHub or contribute",
+    "title": "Vellum is open source"
+  },
+  "lazyBoundary": {
+    "loadError": "This section couldn't load. Reload the page to try again."
+  },
+  "macosAppBanner": {
+    "ariaLabel": "Download the macOS app",
+    "ctaAriaLabel": "Download macOS app",
+    "ctaLabel": "Download",
+    "subtitle": "Computer use · terminal access · native automation",
+    "title": "Get the macOS app"
+  },
+  "nativeAppBanner": {
+    "bannerAria": "Download the {appName} app",
+    "download": "Download",
+    "downloadAppAria": "Download {appName} app",
+    "subtitle": "Push notifications · biometric login · haptics",
+    "title": "Get the {appName} app"
+  },
+  "nativeSplash": {
+    "logoAlt": "Vellum"
   },
   "notFound": {
-    "badge": "Error 404",
-    "title": "Page not found",
-    "body": "The page you're looking for doesn't exist or may have moved.",
     "backToAssistant": "Back to your assistant",
-    "goBack": "Go back"
+    "badge": "Error 404",
+    "body": "The page you're looking for doesn't exist or may have moved.",
+    "goBack": "Go back",
+    "title": "Page not found"
+  },
+  "nudgeChatBanner": {
+    "dismissAria": "Dismiss"
+  },
+  "onboardingBackButton": {
+    "back": "Back"
+  },
+  "platformLoginNotice": {
+    "cancel": "Cancel",
+    "logIn": "Log In"
+  },
+  "profileCard": {
+    "assistantHandleIdleEmpty": "Your assistant doesn't have a handle yet - claim one to make it mentionable.",
+    "assistantHandleLabel": "Assistant handle",
+    "assistantHandleUpdated": "Assistant handle updated.",
+    "available": "Available",
+    "availableHelper": "Available.",
+    "checkAvailabilityFailed": "Couldn't check availability.",
+    "checkingAvailability": "Checking availability…",
+    "chooseDifferentHandle": "Please choose a different handle.",
+    "emailLabel": "Email",
+    "handleHelper": "Lowercase letters, digits, hyphens, and underscores. 3–30 characters.",
+    "handleLocked": "Your assistant's handle is locked because it's used as its email subdomain. To change it, <releaseLink>release the subdomain</releaseLink> first.",
+    "loading": "Loading your profile…",
+    "notAvailable": "Not available",
+    "profileUpdated": "Profile updated.",
+    "save": "Save",
+    "saved": "Saved",
+    "saving": "Saving…",
+    "subtitle": "Manage your account details and preferences.",
+    "title": "Profile",
+    "userHandleIdleAutoGenerated": "Your handle was auto-generated at signup - pick one you like.",
+    "userHandleLabel": "User handle"
+  },
+  "profileQuickAddProvider": {
+    "created": "Profile \"{name}\" created"
+  },
+  "quickInputPage": {
+    "logoAlt": "Vellum",
+    "placeholder": "Ask Vellum anything..."
+  },
+  "removeFromDeviceDialog": {
+    "confirm": "Remove",
+    "messageOrigin": "This won't affect {assistantName} or sign you out there. It only forgets the entry on this device. Add it again anytime.",
+    "messagePaired": "This won't affect {assistantName} on its host machine. It only forgets the pairing on this device. Pair again anytime with vellum connect import.",
+    "messagePlatform": "This won't delete {assistantName}. It only removes it from this device. Logging in will make it available again.",
+    "title": "Remove from this device?"
   },
   "resourcePressureBanner": {
-    "title": "Resource utilization is high",
     "body": "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
     "bodyNoUpgrade": "Your assistant has been using elevated resources for an extended period.",
-    "upgrade": "Upgrade",
-    "dontShowAgain": "Don't show again"
+    "dontShowAgain": "Don't show again",
+    "title": "Resource utilization is high",
+    "upgrade": "Upgrade"
+  },
+  "retireConfirmDialog": {
+    "confirmLabel": "Retire",
+    "message": "This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone.",
+    "title": "Retire Assistant"
+  },
+  "rootHydrateFallback": {
+    "loadingAria": "Loading"
+  },
+  "routeErrorBoundary": {
+    "chunkFailBody": "This section couldn't load. Likely a network blip or a stale version. Reload the page to try again.",
+    "reload": "Reload"
+  },
+  "runtimeUpgradeBanner": {
+    "confirmMessage": "Update to version {version}? The assistant will be briefly unavailable during the update.",
+    "confirmTitle": "Update assistant runtime",
+    "later": "Later",
+    "title": "New assistant version available: {version}",
+    "toastComplete": "Update complete. Your assistant is healthy.",
+    "toastFailed": "Failed to trigger update. Please try again.",
+    "update": "Update"
   },
   "sectionActionsButton": {
     "ariaLabel": "{name} actions"
   },
+  "serviceFormControls": {
+    "reset": "Reset",
+    "save": "Save"
+  },
+  "shareConnectionLinkButton": {
+    "label": "Share Connection Link"
+  },
+  "shareFeedbackModal": {
+    "aboutDiagnosticsAria": "About diagnostics",
+    "addFiles": "Add files",
+    "adminOnlyHint": "Admin only - builds the diagnostics archive locally and downloads it instead of submitting feedback or notifying Slack.",
+    "attachments": "Attachments",
+    "bugTip": "Tip: Get faster support by posting in our <discordLink>Discord community</discordLink>",
+    "cancel": "Cancel",
+    "category": "Category",
+    "closeAria": "Close",
+    "diagnosticsTooltip": "Diagnostics include browser context, assistant logs, and timestamps - never passwords or credentials.",
+    "downloadDiagnostics": "Download diagnostics directly",
+    "downloadDiagnosticsAria": "Download diagnostics directly",
+    "downloadDiagnosticsButton": "Download diagnostics",
+    "dropFiles": "Drop files to attach…",
+    "email": "Email",
+    "featureTip": "Tip: Vote on features on our <roadmapLink>public roadmap</roadmapLink>",
+    "includeConversation": "Include the most recent conversation",
+    "includeConversationAria": "Include the most recent conversation",
+    "includeDiagnostics": "Include diagnostics",
+    "includeDiagnosticsAria": "Include browser diagnostics",
+    "messageLabelBug": "What went wrong?",
+    "messageLabelFeature": "Describe your idea",
+    "messageLabelOther": "What's on your mind?",
+    "messagePlaceholderBug": "What did you expect to happen, and what happened instead?",
+    "messagePlaceholderFeature": "What problem would this solve for you?",
+    "messagePlaceholderOther": "Share your thoughts...",
+    "preparingDiagnostics": "Preparing diagnostics…",
+    "reasonBugReport": "Bug Report",
+    "reasonFeatureRequest": "Feature Request",
+    "reasonOther": "Other",
+    "removeAttachmentAria": "Remove {name}",
+    "sendingFeedback": "Sending feedback…",
+    "submit": "Submit",
+    "timeRange": "Time range",
+    "timeRangeAllTime": "All time",
+    "timeRangeAria": "Diagnostics time range",
+    "timeRangePast24Hours": "Past 24 hours",
+    "timeRangePastHour": "Past hour",
+    "title": "Share Feedback"
+  },
+  "sideListDrawer": {
+    "closeAria": "Close",
+    "closeSidebarAria": "Close sidebar",
+    "openSidebarAria": "Open sidebar"
+  },
+  "sidebarShell": {
+    "backFrom": "Back from {title}",
+    "backToMenu": "Back to {title} menu",
+    "navigationAria": "{title} navigation"
+  },
+  "sidebarTree": {
+    "ariaLabel": "Sidebar navigation"
+  },
+  "skillLineageLink": {
+    "label": "Learned from this conversation"
+  },
+  "skillRemovalDialog": {
+    "message": "Remove \"{name}\" from this assistant?",
+    "remove": "Remove",
+    "title": "Remove skill"
+  },
+  "slackSetupCreateStep": {
+    "approvalNotice": "If Slack shows “Request approval” instead of <strong>Install</strong>, a workspace admin needs to approve the app first.",
+    "createdApp": "I created the app",
+    "inSlack": "In Slack:",
+    "stepManifest": "Under <strong>Or start your own way</strong>, pick <strong>From a manifest</strong>, then <strong>Continue</strong>",
+    "stepPaste": "Choose your workspace and paste the manifest",
+    "stepReview": "Review the permissions, then click <strong>Create and Install</strong>"
+  },
+  "slackSetupNameStep": {
+    "appName": "App Name",
+    "appNamePlaceholder": "My Assistant",
+    "copied": "Copied!",
+    "copyManifest": "Copy manifest",
+    "description": "Description (optional)",
+    "descriptionHelper": "Shown on the app's Slack profile.",
+    "descriptionPlaceholder": "What this assistant helps with",
+    "intro": "Name your Slack app and copy its manifest. Every permission and setting comes pre-configured.",
+    "next": "Next"
+  },
+  "slackSetupOpenStep": {
+    "body": "Open Slack in a new tab to create the app, then come back here for the steps to follow.",
+    "copied": "Copied!",
+    "copyManifest": "Copy manifest",
+    "manifestCopiedNotice": "You copied this app's manifest here. If you have copied anything since, copy it again before you paste.",
+    "manifestNotCopiedNotice": "You have not copied this app's manifest yet. Slack's create-app modal has no other way to get it, so copy it before you paste.",
+    "next": "Next",
+    "openSlack": "Open Slack"
+  },
+  "slackSetupTokensStep": {
+    "appTokenLabel": "App Token",
+    "botTokenLabel": "Bot Token",
+    "connectSlack": "Connect Slack",
+    "connecting": "Connecting…",
+    "credentialsSaved": "Credentials saved.",
+    "instructions": "On Slack's confirmation screen, expand <credentials>Your app credentials</credentials> and copy both tokens.",
+    "skipNotice": "That screen also offers a command-line walkthrough and a <download>Download app files</download> button. Skip both. They set up a separate local app, and this assistant needs only the two tokens."
+  },
+  "slackSetupWizard": {
+    "channelLabel": "Slack",
+    "copyError": "Could not copy the manifest. Copy it again before continuing.",
+    "stepConnect": "Connect",
+    "stepCreate": "Create",
+    "stepName": "Name",
+    "stepOpen": "Open"
+  },
+  "stackedBarTooltip": {
+    "total": "Total: {value}"
+  },
+  "startupFailure": {
+    "reloadApp": "Reload app"
+  },
+  "statusBanner": {
+    "dismiss": "Dismiss",
+    "goToDoctor": "Go to Doctor",
+    "resumeAssistant": "Resume Assistant",
+    "retryNow": "Retry now",
+    "wakeUp": "Wake up"
+  },
+  "sttLanguagePicker": {
+    "allLanguages": "All languages",
+    "featured": "Featured",
+    "languagesAriaLabel": "Languages",
+    "noMatch": "No languages match.",
+    "searchAriaLabel": "Search languages",
+    "searchPlaceholder": "Search languages",
+    "suggested": "Suggested"
+  },
+  "sttLanguagePickerModal": {
+    "description": "Applies from your next spoken turn."
+  },
   "sttProviderForm": {
+    "apiKeyLabel": "API Key",
+    "apiKeyPlaceholderReplace": "••••••••  (Enter a new key to replace)",
+    "providerAriaLabel": "STT provider",
+    "providerLabel": "Provider",
+    "saveFailed": "Failed to save speech-to-text settings",
+    "saveSuccess": "Speech-to-text settings saved",
+    "spokenLanguage": "Spoken language",
+    "spokenLanguageApplies": "Applies from your next spoken turn.",
+    "vellumTranscription": "Transcription runs through your Vellum account.",
     "windowsNativeDisplayName": "Windows Native Dictation",
-    "windowsNativeSubtitle": "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key.",
-    "windowsNativeSetupWarning": "Requires Basic speech recognition for your Windows display language: open Settings > Time & language > Language & region, select the three dots next to the display language, choose Language options, then under Language features download Basic speech recognition."
+    "windowsNativeSetupWarning": "Requires Basic speech recognition for your Windows display language: open Settings > Time & language > Language & region, select the three dots next to the display language, choose Language options, then under Language features download Basic speech recognition.",
+    "windowsNativeSubtitle": "Windows on-device speech recognition, running locally through the Windows helper. Works offline and needs no API key."
+  },
+  "subagentAvatarChip": {
+    "ariaLabel": "Subagent {subagentId}"
+  },
+  "systemPermissionsCard": {
+    "accessibilityDescription": "Allows your assistant to click, type, and control apps on your behalf.",
+    "accessibilityLabel": "Accessibility",
+    "checking": "Checking permissions...",
+    "dockIcon": "Dock icon",
+    "microphoneDescription": "Allows your assistant to capture audio for voice input and recordings.",
+    "microphoneLabel": "Microphone",
+    "notificationBadgesDescription": "Allows your assistant to show unseen conversation counts on the {surface}.",
+    "notificationBadgesLabel": "Notification Badges",
+    "notificationsDescription": "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
+    "notificationsLabel": "Notifications",
+    "notificationsWindowsDescription": "Allows your assistant to show Windows notifications for approvals, messages, and task updates.",
+    "screenDescription": "Allows your assistant to capture screen context during computer-use tasks.",
+    "screenLabel": "Screen Recording",
+    "speechRecognitionDescription": "Allows your assistant to transcribe your speech into text on-device.",
+    "speechRecognitionLabel": "Speech Recognition",
+    "speechRecognitionWindowsDescription": "Allows your assistant to transcribe your speech into text with Windows speech recognition.",
+    "taskbarIcon": "taskbar icon",
+    "title": "System Permissions"
+  },
+  "telegramSetupConnectStep": {
+    "botTokenLabel": "Bot Token",
+    "connectTelegram": "Connect Telegram",
+    "instructions": "Paste the token from BotFather's reply. It is the whole line after <tokenLine>Use this token to access the HTTP API</tokenLine>.",
+    "saving": "Saving…",
+    "successNotice": "Token saved. The rest finishes on its own. Your assistant will confirm Telegram is delivering the next time you chat, and make sure it can reach you."
+  },
+  "telegramSetupCreateStep": {
+    "copied": "Copied!",
+    "copyName": "Copy name",
+    "displayNameHint": "For the display name, <strong>{suggestedName}</strong> keeps this bot matching your assistant. The username is separate and does not have to match.",
+    "inBotFather": "In BotFather:",
+    "intro": "Telegram bots are created by messaging <strong>@BotFather</strong>. Open it, run through the prompts, then come back with the token it gives you.",
+    "next": "Next",
+    "openBotFather": "Open BotFather",
+    "stepDisplayName": "Give it a display name, which is what people see in chat",
+    "stepSendNewBot": "Send <strong>/newbot</strong>",
+    "stepTokenReply": "BotFather replies with a token after <strong>Use this token to access the HTTP API</strong>",
+    "stepUsername": "Give it a username, which must be unique and end in <strong>bot</strong>"
+  },
+  "telegramSetupWizard": {
+    "channelLabel": "Telegram",
+    "copyError": "Could not copy the name. Type it into BotFather instead.",
+    "stepConnect": "Connect",
+    "stepCreate": "Create bot"
+  },
+  "terminalPanel": {
+    "recoveryModeBanner": "Recovery Mode active: this session is connected to the debug terminal."
+  },
+  "themeStagePage": {
+    "accentFill": "Accent fill",
+    "activeBorder": "Active border",
+    "activeSurface": "Active surface",
+    "assistantBubble": "A reply from the assistant, rendered full-width on the page surface.",
+    "buttonDisabled": "Disabled",
+    "buttonPrimary": "Primary",
+    "buttonSecondary": "Secondary",
+    "chatAssistant1": "Done. The summary is ready. Revenue grew steadily, the two flagged risks from last quarter are resolved, and I pulled the three charts worth showing into a separate page.",
+    "chatAssistant2": "Scheduled for 9am. I'll include the charts and a one-paragraph version for anyone skimming on their phone.",
+    "chatUser1": "Can you summarize the quarterly report before tomorrow's meeting?",
+    "chatUser2": "Perfect. Send it to the team in the morning.",
+    "composerPlaceholder": "Message your assistant",
+    "faintText": "Faint text - the last legible step of the ramp.",
+    "inputFilled": "Text someone has already typed into a field.",
+    "inputPlaceholder": "A placeholder in an empty field",
+    "newConversation": "New conversation",
+    "overlaySurface": "Overlay surface",
+    "primaryText": "Primary text - the main reading surface of the app.",
+    "quietText": "Quiet text - metadata and timestamps.",
+    "raisedCard": "Raised card",
+    "raisedCardBody": "Elevated surfaces sit above panels and the page background.",
+    "samplerTitle": "Theme sampler",
+    "secondaryText": "Secondary text - supporting copy and descriptions.",
+    "sectionAccent": "Accent",
+    "sectionButtons": "Buttons",
+    "sectionInputs": "Inputs",
+    "sectionMessages": "Messages",
+    "sectionSurfaces": "Surfaces and borders",
+    "sectionText": "Text",
+    "send": "Send",
+    "subtleDivider": "Subtle divider above this line.",
+    "tertiaryText": "Tertiary text - captions, labels, and placeholders.",
+    "userBubble": "A message from the user, in its bubble."
+  },
+  "themeToggle": {
+    "dark": "Dark",
+    "label": "Theme",
+    "light": "Light",
+    "system": "System",
+    "velvet": "Velvet"
+  },
+  "tipCard": {
+    "dismiss": "Dismiss",
+    "nextTip": "Next tip",
+    "previousTip": "Previous tip"
+  },
+  "ttsProviderForm": {
+    "apiKey": "API Key",
+    "apiKeyRequired": "Save an API key for this provider before testing.",
+    "chooseFromCatalog": "Choose from catalog",
+    "customVoiceIdAriaLabel": "Custom voice ID",
+    "noManagedVoices": "No managed voices are currently available.",
+    "provider": "Provider",
+    "providerAriaLabel": "TTS provider",
+    "saveFailed": "Failed to save text-to-speech settings",
+    "saved": "Text-to-speech settings saved",
+    "test": "Test",
+    "testing": "Testing…",
+    "voice": "Voice",
+    "voiceId": "Voice ID",
+    "voiceIdPlaceholder": "Enter a voice ID"
+  },
+  "updateToast": {
+    "available": "Update available. Starting download…",
+    "closeAriaLabel": "Close",
+    "downloading": "Downloading update…",
+    "ready": "Vellum {version} is ready.",
+    "restartToInstall": "Restart to install",
+    "versionFallback": "update"
   },
   "useConnectClaude": {
+    "exchangeFailed": "Check the pasted key and try again.",
     "failed": "Connecting Claude failed. Please try again.",
-    "timedOut": "Timed out waiting for Claude to connect. Please try again.",
-    "startFailed": "Couldn't start Connect Claude. Please try again.",
-    "popupBlocked": "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
-    "pasteEmpty": "Paste the code shown on the Claude page.",
     "notStarted": "Start the Connect Claude flow first.",
-    "exchangeFailed": "Check the pasted key and try again."
+    "pasteEmpty": "Paste the code shown on the Claude page.",
+    "popupBlocked": "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
+    "startFailed": "Couldn't start Connect Claude. Please try again.",
+    "timedOut": "Timed out waiting for Claude to connect. Please try again."
+  },
+  "useVoiceSamplePreview": {
+    "playFailed": "Could not play the voice sample."
+  },
+  "vercelTokenDialog": {
+    "body": "Enter your Vercel API token to deploy apps as static pages.",
+    "cancel": "Cancel",
+    "createToken": "Create a token on Vercel →",
+    "save": "Save",
+    "saveFailed": "Failed to save Vercel token.",
+    "saving": "Saving…",
+    "title": "Connect Vercel",
+    "tokenLabel": "API Token",
+    "tokenPlaceholder": "Vercel API token"
+  },
+  "voiceList": {
+    "assistantVoiceAriaLabel": "Assistant voice",
+    "defaultSuffix": "(default)",
+    "previewVoice": "Preview {description}",
+    "providerAriaLabel": "Voice provider",
+    "stopPreview": "Stop preview"
+  },
+  "voicePickerField": {
+    "ariaLabel": "Voice",
+    "selectVoice": "Select a voice"
+  },
+  "voicePickerModal": {
+    "done": "Done",
+    "title": "Voices"
+  },
+  "voiceProvidersNote": {
+    "body": "Speech providers, transcription, and API keys live in <modelsLink>Models & Services</modelsLink>."
+  },
+  "voiceTranscriptToggles": {
+    "recommendedOff": "Recommended off"
   },
   "windowsMenuBar": {
-    "file": "File",
-    "view": "View",
     "developer": "Developer",
-    "help": "Help"
+    "file": "File",
+    "help": "Help",
+    "view": "View"
   }
 }

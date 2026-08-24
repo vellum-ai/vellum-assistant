@@ -1196,9 +1196,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // / 1.5x output / 2x cache-read+write for the whole request, per
       // OpenAI's model cards.
       //
-      // Rates are OpenRouter's own card (https://openrouter.ai/api/v1/models),
-      // which discounts Terra and Luna below OpenAI's direct list price; Sol
-      // matches direct pricing.
+      // Rates are OpenRouter's own card (https://openrouter.ai/api/v1/models)
+      // and can differ from OpenAI's direct list. cacheWrite is 1.25x input.
+      // Long-context (>272K input) is 2x input / 1.5x output / 2x
+      // cache-read+write for the whole request, per OpenAI's model cards.
       {
         id: "openai/gpt-5.6-sol",
         displayName: "GPT-5.6 Sol",
@@ -1212,17 +1213,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 5.0,
-          outputPer1mTokens: 30.0,
-          cacheWritePer1mTokens: 6.25,
-          cacheReadPer1mTokens: 0.5,
+          inputPer1mTokens: 2.0,
+          outputPer1mTokens: 10.0,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 10,
-              outputPer1mTokens: 45,
-              cacheWritePer1mTokens: 12.5,
-              cacheReadPer1mTokens: 1,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 15,
+              cacheWritePer1mTokens: 5,
+              cacheReadPer1mTokens: 0.4,
             },
           ],
         },
@@ -1240,17 +1241,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 5.0,
-          outputPer1mTokens: 30.0,
-          cacheWritePer1mTokens: 6.25,
-          cacheReadPer1mTokens: 0.5,
+          inputPer1mTokens: 2.0,
+          outputPer1mTokens: 10.0,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 10,
-              outputPer1mTokens: 45,
-              cacheWritePer1mTokens: 12.5,
-              cacheReadPer1mTokens: 1,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 15,
+              cacheWritePer1mTokens: 5,
+              cacheReadPer1mTokens: 0.4,
             },
           ],
         },
@@ -1268,17 +1269,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 1.0,
-          outputPer1mTokens: 6.0,
-          cacheWritePer1mTokens: 1.25,
-          cacheReadPer1mTokens: 0.1,
+          inputPer1mTokens: 2.0,
+          outputPer1mTokens: 12.0,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 2,
-              outputPer1mTokens: 9,
-              cacheWritePer1mTokens: 2.5,
-              cacheReadPer1mTokens: 0.2,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheWritePer1mTokens: 5,
+              cacheReadPer1mTokens: 0.4,
             },
           ],
         },
@@ -1296,17 +1297,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 1.0,
-          outputPer1mTokens: 6.0,
-          cacheWritePer1mTokens: 1.25,
-          cacheReadPer1mTokens: 0.1,
+          inputPer1mTokens: 2.0,
+          outputPer1mTokens: 12.0,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 2,
-              outputPer1mTokens: 9,
-              cacheWritePer1mTokens: 2.5,
-              cacheReadPer1mTokens: 0.2,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheWritePer1mTokens: 5,
+              cacheReadPer1mTokens: 0.4,
             },
           ],
         },
@@ -1324,17 +1325,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 0.1,
-          outputPer1mTokens: 0.6,
-          cacheWritePer1mTokens: 0.125,
-          cacheReadPer1mTokens: 0.01,
+          inputPer1mTokens: 0.2,
+          outputPer1mTokens: 1.2,
+          cacheWritePer1mTokens: 0.25,
+          cacheReadPer1mTokens: 0.02,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 0.2,
-              outputPer1mTokens: 0.9,
-              cacheWritePer1mTokens: 0.25,
-              cacheReadPer1mTokens: 0.02,
+              inputPer1mTokens: 0.4,
+              outputPer1mTokens: 1.8,
+              cacheWritePer1mTokens: 0.5,
+              cacheReadPer1mTokens: 0.04,
             },
           ],
         },
@@ -1352,17 +1353,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 0.1,
-          outputPer1mTokens: 0.6,
-          cacheWritePer1mTokens: 0.125,
-          cacheReadPer1mTokens: 0.01,
+          inputPer1mTokens: 0.2,
+          outputPer1mTokens: 1.2,
+          cacheWritePer1mTokens: 0.25,
+          cacheReadPer1mTokens: 0.02,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 0.2,
-              outputPer1mTokens: 0.9,
-              cacheWritePer1mTokens: 0.25,
-              cacheReadPer1mTokens: 0.02,
+              inputPer1mTokens: 0.4,
+              outputPer1mTokens: 1.8,
+              cacheWritePer1mTokens: 0.5,
+              cacheReadPer1mTokens: 0.04,
             },
           ],
         },
@@ -1390,7 +1391,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 6,
-          cacheReadPer1mTokens: 0.5,
+          cacheReadPer1mTokens: 0.3,
         },
       },
       {
@@ -1430,10 +1431,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 163840,
         maxOutputTokens: 32000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.55, outputPer1mTokens: 2.19 },
+        pricing: {
+          inputPer1mTokens: 0.5,
+          outputPer1mTokens: 2.15,
+          cacheReadPer1mTokens: 0.35,
+        },
       },
       {
         id: "deepseek/deepseek-chat-v3-0324",
@@ -1444,7 +1449,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.27, outputPer1mTokens: 1.1 },
+        pricing: { inputPer1mTokens: 0.25, outputPer1mTokens: 1.0 },
       },
       {
         id: "deepseek/deepseek-v4-pro",
@@ -1452,10 +1457,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 1048576,
         maxOutputTokens: 384000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.435, outputPer1mTokens: 0.87 },
+        pricing: {
+          inputPer1mTokens: 0.522174,
+          outputPer1mTokens: 1.044348,
+          cacheReadPer1mTokens: 0.0435145,
+        },
       },
       {
         id: "deepseek/deepseek-v4-flash",
@@ -1463,21 +1472,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 1048576,
         maxOutputTokens: 384000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
-      },
-      {
-        id: "deepseek/deepseek-v3.2-speciale",
-        displayName: "DeepSeek V3.2 Speciale",
-        contextWindowTokens: 163840,
-        maxOutputTokens: 163840,
-        supportsThinking: true,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: false,
-        pricing: { inputPer1mTokens: 0.287, outputPer1mTokens: 0.431 },
+        pricing: {
+          inputPer1mTokens: 0.056,
+          outputPer1mTokens: 0.112,
+          cacheReadPer1mTokens: 0.0112,
+        },
       },
       // Qwen
       {
@@ -1489,7 +1491,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.8, outputPer1mTokens: 2.4 },
+        pricing: { inputPer1mTokens: 0.26, outputPer1mTokens: 1.56 },
       },
       {
         id: "qwen/qwen3.5-397b-a17b",
@@ -1497,10 +1499,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 131072,
         maxOutputTokens: 8192,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.9, outputPer1mTokens: 2.7 },
+        pricing: {
+          inputPer1mTokens: 0.5,
+          outputPer1mTokens: 3.6,
+          cacheReadPer1mTokens: 0.3,
+        },
       },
       {
         id: "qwen/qwen3.5-flash-02-23",
@@ -1511,7 +1517,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 0.6 },
+        pricing: { inputPer1mTokens: 0.065, outputPer1mTokens: 0.26 },
       },
       {
         id: "qwen/qwen3-coder-next",
@@ -1519,10 +1525,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 131072,
         maxOutputTokens: 8192,
         supportsThinking: false,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.5, outputPer1mTokens: 1.5 },
+        pricing: {
+          inputPer1mTokens: 0.12,
+          outputPer1mTokens: 0.8,
+          cacheReadPer1mTokens: 0.07,
+        },
       },
       // Moonshot
       {
@@ -1532,10 +1542,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 131072,
         supportsThinking: true,
         adaptiveThinkingOnly: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheReadPer1mTokens: 0.3,
+        },
       },
       {
         id: "moonshotai/kimi-k2.6",
@@ -1543,10 +1557,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 262144,
         maxOutputTokens: 32768,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.6, outputPer1mTokens: 2.8 },
+        pricing: {
+          inputPer1mTokens: 0.95,
+          outputPer1mTokens: 4.0,
+          cacheReadPer1mTokens: 0.16,
+        },
       },
       {
         id: "moonshotai/kimi-k2.5",
@@ -1554,10 +1572,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 256000,
         maxOutputTokens: 32768,
         supportsThinking: false,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.6, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 0.6,
+          outputPer1mTokens: 3.0,
+          cacheReadPer1mTokens: 0.1,
+        },
       },
       // MiniMax
       {
@@ -1568,10 +1590,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 524288,
         maxOutputTokens: 512000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
+        },
       },
       {
         id: "minimax/minimax-m2.7",
@@ -1579,10 +1605,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 196608,
         maxOutputTokens: 131072,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.279, outputPer1mTokens: 1.2 },
+        pricing: {
+          inputPer1mTokens: 0.24,
+          outputPer1mTokens: 0.96,
+          cacheReadPer1mTokens: 0.048,
+        },
       },
       {
         id: "minimax/minimax-m2.5",
@@ -1590,10 +1620,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 196608,
         maxOutputTokens: 196608,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.15, outputPer1mTokens: 1.15 },
+        pricing: {
+          inputPer1mTokens: 0.27,
+          outputPer1mTokens: 1.08,
+          cacheReadPer1mTokens: 0.027,
+        },
       },
       {
         id: "minimax/minimax-m2.1",
@@ -1601,10 +1635,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 196608,
         maxOutputTokens: 196608,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.29, outputPer1mTokens: 0.95 },
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.03,
+        },
       },
       {
         id: "minimax/minimax-m2",
@@ -1615,7 +1653,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.255, outputPer1mTokens: 1.0 },
+        pricing: { inputPer1mTokens: 0.255, outputPer1mTokens: 1.02 },
       },
       {
         id: "minimax/minimax-m2-her",
@@ -1623,10 +1661,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 65536,
         maxOutputTokens: 2048,
         supportsThinking: false,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: false,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.03,
+        },
       },
       {
         id: "minimax/minimax-m1",
@@ -1637,7 +1679,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.4, outputPer1mTokens: 2.2 },
+        pricing: { inputPer1mTokens: 0.55, outputPer1mTokens: 2.2 },
       },
       {
         id: "minimax/minimax-01",
@@ -1657,10 +1699,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.4, outputPer1mTokens: 4.4 },
+        pricing: {
+          inputPer1mTokens: 0.966,
+          outputPer1mTokens: 3.036,
+          cacheReadPer1mTokens: 0.1932,
+        },
       },
       // Mistral
       {
@@ -1669,10 +1715,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 131072,
         maxOutputTokens: 16000,
         supportsThinking: false,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.4, outputPer1mTokens: 2.0 },
+        pricing: {
+          inputPer1mTokens: 0.4,
+          outputPer1mTokens: 2.0,
+          cacheReadPer1mTokens: 0.04,
+        },
       },
       {
         id: "mistralai/mistral-small-2603",
@@ -1680,21 +1730,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 131072,
         maxOutputTokens: 16000,
         supportsThinking: false,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 0.6 },
-      },
-      {
-        id: "mistralai/devstral-2512",
-        displayName: "Devstral 2",
-        contextWindowTokens: 131072,
-        maxOutputTokens: 16000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.1, outputPer1mTokens: 0.3 },
+        pricing: {
+          inputPer1mTokens: 0.15,
+          outputPer1mTokens: 0.6,
+          cacheReadPer1mTokens: 0.015,
+        },
       },
       // Meta
       {
@@ -1706,7 +1749,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.27, outputPer1mTokens: 0.85 },
+        pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 0.8 },
       },
       {
         id: "meta-llama/llama-4-scout",
@@ -1717,7 +1760,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.11, outputPer1mTokens: 0.34 },
+        pricing: { inputPer1mTokens: 0.1, outputPer1mTokens: 0.3 },
       },
       // Amazon
       {
@@ -1730,18 +1773,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.8, outputPer1mTokens: 3.2 },
-      },
-      // Owl (OpenRouter first-party)
-      {
-        id: "openrouter/owl-alpha",
-        displayName: "Owl Alpha",
-        contextWindowTokens: 1048576,
-        maxOutputTokens: 262144,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0, outputPer1mTokens: 0 },
       },
     ],
     defaultModel: "x-ai/grok-4.20",

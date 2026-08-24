@@ -1,5 +1,6 @@
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { useTranslation } from "@/i18n";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import {
   VOICE_TRANSCRIPT_TOGGLES,
@@ -8,9 +9,10 @@ import {
 
 /** "Recommended off" pill shown next to a toggle label on the first-run card. */
 function RecommendedOffBadge() {
+  const { t } = useTranslation();
   return (
     <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-      Recommended off
+      {t("voiceTranscriptToggles.recommendedOff")}
     </span>
   );
 }

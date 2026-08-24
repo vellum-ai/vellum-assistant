@@ -1,5 +1,6 @@
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
 export interface SlackSetupOpenStepProps {
@@ -37,6 +38,7 @@ export function SlackSetupOpenStep({
   onOpenSlack,
   onContinue,
 }: SlackSetupOpenStepProps) {
+  const { t } = useTranslation();
   const copyButton = (
     <Button
       type="button"
@@ -51,7 +53,9 @@ export function SlackSetupOpenStep({
         )
       }
     >
-      {copied ? "Copied!" : "Copy manifest"}
+      {copied
+        ? t("slackSetupOpenStep.copied")
+        : t("slackSetupOpenStep.copyManifest")}
     </Button>
   );
 
@@ -62,20 +66,16 @@ export function SlackSetupOpenStep({
         variant="body-medium-lighter"
         className="text-[color:var(--content-default)]"
       >
-        Open Slack in a new tab to create the app, then come back here for the
-        steps to follow.
+        {t("slackSetupOpenStep.body")}
       </Typography>
 
       {manifestCopiedHere ? (
         <Notice tone="info" actions={copyButton}>
-          You copied this app&apos;s manifest here. If you have copied anything
-          since, copy it again before you paste.
+          {t("slackSetupOpenStep.manifestCopiedNotice")}
         </Notice>
       ) : (
         <Notice tone="warning" actions={copyButton}>
-          You have not copied this app&apos;s manifest yet. Slack&apos;s
-          create-app modal has no other way to get it, so copy it before you
-          paste.
+          {t("slackSetupOpenStep.manifestNotCopiedNotice")}
         </Notice>
       )}
 
@@ -86,10 +86,10 @@ export function SlackSetupOpenStep({
           onClick={onOpenSlack}
           rightIcon={<ExternalLink aria-hidden className="size-4" />}
         >
-          Open Slack
+          {t("slackSetupOpenStep.openSlack")}
         </Button>
         <Button type="button" variant="outlined" onClick={onContinue}>
-          Next
+          {t("slackSetupOpenStep.next")}
         </Button>
       </div>
     </div>

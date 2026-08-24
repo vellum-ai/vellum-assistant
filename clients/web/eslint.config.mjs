@@ -191,10 +191,8 @@ const authBoundaryAllowedPaths = [
  * noise, which is how these rules die.
  */
 const i18nEnforcedPaths = [
-  "src/components/companion-intro.tsx",
+  "src/components/**/*.{ts,tsx}",
   "src/hooks/use-connect-claude.ts",
-  "src/components/not-found.tsx",
-  "src/components/section-actions-button.tsx",
   "src/domains/**/*.{ts,tsx}",
 ];
 

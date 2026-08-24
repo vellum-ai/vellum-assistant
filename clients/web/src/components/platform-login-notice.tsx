@@ -6,6 +6,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
+import { useTranslation } from "@/i18n";
 
 interface PlatformLoginNoticeProps {
   /**
@@ -30,6 +31,7 @@ export function PlatformLoginNotice({
   children,
   className,
 }: PlatformLoginNoticeProps) {
+  const { t } = useTranslation();
   // Return to the full current URL (including query/hash) after login so
   // params these surfaces depend on — e.g. billing's `?session_id` /
   // `?billing_status` — survive the auth round-trip. `useOnboardingLogin`
@@ -48,7 +50,9 @@ export function PlatformLoginNotice({
           leftIcon={loading ? undefined : <LogIn className="h-4 w-4" />}
           onClick={loading ? cancel : () => void login()}
         >
-          {loading ? "Cancel" : "Log In"}
+          {loading
+            ? t("platformLoginNotice.cancel")
+            : t("platformLoginNotice.logIn")}
         </Button>
       }
     >

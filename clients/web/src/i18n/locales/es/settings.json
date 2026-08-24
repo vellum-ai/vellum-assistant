@@ -1244,8 +1244,10 @@
     "confirmMessage": "El dispositivo {platform} {hash} pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
     "confirmTitle": "¿Revocar este dispositivo?",
     "dateUnknown": "desconocido",
-    "datesLine": "Vinculado {paired} · Último uso {lastUsed}",
     "hostRevokeDisabledTitle": "Esta es la credencial de este mismo equipo; revocarla dejaría al host sin acceso al asistente.",
+    "pairedActiveLine": "Vinculado {paired} · Activo ahora",
+    "pairedAndUsedLine": "Vinculado {paired} · Último uso {lastUsed}",
+    "pairedLine": "Vinculado {paired}",
     "platformUnknown": "Desconocido",
     "revokeButton": "Revocar",
     "thisMachine": "Este equipo",
@@ -1253,8 +1255,6 @@
   },
   "paymentMethodRow": {
     "endingIn": "Termina en {last4}",
-    "remove": "Eliminar",
-    "removing": "Eliminando…",
     "savedCard": "Tarjeta guardada",
     "updateCard": "Actualizar tarjeta"
   },
@@ -1263,12 +1263,6 @@
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
     "loading": "Cargando…",
-    "removeConfirmCancel": "Conservar tarjeta",
-    "removeConfirmConfirm": "Eliminar",
-    "removeConfirmMessage": "Al eliminar tu tarjeta se desactivará la recarga automática.",
-    "removeConfirmPending": "Eliminando…",
-    "removeConfirmTitle": "¿Eliminar el método de pago?",
-    "removeError": "No se pudo eliminar el método de pago. Inténtalo de nuevo.",
     "subtitle": "Métodos de pago vinculados a tu cuenta.",
     "title": "Métodos de pago"
   },

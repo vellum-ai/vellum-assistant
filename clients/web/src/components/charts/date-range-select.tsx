@@ -3,6 +3,7 @@ import {
   type SelectOption,
 } from "@vellumai/design-library/components/select";
 
+import { useTranslation } from "@/i18n";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { resolveLastTimezoneCalendarDays } from "@/utils/usage-window";
 
@@ -34,10 +35,6 @@ export const DEFAULT_PRESET_DAYS = 30;
 
 type PresetDays = `${(typeof PRESET_DAYS)[number]}`;
 
-const PRESET_OPTIONS: ReadonlyArray<SelectOption<PresetDays>> = PRESET_DAYS.map(
-  (days) => ({ value: `${days}`, label: `Last ${days} days` }),
-);
-
 /**
  * Compute a "last N days" range whose calendar bounds are expressed in the
  * given IANA timezone, so they stay aligned with the `tz` sent to the backend.
@@ -55,17 +52,25 @@ export function computeRangeInTimezone(
 }
 
 export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
+  const { t } = useTranslation();
   // A value that is not one of the presets has no row to show, so fall back to
   // the default rather than render a blank trigger.
   const selected =
     PRESET_DAYS.find((days) => days === value) ?? DEFAULT_PRESET_DAYS;
 
+  const options: ReadonlyArray<SelectOption<PresetDays>> = PRESET_DAYS.map(
+    (days) => ({
+      value: `${days}`,
+      label: t("dateRangeSelect.lastDays", { days }),
+    }),
+  );
+
   return (
     <Select<PresetDays>
-      options={PRESET_OPTIONS}
+      options={options}
       value={`${selected}`}
       onChange={(preset) => onChange(Number(preset))}
-      aria-label="Date range"
+      aria-label={t("dateRangeSelect.ariaLabel")}
     />
   );
 }
