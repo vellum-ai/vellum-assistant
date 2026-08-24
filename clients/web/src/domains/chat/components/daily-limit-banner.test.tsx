@@ -56,6 +56,7 @@ mock.module("@/hooks/use-platform-gate", () => ({
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
+  useOrgHeaderReadiness: () => "ready",
 }));
 
 import {
