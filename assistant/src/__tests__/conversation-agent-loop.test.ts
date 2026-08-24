@@ -4143,6 +4143,138 @@ describe("session-agent-loop", () => {
       );
     });
 
+    test("rerouted compaction records usage under the profile that actually served", async () => {
+      const ctx = makeCtx();
+
+      await applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "summary" }] },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "claude-sonnet-5",
+          summaryText: "summary",
+          summaryCallSite: "compactionAgent",
+          // What the compactor resolved before the call...
+          summaryOverrideProfile: "primaryProfile",
+          // ...and what the reroute actually served.
+          summaryActualProvider: "anthropic",
+          summaryActualInferenceProfile: "backupProfile",
+        },
+        () => {},
+        "req-1",
+      );
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+
+      expect(compactorCall).toBeDefined();
+      // All three attribution facets of the row describe the same call.
+      expect(compactorCall?.[0]).toMatchObject({ providerName: "anthropic" });
+      expect(compactorCall?.[3]).toBe("claude-sonnet-5");
+      expect(compactorCall?.[12]).toEqual({
+        callSite: "compactionAgent",
+        overrideProfile: "backupProfile",
+        forceOverrideProfile: true,
+      });
+    });
+
+    test("non-rerouted compaction keeps the compactor's own attribution", async () => {
+      const ctx = makeCtx();
+
+      await applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "summary" }] },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+          summaryCallSite: "compactionAgent",
+          summaryOverrideProfile: "primaryProfile",
+          summaryActualProvider: "openai",
+        },
+        () => {},
+        "req-1",
+      );
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+
+      expect(compactorCall).toBeDefined();
+      expect(compactorCall?.[0]).toMatchObject({ providerName: "openai" });
+      expect(compactorCall?.[3]).toBe("mock-model");
+      expect(compactorCall?.[12]).toEqual({
+        callSite: "compactionAgent",
+        overrideProfile: "primaryProfile",
+      });
+    });
+
+    test("compaction that served no call falls back to the conversation's provider", async () => {
+      // The degraded shape: `emptyResult` paths record no served attribution
+      // because no call happened. Provider must fall back to the
+      // conversation's own, and the attribution input must be byte-identical
+      // to what it was before served attribution existed.
+      const ctx = makeCtx();
+
+      await applyCompactionResult(
+        ctx,
+        {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "summary" }] },
+          ],
+          compactedPersistedMessages: 4,
+          previousEstimatedInputTokens: 12000,
+          estimatedInputTokens: 3000,
+          maxInputTokens: 100000,
+          thresholdTokens: 80000,
+          compactedMessages: 4,
+          summaryCalls: 1,
+          summaryInputTokens: 100,
+          summaryOutputTokens: 20,
+          summaryModel: "mock-model",
+          summaryText: "summary",
+          summaryCallSite: "compactionAgent",
+          summaryOverrideProfile: "primaryProfile",
+        },
+        () => {},
+        "req-1",
+      );
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+
+      expect(compactorCall).toBeDefined();
+      expect(compactorCall?.[0]).toMatchObject({
+        providerName: "mock-provider",
+      });
+      expect(compactorCall?.[12]).toEqual({
+        callSite: "compactionAgent",
+        overrideProfile: "primaryProfile",
+      });
+    });
+
     test("applyCompactionResult advances the persisted count from the trusted in-context boundary", async () => {
       // Trusted views slice past the already-compacted prefix, so a further
       // compaction advances the persisted count from the mirrored DB boundary.

@@ -2072,6 +2072,8 @@ export async function applyCompactionResult(
     summaryRawResponses?: unknown[];
     summaryCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
+    summaryActualProvider?: string;
+    summaryActualInferenceProfile?: string;
   },
   onEvent: (msg: AssistantEvent) => void,
   reqId: string | null,
@@ -2146,12 +2148,26 @@ export async function applyCompactionResult(
     result.summaryCacheCreationInputTokens ?? 0,
     result.summaryCacheReadInputTokens ?? 0,
     collapseRawResponses(result.summaryRawResponses),
-    undefined /* providerName */,
+    // The provider that actually served the summary, which follows a fallback
+    // reroute the way `summaryModel` already did. Undefined only where no call
+    // was made, and `emitUsage` then falls back to `ctx.provider.name` exactly
+    // as before.
+    result.summaryActualProvider /* providerName */,
     1 /* llmCallCount */,
     undefined /* contextWindow */,
+    // Same rule as the main-agent row above, applied to the compaction row:
+    // a rerouted summary is attributed to the profile that answered, not to
+    // the one the compactor resolved before the call. The two call sites set
+    // this parameter independently off their own state and never share it.
     {
       callSite: result.summaryCallSite ?? null,
-      overrideProfile: result.summaryOverrideProfile ?? null,
+      overrideProfile:
+        result.summaryActualInferenceProfile ??
+        result.summaryOverrideProfile ??
+        null,
+      ...(result.summaryActualInferenceProfile !== undefined
+        ? { forceOverrideProfile: true }
+        : {}),
     },
     options.cronRunId ?? null,
   );
