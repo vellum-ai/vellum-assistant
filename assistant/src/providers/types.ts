@@ -1,6 +1,16 @@
 import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
+/**
+ * The tool name that activates provider-native web search. Callers append a
+ * tool under this name only to instances reporting
+ * {@link Provider.supportsNativeWebSearch}; anywhere a request can change
+ * routes after that decision (see `RetryProvider`'s backup-profile
+ * escalation), the tool has to be dropped again when the new route cannot
+ * serve it, or the model answers with a tool call nothing can execute.
+ */
+export const NATIVE_WEB_SEARCH_TOOL_NAME = "web_search";
+
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
   ProviderError,

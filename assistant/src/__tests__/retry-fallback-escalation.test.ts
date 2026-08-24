@@ -79,15 +79,22 @@ function failingProvider(
 }
 
 /** Backup stub that records the options it was sent and serves a response. */
-function backupProvider(name = "anthropic"): {
+function backupProvider(
+  name = "anthropic",
+  opts: { supportsNativeWebSearch?: boolean } = {},
+): {
   provider: Provider;
   calls: () => number;
   seenConfig: () => Record<string, unknown>;
+  seenToolNames: () => string[];
 } {
   let calls = 0;
   let seen: SendMessageOptions | undefined;
   const provider: Provider = {
     name,
+    ...(opts.supportsNativeWebSearch === undefined
+      ? {}
+      : { supportsNativeWebSearch: opts.supportsNativeWebSearch }),
     sendMessage: async (_messages: Message[], options?: SendMessageOptions) => {
       calls += 1;
       seen = options;
@@ -99,6 +106,7 @@ function backupProvider(name = "anthropic"): {
     provider,
     calls: () => calls,
     seenConfig: () => (seen?.config ?? {}) as Record<string, unknown>,
+    seenToolNames: () => (seen?.tools ?? []).map((tool) => tool.name),
   };
 }
 
@@ -773,5 +781,71 @@ describe("RetryProvider fallback-route escalation", () => {
     });
 
     expect(result.actualInferenceProfile).toBe("inner-specific-profile");
+  });
+
+  test("native web search sentinel is dropped when the backup cannot serve it", async () => {
+    // The caller appended the sentinel from the PRIMARY route's capability, so
+    // a backup without server-side search would answer with a tool call
+    // nothing can execute. Degraded mode loses native search, not the turn.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("gemini", { supportsNativeWebSearch: false });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+      tools: [
+        {
+          name: "read_file",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.calls()).toBe(1);
+    expect(backup.seenToolNames()).toEqual(["read_file"]);
+  });
+
+  test("native web search sentinel survives when the backup serves it too", async () => {
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("anthropic", {
+      supportsNativeWebSearch: true,
+    });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+      tools: [
+        {
+          name: "read_file",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.seenToolNames()).toEqual(["read_file", "web_search"]);
   });
 });
