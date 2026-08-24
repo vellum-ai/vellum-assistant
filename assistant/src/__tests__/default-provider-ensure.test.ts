@@ -190,7 +190,7 @@ describe("ensureDefaultProvider", () => {
     expect(llm().defaultProvider).toEqual({ provider: "gemini" });
   });
 
-  test("a legacy connectionName does not invalidate the value — no repair, no rewrite", async () => {
+  test("a legacy connectionName does not invalidate the value: no repair, no rewrite", async () => {
     // The retired pin is an unknown key now: it strips at parse (so the
     // value is schema-valid) and self-heals on the next strict write; the
     // ensure pass leaves the raw file alone.

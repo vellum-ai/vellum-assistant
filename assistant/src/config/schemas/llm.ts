@@ -631,7 +631,7 @@ type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
  *
  * No connection-existence validation on purpose: schema validation is
  * pure/sync and cannot see the sqlite connections table, so the
- * conventionally resolved connection may be dangling — that surfaces as an
+ * conventionally resolved connection may be dangling, which surfaces as an
  * explainable resolution error at read time.
  *
  * Unknown keys (including the retired `connectionName` pin) strip at parse;

@@ -278,7 +278,7 @@ describe("ProvidersSection - kebab actions", () => {
   test("a non-convention row offers no Set as default", async () => {
     // The PUT body carries only the provider, so on a suffix-named
     // duplicate the daemon would set the convention row instead of the
-    // clicked one — the affordance is hidden there.
+    // clicked one; the affordance is hidden there.
     connectionsState = [
       ...connectionsState,
       connection({

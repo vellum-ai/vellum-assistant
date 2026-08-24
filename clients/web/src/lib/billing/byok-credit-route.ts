@@ -316,7 +316,7 @@ export function defaultChatRouteBurnsManagedCredits(
  * resolved connection the daemon stamps onto default bodies
  * (`resolvedConnectionName` from the default-provider status), so an unset
  * name doesn't misread as unbound dispatch. Old daemons may still emit an
- * explicit `connectionName` pin in this evidence; it is ignored — their pins
+ * explicit `connectionName` pin in this evidence; it is ignored: their pins
  * were canonical-or-conventional anyway. Null when no default provider is
  * configured.
  */
