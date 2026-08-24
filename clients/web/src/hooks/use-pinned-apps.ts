@@ -8,13 +8,16 @@
  * Reading it off the app list also means a pin renders the app's live name and
  * icon, and an app that no longer exists brings no pin with it.
  *
+ * Against a daemon too old to store pins, this falls back to the browser-local
+ * list it used to keep. See {@link useSupportsDaemonAppPins}.
+ *
  * Every caller passes the assistant it is showing. There is deliberately no
  * ambient "current assistant" here: the id a pin is written against is the one
  * the calling surface renders, so a pin cannot land on the assistant the user
  * just navigated away from.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -23,13 +26,32 @@ import {
   appsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppsGetResponse } from "@/generated/daemon/types.gen";
+import { useSupportsDaemonAppPins } from "@/lib/backwards-compat/daemon-app-pins";
 import type { AppSummary } from "@/types/app-types";
+import {
+  loadPinnedApps,
+  pinApp,
+  setAppColor,
+  subscribePinnedApps,
+  unpinApp,
+} from "@/utils/app-pin-storage";
+
+/**
+ * What a pinned row renders from. Narrower than {@link AppSummary} because the
+ * legacy path has only these four fields, and because a sidebar row has no use
+ * for an app's provenance or timestamps.
+ */
+export interface PinnedAppView {
+  id: string;
+  name: string;
+  icon?: string;
+  pinColor?: string;
+}
 
 export interface PinnedApps {
   /** Pinned apps in sidebar order. Empty until the app list has loaded. */
-  pinnedApps: AppSummary[];
+  pinnedApps: PinnedAppView[];
   pinnedAppIds: Set<string>;
-  isPinned: (appId: string) => boolean;
   togglePin: (appId: string) => void;
   /**
    * Remove a pin by id. A no-op when the id is not pinned. Deleting an app
@@ -50,6 +72,7 @@ const EMPTY_APPS: AppSummary[] = [];
 export function usePinnedApps(
   assistantId: string | null | undefined,
 ): PinnedApps {
+  const daemonOwnsPins = useSupportsDaemonAppPins();
   const queryClient = useQueryClient();
   /* Memoized because it is a dependency of the write callback, and a fresh
      object each render would rebuild every action on every render. */
@@ -58,19 +81,41 @@ export function usePinnedApps(
     [assistantId],
   );
 
+  /* Fetched on both paths: the legacy one still needs the app list to resolve
+     the name and icon it copies onto a pin. */
   const { data: apps = EMPTY_APPS } = useQuery({
     ...appsGetOptions({ path }),
     select: (data) => data.apps,
     enabled: Boolean(assistantId),
   });
 
-  const pinnedApps = useMemo(
-    () =>
-      apps
-        .filter((app) => app.pinnedOrder !== undefined)
-        .sort((a, b) => (a.pinnedOrder ?? 0) - (b.pinnedOrder ?? 0)),
-    [apps],
+  const legacyEntries = useSyncExternalStore(
+    subscribePinnedApps,
+    loadPinnedApps,
+    loadPinnedApps,
   );
+
+  const pinnedApps = useMemo((): PinnedAppView[] => {
+    if (daemonOwnsPins) {
+      return apps
+        .filter((app) => app.pinnedOrder !== undefined)
+        .sort((a, b) => (a.pinnedOrder ?? 0) - (b.pinnedOrder ?? 0))
+        .map((app) => ({
+          id: app.id,
+          name: app.name,
+          icon: app.icon,
+          pinColor: app.pinColor,
+        }));
+    }
+    return [...legacyEntries]
+      .sort((a, b) => a.pinnedOrder - b.pinnedOrder)
+      .map((entry) => ({
+        id: entry.appId,
+        name: entry.name,
+        icon: entry.icon,
+        pinColor: entry.color,
+      }));
+  }, [daemonOwnsPins, apps, legacyEntries]);
 
   const pinnedAppIds = useMemo(
     () => new Set(pinnedApps.map((app) => app.id)),
@@ -106,9 +151,21 @@ export function usePinnedApps(
 
   const togglePin = useCallback(
     (appId: string) => {
-      write(appId, { pinned: !pinnedAppIds.has(appId) });
+      const pinned = pinnedAppIds.has(appId);
+      if (daemonOwnsPins) {
+        write(appId, { pinned: !pinned });
+        return;
+      }
+      if (pinned) {
+        unpinApp(appId);
+        return;
+      }
+      const app = apps.find((candidate) => candidate.id === appId);
+      if (app) {
+        pinApp({ id: app.id, name: app.name, icon: app.icon });
+      }
     },
-    [write, pinnedAppIds],
+    [daemonOwnsPins, write, pinnedAppIds, apps],
   );
 
   const unpin = useCallback(
@@ -116,9 +173,13 @@ export function usePinnedApps(
       if (!pinnedAppIds.has(appId)) {
         return;
       }
-      write(appId, { pinned: false });
+      if (daemonOwnsPins) {
+        write(appId, { pinned: false });
+      } else {
+        unpinApp(appId);
+      }
     },
-    [write, pinnedAppIds],
+    [daemonOwnsPins, write, pinnedAppIds],
   );
 
   const setColor = useCallback(
@@ -126,17 +187,16 @@ export function usePinnedApps(
       if (!pinnedAppIds.has(appId)) {
         return;
       }
-      write(appId, { color });
+      if (daemonOwnsPins) {
+        write(appId, { color });
+      } else {
+        setAppColor(appId, color);
+      }
     },
-    [write, pinnedAppIds],
+    [daemonOwnsPins, write, pinnedAppIds],
   );
 
-  const isPinned = useCallback(
-    (appId: string) => pinnedAppIds.has(appId),
-    [pinnedAppIds],
-  );
-
-  return { pinnedApps, pinnedAppIds, isPinned, togglePin, unpin, setColor };
+  return { pinnedApps, pinnedAppIds, togglePin, unpin, setColor };
 }
 
 /**
@@ -151,13 +211,20 @@ function applyPin(
   appId: string,
   body: { pinned?: boolean; color?: string | null },
 ): AppsGetResponse {
+  const target = previous.apps.find((app) => app.id === appId);
   const pinnedCount = previous.apps.filter(
     (app) => app.pinnedOrder !== undefined,
   ).length;
+  const vacated = body.pinned === false ? target?.pinnedOrder : undefined;
 
   const apps = previous.apps.map((app) => {
     if (app.id !== appId) {
-      return app;
+      // Everything above the vacated position moves down one to close the gap.
+      return vacated !== undefined &&
+        app.pinnedOrder !== undefined &&
+        app.pinnedOrder > vacated
+        ? { ...app, pinnedOrder: app.pinnedOrder - 1 }
+        : app;
     }
     const next: AppSummary = { ...app };
     if (body.pinned === false) {
@@ -176,19 +243,5 @@ function applyPin(
     return next;
   });
 
-  const removedOrder =
-    body.pinned === false
-      ? previous.apps.find((app) => app.id === appId)?.pinnedOrder
-      : undefined;
-  if (removedOrder === undefined) {
-    return { ...previous, apps };
-  }
-  return {
-    ...previous,
-    apps: apps.map((app) =>
-      app.pinnedOrder !== undefined && app.pinnedOrder > removedOrder
-        ? { ...app, pinnedOrder: app.pinnedOrder - 1 }
-        : app,
-    ),
-  };
+  return { ...previous, apps };
 }

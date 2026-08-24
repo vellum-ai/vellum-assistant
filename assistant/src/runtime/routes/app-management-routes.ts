@@ -605,23 +605,22 @@ async function importBundle(
 
 function handleListApps({ queryParams }: RouteHandlerArgs) {
   const pinsById = new Map(listAppPins().map((pin) => [pin.appId, pin]));
+  const pinned = (item: AppListItem): AppListItem =>
+    withPin(item, pinsById.get(item.id));
+
   const conversationId = queryParams?.conversationId;
   if (conversationId) {
     // Conversation scoping is a workspace-app concept; plugin apps are not
     // associated with conversations, so they are omitted from this view.
     return {
       apps: listAppsByConversation(conversationId).map((app) =>
-        withPin(workspaceAppItem(app), pinsById.get(app.id)),
+        pinned(workspaceAppItem(app)),
       ),
     };
   }
   const apps: AppListItem[] = [
-    ...listApps().map((app) =>
-      withPin(workspaceAppItem(app), pinsById.get(app.id)),
-    ),
-    ...listPluginApps().map((app) =>
-      withPin(pluginAppItem(app), pinsById.get(app.id)),
-    ),
+    ...listApps().map((app) => pinned(workspaceAppItem(app))),
+    ...listPluginApps().map((app) => pinned(pluginAppItem(app))),
   ];
   return { apps };
 }

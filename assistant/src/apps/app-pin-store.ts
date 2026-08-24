@@ -11,10 +11,10 @@
  * gone surfaces nowhere.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { pathExists } from "../util/fs.js";
+import { ensureDir, readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 
@@ -70,12 +70,12 @@ function compact(pins: AppPin[]): AppPin[] {
  * user the rest of their sidebar.
  */
 export function listAppPins(): AppPin[] {
-  const filePath = pinsFilePath();
-  if (!pathExists(filePath)) {
+  const raw = readTextFileSync(pinsFilePath());
+  if (raw === null) {
     return [];
   }
   try {
-    const parsed: unknown = JSON.parse(readFileSync(filePath, "utf-8"));
+    const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
       return [];
     }
@@ -90,6 +90,9 @@ export function listAppPins(): AppPin[] {
 
 function writePins(pins: AppPin[]): AppPin[] {
   const compacted = compact(pins);
+  /* `getDataDir` only builds the path. On a workspace where nothing has
+     created the data dir yet, the first pin is what creates it. */
+  ensureDir(getDataDir());
   writeFileSync(pinsFilePath(), JSON.stringify(compacted, null, 2) + "\n");
   return compacted;
 }

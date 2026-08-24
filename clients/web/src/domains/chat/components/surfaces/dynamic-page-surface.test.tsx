@@ -17,7 +17,6 @@ mock.module(
     usePinnedApps: () => ({
       pinnedApps: [],
       pinnedAppIds: new Set<string>(),
-      isPinned: () => false,
       togglePin: () => {},
       unpin: () => {},
       setColor: () => {},

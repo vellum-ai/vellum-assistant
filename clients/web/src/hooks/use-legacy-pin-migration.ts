@@ -11,17 +11,7 @@
  * this assistant's only if this assistant has an app with that id. So each
  * assistant claims its own entries on first load and leaves the rest in place
  * for whichever assistant owns them, and the key is dropped once nothing is
- * left to claim.
- *
- * Two things it deliberately will not do, because a migration that guesses is
- * worse than one that stops:
- *
- * - It never merges into an assistant that already has pins of its own. Those
- *   were chosen after the upgrade, and the legacy list is exactly the state we
- *   distrust.
- * - It never claims an id it cannot find an app for. An unrecognized id is
- *   either another assistant's or a deleted app's, and neither should become a
- *   sidebar row here.
+ * left to claim. {@link planLegacyPinClaim} holds what it refuses to move.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -32,6 +22,13 @@ import {
   appsGetOptions,
   appsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useSupportsDaemonAppPins } from "@/lib/backwards-compat/daemon-app-pins";
+import {
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
+} from "@/utils/local-settings";
 
 const LEGACY_KEY = "vellum:pinnedApps";
 
@@ -57,14 +54,11 @@ function isLegacyPin(value: unknown): value is LegacyPin {
 
 /** The legacy list, malformed entries dropped. Empty when the key is gone. */
 export function readLegacyPins(): LegacyPin[] {
-  if (typeof window === "undefined") {
+  const raw = getLocalSetting(LEGACY_KEY, "");
+  if (raw === "") {
     return [];
   }
   try {
-    const raw = localStorage.getItem(LEGACY_KEY);
-    if (raw === null) {
-      return [];
-    }
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter(isLegacyPin) : [];
   } catch {
@@ -72,33 +66,34 @@ export function readLegacyPins(): LegacyPin[] {
   }
 }
 
-/** Write back what is left to claim, removing the key once nothing is. */
+/**
+ * Write back what is left to claim, removing the key once nothing is.
+ *
+ * A rejected write is not retried: the claim it follows already reached the
+ * daemon, so the next load reads this assistant as pinned and stops at the
+ * guard in {@link planLegacyPinClaim}.
+ */
 export function writeLegacyPins(pins: LegacyPin[]): void {
-  try {
-    if (pins.length === 0) {
-      localStorage.removeItem(LEGACY_KEY);
-      return;
-    }
-    localStorage.setItem(LEGACY_KEY, JSON.stringify(pins));
-  } catch {
-    // Storage unavailable. The claim already reached the daemon, and a rerun
-    // finds this assistant already pinned and stops at the guard above.
+  if (pins.length === 0) {
+    removeLocalSetting(LEGACY_KEY);
+    return;
   }
+  setLocalSetting(LEGACY_KEY, JSON.stringify(pins));
 }
 
 /**
  * The entries this assistant should claim from the legacy list, in the order
  * they should be pinned. Empty means claim nothing.
  *
- * Separated from the effect because this is the whole of the migration's
- * judgement, and it is judgement about state we distrust.
+ * It refuses two things, because a migration that guesses about state we
+ * distrust is worse than one that stops: it never merges into an assistant
+ * that already has pins of its own, and it never claims an id it cannot find
+ * an app for, which is either another assistant's or a deleted app's.
  */
 export function planLegacyPinClaim(
   legacy: LegacyPin[],
   apps: { id: string; pinnedOrder?: number }[],
 ): LegacyPin[] {
-  // Pins chosen after the upgrade. The legacy list is exactly the state we
-  // distrust, so it does not get merged into a list the user has since curated.
   if (apps.some((app) => app.pinnedOrder !== undefined)) {
     return [];
   }
@@ -113,11 +108,18 @@ export function useLegacyPinMigration(
   isAssistantActive: boolean,
 ): void {
   const queryClient = useQueryClient();
+  const daemonOwnsPins = useSupportsDaemonAppPins();
+  /* Platform-mode daemon requests carry `Vellum-Organization-Id` from the org
+     store, which hydrates after auth. This hook mounts at the root, so without
+     the gate its first request goes out headerless and is rejected, and nothing
+     about org hydration would re-run it. */
+  const isOrgReady = useIsOrgReady();
   const path = useMemo(
     () => ({ assistant_id: assistantId ?? "" }),
     [assistantId],
   );
-  const enabled = Boolean(assistantId) && isAssistantActive;
+  const enabled =
+    Boolean(assistantId) && isAssistantActive && daemonOwnsPins && isOrgReady;
 
   const { data: apps } = useQuery({
     ...appsGetOptions({ path }),
@@ -127,14 +129,12 @@ export function useLegacyPinMigration(
 
   const { mutateAsync } = useMutation(appsByIdPinPostMutation());
 
-  /* One attempt per assistant. The app list keeps arriving as it refetches,
-     and a second pass over a list this one just pinned would read its own
-     writes as pins the user chose and stop at the guard anyway, but only after
-     re-reading a key it already drained. */
+  /* One attempt per assistant: the app list keeps arriving as it refetches,
+     and a second pass would re-read a key this one already drained. */
   const attempted = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!assistantId || !apps) {
+    if (!assistantId || !apps || !enabled) {
       return;
     }
     if (attempted.current === assistantId) {
@@ -170,10 +170,14 @@ export function useLegacyPinMigration(
       if (claimed.size === 0) {
         return;
       }
-      writeLegacyPins(legacy.filter((pin) => !claimed.has(pin.appId)));
+      /* Re-read rather than filtering the snapshot taken before the awaits:
+         another assistant's migration may have drained its own entries while
+         these claims were in flight, and writing back the stale remainder
+         would restore them for it to claim a second time. */
+      writeLegacyPins(readLegacyPins().filter((pin) => !claimed.has(pin.appId)));
       void queryClient.invalidateQueries({
         queryKey: appsGetQueryKey({ path }),
       });
     })();
-  }, [assistantId, apps, mutateAsync, queryClient, path]);
+  }, [assistantId, apps, enabled, mutateAsync, queryClient, path]);
 }

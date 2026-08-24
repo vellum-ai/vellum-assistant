@@ -134,8 +134,6 @@ mock.module(
     usePinnedApps: () => ({
       pinnedApps: pinnedAppsFixture,
       pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
-      isPinned: (appId: string) =>
-        pinnedAppsFixture.some((app) => app.id === appId),
       togglePin: () => {},
       unpin: () => {},
       setColor: () => {},
