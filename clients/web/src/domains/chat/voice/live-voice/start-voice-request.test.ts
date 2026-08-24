@@ -8,10 +8,11 @@
  * nothing. Every precondition that can still become true therefore leaves the
  * request parked for the next drain, and only a resolved decision spends it.
  *
- * `whenAssistantVersionKnown` is stubbed (the rest of `backwards-compat/utils`
- * is the real thing, so the eligibility gate still reads real store state) —
- * the interesting cases are all about *when* it settles, including its 5s
- * timeout.
+ * `whenAssistantVersionKnownFor` is stubbed (the rest of
+ * `backwards-compat/utils` is the real thing, so the eligibility gate still
+ * reads real store state). The interesting cases are all about *when* it
+ * settles, including its 5s timeout, and about *which* assistant it is asked
+ * about: the gate it feeds is owner-scoped.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -19,7 +20,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const utils = await import("@/lib/backwards-compat/utils");
 
 let versionResolution: Promise<void> = Promise.resolve();
-const whenAssistantVersionKnown = mock(() => versionResolution);
+const whenAssistantVersionKnownFor = mock(
+  (_ownerAssistantId: string | null | undefined) => versionResolution,
+);
 
 const ensureMainWindowVisibleMock = mock(() => Promise.resolve());
 mock.module("@/runtime/main-window", () => ({
@@ -28,7 +31,7 @@ mock.module("@/runtime/main-window", () => ({
 
 mock.module("@/lib/backwards-compat/utils", () => ({
   ...utils,
-  whenAssistantVersionKnown,
+  whenAssistantVersionKnownFor,
 }));
 
 /**
@@ -167,7 +170,7 @@ beforeEach(() => {
   useViewerStore.getState().setMainView("app");
   navigate.mockClear();
   starter.mockClear();
-  whenAssistantVersionKnown.mockClear();
+  whenAssistantVersionKnownFor.mockClear();
   preflightLiveVoice.mockClear();
   ensureMainWindowVisibleMock.mockClear();
   versionResolution = Promise.resolve();
@@ -289,7 +292,7 @@ describe("starting a session", () => {
 
     await drainPendingVoiceStart(navigate);
 
-    expect(whenAssistantVersionKnown).not.toHaveBeenCalled();
+    expect(whenAssistantVersionKnownFor).not.toHaveBeenCalled();
     expect(starter).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -302,9 +305,9 @@ describe("starting a session", () => {
 describe("a request that cannot be served yet stays parked", () => {
   test("the version resolution times out with the version still unknown", async () => {
     // A cold Siri / Action-Button launch against a hibernating assistant: the
-    // identity fetch has not landed, so `whenAssistantVersionKnown` resolves on
-    // its 5s timeout with `version` still null. The eligibility gate would read
-    // the conservative `false` and throw the command away.
+    // identity fetch has not landed, so the version wait resolves on its 5s
+    // timeout with `version` still null. The eligibility gate would read the
+    // conservative `false` and throw the command away.
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
     registerStarter();
 
@@ -318,6 +321,44 @@ describe("a request that cannot be served yet stays parked", () => {
     identityHydrated();
     await drainPendingVoiceStart(navigate);
     expectStartedOnFreshDraft();
+  });
+
+  test("the identity still belongs to the assistant switched away from", async () => {
+    // The switch-triggered drain runs on the resolved-assistants change, and
+    // that change lands before the identity store is cleared and rehydrated
+    // for the assistant switched to. The eligibility gate is owner-scoped, so
+    // deciding here on the version still held for the previous assistant reads
+    // as "too old for live voice" and spends a press the user really made.
+    identityHydrated();
+    registerStarter();
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    await drainPendingVoiceStart(navigate);
+
+    // The version is awaited for the assistant a fresh start now means, not
+    // for whichever one the identity store happens to be holding.
+    expect(whenAssistantVersionKnownFor).toHaveBeenCalledWith("assistant-2");
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      PRIOR_CONVERSATION_ID,
+    );
+    expect(isParked()).toBe(true);
+
+    // The new assistant's identity lands, and the next drain serves the press
+    // on it.
+    useAssistantIdentityStore.setState({
+      assistantId: "assistant-2",
+      version: SUPPORTED_VERSION,
+      name: "Grace",
+    });
+    await drainPendingVoiceStart(navigate);
+
+    const draftId = mintedConversationId();
+    expect(draftId).not.toBe(PRIOR_CONVERSATION_ID);
+    expect(starter).toHaveBeenCalledWith("assistant-2", draftId);
+    expect(isParked()).toBe(false);
   });
 
   test("the controller unmounts across the version await", async () => {

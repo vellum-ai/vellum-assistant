@@ -394,6 +394,51 @@ describe("re-draining on an assistant switch", () => {
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
 
+  test("a switch waits for the new assistant's identity before deciding", async () => {
+    // The real ordering, which the helper above collapses: the subscription
+    // fires on the resolved-assistants change, and the identity store is still
+    // holding the previous assistant's version at that moment. The eligibility
+    // gate is owner-scoped, so a drain that decides now reads the press as
+    // unsupported and throws it away instead of serving it.
+    activeAssistant("assistant-1");
+    const h = renderPersistentController();
+    await flushDrains();
+
+    // Parked directly, so nothing drains it until the switch does.
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    });
+    await flushDrains();
+
+    expect(h.clients).toHaveLength(0);
+    expect(
+      usePendingDeepLinkStore.getState().pendingVoiceStartAt,
+    ).not.toBeNull();
+
+    // `useAssistantIdentityInit` clears, then hydrates for the assistant the
+    // user moved to. That is what the drain has been waiting on.
+    act(() => {
+      useAssistantIdentityStore.setState({ assistantId: null, version: null });
+      useAssistantIdentityStore.setState({
+        assistantId: "assistant-2",
+        version: "0.10.12",
+      });
+    });
+    await flushDrains();
+
+    const draftId =
+      useConversationStore.getState().activeConversationId ?? undefined;
+    expect(draftId).toBeDefined();
+    expect(h.clients).toHaveLength(1);
+    expect(h.lastClient().connectArgs).toEqual({
+      assistantId: "assistant-2",
+      conversationId: draftId,
+      turnDetection: "server_vad",
+    });
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+  });
+
   test("a switch with nothing parked starts nothing", async () => {
     activeAssistant("assistant-1");
     const h = renderPersistentController();

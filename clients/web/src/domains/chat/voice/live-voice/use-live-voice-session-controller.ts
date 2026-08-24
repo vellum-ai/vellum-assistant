@@ -219,6 +219,12 @@ export function useLiveVoiceSessionController(
   // gate and the readiness verdict both answered for the assistant the user
   // just left, and without this that request would sit until its TTL took it.
   //
+  // This fires on the resolved-assistants change, which is ahead of the
+  // identity store being cleared and rehydrated for the assistant switched to.
+  // The drain waits that out itself, on a wait scoped to the new assistant, so
+  // it decides on the identity of the one the user moved to rather than on the
+  // version still held for the one they left.
+  //
   // Subscribed rather than selected, so a switch never re-renders the mounting
   // layout, matching `observeAudioState: false` above. Nothing here starts a
   // session on its own: a drain with nothing parked returns immediately, and

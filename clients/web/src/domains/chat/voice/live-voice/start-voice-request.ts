@@ -32,7 +32,7 @@ import {
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
-import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
+import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -163,16 +163,32 @@ export async function drainPendingVoiceStart(
   if (useLiveVoiceStore.getState().starter === null) {
     return;
   }
+  // Who a fresh start means, read before the wait below rather than after it,
+  // because the wait is scoped to this assistant.
+  const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
   // `supportsLiveVoice` reads `false` until the identity fetch lands, and a
-  // cold-launch deep link fires squarely inside that window — so resolve the
+  // cold-launch deep link fires squarely inside that window, so resolve the
   // version first rather than gating on the conservative default (this is the
-  // "gated write" case `whenAssistantVersionKnown` documents). Store
+  // "gated write" case `whenAssistantVersionKnownFor` documents). Store
   // subscription, not a poll.
-  await whenAssistantVersionKnown();
-  // Resolved by timing out, not by hydrating. The gate below would read the
-  // conservative `false` and discard a request the user really made, so leave
-  // it parked instead.
-  if (useAssistantIdentityStore.getState().version === null) {
+  //
+  // Scoped to `assistantId`, because the eligibility gate below is: it checks
+  // the hydrated version's *owner*, and the unscoped wait is satisfied by a
+  // version still held for the assistant the user just left. That is not an
+  // edge case here. The other trigger for this drain is the assistant switch
+  // itself, which fires on the resolved-assistants change, ahead of the
+  // identity store being cleared and rehydrated for the assistant switched to,
+  // so an unscoped wait would resolve instantly on the previous assistant's
+  // version and the owner check would then read the request as unsupported and
+  // throw a press the user really made away.
+  await whenAssistantVersionKnownFor(assistantId);
+  // Resolved by timing out, not by this assistant's identity hydrating. The
+  // gate below would read the conservative `false` and discard a request the
+  // user really made, so leave it parked instead: the wait is bounded well
+  // inside the park's TTL, and the next drain runs everything again against
+  // whoever is active by then.
+  const identity = useAssistantIdentityStore.getState();
+  if (identity.version === null || identity.assistantId !== assistantId) {
     return;
   }
   // Re-read: the controller may have unmounted across the await, leaving no
@@ -181,7 +197,6 @@ export async function drainPendingVoiceStart(
   if (starter === null) {
     return;
   }
-  const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
   // Every branch from here that is a decision rather than a race spends the
   // request. The consume itself stays at the bottom, below the last await, so
   // the things that can still become true (a controller that has not
