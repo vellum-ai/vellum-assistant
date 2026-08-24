@@ -64,6 +64,7 @@ import {
   NotFoundError,
   PayloadTooLargeError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("app-management-routes");
@@ -113,6 +114,28 @@ const appListItemSchema = z.object({
 });
 
 type AppListItem = z.infer<typeof appListItemSchema>;
+
+/**
+ * The pin route's body. `RouteDefinition.requestBody` is a codegen signal and
+ * does not validate, so the handler parses against this too; declaring it once
+ * keeps what is advertised and what is enforced from drifting apart.
+ */
+const appPinBodySchema = z
+  .object({
+    pinned: z
+      .boolean()
+      .optional()
+      .describe("Pin (true) or unpin (false). Omit to leave unchanged."),
+    color: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Colour id, or null to clear. Omit to leave unchanged."),
+  })
+  .refine(
+    (value) => value.pinned !== undefined || value.color !== undefined,
+    "pinned or color is required",
+  );
 
 /** Merge an app's pin, if it has one, onto its list entry. */
 function withPin(item: AppListItem, pin: AppPin | undefined): AppListItem {
@@ -877,13 +900,9 @@ function existingAppIds(): string[] {
   ];
 }
 
-function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
+function handlePinApp({ pathParams, body = {}, headers }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
-  const pinned = body?.pinned;
-  const color = body?.color;
-  if (pinned === undefined && color === undefined) {
-    throw new BadRequestError("pinned or color is required");
-  }
+  const { pinned, color } = parseBody(appPinBodySchema, body);
   const existing = existingAppIds();
   /* A pin only means anything against an app that exists: the list starts from
      the real apps, so a pin for anything else could never be read back.
@@ -893,8 +912,8 @@ function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
   const pin = updateAppPin(appId, {
-    ...(pinned === undefined ? {} : { pinned: pinned as boolean }),
-    ...(color === undefined ? {} : { color: color as string | null }),
+    ...(pinned === undefined ? {} : { pinned }),
+    ...(color === undefined ? {} : { color }),
   });
   publishAppsChanged(getOriginClientId(headers));
   return {
@@ -1230,17 +1249,7 @@ export const ROUTES: RouteDefinition[] = [
       "with. Pin state is read back from the app list as `pinSortPosition` " +
       "and `pinColor`.",
     tags: ["apps"],
-    requestBody: z.object({
-      pinned: z
-        .boolean()
-        .optional()
-        .describe("Pin (true) or unpin (false). Omit to leave unchanged."),
-      color: z
-        .string()
-        .nullable()
-        .optional()
-        .describe("Colour id, or null to clear. Omit to leave unchanged."),
-    }),
+    requestBody: appPinBodySchema,
     responseBody: z.object({
       success: z.boolean(),
       appId: z.string(),
