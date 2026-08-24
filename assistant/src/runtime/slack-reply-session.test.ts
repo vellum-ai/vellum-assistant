@@ -309,7 +309,7 @@ describe("createSlackReplySession", () => {
       {
         action: "stop",
         streamId: "stream-ts-1",
-        text: "First half. Second half.",
+        text: "The complete answer.",
       },
     ]);
   });
@@ -508,6 +508,7 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps().at(-1)).toEqual({
       action: "stop",
       streamId: "stream-ts-1",
+      text: "Working on it.",
       plan: {
         steps: [
           { label: "Search docs", status: "completed" },
@@ -629,6 +630,7 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps().at(-1)).toEqual({
       action: "stop",
       streamId: "stream-ts-1",
+      text: "Working on it.",
       plan: { steps: [{ label: "Search docs", status: "completed" }] },
     });
   });
@@ -849,6 +851,7 @@ describe("createSlackReplySession", () => {
     expect(ops.at(-1)).toEqual({
       action: "stop",
       streamId: "stream-ts-1",
+      text: "Working on it.",
       plan: {
         steps: [
           { label: "Search docs", status: "completed" },
@@ -906,6 +909,7 @@ describe("createSlackReplySession", () => {
       {
         action: "stop",
         streamId: "stream-ts-1",
+        text: "On it, starting now.",
         plan: {
           steps: [
             { label: "Search docs", status: "in_progress" },
@@ -962,9 +966,8 @@ describe("createSlackReplySession", () => {
         ],
       },
     });
-    // toMatchObject ignores unknown keys, so this asserted nothing once the
-    // field was renamed. Reading the plan through the typed op means a rename
-    // fails the build instead of quietly passing.
+    // The plan title survives to the final stop, so a reader who only sees
+    // the finished message still sees what the plan was called.
     const final = ops.at(-1);
     expect(final?.action).toBe("stop");
     expect(final?.plan?.title).toBe("Quick Briefing");
