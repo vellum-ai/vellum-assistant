@@ -153,6 +153,9 @@ describe("handleOpenUrlDirectiveEnvelope", () => {
       action?: { label: string; onClick: () => void };
     };
     expect(options?.action?.label).toBe("Open page");
+    expect(toastWarningMock.mock.calls[0]?.[0]).toBe(
+      "Your browser blocked a page the assistant tried to open.",
+    );
 
     // The action click re-opens; with a user gesture the popup succeeds.
     const popup = { focus: mock(() => {}) } as unknown as Window;

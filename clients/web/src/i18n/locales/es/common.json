@@ -621,6 +621,18 @@
     "restartToInstall": "Reiniciar para instalar",
     "versionFallback": "actualización"
   },
+  "useAppDelete": {
+    "deleteFailed": "No se pudo eliminar la app"
+  },
+  "useAppDeployment": {
+    "copyFailed": "No se pudo copiar el enlace. Ábrelo en {url}",
+    "linkCopied": "Enlace copiado",
+    "open": "Abrir"
+  },
+  "useBookmarks": {
+    "addFailed": "No se pudo marcar el mensaje.",
+    "removeFailed": "No se pudo quitar el marcador."
+  },
   "useConnectClaude": {
     "exchangeFailed": "Comprueba la clave pegada e inténtalo de nuevo.",
     "failed": "No se pudo conectar Claude. Inténtalo de nuevo.",
@@ -630,8 +642,24 @@
     "startFailed": "No se pudo iniciar Connect Claude. Inténtalo de nuevo.",
     "timedOut": "Se agotó el tiempo de espera para conectar Claude. Inténtalo de nuevo."
   },
+  "useOauthConnect": {
+    "accountConnected": "Cuenta de {name} conectada.",
+    "authPopupClosed": "La conexión de {name} falló: se cerró la ventana de autorización.",
+    "authorizationError": "Error de {name}: {code}",
+    "authorizationFailed": "La autorización de {name} falló",
+    "popupBlocked": "Ventana emergente bloqueada. Permite las ventanas emergentes e inténtalo de nuevo.",
+    "popupClosed": "La conexión de {name} falló: se cerró la ventana emergente.",
+    "startFailed": "No se pudo iniciar la autorización de {name}."
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "Tu navegador bloqueó una página que el asistente intentó abrir.",
+    "openPage": "Abrir página"
+  },
   "useVoiceSamplePreview": {
     "playFailed": "No se pudo reproducir la muestra de voz."
+  },
+  "useWorkspaceTheme": {
+    "updated": "Tema actualizado"
   },
   "vercelTokenDialog": {
     "body": "Introduce tu token de API de Vercel para publicar apps como páginas estáticas.",
