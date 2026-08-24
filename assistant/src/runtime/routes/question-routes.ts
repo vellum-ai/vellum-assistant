@@ -16,10 +16,9 @@
  * one-element batch. That branch only succeeds against a single-question
  * batch — multi-question batches reject it with a helpful error.
  *
- * The batched shape and that shim shipped in the same release, so every client
- * able to reach this route is able to post `submit`, and the web client does
- * whenever it can tell the assistant is new enough. The shim is what a browser
- * bundle cached before that check posts, and is removable once none are left.
+ * Any assistant serving this route also accepts `submit`, so the shim serves
+ * only clients that cannot tell which assistant they are talking to: a stale
+ * browser bundle posts the single-question body against a batch-capable route.
  *
  * Cross-talk safety: pending interactions of other kinds (`confirmation`,
  * `secret`, host_*, etc.) return 404 here rather than being mis-resolved.
@@ -198,10 +197,9 @@ function buildSubmissions(
   // Legacy single-question shim: synthesize a one-element batch. The
   // prompter stashed the ordered ids on the interaction metadata so we can
   // pick the (single) target questionId here.
-  // Defensive: `QuestionPrompter` refuses an empty `questions` array and is the
-  // only registrar of a `question` interaction, so a pending one always carries
-  // at least one ordered id.
   const { orderedIds } = readBatchMetadata(interaction);
+  // `QuestionPrompter` is the only registrar of a `question` interaction and
+  // refuses an empty `questions` array, so this guard is unreachable.
   if (orderedIds.length === 0) {
     throw new QuestionBatchValidationError(
       "Legacy single-question payload requires a registered batch with at least one question",

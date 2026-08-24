@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { resolveSupportsBatchedQuestionSubmit } from "@/lib/backwards-compat/batched-question-submit";
+import {
+  MIN_VERSION,
+  resolveSupportsBatchedQuestionSubmit,
+} from "@/lib/backwards-compat/batched-question-submit";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const OWNER_ASSISTANT_ID = "asst-owner";
@@ -27,7 +30,7 @@ afterEach(() => {
 // send the legacy shape, and the owner scoping.
 describe("resolveSupportsBatchedQuestionSubmit", () => {
   test("resolves true on the first version carrying the batched route", async () => {
-    seed("0.8.2");
+    seed(MIN_VERSION);
     expect(await resolveSupportsBatchedQuestionSubmit(OWNER_ASSISTANT_ID)).toBe(
       true,
     );

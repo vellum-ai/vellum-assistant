@@ -1132,6 +1132,9 @@
   "pullRefreshSpinner": {
     "refreshing": "Refreshing"
   },
+  "questionActions": {
+    "submitFailed": "Failed to submit response. Please try again."
+  },
   "questionPromptCard": {
     "closeQuestionAria": "Close question",
     "nextQuestionAria": "Next question",

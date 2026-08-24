@@ -1132,6 +1132,9 @@
   "pullRefreshSpinner": {
     "refreshing": "Actualizando"
   },
+  "questionActions": {
+    "submitFailed": "No se pudo enviar tu respuesta. Inténtalo de nuevo."
+  },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
     "nextQuestionAria": "Pregunta siguiente",
