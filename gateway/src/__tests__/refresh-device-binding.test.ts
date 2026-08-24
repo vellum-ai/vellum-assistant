@@ -65,6 +65,7 @@ function insertActorTokenRecord(
   rawToken: string,
   deviceId: string,
   lastUsedAt: number | null,
+  status: "active" | "revoked" = "active",
 ) {
   const now = Date.now();
   getGatewayDb()
@@ -75,7 +76,7 @@ function insertActorTokenRecord(
       guardianPrincipalId: PRINCIPAL,
       hashedDeviceId: hashToken(deviceId),
       platform: "cli",
-      status: "active",
+      status,
       issuedAt: now,
       expiresAt: now + 86_400_000,
       lastUsedAt,
@@ -297,5 +298,28 @@ describe("rotateCredentials activity history", () => {
     const revoked = rows.find((r) => r.tokenHash === hashToken("at-replayed"));
     expect(revoked?.status).toBe("revoked");
     expect(revoked?.lastUsedAt).toBeNull();
+  });
+
+  test("clears the stamp on rows an earlier rotation already revoked", () => {
+    // A device that rotated before the replay carries a stamped revoked row,
+    // and the device list reads the max stamp across statuses, so the security
+    // revoke has to reach that row too.
+    insertRefreshRecord("rt-replayed-old", DEVICE_A, "rotated");
+    insertActorTokenRecord(
+      "at-rotated-out",
+      DEVICE_A,
+      1_700_000_000_000,
+      "revoked",
+    );
+    insertActorTokenRecord("at-current", DEVICE_A, 1_800_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-replayed-old",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result).toEqual({ ok: false, error: "refresh_reuse_detected" });
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    expect(rows.map((r) => r.lastUsedAt)).toEqual([null, null]);
   });
 });

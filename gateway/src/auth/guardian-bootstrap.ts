@@ -572,13 +572,38 @@ export interface RefreshableTokenPair {
 export type DeviceBoundTokenPair = RefreshableTokenPair;
 
 /**
- * Revoke active actor tokens for a device binding.
+ * Clear a device's activity stamp on every actor token row, whatever its
+ * status.
  *
- * Clears `lastUsedAt` as well: the device list takes the max stamp across every
- * status for a device, so leaving it set would let a re-paired device inherit
- * the prior pairing's activity and report a last use older than its pairing
- * date. Rotation revokes via `revokeActiveActorTokensByDevice` instead, which
- * keeps the stamp so history survives a credential refresh.
+ * The device list takes the max `lastUsedAt` across statuses, and rotation
+ * revokes deliberately keep their stamp, so a status-scoped clear would leave
+ * a stamped revoked row behind for a re-paired device to inherit, reporting a
+ * last use older than its pairing date. Kept separate from the status update
+ * so `updatedAt`, which tracks lifecycle, is not bumped on rows whose
+ * lifecycle did not change.
+ */
+export function clearDeviceActivityStamp(
+  guardianPrincipalId: string,
+  hashedDeviceId: string,
+): void {
+  getGatewayDb()
+    .update(actorTokenRecords)
+    .set({ lastUsedAt: null })
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+      ),
+    )
+    .run();
+}
+
+/**
+ * Revoke active actor tokens for a device binding, ending the pairing.
+ *
+ * Clears the device's activity stamp as well so a later re-pair starts fresh.
+ * Rotation revokes via `revokeActiveActorTokensByDevice` instead, which keeps
+ * the stamp so history survives a credential refresh.
  */
 export function revokeActorTokensByDevice(
   guardianPrincipalId: string,
@@ -587,7 +612,7 @@ export function revokeActorTokensByDevice(
   const now = Date.now();
   getGatewayDb()
     .update(actorTokenRecords)
-    .set({ status: "revoked", lastUsedAt: null, updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(
       and(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
@@ -596,6 +621,7 @@ export function revokeActorTokensByDevice(
       ),
     )
     .run();
+  clearDeviceActivityStamp(guardianPrincipalId, hashedDeviceId);
 }
 
 /**

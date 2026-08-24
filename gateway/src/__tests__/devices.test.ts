@@ -47,6 +47,7 @@ function seedActor(opts: {
   status?: "active" | "revoked";
   platform?: string;
   lastUsedAt?: number;
+  updatedAt?: number;
 }): void {
   const now = Date.now();
   const principal = opts.principal ?? GUARDIAN_ID;
@@ -64,7 +65,7 @@ function seedActor(opts: {
       expiresAt: now + 86_400_000,
       lastUsedAt: opts.lastUsedAt ?? null,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: opts.updatedAt ?? now,
     })
     .run();
 }
@@ -359,6 +360,61 @@ describe("POST /v1/devices/revoke", () => {
     };
     expect(body.devices).toHaveLength(1);
     expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("clears the stamp on a rotated-out row so a re-pair starts fresh", async () => {
+    // Any device older than one access-token TTL has rotated at least once,
+    // which leaves a stamped revoked row behind. The list reads the max stamp
+    // across statuses, so a revoke that only clears the active row would still
+    // report the old activity after the re-pair.
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A", lastUsedAt: 1_800_000_000_000 });
+    seedRefresh({ device: "device-A" });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    // Re-pair: a fresh, unstamped active row for the same device.
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("does not bump updatedAt on rows whose status is already revoked", async () => {
+    // updatedAt tracks lifecycle, lastUsedAt tracks activity: clearing the
+    // stamp on an already-revoked row must not read as a lifecycle change.
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A" });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    const rows = getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.hashedDeviceId, hashToken("device-A")))
+      .all();
+    const untouched = rows.filter((r) => r.updatedAt === 1_700_000_000_000);
+    expect(untouched).toHaveLength(1);
+    expect(untouched[0]?.lastUsedAt).toBeNull();
   });
 
   test("leaves another device's stamp intact", async () => {
