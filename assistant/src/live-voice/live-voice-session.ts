@@ -6557,8 +6557,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
       // Everything above is what a cue or a spoken filler is here for: the
       // client hears it, the canceller learns it was us, and the tail estimate
-      // covers it. The first-TTS latch is where both stop, because that mark
-      // is the onset of the turn's ANSWER (see TtsSegmentAudioRole).
+      // covers it. The first-TTS latch is where both stop.
+      //
+      // What that mark means is narrower than "the answer began" and worth
+      // stating exactly, because this codebase has anchored a voice latency
+      // metric on the wrong event before. It is the first audio the caller
+      // hears that the model authored for this turn. A cue is not authored at
+      // all and a fixed filler phrase is not authored for this turn, so
+      // neither latches. The escalation bridge IS model-authored and does
+      // latch, so on an escalated turn this measures hand-off onset rather
+      // than report onset. That is deliberate for now: it is the behavior
+      // that predates the held-speech work, and changing it would silently
+      // move an existing metric by the length of a whole working phase.
       const turnAfterSend = this.activeAssistantTurn;
       if (
         job.audioRole !== "answer" ||
