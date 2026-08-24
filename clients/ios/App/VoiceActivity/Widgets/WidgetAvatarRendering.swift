@@ -187,6 +187,11 @@ struct BlurredAvatarBackground: View {
     private static let blurRadius: CGFloat = 30
     private static let scrimOpacity = 0.55
 
+    /// The blur samples transparency past the layer's edge, so the photo grows
+    /// beyond the card by twice the radius per side before blurring and the
+    /// clip trims the excess; otherwise the perimeter fades into the ground.
+    private static let overscan: CGFloat = blurRadius * 2
+
     /// The photo, absent when the snapshot carries none and when its bytes do
     /// not form an image. Both fall through to the ground below, which is what
     /// makes this safe to hand a card's whole background to.
@@ -201,11 +206,21 @@ struct BlurredAvatarBackground: View {
         ground
             .overlay {
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: Self.blurRadius)
-                        .overlay { Color.black.opacity(Self.scrimOpacity) }
+                    GeometryReader { geo in
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(
+                                width: geo.size.width + Self.overscan * 2,
+                                height: geo.size.height + Self.overscan * 2
+                            )
+                            .position(
+                                x: geo.size.width / 2,
+                                y: geo.size.height / 2
+                            )
+                            .blur(radius: Self.blurRadius)
+                    }
+                    .overlay { Color.black.opacity(Self.scrimOpacity) }
                 }
             }
             .clipped()
