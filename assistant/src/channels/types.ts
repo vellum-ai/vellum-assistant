@@ -115,7 +115,10 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
     id: "discord",
     label: "Discord",
     subtitle: "Message your assistant from Discord",
-    icon: "discord",
+    // A Lucide name, per this field's contract, and the same one Slack
+    // carries: both name their text channels with a hash. A client with room
+    // for a brand mark uses one, which is how Slack's header already works.
+    icon: "hash",
     // Verification needs nothing channel-specific here. The inbound intercept
     // that matches a code takes the source channel as data, Discord inbound
     // reaches it through the same `handleInbound` every channel uses, and a

@@ -142,15 +142,32 @@ interface ContactChannelsSectionProps {
   onLinkAccount?: (channelId: string) => void;
 }
 
+/**
+ * Brand marks for channels that have one, chosen by channel rather than by the
+ * declared glyph: `ChannelInfo.icon` carries a Lucide name, and a brand svg is
+ * not one. A channel absent here draws the Lucide glyph it declared.
+ */
+const CHANNEL_BRAND_MARKS: Record<string, typeof DiscordLogo> = {
+  discord: DiscordLogo,
+};
+
 function ChannelIcon({
+  channelId,
   name,
   className,
   style,
 }: {
+  channelId: string;
   name: string;
   className?: string;
   style?: CSSProperties;
 }) {
+  const Brand = CHANNEL_BRAND_MARKS[channelId];
+  if (Brand) {
+    // Sized explicitly as well as by class: a brand svg draws its own
+    // dimensions where the lucide icons below take theirs from the class.
+    return <Brand size={16} className={className} style={style} />;
+  }
   switch (name) {
     case "bot":
       return <Bot className={className} style={style} />;
@@ -164,11 +181,6 @@ function ChannelIcon({
       return <Mail className={className} style={style} />;
     case "message-square":
       return <MessageSquare className={className} style={style} />;
-    case "discord":
-      // Sized explicitly as well as by class: this one draws its own svg
-      // dimensions, where the lucide icons above take theirs from the class
-      // alone.
-      return <DiscordLogo size={16} className={className} style={style} />;
     default:
       return <HelpCircle className={className} style={style} />;
   }
@@ -346,6 +358,7 @@ function ChannelRow({
   return (
     <div className="flex items-center gap-3 py-4">
       <ChannelIcon
+        channelId={info.id}
         name={info.icon}
         className="h-4 w-4 shrink-0"
         style={{ color: "var(--content-secondary)" }}

@@ -234,5 +234,8 @@ describe("channels/available", () => {
     expect(discord!.supportsVerification).toBe(true);
     expect(discord!.source).toBe("default");
     expect(discord!.setupMessages.guardian).toContain("Discord");
+    // This field carries a Lucide name, which a brand mark is not. A client
+    // with room for one picks it by channel; every client can draw this.
+    expect(discord!.icon).toBe("hash");
   });
 });
