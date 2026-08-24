@@ -75,9 +75,9 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   /**
-   * Trailing control in the overlay's glyph row, opposite dismiss and search.
-   * A slot rather than a direct render: the control belongs to another
-   * domain, so the page composes it and this menu stays free of the
+   * Trailing control in the overlay's glyph row, beside search and opposite
+   * dismiss. A slot rather than a direct render: the control belongs to
+   * another domain, so the page composes it and this menu stays free of the
    * dependency (and of the router context it needs).
    */
   notificationsAction?: ReactNode;

@@ -112,11 +112,11 @@ export function SidebarSectionCard({
            row: the card is what owns the fill, and every swipeable thing it
            holds inherits the one value. */
         "[--swipe-reveal-bg:var(--surface-lift)]",
-        /* No padding of its own: the header row is already a self-contained
-           pill (its own height, its own 12px/6px inset) per Figma, and
-           wrapping it in another layer of padding would inflate the pill
-           past its spec. The row list picks up the matching horizontal
-           inset directly (see `CollapsibleNavSection.Section`'s Content). */
+        /* No padding of its own: the overlay class branch below owns the
+           card's inset, and wrapping it in another layer of Card padding
+           would inflate the pill past its spec. The row list picks up the
+           matching horizontal inset directly (see
+           `CollapsibleNavSection.Section`'s Content). */
         /* Collapsed, a section is a pill that hugs its own header: nothing
            inside it needs the full rail width. Its own `Collapsible.Item`
            descendant carries Radix's `data-state`, so `has-[]` reads that
