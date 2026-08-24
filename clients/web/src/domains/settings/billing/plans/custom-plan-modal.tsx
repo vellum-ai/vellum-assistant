@@ -39,7 +39,6 @@ import {
   computeCustomPlanDiff,
   NO_CREDITS_LABEL,
   NO_EXTRA_CREDITS,
-  NO_USAGE_LABEL,
 } from "./custom-plan-diff";
 import {
   CREDIT_DOCS_URL,
@@ -153,7 +152,9 @@ export function CustomPlanModal({
   // sentinel row) never names credits. The options themselves need no swap:
   // the catalog labels are already the usage bundles' Stripe product names.
   const obscureCredits = useObscureCredits();
-  const noBundleLabel = obscureCredits ? NO_USAGE_LABEL : NO_CREDITS_LABEL;
+  const noBundleLabel = obscureCredits
+    ? t("customPlanModal.noExtraUsage")
+    : NO_CREDITS_LABEL;
   const bundlePickerCopy = obscureCredits
     ? {
         label: t("customPlanModal.usageBundleLabel"),

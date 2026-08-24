@@ -33,12 +33,6 @@ export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 export const NO_CREDITS_LABEL = "No extra credits";
 
 /**
- * The sentinel's wording on the `obscure-credits` surfaces, which never name
- * credits; the catalog options around it are already usage bundles.
- */
-export const NO_USAGE_LABEL = "No extra usage";
-
-/**
  * Sentinel for the baseline machine. `MachineTierEnum` names only the paid
  * tiers, so the small machine a package with no tier runs on has no value to
  * carry: it is `null` on the wire. Same note as above: `Select`'s `null`
@@ -90,7 +84,7 @@ export function computeCustomPlanDiff(input: {
   /**
    * Wording for the no-bundle sentinel's recap row (and its struck-through
    * previous value). Defaults to the credits wording; the `obscure-credits`
-   * surfaces pass `NO_USAGE_LABEL` instead.
+   * surfaces pass the localized `customPlanModal.noExtraUsage` copy instead.
    */
   noBundleLabel?: string;
 }): CustomPlanDiff {
