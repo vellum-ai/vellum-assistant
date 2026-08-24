@@ -164,6 +164,11 @@ export type StreamPlan = z.infer<typeof StreamPlanSchema>;
  * lets its clients animate the difference. Neither channel has to know which
  * kind the other is, and a third can read whichever it needs.
  *
+ * `text` is required on every operation because a channel that rewrites needs
+ * it on every one, and it is what the reply reads as rather than what this
+ * operation changed: absent is never the right answer, where empty can be.
+ * `appended` is what moved, so it is absent when only the plan did.
+ *
  * `start` opens the growing reply and returns a `streamId` in the channel's
  * own id space; `append` advances it; `stop` ends it. What `stop` leaves
  * behind differs by channel, which is why it carries the complete reply rather
@@ -182,7 +187,7 @@ export const StreamOpSchema = z
        * channel that threads nothing ignores it.
        */
       anchorMessageId: z.string().optional(),
-      text: z.string().optional(),
+      text: z.string(),
       appended: z.string().optional(),
       plan: StreamPlanSchema.optional(),
       /**
@@ -195,7 +200,7 @@ export const StreamOpSchema = z
       action: z.literal("append"),
       /** The open reply, in the channel's own id space. */
       streamId: z.string(),
-      text: z.string().optional(),
+      text: z.string(),
       appended: z.string().optional(),
       plan: StreamPlanSchema.optional(),
     }),
@@ -207,24 +212,24 @@ export const StreamOpSchema = z
        * evaporates sends this as the message that stays; one that finalizes
        * its stream in place has already shown it and appends `appended`.
        */
-      text: z.string().optional(),
+      text: z.string(),
       appended: z.string().optional(),
       plan: StreamPlanSchema.optional(),
     }),
   ])
   .superRefine((op, ctx) => {
     // An operation has to move something: new words, or the plan beside them.
+    // `text` alone cannot, since it restates what the reply already reads as.
     // Slack rejects a start or append carrying neither, and a channel that
     // rewrites would spend an edit redrawing what is already on screen.
     if (
       (op.action === "start" || op.action === "append") &&
-      op.text === undefined &&
       op.appended === undefined &&
       op.plan === undefined
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${op.action} requires text, appended, or plan`,
+        message: `${op.action} requires appended or plan`,
       });
     }
   });

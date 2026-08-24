@@ -181,12 +181,22 @@ describe("Slack sub-operation selection", () => {
     const result = await sendChannelStreamOp(
       `${BASE}/deliver/slack?threadTs=1700.5`,
       "C1",
-      { action: "start", anchorMessageId: "1700.5", appended: "hi" },
+      {
+        action: "start",
+        anchorMessageId: "1700.5",
+        text: "hi",
+        appended: "hi",
+      },
     );
     expect(slack.sendSlackStreamOp).toHaveBeenCalledTimes(1);
     expect(slack.sendSlackStreamOp.mock.calls[0]).toEqual([
       "C1",
-      { action: "start", anchorMessageId: "1700.5", appended: "hi" },
+      {
+        action: "start",
+        anchorMessageId: "1700.5",
+        text: "hi",
+        appended: "hi",
+      },
     ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, ts: "stream-ts" });
@@ -354,6 +364,7 @@ describe("capability gating across channels", () => {
     const result = await sendChannelStreamOp(`${BASE}/deliver/discord`, "999", {
       action: "start",
       anchorMessageId: "1700.5",
+      text: "hi",
       appended: "hi",
     });
 
