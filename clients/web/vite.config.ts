@@ -19,6 +19,21 @@ const ASSISTANT_API_SRC = path.resolve(
   "../../assistant/src/api",
 );
 
+/**
+ * Chunk-group predicate matching a module by the package directory that owns
+ * it. The trailing separator is what keeps `react` from also capturing
+ * `react-dom`, `react-router`, `react-markdown`, and friends.
+ */
+function inPackages(...names: string[]): (id: string) => boolean {
+  const escaped = names.map((name) =>
+    name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const pattern = new RegExp(
+    `[\\\\/]node_modules[\\\\/](?:${escaped.join("|")})[\\\\/]`,
+  );
+  return (id: string) => pattern.test(id);
+}
+
 // Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 function isPlatformMode(raw: string | undefined): boolean {
@@ -195,6 +210,60 @@ export default defineConfig(({ mode }) => {
       // reach the deployed artifact. Without the token, skip generation
       // entirely to avoid shipping maps in non-Sentry builds.
       sourcemap: sentryUploadEnabled ? "hidden" : false,
+      // Chunking is tuned for a cold cache on a phone, which is what every
+      // deploy hands users. Automatic splitting emitted 335 boot-critical
+      // files, 260 of them under 5 kB, and the browser opens all of them at
+      // once because `index.html` modulepreloads every one. The request
+      // storm, not the byte count, is what made cold boot slow: these groups
+      // take boot from 339 JS requests to 9.
+      //
+      // INVARIANT when editing these groups: boot-critical bytes must not
+      // grow. Boot-critical is the entry script plus every modulepreload
+      // target in `dist/index.html`. Every group is tagged `$initial`, which
+      // restricts it to modules statically reachable from the entry, so
+      // lazy-only code (pdfjs, xterm, tiptap, per-route pages) can never be
+      // merged into something boot has to fetch. Dropping a `$initial` tag,
+      // or adding an untagged group, is how that gets broken. A build should
+      // leave 4 modulepreload links in `dist/index.html` and no lazy-only
+      // package in the chunks they point at.
+      //
+      // The lazy side is deliberately left to automatic chunking. Collapsing
+      // it too with an `entriesAware` group does reach ~25 total files, but
+      // some of those builds deadlock the dynamic-import runtime and render
+      // a blank page with no build warning and no console error, and which
+      // builds break is not stable across runs of the same config.
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: "react",
+                test: inPackages(
+                  "react",
+                  "react-dom",
+                  "react-router",
+                  "scheduler",
+                ),
+                tags: ["$initial"],
+                priority: 50,
+              },
+              {
+                name: "icons",
+                test: inPackages("lucide-react"),
+                tags: ["$initial"],
+                priority: 45,
+              },
+              {
+                name: "vendor",
+                test: /[\\/]node_modules[\\/]/,
+                tags: ["$initial"],
+                priority: 40,
+              },
+              { name: "app", tags: ["$initial"], priority: 30 },
+            ],
+          },
+        },
+      },
     },
   };
 });
