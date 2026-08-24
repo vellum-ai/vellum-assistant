@@ -427,6 +427,12 @@ export function useNativeWidgetSnapshotSync(
             generatedAt: new Date().toISOString(),
           },
           ownerId,
+          // The same retirement, read from inside the call. The check above
+          // only covers the wait on the draw, and an unmount or a switch lands
+          // just as readily while the payload is on the bridge, where dropping
+          // the bookkeeping below is too late: the snapshot is in the App Group
+          // by then and the module has to take it back out.
+          () => attempt !== syncAttemptRef.current,
         ).then((landed) => {
           if (attempt !== syncAttemptRef.current) {
             return;
@@ -467,6 +473,9 @@ export function useNativeWidgetSnapshotSync(
   // unmounts this layout while a first avatar encode can still be in flight;
   // retiring every attempt here makes that write's own re-check drop it
   // instead of putting the departed account's rows back on the Home Screen.
+  // The retirement is also handed to `syncWidgetSnapshot`, so an unmount that
+  // arrives once the payload is past that check reaches the call itself, which
+  // holds the write back or takes it out of the App Group again.
   useEffect(() => {
     const attempts = syncAttemptRef;
     return () => {

@@ -343,11 +343,18 @@ describe("a clear that did not land", () => {
 
     openClear();
     await expect(cleared).resolves.toBe(true);
+    const clearsSoFar = clearCalls;
     openSync();
     await expect(synced).resolves.toBe(true);
     expect(readWidgetSnapshotAssistantId()).toBeNull();
 
-    const clearsSoFar = clearCalls;
+    // The orphan comes off the Home Screen with the write itself rather than
+    // waiting for whatever uses this module next, which on a session that is
+    // ending may be nothing at all.
+    await flush();
+    expect(clearCalls).toBe(clearsSoFar + 1);
+    // And that correction discharges the obligation it recorded, so nothing is
+    // owed once it lands.
     await retryPendingWidgetSnapshotClear();
     expect(clearCalls).toBe(clearsSoFar + 1);
   });
@@ -366,12 +373,40 @@ describe("a clear that did not land", () => {
     await flush();
 
     await expect(clearWidgetSnapshot()).resolves.toBe(true);
+    const clearsSoFar = clearCalls;
     openSync();
     await expect(synced).resolves.toBe(true);
     expect(readWidgetSnapshotAssistantId()).toBeNull();
 
-    const clearsSoFar = clearCalls;
+    await flush();
+    // The write reached the plugin before the clear did and answered after it,
+    // and the correction follows both.
+    expect(bridgeOrder).toEqual(["sync", "clear", "clear"]);
+    expect(clearCalls).toBe(clearsSoFar + 1);
     await retryPendingWidgetSnapshotClear();
+    expect(clearCalls).toBe(clearsSoFar + 1);
+  });
+
+  it("keeps owing a clear when the write's own correction cannot land", async () => {
+    // The correction is best-effort like every other clear here, so the marker
+    // is what makes the orphan's removal at-least-once when a bridge that is
+    // failing takes the correction down with it.
+    let openSync = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSync = resolve;
+    });
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await flush();
+
+    await expect(clearWidgetSnapshot()).resolves.toBe(true);
+    clearRejects = true;
+    openSync();
+    await expect(synced).resolves.toBe(true);
+    await flush();
+
+    clearRejects = false;
+    const clearsSoFar = clearCalls;
+    await expect(retryPendingWidgetSnapshotClear()).resolves.toBe(true);
     expect(clearCalls).toBe(clearsSoFar + 1);
   });
 
@@ -388,6 +423,126 @@ describe("a clear that did not land", () => {
       await expect(syncWidgetSnapshot(SNAPSHOT, "asst-1")).resolves.toBe(true);
       expect(bridgeOrder).toEqual(["clear", "sync"]);
     });
+  });
+});
+
+describe("a write the session it describes outlived", () => {
+  it("never reaches the plugin when a clear settles while it waits", async () => {
+    // The finding this guards: sign-out's clear is already on the bridge as the
+    // write is entered, and settles while the write waits on the owed clear it
+    // honors first. A write that read the generation after that wait would take
+    // the reading the clear had already moved and put the departed account's
+    // rows back in the App Group. Read on entry, the clear's start bump is
+    // included and its settle bump carries the counter past what the write
+    // expects, so the payload never goes on the bridge at all.
+    let openSignOutClear = (): void => {};
+    clearGate = new Promise<void>((resolve) => {
+      openSignOutClear = resolve;
+    });
+    const cleared = clearWidgetSnapshot();
+
+    let openOwedClear = (): void => {};
+    clearGate = new Promise<void>((resolve) => {
+      openOwedClear = resolve;
+    });
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await flush();
+
+    openSignOutClear();
+    await expect(cleared).resolves.toBe(true);
+    openOwedClear();
+    await expect(synced).resolves.toBe(false);
+
+    expect(syncCalls).toHaveLength(0);
+    expect(bridgeOrder).toEqual(["clear", "clear"]);
+    expect(readWidgetSnapshotAssistantId()).toBeNull();
+  });
+
+  it("never reaches the plugin for a caller retired while it waits", async () => {
+    // The other half of that window, and the one no generation can see: the
+    // clear is done and the producer hook unmounted under this write, which
+    // reports it through the liveness callback it passed.
+    clearRejects = true;
+    await expect(clearWidgetSnapshot()).resolves.toBe(false);
+    clearRejects = false;
+
+    let openOwedClear = (): void => {};
+    clearGate = new Promise<void>((resolve) => {
+      openOwedClear = resolve;
+    });
+    let retired = false;
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1", () => retired);
+    await flush();
+
+    retired = true;
+    openOwedClear();
+    await expect(synced).resolves.toBe(false);
+    expect(syncCalls).toHaveLength(0);
+  });
+
+  it("clears what it wrote when its caller retired on the bridge", async () => {
+    // Past the wait there is nothing left to hold back, so the correction is
+    // the write's own: what landed belongs to a session that is over, and the
+    // Home Screen it reaches never reloads on its own.
+    await syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
+
+    let openSync = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSync = resolve;
+    });
+    let retired = false;
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1", () => retired);
+    await flush();
+    expect(syncCalls).toHaveLength(2);
+
+    retired = true;
+    openSync();
+    await expect(synced).resolves.toBe(true);
+    await flush();
+
+    expect(bridgeOrder).toEqual(["sync", "sync", "clear"]);
+    expect(clearCalls).toBe(1);
+    expect(readWidgetSnapshotAssistantId()).toBeNull();
+  });
+
+  it("still writes when it joins a retry a mount already started", async () => {
+    // The producer hook retries an owed clear on mount and fires its first sync
+    // in the same commit, so a write routinely awaits a clear that started
+    // before it did. That clear moves the counter exactly as one racing the
+    // write would, and only the anchor the retry reports tells the two apart.
+    clearRejects = true;
+    await expect(clearWidgetSnapshot()).resolves.toBe(false);
+    clearRejects = false;
+
+    let openOwedClear = (): void => {};
+    clearGate = new Promise<void>((resolve) => {
+      openOwedClear = resolve;
+    });
+    const retried = retryPendingWidgetSnapshotClear();
+    await flush();
+
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await flush();
+    openOwedClear();
+
+    await expect(retried).resolves.toBe(true);
+    await expect(synced).resolves.toBe(true);
+    expect(bridgeOrder).toEqual(["clear", "clear", "sync"]);
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
+  });
+
+  it("writes normally while its caller is still live", async () => {
+    await expect(
+      syncWidgetSnapshot(SNAPSHOT, "asst-1", () => false),
+    ).resolves.toBe(true);
+    expect(syncCalls).toEqual([SNAPSHOT]);
+    expect(clearCalls).toBe(0);
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
+
+    // Nothing owed, so nothing corrects the write afterwards either.
+    await expect(retryPendingWidgetSnapshotClear()).resolves.toBe(true);
+    expect(clearCalls).toBe(0);
   });
 });
 

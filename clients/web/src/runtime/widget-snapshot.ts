@@ -68,11 +68,29 @@ function hasPendingClear(): boolean {
  * Such a write may land on either side of the clear, so what it leaves in the
  * App Group is itself something to clear rather than a snapshot the current
  * session wants.
+ *
+ * {@link syncWidgetSnapshot} reads it as it is entered rather than after the
+ * owed clear it awaits, so a clear already on the bridge at that moment is
+ * visible to it: the reading it takes is one that clear has already bumped
+ * once, and the settle bump then carries the counter past it.
  */
 let clearGeneration = 0;
 
+/** How far one clear moves it: once as it starts, once as it settles. */
+const CLEAR_GENERATION_BUMPS = 2;
+
 /** The retry in flight, so a mount-time retry and a sync share one clear. */
 let pendingClearRetry: Promise<boolean> | null = null;
+
+/**
+ * The generation the retry in flight started its clear from.
+ *
+ * A write awaits that clear deliberately and must not read it as a clear racing
+ * it, and the two look alike in the counter alone. Adding
+ * {@link CLEAR_GENERATION_BUMPS} to this gives the reading the awaited clear by
+ * itself accounts for, so anything past it is a clear the write did not ask for.
+ */
+let pendingClearRetryBaseGeneration = 0;
 
 /**
  * Wire-format version. Must stay in lockstep with the Swift side's
@@ -218,26 +236,55 @@ async function callBridge(
  * owed for no longer exists once this one is in. The equivalence is exact only
  * while the Swift side keeps replacing, so a plugin that ever merged would have
  * to break it.
+ *
+ * That wait is also a window in which the session this write describes can end
+ * under it, so the write is checked against {@link clearGeneration} once it is
+ * over and again once the payload has landed. `isRetired` is the second half of
+ * that check and the caller's own: the producer hook reports a write whose
+ * attempt it has retired, meaning the hook unmounted or the assistant changed
+ * while this call was in flight. A contested write never reaches the plugin at
+ * all; one contested only after it landed cannot be recalled, so what it left is
+ * recorded as owed and cleared straight away.
  */
 export async function syncWidgetSnapshot(
   snapshot: WidgetSnapshotPayload,
   assistantId: string | null,
+  isRetired?: () => boolean,
 ): Promise<boolean> {
   if (!isWidgetSnapshotSyncAvailable()) {
     return false;
   }
-  await retryPendingWidgetSnapshotClear();
-  const generation = clearGeneration;
+  const entryGeneration = clearGeneration;
+  const { anchor } = await runPendingClearRetry();
+  // What the counter reads while nothing but the clear this call awaited has
+  // moved it. Taken from the entry reading rather than from the counter here,
+  // so a clear that was already on the bridge as this call began stays visible
+  // across the wait instead of settling into the value it would capture.
+  const generation = anchor ?? entryGeneration;
+  const isContested = (): boolean =>
+    generation !== clearGeneration || isRetired?.() === true;
+  if (isContested()) {
+    // A clear raced this write to the plugin, or the caller that wanted it is
+    // gone. Either way the snapshot describes a session that is over, so it
+    // must not be written at all: nothing goes on the bridge and no marker is
+    // touched, since the clear that contested it owns what the App Group holds.
+    return false;
+  }
   if (!(await callBridge("sync", () => WidgetSnapshot.sync(snapshot)))) {
     return false;
   }
-  if (generation !== clearGeneration) {
-    // A clear started while this write was on the bridge, so the session it
-    // describes is over and what it left is owed a clear of its own. Re-arming
-    // rather than discharging is also what covers the clear that SUCCEEDED
-    // before this landed: the record it removed cannot name this orphan, so the
-    // marker is the only thing left that can reach it.
+  if (isContested()) {
+    // A clear started while this write was on the bridge, or its caller retired
+    // under it, so the session it describes is over and what it left is owed a
+    // clear of its own. Re-arming rather than discharging is also what covers
+    // the clear that SUCCEEDED before this landed: the record it removed cannot
+    // name this orphan, so the marker is the only thing left that can reach it.
     setLocalSetting(PENDING_CLEAR_KEY, "1");
+    // Recorded first, then corrected here rather than at the next use of the
+    // module, so the departed session's rows leave a Home Screen that never
+    // reloads on its own. Not awaited: the caller is on its way out, and a
+    // correction that does not land leaves the marker above standing.
+    void clearWidgetSnapshot();
     return true;
   }
   removeLocalSetting(PENDING_CLEAR_KEY);
@@ -314,13 +361,45 @@ export async function clearWidgetSnapshot(): Promise<boolean> {
  * Resolves true when nothing is owed, which includes off iOS.
  */
 export async function retryPendingWidgetSnapshotClear(): Promise<boolean> {
+  return (await runPendingClearRetry()).landed;
+}
+
+/** What one owed clear leaves behind for a caller that awaited it. */
+interface OwedClearOutcome {
+  /** Whether the clear landed, true when none was owed. */
+  landed: boolean;
+  /**
+   * What {@link clearGeneration} reads once the clear this call awaited has
+   * settled and nothing else has run, or null when nothing was owed and no
+   * clear ran. A caller compares it against the counter to tell a clear it
+   * asked for from one racing it.
+   */
+  anchor: number | null;
+}
+
+/**
+ * The body of {@link retryPendingWidgetSnapshotClear}, reporting what the clear
+ * it ran does to {@link clearGeneration} as well as whether it landed.
+ *
+ * Callers that only need the clear finished take the exported wrapper.
+ * {@link syncWidgetSnapshot} needs the anchor too, since the clear it awaits
+ * here moves the counter exactly as a clear racing it would, and a write that
+ * could not tell the two apart would either abandon every legitimate write that
+ * discharged an obligation or accept every one that a session seam contested.
+ */
+async function runPendingClearRetry(): Promise<OwedClearOutcome> {
   if (!isWidgetSnapshotSyncAvailable() || !hasPendingClear()) {
-    return true;
+    return { landed: true, anchor: null };
   }
   if (pendingClearRetry === null) {
+    pendingClearRetryBaseGeneration = clearGeneration;
     pendingClearRetry = clearWidgetSnapshot().finally(() => {
       pendingClearRetry = null;
     });
   }
-  return pendingClearRetry;
+  // Read before the wait, since a later retry owns the field by the time this
+  // one resolves.
+  const base = pendingClearRetryBaseGeneration;
+  const landed = await pendingClearRetry;
+  return { landed, anchor: base + CLEAR_GENERATION_BUMPS };
 }

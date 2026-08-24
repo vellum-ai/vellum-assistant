@@ -105,6 +105,10 @@ let pendingClear = false;
 // without answering hits the module's two-second timeout. The hook sees the
 // same reported `false` either way.
 let syncLands = true;
+// Holds the next write open once it is inside the module, so an unmount can
+// arrive while the payload is on the bridge rather than only while it waits on
+// the avatar draw.
+let syncGate: Promise<void> | null = null;
 // Stands in for the producer id the bridge persists beside the App Group
 // snapshot, so a test can start from a snapshot a previous run left behind.
 let persistedAssistantId: string | null = null;
@@ -118,12 +122,28 @@ mock.module("@/runtime/widget-snapshot", () => ({
   syncWidgetSnapshot: async (
     snapshot: WidgetSnapshotPayload,
     assistantId: string | null,
+    isRetired?: () => boolean,
   ) => {
     syncedSnapshots.push(snapshot);
     syncedAssistantIds.push(assistantId);
     bridgeOrder.push("sync");
+    if (syncGate !== null) {
+      const gate = syncGate;
+      syncGate = null;
+      await gate;
+    }
     if (!syncLands) {
       return false;
+    }
+    // A caller that retired while the payload was on the bridge is past the
+    // point where the write can be held back, so the module takes what landed
+    // straight back out rather than leaving it for the next use.
+    if (isRetired?.() === true) {
+      clearCount++;
+      bridgeOrder.push("clear");
+      persistedAssistantId = null;
+      pendingClear = false;
+      return true;
     }
     // A landed write replaces the whole App Group record, so it also settles
     // any clear that was owed for what used to be there.
@@ -423,6 +443,7 @@ beforeEach(() => {
   bridgeOrder = [];
   syncAvailable = true;
   syncLands = true;
+  syncGate = null;
   pendingClear = false;
   persistedAssistantId = null;
   podIsServing = true;
@@ -1446,6 +1467,41 @@ describe("useNativeWidgetSnapshotSync", () => {
     await settle();
 
     expect(syncedSnapshots).toHaveLength(0);
+  });
+
+  it("clears a write the unmount overtook once it was on the bridge", async () => {
+    // The same sign-out, one step later: the draw finished first, so the write
+    // is past the hook's own check and inside the module when the layout
+    // unmounts. Retiring the attempt cannot recall it there, so the retirement
+    // travels with the call and the module clears what landed, leaving the Home
+    // Screen the sign-out emptied empty.
+    encodeOutcome = "held";
+    setAvatar(characterAvatar("orange"));
+    const { unmount } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(0);
+    expect(releaseHeldRasterize).not.toBeNull();
+
+    let openBridge = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openBridge = resolve;
+    });
+    releaseHeldRasterize?.(AVATAR_BYTES);
+    await settle();
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(bridgeOrder).toEqual(["sync"]);
+
+    unmount();
+    openBridge();
+    await settle();
+
+    expect(bridgeOrder).toEqual(["sync", "clear"]);
+    expect(clearCount).toBe(1);
+    expect(persistedAssistantId).toBeNull();
   });
 
   it("caches an avatar that legitimately encodes to nothing", async () => {
