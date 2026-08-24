@@ -83,22 +83,14 @@ struct WidgetAvatarPalette {
         }
         let lightOn = light.contrastingForeground
         let darkOn = dark.contrastingForeground
-        surface = Self.dynamic(light: light, dark: dark)
-        onSurface = Self.dynamic(light: lightOn, dark: darkOn)
-        controlFill = Self.dynamic(
+        surface = WidgetTheme.appearanceDynamic(light: light, dark: dark)
+        onSurface = WidgetTheme.appearanceDynamic(light: lightOn, dark: darkOn)
+        controlFill = WidgetTheme.appearanceDynamic(
             light: lightOn.withAlphaComponent(Self.controlFillOpacity),
             dark: darkOn.withAlphaComponent(Self.controlFillOpacity)
         )
     }
 
-    /// A color that resolves from the appearance the widget is rendered in.
-    /// ``WidgetTheme`` keeps its own copy of this for the literals it holds;
-    /// this one composes colors derived at render time.
-    private static func dynamic(light: UIColor, dark: UIColor) -> Color {
-        return Color(uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark ? dark : light
-        })
-    }
 }
 
 /// The assistant's eyes, drawn straight onto the card behind them.
