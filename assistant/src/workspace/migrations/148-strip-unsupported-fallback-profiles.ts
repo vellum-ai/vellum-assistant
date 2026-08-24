@@ -35,6 +35,9 @@ export const stripUnsupportedFallbackProfilesMigration: WorkspaceMigration = {
   id: "148-strip-unsupported-fallback-profiles",
   description:
     "Remove custom fallback profile pointers outside the managed default contract",
+  // A transient config write failure must not leave an unsupported pointer
+  // behind permanently; the next boot can safely repeat this idempotent pass.
+  retryFailedCheckpoint: true,
 
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
