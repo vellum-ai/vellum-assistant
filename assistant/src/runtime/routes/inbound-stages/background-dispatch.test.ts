@@ -121,6 +121,25 @@ mock.module("../../../messaging/providers/index.js", () => ({
   },
 }));
 
+// Every channel turn registers a surface observer, so the conversation has to
+// be reachable without constructing a real one and touching the database. The
+// observers registered here are captured so a test can publish a surface the
+// way the daemon's sink does.
+const surfaceObservers: Array<(msg: Record<string, unknown>) => void> = [];
+mock.module("../../../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async () => ({
+    addEventObserver: (observer: (msg: Record<string, unknown>) => void) => {
+      surfaceObservers.push(observer);
+      return () => {
+        const at = surfaceObservers.indexOf(observer);
+        if (at >= 0) {
+          surfaceObservers.splice(at, 1);
+        }
+      };
+    },
+  }),
+}));
+
 mock.module("../../channel-reply-delivery.js", () => ({
   deliverReplyViaCallback: async (...args: unknown[]) => {
     const options = args[4] as
@@ -163,6 +182,7 @@ beforeEach(() => {
   sentStreamOps.length = 0;
   sendChannelStreamOpImpl = async () => ({ ok: true });
   sentActivity.length = 0;
+  surfaceObservers.length = 0;
   setChannelActivityImpl = () => ({ ok: true });
   activityRefreshMsImpl = () => undefined;
   markedProcessedEvents.length = 0;
@@ -1106,6 +1126,99 @@ describe("channel activity timing", () => {
     // than checking the last entry is what catches a backlog that happens to
     // drain in a harmless order.
     expect(seen.filter((phase) => phase === "thinking")).toHaveLength(1);
+  });
+
+  test("a surface published to the sink reaches the turn's stream", async () => {
+    // The defect this exists for. Surfaces go through `Conversation.emit`,
+    // which serves the sink and observers, while channel consumers read the
+    // per-turn `onEvent` carrying the agent loop's stream. Without a bridge, a
+    // consumer that handles surfaces correctly never receives one, and its own
+    // tests pass because they feed `observeEvent` directly.
+    //
+    // Asserted through the stream rather than at the observer, so it fails if
+    // the bridge is registered and the surface still does not render.
+    const conversationId = "conv-surface-streamed";
+    const channelId = "D-SURFACE";
+    const threadTs = "1700000000.000045";
+    sendChannelStreamOpImpl = async () => ({
+      ok: true,
+      ts: "1700000000.000046",
+    });
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      options,
+    ) => {
+      // Registered before the turn body runs, so a surface shown in the first
+      // tool call is not missed.
+      expect(surfaceObservers).toHaveLength(1);
+
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Working on it.",
+        conversationId,
+      });
+
+      // Stand in for the daemon's sink: a tool showing a surface publishes to
+      // observers, never to this turn's `onEvent`.
+      for (const observer of surfaceObservers) {
+        observer({
+          type: "ui_surface_show",
+          conversationId,
+          surfaceId: "s1",
+          surfaceType: "card",
+          data: {
+            title: "Task progress",
+            template: "task_progress",
+            templateData: {
+              steps: [
+                { label: "Search docs", status: "in_progress" },
+                { label: "Write answer", status: "pending" },
+              ],
+            },
+          },
+        });
+      }
+
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-surface",
+      });
+      return { messageId: "user-msg-surface" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-surface-streamed",
+      content: "please respond",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    // The steps reached the stream, which is what a reader actually sees.
+    const withTasks = sentStreamOps.filter(
+      (op) => (op as { tasks?: unknown[] }).tasks !== undefined,
+    );
+    expect(withTasks.length).toBeGreaterThan(0);
+    expect(
+      (withTasks[0] as { tasks: Array<{ title?: string }> }).tasks.map(
+        (task) => task.title,
+      ),
+    ).toEqual(["Search docs", "Write answer"]);
+
+    // The observer detaches with the turn. One that outlived it would deliver
+    // a later turn's cards to a session that has already finished.
+    expect(surfaceObservers).toHaveLength(0);
   });
 
   test("stays silent for a turn that decides not to answer", async () => {

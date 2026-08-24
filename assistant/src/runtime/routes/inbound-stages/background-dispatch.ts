@@ -18,6 +18,7 @@ import {
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
+import { getOrCreateConversation } from "../../../daemon/conversation-store.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   channelActivityRefreshMs,
@@ -170,6 +171,10 @@ export function processChannelMessageInBackground(
         botMentioned: slackBotMentioned,
       }),
     });
+    // Detached in the same `finally` as the other per-turn handles: an
+    // observer outlives the turn otherwise and would deliver a later turn's
+    // surfaces to a session that has already finished.
+    let detachSurfaceObserver: (() => void) | undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
           conversationId,
@@ -233,6 +238,24 @@ export function processChannelMessageInBackground(
         slackReplySession?.observeEvent(msg);
         channelActivity?.observeEvent(msg);
       };
+
+      // Surfaces are published to the conversation's sink, not to this turn's
+      // `onEvent`, so a channel consumer reading the agent-loop stream never
+      // sees one. Forwarding them onto the same fan-out is what lets a channel
+      // render a card at all: `slack-reply-session` has handled these events
+      // since it was written and has never received one outside a test.
+      //
+      // Registered before the turn starts, because a surface shown in the
+      // first tool call would otherwise arrive before anything was listening.
+      // `getOrCreateConversation` returns the instance `processMessage` then
+      // reuses, and the channel turn path is already past the DB-readiness
+      // gate that `processMessage` asserts.
+      const conversation = await getOrCreateConversation(conversationId);
+      detachSurfaceObserver = conversation.addEventObserver((msg) => {
+        if (isChannelSurfaceEvent(msg)) {
+          observeAgentEvent(msg);
+        }
+      });
 
       let userMessageId: string | undefined;
       let deduplicatedIngress = false;
@@ -353,6 +376,7 @@ export function processChannelMessageInBackground(
         }
       }
     } finally {
+      detachSurfaceObserver?.();
       channelActivity?.stop();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
@@ -368,6 +392,29 @@ export function processChannelMessageInBackground(
 // ---------------------------------------------------------------------------
 // Channel activity indicator
 // ---------------------------------------------------------------------------
+
+/**
+ * The surface lifecycle a channel needs to render one and keep it current.
+ *
+ * `pending` and `undo_result` are deliberately absent: both describe an
+ * interaction with a surface already on screen, and no channel offers the
+ * controls that produce them.
+ *
+ * A subagent's surfaces are absent too, and that is a decision rather than an
+ * omission. They arrive re-enveloped as `subagent_event`, and a subagent is an
+ * internal worker whose card is nested under its parent in the web view. On a
+ * channel it would read as the assistant showing its own scratch work, so
+ * rendering one is a product call to make deliberately rather than a default
+ * to inherit from the plumbing.
+ */
+function isChannelSurfaceEvent(msg: AssistantEvent): boolean {
+  return (
+    msg.type === "ui_surface_show" ||
+    msg.type === "ui_surface_update" ||
+    msg.type === "ui_surface_dismiss" ||
+    msg.type === "ui_surface_complete"
+  );
+}
 
 /**
  * How often the phase is recomputed for a channel whose indicator holds until
