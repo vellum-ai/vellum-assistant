@@ -17,14 +17,15 @@ export interface VoiceAvatarProps {
 /**
  * The large, state-driven assistant avatar at the center of the live-voice
  * room. Resolves the real assistant avatar (character / custom image / "V"
- * fallback) via {@link useAssistantAvatar} and expresses the session phase
- * through a continuous per-visual CSS loop (see `.voice-avatar-*` in
- * index.css).
+ * fallback) via {@link useAssistantAvatar} and carries the session phase as a
+ * `voice-avatar--<visual>` class, which idle, listening, thinking and
+ * reconnecting each answer with a CSS loop (see `.voice-avatar-*` in
+ * index.css). `responding` has no loop: it holds still.
  *
- * The avatar node stays mounted for the whole session: a visual change only
- * swaps the `voice-avatar--<visual>` class, so the CSS loop cross-fades in
- * place rather than the whole avatar re-popping. The one-time entry spring is
- * owned by the room wrapper (see `voice-room.tsx`), not here.
+ * The avatar node stays mounted for the whole session, so a visual change only
+ * swaps that class and the loops cross-fade in place rather than the whole
+ * avatar re-popping. The one-time entry spring is owned by the room wrapper
+ * (see `voice-room.tsx`), not here.
  *
  * Nothing here reads audio. Both halves of a turn are drawn as bands at the
  * room's floor, so the avatar states are the session's phase and the bands are
