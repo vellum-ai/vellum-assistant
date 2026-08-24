@@ -45,6 +45,7 @@ import { UsageTrackingProvider } from "../usage-tracking.js";
 import {
   getManagedUpstream,
   isVellumManagedConnection,
+  MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
@@ -312,8 +313,9 @@ export function createAdapterFromConnection(
    * The winning profile of the FAILED call is re-resolved from the same
    * inputs `normalizeSendMessageOptions` uses (call site plus the request's
    * own override/seed fields), and its `fallbackProfile` pointer names the
-   * backup. A `vellum` profile carries no upstream of its own, so the backup's
-   * model determines it.
+   * backup. The upstream comes from the backup's resolved provider; only the
+   * `vellum` routing identity carries no upstream of its own, and there the
+   * backup's model determines it.
    *
    * Returns a RAW adapter, exactly like `makeCredentialRefresher` above:
    * `RetryProvider` hands the backup route options it has ALREADY normalized
@@ -403,12 +405,31 @@ export function createAdapterFromConnection(
           );
           return null;
         }
-        const upstream = getManagedUpstream(resolvedBackup.model);
+        // The upstream is the resolved provider, the same way normal dispatch
+        // picks it for this connection: `connection-resolution.ts` threads the
+        // resolved provider through as `providerOverride` for a `vellum`
+        // connection and derives the upstream from the model only when the
+        // provider is the routing-identity sentinel (`resolveRoutingIdentity`,
+        // and the `isVellum && !expectedProvider` branch). Deriving it from the
+        // model here regardless would send a provider-pinned call-site fragment
+        // to a different upstream than a primary send of the same resolution,
+        // and would refuse a managed model the catalog does not list yet even
+        // though normal dispatch serves it. A provider the managed proxy cannot
+        // front (a non-routable id, or another routing identity such as
+        // `chatgpt`) is refused rather than routed.
+        const declaredProvider = resolvedBackup.provider;
+        const upstream =
+          declaredProvider === VELLUM_MANAGED_PROVIDER
+            ? getManagedUpstream(resolvedBackup.model)
+            : MANAGED_ROUTABLE_PROVIDERS.has(declaredProvider)
+              ? declaredProvider
+              : null;
         if (upstream === null) {
           log.warn(
             {
               connectionName: connection.name,
               overrideProfile,
+              backupProvider: declaredProvider,
               backupModel: resolvedBackup.model,
             },
             "Backup profile does not resolve to a managed upstream; keeping the original error",

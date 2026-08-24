@@ -496,4 +496,110 @@ describe("managed fallback dispatch", () => {
     expect(backup[0].body.model).toBe("claude-opus-5");
     expect(response.actualInferenceProfile).toBe("tweak-managed-backup");
   });
+
+  test("the backup upstream follows the resolved provider, not the model's catalog owner", async () => {
+    // The divergent shape: a call-site fragment pins a concrete upstream while
+    // the backup profile's own model belongs to a different one. Normal
+    // dispatch routes this by the resolved provider (`connection-resolution`
+    // threads it through as `providerOverride` for the managed connection), so
+    // the fallback has to as well. Deriving the upstream from the model instead
+    // sends the request somewhere the primary route never would have.
+    setConfig("llm", {
+      profiles: {
+        "divergent-primary": {
+          source: "user",
+          provider: "vellum",
+          model: "gpt-5.6-sol",
+          fallbackProfile: "divergent-backup",
+          maxTokens: 1024,
+        },
+        // An OpenAI-owned model under an Anthropic call-site pin: the resolved
+        // provider and the model's catalog owner disagree.
+        "divergent-backup": {
+          source: "user",
+          provider: "vellum",
+          model: "gpt-5.6-terra",
+          maxTokens: 2048,
+        },
+      },
+      activeProfile: "divergent-primary",
+      callSites: { mainAgent: { provider: "anthropic" } },
+    });
+
+    const provider = createAdapterFromConnection(
+      vellumConnection,
+      managedAuth(OPENAI_PATH),
+      {
+        model: "gpt-5.6-sol",
+        provider: "openai",
+        streamTimeoutMs: 30_000,
+      },
+    );
+    expect(provider).not.toBeNull();
+
+    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // The escalation went to the pinned provider's upstream carrying the
+    // resolved model. Routing by the model's catalog owner would have escalated
+    // straight back onto the failing OpenAI path, so nothing reaches Anthropic.
+    const backup = requestsTo(ANTHROPIC_PATH);
+    expect(backup.length).toBe(1);
+    expect(backup[0].body.model).toBe("gpt-5.6-terra");
+    expect(response.actualProvider).toBe("anthropic");
+    expect(response.actualInferenceProfile).toBe("divergent-backup");
+  });
+
+  test("a backup whose resolved provider cannot front the managed proxy is refused", async () => {
+    // The connection guard passes (the resolver keeps the managed connection),
+    // but the pinned provider is not one the platform proxy serves. There is no
+    // upstream to build an adapter for, so the primary's failure stands rather
+    // than the request being quietly rerouted to the model's catalog owner.
+    setConfig("llm", {
+      profiles: {
+        "unroutable-primary": {
+          source: "user",
+          provider: "vellum",
+          model: "claude-opus-5",
+          fallbackProfile: "unroutable-backup",
+          maxTokens: 1024,
+        },
+        // Named on the managed connection, so the connection guard lets it
+        // through, but `openrouter` is not a managed-routable upstream.
+        "unroutable-backup": {
+          source: "user",
+          provider: "openrouter",
+          provider_connection: "vellum",
+          model: "claude-sonnet-5",
+          maxTokens: 2048,
+        },
+      },
+      activeProfile: "unroutable-primary",
+    });
+    anthropicMode = "retired";
+
+    const provider = createAdapterFromConnection(
+      vellumConnection,
+      managedAuth(ANTHROPIC_PATH),
+      {
+        model: "claude-opus-5",
+        provider: "anthropic",
+        streamTimeoutMs: 30_000,
+      },
+    );
+    expect(provider).not.toBeNull();
+
+    const error = await provider!
+      .sendMessage(MESSAGES, { config: { callSite: "mainAgent" } })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { statusCode?: number }).statusCode).toBe(404);
+    const models = new Set(requests.map((r) => r.body.model));
+    expect(models).toEqual(new Set(["claude-opus-5"]));
+  });
 });
