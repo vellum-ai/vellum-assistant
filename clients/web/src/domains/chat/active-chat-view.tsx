@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * ActiveChatView — chat orchestration, mounted only when the assistant is usable.
  *
@@ -87,6 +89,7 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 // ---------------------------------------------------------------------------
 
 export function ActiveChatView() {
+  const { t } = useTranslation("chat");
   const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{
@@ -556,9 +559,9 @@ export function ActiveChatView() {
         <p className="text-[var(--text-secondary)]">
           {autoGreet.timedOut
             ? turnActive
-              ? "Your assistant is still working…"
-              : "Your assistant is taking longer than expected."
-            : "Starting your first conversation…"}
+              ? t("activeChatView.stillWorking")
+              : t("activeChatView.takingLonger")
+            : t("activeChatView.startingFirst")}
         </p>
         {autoGreet.timedOut && !turnActive && (
           <Button
@@ -566,7 +569,7 @@ export function ActiveChatView() {
             size="regular"
             onClick={handleAutoGreetRetry}
           >
-            Try again
+            {t("activeChatView.tryAgain")}
           </Button>
         )}
       </div>
@@ -641,18 +644,18 @@ export function ActiveChatView() {
       ) : null}
       <ConfirmDialog
         open={activeSummarizeMessageId !== null}
-        title="Summarize up to here?"
-        message="The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted."
-        confirmLabel="Summarize"
+        title={t("activeChatView.summarizeTitle")}
+        message={t("activeChatView.summarizeMessage")}
+        confirmLabel={t("activeChatView.summarizeConfirm")}
         isPending={summarizePending}
         onConfirm={handleConfirmSummarize}
         onCancel={handleCancelSummarize}
       />
       <ConfirmDialog
         open={retryConfirmOpen}
-        title="Retry this response?"
-        message="The latest response will be discarded and regenerated. This can't be undone."
-        confirmLabel="Retry"
+        title={t("activeChatView.retryTitle")}
+        message={t("activeChatView.retryMessage")}
+        confirmLabel={t("activeChatView.retryConfirm")}
         isPending={retryPending}
         onConfirm={handleConfirmRetry}
         onCancel={handleCancelRetry}

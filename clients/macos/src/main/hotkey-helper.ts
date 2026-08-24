@@ -6,7 +6,17 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  HELPER_DICTATION_FINALIZED_EVENT,
+  HELPER_DICTATION_PARTIAL_EVENT,
+  HELPER_DICTATION_SET_PARTIALS,
+  HELPER_DICTATION_TRANSCRIBE,
+  HELPER_DICTATION_TRANSCRIBED_EVENT,
+} from "@vellumai/ipc-contract";
+import {
+  DICTATION_PUSH_SAMPLE_RATE,
+  dictationPartialsHelperResultSchema,
   DictationOwnerRouter,
+  requestDictationTranscription,
   toAudioBuffer,
 } from "@vellumai/electron-desktop/dictation-routing";
 import type {
@@ -79,18 +89,6 @@ const DICTATION_ERROR_SCHEMA = z.object({
   message: z.string(),
   onDevice: z.boolean(),
   willRetryServer: z.boolean(),
-});
-
-const DICTATION_TRANSCRIBE_RESULT_SCHEMA = z.object({
-  ok: z.boolean(),
-  reason: z.string().optional(),
-});
-
-const DICTATION_RESULT_SCHEMA = z.object({
-  enabled: z.boolean(),
-  reason: z.string().optional(),
-  // Which input device the helper's recognizer tap actually captures.
-  tap: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -255,8 +253,6 @@ const dictationOwners = new DictationOwnerRouter();
 
 // The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
 // pcm-downsample worklet contract).
-const DICTATION_PUSH_SAMPLE_RATE = 16000;
-
 const setDictationPartials = async (
   webContents: WebContents,
   enable: boolean,
@@ -271,7 +267,7 @@ const setDictationPartials = async (
         ? { pushAudio: true, sampleRate: DICTATION_PUSH_SAMPLE_RATE }
         : {}),
     });
-    const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
+    const parsed = dictationPartialsHelperResultSchema.safeParse(result);
     if (!parsed.success) {
       return {
         ok: false,
@@ -318,21 +314,33 @@ const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
       `[mac-helper] dictation partial #${forwardedPartialCount} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
     );
   }
-  if (!owner) return;
-  owner.send("vellum:helper:dictation:partial", event);
+  if (!owner) {
+    return;
+  }
+  owner.send(HELPER_DICTATION_PARTIAL_EVENT, event);
 };
 
 const sendDictationTextEventToOwner = (
   kind: "finalized" | "transcribed",
   event: DictationPartialEvent,
 ): void => {
-  const owner = dictationOwners.target();
-  // Length only — transcript content must never be logged.
+  const owner =
+    kind === "transcribed"
+      ? dictationOwners.takeTranscriptionTarget()
+      : dictationOwners.target();
+  // Length only; transcript content must never be logged.
   log.info(
-    `[mac-helper] dictation ${kind} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    `[mac-helper] dictation ${kind} chars=${event.text.length} -> ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
   );
-  if (!owner) return;
-  owner.send(`vellum:helper:dictation:${kind}`, event);
+  if (!owner) {
+    return;
+  }
+  owner.send(
+    kind === "finalized"
+      ? HELPER_DICTATION_FINALIZED_EVENT
+      : HELPER_DICTATION_TRANSCRIBED_EVENT,
+    event,
+  );
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -608,7 +616,7 @@ export const installHotkeyHelper = (): void => {
   );
 
   handle(
-    "vellum:helper:dictation:setPartials",
+    HELPER_DICTATION_SET_PARTIALS,
     z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
     ([enable, deviceName, pushAudio], event) =>
       setDictationPartials(event.sender, enable, deviceName, pushAudio),
@@ -643,32 +651,15 @@ export const installHotkeyHelper = (): void => {
   });
 
   handle(
-    "vellum:helper:dictation:transcribe",
+    HELPER_DICTATION_TRANSCRIBE,
     z.tuple([z.unknown()]),
-    async ([audio], event): Promise<{ ok: boolean; reason?: string }> => {
-      const buf = toAudioBuffer(audio);
-      if (!buf || buf.length === 0) {
-        return { ok: false, reason: "empty audio" };
-      }
-      // Route the upcoming `dictation.transcribed` to the requester.
-      dictationOwners.setFinalOwner(event.sender);
-      try {
-        const result = await client.call("dictation.transcribe", {
-          audio: buf.toString("base64"),
-          sampleRate: DICTATION_PUSH_SAMPLE_RATE,
-        });
-        const parsed = DICTATION_TRANSCRIBE_RESULT_SCHEMA.safeParse(result);
-        if (!parsed.success) {
-          return { ok: false, reason: "invalid transcribe result" };
-        }
-        return parsed.data;
-      } catch (err) {
-        return {
-          ok: false,
-          reason: err instanceof Error ? err.message : String(err),
-        };
-      }
-    },
+    ([audio], event) =>
+      requestDictationTranscription({
+        audio,
+        sender: event.sender,
+        owners: dictationOwners,
+        client,
+      }),
   );
 
   app.on("before-quit", () => {

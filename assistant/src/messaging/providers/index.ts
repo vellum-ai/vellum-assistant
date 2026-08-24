@@ -18,11 +18,10 @@ import { a2aTransport } from "./a2a/transport.js";
 import type { DirectDeliveryChannel } from "./callback-routing.js";
 import { channelForCallback } from "./callback-routing.js";
 import type {
+  ActivityTarget,
   CallbackContext,
   ChannelTransport,
   EditTarget,
-  ReactionTarget,
-  ThreadStatus,
 } from "./channel-transport.js";
 import { discordTransport } from "./discord/transport.js";
 import { slackTransport } from "./slack/transport.js";
@@ -53,40 +52,44 @@ export function getTransportForCallback(
 }
 
 /**
- * Whether the channel this callback addresses can show a working indicator.
+ * Whether the channel this callback addresses can show how busy the assistant
+ * is.
  *
  * Asks the transport rather than the channel id, so a channel that gains the
  * method starts being asked without a caller being told about it.
  */
-export function supportsChannelTyping(callbackUrl: string): boolean {
-  return getTransportForCallback(callbackUrl)?.typing !== undefined;
+export function supportsChannelActivity(callbackUrl: string): boolean {
+  return getTransportForCallback(callbackUrl)?.setActivity !== undefined;
 }
 
 /**
- * Show that the assistant is working on the channel this callback addresses.
+ * How often this channel's busy indicator has to be re-asserted, or
+ * `undefined` when it holds until changed and one call is enough.
+ */
+export function channelActivityRefreshMs(
+  callbackUrl: string,
+): number | undefined {
+  return getTransportForCallback(callbackUrl)?.activityRefreshMs;
+}
+
+/**
+ * Show how busy the assistant is on the channel this callback addresses.
  *
  * Resolves to nothing when the channel has no such affordance, which is the
  * ordinary case rather than a failure: the indicator is decoration, and a
  * channel that cannot show one is not degraded by its absence.
  */
-export async function sendChannelTyping(
+export async function setChannelActivity(
   callbackUrl: string,
-  chatId: string,
+  target: ActivityTarget,
 ): Promise<ChannelDeliveryResult> {
   const transport = getTransportForCallback(callbackUrl);
-  if (!transport?.typing) {
+  if (!transport?.setActivity) {
     return { ok: true };
   }
-  return transport.typing(callbackContext(callbackUrl), chatId);
+  return transport.setActivity(callbackContext(callbackUrl), target);
 }
 
-/**
- * Add or remove one of the assistant's own reactions on a message.
- *
- * Resolves to nothing when the channel has none, the same as typing: a
- * reaction is an acknowledgement, and a channel that cannot show one is not a
- * failed delivery.
- */
 /**
  * Replace a message the assistant already sent.
  *
@@ -103,34 +106,6 @@ export async function editChannelMessage(
     return { ok: true };
   }
   return transport.edit(callbackContext(callbackUrl), target);
-}
-
-export async function sendChannelReaction(
-  callbackUrl: string,
-  target: ReactionTarget,
-): Promise<ChannelDeliveryResult> {
-  const transport = getTransportForCallback(callbackUrl);
-  if (!transport?.react) {
-    return { ok: true };
-  }
-  return transport.react(callbackContext(callbackUrl), target);
-}
-
-/**
- * Set or clear the channel's status surface.
- *
- * Resolves to nothing when the channel holds none, so a caller does not have
- * to know which channels do.
- */
-export async function setChannelThreadStatus(
-  callbackUrl: string,
-  status: ThreadStatus,
-): Promise<ChannelDeliveryResult> {
-  const transport = getTransportForCallback(callbackUrl);
-  if (!transport?.setThreadStatus) {
-    return { ok: true };
-  }
-  return transport.setThreadStatus(callbackContext(callbackUrl), status);
 }
 
 /**

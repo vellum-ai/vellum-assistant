@@ -53,9 +53,14 @@ const meta: Meta<typeof AssistantChannelsList> = {
     assistantId: "assistant-1",
     assistantName: "Example Assistant",
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "not_configured" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        address: "@example-assistant",
+      },
+      { key: "telegram", status: "not_configured", configured: false },
+      { key: "phone", status: "not_configured", configured: false },
     ],
     onSetup: () => {},
     onDisconnect: () => {},
@@ -129,9 +134,9 @@ export const ChannelsTabSlackDisconnected: Story = {
   parameters: selectedAdapter("slack"),
   args: {
     channels: [
-      { key: "slack", status: "not_configured" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "not_configured" },
+      { key: "slack", status: "not_configured", configured: false },
+      { key: "telegram", status: "not_configured", configured: false },
+      { key: "phone", status: "not_configured", configured: false },
     ],
   },
 };
@@ -155,9 +160,19 @@ export const ChannelsTabTelegramConnected: Story = {
   parameters: selectedAdapter("telegram"),
   args: {
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "ready", address: "@example_bot" },
-      { key: "phone", status: "not_configured" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        address: "@example-assistant",
+      },
+      {
+        key: "telegram",
+        status: "ready",
+        configured: true,
+        address: "@example_bot",
+      },
+      { key: "phone", status: "not_configured", configured: false },
     ],
     channelPolicies: { telegram: "trusted_contacts" },
     onChannelPolicyChange: () => {},
@@ -172,9 +187,14 @@ export const ChannelsTabPhoneConnected: Story = {
   parameters: selectedAdapter("phone"),
   args: {
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "ready", address: "+15550100" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        address: "@example-assistant",
+      },
+      { key: "telegram", status: "not_configured", configured: false },
+      { key: "phone", status: "ready", configured: true, address: "+15550100" },
     ],
     channelPolicies: { phone: "trusted_contacts" },
     onChannelPolicyChange: () => {},

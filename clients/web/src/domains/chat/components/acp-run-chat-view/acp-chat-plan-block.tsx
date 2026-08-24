@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * A plan checklist in the ACP chat transcript.
  */
@@ -12,6 +14,7 @@ export interface AcpChatPlanBlockProps {
 }
 
 export function AcpChatPlanBlock({ entries }: AcpChatPlanBlockProps) {
+  const { t } = useTranslation("chat");
   if (entries.length === 0) {
     return null;
   }
@@ -24,7 +27,7 @@ export function AcpChatPlanBlock({ entries }: AcpChatPlanBlockProps) {
       <div className="mb-2 flex items-center gap-1.5 text-[var(--content-tertiary)]">
         <ListChecks aria-hidden className="h-3.5 w-3.5 shrink-0" />
         <Typography variant="body-small-emphasised" className="text-inherit">
-          Plan
+          {t("acpChatPlanBlock.plan")}
         </Typography>
       </div>
 

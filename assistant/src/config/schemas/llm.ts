@@ -605,6 +605,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   provider_connection: z.string().min(1).optional(),
   /**
+   * The profile was deliberately created for a model the catalog does not
+   * list (the write routes' allowUnlisted escape hatch). Stamped at write
+   * time so listings do not flag the row as misconfigured on every read;
+   * a model the checks can vouch for never needs it.
+   */
+  allowUnlisted: z.boolean().optional(),
+  /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
    * "send `null` to clear" sentinel works for status too — a managed
    * re-enable body of `{status: null}` clears back to active-by-absence

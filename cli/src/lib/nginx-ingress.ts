@@ -180,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 4;
+const EDGE_TEMPLATE_VERSION = 5;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -342,6 +342,10 @@ function buildRemoteWebIngressLocations(opts: {
   return `${DENYLIST_LOCATIONS}
 
     location = /healthz {
+${proxyBlock}
+    }
+
+    location = /readyz {
 ${proxyBlock}
     }
 

@@ -7,6 +7,7 @@ import { SubagentAvatarBadge } from "@/components/avatar/subagent-avatar-badge";
 import { Typography } from "@vellumai/design-library";
 
 import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
+import { useTranslation } from "@/i18n";
 
 // Visible-avatar cap before the "+N" overflow chip. Aliases the shared
 // stacked-chips cap so the avatar row and the overlay pills share one source of
@@ -22,6 +23,7 @@ export function SubagentAvatarRow({
   subagentIds,
   onExpand,
 }: SubagentAvatarRowProps) {
+  const { t } = useTranslation("chat");
   const overflowCount = subagentIds.length - MAX_VISIBLE_SUBAGENT_AVATARS;
 
   // The row wraps because it can outgrow the transcript column. At the
@@ -36,7 +38,7 @@ export function SubagentAvatarRow({
     <button
       type="button"
       onClick={onExpand}
-      aria-label="Show subagent details"
+      aria-label={t("subagentAvatarRow.showDetailsAria")}
       data-testid="subagent-avatar-row-details"
       className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-2"
     >
@@ -67,7 +69,7 @@ export function SubagentAvatarRow({
           (single-activity.tsx): 13px / 500 / --content-secondary. Off the
           typography scale, so it can't use a `Typography` variant. */}
       <span className="flex items-center gap-1 text-[13px] font-medium text-[var(--content-secondary)]">
-        Details
+        {t("subagentAvatarRow.details")}
         <ChevronDown className="h-3 w-3 text-[var(--content-tertiary)]" />
       </span>
     </button>

@@ -18,6 +18,7 @@ import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
 import { parseSkillExecuteActivity } from "@/domains/chat/utils/skill-activity";
 import type { SkillExecuteParam } from "@/domains/chat/utils/skill-activity";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
+import { useTranslation } from "@/i18n";
 
 /**
  * Scalar strings longer than this render in their own wrapped block rather
@@ -73,6 +74,7 @@ export function SkillExecuteDetail({
   detail,
   isRunning,
 }: ToolActivityRendererProps) {
+  const { t } = useTranslation("chat");
   const { innerToolName, activity, params } = parseSkillExecuteActivity(
     detail.input,
   );
@@ -102,7 +104,7 @@ export function SkillExecuteDetail({
               className="mt-0.5 truncate font-mono text-[var(--content-tertiary)]"
             >
               {innerToolName}
-              {isRunning ? " · running" : ""}
+              {isRunning ? t("skillExecuteDetail.runningSuffix") : ""}
             </Typography>
           )}
         </div>
@@ -120,7 +122,7 @@ export function SkillExecuteDetail({
 
       {params.length > 0 && (
         <div>
-          <SectionLabel>Parameters</SectionLabel>
+          <SectionLabel>{t("skillExecuteDetail.parameters")}</SectionLabel>
           <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-base)] p-4">
             {params.map((param) => (
               <ParamRow key={param.key} param={param} />
@@ -129,7 +131,7 @@ export function SkillExecuteDetail({
         </div>
       )}
 
-      <DetailDisclosure label="Raw input">
+      <DetailDisclosure label={t("skillExecuteDetail.rawInput")}>
         <CodeBlock text={JSON.stringify(detail.input, null, 2)} />
       </DetailDisclosure>
     </div>

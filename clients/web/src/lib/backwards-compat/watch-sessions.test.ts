@@ -58,7 +58,7 @@ describe("supportsWatchSessions", () => {
   test("true for the dev build the floor names and later ones", () => {
     seed(MIN_VERSION);
     expect(supportsWatchSessions(OWNER_ASSISTANT_ID)).toBe(true);
-    seed("0.11.4-dev.202608200100.abcdef0");
+    seed("0.11.4-dev.202608220100.abcdef0");
     expect(supportsWatchSessions(OWNER_ASSISTANT_ID)).toBe(true);
   });
 

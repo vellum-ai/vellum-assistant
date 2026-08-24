@@ -4,9 +4,8 @@ import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 import { getLogger } from "../../../util/logger.js";
 import type { ChannelTransport } from "../channel-transport.js";
 import {
-  sendSlackAssistantThreadStatus,
+  sendSlackAgentSessionStatus,
   sendSlackAttachments,
-  sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
   updateSlackMessage,
@@ -74,24 +73,15 @@ export const slackTransport: ChannelTransport = {
     return { ok: true, ts: result.ts };
   },
 
-  async react(_ctx, target) {
-    await sendSlackReaction(
-      target.chatId,
-      target.emoji,
-      target.messageId,
-      target.action,
-    );
-    return { ok: true };
-  },
-
-  async setThreadStatus(_ctx, status) {
-    await sendSlackAssistantThreadStatus(
-      status.chatId,
-      status.threadTs,
-      status.status,
-      status.loadingMessages,
-    );
-    return { ok: true };
+  async setActivity(ctx, target) {
+    const ok = await sendSlackAgentSessionStatus({
+      channel: target.chatId,
+      phase: target.phase,
+      threadTs: ctx.params.threadTs,
+      messageTs: ctx.params.messageTs,
+      initiatorUserId: target.initiatorUserId,
+    });
+    return { ok };
   },
 
   async streamReply(_ctx, chatId, op) {

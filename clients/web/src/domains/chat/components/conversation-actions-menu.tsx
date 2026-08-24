@@ -12,6 +12,7 @@ import {
   PinOff,
   RefreshCw,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -34,7 +35,7 @@ import { cn } from "@vellumai/design-library/utils/cn";
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis
  * button; clicking it opens a dropdown menu with Pin / Rename / Archive /
- * Mark as unread actions, plus an optional "Move to group" submenu.
+ * Delete / Mark as unread actions, plus an optional "Move to group" submenu.
  *
  * The same item set is also rendered by the row's right-click context menu
  * (`AssistantSideMenu`) via the shared `renderConversationMenuItems` helper
@@ -54,6 +55,12 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 type MenuSide = "top" | "right" | "bottom" | "left";
 type MenuAlign = "start" | "center" | "end";
+
+/** Destructive row colour shared by the dropdown and the mobile sheet. */
+const DELETE_ITEM_CLASS =
+  "text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-hover)] [&_[data-slot=menu-item-icon]]:text-inherit";
+const DELETE_SHEET_ITEM_CLASS =
+  "text-[var(--system-negative-strong)] [--panel-item-icon-fg:var(--system-negative-strong)]";
 
 /**
  * Subset of the compound-menu API shared by `Menu` and `ContextMenu`. The
@@ -82,6 +89,12 @@ export interface ConversationMenuItemsProps {
   onArchive?: () => void;
   /** Restore an archived conversation. When provided, takes precedence over `onArchive` when `isArchived` is true. */
   onUnarchive?: () => void;
+  /**
+   * Permanently delete the conversation. The host owns confirmation; this
+   * callback only requests the delete. Available for channel threads too:
+   * deletion is a local history wipe and does not write to the source channel.
+   */
+  onDelete?: () => void;
   /** Mark the most recent assistant message as unread. */
   onMarkUnread?: () => void;
   /**
@@ -184,6 +197,7 @@ export function renderConversationMenuItems({
   onRename,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   isMarkUnreadDisabled = false,
   onMarkRead,
@@ -240,6 +254,16 @@ export function renderConversationMenuItems({
         {t("conversationActions.archive")}
       </Primitive.Item>
     ) : null;
+
+  const deleteItem = onDelete ? (
+    <Primitive.Item
+      leftIcon={<Trash2 size={14} />}
+      onSelect={onDelete}
+      className={DELETE_ITEM_CLASS}
+    >
+      {t("conversationActions.delete")}
+    </Primitive.Item>
+  ) : null;
 
   const markReadUnreadItem =
     !isReadonly && onMarkRead ? (
@@ -362,6 +386,7 @@ export function renderConversationMenuItems({
         {renameItem}
         {moveToGroupItem}
         {archiveItem}
+        {deleteItem}
         {copyConversationIdItem}
       </>
     );
@@ -372,6 +397,7 @@ export function renderConversationMenuItems({
       {pinItem}
       {renameItem}
       {archiveItem}
+      {deleteItem}
 
       {markReadUnreadItem}
       {moveToGroupItem}
@@ -479,6 +505,7 @@ export function renderConversationMenuItemsAsPanelItems({
   onRename,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   isMarkUnreadDisabled = false,
   onMarkRead,
@@ -546,6 +573,17 @@ export function renderConversationMenuItemsAsPanelItems({
             onClose,
           })
         : null;
+
+  const deleteItem = onDelete
+    ? buildSheetMenuItem({
+        key: "delete",
+        icon: Trash2,
+        label: t("conversationActions.delete"),
+        className: DELETE_SHEET_ITEM_CLASS,
+        run: onDelete,
+        onClose,
+      })
+    : null;
 
   const markReadUnreadItem =
     !isReadonly && onMarkRead
@@ -683,6 +721,7 @@ export function renderConversationMenuItemsAsPanelItems({
         {pinItem}
         {renameItem}
         {archiveItem}
+        {deleteItem}
         {moveToGroupBlock}
         {copyConversationIdItem}
       </>
@@ -694,6 +733,7 @@ export function renderConversationMenuItemsAsPanelItems({
       {pinItem}
       {renameItem}
       {archiveItem}
+      {deleteItem}
       {markReadUnreadItem}
       {moveToGroupBlock}
       {channelSourceLinkItem}

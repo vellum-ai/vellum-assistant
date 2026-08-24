@@ -16,16 +16,24 @@
 import { createElement } from "react";
 import {
   Bot,
+  CheckCircle,
+  CircleDashed,
   Hash,
   Mail,
   MessageCircle,
   MessageSquare,
   Phone,
+  RefreshCw,
   Send,
   Smartphone,
   Video,
   type LucideIcon,
 } from "lucide-react";
+
+import type { TagTone } from "@vellumai/design-library/components/tag";
+
+import { useTranslation } from "@/i18n";
+import type { AssistantChannelState } from "@/types/channel-types";
 
 const CHANNEL_LABELS: Record<string, string> = {
   slack: "Slack",
@@ -46,6 +54,49 @@ const CHANNEL_ICONS: Record<string, LucideIcon> = {
   email: Mail,
   a2a: Bot,
 };
+
+/**
+ * How a channel's operational health reads: which icon and words report it,
+ * and the tone a design-library Tag would wear.
+ *
+ * Shared because two surfaces render the same verdict inside different
+ * chrome. The Channels tab draws it as a Tag; the Contacts row draws it as
+ * the inverted pill its sibling rows already use, so it cannot simply
+ * borrow that component. Only the chrome differs, and a second copy of the
+ * mapping is what would let one surface start saying something the other
+ * does not.
+ *
+ * Absent health reads as connected: the channel measures nothing
+ * operational, so there is no outage to report.
+ */
+const HEALTH_BADGES = {
+  ok: {
+    icon: CheckCircle,
+    labelKey: "connectionCard.connected",
+    tone: "positive",
+  },
+  failing: {
+    icon: RefreshCw,
+    labelKey: "connectionCard.reconnecting",
+    tone: "warning",
+  },
+  unknown: {
+    icon: CircleDashed,
+    labelKey: "connectionCard.statusUnavailable",
+    tone: "neutral",
+  },
+} as const satisfies Record<
+  "ok" | "failing" | "unknown",
+  { icon: LucideIcon; labelKey: string; tone: TagTone }
+>;
+
+export function useChannelHealthBadge(
+  health: AssistantChannelState["health"],
+): { Icon: LucideIcon; label: string; tone: TagTone } {
+  const { t } = useTranslation("channels");
+  const { icon, labelKey, tone } = HEALTH_BADGES[health ?? "ok"];
+  return { Icon: icon, label: t(labelKey), tone };
+}
 
 /**
  * Human label for a channel id. Falls back to a Title-Cased version of the

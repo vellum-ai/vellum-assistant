@@ -1073,12 +1073,12 @@ export function ChatComposer({
       disabled={sendBlocked}
       title={
         sendDisabled || !canSendMessageContent
-          ? "Type a message to send"
+          ? t("chatComposer.typeToSend")
           : attachmentsUploadingCount > 0
-            ? "Uploading attachments…"
-            : "Send message"
+            ? t("chatComposer.uploadingAttachments")
+            : t("chatComposer.sendMessage")
       }
-      aria-label="Send message"
+      aria-label={t("chatComposer.sendMessage")}
       className={cn(
         isMobile && MOBILE_CONTROL_CLASS,
         isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
@@ -1097,8 +1097,8 @@ export function ChatComposer({
       expandOnMobile={!isMobile}
       type="submit"
       onMouseDown={rowPressGuard}
-      title="Send message"
-      aria-label="Send message"
+      title={t("chatComposer.sendMessage")}
+      aria-label={t("chatComposer.sendMessage")}
       className={cn(
         // Reachable only when the draft can actually go, so the filled tone
         // never lands on a send nobody can press.
@@ -1114,7 +1114,7 @@ export function ChatComposer({
       expandOnMobile={!isMobile}
       onMouseDown={rowPressGuard}
       onClick={onStopGenerating}
-      aria-label="Stop generating"
+      aria-label={t("chatComposer.stopGenerating")}
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
   );
@@ -1125,7 +1125,7 @@ export function ChatComposer({
     // this inline waveform because the overlay bridge no-ops there.
     <div
       className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-      aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
+      aria-label={voicePhase === "processing" ? t("chatComposer.transcribing") : t("chatComposer.recording")}
       aria-live="polite"
     >
       <StreamingWaveform
@@ -1134,7 +1134,7 @@ export function ChatComposer({
       />
       {voicePhase === "processing" ? (
         <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-          Transcribing…
+          {t("chatComposer.transcribingEllipsis")}
         </p>
       ) : (
         voiceInterim && (
@@ -1445,7 +1445,7 @@ export function ChatComposer({
                     navigate(routes.settings.voice);
                   }}
                 >
-                  Configure voice
+                  {t("chatComposer.configureVoice")}
                 </Button>
               }
             >

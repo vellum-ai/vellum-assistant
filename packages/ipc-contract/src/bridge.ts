@@ -30,6 +30,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -180,7 +181,7 @@ export interface VellumBridge {
        */
       transcribe?(
         audio: ArrayBuffer,
-      ): Promise<{ ok: boolean; reason?: string }>;
+      ): Promise<DictationTranscribeResult>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;

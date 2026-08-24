@@ -1,4 +1,3 @@
-import { CheckCircle } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -9,7 +8,11 @@ import type {
   AssistantChannelState,
   SetupChannelId,
 } from "@/types/channel-types";
-import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
+import {
+  ChannelIcon,
+  getChannelLabel,
+  useChannelHealthBadge,
+} from "@/utils/channel-presentation";
 
 export interface AssistantContactChannelsProps {
   channels: AssistantChannelState[];
@@ -96,7 +99,13 @@ function ChannelRow({
   onDisconnect,
 }: ChannelRowProps) {
   const { t } = useTranslation("contacts");
-  const connected = channel.status === "ready";
+  // Two axes, two decisions. `configured` owns the action and the address,
+  // because a channel that is merely not delivering still has credentials
+  // worth keeping and an address worth showing, and offering Connect would
+  // start a fresh setup conversation for a channel that is already set up.
+  // `health` owns the label, which is the only part an outage changes.
+  const configured = channel.configured;
+  const { Icon, label } = useChannelHealthBadge(channel.health);
 
   return (
     <div className="flex items-center gap-3 py-4">
@@ -110,7 +119,7 @@ function ChannelRow({
       >
         {getChannelLabel(channel.key)}
       </span>
-      {connected && channel.address ? (
+      {configured && channel.address ? (
         <span
           className="truncate text-body-medium-lighter"
           style={{ color: "var(--content-tertiary)" }}
@@ -119,11 +128,11 @@ function ChannelRow({
         </span>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        {connected ? (
+        {configured ? (
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
-              <CheckCircle className="h-3 w-3" />
-              {t("channelStatus.connected")}
+              <Icon className="h-3 w-3" />
+              {label}
             </span>
             <Button
               variant="danger"

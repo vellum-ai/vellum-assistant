@@ -96,13 +96,17 @@ export function useAssistantChannels({
     [readinessQuery.data],
   );
 
-  const slackConnected = channels.some(
-    (ch) => ch.key === "slack" && ch.status === "ready",
+  // Setup, not health: the connection card stays mounted through a socket
+  // outage, and its thread-mode control renders a default when this has no
+  // data, so a query gated on delivery would show a setting the assistant is
+  // not using and let the user save over the stored one.
+  const slackConfigured = channels.some(
+    (ch) => ch.key === "slack" && ch.configured,
   );
 
   const slackConfigQuery = useQuery({
     ...integrationsSlackChannelConfigGetOptions(pathOpts),
-    enabled: slackConnected,
+    enabled: slackConfigured,
     select: (data: IntegrationsSlackChannelConfigGetResponse) =>
       data.threadMode,
   });
@@ -255,6 +259,8 @@ function deriveChannelStates(
     return {
       key,
       status,
+      configured: snap?.setupStatus === "ready",
+      health: snap?.health,
       address: snap?.channelHandle ?? undefined,
     };
   });
@@ -266,11 +272,9 @@ function toChannelStatus(
   if (!snap) {
     return "not_configured";
   }
-  // `ready` is the only thing that means working. `setupStatus` is progress:
-  // a fully configured channel whose delivery is failing reports
-  // `setupStatus: "ready"` and `ready: false`, and treating the former as
-  // connected would show a broken channel as healthy. The CLI already reads
-  // it in this order.
+  // Working, not merely configured: every list renders this as the connection
+  // state, and a channel whose delivery is failing is honestly not connected.
+  // The wizard-versus-card decision asks `configured` instead.
   if (snap.ready) {
     return "ready";
   }

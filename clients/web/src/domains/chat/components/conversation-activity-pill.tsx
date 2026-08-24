@@ -42,6 +42,7 @@ import type {
   ConversationActivity,
 } from "@/domains/chat/hooks/use-conversation-activity";
 import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registry/types";
+import { useTranslation } from "@/i18n";
 
 export const ACTIVITY_PILL_TESTID = "conversation-activity-pill";
 export const RUNNING_GROUP_TESTID = "activity-trigger-running";
@@ -176,13 +177,14 @@ function ActivityPanel({
   activity: ConversationActivity;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const { running, completed } = activity;
   // Headings only earn their space when both groups are present; a list that is
   // all-running or all-finished is already self-describing.
   const showLabels = running.length > 0 && completed.length > 0;
   return (
     <div className="flex min-w-0 flex-col">
-      {showLabels ? <SectionLabel>Running</SectionLabel> : null}
+      {showLabels ? <SectionLabel>{t("conversationActivityPill.running")}</SectionLabel> : null}
       <div className="px-2 pb-1">
         {running.map((row) => (
           <ActivityRow
@@ -193,7 +195,7 @@ function ActivityPanel({
           />
         ))}
       </div>
-      {showLabels ? <SectionLabel>Recent</SectionLabel> : null}
+      {showLabels ? <SectionLabel>{t("conversationActivityPill.recent")}</SectionLabel> : null}
       <div className="px-2 pb-2">
         {completed.map((row) => (
           <ActivityRow
@@ -211,6 +213,7 @@ function ActivityPanel({
 export function ConversationActivityPill({
   conversationId,
 }: ConversationActivityPillProps) {
+  const { t } = useTranslation("chat");
   const activity = useConversationActivity(conversationId);
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -303,7 +306,7 @@ export function ConversationActivityPill({
         </BottomSheet.Trigger>
         <BottomSheet.Content className="max-h-[85dvh]">
           <BottomSheet.Header>
-            <BottomSheet.Title>Activity</BottomSheet.Title>
+            <BottomSheet.Title>{t("conversationActivityPill.activity")}</BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{panel}</BottomSheet.Body>
         </BottomSheet.Content>

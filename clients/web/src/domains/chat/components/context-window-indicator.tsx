@@ -1,6 +1,7 @@
 import { Brain } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { Trans, useTranslation } from "@/i18n";
 import { showContextWindowIndicator } from "@/utils/composer-settings";
 import { isPointerCoarse } from "@/utils/pointer";
 import {
@@ -45,14 +46,6 @@ function formatTokens(count: number): string {
     return `${Math.round(count / 1000)}k`;
   }
   return `${count}`;
-}
-
-/**
- * The ring's accessible name. Both presentations and the sheet's gauge share
- * it, so a screen reader hears the same thing whichever one renders.
- */
-function ringLabel(percentage: number): string {
-  return `Context window ${percentage}% full`;
 }
 
 /**
@@ -117,23 +110,30 @@ function PointerTooltipContent({
   maxTokens: number | null;
   assistantDisplayName: string;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <>
       <div className="text-body-small-default text-[var(--content-secondary)]">
-        Context window:
+        {t("contextWindowIndicator.label")}
       </div>
       <div className="text-body-medium-default" style={{ color: ringColor }}>
-        {percentage}% full
+        {t("contextWindowIndicator.percentFull", { percentage })}
       </div>
       {maxTokens != null && (
         <div className="text-body-small-default text-[var(--content-secondary)]">
-          {formatTokens(tokens)} / {formatTokens(maxTokens)} tokens used
+          {t("contextWindowIndicator.tokensUsed", {
+            used: formatTokens(tokens),
+            max: formatTokens(maxTokens),
+          })}
         </div>
       )}
       <div className="text-label-medium-default leading-tight text-[var(--content-tertiary)]">
-        {assistantDisplayName} automatically
-        <br />
-        compacts its context.
+        <Trans
+          ns="chat"
+          i18nKey="contextWindowIndicator.compactsHint"
+          values={{ name: assistantDisplayName }}
+          components={{ br: <br /> }}
+        />
       </div>
     </>
   );
@@ -158,6 +158,7 @@ function TouchSheetContent({
   onClearContext?: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <>
       <div className="flex flex-col items-center gap-6">
@@ -169,7 +170,7 @@ function TouchSheetContent({
         </span>
 
         <BottomSheet.Title className="justify-center">
-          Context Window
+          {t("contextWindowIndicator.title")}
         </BottomSheet.Title>
 
         <div className="w-full px-2">
@@ -178,23 +179,28 @@ function TouchSheetContent({
             height={16}
             fillColor={ringColor}
             className="bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]"
-            aria-label={ringLabel(percentage)}
+            aria-label={t("contextWindowIndicator.ringAria", { percentage })}
           />
         </div>
 
         <div className="flex flex-col items-center gap-2">
           <span className="text-body-large-default text-[var(--content-default)]">
-            {percentage}% full
+            {t("contextWindowIndicator.percentFull", { percentage })}
             {maxTokens != null && (
               <>
                 {" "}
                 <span className="text-[var(--content-tertiary)]">•</span>{" "}
-                {formatTokens(tokens)} / {formatTokens(maxTokens)} tokens used
+                {t("contextWindowIndicator.tokensUsed", {
+                  used: formatTokens(tokens),
+                  max: formatTokens(maxTokens),
+                })}
               </>
             )}
           </span>
           <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            {assistantDisplayName} automatically compacts context
+            {t("contextWindowIndicator.compactsHintInline", {
+              name: assistantDisplayName,
+            })}
           </span>
         </div>
       </div>
@@ -209,7 +215,7 @@ function TouchSheetContent({
               onClose();
             }}
           >
-            Clear Context
+            {t("contextWindowIndicator.clearContext")}
           </Button>
         </BottomSheet.Footer>
       )}
@@ -229,7 +235,9 @@ export function ContextWindowIndicator({
   assistantName,
   onClearContext,
 }: ContextWindowIndicatorProps) {
-  const assistantDisplayName = assistantName?.trim() || "Your assistant";
+  const { t } = useTranslation("chat");
+  const assistantDisplayName =
+    assistantName?.trim() || t("contextWindowIndicator.defaultAssistantName");
   const enabled = showContextWindowIndicator.useValue();
   // Input capability, not window size. The other presentation is a
   // hover-revealed tooltip, and Radix tooltips never open on touch, so a
@@ -257,7 +265,7 @@ export function ContextWindowIndicator({
           <button
             type="button"
             className="relative flex items-center px-1.5"
-            aria-label={ringLabel(percentage)}
+            aria-label={t("contextWindowIndicator.ringAria", { percentage })}
           >
             <CircularRing ringColor={ringColor} dashOffset={dashOffset} />
           </button>
@@ -267,7 +275,9 @@ export function ContextWindowIndicator({
           className="max-h-[85dvh]"
         >
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Context Window</BottomSheet.Title>
+            <BottomSheet.Title>
+              {t("contextWindowIndicator.title")}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="px-2 pt-8 pb-8">
             <TouchSheetContent
@@ -296,7 +306,7 @@ export function ContextWindowIndicator({
       <Tooltip.Root>
         <Tooltip.Trigger
           type="button"
-          aria-label={ringLabel(percentage)}
+          aria-label={t("contextWindowIndicator.ringAria", { percentage })}
           className="relative flex items-center rounded-full px-1.5 outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)]"
         >
           <CircularRing ringColor={ringColor} dashOffset={dashOffset} />

@@ -79,12 +79,19 @@ const kindSchema = z.enum(SYSTEM_PERMISSION_KINDS);
 // Settings deep links for the kinds a Windows user can actually change;
 // absent kinds have no Windows permission concept or remediation surface.
 const SETTINGS_URIS: Partial<Record<SystemPermissionKind, string>> = {
+  screen: "ms-settings:privacy-graphicscaptureprogrammatic",
   microphone: "ms-settings:privacy-microphone",
   speechRecognition: "ms-settings:privacy-speech",
   notifications: "ms-settings:notifications",
 };
 
 const PRIVACY_SETTINGS_URI = "ms-settings:privacy";
+
+const NOT_APPLICABLE_KINDS = new Set<SystemPermissionKind>([
+  "accessibility",
+  "inputMonitoring",
+  "automation",
+]);
 
 const mapMediaStatus = (status: string): SystemPermissionStatus =>
   SYSTEM_PERMISSION_STATUSES.includes(status as SystemPermissionStatus)
@@ -164,11 +171,12 @@ class WindowsPermissionsService {
   }
 
   private fallbackStatus(kind: SystemPermissionKind): SystemPermissionStatus {
-    if (kind === "microphone" || kind === "screen") {
+    if (NOT_APPLICABLE_KINDS.has(kind)) {
+      return "not-applicable";
+    }
+    if (kind === "microphone") {
       return mapMediaStatus(systemPreferences.getMediaAccessStatus(kind));
     }
-    // Either not a Windows concept or readable only through the helper;
-    // never fabricate a granted state.
     return "unknown";
   }
 
