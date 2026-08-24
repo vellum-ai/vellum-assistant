@@ -139,7 +139,8 @@ export function startVoiceFromSurface(navigate: VoiceStartNavigate): void {
 /**
  * Start a parked start-voice request, if there is one and a starter exists.
  * Called by {@link useLiveVoiceSessionController} right after it registers its
- * starter, and by {@link requestVoiceStart} for the warm path.
+ * starter and again whenever the active assistant changes, and by
+ * {@link requestVoiceStart} for the warm path.
  * A no-op when nothing is parked, so the repeat calls are free.
  *
  * **The park is consumed last.** Everything before the consume is a *precondition
@@ -234,7 +235,9 @@ export async function drainPendingVoiceStart(
   // rather than a decision: both the eligibility gate and this verdict answered
   // for an assistant that is no longer the one a fresh start means. Nothing has
   // been navigated or minted yet, so the request stays parked and the next
-  // drain runs both against whoever is active by then.
+  // drain runs both against whoever is active by then. That next drain is the
+  // switch itself: `useLiveVoiceSessionController` runs one on every change of
+  // active assistant, so the repark is a retry rather than a wait for the TTL.
   if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) {
     return;
   }

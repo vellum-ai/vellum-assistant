@@ -20,7 +20,8 @@
  * - `starter` — registered here for the lifetime of the mount; the composer's
  *   entry-point mic calls it to start a session. Registering it also drains any
  *   start-voice deep link parked before this mount (see
- *   `start-voice-request.ts`).
+ *   `start-voice-request.ts`), as does a change of active assistant, which is
+ *   the other thing that can make a parked request drainable.
  * - `controls` (stop/release/interrupt) — registered per-session by
  *   {@link useLiveVoice} itself.
  * - `state`/`error`/transcripts/amplitude — observable session state.
@@ -53,6 +54,7 @@ import {
   subscribeVoiceAudioInterruptions,
 } from "@/runtime/native-audio-session";
 import { isNativeAndroid } from "@/runtime/platform-detection";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** Injectable primitive factories, for tests. */
 export type UseLiveVoiceSessionControllerOptions = Pick<
@@ -209,6 +211,29 @@ export function useLiveVoiceSessionController(
       useLiveVoiceStore.getState().setStarter(null);
     };
   }, [start, prewarmPlayback, cancelPrewarmedPlayback]);
+
+  // The drain's second trigger, and the only one a parked request has once the
+  // starter is registered: the effect above runs on the starter's identity, not
+  // on anything the drain gates against. `drainPendingVoiceStart` reparks when
+  // the active assistant changed under a preflight, because the eligibility
+  // gate and the readiness verdict both answered for the assistant the user
+  // just left, and without this that request would sit until its TTL took it.
+  //
+  // Subscribed rather than selected, so a switch never re-renders the mounting
+  // layout, matching `observeAudioState: false` above. Nothing here starts a
+  // session on its own: a drain with nothing parked returns immediately, and
+  // the park is one-shot, so a drain that overlaps one already in flight loses
+  // the consume and stops.
+  useEffect(() => {
+    return useResolvedAssistantsStore.subscribe((state, prevState) => {
+      if (state.activeAssistantId === prevState.activeAssistantId) {
+        return;
+      }
+      void drainPendingVoiceStart((to, navigateOptions) =>
+        navigateRef.current(to, navigateOptions),
+      );
+    });
+  }, []);
 
   useNativeAudioSessionLifecycle();
   useLiveActivityMirror();

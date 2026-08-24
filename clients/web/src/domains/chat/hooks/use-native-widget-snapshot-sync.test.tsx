@@ -53,10 +53,12 @@
  * the plugin's write replaces the App Group record whole, so a first sync taken
  * while it loads wipes a themed avatar off every widget until a second one
  * repaints it. The encode behind it is the memo `avatar-island-encode` shares
- * with the Live Activity mirror, so these tests thread their stub through its
- * injection seam rather than restating its caching here: an encode that
- * resolves to nothing is a fact about the avatar and is cached, while one that
- * throws is the encoder failing and must be retried.
+ * with the Live Activity mirror, so these tests thread a stub through its
+ * injection seam rather than restating its caching here. The stub goes in at
+ * the rasterizer, below the ladder, because the distinction under test is one
+ * the ladder draws: a rung that comes back over budget is a fact about the
+ * avatar and is cached, while a draw that fails at all is the encoder failing
+ * and has to reject its way out to the memo so the next read retries it.
  */
 
 import {
@@ -184,6 +186,14 @@ let encodeOutcome: "bytes" | "nothing-fits" | "throws" = "bytes";
 let encodeCalls = 0;
 /** Long enough that a dedup key carrying it would be unmistakable. */
 const AVATAR_BASE64 = "Zm9vYmFy".repeat(2_000);
+/**
+ * The pixels behind it. "foobar" base64s to "Zm9vYmFy" and is a whole number of
+ * base64 groups, so the repeats line up and the encoder's own base64 of these
+ * bytes is exactly the string above.
+ */
+const AVATAR_BYTES = new TextEncoder().encode("foobar".repeat(2_000));
+/** Past the widget's 64KB budget, so every rung of the ladder misses. */
+const OVERSIZED_BYTES = new Uint8Array(100_000);
 
 /** What the query serves from the next render on, without waking subscribers. */
 function setAvatar(data: AvatarData, isLoading = false): void {
@@ -216,22 +226,39 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   },
 }));
 
-/** Stands in for the canvas draw, which happy-dom has no canvas for. */
-const stubEncode = async (): Promise<string | null> => {
-  encodeCalls++;
-  if (encodeOutcome === "throws") {
-    throw new Error("canvas unavailable");
-  }
-  return encodeOutcome === "bytes" ? AVATAR_BASE64 : null;
-};
-
 const realAvatarIslandEncode = await import("@/utils/avatar-island-encode");
 // Held before the mock is installed. `mock.module` updates live bindings, so a
 // wrapper that reached back through the namespace object at call time would
 // find itself rather than the real implementation.
+const realEncodeAvatarForIsland = realAvatarIslandEncode.encodeAvatarForIsland;
 const realMemoizedAvatarEncode = realAvatarIslandEncode.memoizedAvatarEncode;
 const resetAvatarEncodeMemo =
   realAvatarIslandEncode.__resetAvatarEncodeMemoForTesting;
+
+/**
+ * Stands in for the canvas draw, which happy-dom has no canvas for.
+ *
+ * Stubbed at the RASTERIZER rather than at the encoder, so the real ladder runs
+ * above it. Whether a failed draw is retried and a too-large one is cached is
+ * decided by how `encodeAvatarForIsland` classifies each, and a stub installed
+ * over that would be answering for the very thing under test.
+ */
+const stubRasterize = async (): Promise<Uint8Array | null> => {
+  if (encodeOutcome === "throws") {
+    throw new Error("canvas unavailable");
+  }
+  return encodeOutcome === "bytes" ? AVATAR_BYTES : OVERSIZED_BYTES;
+};
+
+/** That ladder, counted, so a re-encode after a dropped slot is visible. */
+const stubEncode = (
+  render: Parameters<typeof realEncodeAvatarForIsland>[0],
+  maxBytes?: number,
+): Promise<string | null> => {
+  encodeCalls++;
+  return realEncodeAvatarForIsland(render, maxBytes, stubRasterize);
+};
+
 mock.module("@/utils/avatar-island-encode", () => ({
   ...realAvatarIslandEncode,
   encodeAvatarForIsland: stubEncode,
@@ -1330,7 +1357,9 @@ describe("useNativeWidgetSnapshotSync", () => {
     // A canvas the shell would not hand over, or a blob URL revoked mid-draw:
     // transient, and cached as `no avatar` it would strip the face off every
     // later snapshot in the run, heartbeats included. The avatar object is the
-    // same across both renders, so only a dropped memo can produce a retry.
+    // same across both renders, so only a dropped memo can produce a retry, and
+    // the drop only happens if the failed draw rejects all the way out of the
+    // ladder rather than being flattened into a null the memo would cache.
     encodeOutcome = "throws";
     const avatar = characterAvatar("orange");
     setAvatar(avatar);

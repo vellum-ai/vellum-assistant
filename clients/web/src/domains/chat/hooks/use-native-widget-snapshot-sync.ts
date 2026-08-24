@@ -102,11 +102,12 @@ interface SnapshotAvatarFingerprint {
  * the first read since it changed.
  *
  * The encode is a canvas draw memoized at module scope by
- * {@link memoizedAvatarEncode}, shared with the Live Activity mirror, so a
- * session that drives both native surfaces pays it once per avatar. An encode
- * that fails or fits nothing is an avatar-less snapshot, never a missing one:
- * the counts and the rows are what the widgets are for. Only a failure is
- * retried, and the memo owns that distinction.
+ * {@link memoizedAvatarEncode}, shared with the Live Activity mirror for one
+ * owner of the caching and failure rules rather than one draw across both: the
+ * mirror resolves its own render and reads at its own budget, so each surface
+ * encodes separately. An encode that fails or fits nothing is an avatar-less
+ * snapshot, never a missing one: the counts and the rows are what the widgets
+ * are for. Only a failure is retried, and the memo owns that distinction.
  *
  * `source` and `accentHex` are resolved reactively by the hook rather than read
  * back from the two imperative publishers in `RootLayout`. Those are written by
