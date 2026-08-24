@@ -1684,9 +1684,23 @@ export async function runAgentLoopImpl(
         tokens: state.lastCallInputTokens,
         maxTokens: resolveCurrentMaxInputTokens(),
       },
+      // When the turn's last LLM call was rerouted to a backup profile, that
+      // profile is what served the tokens being recorded, so it outranks the
+      // conversation's own resolution, which knows nothing about the
+      // reroute. `provider` and `model` on this same row already follow the
+      // backup (via `state.exchangeProviderName` / `state.model`), so
+      // attributing the profile from the primary would write a row that
+      // contradicts itself. `forceOverrideProfile` floats it above the
+      // call-site profile exactly as the fallback dispatch did.
       {
         callSite: turnCallSite,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        overrideProfile:
+          state.exchangeInferenceProfile ??
+          resolveCurrentOverrideProfile() ??
+          null,
+        ...(state.exchangeInferenceProfile !== undefined
+          ? { forceOverrideProfile: true }
+          : {}),
       },
       turnCronRunId,
     );
@@ -1975,6 +1989,13 @@ function emitUsage(
   attribution?: {
     callSite: LLMCallSite | null;
     overrideProfile?: string | null;
+    /**
+     * Float `overrideProfile` above the call-site profile, matching how the
+     * dispatch path floated it. Set when the profile being attributed is the
+     * one a reroute actually served under rather than the caller's own
+     * resolution.
+     */
+    forceOverrideProfile?: boolean;
   },
   cronRunId: string | null = null,
 ): void {

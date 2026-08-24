@@ -23,6 +23,10 @@ import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/inde
 import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import {
+  resolveUsageAttribution,
+  type UsageAttributionInput,
+} from "../usage/attribution.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -1761,6 +1765,108 @@ describe("session-agent-loop", () => {
       expect(mainAgentCall?.[1]).toBe(12);
       expect(mainAgentCall?.[2]).toBe(3);
       expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
+    });
+
+    test("attributes a fallback serve to the profile that actually served", async () => {
+      // The turn resolved to the primary managed profile, the request hit an
+      // outage-shaped failure, and `RetryProvider` escalated to a backup
+      // profile on a different provider, stamping `actualProvider` and
+      // `actualInferenceProfile` on the response it returns.
+      seedLlmConfig({
+        profiles: {
+          ...disabledCatalogDefaultProfiles,
+          backupProfile: { provider: "anthropic", model: "claude-sonnet-5" },
+        },
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "claude-sonnet-5",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+            actualProvider: "anthropic",
+            actualInferenceProfile: "backupProfile",
+          },
+        ],
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as Conversation["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const mainAgentCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+
+      expect(mainAgentCall).toBeDefined();
+      // All three attribution facets of the row must describe the same call.
+      expect(mainAgentCall?.[0]).toMatchObject({ providerName: "anthropic" });
+      expect(mainAgentCall?.[3]).toBe("claude-sonnet-5");
+      const attribution = mainAgentCall?.[12] as UsageAttributionInput;
+      expect(attribution.callSite).toBe("mainAgent");
+      expect(attribution.overrideProfile).toBe("backupProfile");
+      expect(attribution.forceOverrideProfile).toBe(true);
+      // `inference_profile` on the persisted row is this snapshot's applied
+      // profile, so resolve it the way `recordUsage` does and assert the
+      // column value itself rather than only the input that feeds it.
+      expect(resolveUsageAttribution(attribution).appliedProfile).toBe(
+        "backupProfile",
+      );
+    });
+
+    test("leaves a non-fallback turn attributed to the conversation's own profile", async () => {
+      // No reroute: the response carries no `actualInferenceProfile`, so the
+      // attribution input stays exactly what the conversation resolved and
+      // carries no forced override.
+      seedLlmConfig({
+        profiles: {
+          ...disabledCatalogDefaultProfiles,
+          backupProfile: { provider: "anthropic", model: "claude-sonnet-5" },
+        },
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+          },
+        ],
+        provider: {
+          name: "openai",
+          sendMessage: async () => ({
+            content: [{ type: "text", text: "title" }],
+            model: "mock",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            stopReason: "end_turn",
+          }),
+        } as unknown as Conversation["provider"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      const mainAgentCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "main_agent",
+      ) as unknown[] | undefined;
+
+      expect(mainAgentCall).toBeDefined();
+      expect(mainAgentCall?.[0]).toMatchObject({ providerName: "openai" });
+      expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
+      expect(mainAgentCall?.[12]).toEqual({
+        callSite: "mainAgent",
+        overrideProfile: null,
+      });
     });
 
     test("persists the served model onto the assistant row's metadata at finalize", async () => {

@@ -371,6 +371,16 @@ export type AgentEvent =
       cacheReadInputTokens?: number;
       model: string;
       actualProvider?: string;
+      /**
+       * Inference profile that actually governed the call, set only when a
+       * wrapper re-routed the request away from the caller's own resolution
+       * (`RetryProvider`'s fallback-profile escalation). Travels alongside
+       * `actualProvider` so the daemon's usage ledger attributes a degraded
+       * serve to the backup profile that answered rather than to the primary
+       * that failed. Absent on the normal (non-rerouted) path, where the
+       * caller's own resolution is already correct.
+       */
+      actualInferenceProfile?: string;
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
@@ -1819,6 +1829,14 @@ export class AgentLoop {
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
           actualProvider: response.actualProvider ?? this.provider.name,
+          // Only present when a wrapper rerouted this call, so the normal
+          // path's event shape stays byte-identical. There is no caller-side
+          // fallback value to fill in: the loop's own profile resolution is
+          // exactly what a reroute invalidates, and the daemon already reads
+          // its own resolution when this is absent.
+          ...(response.actualInferenceProfile !== undefined
+            ? { actualInferenceProfile: response.actualInferenceProfile }
+            : {}),
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
