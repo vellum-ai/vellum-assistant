@@ -294,15 +294,10 @@ export function HomeRecapRow({
       onOpenChange={longPress.onOpenChange}
     >
       <div {...longPress.wrapperProps}>
-        {/* `shrink-0`: the swipe branch clips its own overflow, which zeroes a
-            flex item's automatic minimum size, and the long-press wrapper is
-            `display: contents`, so this element is the flex item a list sizes.
-            Without it a height-capped column (the notifications bell's list)
-            squashes every row down to its border instead of scrolling. */}
         <SwipeActionReveal
           leadingActions={swipeActionsFor(actions, "leading")}
           trailingActions={swipeActionsFor(actions, "trailing")}
-          className="shrink-0 rounded-[var(--radius-lg)]"
+          className="rounded-[var(--radius-lg)]"
         >
           {card}
         </SwipeActionReveal>

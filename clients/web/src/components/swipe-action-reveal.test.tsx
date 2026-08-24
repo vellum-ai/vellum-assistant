@@ -64,6 +64,24 @@ describe("SwipeActionReveal", () => {
     );
   });
 
+  test("the row a list lays out is not the element that clips", () => {
+    const html = renderToStaticMarkup(
+      <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
+        <div>Row content</div>
+      </SwipeActionReveal>,
+    );
+
+    // A flex or grid item whose overflow is not `visible` has its automatic
+    // minimum size resolved to zero rather than to its content, so a container
+    // that is out of room squashes it away entirely: to a border in a capped
+    // column, to nothing at all in a row. The root is what a list lays out, so
+    // the clip that hides the action layers has to sit inside it.
+    const root = html.slice(0, html.indexOf(">") + 1);
+    expect(root).toContain('data-slot="swipe-action-row"');
+    expect(root).not.toContain("overflow-hidden");
+    expect(html).toContain("overflow-hidden");
+  });
+
   test("renders leading and trailing action buttons", () => {
     const leadingAction: SwipeAction = {
       id: "pin",
