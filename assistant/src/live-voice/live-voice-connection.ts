@@ -19,6 +19,7 @@
  *
  *     const connection = createLiveVoiceConnection({
  *       send: (frame) => socket.send(JSON.stringify(frame)),
+ *       close: () => socket.close(),
  *     });
  *     socket.on("message", (msg) => void connection.handleMessage(msg));
  *     socket.on("close", () => connection.release());
@@ -66,13 +67,22 @@ export interface LiveVoiceConnection {
   release(reason?: LiveVoiceSessionCloseReason): void;
 }
 
-/** Create a live voice connection bound to the caller's `send` transport. */
+/**
+ * Create a live voice connection bound to the caller's `send` transport.
+ *
+ * `close` is how the daemon hangs up. It is optional only because a transport
+ * may not be able to (an in-process pipe), but a real one should always pass
+ * it: without it, a session the daemon reclaims from an absent client leaves
+ * the transport open behind it.
+ */
 export function createLiveVoiceConnection(options: {
   send: LiveVoiceFrameSender;
+  close?: () => void;
 }): LiveVoiceConnection {
   return new LiveVoiceConnectionImpl(
     options.send,
     getLiveVoiceSessionManager(),
+    options.close,
   );
 }
 
@@ -83,6 +93,7 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
   constructor(
     private readonly send: LiveVoiceFrameSender,
     private readonly manager: LiveVoiceSessionManager,
+    private readonly closeTransport?: () => void,
   ) {}
 
   get sessionId(): string | undefined {
@@ -172,6 +183,7 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
         sendFrame: (serverFrame) => {
           this.sendFrame(serverFrame);
         },
+        ...(this.closeTransport ? { closeTransport: this.closeTransport } : {}),
       });
       if (result.status === "accepted") {
         this.activeSessionId = result.sessionId;

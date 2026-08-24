@@ -17188,6 +17188,33 @@ paths:
                 required:
                   - status
                 additionalProperties: false
+  /v1/live-voice/session/end:
+    post:
+      operationId: livevoice_session_end_post
+      summary: End the active live voice session
+      description:
+        Release the daemon's single live-voice session slot, whichever client holds it. Reports whether a session
+        was actually ended; a slot already tearing down reports false, since that teardown releases it on its own.
+      tags:
+        - live-voice
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ended:
+                    type: boolean
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - ended
+                  - sessionId
+                additionalProperties: false
   /v1/llm-request-logs/{id}/context:
     get:
       operationId: llmrequestlogs_by_id_context_get

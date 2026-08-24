@@ -336,6 +336,12 @@ export class RuntimeHttpServer {
                 send: (frame) => {
                   ws.send(JSON.stringify(frame));
                 },
+                // Lets the daemon hang up on a client that stopped answering.
+                // A normal close (not a retryable one) so the client ends the
+                // call rather than reconnecting into a session that is gone.
+                close: () => {
+                  ws.close(1000, "Live voice session released");
+                },
               }),
             );
             log.info("Live voice WebSocket opened");
