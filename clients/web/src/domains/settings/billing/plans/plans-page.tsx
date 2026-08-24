@@ -46,6 +46,7 @@ import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   extractMutationError,
+  isDirectCancelEligible,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
 import {
@@ -53,6 +54,10 @@ import {
   priceLabelFromCents,
 } from "@/domains/settings/components/tier-pricing";
 import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
+import {
+  buildPortalReturnSnapshot,
+  useBillingPortalSession,
+} from "@/domains/settings/hooks/use-billing-portal-session";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
@@ -274,9 +279,16 @@ function PlansPageContent() {
   // Pro to Free is a cancellation: after a confirm step it posts the
   // subscription-cancel endpoint (the same action as the adjust-plan modal's
   // "Downgrade to Base"), which schedules the sub to end at the period
-  // boundary. No Stripe portal round-trip.
+  // boundary. No Stripe portal round-trip for an active Pro sub.
   const { cancelSubscription, isPending: cancelPending } =
     useCancelSubscription();
+  // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps the
+  // Stripe portal handoff, which can still cancel it. Snapshot the
+  // pre-redirect state for the post-return toast.
+  const canCancelDirectly = isDirectCancelEligible(subscription);
+  const portalMutation = useBillingPortalSession(
+    buildPortalReturnSnapshot(subscription),
+  );
 
   // Native Android shows the takeover exactly as iOS does, but every plan CTA
   // hands off to this same page on the web app instead of starting an in-app
@@ -296,7 +308,7 @@ function PlansPageContent() {
   // cancellation) disables every plan CTA (and Configure) so a second click
   // can't start a competing billing operation before the first resolves.
   const billingActionPending =
-    pending || changePackagePending || cancelPending;
+    pending || changePackagePending || cancelPending || portalMutation.isPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -579,8 +591,14 @@ function PlansPageContent() {
 
     // Confirmed Pro → Free cancellation: schedule it server-side. Success
     // closes the confirm (the hook's toast names the end date); failure keeps
-    // it open for a retry (the hook already toasted the error).
+    // it open for a retry (the hook already toasted the error). A sub the
+    // endpoint would reject hands off to the Stripe portal instead.
     const confirmFreeDowngrade = async () => {
+      if (!canCancelDirectly) {
+        setFreeDowngradeOpen(false);
+        portalMutation.mutate({});
+        return;
+      }
       const result = await cancelSubscription();
       if (result) {
         setFreeDowngradeOpen(false);
@@ -869,7 +887,8 @@ function PlansPageContent() {
         <FreeDowngradeConfirmModal
           open={freeDowngradeOpen}
           lostFeatures={freeDowngradeLostFeatures}
-          pending={cancelPending}
+          viaPortal={!canCancelDirectly}
+          pending={cancelPending || portalMutation.isPending}
           onCancel={() => setFreeDowngradeOpen(false)}
           onConfirm={() => void confirmFreeDowngrade()}
         />

@@ -13,6 +13,11 @@ export interface FreeDowngradeConfirmModalProps {
    * omitted and the dialog shows just the cancellation note.
    */
   lostFeatures: string[];
+  /**
+   * Confirming hands off to the Stripe billing portal instead of cancelling
+   * in-app (a Pro sub the cancel endpoint rejects); the body copy says so.
+   */
+  viaPortal: boolean;
   /** The cancellation request is in flight; the actions are disabled. */
   pending: boolean;
   onCancel: () => void;
@@ -29,6 +34,7 @@ export interface FreeDowngradeConfirmModalProps {
 export function FreeDowngradeConfirmModal({
   open,
   lostFeatures,
+  viaPortal,
   pending,
   onCancel,
   onConfirm,
@@ -54,9 +60,13 @@ export function FreeDowngradeConfirmModal({
             variant="body-medium-default"
             className="text-(--content-secondary)"
           >
-            {hasLostFeatures
-              ? t("freeDowngradeConfirmModal.bodyWithFeatures")
-              : t("freeDowngradeConfirmModal.bodyCancelOnly")}
+            {viaPortal
+              ? hasLostFeatures
+                ? t("freeDowngradeConfirmModal.bodyWithFeaturesPortal")
+                : t("freeDowngradeConfirmModal.bodyCancelOnlyPortal")
+              : hasLostFeatures
+                ? t("freeDowngradeConfirmModal.bodyWithFeatures")
+                : t("freeDowngradeConfirmModal.bodyCancelOnly")}
           </Typography>
           {hasLostFeatures ? (
             <ul className="mt-4 list-disc space-y-2 pl-5">

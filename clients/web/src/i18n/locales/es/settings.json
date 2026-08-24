@@ -806,7 +806,9 @@
   },
   "freeDowngradeConfirmModal": {
     "bodyCancelOnly": "Tu suscripción se cancelará al final de tu período de facturación actual. Mantendrás el acceso Pro hasta entonces.",
+    "bodyCancelOnlyPortal": "Se te llevará a Stripe para cancelar tu suscripción.",
     "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Tu suscripción se cancelará al final de tu período de facturación actual.",
+    "bodyWithFeaturesPortal": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
     "cancel": "Cancelar",
     "confirm": "Bajar a Base",
     "title": "¿Bajar a Base?"

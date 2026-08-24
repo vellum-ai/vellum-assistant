@@ -1,10 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { formatGraceDate } from "@/domains/settings/hooks/use-billing-portal-session";
 import {
-  organizationsBillingSubscriptionCancelCreateMutation,
   organizationsBillingSubscriptionRetrieveQueryKey,
+  useOrganizationsBillingSubscriptionCancelCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionCancelResponse } from "@/generated/api/types.gen";
 import { t } from "@/i18n";
@@ -23,9 +23,7 @@ import { extractMutationError } from "@/domains/settings/components/adjust-plan-
  */
 export function useCancelSubscription() {
   const queryClient = useQueryClient();
-  const mutation = useMutation(
-    organizationsBillingSubscriptionCancelCreateMutation(),
-  );
+  const mutation = useOrganizationsBillingSubscriptionCancelCreateMutation();
 
   const cancelSubscription =
     async (): Promise<SubscriptionCancelResponse | null> => {

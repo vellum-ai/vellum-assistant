@@ -806,7 +806,9 @@
   },
   "freeDowngradeConfirmModal": {
     "bodyCancelOnly": "Your subscription will be canceled at the end of your current billing period. You'll keep Pro access until then.",
+    "bodyCancelOnlyPortal": "You'll be taken to Stripe to cancel your subscription.",
     "bodyWithFeatures": "Downgrading removes the following Pro features. Your subscription will be canceled at the end of your current billing period.",
+    "bodyWithFeaturesPortal": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
     "cancel": "Cancel",
     "confirm": "Downgrade to Base",
     "title": "Downgrade to Base?"

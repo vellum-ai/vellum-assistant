@@ -45,6 +45,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   TIER_CHANGE_ELIGIBLE_STATUSES,
   extractMutationError,
+  isDirectCancelEligible,
   resolveCreditTierSelection,
   resolveTierSelection,
 } from "./adjust-plan-utils";
@@ -335,7 +336,14 @@ function AdjustPlanModalContent({
   // stays on the confirm step so the user can retry (the hook already
   // toasted).
   const handleConfirmDowngrade = async () => {
-    if (cancelPending) {
+    if (cancelPending || portalMutation.isPending) {
+      return;
+    }
+    // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps
+    // the Stripe portal handoff, which can still cancel it.
+    if (!isDirectCancelEligible(subscriptionQuery.data)) {
+      setView("plans");
+      portalMutation.mutate({});
       return;
     }
     const result = await cancelSubscription();
@@ -595,7 +603,7 @@ function AdjustPlanModalContent({
                 <Button
                   variant="ghost"
                   onClick={() => setView("plans")}
-                  disabled={cancelPending}
+                  disabled={cancelPending || portalMutation.isPending}
                   leftIcon={<ArrowLeft className="h-4 w-4" />}
                 >
                   {t("adjustPlanModal.back")}
@@ -603,7 +611,7 @@ function AdjustPlanModalContent({
                 <Button
                   variant="danger"
                   onClick={() => void handleConfirmDowngrade()}
-                  disabled={cancelPending}
+                  disabled={cancelPending || portalMutation.isPending}
                   data-testid="confirm-downgrade-button"
                 >
                   {t("adjustPlanModal.confirmDowngrade")}

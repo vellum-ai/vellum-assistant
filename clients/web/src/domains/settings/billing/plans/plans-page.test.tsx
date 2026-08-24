@@ -67,10 +67,14 @@ import type {
 } from "@/generated/api/types.gen";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
+const PORTAL_URL = "https://stripe.test/portal/session";
 
 type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
+// Captures the billing-portal session create, the cancel fallback for Pro
+// subs the cancel endpoint rejects (non-entitlement statuses).
+let portalSessionCall: Captured | null = null;
 // Captures the subscription-cancel call, the Pro → Free cancel path.
 let cancelSubscriptionCall: Captured | null = null;
 // When false, the cancel promise never settles, which observes the in-flight
@@ -136,6 +140,13 @@ mock.module("@/generated/api/sdk.gen", () => ({
     upgradeCall = opts;
     return Promise.resolve({
       data: { status: "redirect", checkout_url: CHECKOUT_URL },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingPortalSessionCreate: (opts: Captured) => {
+    portalSessionCall = opts;
+    return Promise.resolve({
+      data: { portal_url: PORTAL_URL },
       response: { ok: true },
     });
   },
@@ -616,6 +627,7 @@ function renderInteractive(
 beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
+  portalSessionCall = null;
   cancelSubscriptionCall = null;
   cancelSubscriptionResolves = true;
   cancelSubscriptionError = null;
@@ -962,11 +974,33 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       toastInfoCalls.some((m) => m.startsWith("Pro plan canceled")),
     ).toBe(true);
     // Stays on the plans page with no Stripe redirect, and never touches the
-    // package/checkout endpoints.
+    // portal/package/checkout endpoints.
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(openedUrl).toBeNull();
+    expect(portalSessionCall).toBeNull();
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+
+  test("a non-entitlement Pro status falls back to the Stripe billing portal", async () => {
+    // The cancel endpoint 403s a sub `is_pro_active` rejects, so an unpaid
+    // Pro sub keeps the old portal handoff, where Stripe can still cancel it.
+    const { findByRole, findByText, findByTestId } = renderInteractive({
+      ...proSuperSubscription(),
+      status: "unpaid",
+    });
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    // The confirm's body copy states the handoff instead of promising an
+    // in-app cancellation.
+    await findByText("You'll be taken to Stripe to cancel your subscription.", {
+      exact: false,
+    });
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+
+    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
+    expect(portalSessionCall).not.toBeNull();
+    expect(cancelSubscriptionCall).toBeNull();
   });
 
   test("dismissing the Free downgrade confirm doesn't cancel the sub", async () => {
