@@ -7,8 +7,8 @@ import {
   computeVisualOffset,
   decideDirection,
   isCommitted,
+  classifyHorizontalDragSurface,
   isVerticalEscape,
-  ownsHorizontalDrag,
   ownsHorizontalTextDrag,
   shouldArmAt,
 } from "@/hooks/use-edge-swipe";
@@ -68,14 +68,16 @@ describe("ownsHorizontalTextDrag", () => {
   });
 });
 
-describe("ownsHorizontalDrag", () => {
-  test("is true for a native range input (covered as a caret surface)", () => {
+describe("classifyHorizontalDragSurface", () => {
+  test("classifies a native range input as a value drag, not a caret one", () => {
+    // Range inputs match the caret-surface selector too (every input does);
+    // the value class must win so they reject the gesture edge strip included.
     const range = document.createElement("input");
     range.setAttribute("type", "range");
-    expect(ownsHorizontalDrag(range)).toBe(true);
+    expect(classifyHorizontalDragSurface(range)).toBe("value");
   });
 
-  test("is true anywhere inside a marked slider widget", () => {
+  test("classifies anywhere inside a marked slider widget as a value drag", () => {
     // A composite slider (e.g. a Radix Root) marks itself; touches landing on
     // its track or range children must yield, not only thumb touches.
     const root = document.createElement("span");
@@ -83,41 +85,52 @@ describe("ownsHorizontalDrag", () => {
     const track = document.createElement("span");
     root.appendChild(track);
     document.body.appendChild(root);
-    expect(ownsHorizontalDrag(track)).toBe(true);
+    expect(classifyHorizontalDragSurface(track)).toBe("value");
     root.remove();
   });
 
-  test("is true on an ARIA slider thumb", () => {
+  test("classifies an ARIA slider thumb as a value drag", () => {
     const thumb = document.createElement("span");
     thumb.setAttribute("role", "slider");
-    expect(ownsHorizontalDrag(thumb)).toBe(true);
+    expect(classifyHorizontalDragSurface(thumb)).toBe("value");
   });
 
-  test("still covers text-drag surfaces", () => {
-    expect(ownsHorizontalDrag(document.createElement("textarea"))).toBe(true);
+  test("classifies text-drag surfaces as text drags", () => {
+    expect(classifyHorizontalDragSurface(document.createElement("textarea"))).toBe(
+      "text",
+    );
   });
 
-  test("is false for plain content and null", () => {
-    expect(ownsHorizontalDrag(document.createElement("div"))).toBe(false);
-    expect(ownsHorizontalDrag(null)).toBe(false);
+  test("classifies plain content and null as none", () => {
+    expect(classifyHorizontalDragSurface(document.createElement("div"))).toBe(
+      "none",
+    );
+    expect(classifyHorizontalDragSurface(null)).toBe("none");
   });
 });
 
 describe("shouldArmAt", () => {
-  test("arms anywhere in the left half off editable surfaces", () => {
-    expect(shouldArmAt(150, 390, false)).toBe(true);
-    expect(shouldArmAt(194, 390, false)).toBe(true);
+  test("arms anywhere in the left half off drag-owning surfaces", () => {
+    expect(shouldArmAt(150, 390, "none")).toBe(true);
+    expect(shouldArmAt(194, 390, "none")).toBe(true);
   });
 
   test("does not arm past the left half", () => {
-    expect(shouldArmAt(196, 390, false)).toBe(false);
+    expect(shouldArmAt(196, 390, "none")).toBe(false);
   });
 
   test("stays edge-only over text-drag surfaces", () => {
     // Deliberate edge swipe still arms over a text-drag surface…
-    expect(shouldArmAt(20, 390, true)).toBe(true);
+    expect(shouldArmAt(20, 390, "text")).toBe(true);
     // …but a mid-band start on a text-drag surface does not.
-    expect(shouldArmAt(150, 390, true)).toBe(false);
+    expect(shouldArmAt(150, 390, "text")).toBe(false);
+  });
+
+  test("never arms over a value-drag surface, edge strip included", () => {
+    // A slider hit area that underlaps the edge strip still owns the drag;
+    // arming there would move the control and the drawer together.
+    expect(shouldArmAt(10, 390, "value")).toBe(false);
+    expect(shouldArmAt(150, 390, "value")).toBe(false);
   });
 });
 
