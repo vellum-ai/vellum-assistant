@@ -157,7 +157,7 @@ export const SwipeActionReveal = forwardRef<
       // to leave a row's own swipe actions alone. Only the armed branch carries
       // it: with no actions there is nothing to yield to.
       data-slot="swipe-action-row"
-      className={cn("relative", className)}
+      className={className}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
       {...rest}
@@ -170,10 +170,8 @@ export const SwipeActionReveal = forwardRef<
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
-      {/* The layer box: the positioning context the action layers resolve
-          against, and the one thing that clips. `rounded-[inherit]` takes
-          whatever radius the caller put on the root, so a revealed action is
-          cut to the row's own corners. */}
+      {/* The layer box. `rounded-[inherit]` takes whatever radius the caller
+          put on the root, so a revealed action is cut to the row's corners. */}
       <div className="relative overflow-hidden rounded-[inherit]">
         {/* Trailing actions (right side, revealed on swipe-left) */}
         {trailingActions && trailingActions.length > 0 ? (

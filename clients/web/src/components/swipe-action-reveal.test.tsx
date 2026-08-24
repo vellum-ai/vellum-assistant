@@ -76,10 +76,13 @@ describe("SwipeActionReveal", () => {
     // that is out of room squashes it away entirely: to a border in a capped
     // column, to nothing at all in a row. The root is what a list lays out, so
     // the clip that hides the action layers has to sit inside it.
-    const root = html.slice(0, html.indexOf(">") + 1);
-    expect(root).toContain('data-slot="swipe-action-row"');
-    expect(root).not.toContain("overflow-hidden");
-    expect(html).toContain("overflow-hidden");
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const root = host.firstElementChild;
+
+    expect(root?.getAttribute("data-slot")).toBe("swipe-action-row");
+    expect(root?.className).not.toContain("overflow-hidden");
+    expect(root?.firstElementChild?.className).toContain("overflow-hidden");
   });
 
   test("renders leading and trailing action buttons", () => {
