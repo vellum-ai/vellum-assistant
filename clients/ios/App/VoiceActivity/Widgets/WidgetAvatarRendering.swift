@@ -299,7 +299,7 @@ private struct WidgetAvatarKitPreviewCard: View {
 
 /// The same content in both appearances, side by side: every value in this file
 /// resolves per appearance, so a preview showing one of them is half a preview.
-private func previewAppearances<Content: View>(
+func previewAppearances<Content: View>(
     @ViewBuilder _ content: @escaping () -> Content
 ) -> some View {
     HStack(spacing: 16) {
@@ -315,7 +315,7 @@ private func previewAppearances<Content: View>(
 
 /// A stand-in photo, drawn rather than shipped so the previews cost the
 /// extension no asset.
-private func previewAvatarPhoto() -> UIImage {
+func previewAvatarPhoto() -> UIImage {
     let size = CGSize(width: 120, height: 120)
     return UIGraphicsImageRenderer(size: size).image { context in
         (UIColor(cssHex: "#3B6EA5") ?? .systemBlue).setFill()

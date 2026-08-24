@@ -122,8 +122,8 @@ enum WidgetTheme {
 /// The foreground is the card's own text color rather than the accent, because
 /// a wash this thin barely moves the surface's luminance: an accent legible on
 /// its own block can be invisible at a tenth of it, and half the palette would
-/// come out unreadable. The accentless fallback keeps the brand green, which is
-/// what the tile has always drawn its mark in.
+/// come out unreadable. The accentless fallback draws the mark in the brand
+/// green.
 struct WidgetSoftAccent {
     /// The accent's share of the light card. Calibrated on the brand green: at
     /// this share `#0E9B8B` over the light surface lands exactly on

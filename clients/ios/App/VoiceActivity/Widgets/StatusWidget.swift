@@ -243,22 +243,6 @@ private struct StatusWidgetPreviewCard: View {
     }
 }
 
-/// The same content in both appearances, side by side: every color on this card
-/// resolves per appearance, so a preview showing one of them is half a preview.
-private func previewAppearances<Content: View>(
-    @ViewBuilder _ content: @escaping () -> Content
-) -> some View {
-    HStack(spacing: 16) {
-        ForEach([ColorScheme.light, ColorScheme.dark], id: \.self) { scheme in
-            content()
-                .padding(12)
-                .background(scheme == .dark ? Color.black : Color(white: 0.92))
-                .environment(\.colorScheme, scheme)
-        }
-    }
-    .padding()
-}
-
 /// A snapshot carrying exactly what a preview needs to say and nothing else:
 /// this widget renders no conversations.
 private func previewEntry(
