@@ -54,6 +54,7 @@ const {
   restoreVoiceRoom,
 } = await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -2333,6 +2334,90 @@ describe("session context and controls", () => {
     expect(store.controls).toBeNull();
     expect(store.assistantId).toBeNull();
     expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Draft materialization
+// ---------------------------------------------------------------------------
+
+describe("draft materialization", () => {
+  const isDraft = (conversationId: string): boolean =>
+    useConversationStore.getState().draftConversationIds.has(conversationId);
+
+  beforeEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  afterEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  /** Open a session bound to `conversationId` and drive it to `ready`. */
+  async function startOn(
+    h: ReturnType<typeof renderController>,
+    conversationId: string,
+  ) {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", conversationId);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId,
+      });
+      await Promise.resolve();
+    });
+  }
+
+  /** The frame the daemon sends as it dispatches a turn. */
+  async function emitThinking(h: ReturnType<typeof renderController>) {
+    await act(async () => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      await Promise.resolve();
+    });
+  }
+
+  test("a dispatched turn stops the started conversation being a draft", async () => {
+    // The composer's voice button starts on whatever key it is bound to, and a
+    // new chat's key is a client-minted draft, so this covers that route as
+    // much as the deep-link drain's freshly minted one.
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+    // `ready` is not the row: the daemon mints it on the first dispatch.
+    expect(isDraft("conv-draft")).toBe(true);
+
+    await emitThinking(h);
+
+    expect(isDraft("conv-draft")).toBe(false);
+  });
+
+  test("a session that produces no turn leaves the draft intact", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    // Nothing was said, so nothing exists server-side to stop being a draft.
+    expect(isDraft("conv-draft")).toBe(true);
+  });
+
+  test("a turn clears only the conversation its own session started on", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    useConversationStore.getState().registerDraftConversationId("conv-other");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+
+    await emitThinking(h);
+
+    expect(isDraft("conv-draft")).toBe(false);
+    expect(isDraft("conv-other")).toBe(true);
   });
 });
 

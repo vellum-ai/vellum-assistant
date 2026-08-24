@@ -157,8 +157,8 @@ test("a deep-link start opens the room on the conversation it mints, not the pil
   const { result } = renderHook(() => useIsVoiceRoomVisible());
   expect(result.current).toBe(true);
 
-  // The exact complement: with the room up, the title-bar pill renders
-  // nothing. A session bound to no conversation used to invert this pair.
+  // The room and the pill are exact complements: with the room up, the
+  // title-bar pill renders nothing.
   const { container } = render(<VoiceSessionPillHost />);
   expect(container.firstChild).toBeNull();
 });
