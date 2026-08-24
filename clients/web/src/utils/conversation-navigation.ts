@@ -120,12 +120,16 @@ export interface NavigateToNewConversationOptions {
  * `useAutoSendEffects` picks up to fire the message once the conversation is
  * mounted.
  *
+ * Returns the draft's id, for callers that have to address something at the
+ * conversation being navigated to before its route mounts (the camera deep
+ * link parks a request for that conversation's composer).
+ *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
 export function navigateToNewConversation(
   navigate: NavigateFunction,
   options?: NavigateToNewConversationOptions,
-): void {
+): string {
   if (!options?.silent) {
     haptic.light();
     void getSoundManager().play("new_conversation");
@@ -144,4 +148,5 @@ export function navigateToNewConversation(
   }
   void navigate(path);
   requestComposerFocus();
+  return draftId;
 }

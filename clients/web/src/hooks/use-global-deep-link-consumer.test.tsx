@@ -41,15 +41,19 @@ import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
  * route the deep link actually landed on* rather than at a hand-written path.
  */
 let mockPathname: string = routes.assistant;
-const navigateMock = mock((to: string) => {
-  mockPathname = to.split("?")[0] ?? to;
-  return undefined;
-});
+let mockSearch = "";
+const navigateMock = mock(
+  (to: string | { pathname: string; search?: string; hash?: string }) => {
+    const path = typeof to === "string" ? to : to.pathname;
+    mockPathname = path.split("?")[0] ?? path;
+    return undefined;
+  },
+);
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
   // Empty `search` is the main window — the room's pop-out gate
   // (`isPopoutWindow`) looks for `popout=1`.
-  useLocation: () => ({ pathname: mockPathname, search: "" }),
+  useLocation: () => ({ pathname: mockPathname, search: mockSearch, hash: "" }),
 }));
 
 const ensureMainWindowVisibleMock = mock(async () => undefined);
@@ -140,6 +144,7 @@ beforeEach(() => {
   __resetPendingDeepLinkForTesting();
   __resetConnectDialogForTesting();
   mockPathname = routes.assistant;
+  mockSearch = "";
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -1054,7 +1059,7 @@ describe("deeplink.newChat", () => {
 });
 
 describe("deeplink.openCamera", () => {
-  test("parks the request and lands on /assistant, where the composer that owns the camera mounts", () => {
+  test("parks the request and mints a draft to land on, never the bouncing /assistant index", () => {
     renderConsumer();
 
     act(() => {
@@ -1062,25 +1067,151 @@ describe("deeplink.openCamera", () => {
     });
 
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(routes.assistant);
-    expect(usePendingDeepLinkStore.getState().pendingCameraAt).not.toBeNull();
+    // The index route replace-navigates off itself, remounting the composer
+    // that holds the open viewfinder in local state.
+    expect(navigateMock).not.toHaveBeenCalledWith(routes.assistant);
+    const [to] = navigateMock.mock.calls.at(-1) as [string];
+    expect(to).toMatch(/^\/assistant\/conversations\/[^/?]+$/);
+    const draftId = to.split("/").at(-1)!;
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId),
+    ).toBe(true);
+    expect(useConversationStore.getState().activeConversationId).toBe(draftId);
+    // Addressed to the draft it navigated to, so a composer still mounted on
+    // the outgoing route cannot spend the one-shot park on its way out.
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe(draftId);
+  });
+
+  test("a composer already on screen keeps its conversation: the tap re-lands on it", () => {
+    mockPathname = routes.conversation("conv-1");
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe("conv-1");
+    // The replace re-navigation is a no-op at rest and cancels an in-flight
+    // transition away from the conversation the park is addressed to.
+    expect(navigateMock).toHaveBeenCalledWith(
+      { pathname: routes.conversation("conv-1"), search: "", hash: "" },
+      { replace: true },
+    );
+  });
+
+  test("reveals the chat behind a full-screen app viewer, which mounts no composer to drain the park", () => {
+    mockPathname = routes.conversation("conv-1");
+    useViewerStore.setState({ mainView: "app" });
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(
+      usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+    ).toBe("conv-1");
+    expect(navigateMock).toHaveBeenCalledWith(
+      { pathname: routes.conversation("conv-1"), search: "", hash: "" },
+      { replace: true },
+    );
+  });
+
+  test("keeps a loaded app in the side-by-side layout, where the composer is mounted beside it", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    mockPathname = routes.conversation("conv-1");
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
+    });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openCamera", { provenance: null });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(useConversationStore.getState().editingConversationId).toBe(
+        "conv-1",
+      );
+      expect(
+        usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
+      ).toBe("conv-1");
+      expect(navigateMock).toHaveBeenCalledWith(
+        { pathname: routes.conversation("conv-1"), search: "", hash: "" },
+        { replace: true },
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("a conversation subroute has no composer, so the tap lands on one", () => {
+    const inspector = `${routes.conversation("conv-1")}/inspect`;
+    mockPathname = inspector;
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    const [to] = navigateMock.mock.calls.at(-1) as [string];
+    expect(to).toMatch(/^\/assistant\/conversations\/[^/?]+$/);
+    expect(to).not.toBe(inspector);
   });
 
   test("a second tap refreshes the park rather than queueing a second camera", () => {
+    mockPathname = routes.conversation("conv-1");
     renderConsumer();
 
     act(() => {
       publish("deeplink.openCamera", { provenance: null });
     });
-    const first = usePendingDeepLinkStore.getState().pendingCameraAt;
+    const first = usePendingDeepLinkStore.getState().pendingCamera;
     act(() => {
       publish("deeplink.openCamera", { provenance: "intent" });
     });
-    const second = usePendingDeepLinkStore.getState().pendingCameraAt;
+    const second = usePendingDeepLinkStore.getState().pendingCamera;
 
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
-    expect(second!).toBeGreaterThanOrEqual(first!);
+    expect(second!.targetConversationId).toBe("conv-1");
+    expect(second!.parkedAt).toBeGreaterThanOrEqual(first!.parkedAt);
+    for (const call of navigateMock.mock.calls) {
+      expect(call).toEqual([
+        { pathname: routes.conversation("conv-1"), search: "", hash: "" },
+        { replace: true },
+      ]);
+    }
+  });
+
+  test("the re-landing keeps the query string, so pending query effects survive", () => {
+    mockPathname = routes.conversation("conv-1");
+    mockSearch = "?prompt=hello";
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openCamera", { provenance: "intent" });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      {
+        pathname: routes.conversation("conv-1"),
+        search: "?prompt=hello",
+        hash: "",
+      },
+      { replace: true },
+    );
   });
 });
 
