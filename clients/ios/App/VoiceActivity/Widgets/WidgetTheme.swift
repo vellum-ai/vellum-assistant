@@ -79,8 +79,15 @@ enum WidgetTheme {
     private static func dynamic(light: String, dark: String) -> Color {
         let lightColor = UIColor(cssHex: light) ?? .white
         let darkColor = UIColor(cssHex: dark) ?? .black
-        return Color(uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark ? darkColor : lightColor
+        return appearanceDynamic(light: lightColor, dark: darkColor)
+    }
+
+    /// Composes two resolved colors into one that follows the appearance the
+    /// widget renders in. The single owner of trait selection for widget
+    /// palettes, static literals and render-time derivations alike.
+    static func appearanceDynamic(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? dark : light
         })
     }
 

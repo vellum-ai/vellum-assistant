@@ -9,6 +9,12 @@ import UIKit
 /// background, `accentHex` for the Live Activity, the widget snapshot's avatar
 /// accent). ``canonicalCSSHex(_:)`` validates against exactly this grammar, so
 /// a canonicalized string always parses here.
+///
+/// It also carries the few derivations a native surface has to make from one
+/// of those colors on its own. The web computes them in
+/// `clients/web/src/utils/avatar-tone.ts`, which is the source of truth for
+/// every one of them; a widget renders in a process that never runs the SPA,
+/// so it has to land on the same numbers by doing the same arithmetic.
 extension UIColor {
     /// Parse a CSS hex color string (`#RGB`, `#RRGGBB`, or `#RRGGBBAA`) as
     /// reported by `getComputedStyle().getPropertyValue()`. Returns `nil` for
@@ -99,4 +105,68 @@ func canonicalCSSHex(_ raw: String) -> String? {
         return nil
     }
     return "#" + digits
+}
+
+/// Near-black ground that avatar-tinted full-bleed surfaces blend over.
+/// `SURFACE_GROUND` in `avatar-tone.ts`.
+let avatarSurfaceGround = "#151515"
+
+/// Multiply every channel of `hex` by `factor`, clamping to the 0-255 range.
+///
+/// Mirrors `darkenHex` in `clients/web/src/utils/avatar-tone.ts`, the way
+/// ``UIColor/contrastingForeground`` mirrors that file's `contrastForeground`.
+/// It is how a surface painted with an avatar accent gets its dark-appearance
+/// variant: one hex arrives in the snapshot, and both appearances have to come
+/// out of it. A string this file cannot read comes back unchanged, as it does
+/// on the web, so the caller's own fallback still has something to reject.
+func darkenHex(_ hex: String, _ factor: Double) -> String {
+    guard let channels = hexChannels(hex) else {
+        return hex
+    }
+    func scale(_ channel: Int) -> Int {
+        return max(0, min(255, Int((Double(channel) * factor).rounded())))
+    }
+    return hexString(r: scale(channels.r), g: scale(channels.g), b: scale(channels.b))
+}
+
+/// Composite `overlay` at `alpha` over the solid `base`, returning the
+/// resulting opaque color. Mirrors `blendHex` in `avatar-tone.ts`, including
+/// its answer for a color it cannot read: `base`, unchanged.
+func blendHex(base: String, overlay: String, alpha: Double) -> String {
+    guard let b = hexChannels(base), let o = hexChannels(overlay) else {
+        return base
+    }
+    let a = max(0, min(1, alpha))
+    func mix(_ from: Int, _ to: Int) -> Int {
+        return Int((Double(from) * (1 - a) + Double(to) * a).rounded())
+    }
+    return hexString(r: mix(b.r, o.r), g: mix(b.g, o.g), b: mix(b.b, o.b))
+}
+
+/// Deep full-bleed surface for an avatar accent: the accent washed over
+/// ``avatarSurfaceGround``. Mirrors `avatarSurfaceHex` in `avatar-tone.ts`,
+/// 0.14 and all, so a native surface lands on the same ground the takeover
+/// paints behind the same avatar.
+func avatarSurfaceHex(_ accentHex: String) -> String {
+    return blendHex(base: avatarSurfaceGround, overlay: accentHex, alpha: 0.14)
+}
+
+/// The red, green and blue channels of a CSS hex color as 0-255 integers, or
+/// `nil` when the string is not one.
+///
+/// Grammar comes from ``canonicalCSSHex(_:)`` rather than a second regex, for
+/// the reason this file exists at all. Alpha, where the string carries it, is
+/// dropped: every derivation above produces a surface, and a surface with a
+/// hole in it is not one.
+private func hexChannels(_ hex: String) -> (r: Int, g: Int, b: Int)? {
+    guard let canonical = canonicalCSSHex(hex),
+          let value = UInt64(canonical.dropFirst().prefix(6), radix: 16)
+    else {
+        return nil
+    }
+    return (r: Int((value >> 16) & 0xFF), g: Int((value >> 8) & 0xFF), b: Int(value & 0xFF))
+}
+
+private func hexString(r: Int, g: Int, b: Int) -> String {
+    return String(format: "#%02X%02X%02X", r, g, b)
 }
