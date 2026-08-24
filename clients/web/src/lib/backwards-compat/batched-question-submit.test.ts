@@ -25,9 +25,12 @@ afterEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
-// The exhaustive truth-table for the semver comparison lives in `utils.test.ts`.
-// What matters here is the boundary at 0.8.2, the conservative answers that
-// send the legacy shape, and the owner scoping.
+// The exhaustive truth-table for the semver comparison and for the owner rule
+// lives in `utils.test.ts`. What matters here is the boundary this gate names,
+// the conservative answers that send the legacy shape, and that the read is the
+// scoped one. No case leaves a scoped wait unsatisfied: a wait for an owner the
+// store never carries blocks for its full timeout, outliving the test that
+// started it and then reading whatever a later test left in the store.
 describe("resolveSupportsBatchedQuestionSubmit", () => {
   test("resolves true on the first version carrying the batched route", async () => {
     seed(MIN_VERSION);
@@ -57,14 +60,9 @@ describe("resolveSupportsBatchedQuestionSubmit", () => {
     );
   });
 
-  test("resolves false when the version belongs to another assistant", async () => {
-    seed("0.11.4", "asst-other");
-    expect(await resolveSupportsBatchedQuestionSubmit(OWNER_ASSISTANT_ID)).toBe(
-      false,
-    );
-  });
-
-  test("resolves false for a null owner", async () => {
+  // An unscoped gate would answer `true` here: it reads the version alone and
+  // never asks who it was fetched for. `false` is what makes this one scoped.
+  test("resolves false for a null owner even with a supported version", async () => {
     seed("0.11.4");
     expect(await resolveSupportsBatchedQuestionSubmit(null)).toBe(false);
   });
