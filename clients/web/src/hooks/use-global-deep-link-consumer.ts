@@ -22,7 +22,7 @@ import {
   navigateToNewConversation,
   revealConversationView,
 } from "@/utils/conversation-navigation";
-import { isConversationChatPath, routes } from "@/utils/routes";
+import { conversationIdForPath, routes } from "@/utils/routes";
 
 /**
  * Global deep-link consumer — mounted at `RootLayout` so it's alive
@@ -144,23 +144,6 @@ function connectGuidanceMessage(url: string | null): string {
       ? "the assistant's machine"
       : `the assistant's machine at ${host}`;
   return `This link came from a pairing QR code. To connect this Mac, run vellum pair on ${machine} and paste the bundle here.`;
-}
-
-/**
- * The conversation `pathname` is settled on, or `null` when it is not a route
- * whose composer stays mounted where it is. The `/assistant` index, which
- * {@link isConversationChatPath} accepts, is deliberately excluded:
- * `useConversationLoader` replace-navigates off it to a conversation key on
- * arrival, so a composer mounted there is remounted a beat later and anything
- * it holds in local state goes with it.
- */
-function settledConversationId(pathname: string): string | null {
-  const prefix = `${routes.conversations}/`;
-  if (!pathname.startsWith(prefix) || !isConversationChatPath(pathname)) {
-    return null;
-  }
-  // `isConversationChatPath` already bounded this to one non-empty segment.
-  return pathname.slice(prefix.length).replace(/\/+$/, "");
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -334,7 +317,11 @@ export function useGlobalDeepLinkConsumer(): void {
   useBusSubscription("deeplink.openCamera", () => {
     void ensureMainWindowVisible();
     usePendingDeepLinkStore.getState().setPendingCamera();
-    const settledId = settledConversationId(pathname);
+    // A named conversation only. The `/assistant` index mounts a composer too,
+    // but `useConversationLoader` replace-navigates off it to a conversation
+    // key on arrival, so a composer mounted there is remounted a beat later and
+    // anything it holds in local state goes with it.
+    const settledId = conversationIdForPath(pathname);
     if (settledId !== null) {
       revealConversationView(settledId);
       return;
