@@ -40,6 +40,7 @@ function seedActor(opts: {
   principal?: string;
   status?: "active" | "revoked";
   platform?: string;
+  lastUsedAt?: number;
 }): void {
   const now = Date.now();
   const principal = opts.principal ?? GUARDIAN_ID;
@@ -54,6 +55,7 @@ function seedActor(opts: {
       status: opts.status ?? "active",
       issuedAt: now,
       expiresAt: now + 86_400_000,
+      lastUsedAt: opts.lastUsedAt ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -196,10 +198,8 @@ describe("GET /v1/devices", () => {
     expect(a?.platform).toBe("cli");
   });
 
-  test("surfaces lastUsedAt from the refresh record (null when none)", async () => {
-    seedActor({ device: "device-A" });
-    seedActor({ device: "device-B" });
-    seedRefresh({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
+  test("surfaces lastUsedAt from the actor token row", async () => {
+    seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
 
     const res = await handleListDevices(listRequest(), LOOPBACK_IP);
     const body = (await res.json()) as {
@@ -208,10 +208,21 @@ describe("GET /v1/devices", () => {
     const a = body.devices.find(
       (d) => d.hashedDeviceId === hashToken("device-A"),
     );
+    expect(a?.lastUsedAt).toBe(1_700_000_000_000);
+  });
+
+  test("serializes lastUsedAt as null when the token row is unstamped", async () => {
+    seedActor({ device: "device-B" });
+    // Guards against the refresh record's timestamp leaking into the response.
+    seedRefresh({ device: "device-B", lastUsedAt: 1_700_000_000_000 });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
     const b = body.devices.find(
       (d) => d.hashedDeviceId === hashToken("device-B"),
     );
-    expect(a?.lastUsedAt).toBe(1_700_000_000_000);
     expect(b?.lastUsedAt).toBeNull();
   });
 

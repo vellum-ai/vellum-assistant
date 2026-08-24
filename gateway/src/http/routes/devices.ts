@@ -18,10 +18,7 @@ import {
   revokeRefreshTokensByDevice,
 } from "../../auth/guardian-bootstrap.js";
 import { getGatewayDb } from "../../db/connection.js";
-import {
-  actorRefreshTokenRecords,
-  actorTokenRecords,
-} from "../../db/schema.js";
+import { actorTokenRecords } from "../../db/schema.js";
 import {
   enforceLoopbackOnly,
   errorResponse,
@@ -56,6 +53,7 @@ export async function handleListDevices(
       platform: actorTokenRecords.platform,
       issuedAt: actorTokenRecords.issuedAt,
       expiresAt: actorTokenRecords.expiresAt,
+      lastUsedAt: actorTokenRecords.lastUsedAt,
     })
     .from(actorTokenRecords)
     .where(
@@ -66,30 +64,12 @@ export async function handleListDevices(
     )
     .all();
 
-  // lastUsedAt lives on the refresh record; map by device for enrichment.
-  const refresh = db
-    .select({
-      hashedDeviceId: actorRefreshTokenRecords.hashedDeviceId,
-      lastUsedAt: actorRefreshTokenRecords.lastUsedAt,
-    })
-    .from(actorRefreshTokenRecords)
-    .where(
-      and(
-        eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
-        eq(actorRefreshTokenRecords.status, "active"),
-      ),
-    )
-    .all();
-  const lastUsedByDevice = new Map(
-    refresh.map((r) => [r.hashedDeviceId, r.lastUsedAt ?? null]),
-  );
-
   const devices = tokens.map((t) => ({
     hashedDeviceId: t.hashedDeviceId,
     platform: t.platform,
     issuedAt: t.issuedAt,
     expiresAt: t.expiresAt ?? null,
-    lastUsedAt: lastUsedByDevice.get(t.hashedDeviceId) ?? null,
+    lastUsedAt: t.lastUsedAt ?? null,
   }));
 
   return Response.json({ devices });
