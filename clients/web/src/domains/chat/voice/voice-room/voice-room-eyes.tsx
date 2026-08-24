@@ -22,24 +22,28 @@
  * Per-state treatments (driven by `visual`, cross-faded so nothing pops): the
  * eyes stay centered throughout and express the state by *size* — a smooth
  * scale tween, no vertical travel. While the user speaks (`listening`) the
- * mic-amplitude waveform sweeps in from the top edge (clear of the centered
- * eyes) and the eyes open wide (large — all ears). When the turn passes to the
+ * mic-amplitude band rises from the room's floor (clear of the centered eyes)
+ * and the eyes open wide (large, all ears). When the turn passes to the
  * assistant, `thinking` shrinks them small and a quiet dot triad works away
  * just above them, then `responding` settles them to a medium size while the
- * assistant's voice radiates outward from behind them (see
- * {@link VoiceRespondingStyle}). A soft state caption ("Listening" / "Thinking"
- * / "Speaking") fades in down in the room's lower text zone (see
- * `voice-room-layout.ts`), naming the beat from the same baseline the
- * assistant's own speech would occupy. `reconnecting` fades the eyes back —
- * presence dimmed while away.
+ * assistant's own band answers from that same floor in the opposite ink (see
+ * {@link VoiceRoomVoiceBands} and {@link VoiceRespondingStyle}). A soft state
+ * caption ("Listening" / "Thinking" / "Speaking") fades in down in the room's
+ * lower text zone (see `voice-room-layout.ts`), naming the beat from the same
+ * baseline the assistant's own speech would occupy. `reconnecting` fades the
+ * eyes back: presence dimmed while away.
  *
  * Geometry and timing mirror onboarding's `IntroductionScreen` +
  * `OnboardingPeekingEyes`. Traits default like `ChatAvatar` does (first
  * component of each type), so a default-character assistant gets the same
- * color and eyes the user sees in its small avatar. Custom-image /
- * no-character avatars resolve to `null` and the room falls back to its
- * ambient-void look — what that look should become is an open design
- * question.
+ * color and eyes the user sees in its small avatar.
+ *
+ * An assistant with a custom uploaded image has no eyes and no body to grow,
+ * but it still gets this look: the room samples a field color out of the image
+ * (see `use-custom-avatar-field.ts`) and passes a look whose `art` is null, so
+ * the color field, the voice bands and the caption are all shared and the
+ * uploaded avatar takes the centerpiece the eyes would have held. Avatar type
+ * decides what stands in the middle of the room and nothing else.
  *
  * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe. It
  * resolves to the presented entrance (no grow), and drops the parallax; the
@@ -224,11 +228,21 @@ export interface VoiceRoomEyeArt {
 export interface VoiceRoomLook {
   /** The avatar color that fills the room. */
   bgHex: string;
-  /** The avatar's eye art, sized/framed by its union bounding box. */
-  art: VoiceRoomEyeArt;
+  /**
+   * The avatar's eye art, sized/framed by its union bounding box. Null for an
+   * uploaded-image avatar, which has no eyes: the look then paints the field
+   * and the bands, and the room's centered avatar is the centerpiece.
+   */
+  art: VoiceRoomEyeArt | null;
   /** The avatar's body shape, grown to cover the screen on entrance. */
   body: { svgPath: string; viewBox: { width: number; height: number } } | null;
 }
+
+/**
+ * The edge both voice bands rise from, in every look. One constant so no
+ * surface can put a session's two halves on different edges.
+ */
+export const VOICE_ROOM_WAVE_PLACEMENT: VoiceWavePlacement = "bottom";
 
 /**
  * Resolve the room's color-with-eyes look from the session assistant's avatar
@@ -286,6 +300,16 @@ export function resolveVoiceRoomLook(
 }
 
 /**
+ * The same look for an assistant whose avatar is an uploaded image: the field
+ * color sampled out of that image, with no eyes and no body to grow. The room
+ * keeps drawing its centered avatar over this, so the image is the centerpiece
+ * the eyes would otherwise be.
+ */
+export function voiceRoomImageLook(bgHex: string): VoiceRoomLook {
+  return { bgHex, art: null, body: null };
+}
+
+/**
  * The on-screen height of the eyes in a `w`×`h` room — capped at
  * `EYE_TARGET_HEIGHT` of the smaller dimension, clamped so the width stays
  * within `EYE_MAX_WIDTH`, and finally bounded by the absolute
@@ -314,7 +338,7 @@ export function VoiceRoomColorLook({
   getResponseAmplitude,
   respondingStyle = "waves",
   eyePlacement = "center",
-  wavePlacement = "bottom",
+  wavePlacement = VOICE_ROOM_WAVE_PLACEMENT,
   wavePalette = "tone",
   waveStyle = "fill",
   showStateCaption = true,
@@ -374,9 +398,8 @@ export function VoiceRoomColorLook({
   // size (`EYE_STATE_SCALE`): wide while the user speaks, small while thinking,
   // medium while speaking. The centered eyes are framed at the full (listening)
   // size; `centeredEyeTop` is that frame's top edge.
-  const showWaves = visual === "listening";
   const sizeScale = EYE_STATE_SCALE[visual];
-  const eyeH = eyeDisplayHeight(look.art, w, h);
+  const eyeH = look.art ? eyeDisplayHeight(look.art, w, h) : 0;
   const centeredEyeTop = (h - eyeH) / 2;
   // Spatial model (shared with both text zones — see `voice-room-layout.ts`):
   // above the eyes is the user's space (the user transcript), below is the
@@ -451,38 +474,25 @@ export function VoiceRoomColorLook({
         </motion.svg>
       ) : null}
 
-      {/* Per-state treatment layer — the listening waves, the thinking dots,
-          and the responding treatment cross-fade as the session moves between
-          states (only one is live at a time), so nothing pops in or vanishes
-          hard. The listening→thinking hand-off in particular reads as the waves
-          dissolving out and the dots dissolving in while the eyes ride up. */}
-      <AnimatePresence>
-        {/* The user's voice, gathering behind the eyes while they speak. */}
-        {showWaves && getAmplitude ? (
-          <motion.div
-            key="listening"
-            className="pointer-events-none absolute inset-0"
-            initial={reduce ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: reduce ? 0 : 0.3 }}
-          >
-            <WaveBand
-              engine={waveEngine}
-              getAmplitude={getAmplitude}
-              waveStyle={waveStyle}
-              palette={wavePalette}
-              placement={wavePlacement}
-              color={BAND_VOICE.listening.color}
-              peakOpacity={BAND_VOICE.listening.peakOpacity}
-              opacityKnee={BAND_VOICE.listening.opacityKnee}
-            />
-          </motion.div>
-        ) : null}
+      <VoiceRoomVoiceBands
+        visual={visual}
+        engine={waveEngine}
+        getAmplitude={getAmplitude}
+        getResponseAmplitude={getResponseAmplitude}
+        waveStyle={waveStyle}
+        palette={wavePalette}
+        placement={wavePlacement}
+        respondingStyle={respondingStyle}
+        viewport={{ w, h }}
+      />
 
-        {/* Thinking: the eyes have ridden back up to center; a quiet dot triad
-            works away just above them. */}
-        {visual === "thinking" ? (
+      {/* Thinking is the one beat the bands are silent for, and the dots that
+          fill it are placed against the eyes, so they belong to the eyes rather
+          than to the shared bands. Their own AnimatePresence: the fade is
+          per-layer, so the hand-off reads as the band dissolving out while the
+          dots dissolve in. */}
+      <AnimatePresence>
+        {visual === "thinking" && look.art ? (
           <motion.div
             key="thinking"
             className="pointer-events-none absolute inset-0"
@@ -497,54 +507,31 @@ export function VoiceRoomColorLook({
             />
           </motion.div>
         ) : null}
-
-        {/* Responding: the eyes stay centered (engaged, addressing the user)
-            and the assistant's voice radiates outward from behind them, driven
-            by the TTS-output amplitude — energy going out, the mirror of
-            listening's incoming waves. */}
-        {visual === "responding" ? (
-          <motion.div
-            key="responding"
-            className="pointer-events-none absolute inset-0"
-            initial={reduce ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: reduce ? 0 : 0.3 }}
-          >
-            <VoiceRespondingTreatment
-              style={respondingStyle}
-              engine={waveEngine}
-              getAmplitude={getResponseAmplitude ?? getAmplitude}
-              waveStyle={waveStyle}
-              wavePlacement={wavePlacement}
-              wavePalette={wavePalette}
-              viewport={{ w, h }}
-            />
-          </motion.div>
-        ) : null}
       </AnimatePresence>
 
-      <VoiceRoomEyes
-        art={look.art}
-        placement={eyePlacement}
-        viewport={{ w, h }}
-        entranceOrigin={origin}
-        entrance={entrance}
-        // The centered eyes never move — they express the state by size.
-        sizeScale={sizeScale}
-        // Reconnecting: fade the eyes back — presence dimmed while away.
-        dimmed={visual === "reconnecting"}
-        // Audio reaction on top of the size tween: the eyes widen with the
-        // user's mic while listening and pulse with the assistant's own voice
-        // while responding, so they stay alive through a turn instead of
-        // holding one pose for its whole duration.
-        eyeReaction={EYE_REACTION[visual]}
-        getAmplitude={
-          visual === "responding"
-            ? (getResponseAmplitude ?? getAmplitude)
-            : getAmplitude
-        }
-      />
+      {look.art ? (
+        <VoiceRoomEyes
+          art={look.art}
+          placement={eyePlacement}
+          viewport={{ w, h }}
+          entranceOrigin={origin}
+          entrance={entrance}
+          // The centered eyes never move: they express the state by size.
+          sizeScale={sizeScale}
+          // Reconnecting: fade the eyes back, presence dimmed while away.
+          dimmed={visual === "reconnecting"}
+          // Audio reaction on top of the size tween: the eyes widen with the
+          // user's mic while listening and pulse with the assistant's own voice
+          // while responding, so they stay alive through a turn instead of
+          // holding one pose for its whole duration.
+          eyeReaction={EYE_REACTION[visual]}
+          getAmplitude={
+            visual === "responding"
+              ? (getResponseAmplitude ?? getAmplitude)
+              : getAmplitude
+          }
+        />
+      ) : null}
 
       {/* State caption in the room's lower zone (unless the live captions are
           on — the assistant transcript occupies that zone instead). */}
@@ -552,6 +539,117 @@ export function VoiceRoomColorLook({
         <VoiceStateCaption visual={visual} emphasis={captionEmphasis} />
       ) : null}
     </>
+  );
+}
+
+/**
+ * Which ink the bands are drawn in.
+ *
+ * `voice` is the room's vocabulary: both voices rise from the same edge and are
+ * told apart by ink alone, a pale sheet for the user and a dark one for the
+ * assistant ({@link BAND_VOICE}). It needs the mid-tone color field a resolved
+ * avatar paints to read against.
+ *
+ * `accent` serves the one surface with no field: the room while the avatar is
+ * unresolved, painted near-black, where dark ink is invisible. Both voices ride
+ * the avatar tint there and are told apart by the centerpiece instead.
+ */
+export type VoiceBandInk = "voice" | "accent";
+
+/**
+ * The room's two voice bands: the user's mic while `listening`, the
+ * assistant's TTS while `responding`, cross-fading as the turn passes between
+ * them.
+ *
+ * Every look draws these, which is the point of them being one component: the
+ * bands are the room's account of whose turn it is, and a room that drew them
+ * differently would read as a different product.
+ */
+export function VoiceRoomVoiceBands({
+  visual,
+  engine = "mesh",
+  getAmplitude,
+  getResponseAmplitude,
+  waveStyle = "fill",
+  palette = "tone",
+  placement = VOICE_ROOM_WAVE_PLACEMENT,
+  respondingStyle = "waves",
+  ink = "voice",
+  viewport,
+}: {
+  visual: VoiceAvatarVisual;
+  engine?: VoiceWaveEngine;
+  /** Mic (input) amplitude source (0-1), drawn as the listening band. */
+  getAmplitude?: () => number;
+  /** TTS (output) amplitude source (0-1), drawn as the responding band. Falls back to
+   *  {@link getAmplitude} when omitted. */
+  getResponseAmplitude?: () => number;
+  waveStyle?: VoiceWaveStyle;
+  palette?: VoiceWavePalette;
+  placement?: VoiceWavePlacement;
+  /** Sketch knob for the responding beat. See {@link VoiceRespondingStyle}. */
+  respondingStyle?: VoiceRespondingStyle;
+  /** See {@link VoiceBandInk}. */
+  ink?: VoiceBandInk;
+  /** The box to size against; falls back to the window when omitted. */
+  viewport?: { w: number; h: number };
+}) {
+  const reduce = useReducedMotion();
+  // Only subscribe to the window when the caller has no box of its own: every
+  // in-app caller measures and passes one.
+  const measured = useLayoutViewportSize(!viewport);
+  // The opacity shaping is the band's own dynamics and holds either way; only
+  // the explicit ink is dropped, which hands the color back to the palette.
+  const voiceInk = ink === "voice";
+
+  return (
+    <AnimatePresence>
+      {/* The user's voice, gathering at the room's edge while they speak. */}
+      {visual === "listening" && getAmplitude ? (
+        <motion.div
+          key="listening"
+          className="pointer-events-none absolute inset-0"
+          initial={reduce ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: reduce ? 0 : 0.3 }}
+        >
+          <WaveBand
+            engine={engine}
+            getAmplitude={getAmplitude}
+            waveStyle={waveStyle}
+            palette={voiceInk ? palette : "accent"}
+            placement={placement}
+            color={voiceInk ? BAND_VOICE.listening.color : undefined}
+            peakOpacity={BAND_VOICE.listening.peakOpacity}
+            opacityKnee={BAND_VOICE.listening.opacityKnee}
+          />
+        </motion.div>
+      ) : null}
+
+      {/* The assistant answering, from the same edge in the opposite ink. */}
+      {visual === "responding" ? (
+        <motion.div
+          key="responding"
+          className="pointer-events-none absolute inset-0"
+          initial={reduce ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: reduce ? 0 : 0.3 }}
+        >
+          <VoiceRespondingTreatment
+            style={respondingStyle}
+            engine={engine}
+            getAmplitude={getResponseAmplitude ?? getAmplitude}
+            waveStyle={waveStyle}
+            wavePlacement={placement}
+            wavePalette={voiceInk ? palette : "accent"}
+            ink={ink}
+            viewport={viewport ?? measured}
+          />
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
@@ -810,6 +908,7 @@ function VoiceRespondingTreatment({
   waveStyle,
   wavePlacement,
   wavePalette,
+  ink = "voice",
   viewport,
 }: {
   style: VoiceRespondingStyle;
@@ -818,6 +917,8 @@ function VoiceRespondingTreatment({
   waveStyle: VoiceWaveStyle;
   wavePlacement: VoiceWavePlacement;
   wavePalette: VoiceWavePalette;
+  /** See {@link VoiceBandInk}. */
+  ink?: VoiceBandInk;
   viewport: { w: number; h: number };
 }) {
   const ampRef = useRespondingAmp(getAmplitude);
@@ -827,19 +928,18 @@ function VoiceRespondingTreatment({
   const M = Math.min(viewport.w, viewport.h);
 
   if (style === "waves") {
-    // The mirror of listening: the same band, the same engine, anchored to the
-    // floor instead of the ceiling and fed the TTS output rather than the mic.
+    // The mirror of listening: the same band, the same engine, the same edge,
+    // fed the TTS output rather than the mic and drawn in the opposite ink.
     // Nothing about it is a different visual language — that is the point. The
-    // room says who is speaking by *where* the energy is, not by switching
-    // metaphors mid-turn.
+    // room says who is speaking by the ink, not by switching metaphors mid-turn.
     return getAmplitude ? (
       <WaveBand
         engine={engine}
         getAmplitude={getAmplitude}
         waveStyle={waveStyle}
         palette={wavePalette}
-        placement="bottom"
-        color={BAND_VOICE.responding.color}
+        placement={wavePlacement}
+        color={ink === "voice" ? BAND_VOICE.responding.color : undefined}
         peakOpacity={BAND_VOICE.responding.peakOpacity}
         opacityKnee={BAND_VOICE.responding.opacityKnee}
       />
@@ -899,8 +999,9 @@ function VoiceRespondingTreatment({
     );
   }
 
-  // `rings` — concentric rings expanding outward from the eyes; overall
-  // presence scales with the TTS amplitude.
+  // `rings`: concentric rings expanding outward from the room's center;
+  // overall presence scales with the TTS amplitude. A sketch alternative to the
+  // shipped band, reachable only from Storybook.
   return (
     <div
       ref={ampRef}
@@ -938,39 +1039,6 @@ function VoiceRespondingTreatment({
         />
       ))}
     </div>
-  );
-}
-
-/**
- * The `rings` responding treatment as a self-contained layer: the concentric
- * rings radiating outward from the room's center on the TTS-output amplitude.
- * Pass `viewport` to size against the room's own box (the room passes its
- * measured panel; Storybook its frame); omitted, it falls back to the live
- * window. Exported for the void look, which renders it behind the centered
- * avatar so a custom avatar emits the same rings the eyes do in the color look.
- */
-export function VoiceRespondingRings({
-  getAmplitude,
-  viewport,
-}: {
-  /** TTS (output) amplitude source (0–1) — drives the rings' presence. */
-  getAmplitude?: () => number;
-  /** The room box to size against; omitted, falls back to the window. */
-  viewport?: { w: number; h: number };
-}) {
-  const measured = useLayoutViewportSize();
-  return (
-    <VoiceRespondingTreatment
-      style="rings"
-      getAmplitude={getAmplitude}
-      // engine/waveStyle/wavePlacement/wavePalette are only read by the band
-      // styles (`waves`, `waveform`); inert for the rings.
-      engine="reactive"
-      waveStyle="fill"
-      wavePlacement="top"
-      wavePalette="tone"
-      viewport={viewport ?? measured}
-    />
   );
 }
 

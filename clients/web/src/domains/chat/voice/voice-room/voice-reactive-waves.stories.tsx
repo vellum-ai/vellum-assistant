@@ -45,6 +45,7 @@ import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 import {
+  VOICE_ROOM_WAVE_PLACEMENT,
   VoiceRoomColorLook,
   resolveVoiceRoomLook,
   type VoiceCaptionEmphasis,
@@ -330,7 +331,7 @@ function RoomFrame({
           // Both voices sit on the floor and are told apart by ink instead
           // (see `BAND_VOICE`); `wavePlacement` still moves the listening band
           // to the ceiling if the split-by-position version is wanted back.
-          wavePlacement="bottom"
+          wavePlacement={VOICE_ROOM_WAVE_PLACEMENT}
           respondingStyle={args.respondingStyle}
           captionEmphasis={args.captionEmphasis}
           eyePlacement="center"
