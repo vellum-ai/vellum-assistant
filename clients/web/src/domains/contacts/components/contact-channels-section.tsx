@@ -9,9 +9,8 @@ import {
   Phone,
   Send,
 } from "lucide-react";
-import { DiscordLogo } from "@/components/icons/discord-logo";
+import { createElement, useState } from "react";
 import type { CSSProperties } from "react";
-import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -25,6 +24,7 @@ import type {
   ContactChannelPayload,
 } from "@/domains/contacts/types";
 import { useTranslation } from "@/i18n";
+import { getChannelBrandMark } from "@/utils/channel-presentation";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
   "telegram",
@@ -142,15 +142,6 @@ interface ContactChannelsSectionProps {
   onLinkAccount?: (channelId: string) => void;
 }
 
-/**
- * Brand marks for channels that have one, chosen by channel rather than by the
- * declared glyph: `ChannelInfo.icon` carries a Lucide name, and a brand svg is
- * not one. A channel absent here draws the Lucide glyph it declared.
- */
-const CHANNEL_BRAND_MARKS: Record<string, typeof DiscordLogo> = {
-  discord: DiscordLogo,
-};
-
 function ChannelIcon({
   channelId,
   name,
@@ -162,11 +153,13 @@ function ChannelIcon({
   className?: string;
   style?: CSSProperties;
 }) {
-  const Brand = CHANNEL_BRAND_MARKS[channelId];
-  if (Brand) {
-    // Sized explicitly as well as by class: a brand svg draws its own
-    // dimensions where the lucide icons below take theirs from the class.
-    return <Brand size={16} className={className} style={style} />;
+  const brand = getChannelBrandMark(channelId);
+  if (brand) {
+    // Same static-component treatment the plugin glyph uses: chosen from a
+    // module-level map rather than constructed here. Sized explicitly as well
+    // as by class, since a brand svg draws its own dimensions where the lucide
+    // icons below take theirs from the class alone.
+    return createElement(brand, { size: 16, className, style });
   }
   switch (name) {
     case "bot":
@@ -236,7 +229,7 @@ export function ContactChannelsSection({
         {channelsLoadFailed && (
           <div
             className="px-1 py-2 text-sm"
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: "var(--content-secondary)" }}
             role="status"
           >
             {t("contactChannelsSection.loadFailed")}

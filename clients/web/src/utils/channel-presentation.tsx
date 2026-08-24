@@ -32,6 +32,8 @@ import {
 
 import type { ChannelId } from "@vellumai/service-contracts/channels";
 
+import { DiscordLogo } from "@/components/icons/discord-logo";
+
 import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { useTranslation } from "@/i18n";
@@ -58,6 +60,9 @@ const RENDERED_CHANNELS = [
 ] as const satisfies readonly ChannelId[];
 
 type RenderedChannel = (typeof RENDERED_CHANNELS)[number];
+
+/** A channel's own svg mark, which sizes itself rather than taking a class. */
+type BrandMark = typeof DiscordLogo;
 
 /**
  * Whether an id is one of the channels drawn here. A plugin channel's id is
@@ -218,6 +223,28 @@ const PLUGIN_CHANNEL_ICONS: Record<string, LucideIcon> = {
   smartphone: Smartphone,
   video: Video,
 };
+
+/**
+ * Brand marks for channels that ship one, keyed by channel rather than by the
+ * declared glyph: `ChannelInfo.icon` carries a Lucide name and a brand svg is
+ * not one. A channel absent here draws the Lucide glyph it declared, which
+ * every client can resolve.
+ */
+const CHANNEL_BRAND_MARKS: Partial<Record<RenderedChannel, BrandMark>> = {
+  discord: DiscordLogo,
+};
+
+/**
+ * The brand mark for a channel, for a surface with room to draw one. Returns
+ * nothing when the channel has none, and the caller falls back to the glyph.
+ */
+export function getChannelBrandMark(
+  channelId: string | null | undefined,
+): BrandMark | undefined {
+  return channelId && isRenderedChannel(channelId)
+    ? CHANNEL_BRAND_MARKS[channelId]
+    : undefined;
+}
 
 /**
  * Renders a plugin channel's declared glyph. Same static-component treatment
