@@ -20,6 +20,7 @@
  * when it registers a starter. No polling, no retry timer.
  */
 
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
@@ -33,8 +34,10 @@ import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voic
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -49,6 +52,33 @@ import { routes } from "@/utils/routes";
  * cold launch and far shorter than "later".
  */
 export const PENDING_VOICE_START_TTL_MS = 60_000;
+
+/**
+ * The conversation the session belongs to: whatever is selected, or a fresh
+ * draft when nothing is.
+ *
+ * A session must be bound to a composer key or no composer can own it
+ * (`isLiveVoiceSessionOwnedBy`), which leaves the title-bar pill as the only
+ * surface for a session the user asked for full-screen. Read-else-mint is
+ * race-proof against the conversation loader in both directions: if this runs
+ * first the loader sees a selected id and stands down, and if the loader runs
+ * first this reads its draft.
+ *
+ * Mirrors the push-to-talk bridge's `ensureConversationKey`, `setMainView`
+ * included: on desktop the composer counts as on screen only while the main
+ * view is the chat.
+ */
+function ensureConversationKey(): string {
+  const existing = useConversationStore.getState().activeConversationId;
+  if (existing) {
+    return existing;
+  }
+
+  const draftId = createDraftConversationId();
+  useConversationStore.getState().setActiveConversationId(draftId);
+  useViewerStore.getState().setMainView("chat");
+  return draftId;
+}
 
 /**
  * Ask for a live-voice session.
@@ -74,9 +104,10 @@ export function requestVoiceStart(): void {
  *   the user is in; the starter refuses a second anyway, and navigating would
  *   only walk the app away from the composer that owns it. Callers that toggle
  *   handle the end themselves before reaching here.
- * - **The draft composer, so the session starts with no conversation** and the
- *   server assigns one on `ready`. Navigating is also what mounts `ChatLayout`
- *   and therefore the starter the request is waiting for.
+ * - **The chat, so a composer is on screen to own the session.** The drain
+ *   binds the session to whichever conversation that lands on. Navigating is
+ *   also what mounts `ChatLayout` and therefore the starter the request is
+ *   waiting for.
  * - **The window is not raised for an ordinary start.** Every caller is a
  *   surface the user reached for precisely because they are working somewhere
  *   else, and that surface is where the call then shows itself. The one
@@ -180,12 +211,9 @@ export async function drainPendingVoiceStart(): Promise<void> {
   if (!consume()) {
     return;
   }
-  // `null` conversation is the supported "new conversation" start: the server
-  // assigns one and echoes it on the `ready` frame (`LiveVoiceState.conversationId`).
-  //
   // No `prewarm()` here, unlike the composer: prewarming exists to unlock
   // playback while a user gesture is still active, and this path has no gesture
   // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
   // its own player when none was reserved.
-  readyStarter.start(assistantId, null);
+  readyStarter.start(assistantId, ensureConversationKey());
 }

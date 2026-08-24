@@ -108,6 +108,7 @@ const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -191,6 +192,7 @@ beforeEach(() => {
     firstRunSeen: true,
   });
   __resetPendingDeepLinkForTesting();
+  useConversationStore.getState().reset();
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   interruptionHandlers = [];
@@ -271,6 +273,7 @@ describe("starter registration", () => {
       version: "0.10.12",
     });
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    useConversationStore.getState().setActiveConversationId("conv-1");
     usePendingDeepLinkStore.getState().setPendingVoiceStart();
 
     const h = renderPersistentController();
@@ -279,9 +282,11 @@ describe("starter registration", () => {
       await Promise.resolve();
     });
 
+    // The drain binds the session to the composer on screen, which is what
+    // lets that composer own it and show the room.
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
-      conversationId: undefined,
+      conversationId: "conv-1",
       turnDetection: "server_vad",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();

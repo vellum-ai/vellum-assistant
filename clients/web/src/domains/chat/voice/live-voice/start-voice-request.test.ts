@@ -50,10 +50,12 @@ const {
   requestVoiceStart,
   startVoiceFromSurface,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
-const { useLiveVoiceStore } =
+const { isLiveVoiceSessionOwnedBy, useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
+const { useViewerStore } = await import("@/stores/viewer-store");
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
 const { useResolvedAssistantsStore } =
@@ -67,9 +69,19 @@ const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 /** New enough to serve `POST /v1/live-voice/preflight`. */
 const SUPPORTED_VERSION = "0.10.12";
 
-const starter = mock(
-  (_assistantId: string, _conversationId: string | null) => undefined,
-);
+/** The conversation the composer is sitting on unless a test says otherwise. */
+const ACTIVE_CONVERSATION_ID = "conv-active";
+
+/**
+ * Stands in for the controller's starter, and binds the session to the
+ * conversation it was handed exactly as `useLiveVoice` does at connect time.
+ * Ownership is the whole point of the argument, so a spy that only records it
+ * could not tell a bound session from an orphaned one.
+ */
+const starter = mock((assistantId: string, conversationId: string | null) => {
+  useLiveVoiceStore.getState().setSessionContext(assistantId, conversationId);
+  useLiveVoiceStore.getState().setState("listening");
+});
 
 function registerStarter(): void {
   useLiveVoiceStore.getState().setStarter({
@@ -114,6 +126,11 @@ beforeEach(() => {
     name: null,
   });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useConversationStore.getState().reset();
+  useConversationStore
+    .getState()
+    .setActiveConversationId(ACTIVE_CONVERSATION_ID);
+  useViewerStore.getState().setMainView("app");
   starter.mockClear();
   whenAssistantVersionKnown.mockClear();
   preflightLiveVoice.mockClear();
@@ -138,9 +155,9 @@ describe("starting a session", () => {
     requestVoiceStart();
     await flushDrain();
 
-    // `null` conversation is the supported "new conversation" start — the
-    // server assigns one and echoes it on `ready`.
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    // Bound to the conversation the composer is on, which is what lets that
+    // composer own the session and show the room.
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
     expect(isParked()).toBe(false);
   });
 
@@ -157,8 +174,42 @@ describe("starting a session", () => {
     registerStarter();
     await drainPendingVoiceStart();
 
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
     expect(isParked()).toBe(false);
+  });
+
+  test("the started session is owned by the composer it lands on", async () => {
+    // The bug this replaced: a hardcoded `null` conversation left the session
+    // owned by nobody, so the room never opened and the title-bar pill stood
+    // in for it.
+    identityHydrated();
+    registerStarter();
+    useConversationStore.getState().setActiveConversationId("draft-1");
+
+    requestVoiceStart();
+    await flushDrain();
+
+    expect(starter).toHaveBeenCalledWith("assistant-1", "draft-1");
+    expect(
+      isLiveVoiceSessionOwnedBy(useLiveVoiceStore.getState(), "draft-1"),
+    ).toBe(true);
+  });
+
+  test("mints a draft when nothing is selected", async () => {
+    // A cold launch straight into voice has no conversation yet. Minting one
+    // here is what gives the session a composer to belong to, and the chat
+    // view is what puts that composer on screen.
+    identityHydrated();
+    registerStarter();
+    useConversationStore.getState().setActiveConversationId(null);
+
+    requestVoiceStart();
+    await flushDrain();
+
+    const minted = useConversationStore.getState().activeConversationId;
+    expect(minted).not.toBeNull();
+    expect(starter).toHaveBeenCalledWith("assistant-1", minted);
+    expect(useViewerStore.getState().mainView).toBe("chat");
   });
 
   test("draining with nothing parked never touches the version gate", async () => {
@@ -194,7 +245,7 @@ describe("a request that cannot be served yet stays parked", () => {
     // The identity lands and the next drain runs it.
     identityHydrated();
     await drainPendingVoiceStart();
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
   });
 
   test("the controller unmounts across the version await", async () => {
@@ -221,7 +272,7 @@ describe("a request that cannot be served yet stays parked", () => {
     versionResolution = Promise.resolve();
     registerStarter();
     await drainPendingVoiceStart();
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
   });
 });
 
@@ -269,7 +320,7 @@ describe("a request that will never be served is discarded", () => {
     });
     await drainPendingVoiceStart();
 
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
   });
 });
 
@@ -315,9 +366,8 @@ describe("startVoiceFromSurface", () => {
 
     startVoiceFromSurface(navigate);
 
-    // The draft route, not the open conversation: the session starts with no
-    // conversation and the server assigns one on `ready`. Navigating is also
-    // what mounts the layout that owns the starter.
+    // Navigating to the chat is what mounts the layout that owns the starter;
+    // the drain then binds the session to the composer it lands on.
     expect(navigate).toHaveBeenCalledWith("/assistant");
     expect(isParked()).toBe(true);
   });
@@ -336,7 +386,7 @@ describe("startVoiceFromSurface", () => {
     registerStarter();
     await drainPendingVoiceStart();
 
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
   });
 
   test("a running session spends the press", () => {
@@ -433,7 +483,7 @@ describe("entry guards", () => {
     requestVoiceStart();
     await drainPendingVoiceStart();
 
-    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(starter).toHaveBeenCalledWith("assistant-1", ACTIVE_CONVERSATION_ID);
     expect(useLiveVoiceStore.getState().configNotice).toBeNull();
   });
 
