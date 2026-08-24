@@ -774,6 +774,9 @@ describe("GeminiProvider", () => {
   });
 
   test("splits functionResponse from following text in a user Content", async () => {
+    /** Gemini serializes function responses separately from following text. */
+
+    // GIVEN streamed output and a history containing a tool result followed by text
     fakeChunks = [textChunk("Done"), finishChunk("STOP", 20, 10)];
 
     const messages: Message[] = [
@@ -802,13 +805,17 @@ describe("GeminiProvider", () => {
       },
     ];
 
+    // WHEN the provider sends the message
     await provider.sendMessage(messages);
 
+    // THEN the function response is isolated in its own user Content
     const contents = lastStreamParams!.contents as Array<{
       role: string;
       parts: Array<Record<string, unknown>>;
     }>;
     expect(contents).toHaveLength(4);
+
+    // AND the function response Content appears before the text Content
     expect(contents[2]).toMatchObject({
       role: "user",
       parts: [
@@ -820,6 +827,8 @@ describe("GeminiProvider", () => {
         },
       ],
     });
+
+    // AND the text remains in a separate user Content
     expect(contents[3]).toEqual({
       role: "user",
       parts: [{ text: "Summarize that." }],

@@ -584,10 +584,17 @@ describe("classifyConversationError", () => {
     });
 
     it("classifies user-terminal history rejections separately", () => {
-      const result = classifyConversationError(
-        new Error("Requests ending with a model turn are not supported."),
-        baseCtx,
+      /** User-terminal provider rejections receive a dedicated category. */
+
+      // GIVEN a provider error whose history ends with a model turn
+      const error = new Error(
+        "Requests ending with a model turn are not supported.",
       );
+
+      // WHEN the conversation error is classified
+      const result = classifyConversationError(error, baseCtx);
+
+      // THEN it is retryable provider ordering error in the user-terminal category
       expect(result.code).toBe("PROVIDER_ORDERING");
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("history_user_terminal");
