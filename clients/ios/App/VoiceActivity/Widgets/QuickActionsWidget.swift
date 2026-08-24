@@ -160,8 +160,27 @@ struct QuickActionsWidgetView: View {
     }
 
     /// The pair the card is built around, sized to the margins so they land in
-    /// the same place whatever the avatar above them turns out to be.
+    /// the same place whatever the avatar above them turns out to be. The
+    /// diameter follows the card's width on compact widgets, where two full
+    /// 61pt circles plus their gap would overrun the margins.
     private var cameraAndVoice: some View {
+        GeometryReader { geo in
+            controlRow(
+                diameter: min(
+                    Self.controlDiameter,
+                    (geo.size.width - Self.controlGap) / 2
+                )
+            )
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .bottomLeading
+            )
+        }
+        .frame(height: Self.controlDiameter)
+    }
+
+    private func controlRow(diameter: CGFloat) -> some View {
         HStack(spacing: Self.controlGap) {
             CircleActionButton(
                 intent: OpenCameraIntent(),
@@ -169,7 +188,7 @@ struct QuickActionsWidgetView: View {
                 label: "Take a photo",
                 fill: controlFill,
                 tint: palette.onSurface,
-                diameter: Self.controlDiameter
+                diameter: diameter
             )
             CircleActionButton(
                 intent: StartNewVoiceConversationIntent(),
@@ -177,7 +196,7 @@ struct QuickActionsWidgetView: View {
                 label: "New voice conversation",
                 fill: controlFill,
                 tint: palette.onSurface,
-                diameter: Self.controlDiameter
+                diameter: diameter
             )
         }
     }
