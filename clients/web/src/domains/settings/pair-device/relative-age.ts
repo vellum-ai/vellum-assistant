@@ -29,7 +29,7 @@ export function useRelativeAgeTick(active: boolean): void {
 }
 
 /**
- * An instant — epoch milliseconds or an ISO string — as a relative age in the
+ * An instant (epoch milliseconds or an ISO string) as a relative age in the
  * active locale. Minute granularity is what {@link useRelativeAgeTick}'s tick
  * can keep honest, so anything fresher reads as "now" rather than as a second
  * count that goes stale between ticks.

@@ -34,9 +34,9 @@ function formatDeviceDate(
 
 /**
  * The pairing date, plus a relative activity label once the device has been
- * seen. Anything inside the window collapses to "Active now" — the gateway
- * debounces its stamp, so a finer reading would be precision the value does
- * not have — and a device never seen gets no activity clause at all.
+ * seen. Anything inside the window collapses to "Active now", since the
+ * gateway debounces its stamp and a finer reading would be precision the value
+ * does not have. A device never seen gets no activity clause at all.
  */
 function activityLine(
   t: TFunction<"settings">,
