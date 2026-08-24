@@ -123,25 +123,3 @@ export function updateAppPin(
 export function removeAppPin(appId: string): void {
   getDb().delete(appPins).where(eq(appPins.appId, appId)).run();
 }
-
-/**
- * Drop pins whose app is not in `existingAppIds`, and report how many went.
- *
- * Not merely housekeeping. A workspace app's id is a UUID, so a row left after
- * one is deleted can never be adopted. A plugin app's id is a path identity,
- * `plugins~<plugin>~<appDir>`, and `listPluginApps` omits a plugin that is
- * disabled or uninstalled: re-enabling it rebuilds the same id, and a pin left
- * behind would come back with it. Reconciling against the live set is what
- * keeps that from resurrecting a pin the user cannot see to remove.
- *
- * Callers must be on a path where the database is migrated. `deleteApp` is not:
- * it is filesystem-level and runs where no such database exists.
- */
-export function pruneAppPins(existingAppIds: readonly string[]): number {
-  const live = new Set(existingAppIds);
-  const stale = listAppPins().filter((pin) => !live.has(pin.appId));
-  for (const pin of stale) {
-    removeAppPin(pin.appId);
-  }
-  return stale.length;
-}

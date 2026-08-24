@@ -8,6 +8,10 @@
 import type { ServerWebSocket } from "bun";
 
 import {
+  startAppPinReconcileSweep,
+  stopAppPinReconcileSweep,
+} from "../apps/app-pin-reconciler.js";
+import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
@@ -608,10 +612,16 @@ export class RuntimeHttpServer {
     // migrations are unready.
     startPluginScheduleReconcileSweep();
     log.info("Plugin schedule reconcile sweep started");
+
+    // Same backstop for sidebar pins: a disabled plugin's app stops existing,
+    // and its id returns intact when the plugin is re-enabled.
+    startAppPinReconcileSweep();
+    log.info("App pin reconcile sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
+    stopAppPinReconcileSweep();
     stopInferenceProfileSessionReaper();
     stopTelegramWebhookHealthSweep();
     stopPluginScheduleReconcileSweep();

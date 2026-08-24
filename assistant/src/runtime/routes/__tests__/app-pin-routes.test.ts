@@ -19,7 +19,8 @@ mock.module("../../sync/resource-sync-events.js", () => ({
   getOriginClientId: () => undefined,
 }));
 
-import { listAppPins } from "../../../apps/app-pin-store.js";
+import { reconcileAppPins } from "../../../apps/app-pin-reconciler.js";
+import { listAppPins, updateAppPin } from "../../../apps/app-pin-store.js";
 import {
   createApp,
   deleteApp,
@@ -239,38 +240,59 @@ describe("apps_pin", () => {
 /*
  * A workspace app's id is a UUID, so a pin left behind when one is deleted can
  * never be adopted. A plugin app's id is a path identity, so retiring a plugin
- * and installing it again rebuilds the same id: a pin left behind would come
- * back with it, and the user has no way to remove one they cannot see.
+ * and installing it again rebuilds the same id: a pin left behind comes back
+ * with it, for an app the user could not see to unpin while it was hidden.
+ *
+ * The reconcile runs on plugin-set convergence, at startup, and on a backstop
+ * sweep, so these drive it directly. Nothing else happens between the retire
+ * and the reinstall: an intervening pin write would be a trigger the real
+ * sequence does not have, and the case would pass without proving anything.
  */
 describe("orphan pins across a plugin reinstall", () => {
   test("a retired plugin's pin does not return when it is installed again", async () => {
     const pluginAppId = installPluginApp("demo", "widget");
-    const workspaceApp = makeApp("Workspace");
     await pin(pluginAppId, { pinned: true });
 
     uninstallPlugin("demo");
-    /* The pin write is the reconcile point, so something has to happen on it.
-       Pinning an unrelated app is the least contrived trigger. */
-    await pin(workspaceApp, { pinned: true });
-
+    reconcileAppPins();
     installPluginApp("demo", "widget");
 
     const listed = await findListed(pluginAppId);
     expect(listed).toBeDefined();
     expect(listed?.pinSortPosition).toBeUndefined();
+    expect(listAppPins()).toEqual([]);
+  });
+
+  /* The sensitivity check on the case above: without the reconcile between
+     retire and reinstall the pin does come back, so that assertion is carried
+     by the reconcile and not by the fixture happening to lose the row. */
+  test("without the reconcile, the same sequence restores the pin", async () => {
+    const pluginAppId = installPluginApp("demo", "widget");
+    await pin(pluginAppId, { pinned: true });
+
+    uninstallPlugin("demo");
+    installPluginApp("demo", "widget");
+
+    expect((await findListed(pluginAppId))?.pinSortPosition).toBeDefined();
   });
 
   test("leaves the pin alone while the plugin is still installed", async () => {
     const pluginAppId = installPluginApp("demo", "widget");
-    const workspaceApp = makeApp("Workspace");
     await pin(pluginAppId, { pinned: true });
 
-    await pin(workspaceApp, { pinned: true });
+    reconcileAppPins();
 
-    expect(listAppPins().map((entry) => entry.appId)).toEqual([
-      pluginAppId,
-      workspaceApp,
-    ]);
+    expect(listAppPins().map((entry) => entry.appId)).toEqual([pluginAppId]);
+  });
+
+  test("drops a pin for a workspace app that was deleted outside the route", () => {
+    const appId = makeApp("Gone");
+    updateAppPin(appId, { pinned: true });
+    deleteApp(appId);
+
+    reconcileAppPins();
+
+    expect(listAppPins()).toEqual([]);
   });
 });
 
