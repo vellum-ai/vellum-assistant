@@ -580,10 +580,9 @@ describe("createSlackReplySession", () => {
     await tick(15);
     await session.finish();
 
-    // Reads the plan in the assistant's own vocabulary. While the op carried
-    // Slack task cards this assertion could not fail: their word for the
-    // status is "complete", so "completed" was never going to appear whatever
-    // the session did with the rejected update.
+    // Reads the plan in the vocabulary the op carries. Slack's task cards
+    // spell this status "complete", so an assertion written against those
+    // words would pass here whatever the session did.
     const statuses = slackStreamOps()
       .flatMap((op) => op.plan?.steps ?? [])
       .map((step) => step.status);

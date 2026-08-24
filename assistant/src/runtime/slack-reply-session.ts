@@ -22,7 +22,6 @@ import {
   hasDeliverableAssistantText,
   NO_RESPONSE_INLINE_RE,
 } from "./no-response.js";
-import type { TaskProgressData } from "./task-progress.js";
 import {
   getTaskProgressDataFromToolInput,
   mergeTaskProgressData,
@@ -157,7 +156,7 @@ export function createSlackReplySession(params: {
   // `renderHistoryContent`'s `joinWithSpacing` on the durable delivery path).
   let pendingSegmentBoundary = false;
 
-  let activeProgress: TaskProgressData | undefined;
+  let activeProgress: StreamPlan | undefined;
   // Fingerprint of the plan state last delivered to Slack, so progress that
   // advances without new body text still flushes as a task-only append.
   let deliveredProgressKey: string | undefined;
