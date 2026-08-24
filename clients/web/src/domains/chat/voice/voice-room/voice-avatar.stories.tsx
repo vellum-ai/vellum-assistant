@@ -229,7 +229,6 @@ function RoomScene({
         <VoiceAvatar
           assistantId={realAvatar ? SAMPLE_ASSISTANT_ID : null}
           visual={visual}
-          getAmplitude={getAmplitude}
           size={size}
         />
       </div>

@@ -827,11 +827,6 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           <VoiceAvatar
             assistantId={assistantId}
             visual={visual}
-            // Only the `responding` avatar is audio-reactive, and it always
-            // rides TTS output — so the output amplitude is the sole source
-            // here. The user's voice is expressed by the bottom waves in
-            // `listening`, not by the avatar.
-            getAmplitude={getLiveVoiceOutputAmplitude}
             size={AVATAR_SIZE}
           />
         </motion.div>
