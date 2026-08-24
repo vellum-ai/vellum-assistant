@@ -358,6 +358,13 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    * unchanged).
    */
   readonly progressUpdatesSpoken?: number;
+  /**
+   * Working cues played into the turn's silence. Present only when at least
+   * one played (otherwise the field is absent, keeping frames unchanged).
+   * The cue is the default floor-holder, so this is what separates a turn
+   * that hummed while it worked from one that sat silent.
+   */
+  readonly workingCuesPlayed?: number;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
