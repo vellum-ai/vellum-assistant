@@ -92,6 +92,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
   onUnarchiveConversation?: (conversation: Conversation) => void;
+  onDeleteConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
   /**
@@ -221,6 +222,7 @@ export function AssistantSideMenu({
   onRenameConversation,
   onArchiveConversation,
   onUnarchiveConversation,
+  onDeleteConversation,
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
@@ -393,6 +395,7 @@ export function AssistantSideMenu({
     onRename: onRenameConversation,
     onArchive: onArchiveConversation,
     onUnarchive: onUnarchiveConversation,
+    onDelete: onDeleteConversation,
     onMarkRead: onMarkConversationRead,
     onMarkUnread: onMarkConversationUnread,
     onOpenInNewWindow,

@@ -4,7 +4,7 @@
  *
  * These are the "utility" actions surfaced in the conversation header chevron
  * menu and sidebar context menu. The primary CRUD-like actions (archive,
- * unarchive, pin, rename, mark read/unread) live in `useConversationActions`.
+ * unarchive, delete, pin, rename, mark read/unread) live in `useConversationActions`.
  */
 
 import { t } from "@/i18n";

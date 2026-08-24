@@ -446,6 +446,7 @@
     "archive": "Archivar",
     "copyConversation": "Copiar conversación completa",
     "copyConversationId": "Copiar ID de conversación",
+    "delete": "Eliminar",
     "forkConversation": "Bifurcar conversación",
     "inspect": "Analizar conversación",
     "markRead": "Marcar como leída",
@@ -529,6 +530,13 @@
     "skipForToday": "Omitir por hoy",
     "subtitle": "El gasto de créditos de Vellum está pausado hasta que tu límite se reinicie a las {resetPhrase}.",
     "title": "Límite diario de créditos alcanzado"
+  },
+  "deleteConversationConfirmDialog": {
+    "cancel": "Cancelar",
+    "confirm": "Eliminar",
+    "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Esta acción no se puede deshacer.",
+    "title": "Eliminar conversación",
+    "untitled": "Sin título"
   },
   "detailPanelStopButton": {
     "tooltip": "Detener"

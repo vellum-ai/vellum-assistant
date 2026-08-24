@@ -106,6 +106,10 @@ import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
 } from "./components/archive-all-confirm-dialog";
+import {
+  DeleteConversationConfirmDialog,
+  useDeleteConversationConfirmation,
+} from "./components/delete-conversation-confirm-dialog";
 import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
 import { useTranslation } from "@/i18n";
@@ -620,7 +624,7 @@ export function ChatLayout({
     [navigate],
   );
 
-  // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
+  // --- Sidebar conversation actions (pin / rename / archive / delete / mark / move) ---
   //
   // The sidebar's hover-revealed "…" menu reads its items from these
   // handlers; without them the popover renders empty (every menu item
@@ -633,6 +637,7 @@ export function ChatLayout({
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
+    handleDeleteConversation,
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
@@ -661,6 +666,16 @@ export function ChatLayout({
   } = useArchiveAllConfirmation({
     assistantId,
     archiveAllInGroup: handleArchiveAllInGroup,
+  });
+
+  const {
+    pending: pendingDeleteConversation,
+    requestDelete,
+    confirmDelete,
+    cancelDelete,
+  } = useDeleteConversationConfirmation({
+    assistantId,
+    deleteConversation: handleDeleteConversation,
   });
 
   // The move-to-group menu's "New group…" item and the group actions menu's
@@ -722,6 +737,7 @@ export function ChatLayout({
         showInternalActions={showInternalActions}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
+        onDelete={requestDelete}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
@@ -961,6 +977,7 @@ export function ChatLayout({
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}
       onUnarchiveConversation={handleUnarchiveConversation}
+      onDeleteConversation={requestDelete}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
       onCreateGroup={handleRequestCreateEmptyGroup}
@@ -1260,6 +1277,11 @@ export function ChatLayout({
         pending={pendingArchiveAll}
         onConfirm={confirmArchiveAll}
         onCancel={cancelArchiveAll}
+      />
+      <DeleteConversationConfirmDialog
+        pending={pendingDeleteConversation}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
       <GroupNameDialogFromStore
         createGroup={createGroup}

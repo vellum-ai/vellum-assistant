@@ -33,13 +33,19 @@ describe("buildMenuProps", () => {
     const bare = buildMenuProps(makeCtx(), conv());
     expect(bare.onRename).toBeUndefined();
     expect(bare.onArchive).toBeUndefined();
+    expect(bare.onDelete).toBeUndefined();
 
     const wired = buildMenuProps(
-      makeCtx({ onRename: () => {}, onArchive: () => {} }),
+      makeCtx({
+        onRename: () => {},
+        onArchive: () => {},
+        onDelete: () => {},
+      }),
       conv(),
     );
     expect(typeof wired.onRename).toBe("function");
     expect(typeof wired.onArchive).toBe("function");
+    expect(typeof wired.onDelete).toBe("function");
   });
 
   test("offers mark-read for unread rows and mark-unread for read rows", () => {

@@ -446,6 +446,7 @@
     "archive": "Archive",
     "copyConversation": "Copy Full Conversation",
     "copyConversationId": "Copy conversation ID",
+    "delete": "Delete",
     "forkConversation": "Fork Conversation",
     "inspect": "Analyze Conversation",
     "markRead": "Mark as read",
@@ -529,6 +530,13 @@
     "skipForToday": "Skip for today",
     "subtitle": "Vellum credit spend is paused until your limit resets at {resetPhrase}.",
     "title": "Daily credit limit reached"
+  },
+  "deleteConversationConfirmDialog": {
+    "cancel": "Cancel",
+    "confirm": "Delete",
+    "message": "Delete “{title}”? This permanently removes the conversation and its messages. This cannot be undone.",
+    "title": "Delete conversation",
+    "untitled": "Untitled"
   },
   "detailPanelStopButton": {
     "tooltip": "Stop"
