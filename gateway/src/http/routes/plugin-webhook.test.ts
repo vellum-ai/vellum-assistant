@@ -933,6 +933,14 @@ describe("standard-webhooks verification", () => {
     "credential/meeting-bot/standard_webhooks_secret": WHSEC,
   });
 
+  function vendorPost(body: string, headers: Record<string, string>): Request {
+    return new Request("http://gateway/webhooks/plugins/meeting-bot/realtime", {
+      method: "POST",
+      body,
+      headers,
+    });
+  }
+
   function signStandard(
     body: string,
     opts: { id?: string; timestamp?: string } = {},
