@@ -302,11 +302,11 @@ export function ConversationAssetsPill({
       <Popover.Root open={open} onOpenChange={handleOpenChange}>
         <Popover.Trigger asChild>{trigger}</Popover.Trigger>
         {/*
-          The popover keeps its own `p-2` inset and the heading takes the
-          same `px-2 py-1.5` a `Menu.Label` does, which puts the heading on
-          the column the rows' icons start from. Hand-rolled padding had the
-          heading inset 12px against rows inset 16px, and a 4px gap under it
-          against 8px everywhere else.
+          The popover keeps its own `p-2` inset and the heading sits at
+          `px-2`, which is the column the rows' icons start from. Its own
+          vertical padding is only what separates it from the first row: the
+          label is 10px on a `line-height: 1`, and the popover's inset above
+          and the row's 8px of padding below already carry the rest.
         */}
         <Popover.Content
           side="bottom"
@@ -314,7 +314,7 @@ export function ConversationAssetsPill({
           sideOffset={8}
           className="w-60"
         >
-          <div className="px-2 py-1.5">
+          <div className="px-2 pb-1">
             <Typography
               variant="label-small-default"
               className="text-[var(--content-tertiary)]"
