@@ -133,7 +133,21 @@ Direct the user:
 
 Wait for the user to confirm the bot has joined the server before continuing.
 
-## Step 6: Report What Setup Delivered
+## Step 6: Verify the User's Discord Identity
+
+This binds the user's Discord account to their identity, so the bot knows who it is talking to and can address them by name rather than treating them as a stranger. Without it the channel is connected but recognises nobody, so do not skip it silently.
+
+It has to happen after Step 5: the code is delivered as a Discord DM, and Discord only permits a bot to DM someone it shares a server with.
+
+Load the **guardian-verify-setup** skill:
+
+- Call `skill_load` with `skill: "guardian-verify-setup"`.
+
+The channel is already `discord`. Do not re-ask which channel to verify.
+
+If the user wants to skip, continue to Step 7 and tell them they can verify later by saying _"verify me on Discord"_.
+
+## Step 7: Report What Setup Delivered
 
 Report exactly what is now true, and what is still required before the bot answers anything. Do **not** claim the bot is live: it appears online in the member list the moment it connects, which reads as "working" even while it ignores every message.
 
@@ -176,8 +190,9 @@ Two things still gate a reply after that, and are worth naming if the bot stays 
 - **Do NOT collect the bot token before Step 3.** The token is shown once and cannot be retrieved later, so it must be collected in the same turn the user generates it, with the secure prompt already open.
 - **Do NOT request the `Administrator` permission** on the OAuth invite URL. The default permission integer was chosen with the principle of least privilege — only request more if a downstream feature explicitly requires it, and document why.
 - **Do NOT enable any privileged intent.** The client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, and nothing reads presence, member, or non-mention guild-message events. Enabling one grants access the software never uses and opts the app into Discord's privileged-intent review past 10,000 users.
-- **Do NOT claim the bot can reply once setup finishes.** It goes online, and looks working, while ignoring every message until a channel is on `discord.allowedChannelIds`. Always report that gap (Step 6).
+- **Do NOT claim the bot can reply once setup finishes.** It goes online, and looks working, while ignoring every message until a channel is on `discord.allowedChannelIds`. Always report that gap (Step 7).
 - **Do NOT instruct the user to set an Interactions Endpoint URL.** Gateway-connected bots receive interactions over the WebSocket — the HTTP endpoint is only needed for HTTP-only interaction handlers.
+- **Do NOT end setup without offering identity verification.** A connected bot that recognises nobody treats its own owner as a stranger. Step 6 is a skip the user declines explicitly, never one taken on their behalf.
 - **Do NOT persist the application ID, public key, or bot user metadata** anywhere outside the credential vault. They are derivable from the bot token on demand and persisting them risks staleness after a token reset.
 
 ## Disconnecting

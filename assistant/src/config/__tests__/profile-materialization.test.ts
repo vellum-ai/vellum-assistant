@@ -1,4 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// An entry-name provider resolves its catalog kind through its connection
+// row, so the output-cap clamp needs a row store to read.
+const connectionRows = new Map<string, { name: string; provider: string }>([
+  ["local-ollama", { name: "local-ollama", provider: "ollama" }],
+]);
+mock.module("../../persistence/db-connection.js", () => ({
+  getDb: () => ({}),
+}));
+mock.module("../../providers/inference/connections.js", () => ({
+  getConnection: (_db: unknown, name: string) =>
+    connectionRows.get(name) ?? null,
+}));
 
 import { completeCustomProfile } from "../profile-materialization.js";
 import { LLMConfigBase, ProfileEntry } from "../schemas/llm.js";
@@ -21,6 +34,31 @@ const fullDefault = LLMConfigBase.parse({
 });
 
 describe("completeCustomProfile", () => {
+  test("clamps a filled maxTokens to the model's catalog output cap", () => {
+    const completed = completeCustomProfile(fullDefault, {
+      provider: "ollama",
+      model: "llama3.2",
+    });
+    expect(completed.maxTokens).toBe(4096);
+  });
+
+  test("clamps a filled maxTokens for an entry-name provider via its row's kind", () => {
+    const completed = completeCustomProfile(fullDefault, {
+      provider: "local-ollama",
+      model: "llama3.2",
+    });
+    expect(completed.maxTokens).toBe(4096);
+  });
+
+  test("never clamps an explicit maxTokens", () => {
+    const completed = completeCustomProfile(fullDefault, {
+      provider: "ollama",
+      model: "llama3.2",
+      maxTokens: 64000,
+    });
+    expect(completed.maxTokens).toBe(64000);
+  });
+
   test("inherits omitted scalar fields from the default", () => {
     const completed = completeCustomProfile(fullDefault, {
       model: "claude-fable-5",

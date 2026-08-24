@@ -40,7 +40,7 @@ const TEST_DIR = join(
 );
 const META_PATH = join(TEST_DIR, "metadata.json");
 
-/** The plugin every scoped case runs as: it owns the `acme` field. */
+/** The plugin every scoped case runs as: it owns the `acme` service. */
 const PLUGIN = "acme";
 
 /** Run `fn` as the plugin would: inside its execution context. */
@@ -108,53 +108,53 @@ afterAll(() => {
 describe("storeCredential", () => {
   test("creates a credential from a service/field ref", async () => {
     const stored = await asPlugin(() =>
-      storeCredential("openai/acme", "sk-secret"),
+      storeCredential("acme/api_key", "sk-secret"),
     );
 
-    expect(stored.service).toBe("openai");
-    expect(stored.field).toBe(PLUGIN);
+    expect(stored.service).toBe("acme");
+    expect(stored.field).toBe("api_key");
     expect(stored.credentialId).toBeTruthy();
-    expect(secureStore.get(credentialKey("openai", "acme"))).toBe("sk-secret");
-    expect(getCredentialMetadata("openai", "acme")?.credentialId).toBe(
+    expect(secureStore.get(credentialKey("acme", "api_key"))).toBe("sk-secret");
+    expect(getCredentialMetadata("acme", "api_key")?.credentialId).toBe(
       stored.credentialId,
     );
   });
 
   test("stores a value that resolveCredential reads back", async () => {
-    await asPlugin(() => storeCredential("openai/acme", "sk-secret"));
+    await asPlugin(() => storeCredential("acme/api_key", "sk-secret"));
     await expect(
-      asPlugin(() => resolveCredential("openai/acme")),
+      asPlugin(() => resolveCredential("acme/api_key")),
     ).resolves.toBe("sk-secret");
   });
 
   test("trims edge whitespace from the value", async () => {
-    await asPlugin(() => storeCredential("openai/acme", "  sk-secret\n"));
-    expect(secureStore.get(credentialKey("openai", "acme"))).toBe("sk-secret");
+    await asPlugin(() => storeCredential("acme/api_key", "  sk-secret\n"));
+    expect(secureStore.get(credentialKey("acme", "api_key"))).toBe("sk-secret");
   });
 
   test("records label and description on the credential metadata", async () => {
     await asPlugin(() =>
-      storeCredential("openai/acme", "sk-secret", {
+      storeCredential("acme/api_key", "sk-secret", {
         label: "Acme key",
         description: "Used by the acme plugin",
       }),
     );
 
-    const metadata = getCredentialMetadata("openai", "acme");
+    const metadata = getCredentialMetadata("acme", "api_key");
     expect(metadata?.alias).toBe("Acme key");
     expect(metadata?.usageDescription).toBe("Used by the acme plugin");
   });
 
   test("replaces the value of an existing credential named by UUID", async () => {
     const first = await asPlugin(() =>
-      storeCredential("openai/acme", "sk-old"),
+      storeCredential("acme/api_key", "sk-old"),
     );
     const second = await asPlugin(() =>
       storeCredential(first.credentialId, "sk-new"),
     );
 
     expect(second).toEqual(first);
-    expect(secureStore.get(credentialKey("openai", "acme"))).toBe("sk-new");
+    expect(secureStore.get(credentialKey("acme", "api_key"))).toBe("sk-new");
   });
 
   test("rejects a ref that names no credential and is not service/field", async () => {
@@ -166,7 +166,7 @@ describe("storeCredential", () => {
 
   test("rejects an empty value", async () => {
     await expect(
-      asPlugin(() => storeCredential("openai/acme", "   ")),
+      asPlugin(() => storeCredential("acme/api_key", "   ")),
     ).rejects.toThrow(/value is required/);
     expect(setSpy).not.toHaveBeenCalled();
   });
@@ -174,19 +174,19 @@ describe("storeCredential", () => {
   test("surfaces a failed secure-backend write", async () => {
     writeSucceeds = false;
     await expect(
-      asPlugin(() => storeCredential("openai/acme", "sk-secret")),
+      asPlugin(() => storeCredential("acme/api_key", "sk-secret")),
     ).rejects.toThrow(CredentialStoreError);
-    expect(getCredentialMetadata("openai", "acme")).toBeUndefined();
+    expect(getCredentialMetadata("acme", "api_key")).toBeUndefined();
   });
 
   test("scrubs the stored value from recent transcripts", async () => {
-    await asPlugin(() => storeCredential("openai/acme", "sk-secret"));
+    await asPlugin(() => storeCredential("acme/api_key", "sk-secret"));
     expect(scrubSpy).toHaveBeenCalledWith("sk-secret");
   });
 
   test("skips the transcript scrub when asked", async () => {
     await asPlugin(() =>
-      storeCredential("openai/acme", "sk-secret", {
+      storeCredential("acme/api_key", "sk-secret", {
         skipTranscriptScrub: true,
       }),
     );
@@ -194,8 +194,8 @@ describe("storeCredential", () => {
   });
 
   test("reconciles the manual-token connection for the service", async () => {
-    await asPlugin(() => storeCredential("openai/acme", "sk-secret"));
-    expect(syncSpy).toHaveBeenCalledWith("openai");
+    await asPlugin(() => storeCredential("acme/api_key", "sk-secret"));
+    expect(syncSpy).toHaveBeenCalledWith("acme");
   });
 
   describe("plugin scoping", () => {
@@ -203,14 +203,14 @@ describe("storeCredential", () => {
       // A plugin's module body is evaluated outside any context. An unscoped
       // branch there would let top-level code overwrite the user's own
       // credentials, so the write is refused instead.
-      await expect(storeCredential("openai/acme", "sk-secret")).rejects.toThrow(
+      await expect(storeCredential("acme/api_key", "sk-secret")).rejects.toThrow(
         /requires an active plugin execution context/,
       );
       expect(setSpy).not.toHaveBeenCalled();
-      expect(getCredentialMetadata("openai", "acme")).toBeUndefined();
+      expect(getCredentialMetadata("acme", "api_key")).toBeUndefined();
     });
 
-    test("blocks a plugin from storing a credential whose field differs from its name", async () => {
+    test("blocks a plugin from storing a credential it does not own", async () => {
       await expect(
         asPlugin(() => storeCredential("openai/api_key", "sk-secret")),
       ).rejects.toThrow(/out of scope/);
@@ -244,17 +244,24 @@ describe("storeCredential", () => {
       );
     });
 
-    test("scoping applies by field only, across any service", async () => {
+    test("blocks a plugin from storing another service even when the field matches its name", async () => {
+      await expect(
+        asPlugin(() => storeCredential("openai/acme", "sk-secret")),
+      ).rejects.toThrow(/out of scope/);
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+
+    test("allows a plugin to store multiple fields under its own service", async () => {
       await asPlugin(async () => {
-        await storeCredential("stripe/acme", "stripe-secret");
-        await storeCredential("openai/acme", "openai-secret");
+        await storeCredential("acme/api_key", "key-secret");
+        await storeCredential("acme/token", "token-secret");
       });
 
-      expect(secureStore.get(credentialKey("stripe", "acme"))).toBe(
-        "stripe-secret",
+      expect(secureStore.get(credentialKey("acme", "api_key"))).toBe(
+        "key-secret",
       );
-      expect(secureStore.get(credentialKey("openai", "acme"))).toBe(
-        "openai-secret",
+      expect(secureStore.get(credentialKey("acme", "token"))).toBe(
+        "token-secret",
       );
     });
   });

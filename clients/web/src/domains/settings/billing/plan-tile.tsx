@@ -22,6 +22,12 @@ export interface PlanTileProps {
   tag: ReactNode;
   /** Vertical spec-chip stack; omitted entirely when null or empty. */
   specs?: PlanSpec[] | null;
+  /**
+   * Lay the short chips out as a wrapping row instead of a vertical stack. Any
+   * spec flagged `ownRow` still gets a full-width row of its own below that
+   * group, which is where the long usage and extras labels go.
+   */
+  specsWrap?: boolean;
   /** Bottom slot (price row or CTA), pinned to the tile's bottom edge. */
   footer?: ReactNode;
   testId?: string;
@@ -41,10 +47,13 @@ export function PlanTile({
   nameTestId,
   tag,
   specs,
+  specsWrap = false,
   footer,
   testId,
   className,
 }: PlanTileProps) {
+  const rowSpecs = specs?.filter((spec) => !spec.ownRow) ?? [];
+  const ownRowSpecs = specs?.filter((spec) => spec.ownRow) ?? [];
   return (
     <div
       data-theme={theme}
@@ -69,16 +78,43 @@ export function PlanTile({
         </div>
       </div>
       {specs?.length ? (
-        <div className="flex flex-col items-start gap-2">
-          {specs.map((spec) => (
-            <SpecChip
-              key={spec.label}
-              icon={spec.icon}
-              label={spec.label}
-              multiline={spec.multiline}
-            />
-          ))}
-        </div>
+        specsWrap ? (
+          <div className="flex flex-col items-start gap-1">
+            {rowSpecs.length ? (
+              <div className="flex flex-row flex-wrap items-start gap-1">
+                {rowSpecs.map((spec) => (
+                  <SpecChip
+                    key={spec.label}
+                    icon={spec.icon}
+                    label={spec.label}
+                    multiline={spec.multiline}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {ownRowSpecs.map((spec) => (
+              // An own-row chip has the whole tile width, so let a long label
+              // wrap inside the pill rather than pushing past the tile.
+              <SpecChip
+                key={spec.label}
+                icon={spec.icon}
+                label={spec.label}
+                multiline
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-start gap-2">
+            {specs.map((spec) => (
+              <SpecChip
+                key={spec.label}
+                icon={spec.icon}
+                label={spec.label}
+                multiline={spec.multiline}
+              />
+            ))}
+          </div>
+        )
       ) : null}
       {footer ? <div className="mt-auto w-full">{footer}</div> : null}
     </div>

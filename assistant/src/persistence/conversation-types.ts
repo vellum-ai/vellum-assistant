@@ -136,6 +136,28 @@ export function isBackgroundEventMetadata(
 }
 
 /**
+ * `messageKind` value marking a daemon-authored system card: a notice that
+ * bypasses the agent loop (the /compact, /clean, and summarize-up-to result
+ * cards, and plugin notices about what a turn did to the user's input). Cards
+ * render as standalone system notices, never as the assistant persona
+ * speaking, and never merge into adjacent assistant display turns.
+ *
+ * Lives in this leaf so a caller that only stamps or classifies the marker
+ * does not pull in `conversation-crud`'s DB graph.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata,
+ * so display merging, transcript rendering, and turn grouping cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
  * True when a role-`"user"` row is internal scaffolding rather than a person's
  * prompt: a daemon-injected run lifecycle notification (subagent
  * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the
@@ -206,21 +228,22 @@ export function isVoiceSessionUserMessage(
 }
 
 /**
- * True when the row that opened the turn was sent from the macOS app, on that
+ * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *
  * Two markers, both required. The `client` bag's `os` entry is the only
  * per-platform attribution on a message: `userMessageInterface` is `"web"` for
- * the macOS app, the iOS app, and a desktop browser alike. `clientOsFromRequest`
- * says that `os` was reported by this row's request or transport rather than
- * inherited from the conversation's live client state, which names the surface
- * of an earlier turn: a button tapped on the phone against a conversation last
- * sent to from the Mac persists `os: "macos"` with no marker.
+ * the desktop apps, the iOS app, and a desktop browser alike.
+ * `clientOsFromRequest` says that `os` was reported by this row's request or
+ * transport rather than inherited from the conversation's live client state,
+ * which names the surface of an earlier turn. A button tapped on the phone
+ * against a conversation last sent to from desktop persists the old OS with no
+ * marker.
  *
  * Origin a row did not report itself is origin unknown. Callers gate
- * suppression on this, so unknown has to read as not-macOS.
+ * suppression on this, so unknown has to read as not-desktop.
  */
-export function isMacOriginatedUserMessage(
+export function isDesktopOriginatedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   if (metadata?.clientOsFromRequest !== true) {
@@ -230,7 +253,8 @@ export function isMacOriginatedUserMessage(
   if (typeof client !== "object" || client === null) {
     return false;
   }
-  return parseClientOs((client as Record<string, unknown>).os) === "macos";
+  const clientOs = parseClientOs((client as Record<string, unknown>).os);
+  return clientOs === "macos" || clientOs === "windows";
 }
 
 /**

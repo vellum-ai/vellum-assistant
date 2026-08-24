@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, type ReactNode } from "react";
 
 import { WindowsMenuBar } from "@/components/windows-menu-bar";
+import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
 import {
   detectElectronHostOS,
@@ -20,6 +21,7 @@ import {
   usePageSurfaceStore,
 } from "@/stores/page-surface-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
+import { useTranslation } from "@/i18n";
 
 // On macOS the native window controls (traffic lights) overlay the top-left of
 // the renderer. In the Electron shell the header renders as a unified title bar
@@ -104,6 +106,7 @@ export function ChatLayoutHeader({
   // otherwise that strip, living outside `.app-shell`'s `isolation: isolate`
   // context, would out-stack and swallow clicks on the header's buttons.
   // Gated to Electron so the web/iOS layouts are byte-for-byte unchanged.
+  const { t } = useTranslation("chat");
   const electronHostOS = detectElectronHostOS();
   const electron = electronHostOS !== null;
 
@@ -112,8 +115,9 @@ export function ChatLayoutHeader({
     <Button
       variant="ghost"
       iconOnly={<Search />}
-      aria-label="Search (Ctrl+K)"
-      tooltip="Search (Ctrl+K)"
+      aria-label={t("chatLayoutHeader.searchAria")}
+      tooltip={t("chatLayoutHeader.searchAria")}
+      className={NATIVE_MOBILE_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -178,20 +182,20 @@ export function ChatLayoutHeader({
           <Button
             variant="ghost"
             iconOnly={<MenuIcon />}
-            aria-label="Open navigation"
+            aria-label={t("chatLayoutHeader.openNavigationAria")}
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
-            tooltip="Open navigation"
+            tooltip={t("chatLayoutHeader.openNavigationAria")}
             onClick={toggleSidebar}
           />
         ) : (
           <Button
             variant="ghost"
             iconOnly={<PanelLeft />}
-            aria-label="Toggle sidebar"
+            aria-label={t("chatLayoutHeader.toggleSidebarAria")}
             aria-expanded={!collapsed}
             aria-controls="chat-side-menu"
-            tooltip="Toggle sidebar"
+            tooltip={t("chatLayoutHeader.toggleSidebarAria")}
             onClick={toggleSidebar}
           />
         )}
@@ -200,15 +204,15 @@ export function ChatLayoutHeader({
             <Button
               variant="ghost"
               iconOnly={<Search />}
-              aria-label="Search (Ctrl+K)"
-              tooltip="Search (Ctrl+K)"
+              aria-label={t("chatLayoutHeader.searchAria")}
+              tooltip={t("chatLayoutHeader.searchAria")}
               onClick={handleSearchClick}
             />
             <Button
               variant="ghost"
               iconOnly={<ChevronLeft />}
-              aria-label="Back (Ctrl+[)"
-              tooltip="Back (Ctrl+[)"
+              aria-label={t("chatLayoutHeader.backAria")}
+              tooltip={t("chatLayoutHeader.backAria")}
               disabled={!canGoBack}
               className={!canGoBack ? "opacity-35" : undefined}
               onClick={onGoBack}
@@ -216,8 +220,8 @@ export function ChatLayoutHeader({
             <Button
               variant="ghost"
               iconOnly={<ChevronRight />}
-              aria-label="Forward (Ctrl+])"
-              tooltip="Forward (Ctrl+])"
+              aria-label={t("chatLayoutHeader.forwardAria")}
+              tooltip={t("chatLayoutHeader.forwardAria")}
               disabled={!canGoForward}
               className={!canGoForward ? "opacity-35" : undefined}
               onClick={onGoForward}

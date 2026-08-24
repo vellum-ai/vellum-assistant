@@ -141,7 +141,18 @@ at the wrong level.
 
 `routes/guardian-approval-interception.ts` + the approval prompt watcher in
 `background-dispatch.ts` predate this pipeline: they deliver a guardian's own
-tool-approval prompt in-channel mid-turn and resolve `apr:` taps against the
-in-memory confirmation directly. They remain load-bearing for that flow, and
+tool-approval prompt mid-turn and resolve `apr:` taps against the in-memory
+confirmation directly. That prompt is addressed to the guardian, not to the
+chat the turn is running in. On Slack that chat can be a shared room, and the
+card carries the tool, a command preview and live buttons.
+`resolveGuardianPromptDelivery` addresses it to the guardian's bound DM
+instead, by chat id rather than user id because that address is written to the
+delivery row and read back to match reactions, scope plain-text replies and
+edit the decided card. It returns the address and its route together, since
+the turn's own callback carries a `threadTs` naming a thread that does not
+exist in the DM. When no private address resolves it returns nothing and the
+prompt is left to the in-app confirmation, because the room is the disclosure
+this exists to prevent. Telegram group chats carry the same exposure and are
+not covered: only Slack has a chat whose privacy can be read off its id. They remain load-bearing for that flow, and
 the reply router runs first for everything the pipeline owns. Converge new
 work on the pipeline; do not extend the legacy interception.

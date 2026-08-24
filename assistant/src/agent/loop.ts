@@ -31,6 +31,7 @@ import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
+import { hasVisibleText } from "../providers/content-blocks.js";
 import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
@@ -526,13 +527,6 @@ function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
     }
   }
   return text;
-}
-
-/** Whether `content` carries at least one non-empty `text` block. */
-function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
-  return content.some(
-    (block) => block.type === "text" && block.text.trim().length > 0,
-  );
 }
 
 type AgentLoopContextWindowResolver = () => {

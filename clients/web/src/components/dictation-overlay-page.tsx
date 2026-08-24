@@ -10,6 +10,7 @@ import {
 import {
   getDictationOverlayState,
   requestDictationOverlayStop,
+  setDictationOverlayHitRegion,
   setDictationOverlayInteractive,
   subscribeToDictationOverlayState,
 } from "@/runtime/dictation-overlay";
@@ -60,6 +61,38 @@ export function DictationOverlayPage() {
     }
     interactiveRef.current = false;
     setDictationOverlayInteractive(false);
+  }, [state?.kind]);
+
+  // Tell main where the Stop control sits so it can hit-test the cursor
+  // itself on platforms where forwarded mouse moves never reach this
+  // click-through window (Windows). View > Zoom relayouts the page
+  // mid-recording and moves the button, so watch the viewport and the
+  // button and re-report on every change.
+  useEffect(() => {
+    if (state?.kind !== "recording") {
+      return;
+    }
+    const button = stopButtonRef.current;
+    if (!button) {
+      return;
+    }
+    const report = () => {
+      const rect = button.getBoundingClientRect();
+      setDictationOverlayHitRegion({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(document.documentElement);
+    observer.observe(button);
+    return () => {
+      observer.disconnect();
+      setDictationOverlayHitRegion(null);
+    };
   }, [state?.kind]);
 
   if (!state) {

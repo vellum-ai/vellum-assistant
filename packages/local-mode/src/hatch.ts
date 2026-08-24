@@ -25,11 +25,10 @@ export function runHatch(
       args.push("--remote", options.remote);
     }
 
-    const child = spawn(
-      invocation.command,
-      args,
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    const child = spawn(invocation.command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
 
     let stdout = "";
     let stderr = "";

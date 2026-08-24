@@ -11,6 +11,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDb } from "../persistence/db-connection.js";
+import type { ProviderRouteAttribution } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -69,6 +70,16 @@ export class CallSiteConfiguredProvider implements Provider {
   // Forward native web-search capability so it survives the wrapper chain
   // (callers like the advisor consult gate on it). Fixed at construction.
   public readonly supportsNativeWebSearch?: boolean;
+
+  /**
+   * Route the inner adapter signs with, stamped at connection resolution.
+   * Forwarded live (not snapshotted) so consumers holding this wrapper —
+   * e.g. the save-time probe's billing gate — read the row dispatch
+   * actually selected.
+   */
+  get routeAttribution(): ProviderRouteAttribution | undefined {
+    return this.inner.routeAttribution;
+  }
 
   constructor(
     private readonly inner: Provider,

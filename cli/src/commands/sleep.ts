@@ -13,7 +13,10 @@ import {
   parseWaitDuration,
 } from "../lib/drain.js";
 import { loadGuardianToken } from "../lib/guardian-token.js";
-import { stopIngressNginx } from "../lib/nginx-ingress.js";
+import {
+  stopContainerTunnelEdge,
+  stopIngressNginx,
+} from "../lib/nginx-ingress.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import { resolveFreshBearerToken } from "./client.js";
 
@@ -132,6 +135,9 @@ export async function sleep(): Promise<void> {
     const res = dockerResourceNames(entry.assistantId);
     await sleepContainers(res);
     console.log("Docker containers stopped.");
+    if (await stopContainerTunnelEdge(entry)) {
+      console.log("Tunnel edge stopped.");
+    }
     return;
   }
 

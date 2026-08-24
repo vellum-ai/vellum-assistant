@@ -2,16 +2,18 @@
  * Slack outbound message orchestration.
  *
  * Handles text + Block Kit delivery, message updates, approval prompts,
- * typing indicators, reactions, thread status, ephemeral messages, and
- * attachments by calling the Slack Web API directly via ./api.ts.
+ * agent session status, reactions, ephemeral messages, and attachments by
+ * calling the Slack Web API directly via ./api.ts.
  */
 
 import type { Button, KnownBlock } from "@slack/types";
 import type {
   ApprovalUIMetadata,
+  MessageAudience,
   SlackStreamOp,
 } from "@vellumai/gateway-client";
 
+import type { AssistantActivityPhase } from "../../../api/index.js";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
@@ -133,9 +135,8 @@ export interface SlackSendOptions {
   blocks?: KnownBlock[];
   approval?: ApprovalUIMetadata;
   useBlocks?: boolean;
-  ephemeral?: boolean;
-  user?: string;
-  messageTs?: string;
+  /** Absent means the whole room sees it. */
+  audience?: MessageAudience;
 }
 
 export interface SlackSendResult {
@@ -210,14 +211,39 @@ function buildApprovalFallbackText(
 }
 
 /**
- * Send a Slack text message with optional Block Kit formatting.
+ * Replace a Slack message in place via `chat.update`.
  *
- * When `messageTs` is set this is strictly an in-place edit (`chat.update`),
- * mirroring `editMessage()` in ./withdraw.ts: a failed edit throws and is
- * never converted into a fresh `chat.postMessage`. Posting on failure would
- * leave the original message beside a duplicate ("ghost") reply; re-delivery
- * after a transient failure is the delivery layer's responsibility, not this
- * function's.
+ * A failed update throws rather than posting a fresh message, mirroring
+ * `editMessage()` in ./withdraw.ts: posting on failure leaves the original
+ * beside a duplicate reply. Re-delivery after a transient failure belongs to
+ * the delivery layer, not here.
+ */
+export async function updateSlackMessage(
+  chatId: string,
+  messageId: string,
+  text: string,
+  options?: { blocks?: readonly KnownBlock[]; useBlocks?: boolean },
+): Promise<SlackSendResult> {
+  const blocks = resolveBlocks(
+    text,
+    options?.blocks as KnownBlock[] | undefined,
+    undefined,
+    options?.useBlocks,
+  );
+  const result = await sendWithBlockFallback(
+    "chat.update",
+    { channel: chatId, text, ts: messageId },
+    blocks,
+    { fallbackWithoutBlocks: true },
+  );
+  log.info({ chatId, messageId }, "Slack message updated");
+  return result;
+}
+
+/**
+ * Post a Slack text message with optional Block Kit formatting.
+ *
+ * Always posts. Replacing an existing message is {@link updateSlackMessage}.
  */
 export async function sendSlackReply(
   chatId: string,
@@ -230,18 +256,6 @@ export async function sendSlackReply(
     options?.approval,
     options?.useBlocks,
   );
-
-  const messageTs = options?.messageTs;
-  if (typeof messageTs === "string" && messageTs.length > 0) {
-    const result = await sendWithBlockFallback(
-      "chat.update",
-      { channel: chatId, text, ts: messageTs },
-      blocks,
-      { fallbackWithoutBlocks: true },
-    );
-    log.info({ chatId, messageTs }, "Slack message updated");
-    return result;
-  }
 
   const postBase: Record<string, unknown> = { channel: chatId, text };
   if (options?.threadTs) {
@@ -261,13 +275,12 @@ export async function sendSlackReply(
     fallbackText: approvalFallbackText,
   };
 
-  if (options?.ephemeral) {
-    if (!options.user) {
-      throw new Error("user is required for ephemeral messages");
-    }
+  // No guard for a missing reader: the audience carries the id with it, so
+  // "restricted to one reader, but which one" cannot be expressed.
+  if (options?.audience) {
     return sendWithBlockFallback(
       "chat.postEphemeral",
-      { ...postBase, user: options.user },
+      { ...postBase, user: options.audience.userId },
       blocks,
       fallbackOptions,
     );
@@ -364,37 +377,73 @@ export async function sendSlackReaction(
   }
 }
 
-/**
- * Set or clear the Slack Assistants API thread status indicator.
- * Falls back to emoji reactions for installs without `assistant:write` scope.
- */
-export async function sendSlackAssistantThreadStatus(
-  channel: string,
-  threadTs: string,
-  status: string,
-  loadingMessages?: string[],
-): Promise<void> {
-  try {
-    const body: Record<string, unknown> = {
-      channel_id: channel,
-      thread_ts: threadTs,
-      status,
-    };
-    if (loadingMessages !== undefined) {
-      body.loading_messages = loadingMessages;
-    }
+/** How Slack spells each activity phase on an agent session. */
+const SLACK_SESSION_STATUS: Record<
+  AssistantActivityPhase,
+  "active" | "processing" | "suspended"
+> = {
+  idle: "active",
+  thinking: "processing",
+  streaming: "processing",
+  tool_running: "processing",
+  // Slack's own word for a session waiting on a person, which is what an
+  // approval is. It suppresses the stop button, which would otherwise offer to
+  // cancel a turn that is not running.
+  awaiting_confirmation: "suspended",
+};
 
-    await callSlackApi("assistant.threads.setStatus", body);
-    return;
+/**
+ * Set the status of the Slack agent session for a thread.
+ *
+ * `active` is a real transition rather than a clear: the loading UX stays up
+ * for an hour if a turn ends without one, so every caller that sets a busy
+ * phase owes an `idle`.
+ *
+ * `initiator_user_id` is read only when Slack creates the session, so it is
+ * passed on every call and Slack ignores it after the first.
+ *
+ * Falls back to an emoji reaction on failure, which is all a workspace that
+ * denies the scope can show. Reports whether the session status itself landed,
+ * because a caller that owes a terminal transition has to know it was lost: the
+ * reaction cannot clear a status the API already set.
+ */
+export async function sendSlackAgentSessionStatus(params: {
+  channel: string;
+  phase: AssistantActivityPhase;
+  /** Thread root, absent in a DM the app has not threaded. */
+  threadTs?: string;
+  /** The message that opened the turn, used only by the reaction fallback. */
+  messageTs?: string;
+  initiatorUserId?: string;
+}): Promise<boolean> {
+  const { channel, phase, threadTs, messageTs, initiatorUserId } = params;
+  const status = SLACK_SESSION_STATUS[phase];
+  try {
+    await callSlackApi("agents.sessions.setStatus", {
+      channel_id: channel,
+      status,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+      ...(initiatorUserId ? { initiator_user_id: initiatorUserId } : {}),
+    });
+    return true;
   } catch {
     log.warn(
-      { channel },
-      "Slack assistant.threads.setStatus failed, falling back to reaction",
+      { channel, status },
+      "Slack agents.sessions.setStatus failed, falling back to reaction",
     );
   }
 
-  const isSet = status.length > 0;
-  await sendSlackReaction(channel, "eyes", threadTs, isSet ? "add" : "remove");
+  const reactionTarget = threadTs ?? messageTs;
+  if (!reactionTarget) {
+    return false;
+  }
+  await sendSlackReaction(
+    channel,
+    "eyes",
+    reactionTarget,
+    status === "processing" ? "add" : "remove",
+  );
+  return false;
 }
 
 export type SlackAttachmentResult = {

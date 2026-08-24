@@ -49,7 +49,6 @@ import {
   nativeVellumCloudOrigin,
 } from "@/runtime/self-hosted-servers";
 import { useHasPlatformSession } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
@@ -147,10 +146,6 @@ function originSelectionKey(origin: OriginCardEntry): string {
 /** Selection key for the native shell's baked Vellum Cloud card. */
 const CLOUD_SELECTION_KEY = "origin:vellum-cloud";
 
-// Stable empty list for the flag-off render so effects keyed on the origin
-// entries do not re-run every render.
-const NO_ORIGINS: RememberedOrigin[] = [];
-
 /**
  * The consumed `register`/`name` handoff params dropped from `params`,
  * preserving everything else, so a reload does not re-run the registration.
@@ -174,16 +169,9 @@ export function SelectAssistantScreen() {
   const assistants = useResolvedAssistantsStore.use.assistants();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
-  const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
-  const webRemoteIngress = useClientFeatureFlagStore.use.webRemoteIngress();
-  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
-  const origins = useRememberedOriginsStore.use.origins();
+  const originEntries = useRememberedOriginsStore.use.origins();
   const originsHydrated = useRememberedOriginsStore.use.hydrated();
   const nativeMobile = useIsNativeMobile();
-  // Origin-UI gate: every remembered-origin surface renders only behind the
-  // flag, in every mode, so the flag-off screen is pixel-identical to a
-  // build without origin support.
-  const originEntries = assistantSwitcher ? origins : NO_ORIGINS;
   const {
     loading: loginLoading,
     error: loginError,
@@ -192,11 +180,10 @@ export function SelectAssistantScreen() {
   } = useOnboardingLogin();
 
   // The native shell's baked Vellum Cloud origin, present only while the shell
-  // is pointed somewhere else and only on a build carrying the plugin. Behind
-  // the same origin-UI gate as the remembered entries.
+  // is pointed somewhere else and only on a build carrying the plugin.
   const [cloudOriginUrl, setCloudOriginUrl] = useState<string | null>(null);
   const cloudOrigin: OriginCardEntry | null =
-    assistantSwitcher && cloudOriginUrl !== null
+    cloudOriginUrl !== null
       ? { url: cloudOriginUrl, name: "Vellum Cloud" }
       : null;
   // Stable dep for the selection effect: `cloudOrigin` is a fresh object each
@@ -279,32 +266,17 @@ export function SelectAssistantScreen() {
     void refreshPlatformAssistantsIfStale();
   }, []);
 
-  // Platform-mode access gate: the hub chooser exists only behind the
-  // assistant-switcher flag, whose real value lands asynchronously, so a
-  // flag-off decision waits for hydration before bouncing. Local clients
-  // (including the packaged remote-gateway dist) skip this gate.
-  const platformGateBlocked =
-    !localClient && (!flagsHydrated || !assistantSwitcher);
   useEffect(() => {
-    if (!localClient && flagsHydrated && !assistantSwitcher) {
-      void navigate(routes.assistant, { replace: true });
-    }
-  }, [localClient, flagsHydrated, assistantSwitcher, navigate]);
-
-  useEffect(() => {
-    if (assistantSwitcher) {
-      // Native mobile keeps its origins in the shell rather than in web
-      // storage, so the provider swap happens before the first load. Both
-      // calls sit behind the flag so nothing reaches the bridge with it off.
-      installNativeRememberedOrigins();
-      void useRememberedOriginsStore.getState().hydrate();
-    }
-  }, [assistantSwitcher]);
+    // Native mobile keeps its origins in the shell rather than in web
+    // storage, so the provider swap happens before the first load.
+    installNativeRememberedOrigins();
+    void useRememberedOriginsStore.getState().hydrate();
+  }, []);
 
   // The way back to Vellum Cloud, offered only by a shell that is currently
   // serving a self-hosted origin.
   useEffect(() => {
-    if (!assistantSwitcher || !nativeMobile) {
+    if (!nativeMobile) {
       return;
     }
     let cancelled = false;
@@ -316,21 +288,20 @@ export function SelectAssistantScreen() {
     return () => {
       cancelled = true;
     };
-  }, [assistantSwitcher, nativeMobile]);
+  }, [nativeMobile]);
 
   // `?register=<url>&name=<label>` handoff: another origin's Switch
   // Assistant action self-registers here so the hub lists it. Records the
   // entry (renaming an existing one) and strips the params through the
   // router, so router state and the address bar stay in step; it never
   // navigates away, so the user sees the updated list. Consumed at most
-  // once, and only once the flag is known on: with the flag off the params
-  // are ignored and left untouched. Only a name and an https URL ride the
-  // params; anything failing `normalizeOriginUrl` is dropped silently
-  // (and stripped, since retrying cannot fix it). A failed add keeps the
-  // params and releases the ref so a reload can retry the registration.
+  // once. Only a name and an https URL ride the params; anything failing
+  // `normalizeOriginUrl` is dropped silently (and stripped, since retrying
+  // cannot fix it). A failed add keeps the params and releases the ref so a
+  // reload can retry the registration.
   const registerHandledRef = useRef(false);
   useEffect(() => {
-    if (!assistantSwitcher || registerHandledRef.current) {
+    if (registerHandledRef.current) {
       return;
     }
     registerHandledRef.current = true;
@@ -361,7 +332,7 @@ export function SelectAssistantScreen() {
       .catch(() => {
         registerHandledRef.current = false;
       });
-  }, [assistantSwitcher, searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams]);
 
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant, else the first origin card. Also
@@ -628,13 +599,9 @@ export function SelectAssistantScreen() {
       return;
     }
     // Remembered origins are alternatives a sole assistant does not account
-    // for, so the chooser stays up whenever any exist. Both the flag and the
-    // entries land after mount, and the flag store boots to its registry
-    // default, so the origin hold below is inert until this one clears.
-    if (!flagsHydrated) {
-      return;
-    }
-    if (assistantSwitcher && !originsHydrated) {
+    // for, so the chooser stays up whenever any exist. The entries land after
+    // mount, so hold the skip until they have.
+    if (!originsHydrated) {
       return;
     }
     if (originEntries.length > 0) {
@@ -663,8 +630,6 @@ export function SelectAssistantScreen() {
     deepLinkDrainSettled,
     localClient,
     originEntries.length,
-    assistantSwitcher,
-    flagsHydrated,
     originsHydrated,
   ]);
 
@@ -704,13 +669,6 @@ export function SelectAssistantScreen() {
   };
 
   const displayError = loginError ?? error;
-
-  // Holding state while the platform gate waits on flag hydration (and while
-  // the flag-off redirect above lands), so a direct URL on the cloud origin
-  // shows nothing new when the flag is off.
-  if (platformGateBlocked) {
-    return <ConnectingHold />;
-  }
 
   // Loading state during auto-skip. A pending recovery falls through to the
   // chooser so the dialog can render.
@@ -859,9 +817,8 @@ export function SelectAssistantScreen() {
           )}
           {/* Hostless surfaces (hub browser, remote-gateway mode, native
               mobile) add origins by URL; local desktop clients keep the
-              bundle-paste connect flow above instead. The web-remote-ingress
-              client flag decides whether the affordance shows at all. */}
-          {assistantSwitcher && webRemoteIngress && !localModeHostAvailable && (
+              bundle-paste connect flow above instead. */}
+          {!localModeHostAvailable && (
             <DashedActionButton
               icon={<Globe className="h-4 w-4" />}
               label={t("selectAssistantScreen.addRemote")}

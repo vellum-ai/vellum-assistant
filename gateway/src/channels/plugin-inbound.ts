@@ -1,3 +1,7 @@
+import {
+  isChannelConversationType,
+  type ChannelConversationType,
+} from "@vellumai/gateway-client";
 /**
  * A plugin's reply to a verified webhook delivery, read as an inbound message.
  *
@@ -111,6 +115,23 @@ export interface ReadPluginInboundOptions {
 }
 
 /**
+ * A plugin's reported chat type on the permission matrix's axis.
+ *
+ * The plugin contract documents `dm` and `channel`, and a plugin is the channel
+ * here, so its word is the only signal. `channel` stays unmapped for the same
+ * reason Discord's does: one word for every shared room proves nothing about
+ * who can read it, and a permissive public rule must not reach a private one.
+ *
+ * A plugin that knows better can say so directly by sending
+ * `conversationType`, which is preferred over this when present.
+ */
+export function pluginConversationType(
+  chatType: string | undefined,
+): ChannelConversationType | undefined {
+  return chatType === "dm" ? "dm" : undefined;
+}
+
+/**
  * Read a plugin's reply into an inbound event, or say why there isn't one.
  *
  * A delivery is a message when it carries a sender, and with them a
@@ -173,6 +194,12 @@ export function readPluginInbound(
   const displayName = read("actorDisplayName")?.trim();
   const username = read("actorUsername")?.trim();
   const chatType = read("chatType")?.trim();
+  // An explicit answer from the plugin wins; otherwise its chat type is mapped
+  // the same way every other channel maps its own.
+  const declaredConversationType = read("conversationType")?.trim();
+  const conversationType = isChannelConversationType(declaredConversationType)
+    ? declaredConversationType
+    : pluginConversationType(chatType);
 
   return {
     status: "event",
@@ -197,6 +224,7 @@ export function readPluginInbound(
         updateId: pluginScopedId(plugin, messageId!),
         messageId: pluginScopedId(plugin, messageId!),
         ...(chatType ? { chatType } : {}),
+        ...(conversationType ? { conversationType } : {}),
       },
       raw: readRaw(body),
     },

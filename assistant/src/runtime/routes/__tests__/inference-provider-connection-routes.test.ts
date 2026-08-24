@@ -641,6 +641,26 @@ describe("POST inference/provider-connections (create)", () => {
     ).rejects.toThrow(/belongs to a built-in provider/);
   });
 
+  test("attaches a failed endpoint_check when the custom base URL is unreachable", async () => {
+    // Port 1 is never listening, so the probe fails fast with a network error.
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "probe-dead-endpoint",
+          provider: "openai-compatible",
+          auth: { type: "none" },
+          base_url: "http://127.0.0.1:1",
+          models: [{ id: "my-model" }],
+        },
+      },
+    )) as { endpoint_check?: { ok: boolean; resolved_url: string } };
+    expect(result.endpoint_check).toMatchObject({
+      ok: false,
+      resolved_url: "http://127.0.0.1:1/chat/completions",
+    });
+  });
+
   test("derives none auth for openai-compatible without a credential", async () => {
     const result = (await call(
       findHandler("inference_provider_connections_create"),
@@ -1111,7 +1131,7 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
 describe("DELETE repairs a row whose stored auth is underivable", () => {
   // A keyed provider with no credential payload derives no auth
   // (`parseAuth` returns null), e.g. a legacy `auth: {type: "none"}` row
-  // stripped to `{}` by migration 367.
+  // stripped to `{}` by migration 369.
   beforeEach(() => {
     seedConnection({ name: "zombie", provider: "anthropic", auth: {} });
   });

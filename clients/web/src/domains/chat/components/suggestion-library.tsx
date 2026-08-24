@@ -5,6 +5,7 @@ import type {
   SuggestionGroup,
   ThreadSuggestion,
 } from "@/domains/chat/suggestions/types";
+import { useTranslation } from "@/i18n";
 
 /**
  * The new-thread suggestions library, split into two pieces so the empty
@@ -30,6 +31,7 @@ export function SuggestionFeaturedRow({
   featured,
   onSelect,
 }: FeaturedRowProps) {
+  const { t } = useTranslation("chat");
   return (
     <div data-slot="suggestion-featured-row" className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -44,7 +46,9 @@ export function SuggestionFeaturedRow({
 
       <div className="flex items-center justify-center gap-2 text-[var(--content-tertiary)]">
         <ChevronDown aria-hidden className="h-5 w-5" />
-        <span className="text-body-small-default">Scroll down to see more</span>
+        <span className="text-body-small-default">
+          {t("suggestionLibrary.scrollForMore")}
+        </span>
       </div>
     </div>
   );

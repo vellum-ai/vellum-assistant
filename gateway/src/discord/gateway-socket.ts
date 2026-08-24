@@ -24,10 +24,20 @@
  */
 
 import { getLogger } from "../logger.js";
+import {
+  defaultSchedule,
+  type CancelTimer,
+  type ScheduleFn,
+} from "../util/schedule.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import { admitDiscordMessage } from "./admit.js";
 import { AdmissionDropLog } from "./admission-log.js";
+import {
+  extractDiscordAttachmentMap,
+  type DiscordAttachmentReference,
+} from "./attachments.js";
 import { ReconnectBackoff, SESSION_STABLE_AFTER_MS } from "./backoff.js";
 import {
   RESUMABLE_CLOSE_CODE,
@@ -52,6 +62,11 @@ import { ThreadParentCache } from "./thread-parents.js";
 const log = getLogger("discord-gateway");
 
 const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
+
+export type DiscordGatewayEventHandler = (
+  event: DiscordInboundEvent,
+  attachmentRefs?: Map<string, DiscordAttachmentReference>,
+) => void;
 
 /**
  * Floor for the `session_start_limit.remaining` warning. Steady state spends
@@ -101,17 +116,6 @@ export interface GatewaySocketLike {
   ): void;
 }
 
-/** Cancel handle returned by {@link ScheduleFn}. */
-export type CancelTimer = () => void;
-
-/** Injectable timer: schedule `fn` after `delayMs`, return a cancel handle. */
-export type ScheduleFn = (fn: () => void, delayMs: number) => CancelTimer;
-
-const defaultSchedule: ScheduleFn = (fn, delayMs) => {
-  const timer = setTimeout(fn, delayMs);
-  return () => clearTimeout(timer);
-};
-
 export interface DiscordGatewayClientOptions {
   botToken: string;
   /**
@@ -160,7 +164,7 @@ export class DiscordGatewayClient {
 
   constructor(
     options: DiscordGatewayClientOptions,
-    private readonly onEvent: (event: DiscordInboundEvent) => void,
+    private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
     this.readAllowedChannelIds = options.readAllowedChannelIds;
@@ -199,6 +203,28 @@ export class DiscordGatewayClient {
     }
     this.sessionState = new DiscordSessionState(baseUrl);
     this.openSocket();
+  }
+
+  /**
+   * Whether this client currently holds a live Gateway connection.
+   *
+   * Reported in the same shape as the other socket channels so a reader does
+   * not need to know which protocol proved it. Discord's proof of liveness is
+   * an op 11 ACK rather than a pong.
+   *
+   * `connected` requires an established session, not merely a socket pointer.
+   * `openSocket` assigns `this.ws` as soon as the socket is constructed, and
+   * the connection carries nothing until op 10 HELLO arrives, so a socket
+   * whose handshake stalls would otherwise report itself live for the whole
+   * HELLO deadline. A recorded heartbeat interval is the establishment
+   * signal: it is set from HELLO and cleared on every reset.
+   */
+  getConnectionHealth(): ChannelConnectionHealth {
+    return {
+      connected:
+        this.ws !== null && this.heartbeat.heartbeatIntervalMs !== undefined,
+      lastLivenessAt: this.heartbeat.lastAckAt,
+    };
   }
 
   /**
@@ -706,7 +732,7 @@ export class DiscordGatewayClient {
       },
       "Discord message admitted",
     );
-    this.onEvent(normalized);
+    this.onEvent(normalized, extractDiscordAttachmentMap(message.attachments));
   }
 
   /**

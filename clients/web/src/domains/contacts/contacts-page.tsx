@@ -435,11 +435,13 @@ export function ContactsPage({
     select: (data) => data.users,
   });
 
-  // Without configured Slack credentials the roster can only 503, so the
-  // Link action is offered only when the Slack connection is ready —
-  // otherwise the row keeps Invite as its sole (working) action.
+  // Without configured Slack credentials the roster can only 503, so the Link
+  // action is offered only once Slack is set up. Configuration, not liveness:
+  // the roster is an outbound Web API call, so it answers perfectly well while
+  // the inbound Socket Mode connection is down, and gating on the connection
+  // state would hide a working action during a reconnect.
   const slackReady = channelsController.channels.some(
-    (channel) => channel.key === "slack" && channel.status === "ready",
+    (channel) => channel.key === "slack" && channel.configured,
   );
 
   const handleLinkAccount = useCallback(

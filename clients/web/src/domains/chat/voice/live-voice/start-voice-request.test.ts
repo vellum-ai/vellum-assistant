@@ -21,6 +21,11 @@ const utils = await import("@/lib/backwards-compat/utils");
 let versionResolution: Promise<void> = Promise.resolve();
 const whenAssistantVersionKnown = mock(() => versionResolution);
 
+const ensureMainWindowVisibleMock = mock(() => Promise.resolve());
+mock.module("@/runtime/main-window", () => ({
+  ensureMainWindowVisible: ensureMainWindowVisibleMock,
+}));
+
 mock.module("@/lib/backwards-compat/utils", () => ({
   ...utils,
   whenAssistantVersionKnown,
@@ -45,17 +50,14 @@ const {
   requestVoiceStart,
   startVoiceFromSurface,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
@@ -65,8 +67,8 @@ const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 /** New enough to serve `POST /v1/live-voice/preflight`. */
 const SUPPORTED_VERSION = "0.10.12";
 
-const starter = mock((_assistantId: string, _conversationId: string | null) =>
-  undefined,
+const starter = mock(
+  (_assistantId: string, _conversationId: string | null) => undefined,
 );
 
 function registerStarter(): void {
@@ -115,6 +117,7 @@ beforeEach(() => {
   starter.mockClear();
   whenAssistantVersionKnown.mockClear();
   preflightLiveVoice.mockClear();
+  ensureMainWindowVisibleMock.mockClear();
   versionResolution = Promise.resolve();
   preflightVerdict = { status: "ready" };
   // These tests are about delivery, not about the first-ever entry: a user who
@@ -370,6 +373,41 @@ describe("entry guards", () => {
     expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(true);
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
+  });
+
+  /**
+   * The card is drawn in the app's window, and the press that summoned it can
+   * come from the companion surface, which deliberately never raises. Left
+   * behind whatever the user is working in, the card is a question nobody can
+   * see and the press reads as having done nothing.
+   */
+  test("the first-ever entry brings the app forward to ask its question", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    requestVoiceStart();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalled();
+  });
+
+  /**
+   * And only then. Every other entry is a surface the user reached for because
+   * they are working somewhere else, so raising would take the app away from
+   * them to show a call that is already on the surface they pressed.
+   */
+  test("an ordinary start leaves the app where it is", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: true });
+
+    requestVoiceStart();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
   });
 
   test("an unconfigured assistant gets the notice, not a room that opens and closes", async () => {

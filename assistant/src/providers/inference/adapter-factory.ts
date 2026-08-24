@@ -18,6 +18,7 @@
  *   3. Register the client in `ADAPTER_FACTORIES` below.
  */
 
+import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { AnthropicProvider } from "../anthropic/client.js";
 import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { BasetenProvider } from "../baseten/client.js";
@@ -38,6 +39,7 @@ import { isVellumManagedConnection } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
+import { MissingCredentialGuardProvider } from "./missing-credential-guard.js";
 import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
@@ -285,17 +287,17 @@ export function createAdapterFromConnection(
   // would leak internal Vellum metadata, so gate on the managed connection
   // identity, the only route that flows through our proxy.
   const isManagedProxy = isVellumManagedConnection(connection);
-  const authType = connection.auth.type;
-  return new UsageTrackingProvider(
+  const auth = connection.auth;
+  const tracked = new UsageTrackingProvider(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isManagedProxy,
       credentialSource: isManagedProxy
         ? "vellum-managed"
-        : authType === "api_key"
+        : auth.type === "api_key"
           ? "byok"
-          : authType === "oauth_subscription"
+          : auth.type === "oauth_subscription"
             ? "oauth-subscription"
-            : authType === "none"
+            : auth.type === "none"
               ? "no-auth"
               : undefined,
       connectionName: connection.name,
@@ -304,6 +306,16 @@ export function createAdapterFromConnection(
         : {}),
     }),
   );
+
+  // A credential-backed connection can lose its key between construction and
+  // dispatch. Some upstreams answer that with 200 + empty content rather than
+  // a 401, which would otherwise land as a blank assistant turn.
+  return "credential" in auth
+    ? new MissingCredentialGuardProvider(tracked, {
+        name: connection.name,
+        credentialAccount: normalizeCredentialRef(auth.credential),
+      })
+    : tracked;
 }
 
 function buildConnectionAdapter(

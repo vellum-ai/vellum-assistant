@@ -1,11 +1,12 @@
 import { Loader2, Sparkles } from "lucide-react";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { useNavigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AddCreditsModal } from "@/components/add-credits-modal";
 import {
   isCleanPin,
   nextPackageUp,
@@ -20,6 +21,7 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -33,8 +35,19 @@ import {
   organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type { ProPlan } from "@/generated/api/types.gen";
+import type {
+  PlanListResponse,
+  ProPlan,
+  SubscriptionResponse,
+} from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
+import {
+  includedMonthlyCreditsUsd,
+  usePlanUsageBalance,
+} from "@/hooks/use-plan-usage-balance";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
@@ -65,13 +78,14 @@ export interface PlanCardProps {
 }
 
 function PlanHeading() {
+  const { t } = useTranslation("settings");
   return (
     <Typography
       as="h2"
       variant="title-medium"
       className="text-[var(--content-emphasised)]"
     >
-      Plan
+      {t("planCard.heading")}
     </Typography>
   );
 }
@@ -106,6 +120,11 @@ interface RecommendedUpgradeProps {
    */
   relation: SwitchRelation;
   /**
+   * Whether the `obscure-credits` flag is on. Read once by `PlanCard` and
+   * passed down so both tiles answer to the same read.
+   */
+  obscureCredits: boolean;
+  /**
    * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
    * non-entitlement Pro sub that the change-package flow cannot act on.
    */
@@ -124,9 +143,11 @@ function RecommendedUpgrade({
   isProUser,
   canChangePackage,
   relation,
+  obscureCredits,
   onManage,
   onTierUpgraded,
 }: RecommendedUpgradeProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const upgradeMutation = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
@@ -163,7 +184,7 @@ function RecommendedUpgrade({
     } else {
       // no_op: the sub is already on this package, so there's nothing to
       // provision — just dismiss the confirm.
-      toast.success("You're already on this plan.");
+      toast.success(t("planCard.alreadyOnPlanToast"));
     }
   };
 
@@ -220,7 +241,7 @@ function RecommendedUpgrade({
       toast.error(
         extractMutationError(
           error,
-          "Failed to start the upgrade checkout. Please try again.",
+          t("planCard.checkoutFailedToast"),
         ),
       );
     } finally {
@@ -247,8 +268,8 @@ function RecommendedUpgrade({
       : null;
   const ctaLabel =
     delta != null && delta > 0
-      ? `Power Up for +${formatDollars(delta)}/month`
-      : "Power Up";
+      ? t("planCard.powerUpFor", { amount: formatDollars(delta) })
+      : t("planCard.powerUp");
 
   return (
     <>
@@ -264,10 +285,20 @@ function RecommendedUpgrade({
               <Sparkles className="text-[var(--credits-accent)]" aria-hidden />
             }
           >
-            Next Plan
+            {t("planCard.nextPlan")}
           </Tag>
         }
-        specs={packageSpecs(recommended)}
+        specs={packageSpecs(
+          recommended,
+          obscureCredits
+            ? {
+                obscuredUsageLabel: t("planCard.usageChip", {
+                  name: recommended.name,
+                }),
+              }
+            : undefined,
+        )}
+        specsWrap={obscureCredits}
         footer={
           <Button
             variant="primary"
@@ -300,12 +331,60 @@ function RecommendedUpgrade({
   );
 }
 
+function findProPlan(
+  plans: PlanListResponse["plans"] | undefined,
+): ProPlan | null {
+  return plans?.find((p): p is ProPlan => p.id === "pro") ?? null;
+}
+
+/**
+ * The catalog package a sub is cleanly pinned to, or null when its specs are
+ * unknowable: a base plan, a customized or unpinned sub, or a pin the live
+ * catalog no longer carries at that version. Pure so the hooks above the
+ * card's early returns can resolve it before the data is known to be there.
+ */
+function resolveCurrentPackage(
+  subscription: SubscriptionResponse | undefined,
+  plans: PlanListResponse["plans"] | undefined,
+): ProPackage | null {
+  const pin = subscription?.package;
+  if (!subscription || subscription.plan_id === "base" || !isCleanPin(pin)) {
+    return null;
+  }
+  return (
+    findProPlan(plans)?.packages?.find(
+      (p) => p.key === pin.key && p.version === pin.version,
+    ) ?? null
+  );
+}
+
 export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
   const subscriptionQuery = useQuery(
     organizationsBillingSubscriptionRetrieveOptions(),
   );
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
+  const obscureCredits = useObscureCredits();
+  const { balance, availableUsageBalance, totalUsageBalance } =
+    useBillingBalanceStatus();
+  const [addCreditsOpen, setAddCreditsOpen] = useState(false);
+  // Resolved before the early returns below so the usage hook is never
+  // conditional; both tolerate data that has not landed yet.
+  const currentPackage = resolveCurrentPackage(
+    subscriptionQuery.data,
+    plansQuery.data?.plans,
+  );
+  const usage = usePlanUsageBalance({
+    subscription: subscriptionQuery.data,
+    includedCreditsUsd: includedMonthlyCreditsUsd(
+      subscriptionQuery.data,
+      currentPackage,
+      findProPlan(plansQuery.data?.plans),
+    ),
+    availableUsageBalance,
+    totalUsageBalance,
+  });
 
   if (subscriptionQuery.isLoading || plansQuery.isLoading) {
     return (
@@ -314,7 +393,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           <Typography as="span" variant="body-small-default">
-            Loading plan...
+            {t("planCard.loading")}
           </Typography>
         </div>
       </Card>
@@ -332,7 +411,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     !plans ||
     !currentPlan
   ) {
-    return <Notice tone="error">Failed to load plan.</Notice>;
+    return <Notice tone="error">{t("planCard.loadError")}</Notice>;
   }
 
   const planName =
@@ -349,7 +428,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     !isCancelling && !isCanceled && subscription.current_period_end;
   const showCancellation = isCancelling && !isCanceled && cancelDate;
 
-  const proPlan = plans.find((p): p is ProPlan => p.id === "pro");
+  const proPlan = findProPlan(plans);
   // Empty while the `pro-packages` flag is off, which hides the next tile.
   const packages = proPlan?.packages ?? [];
   const currentKey = subscription.package?.key ?? null;
@@ -383,32 +462,72 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       : "switch";
 
   const isFreePlan = currentPlan.id === "base";
-  const pin = subscription.package;
-  // Paid chips render only when the sub's stock package specs are known. A
-  // clean pin absent from the catalog and a customized/unpinned "Custom" sub
-  // show no chips and no price (never fall back to the free baseline, which
-  // would mislabel a paid sub). A pin on an older package version degrades the
-  // same way: its price and specs are grandfathered at the version the org
-  // subscribed under, so today's catalog entry does not describe what they
-  // actually pay for.
-  const currentPackage =
-    !isFreePlan && isCleanPin(pin)
-      ? (packages.find((p) => p.key === pin.key && p.version === pin.version) ??
-        null)
-      : null;
+  // Paid chips render only when the sub's stock package specs are known
+  // (`resolveCurrentPackage` above). A clean pin absent from the catalog and a
+  // customized/unpinned "Custom" sub show no chips and no price (never fall
+  // back to the free baseline, which would mislabel a paid sub). A pin on an
+  // older package version degrades the same way: its price and specs are
+  // grandfathered at the version the org subscribed under, so today's catalog
+  // entry does not describe what they actually pay for.
   const currentSpecs = isFreePlan
     ? freePlanSpecs()
     : currentPackage
-      ? packageSpecs(currentPackage)
+      ? packageSpecs(
+          currentPackage,
+          obscureCredits
+            ? {
+                obscuredUsageLabel: t("planCard.usageChip", {
+                  name: currentPackage.name,
+                }),
+              }
+            : undefined,
+        )
       : null;
   const currentPriceCents = isFreePlan
     ? 0
     : (currentPackage?.total_price_cents ?? null);
   const priceLabel = isFreePlan
-    ? "Free Forever"
+    ? t("planCard.freeForever")
     : currentPackage
       ? priceLabelFromCents(currentPackage.total_price_cents)
       : null;
+  const priceRow = priceLabel ? (
+    <div className="flex h-10 items-center border-t border-[var(--border-base)]">
+      <Typography
+        as="span"
+        variant="body-large-default"
+        className="text-[var(--content-tertiary)]"
+        data-testid="plan-card-price"
+      >
+        {priceLabel}
+      </Typography>
+    </div>
+  ) : undefined;
+  // The add-credits strip is only warranted once the wallet behind the bundle
+  // is empty too: a sub at 100% whose purchased credits still cover the next
+  // turn has nothing to buy. The bar goes red either way.
+  //
+  // The raw balance answers that, not the hook's `isExhausted`: this surface
+  // reports the wallet itself, while the suppression behind that flag exists
+  // for chat banners, where a BYOK route never spends the managed wallet.
+  const walletEmpty = balance != null && Number(balance) <= 0;
+  const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
+  const usagePanel = usage ? (
+    <UsageBalancePanel
+      ratio={usage.ratio}
+      resetsAt={usage.resetsAt}
+      exhausted={creditsExhausted}
+      onAddCredits={() => setAddCreditsOpen(true)}
+    />
+  ) : null;
+  // A tile under the flag trades its price for the usage balance, so the two
+  // never state the same allowance twice. A free account that was never granted
+  // any usage has no bar to trade for, so "Free Forever" stays as its footer
+  // rather than leaving the tile with an empty bottom slot.
+  let currentFooter: ReactNode = priceRow;
+  if (obscureCredits && (!isFreePlan || usagePanel != null)) {
+    currentFooter = usagePanel;
+  }
 
   return (
     <Card padding="md">
@@ -423,8 +542,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                 className="leading-snug text-[var(--content-tertiary)]"
                 data-testid="plan-card-renews"
               >
-                Monthly Payment &bull; Your subscription will auto renew on{" "}
-                {formatGraceDate(subscription.current_period_end!)}.
+                {t("planCard.renewsOn", {
+                  date: formatGraceDate(subscription.current_period_end!),
+                })}
               </Typography>
             )}
             {showCancellation && (
@@ -434,7 +554,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
                 className="leading-snug text-[var(--system-mid-strong)]"
                 data-testid="plan-card-cancels"
               >
-                Your plan ends on {formatGraceDate(cancelDate!)}.
+                {t("planCard.endsOn", {
+                  date: formatGraceDate(cancelDate!),
+                })}
               </Typography>
             )}
           </div>
@@ -446,7 +568,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             data-testid="plan-card-plans-button"
             className="shrink-0"
           >
-            View All Plans
+            {t("planCard.viewAllPlans")}
           </Button>
         </div>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
@@ -455,22 +577,10 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             tierKey={currentTier}
             name={planName}
             nameTestId="plan-card-name"
-            tag={<Tag tone="info">Current</Tag>}
+            tag={<Tag tone="info">{t("planCard.current")}</Tag>}
             specs={currentSpecs}
-            footer={
-              priceLabel ? (
-                <div className="flex h-10 items-center border-t border-[var(--border-base)]">
-                  <Typography
-                    as="span"
-                    variant="body-large-default"
-                    className="text-[var(--content-tertiary)]"
-                    data-testid="plan-card-price"
-                  >
-                    {priceLabel}
-                  </Typography>
-                </div>
-              ) : undefined
-            }
+            specsWrap={obscureCredits}
+            footer={currentFooter}
           />
           <RecommendedUpgrade
             packages={packages}
@@ -479,11 +589,13 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             isProUser={currentPlan.id !== "base"}
             canChangePackage={canChangePackage}
             relation={switchRelation}
+            obscureCredits={obscureCredits}
             onManage={onManage}
             onTierUpgraded={onTierUpgraded}
           />
         </div>
       </div>
+      <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
     </Card>
   );
 }

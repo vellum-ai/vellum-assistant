@@ -219,7 +219,7 @@ function isSubscriptionOnlyWorkspace(workspaceDir: string): boolean {
  *     the chatgpt access-token slot
  *
  * The post-367 arms were widened into this historical migration after DB
- * migration 367 shipped: DB migrations run before workspace migrations at
+ * migration 369 shipped: DB migrations run before workspace migrations at
  * boot, so a workspace jumping several releases sees the stripped shape on
  * the very boot this migration first runs. The edit is pure
  * detection-widening: installs that already checkpointed this migration

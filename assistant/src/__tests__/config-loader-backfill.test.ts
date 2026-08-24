@@ -49,6 +49,7 @@ afterAll(() => {
 });
 
 import {
+  CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
@@ -164,6 +165,14 @@ const LEGACY_HATCH_PROFILE_NAMES = [
   "custom-quality-optimized",
   "custom-cost-optimized",
 ] as const;
+
+/**
+ * The managed Balanced model. These tests assert that resolution serves the
+ * code catalog rather than a workspace body, so they follow the catalog
+ * instead of restating its pin.
+ */
+const MANAGED_BALANCED_MODEL = CODE_DEFAULT_PROFILE_ENTRIES.balanced
+  .model as string;
 
 function createProviderConnectionsDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
@@ -669,7 +678,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles).toEqual({});
     // Default content resolves from the code catalog via the effective view.
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
     expect(effectiveBalanced?.provider).toBe("vellum");
   });
 
@@ -990,7 +999,7 @@ describe("loadConfig startup behavior", () => {
     // Resolution ignores the drifted body: a managed-source entry contributes
     // only label/status/topP, everything else comes from the catalog.
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
   });
 
   test("boot leaves a source-less legacy canonical profile as a user-owned shadow", () => {
@@ -1068,7 +1077,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced).toEqual(drifted);
     expect(raw.llm.activeProfile).toBe("balanced");
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
     expect(effectiveBalanced?.maxTokens).toBe(32000);
     // The catalog body carries no topP and the entry has none, so the
     // effective profile has no topP override.
@@ -1099,7 +1108,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced).toEqual(edited);
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     // Content is served from the catalog...
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
     // ...with the user's label and status overlaid.
     expect(effectiveBalanced?.label).toBe("My Default");
     expect(effectiveBalanced?.status).toBe("disabled");
@@ -1124,7 +1133,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced).toEqual(stub);
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.label).toBe("My Default");
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
   });
 
   test("off-platform boot preserves user-toggled status on a managed stub", () => {
@@ -1146,7 +1155,7 @@ describe("loadConfig startup behavior", () => {
     expect(effectiveBalanced?.status).toBe("disabled");
     // Content still comes from the catalog — only label/status/topP are
     // workspace-owned.
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
   });
 
   test("boot preserves a user-edited topP override on a managed stub", () => {
@@ -1170,7 +1179,7 @@ describe("loadConfig startup behavior", () => {
     expect(effectiveBalanced?.topP).toBe(0.5);
     // Content still comes from the catalog — topP is workspace-owned, the
     // rest is code-owned.
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
   });
 
   test("effective balanced profile carries no topP override by default", () => {
@@ -1225,7 +1234,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced).toBeUndefined();
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.label).toBe("Balanced");
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
     // Status is unset — the default resolves active.
     expect("status" in (effectiveBalanced ?? {})).toBe(false);
   });
@@ -1304,7 +1313,7 @@ describe("loadConfig startup behavior", () => {
     // overlay boot. The overlay-set label is what shows through the
     // effective view.
     expect(mainAgentConfig.provider).toBe("vellum");
-    expect(mainAgentConfig.model).toBe("gpt-5.6-luna");
+    expect(mainAgentConfig.model).toBe(MANAGED_BALANCED_MODEL);
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(raw.llm.profiles.balanced).toEqual({
@@ -1334,7 +1343,7 @@ describe("loadConfig startup behavior", () => {
       "balanced",
     );
     expect(effectiveBalanced?.provider).toBe("vellum");
-    expect(effectiveBalanced?.model).toBe("gpt-5.6-luna");
+    expect(effectiveBalanced?.model).toBe(MANAGED_BALANCED_MODEL);
     expect(effectiveBalanced?.maxTokens).toBe(32000);
     expect(effectiveBalanced?.thinking).toEqual({
       enabled: true,

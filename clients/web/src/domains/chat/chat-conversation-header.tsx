@@ -1,56 +1,48 @@
 import { Button } from "@vellumai/design-library";
 import { ChevronDown } from "lucide-react";
+import { useTranslation } from "@/i18n";
 
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
-  buildMoveToGroupTargets,
-  isInCustomGroup,
-} from "@/domains/chat/utils/group-conversations";
-import {
   ChannelIcon,
   getOpenInChannelLabel,
 } from "@/utils/channel-presentation";
-import type {
-  Conversation,
-  ConversationGroup,
-} from "@/types/conversation-types";
+import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
   activeConversation: Conversation | null;
   headerSupplements: ChatHeaderSupplements | null;
-  showLlmInspector: boolean;
-  conversationGroups?: ConversationGroup[];
+  /** Gates the internal-only menu items: Copy Full Conversation, Open in New
+   *  Window, Refresh, Analyze Conversation, and Copy conversation ID. See
+   *  `@/lib/auth/internal-thread-actions`. */
+  showInternalActions: boolean;
   onArchive: (c: Conversation) => void;
   onUnarchive: (c: Conversation) => void;
+  onDelete: (c: Conversation) => void;
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
   onRename: (c: Conversation) => void;
-  onMoveToGroup: (c: Conversation, groupId: string) => void;
-  onCreateGroupInto: (c: Conversation) => void;
-  onRemoveFromGroup: (c: Conversation) => void;
 }
 
 export function ChatConversationHeader({
   assistantId,
   activeConversation,
   headerSupplements,
-  showLlmInspector,
-  conversationGroups,
+  showInternalActions,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   onMarkRead,
   onPinToggle,
   onRename,
-  onMoveToGroup,
-  onCreateGroupInto,
-  onRemoveFromGroup,
 }: ChatConversationHeaderProps) {
+  const { t } = useTranslation("chat");
   if (!activeConversation) {
     if (!assistantId) {
       return null;
@@ -64,7 +56,7 @@ export function ChatConversationHeader({
     // below truncates for the same reason.
     return (
       <span className="min-w-0 truncate text-sm font-medium text-[var(--content-default)]">
-        New Chat
+        {t("chatConversationHeader.newChat")}
       </span>
     );
   }
@@ -99,19 +91,13 @@ export function ChatConversationHeader({
       isReadonly={isReadonly}
       onPinToggle={() => onPinToggle(activeConversation)}
       onRename={() => onRename(activeConversation)}
-      moveToGroups={buildMoveToGroupTargets(
-        activeConversation,
-        conversationGroups,
-      )}
-      onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
-      onCreateGroupInto={() => onCreateGroupInto(activeConversation)}
-      onRemoveFromGroup={
-        isInCustomGroup(activeConversation)
-          ? () => onRemoveFromGroup(activeConversation)
-          : undefined
-      }
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
+      onDelete={
+        activeConversation.conversationId && !activeConversation.draft
+          ? () => onDelete(activeConversation)
+          : undefined
+      }
       onForkConversation={
         !isReadonly &&
         headerSupplements?.hasPersistedMessage &&
@@ -120,21 +106,26 @@ export function ChatConversationHeader({
           : undefined
       }
       onOpenInNewWindow={
+        showInternalActions &&
         headerSupplements?.onOpenInNewWindow &&
         activeConversation.conversationId
           ? () => headerSupplements.onOpenInNewWindow!(activeConversation)
           : undefined
       }
       onInspect={
-        showLlmInspector &&
+        showInternalActions &&
         headerSupplements?.onInspect &&
         activeConversation.conversationId
           ? () => headerSupplements.onInspect!(activeConversation)
           : undefined
       }
-      onCopyConversation={headerSupplements?.onCopyConversation ?? undefined}
+      onCopyConversation={
+        showInternalActions
+          ? (headerSupplements?.onCopyConversation ?? undefined)
+          : undefined
+      }
       onCopyConversationId={
-        activeConversation.conversationId
+        showInternalActions && activeConversation.conversationId
           ? () =>
               copyIdToClipboard(
                 activeConversation.conversationId!,
@@ -143,6 +134,7 @@ export function ChatConversationHeader({
           : undefined
       }
       onRefresh={
+        showInternalActions &&
         headerSupplements?.onRefresh &&
         activeConversation.conversationId != null
           ? headerSupplements.onRefresh
@@ -188,10 +180,10 @@ export function ChatConversationHeader({
             <span className="min-w-0 max-w-[220px] truncate leading-6">
               {isArchived && (
                 <span className="mr-1 text-[var(--content-tertiary)]">
-                  [Archived]
+                  {t("chatConversationHeader.archived")}
                 </span>
               )}
-              {activeConversation.title ?? "Untitled"}
+              {activeConversation.title ?? t("chatConversationHeader.untitled")}
             </span>
             {channelHeaderLabel ? (
               <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">

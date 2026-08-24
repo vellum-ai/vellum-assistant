@@ -75,6 +75,9 @@ const WebSearchServiceSchema = z.object({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
+  // Origin for providers that support a custom API base (e.g. fastCRW).
+  // Empty / omitted uses the provider's cloud default.
+  apiBase: z.string().optional(),
 });
 
 /**
@@ -87,6 +90,9 @@ const WebFetchServiceSchema = z.object({
   // `firecrawl`) scrape via their hosted API and reuse the same stored key as
   // their web-search counterpart.
   provider: z.enum(VALID_WEB_FETCH_PROVIDERS).default("default"),
+  // Origin for providers that support a custom API base (e.g. fastCRW).
+  // Empty / omitted uses the provider's cloud default.
+  apiBase: z.string().optional(),
 });
 
 const GoogleOAuthServiceSchema = BaseServiceSchema.extend({

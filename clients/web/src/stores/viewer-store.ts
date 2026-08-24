@@ -42,7 +42,7 @@ import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-ch
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
-import { isAppMainView } from "@/stores/pane-presentation";
+import { isAppMainView } from "@/stores/pane-state";
 
 /** Views that overlay the main content and track a "back" destination. */
 type OverlayView =

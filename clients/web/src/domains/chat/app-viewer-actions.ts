@@ -19,7 +19,8 @@
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
  *   chat), `"full"` (full-width), or `"chat"` (close the app). Side-by-side has
  *   no mobile layout, so `"split"` is ignored on mobile (the app keeps its
- *   full-screen overlay).
+ *   full-screen overlay). On a wide viewport it uses the open conversation,
+ *   and starts one when none is open.
  *
  * Stateless and framework-agnostic: stores are read via `getState()` and
  * navigation / viewport arrive through `ctx`, so this is unit-testable.
@@ -63,6 +64,19 @@ function relayPrompt(
   );
 }
 
+/**
+ * Select `conversationId` and land on it, keeping an open app beside it
+ * rather than dismissing the app for the chat.
+ */
+function goToConversation(
+  ctx: AppViewerActionContext,
+  conversationId: string,
+): void {
+  useConversationStore.getState().setActiveConversationId(conversationId);
+  keepOpenAppBesideConversation(conversationId);
+  ctx.navigate(routes.conversation(conversationId));
+}
+
 function openConversation(
   ctx: AppViewerActionContext,
   data?: Record<string, unknown>,
@@ -72,9 +86,7 @@ function openConversation(
   if (!conversationId) {
     return;
   }
-  useConversationStore.getState().setActiveConversationId(conversationId);
-  keepOpenAppBesideConversation(conversationId);
-  ctx.navigate(routes.conversation(conversationId));
+  goToConversation(ctx, conversationId);
 }
 
 function setView(
@@ -97,10 +109,13 @@ function setView(
       }
       const conversationId =
         useConversationStore.getState().activeConversationId;
-      if (!conversationId) {
+      if (conversationId) {
+        keepOpenAppBesideConversation(conversationId);
         return;
       }
-      keepOpenAppBesideConversation(conversationId);
+      // Split view is a chat beside the app, so it needs a conversation to
+      // put there.
+      goToConversation(ctx, createDraftConversationId());
       return;
     }
     default:

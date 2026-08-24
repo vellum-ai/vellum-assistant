@@ -14,9 +14,14 @@ const meta: Meta<typeof AssistantChannelsDetail> = {
   args: {
     assistantName: "Example Assistant",
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "not_configured" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        address: "@example-assistant",
+      },
+      { key: "telegram", status: "not_configured", configured: false },
+      { key: "phone", status: "not_configured", configured: false },
     ],
     onConnect: () => {},
     onDisconnect: () => {},
@@ -40,9 +45,24 @@ export const ContactsDetailView: Story = {};
 export const AllConnected: Story = {
   args: {
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "ready", address: "@example_assistant_bot" },
-      { key: "phone", status: "ready", address: "+1 (555) 555-0142" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        address: "@example-assistant",
+      },
+      {
+        key: "telegram",
+        status: "ready",
+        configured: true,
+        address: "@example_assistant_bot",
+      },
+      {
+        key: "phone",
+        status: "ready",
+        configured: true,
+        address: "+1 (555) 555-0142",
+      },
     ],
   },
 };

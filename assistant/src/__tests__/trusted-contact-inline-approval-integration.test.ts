@@ -1231,8 +1231,9 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(requesterCodeReply!.payload.text).toContain(
       "your access request was approved",
     );
-    // The code DM is durable, never ephemeral.
-    expect(requesterCodeReply!.payload.ephemeral).toBeUndefined();
+    // The code DM is durable, so it carries no audience: restricting it
+    // would cost durability without hiding it from anyone.
+    expect(requesterCodeReply!.payload.audience).toBeUndefined();
     // threadTs (the guardian's channel thread) is stripped for the DM.
     expect(requesterCodeReply!.url).not.toContain("threadTs");
 
@@ -1411,8 +1412,10 @@ describe("(g) access_request resolver: requester code delivery", () => {
     );
     expect(courier).toBeDefined();
     expect(courier!.payload.chatId).toBe("C_SHARED_CHANNEL");
-    expect(courier!.payload.ephemeral).toBe(true);
-    expect(courier!.payload.user).toBe(REQUESTER_UID);
+    expect(courier!.payload.audience).toEqual({
+      kind: "oneReader",
+      userId: REQUESTER_UID,
+    });
   });
 
   test("guardian-facing reply uses the requester's display name, not the raw ID", async () => {

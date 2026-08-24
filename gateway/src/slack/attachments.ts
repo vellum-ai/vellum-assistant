@@ -1,12 +1,9 @@
 import type { SlackFile } from "./message-schemas.js";
+import type { GatewayInboundAttachment } from "../channels/inbound-event.js";
 
-export function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
-  type: "image" | "document";
-  fileId: string;
-  fileName?: string;
-  mimeType?: string;
-  fileSize?: number;
-}> {
+export function extractSlackAttachments(
+  files: SlackFile[] | undefined,
+): GatewayInboundAttachment[] {
   if (!files || files.length === 0) return [];
   return files
     .filter((f) => f.id && (f.url_private_download || f.url_private))

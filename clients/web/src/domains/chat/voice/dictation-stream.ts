@@ -37,7 +37,7 @@ import {
   buildSelfHostedGatewayWsUrl,
   isPairedGatewayIngress,
 } from "@/domains/chat/voice/live-voice/connection";
-import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
+import { LIVE_VOICE_AUDIO_FORMAT_PARAMS } from "@/domains/chat/voice/live-voice/protocol";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
@@ -96,10 +96,7 @@ export function buildSttStreamWsUrl({
     ingressUrl,
     routePath: "/v1/stt/stream",
     token,
-    params: {
-      mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
-      sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
-    },
+    params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
   });
 }
 

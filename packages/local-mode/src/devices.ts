@@ -53,7 +53,7 @@ function runDevicesCli(
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, ...args],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     );
 
     let stdout = "";

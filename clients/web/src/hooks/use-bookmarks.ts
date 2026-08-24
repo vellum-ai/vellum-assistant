@@ -10,6 +10,13 @@
  * new enough to expose the bookmark routes (see `useSupportsBookmarks`), so
  * a current bundle connected to a pre-0.8.1 assistant never 404s the list.
  *
+ * Bookmarks are internal-only, behind the `internal-thread-actions` gate (see
+ * `@/lib/auth/internal-thread-actions`), the same gate the fork and inspector
+ * affordances read. It covers the per-message toggle, the Settings bookmarks
+ * tab, and the shared list query, so a session outside the gate has no way to
+ * reach a bookmark and issues no bookmark requests. Stored rows are unaffected:
+ * the gate is a client-side visibility check, not a delete.
+ *
  * Cross-client invalidation (a bookmark made in another tab/window) is handled
  * by `use-bookmarks-sync.ts`, which listens for the daemon's
  * `bookmark.created` / `bookmark.deleted` SSE events.
@@ -27,6 +34,7 @@ import {
   bookmarksPost,
 } from "@/generated/daemon/sdk.gen";
 import type { BookmarksGetResponse } from "@/generated/daemon/types.gen";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -44,7 +52,11 @@ function useBookmarkQueryGate(): {
 } {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const supportsBookmarks = useSupportsBookmarks(assistantId);
-  const enabled = supportsBookmarks && Boolean(assistantId);
+  // No bookmark affordance is reachable outside the internal gate, so the
+  // shared list query stays idle rather than fetching a list nothing can
+  // display.
+  const isInternal = useCanUseInternalThreadActions();
+  const enabled = isInternal && supportsBookmarks && Boolean(assistantId);
   return { assistantId, enabled };
 }
 
@@ -99,7 +111,9 @@ export function useCanBookmark(
 ): boolean {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const supportsBookmarks = useSupportsBookmarks(assistantId);
+  const isInternal = useCanUseInternalThreadActions();
   return (
+    isInternal &&
     supportsBookmarks &&
     Boolean(conversationId) &&
     Boolean(message.id) &&

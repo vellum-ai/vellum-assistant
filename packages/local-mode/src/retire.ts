@@ -30,6 +30,7 @@ export function runRetire(
             }
           : {}),
         stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
       },
     );
 

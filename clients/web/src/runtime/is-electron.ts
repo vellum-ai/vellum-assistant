@@ -23,13 +23,16 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
   ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
@@ -72,9 +75,11 @@ export type {
   BundleScanData,
   CompanionGrowth,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
+  DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
@@ -164,7 +169,7 @@ declare global {
           ): () => void;
           transcribe?(
             audio: ArrayBuffer,
-          ): Promise<{ ok: boolean; reason?: string }>;
+          ): Promise<DictationTranscribeResult>;
           onTranscribed?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
@@ -307,6 +312,7 @@ declare global {
         requestStop(): void;
         onStopRequested(callback: () => void): () => void;
         setInteractive(interactive: boolean): void;
+        setHitRegion?(region: DictationOverlayHitRegion | null): void;
       };
       notifications?: {
         show(
@@ -344,10 +350,15 @@ declare global {
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         startVoice?(): void;
+        toggleWatch?(): void;
+        answerWatchRetro?(open: boolean): void;
         activate?(): void;
         setComposing?(composing: boolean): void;
         submit?(message: string, startsConversation: boolean): void;
         setContext?(context: CompanionContext): void;
+        advanceIntro?(action: CompanionIntroAction): void;
+        showContextMenu?(): void;
+        openLink?(url: string): void;
       };
     };
   }

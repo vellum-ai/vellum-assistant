@@ -7,9 +7,11 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { Select } from "@vellumai/design-library/components/select";
 import { Typography } from "@vellumai/design-library/components/typography";
+
 import { formatDelta, formatMonthly } from "./tier-pricing";
 
 /**
@@ -46,41 +48,54 @@ export function TierPicker({
   currentMachinePriceCents,
   currentStoragePriceCents,
 }: TierPickerProps) {
+  const { t } = useTranslation("settings");
+
   const machineOptions = useMemo(
     () =>
-      machineTiers.map((t) => {
-        const label = MACHINE_TIER_LABEL[t.tier] ?? t.label;
+      machineTiers.map((tier) => {
+        const label = MACHINE_TIER_LABEL[tier.tier] ?? tier.label;
         const priceLabel =
           currentMachinePriceCents != null
-            ? t.price_cents === currentMachinePriceCents
-              ? `(${formatMonthly(t.price_cents)}, current)`
-              : formatDelta(t.price_cents - currentMachinePriceCents)
-            : `+${formatMonthly(t.price_cents)}`;
+            ? tier.price_cents === currentMachinePriceCents
+              ? t("tierPicker.priceCurrent", {
+                  price: formatMonthly(tier.price_cents),
+                })
+              : formatDelta(tier.price_cents - currentMachinePriceCents)
+            : t("tierPicker.priceAddon", {
+                price: formatMonthly(tier.price_cents),
+              });
         return {
-          value: t.tier as MachineTierEnum,
-          label: `${label} ${priceLabel}`,
-          disabled: isTierDisabled(t),
+          value: tier.tier as MachineTierEnum,
+          label: t("tierPicker.machineOption", { label, priceLabel }),
+          disabled: isTierDisabled(tier),
         };
       }),
-    [machineTiers, currentMachinePriceCents],
+    [machineTiers, currentMachinePriceCents, t],
   );
 
   const storageOptions = useMemo(
     () =>
-      storageTiers.map((t) => {
+      storageTiers.map((tier) => {
         const priceLabel =
           currentStoragePriceCents != null
-            ? t.price_cents === currentStoragePriceCents
-              ? `(${formatMonthly(t.price_cents)}, current)`
-              : formatDelta(t.price_cents - currentStoragePriceCents)
-            : `+${formatMonthly(t.price_cents)}`;
+            ? tier.price_cents === currentStoragePriceCents
+              ? t("tierPicker.priceCurrent", {
+                  price: formatMonthly(tier.price_cents),
+                })
+              : formatDelta(tier.price_cents - currentStoragePriceCents)
+            : t("tierPicker.priceAddon", {
+                price: formatMonthly(tier.price_cents),
+              });
         return {
-          value: t.tier as StorageTierEnum,
-          label: `${t.storage_gib} GB ${priceLabel}`,
-          disabled: isTierDisabled(t),
+          value: tier.tier as StorageTierEnum,
+          label: t("tierPicker.storageOption", {
+            gib: tier.storage_gib,
+            priceLabel,
+          }),
+          disabled: isTierDisabled(tier),
         };
       }),
-    [storageTiers, currentStoragePriceCents],
+    [storageTiers, currentStoragePriceCents, t],
   );
 
   return (
@@ -92,15 +107,15 @@ export function TierPicker({
             variant="label-small-default"
             className="text-[var(--content-secondary)]"
           >
-            Machine
+            {t("tierPicker.machineLabel")}
           </Typography>
-          <span title="Determines the CPU and memory allocated to your assistant">
+          <span title={t("tierPicker.machineTooltip")}>
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>
         <Select<MachineTierEnum>
-          aria-label="Machine tier"
-          placeholder="Select a machine tier"
+          aria-label={t("tierPicker.machineAriaLabel")}
+          placeholder={t("tierPicker.machinePlaceholder")}
           value={selectedMachineTier ?? ("" as MachineTierEnum)}
           onChange={onMachineTierChange}
           options={machineOptions}
@@ -113,15 +128,15 @@ export function TierPicker({
             variant="label-small-default"
             className="text-[var(--content-secondary)]"
           >
-            Storage
+            {t("tierPicker.storageLabel")}
           </Typography>
-          <span title="Persistent disk space for your assistant&#39;s files and data">
+          <span title={t("tierPicker.storageTooltip")}>
             <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
           </span>
         </div>
         <Select<StorageTierEnum>
-          aria-label="Storage tier"
-          placeholder="Select a storage tier"
+          aria-label={t("tierPicker.storageAriaLabel")}
+          placeholder={t("tierPicker.storagePlaceholder")}
           value={selectedStorageTier ?? ("" as StorageTierEnum)}
           onChange={onStorageTierChange}
           options={storageOptions}

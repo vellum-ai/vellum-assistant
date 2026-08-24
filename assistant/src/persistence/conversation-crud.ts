@@ -51,6 +51,10 @@ import {
   withSqliteRetry,
 } from "../util/sqlite-retry.js";
 import {
+  purgeAllWatchTimelines,
+  purgeWatchTimelineForConversation,
+} from "../watch/watch-timeline.js";
+import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
@@ -87,6 +91,7 @@ import {
   type ConversationCreateType,
   type ConversationOrigin,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   PINNED_GROUP_ID,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
@@ -190,6 +195,36 @@ function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
  * keys on `conversation_id` regardless of event name, so this covers every
  * conversation-scoped pending event.
  */
+/**
+ * Remove a conversation's watch-session timeline: the narration, the screens,
+ * and the frames of them the entries carry.
+ *
+ * The rows are keyed by conversation id with no cascade behind them, so a
+ * delete that skipped them would keep pictures of the user's screen for a
+ * conversation they asked to remove. It runs after the row deletes, which is
+ * the order the watch store expects: once `conversations` no longer has the
+ * row, a later append is refused rather than left for a purge that has already
+ * been.
+ *
+ * Best-effort, like the rest of the post-transaction cleanup. The conversation
+ * row is already gone by this point, so throwing here would turn a completed
+ * delete into an error the caller cannot usefully retry. A swallowed failure
+ * is not the end of the story: `sweepOrphanedWatchTimelineEntries` runs from
+ * daemon startup and from database maintenance and deletes entries whose
+ * conversation no longer exists, so whatever this pass leaves behind is
+ * reclaimed on a later one.
+ */
+function purgeWatchTimelineForDeletedConversation(id: string): void {
+  try {
+    purgeWatchTimelineForConversation(id);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: id },
+      "Failed to purge the watch timeline for a deleted conversation",
+    );
+  }
+}
+
 function deletePendingTelemetryEventsForConversation(id: string): void {
   const telemetry = getTelemetryDb({ createIfMissing: false });
   if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
@@ -259,6 +294,14 @@ const backgroundToolCompletionMetadataSchema = z.object({
 
 export const messageMetadataSchema = z
   .object({
+    /**
+     * Epoch ms the content actually happened, when that differs from when
+     * the row was written. Set wherever persistence lags the event: a queued
+     * turn draining, or channel history imported long after the fact.
+     * History serialization prefers it over `createdAt` for the display
+     * timestamp.
+     */
+    sentAt: z.number().optional(),
     userMessageChannel: channelIdSchema.optional(),
     assistantMessageChannel: channelIdSchema.optional(),
     userMessageInterface: interfaceIdSchema.optional(),
@@ -413,13 +456,15 @@ export {
 } from "./conversation-types.js";
 
 /**
- * `messageKind` value marking a daemon-authored system card — a pre-composed
- * status reply (the /compact, /clean, and summarize-up-to result cards) that
- * bypasses the agent loop. Cards render as standalone system notices, never
- * as the assistant persona speaking, and never merge into adjacent assistant
- * display turns.
+ * The system-card `messageKind` marker and its predicate live in the
+ * `conversation-types` leaf so a caller that only stamps or classifies the
+ * marker does not pull in this module's DB graph, and are re-exported here
+ * alongside the schema that carries them.
  */
-export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+export {
+  isSystemCardMetadata,
+  SYSTEM_CARD_MESSAGE_KIND,
+} from "./conversation-types.js";
 
 /**
  * `messageKind` value marking the synthetic assistant row the agent loop
@@ -430,18 +475,6 @@ export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
  * clients render the row as a themed notice instead of persona speech.
  */
 export const PROVIDER_ERROR_MESSAGE_KIND = "provider_error";
-
-/**
- * Shared predicate for the system-card marker on assistant-message metadata
- * (see the `messageKind` field on {@link messageMetadataSchema}). One
- * definition so display merging, transcript rendering, and turn grouping
- * cannot drift.
- */
-export function isSystemCardMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
-}
 
 /**
  * Shared predicate for the provider-error marker on assistant-message
@@ -2110,6 +2143,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  purgeWatchTimelineForDeletedConversation(id);
+
   // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
   // still-pending jobs for this conversation). Fire-and-forget from this
   // synchronous primitive — the pipeline contains per-hook failures, and
@@ -2259,6 +2294,8 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  purgeWatchTimelineForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
   // the synchronous delete primitive.
@@ -3589,6 +3626,14 @@ export async function clearAll(): Promise<{
   // cascade; wipe them explicitly so labels/objectives don't survive (or
   // rehydrate after) a clear-all.
   await runOrThrow("DELETE FROM subagents");
+  // Watch-session timelines are conversation-keyed rows the cascade does not
+  // reach. They come after `conversations` so this statement is the last thing
+  // that needs to reach one: an append arriving from here on finds no
+  // conversation to key itself to and is refused, and an append that already
+  // ran is a row this deletes. The bulk deletes above run in a sqlite3
+  // subprocess, so the event loop is free while they work; this one is a
+  // synchronous in-process statement, which nothing can interleave with.
+  purgeAllWatchTimelines();
 
   // The memory feature's relocated conversation-keyed tables lost their main-DB
   // cascade. Signal the wipe through the hook rather than reaching into the

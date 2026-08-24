@@ -9,11 +9,13 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
+
 import { minTierPriceCents } from "./adjust-plan-utils";
 import { CreditBundlePicker } from "./credit-bundle-picker";
 import { PlanFeatureList } from "./plan-feature-list";
@@ -103,6 +105,7 @@ export function PlanCardContent({
   onDowngradeClick,
   onKeepPlan,
 }: PlanCardContentProps) {
+  const { t } = useTranslation("settings");
   const isProCard = plan.id === "pro";
   const isBaseCard = plan.id === "base";
   const showCancellationOnPro =
@@ -140,7 +143,9 @@ export function PlanCardContent({
             >
               {showsRealPlan ? planDisplayName : plan.name}
             </Typography>
-            {isCurrent && <Tag tone="positive">Current</Tag>}
+            {isCurrent && (
+              <Tag tone="positive">{t("planCardContent.current")}</Tag>
+            )}
           </div>
           <Typography
             as="p"
@@ -148,8 +153,8 @@ export function PlanCardContent({
             className="-mt-2 text-[var(--content-tertiary)]"
           >
             {isBaseCard
-              ? "All you need for a capable assistant"
-              : "More features, more compute, more storage"}
+              ? t("planCardContent.baseTagline")
+              : t("planCardContent.proTagline")}
           </Typography>
           {showCancellationOnPro && cancelDate && (
             <Typography
@@ -158,7 +163,9 @@ export function PlanCardContent({
               className="text-[var(--system-mid-strong)]"
               data-testid="modal-cancels-on"
             >
-              Your plan ends on {formatDate(cancelDate)}
+              {t("planCardContent.planEndsOn", {
+                date: formatDate(cancelDate),
+              })}
             </Typography>
           )}
           <hr className="border-t border-[var(--border-base)]" />
@@ -166,14 +173,14 @@ export function PlanCardContent({
             {isBaseCard ? (
               <>
                 <Typography as="p" variant="title-medium">
-                  Free
+                  {t("planCardContent.free")}
                 </Typography>
                 <Typography
                   as="p"
                   variant="body-small-default"
                   className="text-[var(--content-tertiary)]"
                 >
-                  Forever
+                  {t("planCardContent.forever")}
                 </Typography>
               </>
             ) : isCurrent &&
@@ -183,7 +190,7 @@ export function PlanCardContent({
                 <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <Typography as="span" variant="body-medium-lighter">
-                    Loading your plan...
+                    {t("planCardContent.loadingPlan")}
                   </Typography>
                 </div>
               ) : (
@@ -193,7 +200,7 @@ export function PlanCardContent({
                   className="text-[var(--content-tertiary)]"
                   data-testid="modal-pro-price-unavailable"
                 >
-                  Current plan pricing unavailable
+                  {t("planCardContent.pricingUnavailable")}
                 </Typography>
               )
             ) : (
@@ -214,20 +221,27 @@ export function PlanCardContent({
                         )}
                       </>
                     ) : proCurrentTotalCents != null ? (
-                      `Currently ${formatMonthly(proCurrentTotalCents)}`
+                      t("planCardContent.currentlyPrice", {
+                        price: formatMonthly(proCurrentTotalCents),
+                      })
                     ) : plan.id === "pro" ? (
-                      `From ${formatMonthly(
-                        plan.base_price_cents +
-                          minTierPriceCents(plan.machine_tiers) +
-                          minTierPriceCents(plan.storage_tiers),
-                      )}`
+                      t("planCardContent.fromPrice", {
+                        price: formatMonthly(
+                          plan.base_price_cents +
+                            minTierPriceCents(plan.machine_tiers) +
+                            minTierPriceCents(plan.storage_tiers),
+                        ),
+                      })
                     ) : null}
                   </Typography>
                   {proPickerShown &&
                     proTotalDelta != null &&
                     proTotalDelta !== 0 && (
                       <span
-                        title={`Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}.`}
+                        title={t("planCardContent.subscriptionChangeTitle", {
+                          from: formatMonthly(proCurrentTotalCents!),
+                          to: formatMonthly(proLiveTotalCents!),
+                        })}
                       >
                         <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
                       </span>
@@ -240,7 +254,9 @@ export function PlanCardContent({
                     className="text-[var(--content-tertiary)]"
                     data-testid="modal-pro-base-fee"
                   >
-                    {formatDollars(plan.base_price_cents)} base fee
+                    {t("planCardContent.baseFee", {
+                      amount: formatDollars(plan.base_price_cents),
+                    })}
                   </Typography>
                 )}
               </>
@@ -261,7 +277,7 @@ export function PlanCardContent({
               className="text-[var(--content-tertiary)]"
               data-testid="modal-credits-not-included"
             >
-              *Credits not included
+              {t("planCardContent.creditsNotIncluded")}
             </Typography>
           )}
         </div>
@@ -294,7 +310,7 @@ export function PlanCardContent({
                 }
                 data-testid="modal-upgrade-to-pro-button"
               >
-                Upgrade to Pro
+                {t("planCardContent.upgradeToPro")}
               </Button>
             </>
           )}
@@ -303,7 +319,7 @@ export function PlanCardContent({
               <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <Typography as="span" variant="body-medium-lighter">
-                  Loading your plan...
+                  {t("planCardContent.loadingPlan")}
                 </Typography>
               </div>
             ) : (
@@ -340,7 +356,7 @@ export function PlanCardContent({
                   }
                   data-testid="modal-change-tier-button"
                 >
-                  Update Plan
+                  {t("planCardContent.updatePlan")}
                 </Button>
               </>
             ))}
@@ -354,7 +370,7 @@ export function PlanCardContent({
                 disabled={portalPending}
                 data-testid="modal-downgrade-to-base-button"
               >
-                Downgrade to Base
+                {t("planCardContent.downgradeToBase")}
               </Button>
             </>
           )}
@@ -368,7 +384,7 @@ export function PlanCardContent({
                 disabled={portalPending}
                 data-testid="modal-keep-plan-button"
               >
-                Keep your Plan
+                {t("planCardContent.keepPlan")}
               </Button>
             </>
           )}

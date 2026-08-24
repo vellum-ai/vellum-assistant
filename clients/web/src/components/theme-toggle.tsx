@@ -28,13 +28,14 @@ const VELVET_THEME_OPTION = {
 
 /**
  * Compact icon-only theme switcher for the sidebar preferences popover.
- * Mirrors the `AppearanceSection` in the Preferences modal — both share the
+ * Mirrors the `ThemePicker` on Settings → General. Both share the
  * `useThemePreference` hook so they stay in sync via the `watchDeviceSetting`
  * listener.
  *
  * Every segment carries a tooltip of its label, which non-obvious options
- * (Velvet's Heart) need. Radix opens those on hover and on keyboard focus but
- * never on a tap, so touch users are not left with a phantom label.
+ * (Velvet's Heart) need. The design library mounts those only where the device
+ * can hover, so a touch user is never left with a label a tap put up and
+ * nothing takes down. The `aria-label` carries the same text either way.
  */
 export function ThemeToggle({ className }: { className?: string } = {}) {
   const { theme, setThemePreference } = useThemePreference();

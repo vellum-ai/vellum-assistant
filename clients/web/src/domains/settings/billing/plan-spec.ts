@@ -1,4 +1,10 @@
-import { Coins, Computer, HardDrive, Mail, type LucideIcon } from "lucide-react";
+import {
+  Coins,
+  Computer,
+  HardDrive,
+  Mail,
+  type LucideIcon,
+} from "lucide-react";
 
 import {
   FREE_CREDITS_USD,
@@ -6,9 +12,8 @@ import {
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
+import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
   formatDollars,
@@ -27,6 +32,13 @@ export interface PlanSpec {
   label: string;
   /** Render the chip as a wrap-capable pill for long summary labels. */
   multiline?: boolean;
+  /**
+   * Give the chip a full-width row of its own instead of letting it flow in the
+   * wrapping row beside the short chips. Read only by the wrapped layout
+   * (`PlanTile`'s `specsWrap`); the vertical stack gives every chip its own row
+   * already.
+   */
+  ownRow?: boolean;
 }
 
 /**
@@ -44,13 +56,29 @@ export function machineLabel(pkg: ProPackage | null): string {
   return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
+export interface PackageSpecsOptions {
+  /**
+   * Replaces the credits chip's dollar label, for the `obscure-credits`
+   * surfaces that describe the bundle as the package's own usage allowance
+   * instead of naming an amount.
+   */
+  obscuredUsageLabel?: string;
+}
+
 /**
  * The spec chips for a package, in mock order: machine, storage, credits,
  * then any static extras from the tier copy (today only the email/subdomain
  * row on Super and Ultra; a new extra inherits the Mail icon until it needs
  * its own mapping).
+ *
+ * The machine and storage chips are short enough to sit side by side; the
+ * credits chip and the extras are sentences, so they take a row each wherever
+ * the chips are laid out as a wrapping row.
  */
-export function packageSpecs(pkg: ProPackage): PlanSpec[] {
+export function packageSpecs(
+  pkg: ProPackage,
+  opts?: PackageSpecsOptions,
+): PlanSpec[] {
   const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
@@ -58,8 +86,14 @@ export function packageSpecs(pkg: ProPackage): PlanSpec[] {
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
     // Cents-aware like every other price on these surfaces, so a sub-dollar
     // bundle reads "$0.50 in credits included" rather than "$0.5".
-    { icon: Coins, label: `${formatDollars(credits * 100)} in credits included` },
-    ...extras.map((label) => ({ icon: Mail, label })),
+    {
+      icon: Coins,
+      label:
+        opts?.obscuredUsageLabel ??
+        `${formatDollars(credits * 100)} in credits included`,
+      ownRow: true,
+    },
+    ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
   ];
 }
 
@@ -71,7 +105,7 @@ export function freePlanSpecs(): PlanSpec[] {
   return [
     { icon: Computer, label: `${STANDARD_MACHINE_LABEL} Machine` },
     { icon: HardDrive, label: `${FREE_STORAGE_GIB} GB Storage` },
-    { icon: Coins, label: "Pay as you go credits" },
+    { icon: Coins, label: "Pay as you go credits", ownRow: true },
   ];
 }
 

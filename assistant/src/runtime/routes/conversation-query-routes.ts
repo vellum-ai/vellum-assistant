@@ -70,6 +70,7 @@ import {
   getEmbeddingConfigInfo,
   setEmbeddingConfig,
 } from "../../daemon/handlers/config-embeddings.js";
+import { dropTunnelRecordsForNewUrl } from "../../daemon/handlers/config-ingress.js";
 import {
   getModelInfo,
   type ModelSetContext,
@@ -1740,6 +1741,10 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
   foldDeprecatedProfileBindings(patch, raw);
+  const patchedIngressUrl = readPlainObject(patch.ingress)?.publicBaseUrl;
+  if (patchedIngressUrl !== undefined) {
+    dropTunnelRecordsForNewUrl(readPlainObject(raw.ingress), patchedIngressUrl);
+  }
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
   seedSttProviderForSparseBlock(raw);
@@ -1857,6 +1862,11 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
         readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
       )
     : undefined;
+  // `assistant config set ingress.publicBaseUrl <url>`, what the webhook
+  // diagnostics tell users to run, retargets ingress like the settings route.
+  if (path === "ingress.publicBaseUrl") {
+    dropTunnelRecordsForNewUrl(readPlainObject(raw.ingress), value);
+  }
   setNestedValue(raw, writePath, writeValue);
   if (
     managedEntryName &&

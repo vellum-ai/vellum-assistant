@@ -29,6 +29,22 @@ mock.module("./channel-invite-transports/whatsapp.js", () => ({
   resolveWhatsAppDisplayNumber: () => undefined,
 }));
 
+type SocketHealth = {
+  channel: string;
+  status: "connected" | "disconnected" | "not_configured" | "unsupported";
+  lastLivenessAt?: number;
+};
+let socketHealth: SocketHealth | Error;
+
+mock.module("../channels/gateway-channel-socket-health.js", () => ({
+  readChannelSocketHealth: async () => {
+    if (socketHealth instanceof Error) {
+      throw socketHealth;
+    }
+    return socketHealth;
+  },
+}));
+
 const originalFetch = globalThis.fetch;
 let fetchCalls: Array<{ url: string; init?: RequestInit }>;
 let fetchHandler: (
@@ -42,6 +58,7 @@ beforeEach(() => {
   setConfig("slack", {});
   fetchCalls = [];
   fetchHandler = () => ({ ok: true, body: { ok: true } });
+  socketHealth = { channel: "slack", status: "connected" };
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     fetchCalls.push({ url, init });
@@ -293,5 +310,129 @@ describe("slack scope-grant check", () => {
     )!;
 
     expect(scopeCheck.passed).toBe(true);
+  });
+});
+
+describe("slack inbound delivery", () => {
+  /**
+   * Credential health and delivery health are different claims. Valid tokens,
+   * a reachable `auth.test` and a matching workspace all hold while a socket
+   * sits open and delivers nothing, so the delivery verdict must not ride on
+   * any of them.
+   */
+  test("fails on a dead socket even while auth.test passes", async () => {
+    // Both tokens, or the channel is not fully configured and "incomplete" is
+    // the correct answer rather than the one under test.
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    mockSecureKeys[credentialKey("slack_channel", "app_token")] = "xapp-fake";
+    setConfig("slack", { teamId: "T123" });
+    fetchHandler = () => ({
+      ok: true,
+      body: { ok: true, team_id: "T123", team: "acme", user: "apollobot" },
+    });
+    socketHealth = { channel: "slack", status: "disconnected" };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const authTest = (snapshot.remoteChecks ?? []).find(
+      (c) => c.name === "auth_test",
+    )!;
+    const delivery = snapshot.localChecks.find(
+      (c) => c.name === "inbound_delivery",
+    )!;
+
+    expect(authTest.passed).toBe(true);
+    expect(delivery.passed).toBe(false);
+    expect(delivery.indeterminate).toBeFalsy();
+    expect(delivery.message).toMatch(/not reaching this assistant/i);
+    // The point of declaring it operational: a configured channel whose
+    // socket is dead is down, not half set up.
+    expect(snapshot.setupStatus).toBe("ready");
+    expect(snapshot.health).toBe("failing");
+    expect(snapshot.ready).toBe(false);
+  });
+
+  test("passes on a live socket and reports the last keepalive", async () => {
+    socketHealth = {
+      channel: "slack",
+      status: "connected",
+      lastLivenessAt: Date.parse("2026-08-21T17:00:00.000Z"),
+    };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.localChecks.find(
+      (c) => c.name === "inbound_delivery",
+    )!;
+
+    expect(delivery.passed).toBe(true);
+    expect(delivery.message).toContain("2026-08-21T17:00:00.000Z");
+  });
+
+  test("a freshly opened socket passes before its first keepalive", async () => {
+    // The first probe is a full interval after open, so requiring a keepalive
+    // would report every healthy reconnect as broken.
+    socketHealth = { channel: "slack", status: "connected" };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.localChecks.find(
+      (c) => c.name === "inbound_delivery",
+    )!;
+
+    expect(delivery.passed).toBe(true);
+    expect(delivery.message).toMatch(/no keepalive answered yet/i);
+  });
+
+  test("an unconfigured channel is indeterminate, not broken", async () => {
+    socketHealth = { channel: "slack", status: "not_configured" };
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.localChecks.find(
+      (c) => c.name === "inbound_delivery",
+    )!;
+
+    expect(delivery.indeterminate).toBe(true);
+    expect(delivery.passed).toBe(true);
+  });
+
+  test("an unreachable gateway is indeterminate, not an outage", async () => {
+    // A gateway we cannot reach is a fact about the gateway. Rendering it as
+    // "Slack is disconnected" would invent an outage.
+    socketHealth = new Error("gateway socket refused");
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const delivery = snapshot.localChecks.find(
+      (c) => c.name === "inbound_delivery",
+    )!;
+
+    expect(delivery.indeterminate).toBe(true);
+    expect(delivery.passed).toBe(true);
+    expect(delivery.message).toMatch(/could not reach the gateway/i);
+    // Unknown, not failing: an unreachable gateway is a fact about the
+    // gateway, and the channel must be neither vouched for nor condemned.
+    expect(snapshot.health).toBe("unknown");
+    expect(snapshot.ready).toBe(false);
+  });
+
+  test("runs on every request rather than riding the remote-check cache", async () => {
+    // Remote checks are cached for five minutes, which is far longer than a
+    // socket takes to die and recover, so a cached verdict would report a
+    // state the connection has already left. One service instance across both
+    // reads, or the cache under test is never populated in the first place.
+    const { createReadinessService } =
+      await import("../runtime/channel-readiness-service.js");
+    const service = createReadinessService();
+    const delivery = (
+      snapshots: Awaited<ReturnType<typeof service.getReadiness>>,
+    ) => snapshots[0].localChecks.find((c) => c.name === "inbound_delivery")!;
+
+    socketHealth = { channel: "slack", status: "connected" };
+    expect(delivery(await service.getReadiness("slack", true)).passed).toBe(
+      true,
+    );
+
+    // Same service, so the remote checks beside this one are now cached.
+    socketHealth = { channel: "slack", status: "disconnected" };
+    expect(delivery(await service.getReadiness("slack", true)).passed).toBe(
+      false,
+    );
   });
 });

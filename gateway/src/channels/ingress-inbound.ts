@@ -164,6 +164,7 @@ const InboundFieldsSchema = z
     actorDisplayName: InboundFieldSourceSchema.optional(),
     actorUsername: InboundFieldSourceSchema.optional(),
     chatType: InboundFieldSourceSchema.optional(),
+    conversationType: InboundFieldSourceSchema.optional(),
   })
   .strict();
 
@@ -187,6 +188,7 @@ export const INBOUND_FIELD_DEFAULTS = {
   actorDisplayName: "actor.displayName",
   actorUsername: "actor.username",
   chatType: "source.chatType",
+  conversationType: "source.conversationType",
 } as const satisfies Record<InboundFieldName, string>;
 
 const INBOUND_FIELD_NAMES = Object.keys(

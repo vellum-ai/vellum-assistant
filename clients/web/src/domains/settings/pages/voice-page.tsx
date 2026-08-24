@@ -51,6 +51,7 @@ import {
   isFnVoiceModeActivator,
   keyboardDefaultActivator,
   readVoiceModeActivator,
+  supportsBareModifierVoiceMode,
   writeVoiceModeActivator,
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
@@ -374,6 +375,26 @@ const MODIFIER_KEY_NAMES = new Set(["Control", "Alt", "Shift", "Meta", "Fn"]);
 /** The Keyboard Shortcuts key the desktop host binds Talk to, globally. */
 const TALK_HOTKEY_KEY = "toggleVoice";
 
+/**
+ * Bare-modifier taps for the Windows desktop host, where Fn does not exist
+ * (the keyboard firmware handles it; the OS never sees a key event). Bound as
+ * focused-window tap listeners in `use-voice-mode-hotkey`, since an Electron
+ * `globalShortcut` cannot express a bare modifier.
+ */
+const BARE_MODIFIER_PRESETS: ReadonlyArray<{
+  label: string;
+  activator: VoiceModeActivator;
+}> = [
+  {
+    label: "Ctrl+Shift",
+    activator: { kind: "modifierOnly", modifiers: ["control", "shift"] },
+  },
+  {
+    label: "Alt",
+    activator: { kind: "modifierOnly", modifiers: ["option"] },
+  },
+];
+
 function VoiceModeShortcutCard() {
   const { t } = useTranslation("settings");
   const fnConfigurable = supportsFnPushToTalk();
@@ -432,6 +453,26 @@ function VoiceModeShortcutCard() {
   const recordingTalk = recorder.recordingKey === TALK_HOTKEY_KEY;
   const chooseFn = useCallback(() => {
     selectActivator(FN_PTT_ACTIVATOR);
+    recorder.removeHotkey(TALK_HOTKEY_KEY);
+  }, [recorder, selectActivator]);
+
+  // Like Fn, a bare-modifier tap is an answer to the same one question, so
+  // choosing one also clears the recorded Talk chord.
+  const bareModifierPresets = supportsBareModifierVoiceMode()
+    ? BARE_MODIFIER_PRESETS
+    : [];
+  const chooseBareModifier = useCallback(
+    (next: VoiceModeActivator) => {
+      selectActivator(next);
+      recorder.removeHotkey(TALK_HOTKEY_KEY);
+    },
+    [recorder, selectActivator],
+  );
+
+  // "Nothing" is also an answer to the one question: clear the Fn binding
+  // and the recorded Talk chord so no keyboard path starts a session.
+  const chooseOff = useCallback(() => {
+    selectActivator({ kind: "off" });
     recorder.removeHotkey(TALK_HOTKEY_KEY);
   }, [recorder, selectActivator]);
 
@@ -570,6 +611,14 @@ function VoiceModeShortcutCard() {
                 onClick={chooseFn}
               />
             )}
+            {bareModifierPresets.map((preset) => (
+              <ActivationKeyOption
+                key={preset.label}
+                label={preset.label}
+                selected={activatorsEqual(preset.activator, activator)}
+                onClick={() => chooseBareModifier(preset.activator)}
+              />
+            ))}
             <ActivationKeyOption
               label={
                 recordingTalk ? (
@@ -587,6 +636,16 @@ function VoiceModeShortcutCard() {
                   ? recorder.stopRecording
                   : () => recorder.startRecording(TALK_HOTKEY_KEY)
               }
+            />
+            {/* A recorded chord also stores `off` locally (the chord itself
+                lives in `settings.hotkeys`), so Off is only the selected
+                answer when no chord is bound either. */}
+            <ActivationKeyOption
+              label={t("voicePage.offKeyLabel")}
+              selected={
+                activator.kind === "off" && !talkAccelerator && !recordingTalk
+              }
+              onClick={chooseOff}
             />
           </div>
 
@@ -654,27 +713,27 @@ function VoiceModeShortcutCard() {
                 />
               ))}
               {isRecording ? (
-                  <ActivationKeyOption
-                    label={
-                      pendingModifiers.length > 0
-                        ? modifierLabel(pendingModifiers)
-                        : t("voicePage.pressShortcut")
-                    }
-                    selected
-                    recording
-                    onClick={cancelRecording}
-                  />
-                ) : (
-                  <ActivationKeyOption
-                    label={
-                      isCustom
-                        ? activatorDisplayName(activator)
-                        : t("voicePage.customKey")
-                    }
-                    selected={isCustom}
-                    onClick={beginRecording}
-                  />
-                )}
+                <ActivationKeyOption
+                  label={
+                    pendingModifiers.length > 0
+                      ? modifierLabel(pendingModifiers)
+                      : t("voicePage.pressShortcut")
+                  }
+                  selected
+                  recording
+                  onClick={cancelRecording}
+                />
+              ) : (
+                <ActivationKeyOption
+                  label={
+                    isCustom
+                      ? activatorDisplayName(activator)
+                      : t("voicePage.customKey")
+                  }
+                  selected={isCustom}
+                  onClick={beginRecording}
+                />
+              )}
             </div>
 
             {showChordHint && (

@@ -10,6 +10,7 @@ import {
   RETROSPECTIVE_SUBTITLE,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
+import { Trans, useTranslation } from "@/i18n";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
@@ -49,12 +50,13 @@ export function SystemTaskRow({
   statusTone = "neutral",
   onClick,
 }: SystemTaskRowProps) {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
         type="button"
         onClick={onClick}
-        aria-label={`Open ${name}`}
+        aria-label={t("systemTasksSection.openAriaLabel", { name })}
         className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
         <div className="min-w-0 flex-1">
@@ -72,8 +74,20 @@ export function SystemTaskRow({
             </div>
           ) : null}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
-            {nextRunAt ? <span>Next: {formatTimestamp(nextRunAt)}</span> : null}
-            {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
+            {nextRunAt ? (
+              <span>
+                {t("systemTasksSection.nextRun", {
+                  time: formatTimestamp(nextRunAt),
+                })}
+              </span>
+            ) : null}
+            {lastRunAt ? (
+              <span>
+                {t("systemTasksSection.lastRun", {
+                  time: formatTimestamp(lastRunAt),
+                })}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
@@ -88,7 +102,11 @@ export function SystemTaskRow({
                   ? "var(--system-positive-strong)"
                   : "var(--content-disabled)",
               }}
-              aria-label={enabled ? "enabled" : "disabled"}
+              aria-label={
+                enabled
+                  ? t("systemTasksSection.enabled")
+                  : t("systemTasksSection.disabled")
+              }
             />
           )}
           <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
@@ -131,6 +149,7 @@ export function SystemTasksSection({
   onSelectConsolidation,
   onSelectRetrospective,
 }: SystemTasksSectionProps) {
+  const { t } = useTranslation("settings");
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
   const showRetrospective = retrospectiveConfig?.available === true;
@@ -161,20 +180,25 @@ export function SystemTasksSection({
     </div>
   ) : hasError && !showAny ? (
     <Notice tone="error">
-      Failed to load system jobs.{" "}
-      <button
-        type="button"
-        onClick={onRetry}
-        className="cursor-pointer underline hover:no-underline"
-      >
-        Retry
-      </button>
+      <Trans
+        ns="settings"
+        i18nKey="systemTasksSection.loadError"
+        components={{
+          retryButton: (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="cursor-pointer underline hover:no-underline"
+            />
+          ),
+        }}
+      />
     </Notice>
   ) : (
     <div>
       {showHeartbeat ? (
         <SystemTaskRow
-          name="Heartbeat"
+          name={t("systemTasksSection.heartbeatName")}
           subtitle={heartbeatSubtitle(heartbeatConfig)}
           enabled={heartbeatConfig.enabled}
           nextRunAt={heartbeatConfig.nextRunAt}
@@ -185,25 +209,29 @@ export function SystemTasksSection({
       ) : null}
       {showConsolidation ? (
         <SystemTaskRow
-          name="Consolidation"
+          name={t("systemTasksSection.consolidationName")}
           subtitle={consolidationSubtitle(consolidationConfig)}
           enabled={consolidationConfig.enabled}
           helperText={
             consolidationConfig.enabled
               ? undefined
-              : "Memory is off, so consolidation is paused."
+              : t("systemTasksSection.consolidationPausedHelper")
           }
           nextRunAt={consolidationConfig.nextRunAt}
           lastRunAt={consolidationConfig.lastRunAt}
           usage={consolidationUsage}
-          statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
+          statusLabel={
+            consolidationConfig.enabled
+              ? undefined
+              : t("systemTasksSection.paused")
+          }
           statusTone="warning"
           onClick={onSelectConsolidation}
         />
       ) : null}
       {showRetrospective ? (
         <SystemTaskRow
-          name="Memory retrospective"
+          name={t("systemTasksSection.retrospectiveName")}
           subtitle={RETROSPECTIVE_SUBTITLE}
           enabled={retrospectiveConfig.enabled}
           helperText={
@@ -212,14 +240,18 @@ export function SystemTasksSection({
               : // The row only renders when `available` is true (memory is on),
                 // so a false `enabled` here means the retrospective's own
                 // switch is off, not memory itself.
-                "Retrospectives are turned off in Memory settings."
+                t("systemTasksSection.retrospectivePausedHelper")
           }
           // Always null — retrospectives are event-driven, not scheduled;
           // the row simply omits the "Next:" timestamp.
           nextRunAt={retrospectiveConfig.nextRunAt}
           lastRunAt={retrospectiveConfig.lastRunAt}
           usage={retrospectiveUsage}
-          statusLabel={retrospectiveConfig.enabled ? undefined : "Paused"}
+          statusLabel={
+            retrospectiveConfig.enabled
+              ? undefined
+              : t("systemTasksSection.paused")
+          }
           statusTone="warning"
           onClick={onSelectRetrospective}
         />
@@ -227,14 +259,19 @@ export function SystemTasksSection({
       {hasError ? (
         <div className="pt-3 first:pt-0">
           <Notice tone="error">
-            Some system jobs failed to load.{" "}
-            <button
-              type="button"
-              onClick={onRetry}
-              className="cursor-pointer underline hover:no-underline"
-            >
-              Retry
-            </button>
+            <Trans
+              ns="settings"
+              i18nKey="systemTasksSection.partialLoadError"
+              components={{
+                retryButton: (
+                  <button
+                    type="button"
+                    onClick={onRetry}
+                    className="cursor-pointer underline hover:no-underline"
+                  />
+                ),
+              }}
+            />
           </Notice>
         </div>
       ) : null}
@@ -248,16 +285,18 @@ export function SystemTasksSection({
           <Collapsible.Trigger className="group justify-between gap-3">
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-left">
               <span className="text-body-medium-default text-[var(--content-secondary)]">
-                System
+                {t("systemTasksSection.title")}
               </span>
               <span className="text-body-small-default text-[var(--content-tertiary)]">
-                Built-in jobs managed by the assistant runtime
+                {t("systemTasksSection.subtitle")}
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-3">
               {readyUsages.length > 0 ? (
                 <span className="text-body-small-default text-[var(--content-tertiary)]">
-                  {formatScheduleCost(totalCost)} (7d)
+                  {t("systemTasksSection.cost7d", {
+                    cost: formatScheduleCost(totalCost),
+                  })}
                 </span>
               ) : null}
               <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />

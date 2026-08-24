@@ -1,7 +1,10 @@
 import { Globe } from "lucide-react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, screen, userEvent, waitFor } from "storybook/test";
 
+import { WithoutHover } from "../utils/hover-capability.story-helper";
 import { Button } from "./button";
+import { Popover } from "./popover";
 import { Tooltip, TooltipProvider } from "./tooltip";
 
 const meta: Meta<typeof Tooltip> = {
@@ -88,6 +91,80 @@ export const OnTextTrigger: Story = {
       </span>
     </Tooltip>
   ),
+};
+
+/**
+ * On a device that cannot hover, nothing mounts: no trigger wrapper, and no
+ * label however the trigger is approached. A tooltip opens on focus as well as
+ * on hover, and on a touch surface focus is something a tap hands out, so a
+ * label that mounted there would arrive unbidden and stay until something else
+ * took focus.
+ *
+ * The trigger is a plain button underneath, which is why the copy that matters
+ * belongs on `aria-label` rather than in the tooltip.
+ */
+export const WithoutHoverCapability: Story = {
+  parameters: { controls: { disable: true } },
+  render: (args) => (
+    <WithoutHover>
+      <Tooltip {...args}>
+        <Button iconOnly={<Globe className="h-4 w-4" />} aria-label="Deploy" />
+      </Tooltip>
+    </WithoutHover>
+  ),
+  play: async () => {
+    const trigger = await screen.findByRole("button", { name: "Deploy" });
+
+    // Radix stamps its open state on whatever element it makes a trigger, so
+    // the absence of one says nothing was wrapped rather than merely that
+    // nothing is showing.
+    expect(trigger).not.toHaveAttribute("data-state");
+
+    await userEvent.hover(trigger);
+    trigger.focus();
+
+    // Held across the open delay rather than sampled once, since a label that
+    // only arrives after it is the one a single check would miss.
+    await expect(
+      waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument(), {
+        timeout: 600,
+      }),
+    ).rejects.toThrow();
+  },
+};
+
+/**
+ * A tooltip is often the inner half of a composed trigger: an outer primitive
+ * takes `asChild`, clones its open-on-click handlers onto the `Tooltip`, and
+ * the wrapper passes them down to the element underneath.
+ *
+ * That forwarding is what makes the control work, so it survives the
+ * suppression above. Without it the popover would open everywhere except the
+ * devices that have no other way in.
+ */
+export const ComposedTriggerWithoutHoverCapability: Story = {
+  parameters: { controls: { disable: true } },
+  render: (args) => (
+    <WithoutHover>
+      <Popover.Root>
+        <Popover.Trigger asChild>
+          <Tooltip {...args}>
+            <Button variant="outlined">Deploy</Button>
+          </Tooltip>
+        </Popover.Trigger>
+        <Popover.Content side="bottom">Pick an environment</Popover.Content>
+      </Popover.Root>
+    </WithoutHover>
+  ),
+  play: async () => {
+    const trigger = await screen.findByRole("button", { name: "Deploy" });
+
+    await userEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByText("Pick an environment")).toBeInTheDocument();
+    });
+  },
 };
 
 /**

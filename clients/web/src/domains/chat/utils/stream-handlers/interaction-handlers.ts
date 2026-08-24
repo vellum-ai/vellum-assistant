@@ -11,6 +11,7 @@ import type {
   SecretRequestEvent,
 } from "@vellumai/assistant-api";
 import { normalizeQuestionRequest } from "@/domains/chat/api/event-types";
+import { ensureMainWindowVisible } from "@/runtime/main-window";
 
 export function handleSecretRequest(
   event: SecretRequestEvent,
@@ -49,6 +50,22 @@ export function handleConfirmationRequest(
     toolUseId: event.toolUseId,
   };
   useInteractionStore.getState().showConfirmation(confData);
+
+  // **And the window comes forward.** A confirmation is the one thing the
+  // assistant cannot get past on its own, and the card that answers it is drawn
+  // in the app's window. A turn started from the companion, or by a schedule,
+  // or from anywhere else while the user is working in another app, leaves that
+  // window behind whatever is in front of it, so the run stops on a question
+  // nobody can see and the assistant reads as having gone quiet.
+  //
+  // Off Electron this is a no-op (`main-window` wraps a host capability the web
+  // and iOS builds do not have), and a window already frontmost is raised to
+  // where it already is. Fire and forget: nothing below waits on it.
+  //
+  // The better end state is answering the request on the companion itself,
+  // which is not this: the surface holds no interaction store and no way to
+  // send a decision, only the words of a message and the tail of a reply.
+  void ensureMainWindowVisible();
 
   // The reducer folds the inline confirmation marker onto the tool-call row in
   // the snapshot. Here we only need the matched tool-call id for the
@@ -109,13 +126,9 @@ export function handleInteractionResolved(
 
   interaction.dismissConfirmationIfMatches(requestId);
 
-  const mappedToolCallId = session.confirmationToolCallMap.get(requestId);
-  if (
-    mappedToolCallId &&
-    interaction.inlineConfirmationToolCallId === mappedToolCallId
-  ) {
-    interaction.setInlineConfirmationToolCallId(null);
-  }
+  interaction.releaseInlineAnchorIfMatches(
+    session.confirmationToolCallMap.get(requestId),
+  );
 
   // The reducer folds the marker-clear onto the snapshot tool call; here we
   // only release the interaction-store bookkeeping.

@@ -76,6 +76,10 @@ export function buildMenuProps(
     onUnarchive: ctx.onUnarchive
       ? () => ctx.onUnarchive?.(conversation)
       : undefined,
+    onDelete:
+      ctx.onDelete && hasId && !conversation.draft
+        ? () => ctx.onDelete?.(conversation)
+        : undefined,
     onMarkRead:
       ctx.onMarkRead && canMarkRead(conversation)
         ? () => ctx.onMarkRead?.(conversation)
@@ -101,15 +105,16 @@ export function buildMenuProps(
         ? () => ctx.onRemoveFromGroup?.(conversation)
         : undefined,
     onOpenInNewWindow:
-      ctx.onOpenInNewWindow && hasId
+      ctx.showInternalActions && ctx.onOpenInNewWindow && hasId
         ? () => ctx.onOpenInNewWindow?.(conversation)
         : undefined,
     onShareFeedback: ctx.onShareFeedback,
     onInspect:
       ctx.onInspect && hasId ? () => ctx.onInspect?.(conversation) : undefined,
-    onCopyConversationId: hasId
-      ? () => copyIdToClipboard(conversation.conversationId!, "conversation")
-      : undefined,
+    onCopyConversationId:
+      ctx.showInternalActions && hasId
+        ? () => copyIdToClipboard(conversation.conversationId!, "conversation")
+        : undefined,
   };
 }
 
@@ -227,7 +232,7 @@ export function ConversationRow({
       trailingActions={trailingActions}
     >
       <PanelItem
-        label={conversation.title ?? "Untitled"}
+        label={conversation.title ?? t("conversationRow.untitled")}
         marqueeOnHover={marquee}
         active={conversationId === ctx.activeConversationId}
         onSelect={() => select(conversationId)}

@@ -61,7 +61,7 @@ import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-sho
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
   navigateToConversation,
   navigateToNewConversation,
@@ -106,8 +106,13 @@ import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
 } from "./components/archive-all-confirm-dialog";
+import {
+  DeleteConversationConfirmDialog,
+  useDeleteConversationConfirmation,
+} from "./components/delete-conversation-confirm-dialog";
 import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
+import { useTranslation } from "@/i18n";
 
 const CommandPalette = lazy(() =>
   import("@/components/command-palette/command-palette").then((m) => ({
@@ -164,6 +169,7 @@ export function ChatLayout({
    */
   topBarAccessory?: ReactNode;
 } = {}) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -293,7 +299,7 @@ export function ChatLayout({
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const showLlmInspector = useCanUseLlmInspector();
+  const showInternalActions = useCanUseInternalThreadActions();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
   // In-chat onboarding prototype: the tour's opening beats hide the sidebar
@@ -618,7 +624,7 @@ export function ChatLayout({
     [navigate],
   );
 
-  // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
+  // --- Sidebar conversation actions (pin / rename / archive / delete / mark / move) ---
   //
   // The sidebar's hover-revealed "…" menu reads its items from these
   // handlers; without them the popover renders empty (every menu item
@@ -631,6 +637,7 @@ export function ChatLayout({
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
+    handleDeleteConversation,
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
@@ -659,6 +666,16 @@ export function ChatLayout({
   } = useArchiveAllConfirmation({
     assistantId,
     archiveAllInGroup: handleArchiveAllInGroup,
+  });
+
+  const {
+    pending: pendingDeleteConversation,
+    requestDelete,
+    confirmDelete,
+    cancelDelete,
+  } = useDeleteConversationConfirmation({
+    assistantId,
+    deleteConversation: handleDeleteConversation,
   });
 
   // The move-to-group menu's "New group…" item and the group actions menu's
@@ -717,17 +734,14 @@ export function ChatLayout({
         assistantId={assistantId}
         activeConversation={activeConversation}
         headerSupplements={headerSupplements}
-        showLlmInspector={showLlmInspector}
-        conversationGroups={conversationGroups}
+        showInternalActions={showInternalActions}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
+        onDelete={requestDelete}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
         onRename={handleRenameConversation}
-        onMoveToGroup={handleMoveToGroup}
-        onCreateGroupInto={handleRequestCreateGroup}
-        onRemoveFromGroup={handleRemoveFromGroup}
       />
     ) : null);
 
@@ -963,6 +977,7 @@ export function ChatLayout({
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}
       onUnarchiveConversation={handleUnarchiveConversation}
+      onDeleteConversation={requestDelete}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
       onCreateGroup={handleRequestCreateEmptyGroup}
@@ -971,7 +986,8 @@ export function ChatLayout({
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={requestArchiveAll}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
-      onInspect={showLlmInspector ? handleInspectConversation : undefined}
+      onInspect={showInternalActions ? handleInspectConversation : undefined}
+      showInternalActions={showInternalActions}
       onMoveToGroup={handleMoveToGroup}
       onCreateGroupInto={handleRequestCreateGroup}
       onRemoveFromGroup={handleRemoveFromGroup}
@@ -1146,7 +1162,7 @@ export function ChatLayout({
               onTouchCancel={drawerGestures.onTouchCancel}
               role="dialog"
               aria-modal="true"
-              aria-label="Navigation"
+              aria-label={t("chatLayout.navigationAria")}
               data-state={drawerOpen ? "open" : "closed"}
             >
               {/* The aside is the drawer's only painted surface: the menu it
@@ -1212,7 +1228,7 @@ export function ChatLayout({
             // this element imperatively; overflow-hidden clips the nav
             // mid-slide.
             className="w-fit shrink-0 overflow-hidden"
-            aria-label="Navigation"
+            aria-label={t("chatLayout.navigationAria")}
           >
             {renderSideMenu({
               collapsed: effectiveCollapsed,
@@ -1261,6 +1277,11 @@ export function ChatLayout({
         pending={pendingArchiveAll}
         onConfirm={confirmArchiveAll}
         onCancel={cancelArchiveAll}
+      />
+      <DeleteConversationConfirmDialog
+        pending={pendingDeleteConversation}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
       <GroupNameDialogFromStore
         createGroup={createGroup}

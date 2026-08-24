@@ -5,18 +5,21 @@ import { NativeSidecarClient } from "@vellumai/native-sidecar/supervisor";
 
 import log from "./logger";
 
+const HELPER_ARCH = process.arch === "arm64" ? "arm64" : "x64";
+
 export const getWindowsHelperPath = (): string =>
   app.isPackaged
     ? path.join(
         process.resourcesPath,
         "native-helper",
+        HELPER_ARCH,
         "Vellum.WindowsHelper.exe",
       )
     : path.join(
         app.getAppPath(),
         "resources",
         "native-helper",
-        process.arch === "arm64" ? "arm64" : "x64",
+        HELPER_ARCH,
         "Vellum.WindowsHelper.exe",
       );
 

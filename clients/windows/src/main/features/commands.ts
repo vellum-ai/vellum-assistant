@@ -18,7 +18,7 @@ import { installHotkeysIpc } from "@vellumai/electron-desktop/hotkeys";
 import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 
-import { getDevRendererBase, RENDERER_BASE_PROD } from "../app-config";
+import { getRendererBase } from "../app-config";
 import { handle } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
@@ -34,8 +34,7 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     }
 
     configureAboutRuntime({
-      rendererBase: () =>
-        app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+      rendererBase: () => getRendererBase(app.isPackaged),
     });
     installAbout({ handle });
 

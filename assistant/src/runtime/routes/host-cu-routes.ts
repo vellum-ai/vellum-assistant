@@ -112,6 +112,24 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     });
   }
 
+  // Conversation-agnostic observation (see `runtime/host-observe.ts`): the
+  // request was raised outside any turn, so there is no conversation and no CU
+  // proxy to format the observation. Hand the raw fields to the waiting caller.
+  if (peeked.conversationId === undefined) {
+    const interaction = pendingInteractions.resolve(requestId, "answered");
+    interaction?.rpcResolve?.({
+      axTree,
+      axDiff,
+      screenshot,
+      screenshotWidthPx,
+      screenshotHeightPx,
+      screenWidthPt,
+      screenHeightPt,
+      executionError,
+    });
+    return { accepted: true };
+  }
+
   const conversation = findConversation(peeked.conversationId);
   if (!conversation) {
     pendingInteractions.resolve(requestId, "cancelled");

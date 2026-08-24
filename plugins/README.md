@@ -19,6 +19,7 @@ wired surface.
 - [Tools](#tools)
 - [Schedules](#schedules)
 - [MCP servers](#mcp-servers)
+- [Channels](#channels)
 - [Marketplace — whitelisting external plugins](#marketplace--whitelisting-external-plugins)
 - [Conventions](#conventions)
 
@@ -45,7 +46,9 @@ The external plugin loader extends the assistant by wiring these contribution su
 | Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                                                  |
 | Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools))                                |
 | Schedules           | `schedules/<name>/`      | reconciled into schedule rows on install/upgrade (see [Schedules](#schedules))                 |
-| MCP servers         | `mcp.json`               | connected on daemon start; tools land as `mcp__<id>__<tool>` (see [MCP servers](#mcp-servers)) |
+| MCP servers         | `mcp.json`               | connected on assistant start; tools land as `mcp__<id>__<tool>` (see [MCP servers](#mcp-servers)) |
+| HTTP routes         | `routes/<path>.ts`       | served under `/x/plugins/<name>/`                                                              |
+| Channels            | `channels/ingress.json`  | public `/webhooks/plugins/<name>/` routes; the plugin appears as a channel (see [Channels](#channels)) |
 
 ---
 
@@ -56,6 +59,8 @@ my-plugin/
 ├── package.json               # Manifest (required)
 ├── README.md                  # Optional plugin docs
 ├── mcp.json                   # Optional MCP server declarations
+├── channels/
+│   └── ingress.json           # Optional public ingress (makes the plugin a channel)
 ├── hooks/
 │   ├── init.ts                # Bootstrap
 │   ├── shutdown.ts            # Teardown
@@ -69,6 +74,8 @@ my-plugin/
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
 │   └── ...
+├── routes/                    # HTTP handlers under /x/plugins/<name>/
+│   └── events.ts
 ├── schedules/
 │   ├── digest/                # config.json + index.md (prompt body)
 │   └── nightly-sync/          # config.json + index.sh (shell script)
@@ -668,7 +675,7 @@ A plugin declares MCP servers in a root `mcp.json`, per the [Agent Plugins
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "unabyss": { "type": "streamable-http", "url": "https://mcp.unabyss.com" }
+    "example": { "type": "streamable-http", "url": "https://mcp.example.com" }
   }
 }
 ```
@@ -678,13 +685,13 @@ entry, `${PLUGIN_ROOT}` and `${PLUGIN_DATA}` interpolate in `args`, `env`
 values, and `cwd` — never in `command`, a URL, or a header, so a manifest
 cannot use them to build the executable path itself. `cwd` is accepted by the
 spec but has no host equivalent: it is ignored, with a warning, and the server
-runs in the daemon's working directory.
+runs in the assistant's working directory.
 
-The daemon connects these servers on start and registers their tools as
+The assistant connects these servers on start and registers their tools as
 `mcp__<serverId>__<tool>`, alongside workspace-configured ones. The server id
 is `<pluginName>__<serverKey>`, collapsed to just the name when the two match
-(the `unabyss` plugin above yields `mcp__unabyss__<tool>`, not
-`mcp__unabyss__unabyss__<tool>`). Installing, removing, upgrading, enabling, or
+(the `example` plugin above yields `mcp__example__<tool>`, not
+`mcp__example__example__<tool>`). Installing, removing, upgrading, enabling, or
 disabling a plugin reconnects the set as part of that operation — its servers
 come up and go down with the plugin, no restart involved — exactly like editing
 `config.json` does.
@@ -709,7 +716,62 @@ Three host behaviours worth knowing when authoring one:
   case is logged, and none removes another plugin's servers.
 
 `assistant mcp list` shows plugin servers with their originating plugin, and
-`status: declared` for one the daemon holds no live connection to.
+`status: declared` for one the assistant holds no live connection to.
+
+---
+
+## Channels
+
+A plugin is a channel because it declares ingress. `channels/ingress.json` is
+the list of routes the outside world may reach it on, served by the gateway at
+`/webhooks/plugins/<plugin>/<path>`. Plugins that declare a channel ingress are
+considered themselves a channel in all contexts where channels are viewed.
+
+```json
+{
+  "routes": [
+    {
+      "path": "events",
+      "kind": "http",
+      "description": "Inbound events from Example Courier"
+    }
+  ]
+}
+```
+
+Declare the public path in this file **and** implement the matching handler
+under `routes/<path>.ts`. A `routes/` file with no ingress declaration is not
+a public webhook. Resolve the URL to hand a vendor with
+`resolveWebhookUrl({ path: "events" })` from `@vellumai/plugin-api`.
+
+Every public plugin route is signature-checked. Routes wait on a guardian
+approval of the declaration digest before they are served. Editing the file
+changes the digest and drops the plugin back to pending.
+
+Optional fields on a route:
+
+- **`kind`**: `http` or `websocket`.
+- **`handshake`**: `signed-headers` (default) or `signed-query` (WebSocket
+  only, for a caller handed a URL and nothing else).
+- **`verification`**: declared HMAC scheme for a third-party vendor's own
+  signature. HTTP only. The descriptor names a credential *field* under this
+  plugin's own service; it cannot name another plugin's secret.
+- **`inbound`**: that the plugin's reply carries a message for the gateway's
+  inbound pipeline. HTTP only. `"inbound": {}` reads the default envelope
+  (`message.content`, `message.conversationExternalId`,
+  `actor.actorExternalId`, …). Override `fields` and `identity` (`opaque` /
+  `phone` / `email`) when the vendor's payload is a different shape. The
+  gateway stamps `sourceChannel: "plugin"` and prefixes every external id with
+  the plugin directory name, so a plugin cannot inherit another channel's
+  contacts.
+
+Presentation comes from the plugin's `package.json` (`displayName`,
+`description`, `icon`). All three are optional. A plugin whose directory name
+is already a built-in channel is skipped so it cannot impersonate one.
+Disabled plugins contribute no channel.
+
+The authoring contract, including verification descriptors and inbound field
+maps, lives in the `plugin-builder` skill (`skills/plugin-builder/references/channels.md`).
 
 ---
 
@@ -876,3 +938,7 @@ inside the stub, run under a stripped environment and a timeout.
 - **Cooperative cancellation.** Long-running tools should check
   `ctx.signal?.aborted` or forward `ctx.signal` to `fetch` / `spawn`
   options.
+- **Setup skill.** A plugin that needs a first-run walkthrough ships
+  `skills/setup/SKILL.md` or `skills/<plugin-name>-setup/SKILL.md`.
+  `assistant plugins install` detects that directory and tells the user
+  to load the skill.

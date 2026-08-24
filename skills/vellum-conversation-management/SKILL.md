@@ -1,6 +1,6 @@
 ---
 name: vellum-conversation-management
-description: Manage conversation threads (rename, list, export)
+description: Manage conversation threads (rename, list, search, export)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
@@ -31,6 +31,16 @@ List all conversations with their IDs and titles:
 
 ```bash
 assistant conversations list
+```
+
+## Searching
+
+Search conversation titles and message content. Quote multi-word terms. Archived conversations are excluded, matching `assistant conversations list`.
+
+```bash
+assistant conversations search "project planning"
+assistant conversations search flux --limit 5
+assistant conversations search "quarterly metrics" --json
 ```
 
 ## Exporting

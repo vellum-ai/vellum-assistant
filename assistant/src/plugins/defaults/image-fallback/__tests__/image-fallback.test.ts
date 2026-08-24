@@ -15,10 +15,12 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-// The current-turn boundary is the real host helper `caption-blocks.ts`
-// reaches through `@vellumai/plugin-api`; wire it into the mock so the sweep
-// tests exercise the shipped scope behavior rather than a stand-in.
+// The current-turn boundary and the vision-rejection classifier are the real
+// host helpers the plugin reaches through `@vellumai/plugin-api`; wire them
+// into the mock so the tests exercise the shipped behavior rather than a
+// stand-in.
 import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -48,18 +50,48 @@ const mockResolveMediaSourceData = (source: ImageContent["source"]) =>
     ? { data: source.data, media_type: source.media_type }
     : null;
 
+// System cards the plugin posts, captured instead of persisted.
+let persistedCards: Array<{
+  conversationId: string;
+  text: string;
+  metadata: Record<string, unknown>;
+}> = [];
+let cardPersistenceFails = false;
+
 // Mock @vellumai/plugin-api — only the runtime handles the plugin imports.
 // `extractAllText` stays real (imported from the relative path, not plugin-api).
-mock.module("@vellumai/plugin-api", () => ({
-  doesSupportVision: (arg: ModelProfileInfo | string) =>
-    typeof arg === "string"
-      ? visionModels.has(arg)
-      : visionProfiles.has(arg.key),
-  getModelProfiles: () => mockProfiles,
-  resolveMediaSourceData: mockResolveMediaSourceData,
-  getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
-  lastToolResultUserMessageIndex,
-}));
+// One factory backs every install so a per-test override (e.g. a
+// call-counting provider) cannot silently drop the rest of the surface. The
+// module registry is process-wide, so the surface covers every plugin-api
+// export the plugin's hooks import, including ones only sibling test files
+// exercise.
+function installPluginApiMock(overrides: Record<string, unknown> = {}): void {
+  mock.module("@vellumai/plugin-api", () => ({
+    doesSupportVision: (arg: ModelProfileInfo | string) =>
+      typeof arg === "string"
+        ? visionModels.has(arg)
+        : visionProfiles.has(arg.key),
+    getModelProfiles: () => mockProfiles,
+    resolveMediaSourceData: mockResolveMediaSourceData,
+    getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
+    lastToolResultUserMessageIndex,
+    isVisionNotSupportedError,
+    persistSystemCard: async (opts: {
+      conversationId: string;
+      text: string;
+      metadata: Record<string, unknown>;
+    }) => {
+      if (cardPersistenceFails) {
+        throw new Error("card write failed");
+      }
+      persistedCards.push(opts);
+      return "card-1";
+    },
+    ...overrides,
+  }));
+}
+
+installPluginApiMock();
 
 // Mock the image-persist module to avoid filesystem side effects in tests.
 let mockPersistPath: string | null =
@@ -77,6 +109,7 @@ const postCompact = (await import("../hooks/post-compact.js")).default;
 const conversationDeleted = (await import("../hooks/conversation-deleted.js"))
   .default;
 const { findVisionProfile } = await import("../src/vision-caption.js");
+const { flattenTextOnlyBlocks } = await import("../src/caption-blocks.js");
 const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
   await import("../src/caption-cache.js");
 
@@ -130,9 +163,16 @@ function textMsg(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
 }
 
+/**
+ * A user-prompt-submit context whose `originalMessages` tail is the submitted
+ * message, the way the agent loop snapshots the history before the hook chain
+ * runs. Pass `originalMessages` explicitly to model a history the turn did not
+ * submit anything into.
+ */
 function makeCtx(
   overrides: Partial<UserPromptSubmitContext> = {},
 ): UserPromptSubmitContext {
+  const latestMessages = overrides.latestMessages ?? [];
   return {
     conversationId: "c1",
     userMessageId: "m1",
@@ -140,8 +180,8 @@ function makeCtx(
     modelProfileKey: "text-only",
     isNonInteractive: false,
     prompt: "What is in this image?",
-    originalMessages: [],
-    latestMessages: [],
+    latestMessages,
+    originalMessages: Object.freeze([...latestMessages]),
     logger,
     ...overrides,
   } as unknown as UserPromptSubmitContext;
@@ -201,6 +241,9 @@ beforeEach(() => {
   };
   providerResolves = true;
   mockPersistPath = "/workspace/data/attachments/mock-hash.png";
+  persistedCards = [];
+  cardPersistenceFails = false;
+  installPluginApiMock();
   resetCaptionCacheForTests();
 });
 
@@ -276,7 +319,13 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(text).not.toContain("/workspace/data/attachments/");
   });
 
-  test("preserves non-image blocks and captions only images", async () => {
+  test("preserves the user's own text around the caption it substitutes", async () => {
+    /**
+     * Tests that surrounding prose survives the substitution, merged with the
+     * caption in submitted order.
+     */
+
+    // GIVEN a submitted message that wraps an image in the user's own prose
     const messages: Message[] = [
       {
         role: "user",
@@ -288,16 +337,16 @@ describe("image-fallback user-prompt-submit hook", () => {
       },
     ];
     const ctx = makeCtx({ latestMessages: messages });
+
+    // WHEN the turn starts
     await userPromptSubmit(ctx);
+
+    // THEN the caption replaces the image between the two prose blocks, and
+    // the now text-only content is merged into the single block providers
+    // serialize as a plain string
+    expect(ctx.latestMessages[0].content).toHaveLength(1);
     expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
-      "Look at this:",
-    );
-    expect(ctx.latestMessages[0].content[1].type).toBe("text");
-    expect(
-      (ctx.latestMessages[0].content[1] as { text: string }).text,
-    ).toContain("[Image auto-described");
-    expect((ctx.latestMessages[0].content[2] as { text: string }).text).toBe(
-      "What do you see?",
+      "Look at this:\n\n[Image auto-described for text-only model: A red chart showing Q3 revenue.]\n\nWhat do you see?",
     );
   });
 
@@ -333,15 +382,9 @@ describe("image-fallback user-prompt-submit hook", () => {
       },
     };
     // Override the mock to track calls.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
+    installPluginApiMock({
       getConfiguredProvider: async () => trackingProvider,
-    }));
+    });
 
     const messages1 = [imageMsg("same-data")];
     const ctx1 = makeCtx({ latestMessages: messages1 });
@@ -353,18 +396,6 @@ describe("image-fallback user-prompt-submit hook", () => {
     const ctx2 = makeCtx({ latestMessages: messages2 });
     await userPromptSubmit(ctx2);
     expect(callCount).toBe(1); // still 1 — cache hit
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 
   test("captions images nested in a historical tool_result's contentBlocks", async () => {
@@ -399,13 +430,287 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(
       (ctx.latestMessages[0].content[0] as { text: string }).text,
     ).toContain("[Image auto-described");
-    expect(ctx.latestMessages[2].content[0].type).toBe("text");
+    expect(ctx.latestMessages[2].content).toHaveLength(1);
     expect(
       (ctx.latestMessages[2].content[0] as { text: string }).text,
     ).toContain("[Image auto-described");
-    expect((ctx.latestMessages[2].content[1] as { text: string }).text).toBe(
-      "both?",
+    expect(
+      (ctx.latestMessages[2].content[0] as { text: string }).text,
+    ).toEndWith("\n\nboth?");
+  });
+});
+
+describe("image-fallback dropped-image notice", () => {
+  test("posts a transcript card when this turn's image cannot be described", async () => {
+    /**
+     * Tests that an image the model never receives in any form is reported to
+     * the user instead of being dropped silently.
+     */
+
+    // GIVEN a workspace with no vision-capable profile to caption with
+    visionProfiles = new Set<string>();
+
+    // AND a turn that submits prose plus an image
+    const submitted: Message = {
+      role: "user",
+      content: [{ type: "text", text: "look at this" }, imageBlock("dropped")],
+    };
+    const ctx = makeCtx({ latestMessages: [submitted] });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the model receives the prose and a placeholder, merged into the
+    // single text block providers serialize as a plain string
+    expect(ctx.latestMessages[0].content).toHaveLength(1);
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+      "look at this\n\n[Image: no vision-capable model configured to describe it]",
     );
+
+    // AND the transcript carries one card telling the user the image was not sent
+    expect(persistedCards).toHaveLength(1);
+    expect(persistedCards[0].conversationId).toBe("c1");
+    expect(persistedCards[0].text).toBe(
+      "The image you attached was not sent to the model: no vision-capable model is configured to describe it. Configure one to use images in this conversation.",
+    );
+    expect(persistedCards[0].metadata).toEqual({
+      plugin: "image-fallback",
+      droppedImageCount: 1,
+    });
+  });
+
+  test("reports every image the turn attached in a single card", async () => {
+    /**
+     * Tests that one turn attaching several undescribable images produces one
+     * card that counts them.
+     */
+
+    // GIVEN no vision-capable profile
+    visionProfiles = new Set<string>();
+
+    // AND a turn that submits two images
+    const submitted: Message = {
+      role: "user",
+      content: [imageBlock("drop-a"), imageBlock("drop-b")],
+    };
+    const ctx = makeCtx({ latestMessages: [submitted] });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN a single card reports both
+    expect(persistedCards).toHaveLength(1);
+    expect(persistedCards[0].text).toContain("The 2 images you attached");
+    expect(persistedCards[0].metadata.droppedImageCount).toBe(2);
+  });
+
+  test("posts a card when an injector rebuilt the submitted message", async () => {
+    /**
+     * Tests that the notice survives an earlier hook replacing the tail
+     * message object, which memory and runtime-context injection do when they
+     * append their blocks to the submitted message.
+     */
+
+    // GIVEN no vision-capable profile
+    visionProfiles = new Set<string>();
+
+    // AND a submitted message carrying an image
+    const submitted: Message = {
+      role: "user",
+      content: [imageBlock("dropped")],
+    };
+
+    // AND a working history whose tail is a rebuilt copy of it, carrying an
+    // injected context block, rather than the submitted object itself
+    const injected: Message = {
+      role: "user",
+      content: [
+        ...submitted.content,
+        { type: "text", text: "<runtime_context />" },
+      ],
+    };
+    const ctx = makeCtx({
+      latestMessages: [injected],
+      originalMessages: Object.freeze([submitted]),
+    });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the user is still told the image was not sent
+    expect(persistedCards).toHaveLength(1);
+    expect(persistedCards[0].metadata.droppedImageCount).toBe(1);
+  });
+
+  test("posts no card when a vision profile describes the image", async () => {
+    /**
+     * Tests that a captioned image is not reported as dropped: the model does
+     * receive its content.
+     */
+
+    // GIVEN a vision-capable profile and a submitted image
+    const ctx = makeCtx({ latestMessages: [imageMsg("described")] });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the image is captioned and nothing is reported to the user
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("[Image auto-described");
+    expect(persistedCards).toHaveLength(0);
+  });
+
+  test("posts no card for raw images the sweep re-encounters from earlier turns", async () => {
+    /**
+     * Tests that the notice fires once. Persisted rows keep their raw images,
+     * so every later turn's sweep drops them again.
+     */
+
+    // GIVEN no vision-capable profile
+    visionProfiles = new Set<string>();
+
+    // AND a history whose earlier turn holds a raw image, with this turn
+    // submitting text only
+    const history = [imageMsg("from-an-earlier-turn"), textMsg("follow up")];
+    const ctx = makeCtx({ latestMessages: history });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the older image is still replaced for the provider call
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("no vision-capable model");
+
+    // AND no card repeats a notice the user already saw
+    expect(persistedCards).toHaveLength(0);
+  });
+
+  test("posts no card for media a tool returned", async () => {
+    /**
+     * Tests that tool-returned media stays out of the user-facing tally: the
+     * user did not attach it.
+     */
+
+    // GIVEN no vision-capable profile
+    visionProfiles = new Set<string>();
+
+    // AND a submitted message carrying a tool result with a screenshot
+    const ctx = makeCtx({
+      latestMessages: [
+        { role: "user", content: [toolResult([imageBlock("screenshot")])] },
+      ],
+    });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the nested image is replaced without notifying the user
+    const result = ctx.latestMessages[0].content[0] as ToolResultContent;
+    expect((result.contentBlocks![0] as { text: string }).text).toContain(
+      "no vision-capable model",
+    );
+    expect(persistedCards).toHaveLength(0);
+  });
+
+  test("still runs the turn when the notice cannot be persisted", async () => {
+    /**
+     * Tests that the notice is best-effort: losing it must not fail the turn.
+     */
+
+    // GIVEN no vision-capable profile
+    visionProfiles = new Set<string>();
+
+    // AND a transcript that rejects the card write
+    cardPersistenceFails = true;
+    const ctx = makeCtx({ latestMessages: [imageMsg("dropped")] });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the substitution still reaches the provider-bound history
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("no vision-capable model");
+  });
+});
+
+describe("flattenTextOnlyBlocks", () => {
+  test("leaves a single text block untouched", () => {
+    /**
+     * Tests that content already in the shape providers serialize as a string
+     * is not rebuilt.
+     */
+
+    // GIVEN a user message holding one text block
+    const block = { type: "text" as const, text: "just text" };
+    const messages: Message[] = [{ role: "user", content: [block] }];
+
+    // WHEN the content is flattened
+    const flattened = flattenTextOnlyBlocks(messages);
+
+    // THEN nothing changes
+    expect(flattened).toBe(0);
+    expect(messages[0].content).toEqual([block]);
+  });
+
+  test("leaves content holding a non-text block untouched", () => {
+    /**
+     * Tests that merging never discards a block the provider must serialize on
+     * its own, e.g. an attached file.
+     */
+
+    // GIVEN a user message mixing text with a file block
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "see the attachment" },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "pdfdata",
+            },
+          },
+        ],
+      },
+    ];
+
+    // WHEN the content is flattened
+    const flattened = flattenTextOnlyBlocks(messages);
+
+    // THEN both blocks survive
+    expect(flattened).toBe(0);
+    expect(messages[0].content).toHaveLength(2);
+    expect(messages[0].content[1].type).toBe("file");
+  });
+
+  test("leaves assistant content untouched", () => {
+    /**
+     * Tests that only user content is merged: assistant block boundaries carry
+     * provider-side meaning (streamed parts, tool calls).
+     */
+
+    // GIVEN an assistant message with two text blocks
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "first" },
+          { type: "text", text: "second" },
+        ],
+      },
+    ];
+
+    // WHEN the content is flattened
+    const flattened = flattenTextOnlyBlocks(messages);
+
+    // THEN the blocks stay separate
+    expect(flattened).toBe(0);
+    expect(messages[0].content).toHaveLength(2);
   });
 });
 
@@ -545,9 +850,9 @@ describe("image-fallback post-compact hook", () => {
     ];
     const ctx = makeCompactCtx({ history });
     await postCompact(ctx);
-    expect(ctx.history[0].content[1].type).toBe("text");
-    expect((ctx.history[0].content[1] as { text: string }).text).toBe(
-      "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+    expect(ctx.history[0].content).toHaveLength(1);
+    expect((ctx.history[0].content[0] as { text: string }).text).toBe(
+      "Images retained from the compacted portion of the conversation:\n\n[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
     );
   });
 
@@ -577,15 +882,9 @@ describe("image-fallback post-compact hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
+    installPluginApiMock({
       getConfiguredProvider: async () => trackingProvider,
-    }));
+    });
 
     // The image is captioned once at ingestion (turn-start sweep)...
     const ctx1 = makeCtx({ latestMessages: [imageMsg("compacted-image")] });
@@ -598,18 +897,6 @@ describe("image-fallback post-compact hook", () => {
     await postCompact(ctx2);
     expect(callCount).toBe(1); // still 1 — cache hit
     expect(ctx2.history[0].content[0].type).toBe("text");
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 
   test("uses fail-open placeholder when no vision profile is configured", async () => {
@@ -640,15 +927,9 @@ describe("image-fallback conversation-deleted hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
+    installPluginApiMock({
       getConfiguredProvider: async () => trackingProvider,
-    }));
+    });
 
     // Caption an image in the doomed conversation.
     const ctx1 = makeCtx({
@@ -668,18 +949,6 @@ describe("image-fallback conversation-deleted hook", () => {
     });
     await userPromptSubmit(ctx2);
     expect(callCount).toBe(2);
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 
   test("captions shared with a surviving conversation keep serving hits", async () => {
@@ -691,15 +960,9 @@ describe("image-fallback conversation-deleted hook", () => {
         return sendMessageResponse;
       },
     };
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
+    installPluginApiMock({
       getConfiguredProvider: async () => trackingProvider,
-    }));
+    });
 
     // The same image is captioned in one conversation and cache-hit in a
     // second, which records the second conversation's association.
@@ -724,17 +987,5 @@ describe("image-fallback conversation-deleted hook", () => {
     });
     await userPromptSubmit(ctxB2);
     expect(callCount).toBe(1);
-
-    // Restore the original mock for other tests.
-    mock.module("@vellumai/plugin-api", () => ({
-      doesSupportVision: (arg: ModelProfileInfo | string) =>
-        typeof arg === "string"
-          ? visionModels.has(arg)
-          : visionProfiles.has(arg.key),
-      getModelProfiles: () => mockProfiles,
-      resolveMediaSourceData: mockResolveMediaSourceData,
-      getConfiguredProvider: async () =>
-        providerResolves ? fakeProvider : null,
-    }));
   });
 });

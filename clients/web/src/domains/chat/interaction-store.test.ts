@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
+  reportSubmissionFailure,
+  type PromptKind,
+} from "@/domains/chat/prompt-submission";
+import {
   useInteractionStore,
   hasActiveInteraction,
 } from "@/domains/chat/interaction-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // Reset store between tests to avoid cross-contamination
 beforeEach(() => {
@@ -12,12 +17,12 @@ beforeEach(() => {
 describe("useInteractionStore", () => {
   // ----- Secret flow -----
   describe("secret flow", () => {
-    it("showSecret sets pendingSecret and resets submit/saved flags", () => {
+    it("showSecret sets pendingSecret and resets the saved flag", () => {
       const payload = { requestId: "r1", label: "API Key" };
       useInteractionStore.getState().showSecret(payload);
       const s = useInteractionStore.getState();
       expect(s.pendingSecret).toEqual(payload);
-      expect(s.isSubmittingSecret).toBe(false);
+      expect(s.submittingByKind.secret).toBeNull();
       expect(s.secretSaved).toBe(false);
     });
 
@@ -49,43 +54,73 @@ describe("useInteractionStore", () => {
         .showSecret({ requestId: "r2", label: "Second" });
       const s = useInteractionStore.getState();
       expect(s.pendingSecret).toEqual({ requestId: "r2", label: "Second" });
-      expect(s.isSubmittingSecret).toBe(false);
+      expect(s.submittingByKind.secret).toBeNull();
       expect(s.secretSaved).toBe(false);
     });
 
-    it("showSecret same-requestId merge preserves submit/saved flags", () => {
+    it("showSecret same-requestId merge preserves the in-flight submission", () => {
       useInteractionStore
         .getState()
         .showSecret({ requestId: "r1", label: "API Key" });
-      useInteractionStore.getState().submitSecretStart();
+      useInteractionStore.getState().claimSubmission("secret", "r1");
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       const s = useInteractionStore.getState();
-      expect(s.isSubmittingSecret).toBe(true);
+      expect(s.submittingByKind.secret).not.toBeNull();
       expect(s.pendingSecret?.label).toBe("API Key");
     });
 
-    it("submitSecretStart sets isSubmittingSecret", () => {
+    it("submitSecretStart records the request being submitted", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().submitSecretStart();
-      expect(useInteractionStore.getState().isSubmittingSecret).toBe(true);
+      useInteractionStore.getState().claimSubmission("secret", "r1");
+      expect(
+        useInteractionStore.getState().submittingByKind.secret,
+      ).not.toBeNull();
     });
 
-    it("submitSecretEnd clears isSubmittingSecret and sets saved flag", () => {
+    it("releasing the slot does not decide the saved tick", () => {
+      // Who holds the slot and whether the secret saved are separate facts, so
+      // the outcome is reported rather than inferred from the release.
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().submitSecretStart();
-      useInteractionStore.getState().submitSecretEnd(true);
+      useInteractionStore.getState().claimSubmission("secret", "r1");
+      useInteractionStore.getState().releaseSubmission("secret", "r1");
       const s = useInteractionStore.getState();
-      expect(s.isSubmittingSecret).toBe(false);
-      expect(s.secretSaved).toBe(true);
+      expect(s.submittingByKind.secret).toBeNull();
+      expect(s.secretSaved).toBe(false);
     });
 
-    it("dismissSecret clears pendingSecret and isSubmittingSecret", () => {
+    it("a failed submission clears a tick an earlier success left", () => {
+      // The tick describes the last submission, not the best one. Retrying the
+      // same prompt and failing must not keep showing a success.
       useInteractionStore.getState().showSecret({ requestId: "r1" });
-      useInteractionStore.getState().submitSecretStart();
-      useInteractionStore.getState().dismissSecret();
-      const s = useInteractionStore.getState();
-      expect(s.pendingSecret).toBeNull();
-      expect(s.isSubmittingSecret).toBe(false);
+      useInteractionStore.getState().setSecretSavedIfMatches("r1", true);
+      useInteractionStore.getState().setSecretSavedIfMatches("r1", false);
+      expect(useInteractionStore.getState().secretSaved).toBe(false);
+    });
+
+    it("a superseded request cannot write the tick", () => {
+      // The tick belongs to the card on screen. A request the user can no
+      // longer see must not erase the outcome of the one they can.
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      useInteractionStore.getState().showSecret({ requestId: "r2" });
+      useInteractionStore.getState().setSecretSavedIfMatches("r2", true);
+
+      useInteractionStore.getState().setSecretSavedIfMatches("r1", false);
+
+      expect(useInteractionStore.getState().secretSaved).toBe(true);
+    });
+
+    it("dismissSecretIfMatches retires the prompt it names", () => {
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      useInteractionStore.getState().dismissSecretIfMatches("r1");
+      expect(useInteractionStore.getState().pendingSecret).toBeNull();
+    });
+
+    it("dismissSecretIfMatches leaves a prompt it does not name", () => {
+      useInteractionStore.getState().showSecret({ requestId: "r1" });
+      useInteractionStore.getState().dismissSecretIfMatches("r2");
+      expect(useInteractionStore.getState().pendingSecret?.requestId).toBe(
+        "r1",
+      );
     });
 
     it("updateSecret applies patch when requestId matches", () => {
@@ -115,30 +150,57 @@ describe("useInteractionStore", () => {
     it("showConfirmation sets pendingConfirmation", () => {
       const payload = { requestId: "c1", title: "Deploy?" };
       useInteractionStore.getState().showConfirmation(payload);
-      const s = useInteractionStore.getState();
-      expect(s.pendingConfirmation).toEqual(payload);
-      expect(s.isSubmittingConfirmation).toBe(false);
+      expect(useInteractionStore.getState().pendingConfirmation).toEqual(
+        payload,
+      );
     });
 
     it("submitConfirmationStart/End cycle", () => {
-      useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().submitConfirmationStart();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(
-        true,
+      useInteractionStore.getState().claimSubmission("confirmation", "c1");
+      expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+        "c1",
       );
-      useInteractionStore.getState().submitConfirmationEnd();
-      expect(useInteractionStore.getState().isSubmittingConfirmation).toBe(
-        false,
+      useInteractionStore.getState().releaseSubmission("confirmation", "c1");
+      expect(
+        useInteractionStore.getState().submittingByKind.confirmation,
+      ).toBeNull();
+    });
+
+    it("submitConfirmationEnd ignores a request that does not hold the slot", () => {
+      useInteractionStore.getState().claimSubmission("confirmation", "c1");
+      useInteractionStore
+        .getState()
+        .releaseSubmission("confirmation", "c-other");
+      // A superseded response cannot reopen the double-submit guard for the
+      // submission that holds it now.
+      expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+        "c1",
       );
     });
 
-    it("dismissConfirmation clears state", () => {
+    it("the card's lifecycle leaves an in-flight submission alone", () => {
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().submitConfirmationStart();
-      useInteractionStore.getState().dismissConfirmation();
-      const s = useInteractionStore.getState();
-      expect(s.pendingConfirmation).toBeNull();
-      expect(s.isSubmittingConfirmation).toBe(false);
+      useInteractionStore.getState().claimSubmission("confirmation", "c1");
+
+      // The daemon broadcasts `interaction_resolved` before its POST response
+      // returns, so the card is routinely retired while its own submission is
+      // still on the wire. Retiring the card says nothing about that.
+      useInteractionStore.getState().dismissConfirmationIfMatches("c1");
+      expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+      expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+        "c1",
+      );
+
+      // Nor does a different prompt arriving.
+      useInteractionStore.getState().showConfirmation({ requestId: "c2" });
+      expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+        "c1",
+      );
+
+      useInteractionStore.getState().dismissConfirmationIfMatches("c2");
+      expect(useInteractionStore.getState().submittingByKind.confirmation).toBe(
+        "c1",
+      );
     });
 
     it("dismissConfirmationIfMatches clears when requestId matches", () => {
@@ -192,28 +254,34 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showContactRequest(payload);
       const s = useInteractionStore.getState();
       expect(s.pendingContactRequest).toEqual(payload);
-      expect(s.isSubmittingContactRequest).toBe(false);
+      expect(s.submittingByKind.contactRequest).toBeNull();
       expect(s.contactRequestAccepted).toBe(false);
     });
 
     it("submitContactRequestStart/End cycle", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().submitContactRequestStart();
-      expect(useInteractionStore.getState().isSubmittingContactRequest).toBe(
-        true,
-      );
-      useInteractionStore.getState().submitContactRequestEnd();
-      expect(useInteractionStore.getState().isSubmittingContactRequest).toBe(
-        false,
-      );
+      useInteractionStore.getState().claimSubmission("contactRequest", "cr1");
+      expect(
+        useInteractionStore.getState().submittingByKind.contactRequest,
+      ).not.toBeNull();
+      useInteractionStore.getState().releaseSubmission("contactRequest", "cr1");
+      expect(
+        useInteractionStore.getState().submittingByKind.contactRequest,
+      ).toBeNull();
     });
 
-    it("dismissContactRequest clears state", () => {
+    it("dismissContactRequestIfMatches retires the prompt it names", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().dismissContactRequest();
-      const s = useInteractionStore.getState();
-      expect(s.pendingContactRequest).toBeNull();
-      expect(s.isSubmittingContactRequest).toBe(false);
+      useInteractionStore.getState().dismissContactRequestIfMatches("cr1");
+      expect(useInteractionStore.getState().pendingContactRequest).toBeNull();
+    });
+
+    it("dismissContactRequestIfMatches leaves a prompt it does not name", () => {
+      useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
+      useInteractionStore.getState().dismissContactRequestIfMatches("cr2");
+      expect(
+        useInteractionStore.getState().pendingContactRequest?.requestId,
+      ).toBe("cr1");
     });
 
     it("acceptContactRequest sets flag", () => {
@@ -230,29 +298,40 @@ describe("useInteractionStore", () => {
       useInteractionStore.getState().showQuestion(payload);
       const s = useInteractionStore.getState();
       expect(s.pendingQuestion).toEqual(payload);
-      expect(s.isSubmittingQuestion).toBe(false);
       expect(s.isQuestionCardDismissed).toBe(false);
     });
 
     it("submitQuestionStart/End cycle", () => {
+      useInteractionStore.getState().claimSubmission("question", "q1");
+      expect(useInteractionStore.getState().submittingByKind.question).toBe(
+        "q1",
+      );
+      useInteractionStore.getState().releaseSubmission("question", "q1");
+      expect(
+        useInteractionStore.getState().submittingByKind.question,
+      ).toBeNull();
+    });
+
+    it("retiring a question card leaves an in-flight submission alone", () => {
       useInteractionStore
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
-      useInteractionStore.getState().submitQuestionStart();
-      expect(useInteractionStore.getState().isSubmittingQuestion).toBe(true);
-      useInteractionStore.getState().submitQuestionEnd();
-      expect(useInteractionStore.getState().isSubmittingQuestion).toBe(false);
+      useInteractionStore.getState().claimSubmission("question", "q1");
+      useInteractionStore.getState().dismissQuestionIfMatches("q1");
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+      expect(useInteractionStore.getState().submittingByKind.question).toBe(
+        "q1",
+      );
     });
 
-    it("dismissQuestion clears all question state", () => {
+    it("retiring a card also clears the hidden-card flag", () => {
       useInteractionStore
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().dismissQuestionCard();
-      useInteractionStore.getState().dismissQuestion();
+      useInteractionStore.getState().dismissQuestionIfMatches("q1");
       const s = useInteractionStore.getState();
       expect(s.pendingQuestion).toBeNull();
-      expect(s.isSubmittingQuestion).toBe(false);
       expect(s.isQuestionCardDismissed).toBe(false);
     });
 
@@ -261,9 +340,7 @@ describe("useInteractionStore", () => {
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
       useInteractionStore.getState().dismissQuestionIfMatches("q1");
-      const s = useInteractionStore.getState();
-      expect(s.pendingQuestion).toBeNull();
-      expect(s.isSubmittingQuestion).toBe(false);
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
     });
 
     it("dismissQuestionIfMatches leaves a newer card standing", () => {
@@ -335,4 +412,119 @@ describe("useInteractionStore", () => {
       expect(hasActiveInteraction(useInteractionStore.getState())).toBe(true);
     });
   });
+});
+
+describe("prompt slots: the shared invariant", () => {
+  /**
+   * Which prompt is on screen and which request is on the wire are independent.
+   * Conflating them is what let a resume mistake its own resolution for a
+   * stranger's, and the kinds are similar enough that a new one can pick up
+   * half the pattern unnoticed. Driven off `PromptKind` itself, so a fifth is
+   * covered the moment it exists rather than when someone remembers to add it.
+   */
+  const KINDS: PromptKind[] = [
+    "confirmation",
+    "question",
+    "secret",
+    "contactRequest",
+  ];
+
+  /**
+   * Only the prompt half still needs naming per kind. The submission half is
+   * uniform, which is the point: it is the half that carries ownership.
+   */
+  const RAISE: Record<PromptKind, (requestId: string) => void> = {
+    confirmation: (requestId) =>
+      useInteractionStore.getState().showConfirmation({ requestId }),
+    question: (requestId) =>
+      useInteractionStore.getState().showQuestion({ requestId, entries: [] }),
+    secret: (requestId) =>
+      useInteractionStore.getState().showSecret({ requestId }),
+    contactRequest: (requestId) =>
+      useInteractionStore.getState().showContactRequest({ requestId }),
+  };
+  const RETIRE: Record<PromptKind, (requestId: string) => void> = {
+    confirmation: (requestId) =>
+      useInteractionStore.getState().dismissConfirmationIfMatches(requestId),
+    question: (requestId) =>
+      useInteractionStore.getState().dismissQuestionIfMatches(requestId),
+    secret: (requestId) =>
+      useInteractionStore.getState().dismissSecretIfMatches(requestId),
+    contactRequest: (requestId) =>
+      useInteractionStore.getState().dismissContactRequestIfMatches(requestId),
+  };
+
+  for (const kind of KINDS) {
+    describe(kind, () => {
+      it("raising or retiring a prompt leaves the in-flight request alone", () => {
+        RAISE[kind]("r1");
+        useInteractionStore.getState().claimSubmission(kind, "r1");
+
+        // The matching resolution retires the card while its own submission is
+        // still on the wire, which is the ordinary ordering.
+        RETIRE[kind]("r1");
+        expect(useInteractionStore.getState().submittingByKind[kind]).toBe(
+          "r1",
+        );
+
+        // A different prompt arriving says nothing about it either.
+        RAISE[kind]("r2");
+        expect(useInteractionStore.getState().submittingByKind[kind]).toBe(
+          "r1",
+        );
+      });
+
+      it("a failure is reported only by the holder, and only for its own prompt", () => {
+        const banner = () => useChatSessionStore.getState().error?.message;
+        const report = (id: string) =>
+          reportSubmissionFailure(kind, id, `failed ${id}`);
+
+        RAISE[kind]("r1");
+        useInteractionStore.getState().claimSubmission(kind, "r1");
+        report("r1");
+        expect(banner()).toBe("failed r1");
+
+        // Replaced on screen: the message would explain itself over a prompt
+        // the user has not answered.
+        useChatSessionStore.getState().setError(null);
+        RAISE[kind]("r2");
+        report("r1");
+        expect(banner()).toBeUndefined();
+
+        // Its own resolution retired the card while it was still awaiting,
+        // which is the ordinary shape and leaves nothing to be mistaken for.
+        RETIRE[kind]("r2");
+        report("r1");
+        expect(banner()).toBe("failed r1");
+
+        // The slot gone means the interaction was abandoned, and an error about
+        // something the user walked away from is noise.
+        useChatSessionStore.getState().setError(null);
+        useInteractionStore.getState().releaseSubmission(kind, "r1");
+        report("r1");
+        expect(banner()).toBeUndefined();
+      });
+
+      it("only the holder can release the slot", () => {
+        useInteractionStore.getState().claimSubmission(kind, "r1");
+        useInteractionStore.getState().releaseSubmission(kind, "r2");
+        expect(useInteractionStore.getState().submittingByKind[kind]).toBe(
+          "r1",
+        );
+        useInteractionStore.getState().releaseSubmission(kind, "r1");
+        expect(
+          useInteractionStore.getState().submittingByKind[kind],
+        ).toBeNull();
+      });
+
+      it("claiming one kind leaves the others alone", () => {
+        useInteractionStore.getState().claimSubmission(kind, "r1");
+        for (const other of KINDS.filter((k) => k !== kind)) {
+          expect(
+            useInteractionStore.getState().submittingByKind[other],
+          ).toBeNull();
+        }
+      });
+    });
+  }
 });

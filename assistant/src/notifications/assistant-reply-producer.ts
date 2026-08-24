@@ -23,7 +23,7 @@ import {
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import {
-  isMacOriginatedUserMessage,
+  isDesktopOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
@@ -122,7 +122,7 @@ function readSuppressionMarkers(
  *
  * No `actorPrincipalId`: the platform delivers this push to the assistant
  * owner's device tokens, and a pod has exactly one owner, so any attended
- * macOS client is that owner's.
+ * desktop client is that owner's.
  */
 function readDesktopAttended(rlog: pino.Logger): boolean {
   try {
@@ -246,12 +246,12 @@ export async function emitAssistantReplyNotification(params: {
     );
 
     // Read as close to the emit as possible: nothing short-circuits on it.
-    // Presence only speaks for a turn the Mac itself opened, on that row's own
-    // OS evidence. A turn sent from the phone still needs its push while the
-    // Mac sits idle within the desktop client's attendance window.
+    // Presence only speaks for a turn the desktop itself opened, on that row's
+    // own OS evidence. A turn sent from the phone still needs its push while the
+    // desktop sits idle within the attendance window.
     const desktopAttended =
       isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
-      isMacOriginatedUserMessage(initiatingMetadata) &&
+      isDesktopOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
 
     // Conversation-scoped web presence applies regardless of which device
@@ -276,7 +276,7 @@ export async function emitAssistantReplyNotification(params: {
         // opting into v2.
         urgency: "medium",
         isAsyncBackground: false,
-        // Read weakly, as "at the surface this landed on": the attended Mac
+        // Read weakly, as "at the surface this landed on": the attended desktop
         // or focused web tab that opened the turn renders the reply in-app,
         // so a redundant push would only duplicate what's already on screen.
         visibleInSourceNow: desktopAttended || webFocused,

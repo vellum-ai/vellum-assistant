@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * The voice picker, rendered inline in the transcript: a user who asks to hear
  * or change a voice gets the working picker in the conversation instead of a
@@ -46,6 +47,7 @@ export function VoicePickerSurface({
   onAction,
   assistantId,
 }: VoicePickerSurfaceProps) {
+  const { t } = useTranslation("chat");
   // Only the three flags that pick the state. `VoiceList` runs the same hook for
   // the data it renders; both calls share one set of React Query subscriptions.
   const { available, isByok, settled } = useManagedVoiceSelection(assistantId);
@@ -81,7 +83,7 @@ export function VoicePickerSurface({
         // Managed, but with nothing to choose from: an old daemon, or a catalog
         // that failed or is empty. The BYO note would be a lie here.
         <p className={NOTE_CLASS}>
-          Choosing a voice isn’t available for this assistant right now.
+          {t("voicePickerSurface.unavailable")}
         </p>
       )}
     </SurfaceContainer>

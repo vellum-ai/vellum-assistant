@@ -223,6 +223,15 @@ declare -a SAFE_LINE_PATTERNS=(
     # Swift static let feature-flag key constants — values are plain kebab-case
     # flag names, not secrets. Matches both *FeatureFlagKey and *FlagKey.
     "(private[[:space:]]+static[[:space:]]+)?(let|var)[[:space:]]+[a-zA-Z]*FlagKey[[:space:]]*[:=][[:space:]]*['\"][a-z][a-z0-9-]*['\"]"
+    # i18n catalog entry whose value is a bullet mask (e.g.
+    # `"bearerTokenPlaceholderKeep": "••••••••  (leave blank to keep current)"`).
+    # A camelCase key can carry 20+ characters after a `token`/`secret`/`bearer`
+    # prefix and trip the keyword patterns; a value made of mask bullets is UI
+    # copy standing in for a hidden value, never a credential.
+    # The value is anchored end to end (bullets plus an optional parenthesised
+    # hint made of letters and spaces, then the closing quote) so a real secret
+    # appended after the bullets is never prefix-matched as safe.
+    "['\"][a-zA-Z0-9_]+['\"][[:space:]]*:[[:space:]]*['\"]•+([[:space:]]*\([a-zA-Z][a-zA-Z[:space:]]*\))?['\"]"
     # OAuth managed-service config key — always a `<provider>-oauth` slug that
     # crosses the 16-char threshold for some providers (e.g. salesforce-oauth).
     # The value is a routing identifier, not a credential.
@@ -372,6 +381,10 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
     SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
     SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from assistant credentials reveal for twilio/auth_token>"'
+    # i18n bullet-mask placeholder (safe) versus a real secret hiding behind a
+    # bullet prefix (must stay flagged).
+    SAFE_BULLET_MASK_PLACEHOLDER='  "bearerTokenPlaceholderKeep": "••••••••  (leave blank to keep current)",'
+    UNSAFE_BULLET_MASK_SECRET='  "clientSecret": "••••sk_live_a1b2c3d4e5f6g7h8i9",'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
     # TS: clientSecret with union type annotation (false positive to whitelist)
@@ -865,6 +878,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_SNAKE_PREFIX_SECRET" && matches_safe_line_pattern "$UNSAFE_SNAKE_PREFIX_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} real client_secret value with an UPPER_SNAKE prefix was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_BULLET_MASK_PLACEHOLDER" && ! matches_safe_line_pattern "$SAFE_BULLET_MASK_PLACEHOLDER"; then
+        echo -e "${RED}Self-test failed:${NC} i18n bullet-mask placeholder false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_BULLET_MASK_SECRET" && matches_safe_line_pattern "$UNSAFE_BULLET_MASK_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} real secret behind a bullet-mask prefix was incorrectly whitelisted"
         exit 1
     fi
 

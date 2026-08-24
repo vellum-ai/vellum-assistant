@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * `LiveVoiceButton` — composer entry point for a live-voice conversation.
  *
@@ -57,6 +58,7 @@ export function LiveVoiceButton({
   mobileRow = false,
   holdComposerFocus = false,
 }: LiveVoiceButtonProps) {
+  const { t } = useTranslation("chat");
   return (
     <Button
       // Filled `primary` (black) so the voice entry point carries the same
@@ -87,8 +89,8 @@ export function LiveVoiceButton({
         });
       }}
       disabled={disabled}
-      aria-label="Start voice mode"
-      title="Start voice mode"
+      aria-label={t("liveVoiceButton.startVoiceMode")}
+      title={t("liveVoiceButton.startVoiceMode")}
     />
   );
 }

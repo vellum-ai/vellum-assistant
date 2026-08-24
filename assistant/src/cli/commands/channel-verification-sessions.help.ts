@@ -92,7 +92,8 @@ Examples:
       options: [
         {
           flags: "--channel <channel>",
-          description: "Channel type (telegram, phone). Defaults to telegram.",
+          description:
+            "Channel type (telegram, phone, slack, discord, email). Defaults to telegram.",
         },
       ],
       helpText: `

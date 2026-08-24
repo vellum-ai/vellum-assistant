@@ -74,6 +74,22 @@ afterEach(() => {
   localSettingsStore.clear();
 });
 
+/** Signature bytes, so a fixture is classified the way the real file would be. */
+const PNG_HEADER = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const HEIC_HEADER = new Uint8Array([
+  0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
+]);
+
+function fileWithHeader(
+  header: Uint8Array<ArrayBuffer>,
+  name: string,
+  type: string,
+): File {
+  return new File([header, "trailing-bytes"], name, { type });
+}
+
 /** Poll until no attachment is in the transient "uploading" state. */
 async function waitForUploadsSettled(expectedCount: number): Promise<void> {
   for (let i = 0; i < 100; i++) {
@@ -463,7 +479,7 @@ describe("addFiles upload metadata", () => {
     );
 
     getStore().addFiles(
-      [new File(["heic-bytes"], "IMG_5487.HEIC", { type: "image/heic" })],
+      [fileWithHeader(HEIC_HEADER, "IMG_5487.HEIC", "image/heic")],
       "assistant-1",
     );
     await waitForUploadsSettled(1);
@@ -491,7 +507,7 @@ describe("addFiles upload metadata", () => {
     });
 
     getStore().addFiles(
-      [new File(["png-bytes"], "photo.png", { type: "image/png" })],
+      [fileWithHeader(PNG_HEADER, "photo.png", "image/png")],
       "assistant-1",
     );
     await waitForUploadsSettled(1);
@@ -515,7 +531,7 @@ describe("addFiles upload metadata", () => {
     fetchAttachmentContentBlobMock.mockResolvedValueOnce(null);
 
     getStore().addFiles(
-      [new File(["heic-bytes"], "IMG_1.HEIC", { type: "image/heic" })],
+      [fileWithHeader(HEIC_HEADER, "IMG_1.HEIC", "image/heic")],
       "assistant-1",
     );
     await waitForUploadsSettled(1);
@@ -532,7 +548,7 @@ describe("addFiles upload metadata", () => {
     uploadChatAttachmentMock.mockResolvedValueOnce({ ok: true, id: "att-4" });
 
     getStore().addFiles(
-      [new File(["heic-bytes"], "IMG_2.HEIC", { type: "image/heic" })],
+      [fileWithHeader(HEIC_HEADER, "IMG_2.HEIC", "image/heic")],
       "assistant-1",
     );
     await waitForUploadsSettled(1);
@@ -544,5 +560,72 @@ describe("addFiles upload metadata", () => {
     expect(att.filename).toBe("IMG_2.HEIC");
     expect(att.mimeType).toBe("image/heic");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("addFiles image byte validation", () => {
+  test("refuses a file claiming to be a PNG whose bytes are not an image", async () => {
+    // GIVEN a .png whose header is corrupt, as a truncated or renamed file is
+    getStore().addFiles(
+      [
+        new File(["not-image-bytes-at-all"], "photo.png", {
+          type: "image/png",
+        }),
+      ],
+      "assistant-1",
+    );
+
+    // WHEN the attachment settles
+    await waitForUploadsSettled(1);
+
+    // THEN it is refused by name, and never reaches the upload endpoint
+    const att = getStore().attachments[0];
+    if (att.kind !== "failed") {
+      throw new Error(`expected failed attachment, got ${att.kind}`);
+    }
+    expect(att.filename).toBe("photo.png");
+    expect(att.error).toBe(
+      "This image can't be sent: the file appears to be corrupt or in an unsupported format.",
+    );
+    expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
+  });
+
+  test("keeps the valid images in a batch that contains a corrupt one", async () => {
+    // GIVEN two readable images and one corrupt one attached together
+    getStore().addFiles(
+      [
+        fileWithHeader(PNG_HEADER, "good-1.png", "image/png"),
+        new File(["garbage"], "bad.png", { type: "image/png" }),
+        fileWithHeader(HEIC_HEADER, "good-2.HEIC", "image/heic"),
+      ],
+      "assistant-1",
+    );
+
+    // WHEN the attachments settle
+    await waitForUploadsSettled(3);
+
+    // THEN only the corrupt one is refused, and the readable ones upload
+    const kinds = new Map(
+      getStore().attachments.map((att) => [att.filename, att.kind]),
+    );
+    expect(kinds.get("bad.png")).toBe("failed");
+    expect(kinds.get("good-1.png")).toBe("uploaded");
+    expect(kinds.get("good-2.HEIC")).toBe("uploaded");
+    expect(uploadChatAttachmentMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("leaves a non-image attachment alone whatever its bytes are", async () => {
+    // GIVEN a text file, which no image signature can match
+    getStore().addFiles(
+      [new File(["plain text"], "notes.txt", { type: "text/plain" })],
+      "assistant-1",
+    );
+
+    // WHEN the attachment settles
+    await waitForUploadsSettled(1);
+
+    // THEN it uploads: the image rule applies only to images
+    expect(getStore().attachments[0].kind).toBe("uploaded");
+    expect(uploadChatAttachmentMock).toHaveBeenCalledTimes(1);
   });
 });

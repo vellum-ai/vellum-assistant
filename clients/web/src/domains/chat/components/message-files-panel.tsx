@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Side-drawer panel listing every attachment on one transcript message.
  * Opened by the overflow tile on a truncated attachment strip (see
@@ -29,6 +31,7 @@ export function MessageFilesPanel({
   payload,
   onClose,
 }: MessageFilesPanelProps) {
+  const { t } = useTranslation("chat");
   const live = useLiveMessageAttachments(payload.messageId);
   const attachments = live ?? payload.attachments;
   const { displayAttachments, renderSquare, previewModal } =
@@ -48,7 +51,7 @@ export function MessageFilesPanel({
             variant="title-medium"
             className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
           >
-            Files
+            {t("messageFilesPanel.title")}
           </Typography>
           <span
             aria-hidden
@@ -62,7 +65,7 @@ export function MessageFilesPanel({
           </Typography>
         </span>
       }
-      closeLabel="Close files"
+      closeLabel={t("messageFilesPanel.closeAria")}
       onClose={onClose}
     >
       {displayAttachments.length === 0 ? (
@@ -70,7 +73,7 @@ export function MessageFilesPanel({
           variant="body-small-default"
           className="py-4 text-center text-[var(--content-tertiary)]"
         >
-          No files on this message
+          {t("messageFilesPanel.empty")}
         </Typography>
       ) : (
         // Wraps rather than sitting on a fixed column count: the drawer is

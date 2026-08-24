@@ -164,7 +164,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
-import { viewerPanePresentation } from "@/stores/pane-presentation";
+import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -308,6 +308,7 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useTranslation("chat");
   // A pop-out renders no header and no status banner, which changes both what
   // chrome is available and which kinds the overlay row has to carry.
   const isPopout = isPopoutWindow(location.search);
@@ -784,7 +785,9 @@ export function ChatMainPanel({
     assistantState.kind === "active" && !assistantState.isLocal;
   const doctorAction = showDoctorAction ? (
     <Button asChild variant="outlined" size="compact">
-      <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
+      <Link to={`${routes.settings.debug}?tab=doctor`}>
+        {t("chatRouteContent.goToDoctor")}
+      </Link>
     </Button>
   ) : undefined;
 
@@ -809,7 +812,7 @@ export function ChatMainPanel({
             .setPendingPrompt("Help me re-provision my assistant's API key")
         }
       >
-        Ask the Doctor
+        {t("chatRouteContent.askTheDoctor")}
       </Link>
     </Button>
   ) : assistantState.kind === "active" ? (
@@ -823,7 +826,7 @@ export function ChatMainPanel({
         })
       }
     >
-      Copy CLI fix
+      {t("chatRouteContent.copyCliFix")}
     </Button>
   ) : undefined;
 
@@ -844,7 +847,7 @@ export function ChatMainPanel({
           }
         }}
       >
-        Open page
+        {t("chatRouteContent.openPage")}
       </Button>
     ) : undefined;
 
@@ -1288,7 +1291,6 @@ export function ChatMainPanel({
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
 
-  const { t } = useTranslation("chat");
   const composerAssistantName = assistantName?.trim();
   const composerPlaceholder = resolveComposerPlaceholder({
     isEmptyConversation,
@@ -1450,12 +1452,13 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const editingConversationId =
     useConversationStore.use.editingConversationId();
-  const paneArrangement = viewerPanePresentation({
+  const paneArrangement = paneState({
     mainView,
-    hasApp: !!openedAppState,
-    hasBoundConversation: !!editingConversationId,
+    appId: openedAppState?.appId ?? null,
+    conversationId: activeConversationId,
+    boundConversationId: editingConversationId,
     isAppMinimized,
-  });
+  }).presentation;
   const isSidePanel = paneArrangement === "side";
   const variant = isSidePanel ? "side-panel" : "main";
 
@@ -1562,7 +1565,8 @@ export function ChatMainPanel({
           >
             <BottomSheet.Header className="sr-only">
               <BottomSheet.Title>
-                {selectedSuggestion?.detail.heading ?? "Suggestion"}
+                {selectedSuggestion?.detail.heading ??
+                  t("chatRouteContent.suggestionFallback")}
               </BottomSheet.Title>
             </BottomSheet.Header>
             {suggestionDetailPanel}

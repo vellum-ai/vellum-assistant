@@ -6,7 +6,7 @@ import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { Trans, t, useTranslation } from "@/i18n";
-import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import type {
   MemoryRouterSimulateRequest,
   MemoryRouterSimulateResponse,
@@ -34,12 +34,12 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  *
  * Gated by:
  *   1. The `memoryRouterPlayground` client feature flag (default off).
- *   2. The same staff/developer-flag gate that protects the LLM context
- *      inspector (/assistant/conversations/:conversationId/inspect).
+ *   2. The same internal-thread-actions flag gate that protects the LLM
+ *      context inspector (/assistant/conversations/:conversationId/inspect).
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
   const { t } = useTranslation("chat");
-  const canInspect = useCanUseLlmInspector();
+  const canInspect = useCanUseInternalThreadActions();
   const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 

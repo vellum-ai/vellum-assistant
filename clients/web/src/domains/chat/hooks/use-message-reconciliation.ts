@@ -164,13 +164,26 @@ export function useMessageReconciliation({
       // terminal event (`message_complete` / `assistant_activity_state(idle)`)
       // was dropped on a disconnect. Propagating it lets the existing
       // authoritative CLOSE-gate in `shouldShowThinkingIndicator` /
-      // `isAssistantBusy` (`snapshotProcessing === false`) settle the turn —
-      // no client-side stuck-turn heuristic. `undefined` (older daemons) does
-      // nothing, preserving prior behavior.
+      // `isAssistantBusy` (`snapshotProcessing === false`) settle the turn,
+      // with no client-side stuck-turn heuristic.
+      //
+      // The local flag is non-`false` in two ways, and both need the reseed:
+      //   - `true`: a delta folded it on, but the terminal event that would
+      //     fold it back off never arrived.
+      //   - `undefined`: the version sentinel. `nextProcessingState` returns
+      //     `undefined` forever once the snapshot seed lacked the field, so no
+      //     amount of delta folding lifts it to a boolean and the close-gate
+      //     stays starved on a non-`false` value. A reseed is the only way to
+      //     plant an authoritative `false`.
+      //
+      // An older daemon cannot reach here: it never sends a defined
+      // `processing`, so `serverProcessing === false` is already false and the
+      // guard stays shut. The `undefined` this admits is the local sentinel,
+      // not an old daemon.
       const localSnapshotProcessing =
         useChatSessionStore.getState().snapshot?.processing;
       const serverClearedProcessing =
-        serverProcessing === false && localSnapshotProcessing === true;
+        serverProcessing === false && localSnapshotProcessing !== false;
 
       // Refresh the single source — history flows into the query cache and the
       // transcript (its union with the live turn) re-renders. No client-side

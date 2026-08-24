@@ -67,7 +67,7 @@ function seedConnections(rows: SeedRow[]): void {
 }
 
 // The on-disk shapes of the canonical row: before DB migration 366 flips
-// the provider column, after it, and after DB migration 367 strips the
+// the provider column, after it, and after DB migration 369 strips the
 // stored auth type down to the payload.
 const SUBSCRIPTION_PRE_366: SeedRow = {
   name: "chatgpt-subscription",

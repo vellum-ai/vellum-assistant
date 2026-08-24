@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Overlay bubble that appears after the user starts a reply from a text
  * selection. Displays the quoted passage and a text input for the user's
@@ -89,6 +90,7 @@ function useComposerTopOffset(enabled: boolean): number {
 }
 
 export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
+  const { t } = useTranslation("chat");
   const replyBubble = useQuoteReplyStore.use.replyBubble();
   const closeReplyBubble = useQuoteReplyStore.use.closeReplyBubble();
   const addStagedQuote = useQuoteReplyStore.use.addStagedQuote();
@@ -176,7 +178,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
           value={replyText}
           onChange={(e) => setReplyText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type your reply…"
+          placeholder={t("quoteReplyBubble.placeholder")}
           rows={2}
           fullWidth
           className="min-h-[64px] resize-none text-body-small-lighter"
@@ -184,7 +186,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
 
         <div className="flex items-center justify-between gap-2">
           <Button variant="outlined" size="compact" onClick={closeReplyBubble}>
-            Cancel
+            {t("quoteReplyBubble.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -192,7 +194,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
             onClick={handleAddToChat}
             disabled={!replyText.trim()}
           >
-            Add to Chat
+            {t("quoteReplyBubble.addToChat")}
           </Button>
         </div>
       </Card.Body>
@@ -205,7 +207,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
     return createPortal(
       <div
         role="dialog"
-        aria-label="Quote and reply"
+        aria-label={t("quoteReplyBubble.ariaLabel")}
         className="fixed inset-x-3 z-50"
         style={{ bottom: composerTopOffset + COMPOSER_DOCK_GAP_PX }}
         onKeyDown={handleDialogKeyDown}

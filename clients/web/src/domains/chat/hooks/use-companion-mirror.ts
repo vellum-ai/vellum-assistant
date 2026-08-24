@@ -1,9 +1,9 @@
 /**
  * `useCompanionMirror()` mirrors what the macOS companion surface cannot know
- * onto it: the assistant's name and the tail of the open conversation. Together
- * they are what let an exchange started from the surface's Type option be read
- * on the surface, instead of by going back to an app the user deliberately did
- * not go back to.
+ * onto it: the assistant's name, the tail of the open conversation, and whether
+ * a watch session is running. Together they are what let an exchange started
+ * from the surface's Type option be read on the surface, instead of by going
+ * back to an app the user deliberately did not go back to.
  *
  * The same shape as {@link useLiveActivityMirror}, and for the same reason: the
  * surface is its own renderer with no assistant and no conversation in it, so
@@ -36,6 +36,11 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import {
+  stopWatch,
+  useWatchStore,
+} from "@/domains/chat/watch/watch-controller";
+import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
 import type { CompanionContext, CompanionTurn } from "@vellumai/ipc-contract";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -124,16 +129,29 @@ function currentContext(): CompanionContext {
       useAssistantIdentityStore.getState().name,
     ),
     working: isWorking(),
+    // The session lives in this window, and the surface is only where it was
+    // asked for, so this is the one side that can say whether it is running.
+    // What the surface turns into its capture indicator.
+    watching: useWatchStore.getState().watching,
+    // Where the last session's summary has got to. Published from here for the
+    // same reason `watching` is, and with one more step behind it: the runtime
+    // announces the retrospective on this window's event stream, which the
+    // surface's own renderer is not subscribed to.
+    watchRetro: useWatchRetroStore.getState().retro?.phase,
+    // The session's screen reads, counted. A step in this is the surface's
+    // only evidence that a capture happened, so it is published with the flag
+    // rather than beside it: the two are one fact about one session, and a
+    // count that arrived a push apart from the flag it belongs to would mark a
+    // capture against a session the surface has already stopped drawing.
+    captureCount: useWatchStore.getState().captureCount,
     turns: messages
       .filter(isSpeech)
       .slice(-TAIL)
-      .map(
-        (message): CompanionTurn => ({
-          role:
-            message.role === "user" ? ("user" as const) : ("assistant" as const),
-          text: messagePlainText(message),
-        }),
-      ),
+      .map((message): CompanionTurn => ({
+        role:
+          message.role === "user" ? ("user" as const) : ("assistant" as const),
+        text: messagePlainText(message),
+      })),
   };
 }
 
@@ -142,10 +160,14 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
   return (
     a.assistantName === b.assistantName &&
     a.working === b.working &&
+    a.watching === b.watching &&
+    a.watchRetro === b.watchRetro &&
+    a.captureCount === b.captureCount &&
     a.turns.length === b.turns.length &&
     a.turns.every(
       (turn, index) =>
-        turn.role === b.turns[index]?.role && turn.text === b.turns[index]?.text,
+        turn.role === b.turns[index]?.role &&
+        turn.text === b.turns[index]?.text,
     )
   );
 }
@@ -204,11 +226,35 @@ export function useCompanionMirror(): void {
     // The name arrives on its own schedule, after the identity resolves and
     // again on every assistant switch, so it needs a subscription of its own.
     const unsubscribeIdentity = useAssistantIdentityStore.subscribe(sync);
+    // The watch session starts and ends from outside every store above it: the
+    // command arrives from the companion surface, and the session can also end
+    // on its own when the socket drops. Only its own store reports either.
+    //
+    // Straight to `sync` rather than through a flip gate like the one above,
+    // because this store is written on the session's two edges and once per
+    // screen read, all three of which the surface draws, where the
+    // conversation store moves for plenty the card never draws.
+    const unsubscribeWatch = useWatchStore.subscribe(sync);
+    // The summary's own store, for the same reason and on the same terms: it
+    // moves on the stop edge, on the runtime's announcement, and on the user
+    // answering, and nothing else here reports any of those.
+    const unsubscribeWatchRetro = useWatchRetroStore.subscribe(sync);
     return () => {
+      // **Before the unsubscribes**, so the flip this causes is still published
+      // and the surface does not keep a capture indicator over a machine
+      // nothing is reading any more.
+      //
+      // Ended rather than merely un-drawn, which is the difference between this
+      // and the working flag below. The microphone and the socket are in this
+      // window: a layout going away takes the only thing that could stop them
+      // with it, so the session goes with the layout.
+      stopWatch();
       unsubscribeSession();
       unsubscribeProcessing();
       unsubscribeTurn();
       unsubscribeIdentity();
+      unsubscribeWatch();
+      unsubscribeWatchRetro();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The tail and the name are left standing:
       // they are a record of what was said, and the surface is still the place

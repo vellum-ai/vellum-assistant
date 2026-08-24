@@ -11,7 +11,10 @@
  * original image to a known location, caption it via a vision-capable
  * profile, and swap in a `[Image …]` text block — and the message-level deep
  * sweep ({@link captionImagesInMessages}) that reaches images nested inside
- * `tool_result` blocks as well as top-level ones.
+ * `tool_result` blocks as well as top-level ones. The message-level sweeps
+ * close by merging text-only user content into a single text block
+ * ({@link flattenTextOnlyBlocks}), the shape providers serialize as a plain
+ * string.
  *
  * The substitution mutates the blocks in place, but the hook pipeline hands
  * each hook a deep clone of its context, so the caption reaches only the
@@ -62,8 +65,7 @@ export function needsImageFallback(modelProfileKey: string): boolean {
 
 /**
  * Replace every `image` block in `blocks` (in place) with a text caption so a
- * text-only model can still reason about the image's content. Returns the
- * number of image blocks replaced.
+ * text-only model can still reason about the image's content.
  *
  * @param blocks            Content-block array to scan and mutate in place.
  * @param conversationId    Conversation the blocks belong to, recorded on the
@@ -80,7 +82,7 @@ export async function captionImageBlocks(
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
-  let imageCount = 0;
+  let replaced = 0;
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -88,7 +90,7 @@ export async function captionImageBlocks(
       continue;
     }
 
-    imageCount++;
+    replaced++;
     const image = block as ImageContent;
 
     // Persist the original to a known, content-hash-deduped location so it
@@ -114,7 +116,7 @@ export async function captionImageBlocks(
             : `[Image: auto-description failed (text-only model)]`,
       };
     } else {
-      // No vision profile configured at all — fail-open placeholder.
+      // No vision profile configured at all: fail-open placeholder.
       blocks[i] = {
         type: "text",
         text: `[Image: no vision-capable model configured to describe it]`,
@@ -122,12 +124,12 @@ export async function captionImageBlocks(
     }
   }
 
-  return imageCount;
+  return replaced;
 }
 
 /**
  * Replace image blocks nested in a message's `tool_result` blocks' rich
- * `contentBlocks` (in place) with text captions. Returns the number replaced.
+ * `contentBlocks` (in place) with text captions.
  */
 async function captionToolResultMedia(
   message: Message,
@@ -135,10 +137,10 @@ async function captionToolResultMedia(
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
-  let imageCount = 0;
+  let replaced = 0;
   for (const block of message.content) {
     if (block.type === "tool_result" && block.contentBlocks != null) {
-      imageCount += await captionImageBlocks(
+      replaced += await captionImageBlocks(
         block.contentBlocks,
         conversationId,
         visionProfileKey,
@@ -146,7 +148,42 @@ async function captionToolResultMedia(
       );
     }
   }
-  return imageCount;
+  return replaced;
+}
+
+/**
+ * Merge a user message's text blocks (in place) into a single text block,
+ * joined by a blank line, for every message whose content is more than one
+ * block and entirely text. Returns how many messages were merged.
+ *
+ * A text-only turn's user content is text after image substitution, and a
+ * single text block is the shape providers serialize as a plain string:
+ * OpenAI-compatible endpoints that accept only `messages[].content` as a
+ * string (rejecting an array of content parts with
+ * `body/messages/N/content must be string`) can then take the turn, and the
+ * request costs fewer tokens than the equivalent array of parts. The blank
+ * line keeps the boundaries between the blocks a user message carries (the
+ * turn's runtime-injected context blocks plus the user's own text) legible.
+ *
+ * Content holding any non-text block (audio, tool results, an image no
+ * fallback replaced) keeps its array shape, since merging would drop it.
+ */
+export function flattenTextOnlyBlocks(messages: Message[]): number {
+  let flattened = 0;
+  for (const message of messages) {
+    if (message.role !== "user" || message.content.length <= 1) {
+      continue;
+    }
+    if (!message.content.every((block) => block.type === "text")) {
+      continue;
+    }
+    const text = message.content
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("\n\n");
+    message.content = [{ type: "text", text }];
+    flattened++;
+  }
+  return flattened;
 }
 
 /**
@@ -154,8 +191,9 @@ async function captionToolResultMedia(
  * a text caption via {@link captionImageBlocks}. Covers both top-level image
  * blocks (user-attached images, the compactor's retained-image message) and
  * images nested in a `tool_result` block's rich `contentBlocks` (tool results
- * restored from persistence carry their raw images there). Returns the number
- * of image blocks replaced.
+ * restored from persistence carry their raw images there).
+ *
+ * Text-only user content is then merged via {@link flattenTextOnlyBlocks}.
  */
 export async function captionImagesInMessages(
   messages: Message[],
@@ -163,22 +201,23 @@ export async function captionImagesInMessages(
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
-  let imageCount = 0;
+  let replaced = 0;
   for (const message of messages) {
-    imageCount += await captionImageBlocks(
+    replaced += await captionImageBlocks(
       message.content,
       conversationId,
       visionProfileKey,
       logger,
     );
-    imageCount += await captionToolResultMedia(
+    replaced += await captionToolResultMedia(
       message,
       conversationId,
       visionProfileKey,
       logger,
     );
   }
-  return imageCount;
+  flattenTextOnlyBlocks(messages);
+  return replaced;
 }
 
 /**
@@ -188,8 +227,9 @@ export async function captionImagesInMessages(
  * message ({@link lastToolResultUserMessageIndex}, the one the sanitizer keeps
  * intact). Older tool_result media is left raw so the sanitizer replaces it
  * with its compact removed-media marker on the retry rather than a full
- * caption — captioning it would waste vision calls and balloon context.
- * Returns the number of image blocks replaced.
+ * caption: captioning it would waste vision calls and balloon context.
+ *
+ * Text-only user content is then merged via {@link flattenTextOnlyBlocks}.
  */
 export async function captionOutboundImagesInMessages(
   messages: Message[],
@@ -198,16 +238,16 @@ export async function captionOutboundImagesInMessages(
   logger: PluginLogger,
 ): Promise<number> {
   const currentTurnIdx = lastToolResultUserMessageIndex(messages);
-  let imageCount = 0;
+  let replaced = 0;
   for (let i = 0; i < messages.length; i++) {
-    imageCount += await captionImageBlocks(
+    replaced += await captionImageBlocks(
       messages[i].content,
       conversationId,
       visionProfileKey,
       logger,
     );
     if (i === currentTurnIdx) {
-      imageCount += await captionToolResultMedia(
+      replaced += await captionToolResultMedia(
         messages[i],
         conversationId,
         visionProfileKey,
@@ -215,5 +255,6 @@ export async function captionOutboundImagesInMessages(
       );
     }
   }
-  return imageCount;
+  flattenTextOnlyBlocks(messages);
+  return replaced;
 }

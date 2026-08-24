@@ -5,6 +5,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
+import {
+  HELPER_DICTATION_FINALIZED_EVENT,
+  HELPER_DICTATION_PARTIAL_EVENT,
+  HELPER_DICTATION_SET_PARTIALS,
+  HELPER_DICTATION_TRANSCRIBE,
+  HELPER_DICTATION_TRANSCRIBED_EVENT,
+} from "@vellumai/ipc-contract";
+import {
+  DICTATION_PUSH_SAMPLE_RATE,
+  dictationPartialsHelperResultSchema,
+  DictationOwnerRouter,
+  requestDictationTranscription,
+  toAudioBuffer,
+} from "@vellumai/electron-desktop/dictation-routing";
 import type {
   DictationPartialEvent,
   DictationPartialsResult,
@@ -75,18 +89,6 @@ const DICTATION_ERROR_SCHEMA = z.object({
   message: z.string(),
   onDevice: z.boolean(),
   willRetryServer: z.boolean(),
-});
-
-const DICTATION_TRANSCRIBE_RESULT_SCHEMA = z.object({
-  ok: z.boolean(),
-  reason: z.string().optional(),
-});
-
-const DICTATION_RESULT_SCHEMA = z.object({
-  enabled: z.boolean(),
-  reason: z.string().optional(),
-  // Which input device the helper's recognizer tap actually captures.
-  tap: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -247,14 +249,10 @@ interface HotkeyOwner {
   cleanup: () => void;
 }
 
-// The renderer that most recently enabled dictation partials — the recording
-// session's host. Partial notifications route only there.
-let dictationPartialsOwner: WebContents | null = null;
+const dictationOwners = new DictationOwnerRouter();
 
 // The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
 // pcm-downsample worklet contract).
-const DICTATION_PUSH_SAMPLE_RATE = 16000;
-
 const setDictationPartials = async (
   webContents: WebContents,
   enable: boolean,
@@ -269,7 +267,7 @@ const setDictationPartials = async (
         ? { pushAudio: true, sampleRate: DICTATION_PUSH_SAMPLE_RATE }
         : {}),
     });
-    const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
+    const parsed = dictationPartialsHelperResultSchema.safeParse(result);
     if (!parsed.success) {
       return {
         ok: false,
@@ -282,11 +280,7 @@ const setDictationPartials = async (
       );
       return { ok: false, reason: parsed.data.reason ?? "unavailable" };
     }
-    const previousOwner = dictationPartialsOwner;
-    dictationPartialsOwner = enable ? webContents : null;
-    // The finalized transcript (and the final partial flush) arrive AFTER
-    // disable — keep routing to the window that just stopped recording.
-    dictationFinalOwner = webContents;
+    const previousOwner = dictationOwners.setOwner(webContents, enable);
     if (enable) {
       forwardedPartialCount = 0;
       audioChunkCount = 0;
@@ -310,52 +304,43 @@ const setDictationPartials = async (
 
 let forwardedPartialCount = 0;
 let audioChunkCount = 0;
-// The window that should receive post-disable dictation events (the final
-// partial flush and `dictation.finalized`) — survives the owner being
-// nulled by the disable call.
-let dictationFinalOwner: WebContents | null = null;
-
-const toAudioBuffer = (chunk: unknown): Buffer | null => {
-  if (Buffer.isBuffer(chunk)) return chunk;
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
-  if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
-  return null;
-};
-
-const dictationEventTarget = (): WebContents | null => {
-  if (dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()) {
-    return dictationPartialsOwner;
-  }
-  if (dictationFinalOwner && !dictationFinalOwner.isDestroyed()) {
-    return dictationFinalOwner;
-  }
-  return null;
-};
 
 const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   forwardedPartialCount += 1;
-  const owner = dictationEventTarget();
+  const owner = dictationOwners.target();
   if (forwardedPartialCount === 1 || forwardedPartialCount % 25 === 0) {
     // Count/length only — transcript content must never be logged.
     log.info(
       `[mac-helper] dictation partial #${forwardedPartialCount} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
     );
   }
-  if (!owner) return;
-  owner.send("vellum:helper:dictation:partial", event);
+  if (!owner) {
+    return;
+  }
+  owner.send(HELPER_DICTATION_PARTIAL_EVENT, event);
 };
 
 const sendDictationTextEventToOwner = (
   kind: "finalized" | "transcribed",
   event: DictationPartialEvent,
 ): void => {
-  const owner = dictationEventTarget();
-  // Length only — transcript content must never be logged.
+  const owner =
+    kind === "transcribed"
+      ? dictationOwners.takeTranscriptionTarget()
+      : dictationOwners.target();
+  // Length only; transcript content must never be logged.
   log.info(
-    `[mac-helper] dictation ${kind} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    `[mac-helper] dictation ${kind} chars=${event.text.length} -> ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
   );
-  if (!owner) return;
-  owner.send(`vellum:helper:dictation:${kind}`, event);
+  if (!owner) {
+    return;
+  }
+  owner.send(
+    kind === "finalized"
+      ? HELPER_DICTATION_FINALIZED_EVENT
+      : HELPER_DICTATION_TRANSCRIBED_EVENT,
+    event,
+  );
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -547,8 +532,7 @@ const handleHelperState = (state: MacHelperState): void => {
   helperRegistered = false;
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
-  dictationPartialsOwner = null;
-  dictationFinalOwner = null;
+  dictationOwners.clear();
   sendSyntheticHotkeyUpIfNeeded();
 };
 
@@ -632,7 +616,7 @@ export const installHotkeyHelper = (): void => {
   );
 
   handle(
-    "vellum:helper:dictation:setPartials",
+    HELPER_DICTATION_SET_PARTIALS,
     z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
     ([enable, deviceName, pushAudio], event) =>
       setDictationPartials(event.sender, enable, deviceName, pushAudio),
@@ -641,7 +625,7 @@ export const installHotkeyHelper = (): void => {
   // High-frequency fire-and-forget PCM from the partials owner — plain
   // `on`, not `handle`: a round-trip per ~100ms chunk buys nothing.
   ipcMain.on("vellum:helper:dictation:audio", (event, chunk: unknown) => {
-    if (event.sender !== dictationPartialsOwner) {
+    if (!dictationOwners.ownsPartials(event.sender)) {
       audioChunkCount += 1;
       if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
         log.warn(
@@ -667,32 +651,15 @@ export const installHotkeyHelper = (): void => {
   });
 
   handle(
-    "vellum:helper:dictation:transcribe",
+    HELPER_DICTATION_TRANSCRIBE,
     z.tuple([z.unknown()]),
-    async ([audio], event): Promise<{ ok: boolean; reason?: string }> => {
-      const buf = toAudioBuffer(audio);
-      if (!buf || buf.length === 0) {
-        return { ok: false, reason: "empty audio" };
-      }
-      // Route the upcoming `dictation.transcribed` to the requester.
-      dictationFinalOwner = event.sender;
-      try {
-        const result = await client.call("dictation.transcribe", {
-          audio: buf.toString("base64"),
-          sampleRate: DICTATION_PUSH_SAMPLE_RATE,
-        });
-        const parsed = DICTATION_TRANSCRIBE_RESULT_SCHEMA.safeParse(result);
-        if (!parsed.success) {
-          return { ok: false, reason: "invalid transcribe result" };
-        }
-        return parsed.data;
-      } catch (err) {
-        return {
-          ok: false,
-          reason: err instanceof Error ? err.message : String(err),
-        };
-      }
-    },
+    ([audio], event) =>
+      requestDictationTranscription({
+        audio,
+        sender: event.sender,
+        owners: dictationOwners,
+        client,
+      }),
   );
 
   app.on("before-quit", () => {
@@ -725,8 +692,7 @@ export const __resetForTesting = (): void => {
   unsubscribeDictationFinalized = null;
   unsubscribeDictationTranscribed?.();
   unsubscribeDictationTranscribed = null;
-  dictationPartialsOwner = null;
-  dictationFinalOwner = null;
+  dictationOwners.clear();
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

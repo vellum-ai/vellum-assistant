@@ -50,9 +50,27 @@ class FakeAPIError extends Error {
   }
 }
 
+// Simulate the SDK's transport-failure and caller-abort subclasses; the
+// error normalizer distinguishes them by class, so the mock must define both
+// for suites that share this process.
+class FakeAPIConnectionError extends FakeAPIError {
+  constructor() {
+    super(undefined as unknown as number, "Connection error.");
+    this.name = "APIConnectionError";
+  }
+}
+class FakeAPIUserAbortError extends FakeAPIError {
+  constructor() {
+    super(undefined as unknown as number, "Request was aborted.");
+    this.name = "APIUserAbortError";
+  }
+}
+
 mock.module("openai", () => ({
   default: class MockOpenAI {
     static APIError = FakeAPIError;
+    static APIConnectionError = FakeAPIConnectionError;
+    static APIUserAbortError = FakeAPIUserAbortError;
     constructor(opts: Record<string, unknown>) {
       lastConstructorOptions = opts;
     }

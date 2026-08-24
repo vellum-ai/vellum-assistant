@@ -1,7 +1,9 @@
-import { isMacOSBrowser } from "@/runtime/platform-detection";
+import {
+  detectElectronHostOS,
+  isMacOSBrowser,
+} from "@/runtime/platform-detection";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
-  FN_PTT_ACTIVATOR,
   type PTTActivator,
   eventActivatesPTT,
   isFnPushToTalkActivator,
@@ -48,31 +50,62 @@ export function keyboardDefaultActivator(): VoiceModeActivator {
   };
 }
 
-/** The out-of-the-box binding: Fn where the host can see it, else the chord. */
+/**
+ * The out-of-the-box binding: the chord where it is live, and nothing at all
+ * on a host that can see Fn.
+ *
+ * **Fn is never a default.** It is one key on the user's keyboard, it is not
+ * ours, and macOS already gives it away: the Globe key runs whatever "Press 🌐
+ * key to" is set to, which on a lot of machines is Start Dictation. Claiming it
+ * the moment the app is installed means one press doing two things, only one of
+ * which the user asked for, and the app that took it is the one that never
+ * asked. It also puts an Input Monitoring prompt in front of someone who has
+ * not gone looking for a shortcut. Choosing Fn in Settings is what binds it.
+ *
+ * A host that can see Fn is the macOS desktop app, where the chord rail is the
+ * global Talk shortcut and that ships unbound for its own reasons
+ * (`GLOBAL_SHORTCUT_DEFAULTS`). So nothing is bound there until the user says
+ * what should be, which is the honest answer rather than a chord this host
+ * would not listen for anyway.
+ */
 export function defaultVoiceModeActivator(
   fnAvailable: boolean,
 ): VoiceModeActivator {
-  return fnAvailable ? FN_PTT_ACTIVATOR : keyboardDefaultActivator();
+  return fnAvailable ? { kind: "off" } : keyboardDefaultActivator();
+}
+
+/**
+ * Whether the host offers bare-modifier voice mode bindings (a tap of Ctrl,
+ * Alt, or Ctrl+Shift). Windows desktop only: it has no Fn channel, and an
+ * Electron `globalShortcut` cannot express a bare modifier, so these bind as
+ * focused-window tap listeners instead (see `use-voice-mode-hotkey`).
+ */
+export function supportsBareModifierVoiceMode(): boolean {
+  return detectElectronHostOS() === "windows";
 }
 
 /**
  * Whether `activator` can bind voice mode. Rejects modifier-only bindings
- * other than Fn; see the note on {@link VoiceModeActivator}.
+ * other than Fn (see the note on {@link VoiceModeActivator}), except on the
+ * Windows desktop host, where a bare-modifier tap stands in for Fn.
  */
 export function isValidVoiceModeActivator(
   activator: VoiceModeActivator,
 ): boolean {
   if (activator.kind === "modifierOnly") {
-    return isFnVoiceModeActivator(activator);
+    return isFnVoiceModeActivator(activator) || supportsBareModifierVoiceMode();
   }
   return true;
 }
 
 /**
- * The stored binding, or the default when nothing is stored. A stored value
- * that binds nothing usable (a modifier-only leftover, or a Fn binding read
- * on a host that cannot see Fn) falls back to the default rather than to
- * "off", so voice mode never becomes unreachable by keyboard.
+ * The stored binding, or the host default when nothing usable is stored: a
+ * modifier-only leftover from the push-to-talk era, or a hand edit, reads as
+ * nothing stored rather than as a binding.
+ *
+ * A stored Fn binding read on a host that cannot see Fn is the one substitution
+ * rather than a fall back to the default: the user did ask for a shortcut, and
+ * the chord is the same request expressed in something this host can hear.
  */
 export function readVoiceModeActivator(
   fnAvailable: boolean,

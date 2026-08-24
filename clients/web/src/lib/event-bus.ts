@@ -242,6 +242,34 @@ export interface BusEventMap {
   "connectivity.state": {
     state: "online" | "device-offline" | "backend-unreachable";
   };
+  /**
+   * A daemon SDK request came back with a gateway-class status (502/503/504):
+   * it reached the platform but could not reach the assistant's runtime, which
+   * is restarting or not yet ready. Published by `daemonUnreachableInterceptor`
+   * so the connecting overlay appears even when the failure lands on an
+   * incidental request (a page load, a background refetch) rather than on the
+   * SSE stream. The lifecycle service subscribes and kicks its retry probe.
+   *
+   * Distinct from `connectivity.state`, which is the Electron host's fused
+   * view of device and backend health and never fires off Electron. This one
+   * is derived from a response the client actually received, so it reports on
+   * every platform.
+   */
+  "assistant.unreachable": Record<string, never>;
+  /**
+   * The local gateway rejects the guardian token behind this session, past
+   * what the renderer can repair on its own: the `/auth/token` mint still
+   * answers 401 after the wake `primeLocalGatewayConnectionWithRepair` ran,
+   * and a plain wake never re-leases a guardian token. Only a guardian
+   * re-provision clears it, and that revokes the assistant's other
+   * device-bound tokens, so no automatic path may run it.
+   *
+   * Published by `localGatewayAuthRecoveryInterceptor`, which has no route
+   * to the user, once it has given up. `useGuardianRepairRoute` sends the
+   * session to the assistant chooser, whose connect path owns the
+   * re-provision.
+   */
+  "gateway.guardian-repair-required": Record<string, never>;
 }
 
 export type BusEventName = keyof BusEventMap;

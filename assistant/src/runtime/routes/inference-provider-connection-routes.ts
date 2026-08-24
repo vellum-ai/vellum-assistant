@@ -40,6 +40,10 @@ import {
   MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import {
+  EndpointCheckSchema,
+  testInferenceConnection,
+} from "../../providers/inference/endpoint-probe.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import {
   isVellumManagedConnection,
@@ -64,6 +68,16 @@ const log = getLogger("routes/inference-provider-connections");
 // ---------------------------------------------------------------------------
 
 const providerConnectionResponseSchema = ProviderConnectionSchema;
+
+/**
+ * Create/update responses carry the save-time endpoint probe result for
+ * connections with a custom base URL. Advisory only: a failed probe never
+ * fails the save (some endpoints legitimately reject unauthenticated or
+ * minimal requests); clients render `hint` as a warning.
+ */
+const savedConnectionResponseSchema = ProviderConnectionSchema.extend({
+  endpoint_check: EndpointCheckSchema.optional(),
+}).meta({ id: "SavedProviderConnection" });
 
 // ---------------------------------------------------------------------------
 // Custom provider field parsing (openai-compatible base_url + models)
@@ -440,7 +454,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError("Invalid auth configuration.");
   }
 
-  return result.connection;
+  const endpointCheck = await testInferenceConnection(result.connection);
+  return endpointCheck
+    ? { ...result.connection, endpoint_check: endpointCheck }
+    : result.connection;
 }
 
 async function handleUpdateConnection({
@@ -559,7 +576,10 @@ async function handleUpdateConnection({
     throw new BadRequestError("Invalid auth configuration.");
   }
 
-  return result.connection;
+  const endpointCheck = await testInferenceConnection(result.connection);
+  return endpointCheck
+    ? { ...result.connection, endpoint_check: endpointCheck }
+    : result.connection;
 }
 
 async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
@@ -769,7 +789,7 @@ export const ROUTES: RouteDefinition[] = [
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
-    responseBody: providerConnectionResponseSchema,
+    responseBody: savedConnectionResponseSchema,
     responseStatus: "201",
     additionalResponses: {
       "400": { description: "Invalid provider or auth schema" },
@@ -797,7 +817,7 @@ export const ROUTES: RouteDefinition[] = [
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
-    responseBody: providerConnectionResponseSchema,
+    responseBody: savedConnectionResponseSchema,
     additionalResponses: {
       "400": {
         description:

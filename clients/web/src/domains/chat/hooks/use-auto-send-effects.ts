@@ -10,7 +10,7 @@
  * 2. **Pre-chat reachability probe** — when a pending onboarding message
  *    exists in sessionStorage, kicks off a background reachability probe
  *    immediately instead of waiting for a 502 from the conversation list
- *    query to trigger the unreachable-bus.
+ *    query to publish `assistant.unreachable`.
  *
  * 3. **Onboarding initial message** — once the daemon reports "ready",
  *    reads the staged pre-chat context from sessionStorage and auto-sends

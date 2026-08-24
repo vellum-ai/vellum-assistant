@@ -170,7 +170,7 @@ export { doesSupportVision } from "./vision-support.js";
 // Resolve a stored credential to its plaintext value — the same value
 // `assistant credentials reveal` prints — from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials
-// whose `field` matches the plugin's manifest name; outside any plugin it is
+// whose service matches the plugin's manifest name; outside any plugin it is
 // unscoped. Throws CredentialResolutionError when the ref does not resolve, the
 // store is unreachable, or the credential is out of the plugin's scope.
 export {
@@ -179,7 +179,7 @@ export {
 } from "./resolve-credential.js";
 // Store a credential's plaintext value (the same write `assistant credentials
 // set` performs), creating it or replacing an existing one, named by UUID or a
-// "service/field" reference. A plugin may only write credentials whose `field`
+// "service/field" reference. A plugin may only write credentials whose service
 // matches its manifest name, and the write fails closed with no plugin in
 // context. Throws CredentialStoreError when there is no calling plugin, the ref
 // is malformed, the value is invalid, the store rejects the write, or the
@@ -360,6 +360,12 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+// System cards: a transcript notice authored by the daemon rather than the
+// assistant persona, for telling the user something a turn did to their input
+// that the model's reply cannot explain (e.g. an attachment that could not be
+// sent). Persisted and pushed to clients; not seated in the turn's working
+// history.
+export { persistSystemCard } from "./system-card.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing

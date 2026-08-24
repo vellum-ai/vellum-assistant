@@ -208,7 +208,12 @@ export function ProfileEditorFields({
   // then the rest annotated with what they still need, then the always-present
   // "+ Create new provider" sentinel for custom endpoints.
   const createModeProviderOptions = useMemo(() => {
-    const opts: { value: string; label: string; suffix?: ReactNode }[] =
+    const opts: {
+      value: string;
+      label: string;
+      suffix?: ReactNode;
+      sticky?: boolean;
+    }[] =
       expandEndpointEntries(
         providersServedByConnections(
           editor.effectiveConnections,
@@ -236,6 +241,9 @@ export function ProfileEditorFields({
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: t("profileEditorFields.createNewProvider"),
+      // The catalog grows past the menu's height, so the escape hatch is
+      // pinned rather than left at the end of a scroll.
+      sticky: true,
     });
     return opts;
   }, [
