@@ -59,6 +59,11 @@ mock.module("@/hooks/use-is-mobile", () => ({
 
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: () => {},
+  // What the draft mint calls to bring the chat on screen. Stood in with the
+  // plain reveal the real one falls through to, since no app is open here.
+  revealConversationView: () => {
+    useViewerStore.getState().setMainView("chat");
+  },
 }));
 
 mock.module("@/hooks/use-assistant-avatar", () => ({

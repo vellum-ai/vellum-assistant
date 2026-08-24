@@ -43,7 +43,10 @@ import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 let mockPathname: string = routes.assistant;
 let mockSearch = "";
 const navigateMock = mock(
-  (to: string | { pathname: string; search?: string; hash?: string }) => {
+  (
+    to: string | { pathname: string; search?: string; hash?: string },
+    _options?: { replace?: boolean },
+  ) => {
     const path = typeof to === "string" ? to : to.pathname;
     mockPathname = path.split("?")[0] ?? path;
     return undefined;

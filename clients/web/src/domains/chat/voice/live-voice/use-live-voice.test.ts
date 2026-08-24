@@ -2382,27 +2382,16 @@ describe("draft materialization", () => {
     });
   }
 
-  test("a dispatched turn whose row reaches the list stops being a draft", async () => {
-    // The composer's voice button starts on whatever key it is bound to, and a
-    // new chat's key is a client-minted draft, so this covers that route as
-    // much as the deep-link drain's freshly minted one.
+  // What reconciliation does with a list is `use-materialized-draft-reconcile`'s
+  // own test's subject. What a voice session adds is a turn that can be
+  // cancelled before it dispatches, so that is the only case tested here.
+  test("a turn cancelled before its row exists leaves the draft intact", async () => {
     useConversationStore.getState().registerDraftConversationId("conv-draft");
     const h = renderController();
     await startOn(h, "conv-draft");
     await emitThinking(h);
     // The frame alone is a promise of a turn, not a row.
     expect(isDraft("conv-draft")).toBe(true);
-
-    reconcileMaterializedDrafts(["conv-draft"]);
-
-    expect(isDraft("conv-draft")).toBe(false);
-  });
-
-  test("a turn cancelled before its row exists leaves the draft intact", async () => {
-    useConversationStore.getState().registerDraftConversationId("conv-draft");
-    const h = renderController();
-    await startOn(h, "conv-draft");
-    await emitThinking(h);
 
     await act(async () => {
       await h.view.result.current.stop();
@@ -2412,19 +2401,6 @@ describe("draft materialization", () => {
     reconcileMaterializedDrafts(["conv-unrelated"]);
 
     expect(isDraft("conv-draft")).toBe(true);
-  });
-
-  test("a materialized row clears only its own key", async () => {
-    useConversationStore.getState().registerDraftConversationId("conv-draft");
-    useConversationStore.getState().registerDraftConversationId("conv-other");
-    const h = renderController();
-    await startOn(h, "conv-draft");
-    await emitThinking(h);
-
-    reconcileMaterializedDrafts(["conv-draft"]);
-
-    expect(isDraft("conv-draft")).toBe(false);
-    expect(isDraft("conv-other")).toBe(true);
   });
 });
 
