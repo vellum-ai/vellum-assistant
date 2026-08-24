@@ -1,4 +1,4 @@
-import { lazy, useEffect, useRef, useState } from "react";
+import { lazy, useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -38,6 +38,10 @@ import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
+import {
+  getCompanionConversationId,
+  setCompanionConversationId,
+} from "@/utils/companion-conversation";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
@@ -246,12 +250,6 @@ export function RootLayout() {
   const [removePairedPending, setRemovePairedPending] = useState(false);
   // Whether the tray "New Assistant…" name-prompt dialog is open.
   const [createOpen, setCreateOpen] = useState(false);
-  // The conversation the companion surface's open composer is talking to,
-  // minted by its first message. Held here because the surface never learns the
-  // id: it says only whether it is starting or continuing, and this is the side
-  // that mints one.
-  const companionConversationRef = useRef<string | null>(null);
-
   const { login } = useOnboardingLogin();
 
   useVellumCommands({
@@ -400,15 +398,21 @@ export function RootLayout() {
       // resolved against the selection would land in the thread the user
       // happened to open rather than the one they were typing to.
       //
+      // The memory lives in `@/utils/companion-conversation` rather than in a
+      // ref here, because it has to be corrected from outside this component:
+      // the first message goes to a draft id that the send then swaps for the
+      // server's, and a memory still holding the draft would mint a fresh
+      // conversation for every follow-up.
+      //
       // The fallback covers the composer outliving this window's memory of it,
       // which a reload does: the active conversation is the best guess left.
       const conversations = useConversationStore.getState();
       const conversationId = command.startsConversation
         ? createDraftConversationId()
-        : (companionConversationRef.current ??
+        : (getCompanionConversationId() ??
           conversations.activeConversationId ??
           createDraftConversationId());
-      companionConversationRef.current = conversationId;
+      setCompanionConversationId(conversationId);
       conversations.setActiveConversationId(conversationId);
       // The `?prompt=` auto-send pathway (`use-auto-send-effects`), with a
       // relay token so sending the same words twice sends twice instead of

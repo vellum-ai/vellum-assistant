@@ -34,6 +34,7 @@ import type {
 } from "@/domains/chat/types/types";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
+import { resolveCompanionDraftConversationId } from "@/utils/companion-conversation";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import {
   type DiskPressureChatBlockReason,
@@ -972,6 +973,14 @@ export function useSendMessage({
             newConversationId,
           );
           resolveEditChatDraftConversationId(
+            activeConversationId,
+            newConversationId,
+          );
+          // The companion surface's composer follows the same way, and for the
+          // same reason: it is a memory of a conversation held outside the
+          // conversation, so an id re-keyed here and not there is an id that
+          // sends the next message into a thread that does not exist.
+          resolveCompanionDraftConversationId(
             activeConversationId,
             newConversationId,
           );
