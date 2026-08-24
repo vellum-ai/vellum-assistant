@@ -6,6 +6,8 @@
  * its own, and that deleting an app takes its pin with it.
  */
 
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const publishCalls: unknown[] = [];
@@ -26,6 +28,7 @@ import {
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { appPins } from "../../../persistence/schema/index.js";
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { ROUTES as APP_ROUTES } from "../app-management-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -48,6 +51,34 @@ interface ListedApp {
   name: string;
   pinSortPosition?: number;
   pinColor?: string;
+}
+
+/**
+ * Install a plugin that bundles one app, and return the id the daemon builds
+ * for it. A real directory rather than a hand-written id: `handlePinApp`
+ * validates against `listPluginApps()`, so a synthetic id would be rejected and
+ * this would stop covering plugin pinning at all.
+ */
+function installPluginApp(pluginName: string, appDir: string): string {
+  const pluginRoot = join(getWorkspacePluginsDir(), pluginName);
+  mkdirSync(join(pluginRoot, "apps", appDir), { recursive: true });
+  writeFileSync(
+    join(pluginRoot, "package.json"),
+    JSON.stringify({ name: pluginName, version: "1.0.0" }),
+  );
+  const id = `plugins~${pluginName}~${appDir}`;
+  /* Guards the fixture, not the route: an id the daemon does not read as a
+     plugin app would exercise the ordinary workspace path instead. */
+  expect(isPluginAppId(id)).toBe(true);
+  return id;
+}
+
+/** Retire a plugin the way an uninstall does: its apps stop enumerating. */
+function uninstallPlugin(pluginName: string): void {
+  rmSync(join(getWorkspacePluginsDir(), pluginName), {
+    recursive: true,
+    force: true,
+  });
 }
 
 function makeApp(name: string): string {
@@ -163,11 +194,7 @@ describe("apps_pin", () => {
      plugin-app mutation guard does not apply. Driven through the route because
      that guard is what the route would otherwise impose. */
   test("pins a plugin app, whose record the daemon cannot write", async () => {
-    const pluginAppId = "plugins~demo~widget";
-    /* Guards the fixture, not the route: an id the daemon does not read as a
-       plugin app would exercise the ordinary workspace path and this case
-       would pass without ever reaching the behaviour it names. */
-    expect(isPluginAppId(pluginAppId)).toBe(true);
+    const pluginAppId = installPluginApp("demo", "widget");
 
     const result = await pin(pluginAppId, { pinned: true });
 
@@ -206,6 +233,44 @@ describe("apps_pin", () => {
     await pin(appId, { pinned: true });
 
     expect(publishCalls).toHaveLength(1);
+  });
+});
+
+/*
+ * A workspace app's id is a UUID, so a pin left behind when one is deleted can
+ * never be adopted. A plugin app's id is a path identity, so retiring a plugin
+ * and installing it again rebuilds the same id: a pin left behind would come
+ * back with it, and the user has no way to remove one they cannot see.
+ */
+describe("orphan pins across a plugin reinstall", () => {
+  test("a retired plugin's pin does not return when it is installed again", async () => {
+    const pluginAppId = installPluginApp("demo", "widget");
+    const workspaceApp = makeApp("Workspace");
+    await pin(pluginAppId, { pinned: true });
+
+    uninstallPlugin("demo");
+    /* The pin write is the reconcile point, so something has to happen on it.
+       Pinning an unrelated app is the least contrived trigger. */
+    await pin(workspaceApp, { pinned: true });
+
+    installPluginApp("demo", "widget");
+
+    const listed = await findListed(pluginAppId);
+    expect(listed).toBeDefined();
+    expect(listed?.pinSortPosition).toBeUndefined();
+  });
+
+  test("leaves the pin alone while the plugin is still installed", async () => {
+    const pluginAppId = installPluginApp("demo", "widget");
+    const workspaceApp = makeApp("Workspace");
+    await pin(pluginAppId, { pinned: true });
+
+    await pin(workspaceApp, { pinned: true });
+
+    expect(listAppPins().map((entry) => entry.appId)).toEqual([
+      pluginAppId,
+      workspaceApp,
+    ]);
   });
 });
 
