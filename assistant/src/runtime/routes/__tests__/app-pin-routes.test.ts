@@ -294,6 +294,33 @@ describe("orphan pins across a plugin reinstall", () => {
 
     expect(listAppPins()).toEqual([]);
   });
+
+  /* A pass is the one pin write with no request behind it, so nothing else
+     tells a connected client. Without this the daemon converges and an open
+     sidebar keeps rendering the pin until an unrelated app refetch lands. */
+  test("announces the apps list when a pass removes a pin", () => {
+    const appId = makeApp("Gone");
+    updateAppPin(appId, { pinned: true });
+    deleteApp(appId);
+    publishCalls.length = 0;
+
+    reconcileAppPins();
+
+    expect(publishCalls).toHaveLength(1);
+  });
+
+  /* Counted rather than merely observed: a pass that announced unconditionally
+     would drain every client's app list on a timer, sixty seconds apart,
+     forever. */
+  test("announces nothing when a pass removes no pin", () => {
+    const appId = makeApp("Still here");
+    updateAppPin(appId, { pinned: true });
+    publishCalls.length = 0;
+
+    reconcileAppPins();
+
+    expect(publishCalls).toEqual([]);
+  });
 });
 
 describe("apps_delete", () => {
