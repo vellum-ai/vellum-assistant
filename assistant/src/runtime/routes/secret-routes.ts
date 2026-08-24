@@ -432,6 +432,11 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
         }
       } else if (!isTrimmedIdentity) {
+        // A connection resolves its auth through this credential account, and
+        // the resolved adapter bakes the key it read into its headers, so the
+        // rotation only reaches dispatch once the cached adapter is dropped.
+        // The credential write has already succeeded: an enumeration failure
+        // refreshes rather than surfacing as a 500.
         try {
           const connections = findConnectionsUsingCredential(key);
           if (connections.length > 0) {
