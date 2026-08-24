@@ -1,9 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../../calls/voice-triage-escalate.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -19,6 +21,7 @@ import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "../live-voice-tts.js";
+import { approvalPendingPhraseFor } from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -214,6 +217,82 @@ function createControlledTtsStreamer(): {
   return { streamTtsAudio, calls, events };
 }
 
+// A TTS streamer that answers every segment with one chunk and settles at
+// once. `synthesized` is what reached the provider, which on a held segment
+// is deliberately a different set from what the client hears.
+function createEchoTtsStreamer(): {
+  streamTtsAudio: LiveVoiceTtsStreamer;
+  synthesized: LiveVoiceTtsOptions[];
+} {
+  const synthesized: LiveVoiceTtsOptions[] = [];
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    synthesized.push(options);
+    options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+    return makeTtsResult(options.text);
+  });
+  return { streamTtsAudio, synthesized };
+}
+
+function synthesizedTexts(synthesized: LiveVoiceTtsOptions[]): string[] {
+  return synthesized.map((options) => options.text);
+}
+
+// The front-door leg's escalate verdict plus the bridge it speaks across the
+// hand-off, and the sentences an escalated leg says while it works.
+const ESCALATE_VERDICT_DELTA = "[1] Let me look into that.";
+const BRIDGE_SENTENCE = "Let me look into that.";
+const FIRST_COMMENTARY = "Checking your calendar now.";
+const SECOND_COMMENTARY = "Now looking at tomorrow as well.";
+const REPORT_SENTENCE = "You have two meetings tomorrow.";
+const REPORT_QUESTION = "Which calendar should I check, work or personal?";
+
+/**
+ * Drive a turn through the escalate verdict and hand back the escalated leg's
+ * bridge options, so a test can script that leg block by block: text deltas,
+ * `tool_block_opened` for a tool block opening, and completion.
+ */
+async function startEscalatedTurn(
+  streamTtsAudio: LiveVoiceTtsStreamer,
+): Promise<{
+  frames: LiveVoiceServerFrame[];
+  session: LiveVoiceSession;
+  escalated: VoiceTurnOptions;
+}> {
+  let frontDoor: VoiceTurnCallbacks | undefined;
+  let escalated: VoiceTurnOptions | undefined;
+  const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+    if (options.content === ESCALATION_CONTINUATION_CONTENT) {
+      escalated = options;
+      return { turnId: "bridge-escalated", abort: mock() };
+    }
+    frontDoor = options.callbacks;
+    return { turnId: "bridge-front-door", abort: mock() };
+  });
+  const { frames, session } = createSessionHarness({
+    startVoiceTurn,
+    streamTtsAudio,
+  });
+
+  await startReleasedTurn(session);
+  frontDoor?.assistant_text_delta?.(makeTextDelta(ESCALATE_VERDICT_DELTA));
+  await waitFor(
+    () => escalated !== undefined,
+    "Timed out waiting for the escalated leg to start",
+  );
+  if (!escalated) {
+    throw new Error("Escalated leg never started");
+  }
+  return { frames, session, escalated };
+}
+
+function assistantTranscript(frames: LiveVoiceServerFrame[]): string {
+  return frames
+    .flatMap((frame) =>
+      frame.type === "assistant_text_delta" ? [frame.text] : [],
+    )
+    .join("");
+}
+
 // The slice of a TtsSegmentJob a held-segment selector can see. Kept
 // structural so the test does not need the session's private job type.
 interface HeldJobView {
@@ -226,9 +305,10 @@ interface TurnView {
   readonly ttsBuffer: string;
 }
 
-// Held segments have no production caller yet, so the tests drive the private
-// hold/promote/retract surface directly against the turn that
-// `startReleasedTurn` left active.
+// Drives the private hold/promote/retract surface directly against the turn
+// that `startReleasedTurn` left active, for the queue mechanics an escalated
+// turn cannot script on its own (a segment held past completion, a provider
+// that ignores its abort).
 function heldTtsController(session: LiveVoiceSession): {
   enqueue: (text: string) => void;
   promote: (select: (job: HeldJobView) => boolean) => number;
@@ -1141,5 +1221,277 @@ describe("LiveVoiceSession TTS", () => {
     callbacks?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
     expect(ttsAudioPayloads(frames)).toEqual([]);
+  });
+});
+
+describe("LiveVoiceSession escalated-turn speech", () => {
+  test("no commentary is ever audible on an escalated turn", async () => {
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // Two working blocks, each closed by a tool-use block opening, then the
+    // block nothing follows: the turn's report back.
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(`${SECOND_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-2");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The hard guarantee: the caller hears the hand-off bridge and the
+    // report, and no part of the play-by-play in between.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    // The commentary was synthesized (that is what makes a promotion
+    // instant), it just never reached the client.
+    expect(synthesizedTexts(synthesized)).toContain(FIRST_COMMENTARY);
+    // Holding is a TTS-only concern: the transcript still carries every word.
+    const transcript = assistantTranscript(frames);
+    expect(transcript).toContain(FIRST_COMMENTARY);
+    expect(transcript).toContain(SECOND_COMMENTARY);
+    expect(transcript).toContain(REPORT_SENTENCE);
+  });
+
+  test("a provider-native tool closes a block like any other", async () => {
+    // Web search and friends arrive as server_tool_start rather than a
+    // preview event. The bridge routes both to tool_block_opened, so from
+    // here a provider-native tool is not a special case at all: this asserts
+    // the session treats that boundary like any other. That the bridge
+    // actually routes it is asserted in voice-session-bridge.test.ts.
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("web_search", "srvtoolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    expect(synthesizedTexts(synthesized)).toContain(FIRST_COMMENTARY);
+    // Holding is a TTS-only concern here too: the transcript keeps every word.
+    expect(assistantTranscript(frames)).toContain(FIRST_COMMENTARY);
+  });
+
+  test("a direct front-door answer is unchanged", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(
+      makeTextDelta("Sure, I can help with that, and here is the rest."),
+    );
+
+    // A front-door answer is never held, so the eager first-clause flush
+    // still speaks before the message completes.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+    expect(ttsAudioPayloads(frames)[0]).toBe(
+      b64("audio:Sure, I can help with that,"),
+    );
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:Sure, I can help with that,"),
+      b64("audio:and here is the rest."),
+    ]);
+  });
+
+  test("the report's first segment is pre-synthesized", async () => {
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    await flushAsyncCallbacks();
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    await waitFor(() =>
+      synthesizedTexts(synthesized).includes(REPORT_SENTENCE),
+    );
+
+    // Synthesis of the report runs while the leg is still streaming; only
+    // its emission waits for completion.
+    expect(ttsAudioPayloads(frames)).toEqual([b64(`audio:${BRIDGE_SENTENCE}`)]);
+
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    // Promotion emits the audio it already has rather than re-synthesizing.
+    expect(
+      synthesizedTexts(synthesized).filter((text) => text === REPORT_SENTENCE),
+    ).toHaveLength(1);
+  });
+
+  test("a mid-turn question is spoken like an answer", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_QUESTION));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // Coming back with a question the turn needs answered is a report back
+    // like any other: nothing followed it, so it is spoken.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_QUESTION}`),
+    ]);
+  });
+
+  test("the approval-pending phrase is never held", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+    const approvalPhrase = sanitizeForTts(approvalPendingPhraseFor()).trim();
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    escalated.onApprovalPending?.("approval-request-1");
+
+    // The line exists to be heard during the wait, so it speaks straight
+    // away while the block beside it is still held.
+    await waitFor(() =>
+      ttsAudioPayloads(frames).includes(b64(`audio:${approvalPhrase}`)),
+    );
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${approvalPhrase}`),
+    ]);
+
+    legs?.tool_block_opened?.("send_email", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The retraction that dropped the commentary left the phrase alone.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${approvalPhrase}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+  });
+
+  test("a held escalated block blocks the idle gate and its retraction clears it", async () => {
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session, escalated } =
+      await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+    const held = heldTtsController(session);
+
+    // The bridge settles without ever producing a chunk, so no playback-tail
+    // estimate stands between the turn and the idle gate.
+    calls[0]?.finish();
+    await waitFor(() => held.audioIdle());
+
+    // A held block is seconds from being spoken, so the turn is quiet rather
+    // than idle and the working cue must not talk over it.
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    expect(held.audioIdle()).toBe(false);
+
+    // Retracting it makes it unhearable at once, even though the provider is
+    // still sitting on the aborted stream, so the tool phase reads idle.
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    expect(held.audioIdle()).toBe(true);
+
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    expect(held.audioIdle()).toBe(false);
+
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length >= 3);
+    calls[2]?.finish();
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+  });
+
+  test("the escalation bridge is never held or retracted", async () => {
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // The bridge is spoken during the tool phase, which is the whole point
+    // of it: it covers the silence the escalated leg is about to create.
+    await waitFor(() =>
+      ttsAudioPayloads(frames).includes(b64(`audio:${BRIDGE_SENTENCE}`)),
+    );
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    await flushAsyncCallbacks();
+
+    const bridgeCall = synthesized.find(
+      (options) => options.text === BRIDGE_SENTENCE,
+    );
+    expect(bridgeCall?.signal?.aborted).toBe(false);
+    expect(ttsAudioPayloads(frames)).toEqual([b64(`audio:${BRIDGE_SENTENCE}`)]);
+
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+  });
+
+  test("a cancelled escalated turn speaks nothing", async () => {
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // The bridge settles silently, so nothing at all has been heard yet.
+    calls[0]?.finish();
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    await waitFor(() => calls.length >= 2);
+
+    legs?.message_complete?.({
+      type: "generation_cancelled",
+      conversationId: "conversation-123",
+    });
+    await flushAsyncCallbacks();
+
+    // The held block dies with the turn: nothing is promoted, and its
+    // provider stream is torn down rather than left running.
+    expect(calls[1]?.options.signal?.aborted).toBe(true);
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  test("an escalated turn with no tool calls speaks its single block", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
   });
 });

@@ -251,17 +251,23 @@ export interface VoiceTurnCallbacks {
     detail?: { toolUseId?: string; input?: Record<string, unknown> },
   ) => void;
   /**
-   * Fired when the provider OPENS a tool-use content block, before its input
-   * JSON streams - earlier and weaker than `tool_use_start`, which waits for a
-   * definitive, parsed call.
+   * Fired when the provider OPENS any tool block, before its input streams -
+   * earlier and weaker than `tool_use_start`, which waits for a definitive,
+   * parsed call.
    *
    * Consumers must not use this to display or act on a tool: the call may
    * never materialize. It is a structural signal about the RESPONSE, not the
-   * tool - once a tool-use block opens, the text block before it is closed, so
-   * any text streamed since the last block boundary was working commentary
-   * rather than the turn's answer.
+   * tool - once a tool block opens, the text block before it is closed, so any
+   * text streamed since the last block boundary was working commentary rather
+   * than the turn's answer.
+   *
+   * Both client-executed tools (`tool_use_preview_start`) and provider-native
+   * ones such as web search (`server_tool_start`) fire this. They are one
+   * concept here deliberately: a consumer that tracked only the former would
+   * silently miss every block boundary on a server-tool turn, and the text
+   * before that boundary would be misread as part of the answer.
    */
-  tool_use_preview_start?: (toolName: string, toolUseId: string) => void;
+  tool_block_opened?: (toolName: string, toolUseId: string) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
@@ -1669,6 +1675,29 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
+      // One block-open per tool call, whichever wire event announces it first.
+      // A client tool previews and then starts; a provider-native tool only
+      // ever starts. Firing twice for the same call would advance the
+      // consumer's block counter past the block the text actually belongs to.
+      const openedToolBlocks = new Set<string>();
+      const openToolBlock = (
+        toolName: string,
+        toolUseId: string | undefined,
+      ): void => {
+        // An id is what makes the two events for one call recognizable as one
+        // call. Without it there is nothing to dedupe on, so the block still
+        // opens: a missed boundary would misread commentary as the answer,
+        // which is worse than an extra boundary between blocks that hold no
+        // text anyway.
+        if (toolUseId !== undefined) {
+          if (openedToolBlocks.has(toolUseId)) {
+            return;
+          }
+          openedToolBlocks.add(toolUseId);
+        }
+        opts.callbacks?.tool_block_opened?.(toolName, toolUseId ?? "");
+      };
+
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
@@ -1712,16 +1741,20 @@ export async function startVoiceTurn(
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+            // Also a block boundary, and for a provider-native tool it is the
+            // ONLY one: the daemon translates the loop's `server_tool_start`
+            // into a wire `tool_use_start` (see the `server_tool_start` case in
+            // conversation-agent-loop-handlers.ts), so web search and friends
+            // never produce a preview event. `openToolBlock` dedupes, so a
+            // client tool that previewed first does not open twice.
+            openToolBlock(msg.toolName, msg.toolUseId);
           } else if (msg.type === "tool_use_preview_start") {
             // Routed through `opts.callbacks` rather than `eventSink`: the
             // sink is the phone-shaped surface, and this is a live-voice-only
             // structural signal about the response. Activity display stays on
             // the definitive `tool_use_start`, which is the only tool event a
             // consumer may show or act on.
-            opts.callbacks?.tool_use_preview_start?.(
-              msg.toolName,
-              msg.toolUseId,
-            );
+            openToolBlock(msg.toolName, msg.toolUseId);
           } else if (msg.type === "tool_result") {
             eventSink.onToolResult({
               toolName: msg.toolName,

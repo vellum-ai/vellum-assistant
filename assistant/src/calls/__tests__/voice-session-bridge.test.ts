@@ -1472,7 +1472,8 @@ describe("startVoiceTurn race-loss state restore", () => {
 });
 
 describe("startVoiceTurn tool-event forwarding", () => {
-  // The agent loop's tool_use_preview_start / tool_use_start / tool_result
+  // The agent loop's tool_use_preview_start / server_tool_start /
+  // tool_use_start / tool_result
   // events reach the voice callbacks so the session can track per-turn tool
   // activity. The bridge is the single truncation point for tool results —
   // the raw result can be huge and must never travel further into the voice
@@ -1599,7 +1600,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
-  test("tool_use_preview_start delivers the tool name and id", async () => {
+  test("tool_use_preview_start opens a tool block and delivers name and id", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_preview_start",
@@ -1612,7 +1613,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     await startVoiceTurn({
       ...makeTurnOptions(),
       callbacks: {
-        tool_use_preview_start: (toolName, toolUseId) =>
+        tool_block_opened: (toolName, toolUseId) =>
           previews.push({ toolName, toolUseId }),
       },
     });
@@ -1623,7 +1624,72 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
-  test("a turn with no tool calls never fires tool_use_preview_start", async () => {
+  test("a provider-native tool opens a block via its translated tool_use_start", async () => {
+    // Web search and friends reach this layer as a wire `tool_use_start`: the
+    // daemon translates the loop's `server_tool_start` into one (see that case
+    // in conversation-agent-loop-handlers.ts), and no preview event is emitted
+    // for them. A consumer wired only to tool_use_preview_start would miss
+    // every block boundary on such a turn.
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        toolUseId: "srvtoolu-1",
+        input: { query: "weather" },
+      },
+    ]);
+
+    const opened: Array<{ toolName: string; toolUseId: string }> = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_block_opened: (toolName, toolUseId) =>
+          opened.push({ toolName, toolUseId }),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(opened).toEqual([
+      { toolName: "web_search", toolUseId: "srvtoolu-1" },
+    ]);
+  });
+
+  test("a client tool that previews and then starts opens its block once", async () => {
+    // Both events describe the same call, so opening twice would advance the
+    // consumer's block counter past the block the following text belongs to.
+    makeEventEmittingConversation([
+      {
+        type: "tool_use_preview_start",
+        toolName: "calendar_read",
+        toolUseId: "toolu-1",
+      },
+      {
+        type: "tool_use_start",
+        toolName: "calendar_read",
+        toolUseId: "toolu-1",
+        input: { day: "today" },
+      },
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        toolUseId: "srvtoolu-1",
+        input: { query: "weather" },
+      },
+    ]);
+
+    const opened: string[] = [];
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        tool_block_opened: (toolName) => opened.push(toolName),
+      },
+    });
+    await flushMicrotasks();
+
+    expect(opened).toEqual(["calendar_read", "web_search"]);
+  });
+
+  test("a turn with no tool calls never opens a tool block", async () => {
     makeEventEmittingConversation([
       { type: "assistant_text_delta", text: "hello" },
     ]);
@@ -1632,7 +1698,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     await startVoiceTurn({
       ...makeTurnOptions(),
       callbacks: {
-        tool_use_preview_start: (toolName) => previews.push(toolName),
+        tool_block_opened: (toolName) => previews.push(toolName),
       },
     });
     await flushMicrotasks();
@@ -1663,7 +1729,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     await startVoiceTurn({
       ...makeTurnOptions(),
       callbacks: {
-        tool_use_preview_start: () => fired.push("preview"),
+        tool_block_opened: () => fired.push("preview"),
         tool_use_start: (toolName, detail) => {
           fired.push("start");
           starts.push({ toolName, detail });
