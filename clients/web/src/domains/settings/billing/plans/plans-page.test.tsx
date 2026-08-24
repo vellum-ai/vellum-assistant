@@ -666,6 +666,23 @@ describe("PlansPage on native Android", () => {
     expect(upgradeCall).toBeNull();
     expect(changePackageCall).toBeNull();
   });
+
+  test("Configure opens this page on the web app instead of the custom modal", async () => {
+    nativeAndroid = true;
+    const { findByRole, queryByRole } = renderInteractive(freeSubscription(), {
+      plans: customCatalog(),
+    });
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        new URL(routes.plans, window.location.origin).toString(),
+      ),
+    );
+    expect(queryByRole("dialog")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
 });
 
 describe("PlansPage — Pro package switch (change-package)", () => {
