@@ -72,6 +72,8 @@ const storage = createStorageAccessor<PinnedAppEntry[]>({
 export const loadPinnedApps = storage.load;
 export const savePinnedApps = storage.save;
 export const subscribePinnedApps = storage.subscribe;
+/** Drop the key entirely. Used by the migration that drains it. */
+export const removePinnedApps = storage.remove;
 
 export function pinApp(app: PinnableApp): void {
   const entries = storage.load();

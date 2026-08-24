@@ -12709,9 +12709,12 @@ paths:
                         type: boolean
                       retryLastTurn:
                         type: boolean
+                      appPins:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
+                      - appPins
                     additionalProperties: false
                   profiler:
                     type: object
@@ -12911,9 +12914,12 @@ paths:
                         type: boolean
                       retryLastTurn:
                         type: boolean
+                      appPins:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
+                      - appPins
                     additionalProperties: false
                   profiler:
                     type: object

@@ -1,27 +1,19 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-import {
-  planLegacyPinClaim,
-  readLegacyPins,
-  writeLegacyPins,
-  type LegacyPin,
-} from "@/hooks/use-legacy-pin-migration";
-
-const LEGACY_KEY = "vellum:pinnedApps";
+import { planLegacyPinClaim } from "@/hooks/use-legacy-pin-migration";
 
 function app(id: string, pinSortPosition?: number) {
   return pinSortPosition === undefined ? { id } : { id, pinSortPosition };
 }
 
 function legacyPin(appId: string, pinnedOrder: number, color?: string) {
-  return color === undefined
-    ? { appId, pinnedOrder }
-    : { appId, pinnedOrder, color };
+  return {
+    appId,
+    pinnedOrder,
+    name: `App ${appId}`,
+    ...(color === undefined ? {} : { color }),
+  };
 }
-
-beforeEach(() => {
-  localStorage.clear();
-});
 
 /*
  * The legacy key held one list for the whole browser, so its contents are a
@@ -98,60 +90,5 @@ describe("planLegacyPinClaim", () => {
 
   test("an assistant with no apps claims nothing", () => {
     expect(planLegacyPinClaim([legacyPin("mine", 1)], [])).toEqual([]);
-  });
-});
-
-describe("readLegacyPins", () => {
-  test("reads the stored list", () => {
-    localStorage.setItem(
-      LEGACY_KEY,
-      JSON.stringify([legacyPin("a", 1, "teal")]),
-    );
-
-    expect(readLegacyPins()).toEqual([legacyPin("a", 1, "teal")]);
-  });
-
-  test("drops malformed entries and keeps the rest", () => {
-    localStorage.setItem(
-      LEGACY_KEY,
-      JSON.stringify([
-        { appId: "keep", pinnedOrder: 1 },
-        { appId: "", pinnedOrder: 2 },
-        { appId: "no-order" },
-        { appId: "bad-colour", pinnedOrder: 3, color: 7 },
-      ]),
-    );
-
-    expect(readLegacyPins().map((pin) => pin.appId)).toEqual(["keep"]);
-  });
-
-  test("an absent key, unparseable JSON, or a non-array all read as empty", () => {
-    expect(readLegacyPins()).toEqual([]);
-
-    localStorage.setItem(LEGACY_KEY, "{not json");
-    expect(readLegacyPins()).toEqual([]);
-
-    localStorage.setItem(LEGACY_KEY, '{"appId":"a"}');
-    expect(readLegacyPins()).toEqual([]);
-  });
-});
-
-describe("writeLegacyPins", () => {
-  test("keeps what is still unclaimed", () => {
-    const remaining: LegacyPin[] = [legacyPin("theirs", 2)];
-
-    writeLegacyPins(remaining);
-
-    expect(readLegacyPins()).toEqual(remaining);
-  });
-
-  /* The key must not outlive its contents: left behind empty it is one more
-     unscoped pin key sitting in storage for the next reader to misread. */
-  test("removes the key once nothing is left to claim", () => {
-    localStorage.setItem(LEGACY_KEY, JSON.stringify([legacyPin("a", 1)]));
-
-    writeLegacyPins([]);
-
-    expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
   });
 });

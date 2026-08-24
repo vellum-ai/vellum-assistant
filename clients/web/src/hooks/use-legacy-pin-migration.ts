@@ -25,60 +25,19 @@ import {
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useSupportsDaemonAppPins } from "@/lib/backwards-compat/daemon-app-pins";
 import {
-  getLocalSetting,
-  removeLocalSetting,
-  setLocalSetting,
-} from "@/utils/local-settings";
+  loadPinnedApps,
+  removePinnedApps,
+  savePinnedApps,
+  type PinnedAppEntry,
+} from "@/utils/app-pin-storage";
 
-const LEGACY_KEY = "vellum:pinnedApps";
-
-export interface LegacyPin {
-  appId: string;
-  pinnedOrder: number;
-  color?: string;
-}
-
-function isLegacyPin(value: unknown): value is LegacyPin {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.appId === "string" &&
-    record.appId.length > 0 &&
-    typeof record.pinnedOrder === "number" &&
-    Number.isFinite(record.pinnedOrder) &&
-    (record.color === undefined || typeof record.color === "string")
-  );
-}
-
-/** The legacy list, malformed entries dropped. Empty when the key is gone. */
-export function readLegacyPins(): LegacyPin[] {
-  const raw = getLocalSetting(LEGACY_KEY, "");
-  if (raw === "") {
-    return [];
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isLegacyPin) : [];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Write back what is left to claim, removing the key once nothing is.
- *
- * A rejected write is not retried: the claim it follows already reached the
- * daemon, so the next load reads this assistant as pinned and stops at the
- * guard in {@link planLegacyPinClaim}.
- */
-export function writeLegacyPins(pins: LegacyPin[]): void {
+/** Keep what is still unclaimed, dropping the key once nothing is. */
+function writeRemaining(pins: PinnedAppEntry[]): void {
   if (pins.length === 0) {
-    removeLocalSetting(LEGACY_KEY);
+    removePinnedApps();
     return;
   }
-  setLocalSetting(LEGACY_KEY, JSON.stringify(pins));
+  savePinnedApps(pins);
 }
 
 /**
@@ -91,9 +50,9 @@ export function writeLegacyPins(pins: LegacyPin[]): void {
  * an app for, which is either another assistant's or a deleted app's.
  */
 export function planLegacyPinClaim(
-  legacy: LegacyPin[],
+  legacy: PinnedAppEntry[],
   apps: { id: string; pinSortPosition?: number }[],
-): LegacyPin[] {
+): PinnedAppEntry[] {
   if (apps.some((app) => app.pinSortPosition !== undefined)) {
     return [];
   }
@@ -142,7 +101,7 @@ export function useLegacyPinMigration(
     }
     attempted.current = assistantId;
 
-    const legacy = readLegacyPins();
+    const legacy = loadPinnedApps();
     if (legacy.length === 0) {
       return;
     }
@@ -174,7 +133,7 @@ export function useLegacyPinMigration(
          another assistant's migration may have drained its own entries while
          these claims were in flight, and writing back the stale remainder
          would restore them for it to claim a second time. */
-      writeLegacyPins(readLegacyPins().filter((pin) => !claimed.has(pin.appId)));
+      writeRemaining(loadPinnedApps().filter((pin) => !claimed.has(pin.appId)));
       void queryClient.invalidateQueries({
         queryKey: appsGetQueryKey({ path }),
       });
