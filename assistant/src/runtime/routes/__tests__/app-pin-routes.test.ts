@@ -31,6 +31,7 @@ import { initializeDb } from "../../../persistence/db-init.js";
 import { appPins } from "../../../persistence/schema/index.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { ROUTES as APP_ROUTES } from "../app-management-routes.js";
+import { BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
@@ -224,6 +225,34 @@ describe("apps_pin", () => {
     const appId = makeApp("Untouched");
 
     await expect(pin(appId, {})).rejects.toThrow(/pinned or color is required/);
+  });
+
+  /*
+   * `RouteDefinition.requestBody` is a codegen signal and does not validate, so
+   * the handler is the only thing standing between a caller and the store. Both
+   * transports reach this handler with whatever JSON arrived, so a cast here
+   * would narrow nothing and a malformed value would land in the database and
+   * come back out in the response.
+   */
+  describe("malformed bodies", () => {
+    const cases: [string, unknown][] = [
+      ["a non-boolean pinned", { pinned: "yes" }],
+      ["a numeric pinned", { pinned: 1 }],
+      ["a non-string colour", { pinned: true, color: 7 }],
+      ["an array colour", { pinned: true, color: ["teal"] }],
+      ["a body that is not an object", "pinned"],
+    ];
+
+    for (const [label, body] of cases) {
+      test(`rejects ${label}`, async () => {
+        const appId = makeApp(`App for ${label}`);
+
+        await expect(
+          pin(appId, body as { pinned?: boolean; color?: string | null }),
+        ).rejects.toBeInstanceOf(BadRequestError);
+        expect(listAppPins()).toEqual([]);
+      });
+    }
   });
 
   /* Other windows and devices learn about a pin only through this broadcast:
