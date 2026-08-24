@@ -1,5 +1,6 @@
 import AppIntents
 import SwiftUI
+import UIKit
 
 // The controls every Vellum Home Screen widget builds its actions out of: a
 // tile, a circle, a pill, and the secondary line of text that stands in when
@@ -19,18 +20,24 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     /// tile reads as a smaller instance of the card it sits on.
     private static var cornerRadius: CGFloat { 14 }
 
+    private static var iconSize: CGFloat { 22 }
+
     let intent: ActionIntent
     let icon: Image
     let title: String
     let fill: Color
     let tint: Color
 
+    /// The user's avatar, drawn in place of ``icon`` when the snapshot carries
+    /// one. Optional because the tiles standing for an action rather than for
+    /// the assistant keep their symbol, and because nothing has synced yet on a
+    /// fresh install.
+    var avatarImage: UIImage? = nil
+
     var body: some View {
         Button(intent: intent) {
             VStack(spacing: 4) {
-                icon
-                    .font(.system(size: 22))
-                    .foregroundStyle(tint)
+                glyph
                 Text(title)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(WidgetTheme.textPrimary)
@@ -41,6 +48,19 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// A symbol takes its size from the font and its color from the tile's
+    /// tint; a bitmap can do neither, so it is sized and clipped instead.
+    @ViewBuilder
+    private var glyph: some View {
+        if let avatarImage {
+            WidgetAvatarImageView(image: avatarImage, size: Self.iconSize)
+        } else {
+            icon
+                .font(.system(size: Self.iconSize))
+                .foregroundStyle(tint)
+        }
     }
 }
 
@@ -107,11 +127,13 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let height: CGFloat
 
+    /// See ``WidgetActionTile/avatarImage``.
+    var avatarImage: UIImage? = nil
+
     var body: some View {
         Button(intent: intent) {
             HStack(spacing: 6) {
-                icon
-                    .font(.system(size: height * 0.4))
+                glyph
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
             }
@@ -123,6 +145,20 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
+
+    /// The glyph is sized off the pill's height either way, so swapping the
+    /// symbol for the avatar does not move the word beside it.
+    @ViewBuilder
+    private var glyph: some View {
+        if let avatarImage {
+            WidgetAvatarImageView(image: avatarImage, size: iconSize)
+        } else {
+            icon
+                .font(.system(size: iconSize))
+        }
+    }
+
+    private var iconSize: CGFloat { height * 0.4 }
 }
 
 /// The quiet line a widget prints when it has nothing to list: an empty state,
