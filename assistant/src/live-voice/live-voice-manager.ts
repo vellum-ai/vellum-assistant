@@ -65,13 +65,13 @@ export function getLiveVoiceSessionManager(): LiveVoiceSessionManager {
               reason: event.reason,
               timeoutMs: event.timeoutMs,
             },
-            "Live voice session close overran its budget — freeing the slot anyway",
+            "Live voice session close overran its budget, freeing the slot anyway",
           );
           return;
         }
         log.warn(
           { sessionId: event.sessionId, timeoutMs: event.timeoutMs },
-          "Live voice client went silent — releasing the session",
+          "Live voice client went silent, releasing the session",
         );
       },
     });

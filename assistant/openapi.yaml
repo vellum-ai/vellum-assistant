@@ -17193,8 +17193,9 @@ paths:
       operationId: livevoice_session_end_post
       summary: End the active live voice session
       description:
-        Release the daemon's single live-voice session slot, whichever client holds it. Reports whether a session
-        was actually ended; a slot already tearing down reports false, since that teardown releases it on its own.
+        Release the assistant's single live-voice session slot, whichever client holds it. Reports whether a
+        session was actually ended; a slot already tearing down reports false, since that teardown releases it on its
+        own.
       tags:
         - live-voice
       responses:

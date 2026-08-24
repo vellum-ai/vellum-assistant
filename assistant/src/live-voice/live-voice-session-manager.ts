@@ -24,7 +24,7 @@ export type LiveVoiceSessionCloseReason =
  * on it and frees the slot anyway.
  *
  * `close()` is not a formality: it delivers a pending continuation into the
- * conversation, aborts an in-flight assistant turn, and flushes metrics — all
+ * conversation, aborts an in-flight assistant turn, and flushes metrics, all
  * of which reach the network. Awaiting it unbounded is what turned a single
  * wedged teardown into a daemon that could never run live voice again, because
  * a closing session still reads as the active one to the busy check while
@@ -36,7 +36,7 @@ export const DEFAULT_LIVE_VOICE_CLOSE_TIMEOUT_MS = 10_000;
  * How long a `server_vad` session may go without a single inbound frame
  * before the manager assumes its client is gone and releases the slot.
  *
- * The daemon's WebSocket peer is the gateway, not the client — a half-open
+ * The daemon's WebSocket peer is the gateway, not the client. A half-open
  * transport anywhere further out (a phone that left the network mid-call, a
  * dropped velay tunnel) delivers no close event here, so transport liveness
  * proves nothing about whether anyone is still on the call. Inbound frames do:
@@ -56,10 +56,11 @@ export interface LiveVoiceSession {
 export interface LiveVoiceServerFrameSink {
   sendFrame(frame: LiveVoiceServerFrame): MaybePromise<void>;
   /**
-   * Hang up the transport this session runs on. Optional, and called only
-   * when the manager reclaims a slot on its own: reclaiming without hanging up
-   * leaves a client streaming into a session that no longer exists, and leaves
-   * every socket in the chain out to it open with nothing behind them.
+   * Hang up the transport this session runs on. Optional, and called when the
+   * slot is taken back rather than given up (the silence watchdog, or a forced
+   * end). Reclaiming without hanging up leaves a client streaming into a
+   * session that no longer exists, still showing an active call, with every
+   * socket in the chain out to it open and nothing behind them.
    */
   closeTransport?(): void;
 }
@@ -116,6 +117,46 @@ export interface LiveVoiceSessionManagerOptions {
   onSlotEvent?: (event: LiveVoiceSlotEvent) => void;
 }
 
+/**
+ * Close reasons where the manager took the slot back rather than its owner
+ * handing it over. Only these hang up the transport: a session that ended
+ * because its own socket closed has no transport left to close, and one that
+ * failed post-`ready` deliberately keeps the socket so the client can start
+ * again on it.
+ */
+const RECLAIMED_CLOSE_REASONS: ReadonlySet<LiveVoiceSessionCloseReason> =
+  new Set(["client_timeout", "forced_end"]);
+
+/**
+ * Read through a call so the check is not narrowed away: an abort that lands
+ * while the manager awaits the outgoing slot is exactly the one that matters,
+ * and it happens after the first read.
+ */
+function isAborted(signal?: AbortSignal): boolean {
+  return signal?.aborted === true;
+}
+
+/**
+ * Resolve when the closing session lets go of the slot, or as soon as the
+ * waiting transport aborts, whichever happens first.
+ */
+function waitForSlotRelease(
+  released: Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal === undefined) {
+    return released;
+  }
+  return new Promise<void>((resolve) => {
+    const settle = () => {
+      signal.removeEventListener("abort", settle);
+      resolve();
+    };
+    signal.addEventListener("abort", settle, { once: true });
+    void released.then(settle, settle);
+  });
+}
+
 export class LiveVoiceSessionStartupError extends Error {
   constructor(message: string) {
     super(message);
@@ -127,6 +168,13 @@ export type LiveVoiceStartSessionResult =
   | {
       status: "accepted";
       sessionId: string;
+    }
+  | {
+      /**
+       * The transport that asked went away before the session could be
+       * created. Nothing was started and nothing needs releasing.
+       */
+      status: "aborted";
     }
   | {
       status: "failed";
@@ -193,7 +241,13 @@ export class LiveVoiceSessionManager {
   async startSession(
     startFrame: LiveVoiceClientStartFrame,
     sink: LiveVoiceServerFrameSink,
+    options: { signal?: AbortSignal } = {},
   ): Promise<LiveVoiceStartSessionResult> {
+    const signal = options.signal;
+    if (isAborted(signal)) {
+      return { status: "aborted" };
+    }
+
     // A slot that is already tearing down is not a reason to turn a client
     // away, it is a reason to wait: the client asking is usually the same one
     // whose transport just died, reconnecting a second or two later, and its
@@ -201,13 +255,21 @@ export class LiveVoiceSessionManager {
     // continuation and unwinds an in-flight turn). Answering `busy` there is
     // what turned a recoverable blip into "Another live-voice session is
     // active." with nothing behind it (LUM-3440). Waiting keeps the invariant
-    // that matters — one session's audio devices are never live alongside the
-    // next one's — and the wait is bounded by the close budget.
+    // that matters (one session's audio devices are never live alongside the
+    // next one's), and the wait is bounded by the close budget.
     const closingSession = this.activeSession?.closing
       ? this.activeSession
       : null;
     if (closingSession !== null) {
-      await closingSession.released;
+      await waitForSlotRelease(closingSession.released, signal);
+      // The wait can outlive the transport that asked (its own connect
+      // timeout is the same order as the close budget, and the user can give
+      // up sooner). Building a session for a socket that is gone would hand
+      // the slot to nobody, which is the failure this change exists to
+      // remove, so the caller aborts and the start is abandoned here.
+      if (isAborted(signal)) {
+        return { status: "aborted" };
+      }
     }
 
     const existingSessionId = this.activeSessionId;
@@ -257,8 +319,8 @@ export class LiveVoiceSessionManager {
     // Armed before `start()` rather than after it, so the watchdog also covers
     // a startup that hangs: a provider dial with no timeout of its own would
     // otherwise hold the slot with no session to release and no frame to
-    // explain it. Nothing refreshes the deadline during startup — the
-    // transport rejects client audio until `start` resolves — so the first
+    // explain it. Nothing refreshes the deadline during startup, since the
+    // transport rejects client audio until `start` resolves, so the first
     // window is startup plus the client's first frame.
     this.armClientSilenceWatchdog(active, startFrame);
 
@@ -330,6 +392,9 @@ export class LiveVoiceSessionManager {
 
     active.closing = true;
     this.clearClientSilenceWatchdog(active);
+    if (RECLAIMED_CLOSE_REASONS.has(reason)) {
+      this.hangUpTransport(active);
+    }
     try {
       await this.closeWithinBudget(active, reason);
     } finally {
@@ -348,7 +413,7 @@ export class LiveVoiceSessionManager {
    * transport is gone (so `end` cannot be sent) but the slot is still claimed,
    * which is the "Another live-voice session is active." dead end. Reports
    * `released: false` when nothing holds the slot, including when the holder
-   * is already closing — that teardown frees the slot on its own budget.
+   * is already closing, since that teardown frees the slot on its own budget.
    */
   async endActiveSession(
     reason: LiveVoiceSessionCloseReason = "forced_end",
@@ -391,7 +456,7 @@ export class LiveVoiceSessionManager {
    *
    * A teardown that overruns is abandoned rather than cancelled: it keeps
    * unwinding in the background (the session has already marked itself closed,
-   * so it cannot resurrect), while the caller — and the next client — stop
+   * so it cannot resurrect), while the caller (and the next client) stop
    * waiting on it. Freeing the slot early can leave the outgoing session's
    * providers briefly overlapping the next one's, which is a degraded call;
    * holding it forever is no call at all, ever again, until the daemon
@@ -465,12 +530,6 @@ export class LiveVoiceSessionManager {
         sessionId: active.sessionId,
         timeoutMs: this.clientSilenceTimeoutMs,
       });
-      try {
-        active.sink.closeTransport?.();
-      } catch {
-        // A transport that cannot be closed is exactly the case the watchdog
-        // exists for; reclaiming the slot still has to happen.
-      }
       void this.releaseSession(active.sessionId, "client_timeout").catch(() => {
         // Best-effort reclamation; the slot is dropped either way.
       });
@@ -479,13 +538,22 @@ export class LiveVoiceSessionManager {
     active.silenceTimer = timer;
   }
 
-  /** Push the watchdog deadline out — the client is demonstrably still there. */
+  /** Push the watchdog deadline out: the client is demonstrably still there. */
   private noteClientActivity(active: ActiveLiveVoiceSession): void {
     if (active.silenceTimer === null) {
       return;
     }
     clearTimeout(active.silenceTimer);
     this.scheduleClientSilenceWatchdog(active);
+  }
+
+  private hangUpTransport(active: ActiveLiveVoiceSession): void {
+    try {
+      active.sink.closeTransport?.();
+    } catch {
+      // A transport that cannot be hung up is exactly the case the watchdog
+      // exists for. Reclaiming the slot still has to happen.
+    }
   }
 
   private clearClientSilenceWatchdog(active: ActiveLiveVoiceSession): void {

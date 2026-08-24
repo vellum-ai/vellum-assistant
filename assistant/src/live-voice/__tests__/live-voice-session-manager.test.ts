@@ -418,7 +418,7 @@ describe("LiveVoiceSessionManager slot reclamation", () => {
       closeTimeoutMs: 25,
       createSession: () => {
         const session = createTestSession({
-          // A teardown that hangs — the shape of a close awaiting a
+          // A teardown that hangs: the shape of a close awaiting a
           // continuation delivery or a provider that never answers.
           close: mock(() => new Promise<void>(() => {})),
         });
@@ -510,7 +510,7 @@ describe("LiveVoiceSessionManager slot reclamation", () => {
     expect(session.closeReasons).toEqual([]);
   });
 
-  test("leaves a manual session alone — its silence is not evidence", async () => {
+  test("leaves a manual session alone, its silence is not evidence", async () => {
     const session = createTestSession();
     const manager = new LiveVoiceSessionManager({
       createSessionId: () => "session-1",
@@ -526,6 +526,55 @@ describe("LiveVoiceSessionManager slot reclamation", () => {
 
     expect(manager.activeSessionId).toBe("session-1");
     expect(session.closeReasons).toEqual([]);
+  });
+
+  test("abandons a start whose transport went away while it waited", async () => {
+    const sessions: TestSession[] = [];
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: mock(() => `session-${sessions.length + 1}`),
+      createSession: () => {
+        const session = createTestSession({
+          close: mock(() => new Promise<void>(() => {})),
+        });
+        sessions.push(session);
+        return session;
+      },
+    });
+    const second = createSink();
+
+    await manager.startSession(START_FRAME, createSink().sink);
+    void manager.releaseSession("session-1", "transport_closed");
+
+    const abort = new AbortController();
+    const pending = manager.startSession(START_FRAME, second.sink, {
+      signal: abort.signal,
+    });
+    await sleep(0);
+    // The socket that asked gave up while the outgoing slot was still
+    // unwinding. Building its session anyway would hand the slot to nobody.
+    abort.abort();
+
+    expect(await pending).toEqual({ status: "aborted" });
+    expect(sessions).toHaveLength(1);
+    expect(second.frames).toEqual([]);
+  });
+
+  test("hangs up the transport when the slot is force-ended", async () => {
+    const session = createTestSession();
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: () => "session-1",
+      createSession: () => session,
+    });
+    const closeTransport = mock(() => {});
+    const { sink } = createSink();
+
+    await manager.startSession(START_FRAME, { ...sink, closeTransport });
+    await manager.endActiveSession();
+
+    // Otherwise the client whose session was ended from elsewhere keeps
+    // showing an active call until it happens to send another frame.
+    expect(closeTransport).toHaveBeenCalledTimes(1);
+    expect(session.closeReasons).toEqual(["forced_end"]);
   });
 
   test("ends the active session on request, whoever holds it", async () => {

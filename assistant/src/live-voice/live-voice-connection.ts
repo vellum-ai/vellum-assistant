@@ -27,8 +27,11 @@
 
 import { getLogger } from "../util/logger.js";
 import { getLiveVoiceSessionManager } from "./live-voice-manager.js";
-import type { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
-import type { LiveVoiceSessionCloseReason } from "./live-voice-session-manager.js";
+import type {
+  LiveVoiceSessionCloseReason,
+  LiveVoiceSessionManager,
+  LiveVoiceStartSessionResult,
+} from "./live-voice-session-manager.js";
 import {
   type LiveVoiceClientFrame,
   type LiveVoiceProtocolError,
@@ -89,6 +92,12 @@ export function createLiveVoiceConnection(options: {
 class LiveVoiceConnectionImpl implements LiveVoiceConnection {
   private activeSessionId: string | undefined;
   private lastSeq = 0;
+  /**
+   * A `start` still waiting on the manager. It holds no session id yet, so
+   * without this handle a transport that closes mid-wait has nothing to
+   * release and the start would go on to build a session for a dead socket.
+   */
+  private pendingStart: AbortController | null = null;
 
   constructor(
     private readonly send: LiveVoiceFrameSender,
@@ -147,6 +156,8 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
   }
 
   release(reason: LiveVoiceSessionCloseReason = "transport_closed"): void {
+    this.pendingStart?.abort();
+    this.pendingStart = null;
     const sessionId = this.activeSessionId;
     this.activeSessionId = undefined;
     if (!sessionId) {
@@ -179,12 +190,27 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
         this.activeSessionId = undefined;
       }
 
-      const result = await this.manager.startSession(frame, {
-        sendFrame: (serverFrame) => {
-          this.sendFrame(serverFrame);
-        },
-        ...(this.closeTransport ? { closeTransport: this.closeTransport } : {}),
-      });
+      const pending = new AbortController();
+      this.pendingStart = pending;
+      let result: LiveVoiceStartSessionResult;
+      try {
+        result = await this.manager.startSession(
+          frame,
+          {
+            sendFrame: (serverFrame) => {
+              this.sendFrame(serverFrame);
+            },
+            ...(this.closeTransport
+              ? { closeTransport: this.closeTransport }
+              : {}),
+          },
+          { signal: pending.signal },
+        );
+      } finally {
+        if (this.pendingStart === pending) {
+          this.pendingStart = null;
+        }
+      }
       if (result.status === "accepted") {
         this.activeSessionId = result.sessionId;
       }

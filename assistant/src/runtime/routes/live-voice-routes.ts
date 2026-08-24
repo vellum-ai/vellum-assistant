@@ -6,7 +6,7 @@
  * session. Lets the web client verify voice is configured BEFORE opening the
  * voice-room WebSocket, instead of opening it and reacting to an error frame.
  *
- * POST /v1/live-voice/session/end — release whatever session holds the
+ * POST /v1/live-voice/session/end releases whatever session holds the
  * daemon's single live-voice slot. The out-of-band half of session closure:
  * the in-band `end` frame needs a working transport, and the case that needs
  * ending most is the one where the transport is already gone.
@@ -88,7 +88,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "End the active live voice session",
     description:
-      "Release the daemon's single live-voice session slot, whichever client holds it. Reports whether a session was actually ended; a slot already tearing down reports false, since that teardown releases it on its own.",
+      "Release the assistant's single live-voice session slot, whichever client holds it. Reports whether a session was actually ended; a slot already tearing down reports false, since that teardown releases it on its own.",
     tags: ["live-voice"],
     responseBody: z.object({
       ended: z.boolean(),
