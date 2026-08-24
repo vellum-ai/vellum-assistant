@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import {
   actorTokenRecordHash,
   isActorTokenRevoked,
+  recordActorTokenUse,
 } from "../../auth/actor-token-revocation.js";
 import {
   ensureVellumGuardianBinding,
@@ -154,6 +155,7 @@ export async function handleCreateToken(
     log.warn("Token create rejected: source token revoked");
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  recordActorTokenUse(bearerToken, verifyResult.claims);
 
   const sourceRecord = findSourceActorTokenRecord(bearerToken);
   let guardianPrincipalId = sourceRecord?.guardianPrincipalId;
