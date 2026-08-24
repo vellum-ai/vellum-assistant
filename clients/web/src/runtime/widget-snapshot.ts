@@ -69,6 +69,10 @@ function hasPendingClear(): boolean {
  * App Group is itself something to clear rather than a snapshot the current
  * session wants.
  *
+ * Every session-ending seam runs {@link clearWidgetSnapshot} and nothing else
+ * moves this counter, which is what makes it the one signal that tells such a
+ * seam from a write merely retired by its caller.
+ *
  * {@link syncWidgetSnapshot} reads it as it is entered rather than after the
  * owed clear it awaits, so a clear already on the bridge at that moment is
  * visible to it: the reading it takes is one that clear has already bumped
@@ -219,11 +223,13 @@ async function callBridge(
  * produce. A sync that did not land leaves whatever the last successful one
  * wrote, and so leaves the recorded producer with it.
  *
- * Reports whether the write landed, without ever rejecting: the producer hook
- * dedupes on the payload it last sent, and a key armed for a write that was
- * rejected or timed out would suppress every retry until the conversation data
- * itself changed, leaving a stale snapshot on the Home Screen. False off iOS
- * too, where nothing was written by construction.
+ * Reports whether the write is durably in the App Group, without ever
+ * rejecting: the producer hook dedupes on the payload it last sent, and a key
+ * armed for a write that was rejected or timed out would suppress every retry
+ * until the conversation data itself changed, leaving a stale snapshot on the
+ * Home Screen. False off iOS too, where nothing was written by construction,
+ * and false for a write this call takes straight back out (below), which is
+ * durably nothing.
  *
  * An owed clear ({@link PENDING_CLEAR_KEY}) is honored first, so a snapshot a
  * previous session failed to drop is never left underneath a new one. The wait
@@ -239,12 +245,26 @@ async function callBridge(
  *
  * That wait is also a window in which the session this write describes can end
  * under it, so the write is checked against {@link clearGeneration} once it is
- * over and again once the payload has landed. `isRetired` is the second half of
- * that check and the caller's own: the producer hook reports a write whose
- * attempt it has retired, meaning the hook unmounted or the assistant changed
- * while this call was in flight. A contested write never reaches the plugin at
- * all; one contested only after it landed cannot be recalled, so what it left is
- * recorded as owed and cleared straight away.
+ * over and again once the payload has landed. `isRetired` is the caller's own
+ * half of the first check: the producer hook reports a write whose attempt it
+ * has retired, meaning the hook unmounted or a newer payload superseded this one
+ * while the call was in flight. Before the plugin the two are refused alike,
+ * since a write nobody is waiting on is not worth making.
+ *
+ * Past the plugin they part, because they answer different questions. A
+ * retirement says only that this write is no longer the newest thing its caller
+ * wants, which is what a supersession and a plain unmount each are, and neither
+ * is a reason to empty the App Group: the successor overwrites what this one
+ * left, and an app that merely closed should keep its snapshot on the Home
+ * Screen. So a write that lands merely retired lands silently, and is recorded
+ * as the current App Group content it is.
+ *
+ * A moved {@link clearGeneration} says the other thing: a session-ending clear
+ * ran across this write, so what it left is a departed session's rows on a Home
+ * Screen that never reloads on its own. Every such seam runs
+ * {@link clearWidgetSnapshot} and a bare retirement never does, which is what
+ * makes the counter the signal rather than the retirement. That write cannot be
+ * recalled, so what it left is recorded as owed and cleared straight away.
  */
 export async function syncWidgetSnapshot(
   snapshot: WidgetSnapshotPayload,
@@ -261,32 +281,40 @@ export async function syncWidgetSnapshot(
   // so a clear that was already on the bridge as this call began stays visible
   // across the wait instead of settling into the value it would capture.
   const generation = anchor ?? entryGeneration;
-  const isContested = (): boolean =>
-    generation !== clearGeneration || isRetired?.() === true;
-  if (isContested()) {
-    // A clear raced this write to the plugin, or the caller that wanted it is
-    // gone. Either way the snapshot describes a session that is over, so it
-    // must not be written at all: nothing goes on the bridge and no marker is
-    // touched, since the clear that contested it owns what the App Group holds.
+  const clearRacedThisWrite = (): boolean => generation !== clearGeneration;
+  if (clearRacedThisWrite() || isRetired?.() === true) {
+    // A clear raced this write to the plugin, or nothing is waiting on the
+    // payload any more. Either way it is not worth writing, so nothing goes on
+    // the bridge and no marker is touched: whatever contested it owns what the
+    // App Group holds.
     return false;
   }
   if (!(await callBridge("sync", () => WidgetSnapshot.sync(snapshot)))) {
     return false;
   }
-  if (isContested()) {
-    // A clear started while this write was on the bridge, or its caller retired
-    // under it, so the session it describes is over and what it left is owed a
-    // clear of its own. Re-arming rather than discharging is also what covers
-    // the clear that SUCCEEDED before this landed: the record it removed cannot
-    // name this orphan, so the marker is the only thing left that can reach it.
+  if (clearRacedThisWrite()) {
+    // A clear started while this write was on the bridge, so the session it
+    // describes is over and what it left is owed a clear of its own. Re-arming
+    // rather than discharging is also what covers the clear that SUCCEEDED
+    // before this landed: the record it removed cannot name this orphan, so the
+    // marker is the only thing left that can reach it.
     setLocalSetting(PENDING_CLEAR_KEY, "1");
     // Recorded first, then corrected here rather than at the next use of the
     // module, so the departed session's rows leave a Home Screen that never
     // reloads on its own. Not awaited: the caller is on its way out, and a
     // correction that does not land leaves the marker above standing.
     void clearWidgetSnapshot();
-    return true;
+    // Nothing durable came of the write, whichever way that correction goes, so
+    // the producer hook must not record this payload as what the App Group
+    // holds. Reporting it as landed would arm its dedup key against the very
+    // snapshot this call is taking back out, pinning empty widgets until the
+    // conversation data changed or the heartbeat came round.
+    return false;
   }
+  // A write that landed merely retired arrives here with every uncontested one
+  // and is treated the same, because it is the same thing: the payload now in
+  // the App Group. The hook's own attempt guard is what keeps a retired write
+  // from arming a dedup key its successor is about to own.
   removeLocalSetting(PENDING_CLEAR_KEY);
   if (assistantId === null) {
     removeLocalSetting(SNAPSHOT_ASSISTANT_ID_KEY);

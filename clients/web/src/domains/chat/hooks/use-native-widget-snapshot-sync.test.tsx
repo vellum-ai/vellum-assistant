@@ -37,6 +37,12 @@
  * a sign-out or origin swap whose bridge call failed persists the obligation,
  * and a launch that reaches no sync of its own would otherwise never honor it.
  *
+ * Retiring an attempt and ending a session are separate things here, and the
+ * stand-in bridge keeps them separate. A write already on the bridge when the
+ * hook unmounts is left where it lands, because an unmount alone is an app
+ * closing or a layout swapping out; only the clear a sign-out issues takes such
+ * a write back out, and nothing is then recorded as landed for it.
+ *
  * The avatar rides along so the widgets can draw the user's own colors and
  * face. Its encoded bytes are deliberately outside the dedup key: they are
  * tens of kilobytes, the key is re-serialized on every list re-render, and an
@@ -112,6 +118,12 @@ let syncGate: Promise<void> | null = null;
 // Stands in for the producer id the bridge persists beside the App Group
 // snapshot, so a test can start from a snapshot a previous run left behind.
 let persistedAssistantId: string | null = null;
+// The module's clear generation, which every session-ending seam moves and a
+// bare retirement never does. It is what decides whether a write that landed
+// while its caller went away is corrected, so the stand-in has to carry it:
+// modelling the correction on the retirement instead would let a supersession
+// wipe the very snapshot that superseded it.
+let clearGeneration = 0;
 
 // Full module surface: `mock.module` is process-global in bun, so a partial
 // shape would shadow the other exports for later test files in the run.
@@ -122,11 +134,11 @@ mock.module("@/runtime/widget-snapshot", () => ({
   syncWidgetSnapshot: async (
     snapshot: WidgetSnapshotPayload,
     assistantId: string | null,
-    isRetired?: () => boolean,
   ) => {
     syncedSnapshots.push(snapshot);
     syncedAssistantIds.push(assistantId);
     bridgeOrder.push("sync");
+    const generation = clearGeneration;
     if (syncGate !== null) {
       const gate = syncGate;
       syncGate = null;
@@ -135,40 +147,50 @@ mock.module("@/runtime/widget-snapshot", () => ({
     if (!syncLands) {
       return false;
     }
-    // A caller that retired while the payload was on the bridge is past the
-    // point where the write can be held back, so the module takes what landed
-    // straight back out rather than leaving it for the next use.
-    if (isRetired?.() === true) {
-      clearCount++;
-      bridgeOrder.push("clear");
-      persistedAssistantId = null;
-      pendingClear = false;
-      return true;
+    // A session-ending clear ran while the payload was on the bridge, so what
+    // landed belongs to a session that is over: past the plugin it cannot be
+    // held back, so the module takes it straight back out and reports that
+    // nothing durable landed.
+    if (generation !== clearGeneration) {
+      runClear();
+      return false;
     }
-    // A landed write replaces the whole App Group record, so it also settles
-    // any clear that was owed for what used to be there.
+    // Anything else lands and stays, a write its caller retired included: a
+    // supersession is overwritten by its successor, and a plain unmount is an
+    // app closing, which should leave the Home Screen as it was. A landed write
+    // replaces the whole App Group record, so it also settles any clear that
+    // was owed for what used to be there.
     pendingClear = false;
     persistedAssistantId = assistantId;
     return true;
   },
   clearWidgetSnapshot: async () => {
-    clearCount++;
-    bridgeOrder.push("clear");
-    persistedAssistantId = null;
-    pendingClear = false;
+    runClear();
     return true;
   },
   retryPendingWidgetSnapshotClear: async () => {
     if (!pendingClear) {
       return true;
     }
-    clearCount++;
-    bridgeOrder.push("clear");
-    persistedAssistantId = null;
-    pendingClear = false;
+    runClear();
     return true;
   },
 }));
+
+/** One clear against the stand-in App Group, generation bump included. */
+function runClear(): void {
+  clearCount++;
+  clearGeneration++;
+  bridgeOrder.push("clear");
+  persistedAssistantId = null;
+  pendingClear = false;
+}
+
+// The session-ending clear as `endSession` and an origin swap issue it, taken
+// from the stand-in above so a test can end a session under a write in flight
+// exactly the way the app does.
+const { clearWidgetSnapshot: endSessionClear } =
+  await import("@/runtime/widget-snapshot");
 
 /**
  * Let a fired bridge call settle. The hook arms its dedup key from the call's
@@ -440,6 +462,7 @@ beforeEach(() => {
   syncedSnapshots.length = 0;
   syncedAssistantIds.length = 0;
   clearCount = 0;
+  clearGeneration = 0;
   bridgeOrder = [];
   syncAvailable = true;
   syncLands = true;
@@ -1469,12 +1492,13 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots).toHaveLength(0);
   });
 
-  it("clears a write the unmount overtook once it was on the bridge", async () => {
-    // The same sign-out, one step later: the draw finished first, so the write
-    // is past the hook's own check and inside the module when the layout
-    // unmounts. Retiring the attempt cannot recall it there, so the retirement
-    // travels with the call and the module clears what landed, leaving the Home
-    // Screen the sign-out emptied empty.
+  it("keeps a write a plain unmount overtook once it was on the bridge", async () => {
+    // The draw finished first, so the write is past the hook's own check and
+    // inside the module when the layout unmounts. An unmount by itself is the
+    // app closing or the layout swapping out, neither of which ends the
+    // session, so what landed is exactly what the Home Screen should keep. The
+    // hook records nothing for it either way: the attempt is retired, so its
+    // own guard skips the bookkeeping.
     encodeOutcome = "held";
     setAvatar(characterAvatar("orange"));
     const { unmount } = render({
@@ -1499,9 +1523,51 @@ describe("useNativeWidgetSnapshotSync", () => {
     openBridge();
     await settle();
 
-    expect(bridgeOrder).toEqual(["sync", "clear"]);
-    expect(clearCount).toBe(1);
+    expect(bridgeOrder).toEqual(["sync"]);
+    expect(clearCount).toBe(0);
+    expect(persistedAssistantId).toBe(ASSISTANT_ID);
+  });
+
+  it("clears a write a sign-out overtook once it was on the bridge", async () => {
+    // The same window, with the seam that does end the session: sign-out clears
+    // the App Group while the write is inside the module. Retiring the attempt
+    // cannot recall it there, so the clear it raced is what the module corrects
+    // against, leaving the Home Screen the sign-out emptied empty.
+    encodeOutcome = "held";
+    setAvatar(characterAvatar("orange"));
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(releaseHeldRasterize).not.toBeNull();
+
+    let openBridge = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openBridge = resolve;
+    });
+    releaseHeldRasterize?.(AVATAR_BYTES);
+    await settle();
+    expect(bridgeOrder).toEqual(["sync"]);
+
+    await endSessionClear();
+    openBridge();
+    await settle();
+
+    expect(bridgeOrder).toEqual(["sync", "clear", "clear"]);
     expect(persistedAssistantId).toBeNull();
+
+    // And nothing was recorded as landed for it, so the same rows are sent
+    // again rather than deduped away against a snapshot that is no longer in
+    // the App Group.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(2);
   });
 
   it("caches an avatar that legitimately encodes to nothing", async () => {

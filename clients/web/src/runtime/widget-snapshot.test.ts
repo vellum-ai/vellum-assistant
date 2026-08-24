@@ -16,7 +16,10 @@
  * A sync also reports whether its write landed, since the producer hook dedupes
  * on the payload it last sent and would otherwise arm that key for a write the
  * bridge rejected or never answered, leaving a stale snapshot on the Home
- * Screen until the conversation data itself changed.
+ * Screen until the conversation data itself changed. Landed means durably: a
+ * write a session-ending clear ran across is taken straight back out and
+ * reported as not landed, while one merely superseded or left behind by an
+ * unmount stays where it is and is reported as the App Group content it is.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -178,6 +181,9 @@ const SNAPSHOT: WidgetSnapshotPayload = {
   conversations: [],
   avatar: { kind: "character", accentHex: "#E9642F", imageBase64: null },
 };
+
+/** A later payload from the same producer, so one write can supersede another. */
+const NEWER_SNAPSHOT: WidgetSnapshotPayload = { ...SNAPSHOT, unreadCount: 5 };
 
 beforeEach(() => {
   platform = "ios";
@@ -345,7 +351,10 @@ describe("a clear that did not land", () => {
     await expect(cleared).resolves.toBe(true);
     const clearsSoFar = clearCalls;
     openSync();
-    await expect(synced).resolves.toBe(true);
+    // Reported as not landed, because durably it did not: the correction below
+    // takes it back out, and a producer that recorded it would dedupe its next
+    // write away against a snapshot no longer there.
+    await expect(synced).resolves.toBe(false);
     expect(readWidgetSnapshotAssistantId()).toBeNull();
 
     // The orphan comes off the Home Screen with the write itself rather than
@@ -375,7 +384,7 @@ describe("a clear that did not land", () => {
     await expect(clearWidgetSnapshot()).resolves.toBe(true);
     const clearsSoFar = clearCalls;
     openSync();
-    await expect(synced).resolves.toBe(true);
+    await expect(synced).resolves.toBe(false);
     expect(readWidgetSnapshotAssistantId()).toBeNull();
 
     await flush();
@@ -401,7 +410,7 @@ describe("a clear that did not land", () => {
     await expect(clearWidgetSnapshot()).resolves.toBe(true);
     clearRejects = true;
     openSync();
-    await expect(synced).resolves.toBe(true);
+    await expect(synced).resolves.toBe(false);
     await flush();
 
     clearRejects = false;
@@ -480,10 +489,12 @@ describe("a write the session it describes outlived", () => {
     expect(syncCalls).toHaveLength(0);
   });
 
-  it("clears what it wrote when its caller retired on the bridge", async () => {
+  it("clears what it wrote when a clear ran across it on the bridge", async () => {
     // Past the wait there is nothing left to hold back, so the correction is
-    // the write's own: what landed belongs to a session that is over, and the
-    // Home Screen it reaches never reloads on its own.
+    // the write's own: a clear moved the generation under it, meaning what
+    // landed belongs to a session that is over, and the Home Screen it reaches
+    // never reloads on its own. The retirement that comes with a sign-out is
+    // along for the ride here; the clear is what decides.
     await syncWidgetSnapshot(SNAPSHOT, "asst-1");
     expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
 
@@ -497,13 +508,84 @@ describe("a write the session it describes outlived", () => {
     expect(syncCalls).toHaveLength(2);
 
     retired = true;
+    await expect(clearWidgetSnapshot()).resolves.toBe(true);
+    openSync();
+    await expect(synced).resolves.toBe(false);
+    await flush();
+
+    expect(bridgeOrder).toEqual(["sync", "sync", "clear", "clear"]);
+    expect(clearCalls).toBe(2);
+    expect(readWidgetSnapshotAssistantId()).toBeNull();
+  });
+
+  it("lands silently when a newer write superseded it on the bridge", async () => {
+    // Two writes from one producer overlap, and the hook retires the older as
+    // it fires the newer. Retirement alone says only that a successor is on its
+    // way, and the successor overwrites what this one leaves, so there is
+    // nothing here to correct.
+    //
+    // Correcting it anyway is the bug this guards: that clear moves the
+    // generation, the NEWER write then reads itself as contested and corrects
+    // in turn, and the snapshot the session actually wants is wiped while the
+    // producer records it as landed, pinning empty widgets until the heartbeat.
+    let openFirst = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openFirst = resolve;
+    });
+    let superseded = false;
+    const first = syncWidgetSnapshot(SNAPSHOT, "asst-1", () => superseded);
+    await flush();
+
+    let openSecond = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSecond = resolve;
+    });
+    superseded = true;
+    const second = syncWidgetSnapshot(NEWER_SNAPSHOT, "asst-1", () => false);
+    await flush();
+
+    openFirst();
+    await expect(first).resolves.toBe(true);
+    await flush();
+
+    openSecond();
+    await expect(second).resolves.toBe(true);
+    await flush();
+
+    expect(syncCalls).toEqual([SNAPSHOT, NEWER_SNAPSHOT]);
+    expect(bridgeOrder).toEqual(["sync", "sync"]);
+    expect(clearCalls).toBe(0);
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
+  });
+
+  it("keeps what it wrote when its caller merely unmounted", async () => {
+    // The app closing or the layout swapping out retires the attempt without
+    // ending the session, and the snapshot is exactly what should stay on the
+    // Home Screen then: nothing was signed out of, so there is nothing to take
+    // back. A correction here would empty the widgets every time the app was
+    // closed with a write in flight.
+    let openSync = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSync = resolve;
+    });
+    let retired = false;
+    const synced = syncWidgetSnapshot(SNAPSHOT, "asst-1", () => retired);
+    await flush();
+
+    retired = true;
     openSync();
     await expect(synced).resolves.toBe(true);
     await flush();
 
-    expect(bridgeOrder).toEqual(["sync", "sync", "clear"]);
-    expect(clearCalls).toBe(1);
-    expect(readWidgetSnapshotAssistantId()).toBeNull();
+    expect(bridgeOrder).toEqual(["sync"]);
+    expect(clearCalls).toBe(0);
+    // And it is recorded as the App Group's content, which is what it is: the
+    // next cold launch has to be able to tell whose snapshot it inherited.
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-1");
+
+    // Nothing is owed either, so no later use of the module drops it.
+    await expect(retryPendingWidgetSnapshotClear()).resolves.toBe(true);
+    expect(clearCalls).toBe(0);
   });
 
   it("still writes when it joins a retry a mount already started", async () => {
