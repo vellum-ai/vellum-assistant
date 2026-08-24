@@ -169,7 +169,6 @@ import {
   publishConversationMessagesChanged,
 } from "../sync/resource-sync-events.js";
 import { withSourceChannel } from "../trust-context-resolver.js";
-import { createAuthenticatedTurnEventSink } from "../turn-event-sink.js";
 import {
   emitCannedMessageComplete,
   persistCannedAssistantCard,
@@ -1933,12 +1932,6 @@ export async function handleSendMessage(
   const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
     actorPrincipalId ?? undefined,
   );
-  const turnEventSink = createAuthenticatedTurnEventSink({
-    publish: broadcastMessage,
-    originClientId,
-    sourceActorPrincipalId,
-    hub: assistantEventHub,
-  });
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
@@ -2225,10 +2218,6 @@ export async function handleSendMessage(
       content: contentAfterScan,
       attachments,
       onEvent: broadcastMessage,
-      originClientId,
-      originActorPrincipalId: originClientId
-        ? sourceActorPrincipalId
-        : undefined,
       requestId,
       metadata: withClientMetadata(
         {
@@ -2717,10 +2706,10 @@ export async function handleSendMessage(
   }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
-  // Fire-and-forget the agent loop; events flow to the hub via turnEventSink.
+  // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
     .runAgentLoop(resolvedContent, messageId, {
-      onEvent: turnEventSink,
+      onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
       turnTrustContext,

@@ -1,5 +1,4 @@
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
-import type { AssistantEvent } from "../api/index.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
@@ -540,8 +539,6 @@ interface AgentLoopRunOptionsBase {
   messages: Message[];
   /** Sink the loop streams its {@link AgentEvent}s through as the turn runs. */
   onEvent: (event: AgentEvent) => void | Promise<void>;
-  /** Sink tools use for client-facing events owned by this run. */
-  toolEventSink?: (event: AssistantEvent) => void;
   signal?: AbortSignal;
   requestId: string;
   /**
@@ -669,7 +666,6 @@ export type LoopToolExecutor = (
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
-  toolEventSink?: (event: AssistantEvent) => void,
 ) => Promise<{
   content: string;
   isError: boolean;
@@ -2192,7 +2188,6 @@ export class AgentLoop {
                 });
               },
               toolUse.id,
-              options.toolEventSink,
             );
 
             return { toolUse, result };

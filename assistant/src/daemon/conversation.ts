@@ -1537,12 +1537,9 @@ export class Conversation {
    * agent loop's own stream rides its per-turn `onEvent`, which defaults to
    * this when the caller passes none.
    */
-  private deliverEvent(
-    msg: AssistantEvent,
-    sink: (msg: AssistantEvent) => void,
-  ): void {
+  readonly emit = (msg: AssistantEvent): void => {
     try {
-      sink(msg);
+      this.sendToClient(msg);
     } catch (err) {
       log.warn(
         { err, conversationId: this.conversationId, type: msg.type },
@@ -1559,18 +1556,6 @@ export class Conversation {
         );
       }
     }
-  }
-
-  readonly emit = (msg: AssistantEvent): void => {
-    this.deliverEvent(msg, this.sendToClient);
-  };
-
-  /** Deliver a turn-owned event through its request-bound sink. */
-  readonly emitForTurn = (
-    msg: AssistantEvent,
-    sink: (msg: AssistantEvent) => void,
-  ): void => {
-    this.deliverEvent(msg, sink);
   };
 
   /**
