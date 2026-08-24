@@ -67,6 +67,16 @@ export interface BreakerRoute {
   model?: string;
 }
 
+/**
+ * Identifies the breaker state that observed a primary failure. A fallback
+ * completion may arrive after a recovery probe, so it must only update the
+ * state that was current when the primary failed.
+ */
+export interface BreakerObservation {
+  key: string;
+  generation: number;
+}
+
 interface BreakerState {
   /** Timestamps of recent eligible failures, pruned to the failure window. */
   failures: number[];
@@ -76,9 +86,12 @@ interface BreakerState {
   failedProbes: number;
   /** Whether a probe is currently deciding recovery for this entry. */
   probeInFlight: boolean;
+  /** Monotonic identity for this state generation. */
+  generation: number;
 }
 
 const breakers = new Map<string, BreakerState>();
+let nextGeneration = 0;
 
 /**
  * The single entry a write targets. A model-scoped key can never collide with
@@ -107,6 +120,7 @@ function stateFor(key: string): BreakerState {
     openUntil: null,
     failedProbes: 0,
     probeInFlight: false,
+    generation: ++nextGeneration,
   };
   breakers.set(key, created);
   return created;
@@ -177,17 +191,18 @@ function openCovering(
 export function recordPrimaryFailure(
   route: BreakerRoute,
   now: number = Date.now(),
-): void {
+): BreakerObservation {
   const key = keyOf(route);
   const state = stateFor(key);
   if (isOpen(state)) {
-    return;
+    return { key, generation: state.generation };
   }
   state.failures = state.failures.filter((at) => now - at < FAILURE_WINDOW_MS);
   state.failures.push(now);
   if (state.failures.length >= FAILURES_TO_TRIP) {
     trip(key, state, now, "eligible_failures");
   }
+  return { key, generation: state.generation };
 }
 
 /**
@@ -200,10 +215,23 @@ export function recordPrimaryFailure(
 export function recordFallbackServed(
   route: BreakerRoute,
   now: number = Date.now(),
+  observation?: BreakerObservation,
 ): void {
   const key = keyOf(route);
-  const state = stateFor(key);
-  if (isOpen(state)) {
+  const state = observation === undefined ? stateFor(key) : breakers.get(key);
+  if (
+    observation !== undefined &&
+    (state === undefined ||
+      observation.key !== key ||
+      observation.generation !== state.generation)
+  ) {
+    log.info(
+      { route: key, observation, currentGeneration: state?.generation },
+      "Ignoring a stale fallback serve for the fallback breaker",
+    );
+    return;
+  }
+  if (state === undefined || isOpen(state)) {
     return;
   }
   trip(key, state, now, "fallback_served");
