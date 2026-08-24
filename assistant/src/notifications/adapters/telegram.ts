@@ -107,9 +107,9 @@ export class TelegramAdapter implements ChannelAdapter {
    * Replace a delivered notification in place, so a card that has been
    * answered or withdrawn stops reading as still waiting.
    *
-   * The edit carries no `reply_markup`, which is how Telegram is told to drop
-   * the inline keyboard: a settled card must not keep live Approve and Reject
-   * buttons beside text saying it is settled.
+   * `editTelegramMessage` clears the card's inline keyboard as part of the
+   * revision, so a card rewritten to read as settled cannot keep live Approve
+   * and Reject buttons beside that text.
    */
   async update(
     delivery: ChannelUpdateContext,

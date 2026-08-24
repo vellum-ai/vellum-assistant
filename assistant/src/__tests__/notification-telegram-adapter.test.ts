@@ -334,12 +334,12 @@ describe("TelegramAdapter", () => {
           messageId: "5150",
           conversationId: null,
         },
-        { body: "Approved by Ashlee" },
+        { body: "Approved by Alice" },
       );
 
       expect(result.success).toBe(true);
       expect(editCalls).toEqual([
-        { chatId: "chat-123", messageId: "5150", text: "Approved by Ashlee" },
+        { chatId: "chat-123", messageId: "5150", text: "Approved by Alice" },
       ]);
       // An edit addresses one message and leaves it in place, so the delivery
       // row's id must still identify the card afterwards.
