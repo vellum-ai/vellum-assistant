@@ -5567,9 +5567,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (
       !this.streamTtsAudio ||
       !this.turnCanNarrateProgress(turn) ||
-      progress.narrationInFlight ||
-      (progress.lastFloorHolderAtMs !== null &&
-        Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs)
+      progress.narrationInFlight
     ) {
       return;
     }
@@ -5577,6 +5575,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Narration first: a workspace that turned it on asked to be told what is
     // happening, and the cue is what a turn plays when nobody asked for words.
     const progressNarrator = this.narrationFloorHolder();
+
+    // minGapMs is narration's own spacing guard, and it only applies to the
+    // holder it was tuned for. The cue is spaced by its own intervalMs, so
+    // letting a 6s narration gap veto a 3s cue would make the cue schema's
+    // cadence a lie and couple two tunables the config deliberately separates.
+    if (
+      progressNarrator !== null &&
+      progress.lastFloorHolderAtMs !== null &&
+      Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs
+    ) {
+      return;
+    }
     if (progressNarrator !== null) {
       if (
         (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||

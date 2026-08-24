@@ -1100,6 +1100,27 @@ describe("LiveVoiceSession working cue", () => {
     }
   });
 
+  test("narration's minGap does not slow the cue's own cadence", async () => {
+    // minGapMs is narration's spacing guard, tuned for spoken filler. The cue
+    // is spaced by its own intervalMs, so a large narration gap must not veto
+    // it: the two tunables live in separate config sections precisely so a
+    // workspace can tune one without silently retuning the other.
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({
+        enabled: false,
+        minGapMs: 60_000,
+      }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    // A minGap 1500x the cue interval would pin this at one cue forever if the
+    // gap applied to the cue.
+    await waitFor(() => cueFrames(frames).length >= 3);
+    expect(cueFrames(frames).length).toBeGreaterThanOrEqual(3);
+  });
+
   test("a turn whose speech is still playing waits it out before the cue", async () => {
     const speechMs = 150;
     const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({

@@ -1,5 +1,13 @@
 import { type ClientOs, parseClientOs } from "../channels/types.js";
 
+// Upper bound on a client-declared capture rate. The session hands this number
+// straight to buffer sizing (it is the rate every synthesized segment and the
+// rendered working cue are produced at), so an absurd value becomes an absurd
+// allocation inside a timer callback rather than a rejected frame. 192 kHz is
+// double the highest rate any supported client actually opens with, so the cap
+// rejects only values that were never going to be real capture rates.
+const MAX_START_FRAME_SAMPLE_RATE = 192_000;
+
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
   "audio",
@@ -837,10 +845,13 @@ function validateAudioConfig(
     );
   }
 
-  if (!isPositiveInteger(value.sampleRate)) {
+  if (
+    !isPositiveInteger(value.sampleRate) ||
+    value.sampleRate > MAX_START_FRAME_SAMPLE_RATE
+  ) {
     return protocolError(
       "invalid_field",
-      "start frame audio.sampleRate must be a positive integer",
+      `start frame audio.sampleRate must be a positive integer no greater than ${MAX_START_FRAME_SAMPLE_RATE}`,
       "audio.sampleRate",
       "start",
     );
