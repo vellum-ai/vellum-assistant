@@ -132,11 +132,13 @@ export function SidebarSectionCard({
            lag behind the width/height change since it never moves. */
         "w-[var(--section-collapsed-width,fit-content)]",
         /* The overlay's card is squarer than the rail's pill and carries the
-           inset its header and row list sit flush inside (Figma 7842-83305);
-           the rail keeps the radius that makes its 36px header read as fully
-           round. */
+           inset its header and row list sit flush inside (Figma 7842-83305).
+           The 12px vertical inset plus the 20px header row makes the
+           collapsed pill exactly the overlay tile size (44px), so it stands
+           level with the assistant pill above it. The rail keeps the radius
+           that makes its 36px header read as fully round. */
         overlayCards
-          ? "rounded-[16px] pt-2.5 pr-3 pb-1.5 pl-2"
+          ? "rounded-[16px] pt-3 pr-3 pb-3 pl-2"
           : "rounded-[18px]",
         "has-[[data-state=open]]:w-full",
         /* `width` toggles between the measured `--section-collapsed-width`

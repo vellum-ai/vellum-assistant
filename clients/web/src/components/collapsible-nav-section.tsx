@@ -299,11 +299,13 @@ function CollapsibleNavSectionSection({
         // the click target and long labels still truncate. The primitive
         // hardcodes `flex` on it, so the growth comes from here.
         "[&>[data-slot=collapsible-header]]:min-w-0 [&>[data-slot=collapsible-header]]:flex-1",
-        /* A card's header is the height of its label. The controls beside it
-           are touch targets rather than content, so they keep their own size
-           and centre-overflow this row instead of setting it; the card's top
-           padding is deeper than the overflow, so nothing escapes the card. */
-        card && "h-4",
+        /* A card's header row, sized so that with the card's 12px vertical
+           inset the collapsed pill lands on the overlay tile size (44px).
+           The controls beside it are touch targets rather than content, so
+           they keep their own size and centre-overflow this row instead of
+           setting it; the card's top padding is deeper than the overflow,
+           so nothing escapes the card. */
+        card && "h-5",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}

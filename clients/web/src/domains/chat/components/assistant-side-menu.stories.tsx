@@ -433,9 +433,9 @@ export const CharacterAvatar: Story = {
 /**
  * The mobile drawer (Figma 7842-83305). Its own decorator, because the
  * overlay's shell is not the desktop one: `chat-layout` mounts it as a
- * full-bleed sheet over the chat, and the sheet's surface thins toward the
- * chat edge, so the page behind it has to be there for the gradient to mean
- * anything. The frame is a 402x874 phone.
+ * full-bleed sheet over the chat, and the page behind it has to be there to
+ * confirm the sheet's opaque surface fully covers it. The frame is a
+ * 402x874 phone.
  */
 export const OverlayDrawer: Story = {
   name: "Overlay drawer (mobile)",
@@ -444,8 +444,8 @@ export const OverlayDrawer: Story = {
   decorators: [
     (Story) => (
       <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
-        {/* Stand-in for the chat the drawer covers: only its legibility
-            through the sheet is under test, not its own layout. */}
+        {/* Stand-in for the chat the drawer covers: only whether the sheet
+            fully hides it is under test, not its own layout. */}
         <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
           <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
           <p>
