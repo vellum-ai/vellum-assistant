@@ -56,9 +56,6 @@ struct QuickActionsWidgetView: View {
     private static let controlDiameter: CGFloat = 61
     private static let controlGap: CGFloat = 6
 
-    /// Height of one eye, sizing the pair the kit draws.
-    private static let eyeHeight: CGFloat = 33
-
     /// The avatar's slot when the avatar is a photo rather than a face to
     /// draw. Larger than the eyes are tall, because a picture needs area to
     /// read as a face where two ovals need only their outline.
@@ -119,17 +116,16 @@ struct QuickActionsWidgetView: View {
         .padding(.top, Self.markInset)
     }
 
-    /// Height the eyes can afford beside the chip. The chip's widest form,
-    /// the collapsed `99+`, needs about 66 points, and the pair's own width
-    /// is its height times the pair's aspect; on compact cards the eyes give
-    /// way so the row never compresses either mark.
+    /// Height the eyes can afford beside the chip. The pair's own width is its
+    /// height times ``WidgetAvatarEyes/pairAspect``, so what the chip does not
+    /// take decides how tall they can be; on compact cards the eyes give way so
+    /// the row never compresses either mark.
     private func fittedEyeHeight(in width: CGFloat) -> CGFloat {
         guard unreadCount != nil else {
-            return Self.eyeHeight
+            return WidgetAvatarEyes.defaultEyeHeight
         }
-        let pairAspect: CGFloat = 61 / 33
-        let available = (width - Self.chipAllowance) / pairAspect
-        return min(Self.eyeHeight, max(24, available))
+        let available = (width - Self.chipAllowance) / WidgetAvatarEyes.pairAspect
+        return min(WidgetAvatarEyes.defaultEyeHeight, max(24, available))
     }
 
     /// The photo mark under the same constraint as the eyes.
@@ -140,8 +136,9 @@ struct QuickActionsWidgetView: View {
         return min(Self.avatarImageSize, max(24, width - Self.chipAllowance))
     }
 
-    /// Width the chip's widest form, the collapsed `99+`, can occupy.
-    private static let chipAllowance: CGFloat = 66
+    /// Width the chip's widest form, the collapsed `99+`, can occupy: the 16pt
+    /// bubble, the 15pt count, and the padding around both.
+    private static let chipAllowance: CGFloat = 73
 
     /// The assistant, however this account's assistant can be drawn: its own
     /// photo where there is one, and the eyes the kit draws where the card is
@@ -170,14 +167,7 @@ struct QuickActionsWidgetView: View {
     private var unreadChip: some View {
         if let count = unreadCount {
             HStack(spacing: 4) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 12))
-                    .overlay(alignment: .topTrailing) {
-                        Circle()
-                            .fill(WidgetTheme.unseenIndicator)
-                            .frame(width: 6, height: 6)
-                            .offset(x: 2, y: -2)
-                    }
+                WidgetUnreadMark(isFilled: true, size: 16)
                 Text(count > 99 ? "99+" : "\(count)")
                     .font(.system(size: 15, weight: .semibold))
                     .privacySensitive()
@@ -272,27 +262,14 @@ struct QuickActionsCardBackground: View {
 
 #if DEBUG
 
-/// The card at the size the small family draws it, in both appearances.
+/// This widget's card: the shared wrapper over the avatar background, which is
+/// what the widget itself paints its container with.
 private func previewCard(_ entry: SnapshotEntry) -> some View {
-    QuickActionsWidgetView(entry: entry)
-        .frame(width: 160, height: 161)
-        .background { QuickActionsCardBackground(entry: entry) }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-}
-
-private func previewEntry(unreadCount: Int, avatar: WidgetSnapshotAvatar?) -> SnapshotEntry {
-    SnapshotEntry(
-        date: Date(),
-        snapshot: WidgetSnapshot(
-            schemaVersion: WidgetSnapshot.currentSchemaVersion,
-            generatedAt: Date(),
-            unreadCount: unreadCount,
-            inProgressCount: 0,
-            conversations: [],
-            avatar: avatar
-        ),
-        isStale: false
-    )
+    previewWidgetCard {
+        QuickActionsWidgetView(entry: entry)
+    } background: {
+        QuickActionsCardBackground(entry: entry)
+    }
 }
 
 private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
@@ -301,17 +278,17 @@ private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
 
 #Preview("Character, nothing unread") {
     previewAppearances {
-        previewCard(previewEntry(unreadCount: 0, avatar: previewCharacterAvatar(accentHex: "#0E9B8B")))
+        previewCard(previewEntry(unread: 0, avatar: previewCharacterAvatar(accentHex: "#0E9B8B")))
     }
 }
 
 #Preview("Character, unread") {
     previewAppearances {
         HStack(spacing: 12) {
-            previewCard(previewEntry(unreadCount: 3, avatar: previewCharacterAvatar(accentHex: "#0E9B8B")))
+            previewCard(previewEntry(unread: 3, avatar: previewCharacterAvatar(accentHex: "#0E9B8B")))
             // The light one: its glyphs, chip text and control fills all have
             // to come out dark, or the card is white on yellow.
-            previewCard(previewEntry(unreadCount: 12, avatar: previewCharacterAvatar(accentHex: "#F2C94C")))
+            previewCard(previewEntry(unread: 12, avatar: previewCharacterAvatar(accentHex: "#F2C94C")))
         }
     }
 }
@@ -323,15 +300,15 @@ private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
         imageData: previewAvatarPhoto().pngData()
     )
     previewAppearances {
-        previewCard(previewEntry(unreadCount: 5, avatar: avatar))
+        previewCard(previewEntry(unread: 5, avatar: avatar))
     }
 }
 
 #Preview("No avatar") {
     previewAppearances {
         HStack(spacing: 12) {
-            previewCard(previewEntry(unreadCount: 0, avatar: nil))
-            previewCard(previewEntry(unreadCount: 128, avatar: nil))
+            previewCard(previewEntry(unread: 0, avatar: nil))
+            previewCard(previewEntry(unread: 128, avatar: nil))
         }
     }
 }

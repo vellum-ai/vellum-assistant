@@ -50,7 +50,7 @@ struct CatchUpWidgetView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 7) {
-                WidgetActionTile.newChat
+                WidgetActionTile.newChat(accent: entry.softAccent, avatarImage: entry.avatarImage)
                 WidgetActionTile.voice
             }
             .frame(width: Self.actionColumnWidth)

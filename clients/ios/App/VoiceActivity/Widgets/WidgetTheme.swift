@@ -51,7 +51,8 @@ enum WidgetTheme {
     /// chrome, and so it survives sitting on the green tile's neighbours.
     static let unseenIndicator = dynamic(light: "#FFB200", dark: "#FFC13D")
 
-    /// The whole card, for the Quick Actions widget's brand appearance.
+    /// The whole card for an account carrying no accent to paint it with: the
+    /// surface ``WidgetAvatarPalette`` falls back to.
     ///
     /// Deepened for dark mode where ``brand`` is lightened, because the two
     /// play opposite roles: `brand` is drawn *on* `surface` and has to separate
@@ -63,17 +64,6 @@ enum WidgetTheme {
     /// dynamic: the card underneath is a deep green in both appearances, so
     /// this answers to the card rather than to the Home Screen behind it.
     static let onBrand = fixed("#FFFFFF")
-
-    /// A control's fill on ``brandCardSurface``: ``onBrand`` at low opacity, so
-    /// the action circles and the unread chip read as cut out of the green
-    /// rather than as a second color placed on top of it, and the card stays
-    /// one block.
-    static let onBrandFill = onBrand.opacity(0.22)
-
-    /// The assistant mark's body on the brand card, lighter than the card it
-    /// sits on. That contrast is the only reason it is a separate value: a
-    /// brand-green mark on a brand-green card is not a mark.
-    static let avatarBody = fixed("#7FD7C8")
 
     /// The mark's eye whites and pupils, carrying the values the product's
     /// avatar compositor draws with so the widget's stand-in is recognizably

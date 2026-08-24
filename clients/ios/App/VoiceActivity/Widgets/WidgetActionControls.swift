@@ -2,11 +2,11 @@ import AppIntents
 import SwiftUI
 import UIKit
 
-// The controls every Vellum Home Screen widget builds its actions out of: a
-// tile, a circle, a pill, and the secondary line of text that stands in when
-// there is nothing to list. They live here rather than beside whichever widget
-// reached for them first, because a control that lives in one widget's file is
-// a control the next widget copies.
+// The pieces every Vellum Home Screen widget builds itself out of: a tile, a
+// circle, a pill, the unread mark, and the secondary line of text that stands
+// in when there is nothing to list. They live here rather than beside whichever
+// widget reached for them first, because a control that lives in one widget's
+// file is a control the next widget copies.
 
 /// One tile in an action column: a glyph over a word, filling a rounded
 /// square, wired to an App Intent.
@@ -66,12 +66,6 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
 }
 
 extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
-    /// The New Chat tile on the static tokens, for the widgets with no avatar
-    /// in hand to theme it with.
-    static var newChat: Self {
-        newChat(accent: WidgetSoftAccent(accentHex: nil))
-    }
-
     /// The New Chat tile, spelled once so the widgets offering it cannot drift
     /// into different wording, glyphs or colors. The frame around it stays with
     /// the caller: the column and the row size their tiles differently.
@@ -171,6 +165,38 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     }
 
     private var iconSize: CGFloat { height * 0.4 }
+}
+
+/// The mark a widget says "something is waiting" with: a speech bubble wearing
+/// the unseen dot in its top-right corner.
+///
+/// One view rather than one per card, so the dot lands in the same place on
+/// each of them. It carries no foreground of its own: the bubble takes the
+/// color of whatever it is drawn on, while the dot keeps
+/// ``WidgetTheme/unseenIndicator`` on every surface, which is what makes it
+/// read as an alert rather than as more chrome.
+struct WidgetUnreadMark: View {
+    /// Whether the bubble is solid. A card painted in the assistant's own color
+    /// wants the filled one; a white card wants the outline its rows draw.
+    let isFilled: Bool
+
+    /// Point size of the bubble. The dot rides its corner at a fixed size
+    /// rather than scaling with it, so the alert stays the same alert whichever
+    /// card carries it.
+    let size: CGFloat
+
+    private static let dotDiameter: CGFloat = 6
+
+    var body: some View {
+        Image(systemName: isFilled ? "bubble.left.fill" : "bubble.left")
+            .font(.system(size: size))
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(WidgetTheme.unseenIndicator)
+                    .frame(width: Self.dotDiameter, height: Self.dotDiameter)
+                    .offset(x: 2, y: -2)
+            }
+    }
 }
 
 /// The quiet line a widget prints when it has nothing to list: an empty state,
