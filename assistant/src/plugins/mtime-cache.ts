@@ -291,6 +291,17 @@ export async function reconcilePluginSourcesNow(): Promise<void> {
     } catch (err) {
       log.error({ err }, "plugin MCP reconcile failed");
     }
+    // Converge sidebar pins the same way: an uninstalled plugin's app stops
+    // existing, and its id is a stable path identity, so a pin left behind
+    // would return to the sidebar when the plugin does. Lazily imported and
+    // self-contained for the same reasons as the two reconciles above.
+    try {
+      const { reconcileAppPins } =
+        await import("../apps/app-pin-reconciler.js");
+      reconcileAppPins();
+    } catch (err) {
+      log.error({ err }, "app pin reconcile failed");
+    }
   })().finally(() => {
     reconcileInFlight = null;
   });
