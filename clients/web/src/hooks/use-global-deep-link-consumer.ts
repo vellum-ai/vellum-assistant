@@ -149,7 +149,7 @@ function connectGuidanceMessage(url: string | null): string {
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const queryClient = useQueryClient();
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
@@ -327,8 +327,12 @@ export function useGlobalDeepLinkConsumer(): void {
       revealConversationView(settledId);
       // Re-navigating to the settled conversation is a no-op when the router
       // is at rest, and cancels any in-flight transition away from it that
-      // would otherwise unmount the composer this park is addressed to.
-      navigateRef.current(routes.conversation(settledId), { replace: true });
+      // would otherwise unmount the composer this park is addressed to. The
+      // search and hash ride along so pending query-driven effects survive.
+      navigateRef.current(
+        { pathname: routes.conversation(settledId), search, hash },
+        { replace: true },
+      );
       targetId = settledId;
     } else {
       targetId = navigateToNewConversation(navigateRef.current, {
