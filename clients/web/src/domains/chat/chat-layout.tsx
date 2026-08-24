@@ -1191,11 +1191,11 @@ export function ChatLayout({
                   hosts is transparent, so this one fill covers both the menu
                   and the safe-area padding ring around it, which is what
                   keeps tinted strips off the notch / home-indicator edges on
-                  iOS. It thins toward the chat side (Figma 7842-83305), so
-                  the page stays legible behind the drawer while the column of
-                  navigation itself rests on solid ground. Painting it here
-                  rather than on the menu also keeps it one layer: two
-                  translucent fills would compose back to opaque. No border:
+                  iOS. The fill is fully opaque (Figma 7842-83305), so the
+                  chat never bleeds through the sheet. Painting it here
+                  rather than on the menu keeps one owner of the surface
+                  color; a second fill on the menu would composite over this
+                  one and shift the drawn color off its token. No border:
                   the sheet covers the full screen, so there is no edge to draw.
                   No bottom padding either: the SideMenu root clips its
                   children (`overflow-hidden`), so a bottom inset places the
