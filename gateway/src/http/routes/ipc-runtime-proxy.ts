@@ -12,7 +12,10 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
-import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
+import {
+  isActorTokenRevoked,
+  recordActorTokenUse,
+} from "../../auth/actor-token-revocation.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
@@ -82,6 +85,7 @@ export async function tryIpcProxy(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    recordActorTokenUse(edgeJwt, result.claims);
     claims = result.claims;
   }
 
