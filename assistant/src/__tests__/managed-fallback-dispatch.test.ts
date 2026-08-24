@@ -16,11 +16,18 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   test,
 } from "bun:test";
 
+import {
+  type BreakerRoute,
+  recordFallbackServed,
+  resetFallbackBreaker,
+  shouldSkipPrimary,
+} from "../providers/fallback-breaker.js";
 import { createAdapterFromConnection } from "../providers/inference/adapter-factory.js";
 import type {
   ProviderConnection,
@@ -47,6 +54,19 @@ const requests: UpstreamRequest[] = [];
  * reached on the first attempt instead of after a full retry budget.
  */
 let anthropicMode: "serve" | "retired" = "serve";
+
+/**
+ * Models the anthropic path answers with the retired shape whatever
+ * `anthropicMode` says, so one case can fail a primary pin while its backup pin
+ * keeps serving on the same upstream.
+ */
+const retiredModels = new Set<string>();
+
+/** The primary pin of the breaker case below, as its 404 marks it. */
+const RETIRED_ROUTE: BreakerRoute = {
+  upstream: "anthropic",
+  model: "claude-opus-5",
+};
 
 const ANTHROPIC_PATH = "/v1/runtime-proxy/anthropic";
 const OPENAI_PATH = "/v1/runtime-proxy/openai";
@@ -184,9 +204,10 @@ beforeAll(async () => {
         body,
       });
       if (url.pathname.startsWith(ANTHROPIC_PATH)) {
-        return anthropicMode === "serve"
-          ? anthropicCompletion()
-          : modelRetired();
+        return anthropicMode === "retired" ||
+          retiredModels.has(String(body.model))
+          ? modelRetired()
+          : anthropicCompletion();
       }
       return upstreamUnavailable();
     },
@@ -203,9 +224,17 @@ afterAll(() => {
   server.stop(true);
 });
 
+beforeEach(() => {
+  // A served fallback is remembered for the whole process, and bun shares
+  // module state between test files, so without this a case here would skip
+  // the primary route it means to exercise.
+  resetFallbackBreaker();
+});
+
 afterEach(() => {
   requests.length = 0;
   anthropicMode = "serve";
+  retiredModels.clear();
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -601,5 +630,82 @@ describe("managed fallback dispatch", () => {
     expect((error as { statusCode?: number }).statusCode).toBe(404);
     const models = new Set(requests.map((r) => r.body.model));
     expect(models).toEqual(new Set(["claude-opus-5"]));
+  });
+
+  test("a remembered outage skips the primary, and a probe restores it once it recovers", async () => {
+    // Both pins sit on the same upstream, which is what the breaker is keyed
+    // on: the point here is the route being skipped and probed, not the
+    // cross-provider hop the cases above cover.
+    setConfig("llm", {
+      profiles: {
+        "breaker-primary": {
+          source: "user",
+          provider: "vellum",
+          model: "claude-opus-5",
+          fallbackProfile: "breaker-backup",
+          maxTokens: 1024,
+        },
+        "breaker-backup": {
+          source: "user",
+          provider: "vellum",
+          model: "claude-sonnet-5",
+          maxTokens: 2048,
+        },
+      },
+      activeProfile: "breaker-primary",
+    });
+    retiredModels.add("claude-opus-5");
+
+    const provider = createAdapterFromConnection(
+      vellumConnection,
+      managedAuth(ANTHROPIC_PATH),
+      {
+        model: "claude-opus-5",
+        provider: "anthropic",
+        streamTimeoutMs: 30_000,
+      },
+    );
+    expect(provider).not.toBeNull();
+
+    // The first request discovers the outage the expensive way and escalates.
+    const first: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+    expect(first.actualInferenceProfile).toBe("breaker-backup");
+    expect(requests.map((r) => r.body.model)).toEqual([
+      "claude-opus-5",
+      "claude-sonnet-5",
+    ]);
+    // A retired pin is remembered for that model, not for the upstream, so the
+    // backup's own model on the same upstream stays available.
+    expect(shouldSkipPrimary(RETIRED_ROUTE)).toBe(true);
+    expect(
+      shouldSkipPrimary({ upstream: "anthropic", model: "claude-sonnet-5" }),
+    ).toBe(false);
+
+    // The second request reaches the backup without touching the dead pin.
+    requests.length = 0;
+    const second: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+    expect(second.actualInferenceProfile).toBe("breaker-backup");
+    expect(requests.map((r) => r.body.model)).toEqual(["claude-sonnet-5"]);
+
+    // The upstream recovers and the cooldown elapses: re-trip the breaker at a
+    // timestamp older than the longest cooldown it can pick, which is how a
+    // process that has been degraded for a while looks.
+    retiredModels.clear();
+    resetFallbackBreaker();
+    recordFallbackServed(RETIRED_ROUTE, Date.now() - 11 * 60_000);
+    requests.length = 0;
+
+    const third: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // The probe went to the primary pin, served, and closed the breaker.
+    expect(requests.map((r) => r.body.model)).toEqual(["claude-opus-5"]);
+    expect(third.actualInferenceProfile).toBeUndefined();
+    expect(shouldSkipPrimary(RETIRED_ROUTE)).toBe(false);
   });
 });

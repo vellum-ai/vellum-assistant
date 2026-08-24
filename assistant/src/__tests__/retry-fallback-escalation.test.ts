@@ -9,6 +9,7 @@ mock.module("../util/retry.js", () => ({
   sleep: async () => {},
 }));
 
+import { resetFallbackBreaker } from "../providers/fallback-breaker.js";
 import type {
   Message,
   Provider,
@@ -51,6 +52,9 @@ const LLM_FIXTURE = {
 
 beforeEach(() => {
   setConfig("llm", LLM_FIXTURE);
+  // The circuit breaker remembers a served fallback for the whole process, so
+  // a case that escalates would otherwise make the next case skip its primary.
+  resetFallbackBreaker();
 });
 
 function okResponse(model: string): ProviderResponse {
