@@ -131,14 +131,17 @@ export interface PendingDeepLinkActions {
    */
   setPendingCamera: (targetConversationId: string) => void;
   /**
-   * Read and clear the parked camera request. Returns `false` when none was
-   * parked, and when the parked one is older than `maxAgeMs`: a park that was
+   * Spend the parked camera request, whatever it was. Returns nothing, unlike
+   * `consumePendingVoiceStart`: the drain (`useCameraDeepLink`) subscribes to
+   * `pendingCamera` and so already holds the park it is spending, and every
+   * decision about one is its own. It owns the age bound, since a park that was
    * never drained (its navigation bounced off a route guard, say) must not
-   * throw the camera open minutes later. Either way the park is cleared. The
-   * age bound belongs to the drain site, as with the voice start, and so does
-   * the address check: only the drain knows which conversation it is bound to.
+   * throw the camera open minutes later; it owns the address check, since only
+   * the drain knows which conversation it is bound to; and it gives way to a
+   * running call. All three spend the request, so what is left here is the
+   * one-shot clear they share.
    */
-  consumePendingCamera: (maxAgeMs: number) => boolean;
+  consumePendingCamera: () => void;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -179,13 +182,10 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     },
     setPendingCamera: (targetConversationId) =>
       set({ pendingCamera: { targetConversationId, parkedAt: Date.now() } }),
-    consumePendingCamera: (maxAgeMs) => {
-      const parked = get().pendingCamera;
-      if (parked === null) {
-        return false;
+    consumePendingCamera: () => {
+      if (get().pendingCamera !== null) {
+        set({ pendingCamera: null });
       }
-      set({ pendingCamera: null });
-      return Date.now() - parked.parkedAt <= maxAgeMs;
     },
   }),
 );

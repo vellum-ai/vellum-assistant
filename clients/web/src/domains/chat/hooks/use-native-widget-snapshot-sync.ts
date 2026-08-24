@@ -23,7 +23,10 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
+import {
+  memoizedAvatarEncode,
+  type AvatarEncodeMemo,
+} from "@/utils/avatar-island-encode";
 import { resolveAvatarRender, type AvatarRender } from "@/utils/avatar-render";
 import { activeConversationsByRecency } from "@/utils/conversation-order";
 
@@ -54,13 +57,14 @@ export const WIDGET_SNAPSHOT_HEARTBEAT_MS = 15 * 60 * 1000;
 /**
  * Byte ceiling for the avatar image a snapshot carries.
  *
- * Deliberately not the Live Activity's ceiling
- * ({@link encodeAvatarForIsland}'s default): that one is ActivityKit's
- * attribute budget, where going over costs the whole activity, so it is
- * measured in single kilobytes. This payload is a UserDefaults write into an
- * App Group, and a widget draws the avatar far larger than an island does, so
- * the budget is set by what is worth writing rather than by what will start.
- * The shell rejects anything past its own cap, which sits above this one.
+ * Deliberately not the Live Activity's ceiling, which the shared encoder takes
+ * as its default: that one is ActivityKit's attribute budget, where going over
+ * costs the whole activity, so it is measured in single kilobytes. The two
+ * budgets are why {@link memoizedAvatarEncode} caches per budget rather than
+ * per avatar alone. This payload is a UserDefaults write into an App Group, and
+ * a widget draws the avatar far larger than an island does, so the budget is
+ * set by what is worth writing rather than by what will start. The shell
+ * rejects anything past its own cap, which sits above this one.
  */
 const WIDGET_AVATAR_MAX_BYTES = 64_000;
 
@@ -68,9 +72,9 @@ const WIDGET_AVATAR_MAX_BYTES = 64_000;
  * Size the character avatar is composited at before it is rasterized.
  *
  * The composited SVG is resolution-independent, so this only caps the top of
- * {@link encodeAvatarForIsland}'s ladder rather than setting the size a widget
- * draws. Matches what `useIslandAvatarSource` composites for the Live Activity,
- * so the two native surfaces rasterize the same source.
+ * the encoder's ladder rather than setting the size a widget draws. Matches
+ * what `useIslandAvatarSource` composites for the Live Activity, so the two
+ * native surfaces rasterize the same source.
  */
 const AVATAR_SOURCE_SIZE = 128;
 
@@ -94,30 +98,15 @@ interface SnapshotAvatarFingerprint {
 }
 
 /**
- * The avatar last encoded for a snapshot, keyed by the render it came from.
- *
- * Module scope, mirroring `use-live-activity-mirror.ts`: the encode is a canvas
- * draw, and the key is the resolved `AvatarRender`, a stable object recomputed
- * only when the avatar itself changes, so identity comparison is enough and
- * there is nothing to invalidate. The resolved bytes are kept beside the
- * promise so only the first snapshot after a change has anything to wait for.
- */
-interface AvatarEncode {
-  source: AvatarRender;
-  /** Distinguishes one encode from the next inside the dedup key. */
-  revision: number;
-  /** Null while `encoding` is unsettled, and when nothing fit the budget. */
-  base64: string | null;
-  /** The encode in flight, or null when there is nothing to wait for. */
-  encoding: Promise<string | null> | null;
-}
-
-let avatarEncode: AvatarEncode | null = null;
-let avatarEncodes = 0;
-
-/**
  * The avatar the next snapshot should carry, starting its encode if this is
  * the first read since it changed.
+ *
+ * The encode is a canvas draw memoized at module scope by
+ * {@link memoizedAvatarEncode}, shared with the Live Activity mirror, so a
+ * session that drives both native surfaces pays it once per avatar. An encode
+ * that fails or fits nothing is an avatar-less snapshot, never a missing one:
+ * the counts and the rows are what the widgets are for. Only a failure is
+ * retried, and the memo owns that distinction.
  *
  * `source` and `accentHex` are resolved reactively by the hook rather than read
  * back from the two imperative publishers in `RootLayout`. Those are written by
@@ -132,12 +121,9 @@ function snapshotAvatar(
   accentHex: string | null,
 ): {
   fingerprint: SnapshotAvatarFingerprint;
-  encode: AvatarEncode;
+  encode: AvatarEncodeMemo;
 } {
-  if (avatarEncode === null || avatarEncode.source !== source) {
-    avatarEncode = startAvatarEncode(source);
-  }
-  const encode = avatarEncode;
+  const encode = memoizedAvatarEncode(source, WIDGET_AVATAR_MAX_BYTES);
   return {
     fingerprint: {
       kind: source.kind,
@@ -146,30 +132,6 @@ function snapshotAvatar(
     },
     encode,
   };
-}
-
-/** Start encoding `source`, or record that there is nothing to encode. */
-function startAvatarEncode(source: AvatarRender): AvatarEncode {
-  avatarEncodes += 1;
-  const encode: AvatarEncode = {
-    source,
-    revision: avatarEncodes,
-    base64: null,
-    encoding: null,
-  };
-  if (source.kind === "none") {
-    return encode;
-  }
-  // An encode that fails or fits nothing is an avatar-less snapshot, never a
-  // missing one: the counts and the rows are what the widgets are for.
-  encode.encoding = encodeAvatarForIsland(source, WIDGET_AVATAR_MAX_BYTES)
-    .catch(() => null)
-    .then((base64) => {
-      encode.base64 = base64;
-      encode.encoding = null;
-      return base64;
-    });
-  return encode;
 }
 
 /** The dedup key: everything a snapshot says, with the avatar as an identity. */
@@ -288,6 +250,17 @@ function snapshotKey(
  * *successful* queries does sync: genuinely having no conversations should
  * empty the widgets.
  *
+ * The avatar query is held to the same standard, and it is not the caller's to
+ * pass: this hook subscribes to it directly, so it applies that half itself.
+ * A first load in flight serves the null avatar, and it routinely settles after
+ * the conversation list does, so a gate that watched only the conversations
+ * would ship `kind: "none"` as the run's first snapshot. The plugin replaces
+ * the App Group record whole, so that write wipes the themed avatar a previous
+ * run left behind and every widget flashes to the brand palette until a second
+ * sync repaints it. Only the FIRST load holds: an errored avatar query, a
+ * gated-off one, and a background refetch all report resolved, because none of
+ * them has an avatar arriving that waiting would find.
+ *
  * That preservation is scoped to ONE assistant. A snapshot describes the
  * assistant it was built from, so an in-SPA switch
  * (`switchToResolvedAssistant`) invalidates it outright: the new assistant's
@@ -402,6 +375,18 @@ export function useNativeWidgetSnapshotSync(
     avatar.traits,
     avatar.customImageUrl,
   );
+  // The avatar query is in the resolution guard alongside the conversation
+  // queries the caller passes, and holds a sync the same way they do. It serves
+  // the null avatar while it loads and settles after them often enough to be
+  // the ordinary cold launch, so a gate without it would blank the widgets'
+  // avatar on the first write of every run.
+  //
+  // `isLoading` is the first load alone. An errored query, one gated off for
+  // want of an active assistant, and a background refetch all report false,
+  // which is right for each: none has an avatar arriving that waiting would
+  // find, and the last still has the one the app is drawing.
+  const avatarResolved = assistantId === null || !avatar.isLoading;
+  const snapshotResolved = inputsResolved && avatarResolved;
 
   // The one way to the bridge, shared by data syncs and the heartbeat so a
   // heartbeat cannot corrupt the bookkeeping a data sync depends on.
@@ -455,11 +440,11 @@ export function useNativeWidgetSnapshotSync(
       // Only the first snapshot after an avatar change waits on the canvas
       // draw; every later one reads the bytes it left behind and stays
       // synchronous with the render that fired it.
-      if (encode.encoding === null) {
+      if (encode.pending === null) {
         write(encode.base64);
         return;
       }
-      void encode.encoding.then(write);
+      void encode.pending.then(write);
     },
     [],
   );
@@ -513,7 +498,7 @@ export function useNativeWidgetSnapshotSync(
       syncAttemptRef.current += 1;
     }
 
-    if (!inputsResolved) {
+    if (!snapshotResolved) {
       // Only on a switch: a pending or errored query for the SAME assistant
       // still keeps its last-known-good snapshot.
       if (switchedAssistant) {
@@ -572,7 +557,7 @@ export function useNativeWidgetSnapshotSync(
     conversationGroups,
     processingConversationIds,
     unreadCount,
-    inputsResolved,
+    snapshotResolved,
     avatarSource,
     avatarAccentHex,
     sendSnapshot,
@@ -593,7 +578,11 @@ export function useNativeWidgetSnapshotSync(
   // `generatedAt` through the effect above, so restarting the window from that
   // write is what the timer would be counting from anyway.
   useEffect(() => {
-    if (!isWidgetSnapshotSyncAvailable() || !inputsResolved || !inputsAreLive) {
+    if (
+      !isWidgetSnapshotSyncAvailable() ||
+      !snapshotResolved ||
+      !inputsAreLive
+    ) {
       return;
     }
     const heartbeat = setInterval(() => {
@@ -613,7 +602,7 @@ export function useNativeWidgetSnapshotSync(
     };
   }, [
     assistantId,
-    inputsResolved,
+    snapshotResolved,
     inputsAreLive,
     avatarSource,
     avatarAccentHex,

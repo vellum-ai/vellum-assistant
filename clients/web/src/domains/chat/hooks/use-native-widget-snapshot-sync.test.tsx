@@ -46,6 +46,17 @@
  * its own copies from a parent effect, which React runs after this layout's,
  * and a snapshot that read those back would pin the previous assistant's face
  * in the dedup key across an in-SPA switch into a cached destination.
+ *
+ * The avatar query is therefore in the resolution guard too, on this side of
+ * the call rather than in the flag the caller passes. It settles after the
+ * conversation list often enough to be the ordinary case on a cold launch, and
+ * the plugin's write replaces the App Group record whole, so a first sync taken
+ * while it loads wipes a themed avatar off every widget until a second one
+ * repaints it. The encode behind it is the memo `avatar-island-encode` shares
+ * with the Live Activity mirror, so these tests thread their stub through its
+ * injection seam rather than restating its caching here: an encode that
+ * resolves to nothing is a fact about the avatar and is cached, while one that
+ * throws is the encoder failing and must be retried.
  */
 
 import {
@@ -159,16 +170,29 @@ const NO_AVATAR: AvatarData = {
   traits: null,
   customImageUrl: null,
 };
-let avatarData: AvatarData = NO_AVATAR;
+/**
+ * The query's whole return, loading flag included: the hook holds its first
+ * sync until that flag clears, so it is state a test drives rather than a
+ * constant.
+ */
+let avatarState: { data: AvatarData; isLoading: boolean } = {
+  data: NO_AVATAR,
+  isLoading: false,
+};
 const avatarListeners = new Set<() => void>();
 let encodeOutcome: "bytes" | "nothing-fits" | "throws" = "bytes";
 let encodeCalls = 0;
 /** Long enough that a dedup key carrying it would be unmistakable. */
 const AVATAR_BASE64 = "Zm9vYmFy".repeat(2_000);
 
+/** What the query serves from the next render on, without waking subscribers. */
+function setAvatar(data: AvatarData, isLoading = false): void {
+  avatarState = { data, isLoading };
+}
+
 /** Serve a new avatar the way a settling query does, waking its subscribers. */
 function publishAvatar(next: AvatarData): void {
-  avatarData = next;
+  setAvatar(next);
   for (const listener of avatarListeners) {
     listener();
   }
@@ -187,21 +211,38 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   // The assistant id is ignored: one avatar is served at a time, which is what
   // the real query does too once the active assistant's entry settles.
   useAssistantAvatar: () => {
-    const data = useSyncExternalStore(subscribeAvatar, () => avatarData);
-    return { ...data, isLoading: false, invalidate: () => {} };
+    const state = useSyncExternalStore(subscribeAvatar, () => avatarState);
+    return { ...state.data, isLoading: state.isLoading, invalidate: () => {} };
   },
 }));
 
+/** Stands in for the canvas draw, which happy-dom has no canvas for. */
+const stubEncode = async (): Promise<string | null> => {
+  encodeCalls++;
+  if (encodeOutcome === "throws") {
+    throw new Error("canvas unavailable");
+  }
+  return encodeOutcome === "bytes" ? AVATAR_BASE64 : null;
+};
+
 const realAvatarIslandEncode = await import("@/utils/avatar-island-encode");
+// Held before the mock is installed. `mock.module` updates live bindings, so a
+// wrapper that reached back through the namespace object at call time would
+// find itself rather than the real implementation.
+const realMemoizedAvatarEncode = realAvatarIslandEncode.memoizedAvatarEncode;
+const resetAvatarEncodeMemo =
+  realAvatarIslandEncode.__resetAvatarEncodeMemoForTesting;
 mock.module("@/utils/avatar-island-encode", () => ({
   ...realAvatarIslandEncode,
-  encodeAvatarForIsland: async () => {
-    encodeCalls++;
-    if (encodeOutcome === "throws") {
-      throw new Error("canvas unavailable");
-    }
-    return encodeOutcome === "bytes" ? AVATAR_BASE64 : null;
-  },
+  encodeAvatarForIsland: stubEncode,
+  // The REAL memo with the stub threaded through its injection seam, rather
+  // than a second memo written here: what these tests claim about caching and
+  // about retrying a failed encode is the shared helper's behavior, so it has
+  // to be the shared helper that answers for it.
+  memoizedAvatarEncode: (
+    source: Parameters<typeof realMemoizedAvatarEncode>[0],
+    maxBytes?: number,
+  ) => realMemoizedAvatarEncode(source, maxBytes, stubEncode),
 }));
 
 /**
@@ -345,10 +386,14 @@ beforeEach(() => {
   persistedAssistantId = null;
   podIsServing = true;
   armedTimers = [];
-  avatarData = NO_AVATAR;
+  setAvatar(NO_AVATAR);
   avatarListeners.clear();
   encodeOutcome = "bytes";
   encodeCalls = 0;
+  // The memo is module scope and shared with the Live Activity mirror, so a
+  // slot left by an earlier case (or an earlier file in the run) would answer
+  // for an avatar this one never encoded.
+  resetAvatarEncodeMemo();
   useConversationStore.setState({ processingConversationIds: new Set() });
 
   globalThis.setInterval = ((handler: () => void, delay: number) => {
@@ -1124,7 +1169,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   });
 
   it("carries a character avatar's rendered accent and encoded face", async () => {
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1143,7 +1188,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   it("carries a custom image with no accent to match", async () => {
     // The rendered accent is null for an uploaded avatar by construction, and
     // the widget blurs the photo for its background instead.
-    avatarData = imageAvatar("blob:avatar-1");
+    setAvatar(imageAvatar("blob:avatar-1"));
     render({
       conversations: [conversation("c1")],
       conversationGroups: NO_GROUPS,
@@ -1179,7 +1224,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     // Both ways it can fail: nothing fit the budget, and the raster threw. The
     // widgets are for the counts and the rows, so neither may cost a snapshot.
     encodeOutcome = "nothing-fits";
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1194,7 +1239,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots[0]?.conversations).toHaveLength(1);
 
     encodeOutcome = "throws";
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     rerender({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1206,10 +1251,142 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots[1]?.conversations).toHaveLength(1);
   });
 
+  it("holds the first sync until the avatar query settles", async () => {
+    // The cold launch this closes: the avatar query routinely settles after the
+    // conversation list, and the plugin replaces the App Group record whole, so
+    // a first sync taken on the loading state would ship `kind: "none"`, wipe
+    // the themed avatar the previous run left behind, and flash every widget to
+    // the brand palette until a second sync repainted it.
+    setAvatar(NO_AVATAR, true);
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(0);
+
+    // Nothing about the conversations moves: the avatar arriving is the event.
+    act(() => {
+      publishAvatar(characterAvatar("orange"));
+    });
+    await settle();
+
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(syncedSnapshots[0]?.avatar).toEqual({
+      kind: "character",
+      accentHex: ORANGE_HEX,
+      imageBase64: AVATAR_BASE64,
+    });
+    expect(syncedSnapshots[0]?.conversations).toHaveLength(1);
+
+    // A later render of the same data is deduped, so the held sync cost nothing
+    // beyond the wait.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+  });
+
+  it("arms no heartbeat while the avatar query is still loading", () => {
+    // The heartbeat asserts the snapshot is current, and a run that has not
+    // sent one yet has no freshness to keep.
+    setAvatar(NO_AVATAR, true);
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(liveHeartbeats()).toHaveLength(0);
+
+    act(() => {
+      publishAvatar(characterAvatar("orange"));
+    });
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(liveHeartbeats()).toHaveLength(1);
+  });
+
+  it("does not wait on an avatar query with no assistant to load one for", () => {
+    // The query is gated off before an assistant resolves, so waiting on it
+    // would hold every signed-out session's snapshot forever.
+    setAvatar(NO_AVATAR, true);
+    render({
+      assistantId: null,
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(syncedAssistantIds).toEqual([null]);
+  });
+
+  it("retries an avatar encode that threw rather than pinning the session", async () => {
+    // A canvas the shell would not hand over, or a blob URL revoked mid-draw:
+    // transient, and cached as `no avatar` it would strip the face off every
+    // later snapshot in the run, heartbeats included. The avatar object is the
+    // same across both renders, so only a dropped memo can produce a retry.
+    encodeOutcome = "throws";
+    const avatar = characterAvatar("orange");
+    setAvatar(avatar);
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(syncedSnapshots[0]?.avatar.imageBase64).toBeNull();
+
+    encodeOutcome = "bytes";
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    expect(encodeCalls).toBe(2);
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.avatar).toEqual({
+      kind: "character",
+      accentHex: ORANGE_HEX,
+      imageBase64: AVATAR_BASE64,
+    });
+  });
+
+  it("caches an avatar that legitimately encodes to nothing", async () => {
+    // Nothing fitting any rung is a fact about the source, not a failure, so
+    // it must not cost a canvas draw on every render that follows.
+    encodeOutcome = "nothing-fits";
+    setAvatar(characterAvatar("orange"));
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(encodeCalls).toBe(1);
+
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(encodeCalls).toBe(1);
+    expect(syncedSnapshots).toHaveLength(1);
+  });
+
   it("re-sends unchanged conversations when the avatar changes", async () => {
     // One photo swapped for another changes neither the kind nor the accent, so
     // only the identity the key carries can tell the snapshots apart.
-    avatarData = imageAvatar("blob:avatar-1");
+    setAvatar(imageAvatar("blob:avatar-1"));
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1218,7 +1395,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     await settle();
     expect(syncedSnapshots).toHaveLength(1);
 
-    avatarData = imageAvatar("blob:avatar-2");
+    setAvatar(imageAvatar("blob:avatar-2"));
     rerender({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1242,7 +1419,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     // The wait on the canvas draw is the one window in which a switch can
     // overtake a snapshot. Letting it land would put the departed assistant's
     // rows straight back on a Home Screen that was just cleared.
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1264,7 +1441,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   });
 
   it("keeps the avatar's bytes out of the dedup key", async () => {
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     const serialized = recordSerialized(() => {
       const { rerender } = render({
         conversations: [conversation("c1", { title: "Groceries" })],
@@ -1298,7 +1475,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     // already-cached destination is that commit, and the dedup key would then
     // pin the previous assistant's face until the heartbeat. Reading the avatar
     // reactively is what makes the change its own trigger.
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1330,7 +1507,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   it("beats with the avatar the session currently has", async () => {
     // The tick shares the send path, so it carries whatever the avatar is now
     // rather than what the last data sync happened to encode.
-    avatarData = characterAvatar("orange");
+    setAvatar(characterAvatar("orange"));
     render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,

@@ -29,6 +29,15 @@
  * as it looks like it should. Rather than pick a lowest common denominator,
  * try candidates from best to worst and take the first that fits. See
  * {@link CANDIDATES} for the measured sizes the ladder is built around.
+ *
+ * ## Why the Home Screen widgets are here too
+ *
+ * The widget snapshot rasterizes the same avatar from the same source through
+ * the same ladder, differing only in the budget it can afford (an App Group
+ * write rather than an ActivityKit attribute). Both surfaces therefore share
+ * {@link memoizedAvatarEncode}, so a session pays the canvas draw once per
+ * avatar however many of them ask for it, and the caching rules live in one
+ * place rather than being restated per consumer.
  */
 
 import { rasterizeAvatar } from "@/utils/avatar-raster";
@@ -133,4 +142,112 @@ export async function encodeAvatarForIsland(
     }
   }
   return null;
+}
+
+/**
+ * One memoized encode: the bytes for an avatar at a budget, plus the work still
+ * in flight when this is the first read since that avatar changed.
+ */
+export interface AvatarEncodeMemo {
+  /**
+   * Distinguishes one encode from the next. A caller that keys a payload on the
+   * avatar can carry this instead of the bytes, which are tens of kilobytes at
+   * a widget's budget and would otherwise be re-serialized on every render.
+   */
+  revision: number;
+  /**
+   * The encoded bytes, or null both while {@link pending} is unsettled and when
+   * there is legitimately nothing to send (no avatar, or nothing fit).
+   */
+  base64: string | null;
+  /** The encode still running, or null when there is nothing to wait for. */
+  pending: Promise<string | null> | null;
+}
+
+/** An {@link AvatarEncodeMemo} with the source it is cached against. */
+interface AvatarEncodeSlot extends AvatarEncodeMemo {
+  source: AvatarRender;
+}
+
+/**
+ * The last encode per byte budget, each slot holding the source it came from.
+ *
+ * Module scope, so the canvas draw is paid once per avatar however many native
+ * surfaces ask for it and however often they re-render. The key inside a slot
+ * is the resolved {@link AvatarRender}, a stable object recomputed only when
+ * the avatar itself changes, so identity comparison is enough and there is
+ * nothing to invalidate.
+ *
+ * Kept per budget rather than one slot for every caller, because the ceilings
+ * come from unrelated limits (ActivityKit's attribute budget against an App
+ * Group write). Serving a widget-sized encode to a Live Activity is not a
+ * larger avatar, it is no island at all.
+ */
+const encodeSlots = new Map<number, AvatarEncodeSlot>();
+let encodeRevisions = 0;
+
+/**
+ * The encoded avatar for `render` at `maxBytes`, starting the encode if this is
+ * the first read since the avatar changed.
+ *
+ * A `none` avatar resolves without touching the encoder, so a caller with
+ * nothing to draw stays synchronous with whatever triggered it.
+ *
+ * An encode that RESOLVES null is cached: no avatar, and an avatar that fit no
+ * rung, are both stable facts about the source. An encode that THROWS is not
+ * cached, and its slot is dropped so the next read starts over. The failure is
+ * the encoder rather than the avatar (a canvas the shell would not hand over, a
+ * blob URL revoked mid-draw), and caching it would leave every later payload in
+ * the session avatar-less. Either way this read still resolves null: a surface
+ * is worth more than the face on it.
+ */
+export function memoizedAvatarEncode(
+  render: AvatarRender,
+  maxBytes: number = ISLAND_AVATAR_MAX_BYTES,
+  // Injected for the same reason `rasterize` is above: tests reach the encoder
+  // without `mock.module` replacing this module for every file in the process.
+  encode: typeof encodeAvatarForIsland = encodeAvatarForIsland,
+): AvatarEncodeMemo {
+  const cached = encodeSlots.get(maxBytes);
+  if (cached !== undefined && cached.source === render) {
+    return cached;
+  }
+  encodeRevisions += 1;
+  const slot: AvatarEncodeSlot = {
+    source: render,
+    revision: encodeRevisions,
+    base64: null,
+    pending: null,
+  };
+  encodeSlots.set(maxBytes, slot);
+  if (render.kind === "none") {
+    return slot;
+  }
+  slot.pending = encode(render, maxBytes).then(
+    (base64) => {
+      slot.base64 = base64;
+      slot.pending = null;
+      return base64;
+    },
+    () => {
+      // Dropped only while it is still the current slot: a newer avatar has
+      // its own encode running, and evicting that would restart it.
+      if (encodeSlots.get(maxBytes) === slot) {
+        encodeSlots.delete(maxBytes);
+      }
+      slot.pending = null;
+      return null;
+    },
+  );
+  return slot;
+}
+
+/**
+ * Drop every memoized encode. Not intended for production callers: the cache is
+ * module scope, so tests sharing a process would otherwise inherit each other's
+ * slots and revisions.
+ */
+export function __resetAvatarEncodeMemoForTesting(): void {
+  encodeSlots.clear();
+  encodeRevisions = 0;
 }
