@@ -9315,6 +9315,14 @@ components:
           type: integer
           minimum: 0
           nullable: true
+        usage_label:
+          type: string
+          nullable: true
+          description: 'Customer-facing name for the included-usage line item, e.g.
+            "Mighty Usage". Render verbatim rather than composing a string from credits_usd:
+            this is the same wording the Stripe product carries, so the plan card
+            and the invoice line agree. Null exactly when credits_usd is — a package
+            with no credit bundle has no usage line item to name.'
         include_platform_fee:
           type: boolean
         base_price_cents:
@@ -9348,6 +9356,7 @@ components:
       - storage_price_cents
       - storage_tier
       - total_price_cents
+      - usage_label
       - version
     ProPlan:
       type: object
