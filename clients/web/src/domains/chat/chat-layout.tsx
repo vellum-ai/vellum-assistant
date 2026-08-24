@@ -824,6 +824,17 @@ export function ChatLayout({
         handleMarkConversationUnread(conversation);
       }
     },
+    togglePinConversation: () => {
+      if (!activeConversationId) {
+        return;
+      }
+      const conversation = conversations.find(
+        (c) => c.conversationId === activeConversationId,
+      );
+      if (conversation) {
+        handleTogglePinConversation(conversation);
+      }
+    },
     markAllRead: () => {
       void handleMarkAllReadInGroup(conversations);
     },
