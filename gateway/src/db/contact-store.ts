@@ -242,9 +242,10 @@ export class ContactStore {
    * authoritative ACL onto daemon-forwarded (filtered/search) contact reads,
    * which carry neutral ACL.
    *
-   * Returns a map of contactId → { role, channels }, where `channels` is keyed
-   * by channel `id`. Empty input → empty map. Contacts/channels absent from the
-   * gateway are simply absent from the map (the caller leaves them untouched).
+   * Returns a map of contactId → { role, autoApproveThreshold, channels },
+   * where `channels` is keyed by channel `id`. Empty input → empty map.
+   * Contacts/channels absent from the gateway are simply absent from the map
+   * (the caller leaves them untouched).
    */
   async getAclByContactIds(ids: string[]): Promise<Map<string, ContactAcl>> {
     const result = new Map<string, ContactAcl>();
@@ -266,7 +267,13 @@ export class ContactStore {
       const id = row.contact.id;
       let entry = result.get(id);
       if (!entry) {
-        entry = { role: row.contact.role, channels: new Map() };
+        entry = {
+          role: row.contact.role,
+          autoApproveThreshold: parseContactAutoApproveThreshold(
+            row.contact.autoApproveThreshold,
+          ),
+          channels: new Map(),
+        };
         result.set(id, entry);
       }
       const ch = row.channel;
@@ -1782,9 +1789,10 @@ export interface ChannelAcl {
   blockedReason: string | null;
 }
 
-/** Contact-level role + channel ACL map (channel id → ChannelAcl). */
+/** Contact-level role, auto-approve ceiling, and channel ACL map. */
 export interface ContactAcl {
   role: string;
+  autoApproveThreshold: RiskThreshold | null;
   channels: Map<string, ChannelAcl>;
 }
 

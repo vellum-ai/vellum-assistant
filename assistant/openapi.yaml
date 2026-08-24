@@ -5602,6 +5602,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5766,6 +5775,15 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5898,6 +5916,15 @@ paths:
                       interactionCount:
                         anyOf:
                           - type: number
+                          - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
                           - type: "null"
                       createdAt:
                         type: number
@@ -6303,6 +6330,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -6501,6 +6537,15 @@ paths:
                     interactionCount:
                       anyOf:
                         - type: number
+                        - type: "null"
+                    autoApproveThreshold:
+                      anyOf:
+                        - type: string
+                          enum:
+                            - none
+                            - low
+                            - medium
+                            - high
                         - type: "null"
                     createdAt:
                       type: number

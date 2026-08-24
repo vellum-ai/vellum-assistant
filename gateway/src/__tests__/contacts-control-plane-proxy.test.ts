@@ -129,7 +129,11 @@ type ChannelAcl = {
   revokedReason: string | null;
   blockedReason: string | null;
 };
-type ContactAcl = { role: string; channels: Map<string, ChannelAcl> };
+type ContactAcl = {
+  role: string;
+  autoApproveThreshold?: string | null;
+  channels: Map<string, ChannelAcl>;
+};
 type GetAclFn = (ids: string[]) => Promise<Map<string, ContactAcl>>;
 let contactStoreGetAclMock: ReturnType<typeof mock<GetAclFn>> = mock(
   async () => new Map<string, ContactAcl>(),
@@ -1388,6 +1392,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
             "c1",
             {
               role: "guardian",
+              autoApproveThreshold: "high",
               channels: new Map<string, ChannelAcl>([
                 [
                   "ch1",
@@ -1417,6 +1422,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.contacts[0].role).toBe("guardian");
+    expect(body.contacts[0].autoApproveThreshold).toBe("high");
     const ch = body.contacts[0].channels[0];
     expect(ch.status).toBe("active");
     expect(ch.policy).toBe("deny");

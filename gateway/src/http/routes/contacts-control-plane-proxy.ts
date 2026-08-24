@@ -853,10 +853,11 @@ function channelKey(type: string, address: string): string {
 
 /**
  * Overlay authoritative gateway ACL onto a parsed daemon contact-list body
- * (in place). For each contact, replace contact-level `role` and per-channel
- * ACL fields from the gateway map. Channels match by `id` first, then by
- * `(type, address)`; an unmatched channel keeps the daemon's ACL. A contact
- * absent from the gateway map (dual-write gap) is left untouched + warned.
+ * (in place). For each contact, replace contact-level `role`,
+ * `autoApproveThreshold`, and per-channel ACL fields from the gateway map.
+ * Channels match by `id` first, then by `(type, address)`; an unmatched
+ * channel keeps the daemon's ACL. A contact absent from the gateway map
+ * (dual-write gap) is left untouched + warned.
  *
  * Pure aside from the warn log; mutates the passed contacts array's elements.
  */
@@ -879,6 +880,7 @@ function overlayAclOntoContacts(
     }
 
     contact.role = acl.role;
+    contact.autoApproveThreshold = acl.autoApproveThreshold;
 
     const channels = contact.channels;
     if (!Array.isArray(channels)) continue;
