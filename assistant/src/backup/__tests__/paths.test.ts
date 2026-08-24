@@ -1,10 +1,16 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  deriveSafeAncestor,
   formatBackupFilename,
   getBackupRootDir,
+  getDefaultOffsiteBackupsDir,
+  getICloudDriveRoot,
   getLocalBackupsDir,
   parseBackupTimestamp,
+  resolveOffsiteDestinations,
 } from "../paths.js";
 import { getSnapshotLockPath } from "../snapshot-lock.js";
 
@@ -75,6 +81,87 @@ describe("VELLUM_BACKUP_DIR override", () => {
     expect(getSnapshotLockPath()).toMatch(
       /\/\.vellum\/backups\/\.snapshot\.lock$/,
     );
+  });
+});
+
+describe("deriveSafeAncestor", () => {
+  test("iCloud Drive subtree anchors on the iCloud Drive root", () => {
+    const iCloudRoot = getICloudDriveRoot();
+    expect(
+      deriveSafeAncestor(join(iCloudRoot, "VellumAssistant", "backups")),
+    ).toBe(iCloudRoot);
+    // The default offsite path specifically — this is the regression the
+    // feature exists to fix.
+    expect(deriveSafeAncestor(getDefaultOffsiteBackupsDir())).toBe(iCloudRoot);
+  });
+
+  test("the iCloud Drive root itself is its own safe ancestor", () => {
+    const iCloudRoot = getICloudDriveRoot();
+    expect(deriveSafeAncestor(iCloudRoot)).toBe(iCloudRoot);
+  });
+
+  test("paths under /Volumes/<name> anchor on the volume root", () => {
+    expect(deriveSafeAncestor("/Volumes/MyExtSSD/vellum/backups")).toBe(
+      "/Volumes/MyExtSSD",
+    );
+    expect(deriveSafeAncestor("/Volumes/MyExtSSD")).toBe("/Volumes/MyExtSSD");
+  });
+
+  test("arbitrary user paths fall back to the immediate parent", () => {
+    // Preserves the pre-fix conservative behavior where we only mkdir the
+    // leaf directory and require its parent to exist — we have no reliable
+    // mount signal for arbitrary paths.
+    expect(deriveSafeAncestor("/tmp/some/where/backups")).toBe(
+      "/tmp/some/where",
+    );
+    expect(
+      deriveSafeAncestor(join(homedir(), "Documents", "vellum-backups")),
+    ).toBe(join(homedir(), "Documents"));
+  });
+
+  test("bare /Volumes (no volume name) falls back to dirname", () => {
+    // `/Volumes` itself is not a volume mount; treat it like any other path.
+    expect(deriveSafeAncestor("/Volumes")).toBe("/");
+  });
+});
+
+describe("getDefaultOffsiteBackupsDir", () => {
+  test("points at the iCloud Drive VellumAssistant backups folder", () => {
+    const dir = getDefaultOffsiteBackupsDir();
+    expect(dir).toContain("com~apple~CloudDocs/VellumAssistant/backups");
+  });
+});
+
+describe("resolveOffsiteDestinations", () => {
+  test("returns iCloud default with encrypt=true when override is null", () => {
+    const result = resolveOffsiteDestinations(null, "darwin");
+    expect(result).toHaveLength(1);
+    expect(result[0].encrypt).toBe(true);
+    expect(result[0].path).toContain(
+      "com~apple~CloudDocs/VellumAssistant/backups",
+    );
+  });
+
+  test("returns iCloud default when override is undefined", () => {
+    const result = resolveOffsiteDestinations(undefined, "darwin");
+    expect(result).toHaveLength(1);
+    expect(result[0].encrypt).toBe(true);
+  });
+
+  test("returns no implicit destination on Windows", () => {
+    expect(resolveOffsiteDestinations(null, "win32")).toEqual([]);
+  });
+
+  test("returns an empty array unchanged", () => {
+    expect(resolveOffsiteDestinations([])).toEqual([]);
+  });
+
+  test("returns a multi-destination override unchanged", () => {
+    const destinations = [
+      { path: "/tmp/a", encrypt: true },
+      { path: "/tmp/b", encrypt: false },
+    ];
+    expect(resolveOffsiteDestinations(destinations)).toEqual(destinations);
   });
 });
 

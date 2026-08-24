@@ -29,7 +29,7 @@ export const BackupOffsiteConfigSchema = z
       .nullable()
       .default(null)
       .describe(
-        "Offsite destinations. null uses the platform default when one exists: encrypted iCloud Drive on macOS, and no implicit destination on Windows or Linux. An explicit array, including [], overrides the default.",
+        "Offsite destinations. null uses encrypted iCloud Drive on macOS and no implicit destination on Windows or Linux; an explicit array (including []) overrides the default.",
       ),
   })
   .describe("Offsite backup configuration");

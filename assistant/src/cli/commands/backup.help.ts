@@ -11,10 +11,8 @@ trust rules, hooks, the SQLite database) as a .vbundle file. Credentials are
 NOT included — they live in the OS keychain / CES and users re-authenticate
 integrations after a restore (via the gateway). The automated worker runs on a configurable
 interval and writes to a local pool under ~/.vellum/backups/local/, optionally
-mirroring each snapshot to one or more offsite destinations. macOS uses an
-encrypted iCloud Drive destination by default. Windows and Linux require an
-explicit destination so the assistant never chooses a cloud account or mount
-without user direction.
+mirroring each snapshot to one or more offsite destinations. macOS uses
+encrypted iCloud Drive by default. Windows and Linux require an explicit path.
 
 Offsite destinations can be per-destination encrypted (AES-256-GCM) or
 plaintext — plaintext only makes sense when the user owns physical access to
@@ -74,8 +72,7 @@ Examples:
 Offsite destinations are absolute paths the backup worker writes a copy of
 each snapshot to after the local write succeeds. macOS uses the iCloud Drive
 VellumAssistant folder until an explicit destinations array is configured.
-Windows and Linux have no implicit offsite destination. Configure the desired
-cloud-sync folder, external drive, or network mount explicitly.
+Windows and Linux have no implicit offsite destination.
 
 Each destination has an 'encrypt' flag. When true (the default), snapshots
 are written as .vbundle.enc (AES-256-GCM). When false, snapshots are copied
@@ -91,8 +88,9 @@ Examples:
           name: "list",
           description: "List configured offsite destinations",
           helpText: `
-Resolves the current destinations array, including the macOS iCloud default
-when applicable, and prints a table with the path and encryption flag per row.
+Resolves the current destinations array and prints each path and encryption
+flag. On macOS this includes the implicit iCloud default when configured paths
+are null.
 
 Examples:
   $ assistant backup destinations list`,

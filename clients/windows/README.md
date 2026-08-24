@@ -69,11 +69,11 @@ The packaged Windows client does not expose automated backup configuration yet.
 The installed `vellum backup <name>` command creates an on-demand local export,
 but the internal `assistant backup` command is not installed on the user PATH.
 
-Windows also has no implicit offsite destination. A future automated backup
-surface must ask the user to select a OneDrive folder, external drive, or
-network location explicitly. OneDrive environment variables are insufficient
-because a machine can expose personal and organization-managed accounts at the
-same time.
+Windows has no implicit offsite destination. A future automated backup surface
+must ask the user to select a OneDrive folder, external drive, or network
+location explicitly. OneDrive environment variables are insufficient because
+a machine can expose personal and organization-managed accounts at the same
+time.
 
 ## Updates and troubleshooting
 

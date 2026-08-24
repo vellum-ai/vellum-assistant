@@ -40,7 +40,6 @@ import {
   writeOffsiteSnapshotToAll,
 } from "./offsite-writer.js";
 import { getBackupKeyPath, getLocalBackupsDir } from "./paths.js";
-import { resolveOffsiteDestinations } from "./platform-paths.js";
 
 const log = getLogger("backup-worker");
 
@@ -66,6 +65,30 @@ interface BackupConfig {
     destinations: BackupDestination[] | null;
   };
   localDirectory: string | null;
+}
+
+/** Default iCloud Drive destination (macOS) with encryption enabled. */
+function defaultOffsiteDestinations(): BackupDestination[] {
+  if (process.platform !== "darwin") {
+    return [];
+  }
+  const home = process.env.HOME || "";
+  if (!home) {
+    return [];
+  }
+  return [
+    {
+      path: join(
+        home,
+        "Library",
+        "Mobile Documents",
+        "com~apple~CloudDocs",
+        "VellumAssistant",
+        "backups",
+      ),
+      encrypt: true,
+    },
+  ];
 }
 
 function readBackupConfig(): BackupConfig {
@@ -169,7 +192,7 @@ async function performBackup(
 
   // Resolve offsite destinations
   const destinations = config.offsite.enabled
-    ? resolveOffsiteDestinations(config.offsite.destinations)
+    ? (config.offsite.destinations ?? defaultOffsiteDestinations())
     : [];
 
   // Ensure the backup key if any destination needs encryption

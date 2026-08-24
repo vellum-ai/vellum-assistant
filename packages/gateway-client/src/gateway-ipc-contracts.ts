@@ -5,24 +5,6 @@
 import { CHANNEL_IDS } from "@vellumai/service-contracts/channels";
 import { z } from "zod";
 
-export const GET_DEFAULT_BACKUP_DESTINATIONS_IPC_METHOD =
-  "get_default_backup_destinations";
-
-export const BackupDestinationSchema = z.object({
-  path: z.string(),
-  encrypt: z.boolean(),
-});
-
-export type BackupDestination = z.infer<typeof BackupDestinationSchema>;
-
-export const DefaultBackupDestinationsIpcResponseSchema = z.object({
-  destinations: z.array(BackupDestinationSchema),
-});
-
-export type DefaultBackupDestinationsIpcResponse = z.infer<
-  typeof DefaultBackupDestinationsIpcResponseSchema
->;
-
 export const GATEWAY_LOG_LEVEL_NAMES = [
   "trace",
   "debug",
