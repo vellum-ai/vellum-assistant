@@ -58,8 +58,8 @@ describe("ShareFeedbackModalLazy", () => {
       <ShareFeedbackModalLazy open onClose={() => {}} loader={loader} />,
     );
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Couldn't load the feedback form.");
+    const failure = await screen.findByRole("dialog");
+    expect(failure.textContent).toContain("Couldn't load the feedback form.");
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
@@ -69,7 +69,25 @@ describe("ShareFeedbackModalLazy", () => {
       expect(screen.getByTestId("share-feedback-modal")).toBeTruthy();
     });
     expect(attempts).toBe(2);
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  // Focus has to land inside the failure, not stay on whatever opened the
+  // dialog behind it. Of the two actions, recovery is the one worth landing on.
+  test("the failure opens focused on the recovery", async () => {
+    const loader: ShareFeedbackModalLoader = () =>
+      Promise.reject(new Error("chunk unavailable"));
+
+    render(
+      <ShareFeedbackModalLazy open onClose={() => {}} loader={loader} />,
+    );
+
+    await screen.findByRole("dialog");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Try again" }),
+      );
+    });
   });
 
   test("the failure's Close hands control back to the opener", async () => {
@@ -87,9 +105,32 @@ describe("ShareFeedbackModalLazy", () => {
       />,
     );
 
-    await screen.findByRole("alert");
+    await screen.findByRole("dialog");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     expect(closed).toBe(1);
+  });
+
+  test("escape dismisses the failure through the same opener callback", async () => {
+    let closed = 0;
+    const loader: ShareFeedbackModalLoader = () =>
+      Promise.reject(new Error("chunk unavailable"));
+
+    render(
+      <ShareFeedbackModalLazy
+        open
+        onClose={() => {
+          closed += 1;
+        }}
+        loader={loader}
+      />,
+    );
+
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(closed).toBe(1);
+    });
   });
 });
