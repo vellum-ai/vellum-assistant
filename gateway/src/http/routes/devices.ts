@@ -11,7 +11,7 @@
  * the local assistant's guardian principal.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, max } from "drizzle-orm";
 
 import {
   revokeActorTokensByDevice,
@@ -64,12 +64,29 @@ export async function handleListDevices(
     )
     .all();
 
+  // Refreshing credentials revokes the active row and mints an unstamped
+  // replacement, so the newest stamp for a device can live on a revoked row.
+  // Take the max across every status to keep activity history across rotation.
+  const lastUsedRows = db
+    .select({
+      hashedDeviceId: actorTokenRecords.hashedDeviceId,
+      lastUsedAt: max(actorTokenRecords.lastUsedAt),
+    })
+    .from(actorTokenRecords)
+    .where(eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId))
+    .groupBy(actorTokenRecords.hashedDeviceId)
+    .all();
+
+  const lastUsedByDevice = new Map<string, number | null>(
+    lastUsedRows.map((r) => [r.hashedDeviceId, r.lastUsedAt ?? null]),
+  );
+
   const devices = tokens.map((t) => ({
     hashedDeviceId: t.hashedDeviceId,
     platform: t.platform,
     issuedAt: t.issuedAt,
     expiresAt: t.expiresAt ?? null,
-    lastUsedAt: t.lastUsedAt ?? null,
+    lastUsedAt: lastUsedByDevice.get(t.hashedDeviceId) ?? t.lastUsedAt ?? null,
   }));
 
   return Response.json({ devices });

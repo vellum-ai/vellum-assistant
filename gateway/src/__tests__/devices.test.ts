@@ -24,8 +24,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords, actorRefreshTokenRecords, contacts, contactChannels } =
-  await import("../db/schema.js");
+const {
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+  contacts,
+  contactChannels,
+} = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { handleListDevices, handleRevokeDevice } =
   await import("../http/routes/devices.js");
@@ -34,6 +38,8 @@ const LOOPBACK_IP = "127.0.0.1";
 const GUARDIAN_ID = "guardian-001";
 
 let testRoot: string;
+
+let actorSeedSeq = 0;
 
 function seedActor(opts: {
   device: string;
@@ -44,11 +50,12 @@ function seedActor(opts: {
 }): void {
   const now = Date.now();
   const principal = opts.principal ?? GUARDIAN_ID;
+  actorSeedSeq += 1;
   getGatewayDb()
     .insert(actorTokenRecords)
     .values({
       id: randomUUID(),
-      tokenHash: hashToken(`acc-${principal}-${opts.device}`),
+      tokenHash: hashToken(`acc-${principal}-${opts.device}-${actorSeedSeq}`),
       guardianPrincipalId: principal,
       hashedDeviceId: hashToken(opts.device),
       platform: opts.platform ?? "cli",
@@ -224,6 +231,66 @@ describe("GET /v1/devices", () => {
       (d) => d.hashedDeviceId === hashToken("device-B"),
     );
     expect(b?.lastUsedAt).toBeNull();
+  });
+
+  test("keeps the stamp from a rotated-out row when the active row is unstamped", async () => {
+    // Refreshing credentials revokes the stamped row and mints an unstamped
+    // replacement; the device's activity history must survive that.
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBe(1_700_000_000_000);
+  });
+
+  test("prefers the active row's stamp when it is newer than a rotated-out one", async () => {
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A", lastUsedAt: 1_800_000_000_000 });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices[0]?.lastUsedAt).toBe(1_800_000_000_000);
+  });
+
+  test("returns null when no row for the device carries a stamp", async () => {
+    seedActor({ device: "device-A", status: "revoked" });
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("does not borrow another principal's stamp for the same device hash", async () => {
+    seedActor({
+      device: "device-A",
+      principal: "other-guardian",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
   });
 
   test("rejects a non-loopback caller (403)", async () => {
