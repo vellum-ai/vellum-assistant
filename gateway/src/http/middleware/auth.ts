@@ -1,6 +1,9 @@
 import type { Server } from "bun";
 
-import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
+import {
+  isActorTokenRevoked,
+  recordActorTokenUse,
+} from "../../auth/actor-token-revocation.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
@@ -352,20 +355,24 @@ export function createAuthMiddleware(
   /**
    * Reject a validated edge token whose actor record has been revoked. Returns
    * a 401 response when revoked, or null to continue. Fail-open for non-actor
-   * and unrecorded tokens (see isActorTokenRevoked).
+   * and unrecorded tokens (see isActorTokenRevoked). On the allow path, stamps
+   * the presenting device's last-used activity (debounced, fail-open).
    */
   function rejectIfActorTokenRevoked(
     req: Request,
     token: string,
     claims: TokenClaims,
   ): Response | null {
-    if (!isActorTokenRevoked(token, claims)) return null;
-    authRateLimiter.recordFailure(getClientIp());
-    log.warn(
-      { path: new URL(req.url).pathname },
-      "Edge auth rejected: actor token revoked",
-    );
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    if (isActorTokenRevoked(token, claims)) {
+      authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth rejected: actor token revoked",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    recordActorTokenUse(token, claims);
+    return null;
   }
 
   function allowLegacyLoopbackFallback(
