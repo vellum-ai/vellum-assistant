@@ -53,6 +53,10 @@ import { routes } from "@/utils/routes";
  * Hardcoded fallback for assistants that don't expose
  * `/v1/channels/available` yet. Needed for backward compatibility
  * with older gateway versions.
+ *
+ * Deliberately not kept in step with the daemon's channel set: an assistant
+ * without the route predates every channel added since it, so a row here for
+ * one of those would offer a setup flow that assistant cannot run.
  */
 const DEFAULT_CHANNELS: ChannelInfo[] = [
   {
@@ -171,10 +175,17 @@ export function ContactsPage({
         signal,
         throwOnError: false,
       });
-      if (!response || response.status === 404) {
+      // Only a 404 means the assistant predates the route. A missing response
+      // is a request that failed, and answering it with the fallback would
+      // render a channel list that looks authoritative and is years stale,
+      // with nothing to tell the reader the fetch never landed.
+      if (response?.status === 404) {
         return {
           channels: DEFAULT_CHANNELS,
         } satisfies ChannelsAvailableGetResponse;
+      }
+      if (!response) {
+        throw error ?? new Error("Failed to fetch channel availability");
       }
       if (!response.ok) {
         throw error ?? new Error("Failed to fetch channel availability");
