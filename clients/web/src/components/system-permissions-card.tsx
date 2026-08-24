@@ -85,8 +85,10 @@ const LOCAL_PERMISSION_ROWS: LocalPermissionRowMeta[] = [
   },
 ];
 
+type SystemPermissionRowId = (typeof SYSTEM_PERMISSION_ROWS)[number]["id"];
+
 function systemPermissionCopy(
-  id: SystemPermissionKind,
+  id: SystemPermissionRowId,
   t: TFunction,
   isWindowsHost: boolean,
 ): { label: string; description: string } {
@@ -120,6 +122,11 @@ function systemPermissionCopy(
           ? t("systemPermissionsCard.notificationsWindowsDescription")
           : t("systemPermissionsCard.notificationsDescription"),
       };
+    default: {
+      // Rows only use the kinds above; other SystemPermissionKind values
+      // (inputMonitoring, automation) are not shown in this card.
+      throw new Error(`Unsupported system permission row: ${id}`);
+    }
   }
 }
 

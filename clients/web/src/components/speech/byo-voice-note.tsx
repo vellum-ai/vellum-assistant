@@ -20,7 +20,7 @@ export function ByoVoiceNote() {
       <Trans
         i18nKey="byoVoiceNote.body"
         components={{
-          link: (
+          settingsLink: (
             <Link
               to={`${routes.settings.ai}#text-to-speech`}
               className="text-[var(--primary-base)] hover:underline"

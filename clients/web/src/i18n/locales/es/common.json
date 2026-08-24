@@ -97,7 +97,7 @@
     "size": "Tamaño"
   },
   "byoVoiceNote": {
-    "body": "Tu asistente habla a través de un proveedor que configuraste tú. Define su voz en <link>Modelos y servicios</link>."
+    "body": "Tu asistente habla a través de un proveedor que configuraste tú. Define su voz en <settingsLink>Modelos y servicios</settingsLink>."
   },
   "chatAvatar": {
     "alt": "Avatar del asistente",

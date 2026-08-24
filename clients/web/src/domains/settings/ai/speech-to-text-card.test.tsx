@@ -119,9 +119,9 @@ function renderCard() {
   );
 }
 
-function openProviderSelect(): void {
+function openProviderSelect(ariaLabel = "STT provider"): void {
   const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="STT provider"]',
+    `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
   if (!trigger) {
     throw new Error("expected the STT provider dropdown trigger");
@@ -214,7 +214,7 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     await changeLocale("es");
     renderCard();
 
-    openProviderSelect();
+    openProviderSelect("Proveedor de STT");
     expect(visibleOptions()).toContain("Dictado nativo de Windows");
 
     selectOption("Dictado nativo de Windows");
