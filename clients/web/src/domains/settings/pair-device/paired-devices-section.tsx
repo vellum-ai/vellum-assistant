@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { ChevronDown } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -81,7 +83,19 @@ export function PairedDevicesSection({
   // refetches on its own while pairing, so without a tick they freeze.
   useRelativeAgeTick(devices?.some((d) => d.lastUsedAt !== null) ?? false);
 
-  if (devices === null || devices.length === 0) {
+  // Live devices first, never-seen last, so revoke candidates cluster at the
+  // bottom. The controller owns `devices`, so the sort runs on a copy.
+  const orderedDevices = useMemo(
+    () =>
+      devices === null
+        ? null
+        : [...devices].sort(
+            (a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0),
+          ),
+    [devices],
+  );
+
+  if (orderedDevices === null || orderedDevices.length === 0) {
     return null;
   }
 
@@ -91,13 +105,15 @@ export function PairedDevicesSection({
         <Collapsible.Item value="paired-devices">
           <Collapsible.Trigger className="group flex w-full items-center justify-between gap-3">
             <span className="text-body-medium-default text-[var(--content-secondary)]">
-              {t("pairedDevicesSection.title", { count: devices.length })}
+              {t("pairedDevicesSection.title", {
+                count: orderedDevices.length,
+              })}
             </span>
             <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />
           </Collapsible.Trigger>
           <Collapsible.Content>
             <div className="mt-3 flex flex-col gap-3">
-              {devices.map((device) => (
+              {orderedDevices.map((device) => (
                 <div
                   key={device.hashedDeviceId}
                   className="flex items-center justify-between gap-3"

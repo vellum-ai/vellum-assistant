@@ -75,6 +75,7 @@ const POLL_INTERVAL_MS = 5_000;
 
 const HASH_A = "aaaabbbbccccdddd0000111122223333";
 const HASH_B = "eeeeffff00001111aaaabbbbccccdddd";
+const HASH_C = "1111222233334444aaaabbbbccccdddd";
 
 function device(
   overrides: Partial<LocalPairedDeviceRecord> = {},
@@ -107,6 +108,13 @@ function clickConfirm() {
   fireEvent.click(
     document.querySelector<HTMLButtonElement>("[data-confirm-dialog-confirm]")!,
   );
+}
+
+/** Rendered rows in order, read off the full hash each row's chip carries. */
+function renderedDeviceOrder(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLSpanElement>("span[title]"),
+  ).map((span) => span.title);
 }
 
 beforeEach(() => {
@@ -377,6 +385,52 @@ describe("PairedDevicesSection", () => {
     expect(screen.getByText(/^Paired \d\S+$/)).toBeTruthy();
     expect(screen.queryByText(/Last used/)).toBeNull();
     expect(document.body.textContent).not.toContain("unknown");
+  });
+
+  test("orders devices by most recent activity, never-seen ones last", async () => {
+    await renderExpanded([
+      device({ hashedDeviceId: HASH_A, lastUsedAt: null }),
+      device({
+        hashedDeviceId: HASH_B,
+        lastUsedAt: Date.parse("2026-08-10T12:00:00Z"),
+      }),
+      device({
+        hashedDeviceId: HASH_C,
+        lastUsedAt: Date.parse("2026-08-20T12:00:00Z"),
+      }),
+    ]);
+
+    expect(renderedDeviceOrder()).toEqual([HASH_C, HASH_B, HASH_A]);
+  });
+
+  test("revoking targets the clicked row once the list is reordered", async () => {
+    await renderExpanded([
+      device({
+        hashedDeviceId: HASH_A,
+        platform: "ios",
+        lastUsedAt: Date.parse("2026-08-10T12:00:00Z"),
+      }),
+      device({
+        hashedDeviceId: HASH_B,
+        platform: "android",
+        lastUsedAt: Date.parse("2026-08-20T12:00:00Z"),
+      }),
+    ]);
+
+    // The android device is the more recently used one, so it sorts first.
+    expect(renderedDeviceOrder()).toEqual([HASH_B, HASH_A]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]!);
+
+    expect(
+      screen.getByText(new RegExp(`Android device ${HASH_B.slice(0, 12)}`)),
+    ).toBeTruthy();
+    clickConfirm();
+
+    await waitFor(() =>
+      expect(revokeCalls).toEqual([
+        { assistantId: "self", hashedDeviceId: HASH_B },
+      ]),
+    );
   });
 
   test("a failed revoke keeps the dialog open with the error", async () => {
