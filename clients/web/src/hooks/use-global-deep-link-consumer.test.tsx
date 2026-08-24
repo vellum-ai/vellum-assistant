@@ -497,20 +497,29 @@ describe("deeplink.startVoice", () => {
   const isVoiceRoomVisible = (): boolean =>
     renderHook(() => useIsVoiceRoomVisible()).result.current;
 
+  /** An earlier thread the app is left sitting on when a link arrives. */
+  const PRIOR_CONVERSATION_ID = "conv-prior";
+
   /**
-   * The session is started for the conversation on screen, minting a draft
-   * when there is none, so that the composer there can own it and show the
-   * room. A minted id is a fresh uuid, hence the assertion against the store
-   * rather than a literal.
+   * The session is started on a conversation minted for it, and the app lands
+   * on that conversation so its composer can own the session and show the
+   * room. Never the selection already in the store: that is wherever the user
+   * was last, while a link asking for voice means a new call. A minted id is a
+   * fresh uuid, hence the assertions against the store rather than a literal.
    */
-  const expectStartedOnActiveConversation = (starterMock: unknown): void => {
+  const expectStartedOnFreshDraft = (starterMock: unknown): void => {
     const conversationId = useConversationStore.getState().activeConversationId;
     expect(conversationId).not.toBeNull();
+    expect(conversationId).not.toBe(PRIOR_CONVERSATION_ID);
     expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId);
+    expect(mockPathname).toBe(routes.conversation(conversationId ?? ""));
   };
 
-  test("mode=new starts a session bound to the composer it lands on", async () => {
+  test("mode=new starts a session on a conversation of its own, not the one the app was left on", async () => {
     seedEligibleAssistant();
+    useConversationStore
+      .getState()
+      .setActiveConversationId(PRIOR_CONVERSATION_ID);
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderConsumer();
@@ -525,7 +534,11 @@ describe("deeplink.startVoice", () => {
     await flush();
 
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
-    expectStartedOnActiveConversation(starter);
+    expectStartedOnFreshDraft(starter);
+    expect(starter).not.toHaveBeenCalledWith(
+      "assistant-1",
+      PRIOR_CONVERSATION_ID,
+    );
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 
@@ -548,14 +561,15 @@ describe("deeplink.startVoice", () => {
     ).not.toBeNull();
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
 
-    // What `useLiveVoiceSessionController` does when it mounts.
+    // What `useLiveVoiceSessionController` does when it mounts, navigation
+    // included: it lands on the conversation the drain mints.
     const starter = mock((_a: string, _c: string | null) => undefined);
     useLiveVoiceStore.getState().setStarter(asStarter(starter));
     await act(async () => {
-      await drainPendingVoiceStart();
+      await drainPendingVoiceStart(navigateMock);
     });
 
-    expectStartedOnActiveConversation(starter);
+    expectStartedOnFreshDraft(starter);
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
 
@@ -677,7 +691,7 @@ describe("deeplink.startVoice", () => {
     // `restoreVoiceRoom` no-ops with no active session, so the fresh session
     // the starter opens is not pre-emptively un-minimized by this path.
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
-    expectStartedOnActiveConversation(starter);
+    expectStartedOnFreshDraft(starter);
   });
 
   test("mode=new during a live call surfaces that call instead of navigating away and starting nothing", async () => {
@@ -726,7 +740,7 @@ describe("deeplink.startVoice", () => {
     await flush();
 
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
-    expectStartedOnActiveConversation(starter);
+    expectStartedOnFreshDraft(starter);
   });
 
   // -------------------------------------------------------------------------
@@ -840,7 +854,7 @@ describe("deeplink.startVoice", () => {
     });
     await flush();
 
-    expectStartedOnActiveConversation(starter);
+    expectStartedOnFreshDraft(starter);
     // No session yet, so no room — the room appears once the starter's session
     // reaches an active phase, exactly as it does for a `mode=new` link.
     expect(isVoiceRoomVisible()).toBe(false);
@@ -982,7 +996,7 @@ describe("deeplink.startVoice", () => {
     await flush();
 
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
-    expectStartedOnActiveConversation(starter);
+    expectStartedOnFreshDraft(starter);
     // Nothing parked: a promptless link must not disturb the composer.
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       null,

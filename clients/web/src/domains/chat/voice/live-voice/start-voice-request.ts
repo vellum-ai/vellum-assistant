@@ -20,7 +20,6 @@
  * when it registers a starter. No polling, no retry timer.
  */
 
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import {
   isLiveVoiceSessionActive,
   useLiveVoiceStore,
@@ -30,14 +29,13 @@ import {
   publishConfigNotice,
   voiceReadiness,
 } from "@/domains/chat/voice/live-voice/voice-entry-guards";
+import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -54,29 +52,43 @@ import { routes } from "@/utils/routes";
 export const PENDING_VOICE_START_TTL_MS = 60_000;
 
 /**
- * The conversation the session belongs to: whatever is selected, or a fresh
- * draft when nothing is.
+ * The navigation a start needs from its caller: a path, and whether it
+ * replaces the entry it lands on.
  *
- * A session must be bound to a composer key or no composer can own it
- * (`isLiveVoiceSessionOwnedBy`), which leaves the title-bar pill as the only
- * surface for a session the user asked for full-screen. Read-else-mint is
- * race-proof against the conversation loader in both directions: if this runs
- * first the loader sees a selected id and stands down, and if the loader runs
- * first this reads its draft.
- *
- * Mirrors the push-to-talk bridge's `ensureConversationKey`, `setMainView`
- * included: on desktop the composer counts as on screen only while the main
- * view is the chat.
+ * Structural rather than react-router's `NavigateFunction` so a caller can
+ * hand over a wrapper that reads its own `navigate` ref. The drain navigates
+ * after two awaits, by which time a captured `navigate` may belong to a
+ * location the app has moved on from.
  */
-function ensureConversationKey(): string {
-  const existing = useConversationStore.getState().activeConversationId;
-  if (existing) {
-    return existing;
-  }
+export type VoiceStartNavigate = (
+  to: string,
+  options?: { replace?: boolean },
+) => unknown;
 
-  const draftId = createDraftConversationId();
-  useConversationStore.getState().setActiveConversationId(draftId);
-  useViewerStore.getState().setMainView("chat");
+/**
+ * The conversation a start-voice request opens into: a fresh draft, always.
+ *
+ * Never whatever the conversation store has selected. That selection survives
+ * navigation and cold launches by design, so it is wherever the user last was,
+ * while every surface that reaches this drain means *new*: the widget button,
+ * the Action Button, Control Center, a Siri shortcut, the Talk shortcut.
+ * Reading it would attach the call to an unrelated thread.
+ *
+ * Landing on the draft is the other half of the binding rather than a nicety.
+ * A session is owned by the composer bound to its conversation
+ * ({@link isLiveVoiceSessionOwnedBy}), and the composer on screen is the one
+ * the URL names, so a draft minted while the URL sits elsewhere is a session
+ * nothing on screen owns, leaving the title-bar pill standing in for the room
+ * the user asked for. `replace` because the entry it overwrites is the
+ * `routes.assistant` step on the way here, not a place the user chose.
+ *
+ * The conversation loader lands on the same draft rather than fighting this:
+ * the id is in the store before the navigation, and the URL key it resolves
+ * next is that same id.
+ */
+function bindFreshConversation(navigate: VoiceStartNavigate): string {
+  const draftId = mintVoiceDraftConversation();
+  void navigate(routes.conversation(draftId), { replace: true });
   return draftId;
 }
 
@@ -86,10 +98,13 @@ function ensureConversationKey(): string {
  * Always parks first, then drains: one code path for both the warm case (a
  * controller is already mounted, so the drain starts immediately) and the
  * cold-launch case (the drain no-ops and the controller picks the request up).
+ *
+ * `navigate` serves the warm case only. A parked request is drained by the
+ * controller, which navigates with its own.
  */
-export function requestVoiceStart(): void {
+export function requestVoiceStart(navigate: VoiceStartNavigate): void {
   usePendingDeepLinkStore.getState().setPendingVoiceStart();
-  void drainPendingVoiceStart();
+  void drainPendingVoiceStart(navigate);
 }
 
 /**
@@ -104,22 +119,21 @@ export function requestVoiceStart(): void {
  *   the user is in; the starter refuses a second anyway, and navigating would
  *   only walk the app away from the composer that owns it. Callers that toggle
  *   handle the end themselves before reaching here.
- * - **The chat, so a composer is on screen to own the session.** The drain
- *   binds the session to whichever conversation that lands on. Navigating is
- *   also what mounts `ChatLayout` and therefore the starter the request is
- *   waiting for.
+ * - **The chat, so the layout that owns the starter is mounted.** That is all
+ *   this navigation is for: the drain mints the conversation the session binds
+ *   to and lands on it from here.
  * - **The window is not raised for an ordinary start.** Every caller is a
  *   surface the user reached for precisely because they are working somewhere
  *   else, and that surface is where the call then shows itself. The one
  *   exception is the first-run card below: it asks a question, and a question
  *   drawn behind whatever the user is working in is a press that did nothing.
  */
-export function startVoiceFromSurface(navigate: (to: string) => unknown): void {
+export function startVoiceFromSurface(navigate: VoiceStartNavigate): void {
   if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
     return;
   }
   void navigate(routes.assistant);
-  requestVoiceStart();
+  requestVoiceStart(navigate);
 }
 
 /**
@@ -137,7 +151,9 @@ export function startVoiceFromSurface(navigate: (to: string) => unknown): void {
  * launch against a hibernating assistant, where the version resolution can hit
  * its timeout with `version` still `null`.
  */
-export async function drainPendingVoiceStart(): Promise<void> {
+export async function drainPendingVoiceStart(
+  navigate: VoiceStartNavigate,
+): Promise<void> {
   if (usePendingDeepLinkStore.getState().pendingVoiceStartAt === null) {
     return;
   }
@@ -215,5 +231,5 @@ export async function drainPendingVoiceStart(): Promise<void> {
   // playback while a user gesture is still active, and this path has no gesture
   // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
   // its own player when none was reserved.
-  readyStarter.start(assistantId, ensureConversationKey());
+  readyStarter.start(assistantId, bindFreshConversation(navigate));
 }

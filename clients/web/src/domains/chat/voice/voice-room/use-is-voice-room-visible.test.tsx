@@ -37,8 +37,16 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice,
 }));
 
+/**
+ * Location the app is "on", advanced by the drain's own navigation. The room
+ * predicate reads `useLocation` to decide whether a composer is on screen, so
+ * driving it from `navigateFn` is what makes this an end-to-end assertion: the
+ * drain has to land somewhere the room actually renders.
+ */
 let mockPathname: string = routes.assistant;
-const navigateFn = mock(() => {});
+const navigateFn = mock((to: string) => {
+  mockPathname = to.split("?")[0] ?? to;
+});
 mock.module("react-router", () => ({
   useLocation: () => ({ pathname: mockPathname, search: "" }),
   useNavigate: () => navigateFn,
@@ -82,7 +90,8 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
-const CONVERSATION_ID = "conv-owning";
+/** An earlier thread the app was left sitting on when the link arrives. */
+const PRIOR_CONVERSATION_ID = "conv-prior";
 
 /** The controller's starter, binding the session as `useLiveVoice` does. */
 function registerStarter(): void {
@@ -106,7 +115,8 @@ async function flushDrain(): Promise<void> {
 }
 
 beforeEach(() => {
-  mockPathname = routes.conversation(CONVERSATION_ID);
+  mockPathname = routes.conversation(PRIOR_CONVERSATION_ID);
+  navigateFn.mockClear();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
   __resetPendingDeepLinkForTesting();
@@ -127,12 +137,22 @@ afterEach(() => {
   useConversationStore.getState().reset();
 });
 
-test("a deep-link start opens the room on the composer it lands on, not the pill", async () => {
-  useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);
+test("a deep-link start opens the room on the conversation it mints, not the pill", async () => {
+  // The app was left on an earlier thread, which is the state a widget button
+  // or a Siri shortcut finds. The call belongs to neither that thread nor to
+  // nothing at all: it gets one of its own, and the composer for it has to be
+  // the one on screen or the room never opens.
+  useConversationStore
+    .getState()
+    .setActiveConversationId(PRIOR_CONVERSATION_ID);
   registerStarter();
 
-  requestVoiceStart();
+  requestVoiceStart(navigateFn);
   await flushDrain();
+
+  const draftId = useConversationStore.getState().activeConversationId;
+  expect(draftId).not.toBe(PRIOR_CONVERSATION_ID);
+  expect(mockPathname).toBe(routes.conversation(draftId ?? ""));
 
   const { result } = renderHook(() => useIsVoiceRoomVisible());
   expect(result.current).toBe(true);

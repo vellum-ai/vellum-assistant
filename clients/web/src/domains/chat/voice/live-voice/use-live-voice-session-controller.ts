@@ -31,7 +31,8 @@
  * what its buttons do ({@link useLiveActivityControls}).
  */
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { useNavigate } from "react-router";
 
 import {
   useLiveVoice,
@@ -174,6 +175,16 @@ export function useLiveVoiceSessionController(
     observeAudioState: false,
   });
 
+  // A parked start-voice request is drained here, and the drain lands on the
+  // conversation it mints for the session (see `start-voice-request.ts`). Held
+  // in a ref, and read only when the drain gets that far, so a fresh
+  // `navigate` identity never re-registers the starter.
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+  });
+
   useEffect(() => {
     useLiveVoiceStore.getState().setStarter({
       prewarm: prewarmPlayback,
@@ -191,7 +202,9 @@ export function useLiveVoiceSessionController(
     // A start-voice deep link that arrived before this mount (cold launch from
     // Siri / the Action Button / a Live Activity tap) is parked; now that a
     // starter exists, run it. One-shot, so the re-runs of this effect are free.
-    void drainPendingVoiceStart();
+    void drainPendingVoiceStart((to, navigateOptions) =>
+      navigateRef.current(to, navigateOptions),
+    );
     return () => {
       useLiveVoiceStore.getState().setStarter(null);
     };
