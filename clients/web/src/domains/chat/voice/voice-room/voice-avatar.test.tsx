@@ -7,23 +7,40 @@
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { memo } from "react";
+
 import { cleanup, render, screen } from "@testing-library/react";
+
+import type * as ChatAvatarModule from "@/components/avatar/chat-avatar";
+import type * as AssistantAvatarModule from "@/hooks/use-assistant-avatar";
 
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 
 // The avatar query pulls React Query and the daemon graph; the phase classes
-// are what this file is about.
-mock.module("@/hooks/use-assistant-avatar", () => ({
-  useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
+// are what this file is about. Both factories are typed against the module
+// they replace, so a stub that drifts from the real shape is a type error
+// rather than a green suite testing behavior the app no longer has.
+mock.module(
+  "@/hooks/use-assistant-avatar",
+  (): Partial<typeof AssistantAvatarModule> => ({
+    useAssistantAvatar: () => ({
+      components: null,
+      traits: null,
+      customImageUrl: null,
+      isLoading: false,
+      invalidate: () => {},
+    }),
   }),
-}));
+);
 
-mock.module("@/components/avatar/chat-avatar", () => ({
-  ChatAvatar: () => <div data-testid="chat-avatar" />,
-}));
+// `memo` because the real export is one, and the phase classes live on the
+// wrapper above this, so the avatar itself only has to be findable.
+mock.module(
+  "@/components/avatar/chat-avatar",
+  (): Partial<typeof ChatAvatarModule> => ({
+    ChatAvatar: memo(() => <div data-testid="chat-avatar" />),
+  }),
+);
 
 const { VoiceAvatar } = await import("./voice-avatar");
 
