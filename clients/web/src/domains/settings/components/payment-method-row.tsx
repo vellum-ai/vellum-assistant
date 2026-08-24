@@ -9,18 +9,12 @@ export interface PaymentMethodRowProps {
   brand: string | null;
   last4: string | null;
   onUpdateCard: () => void;
-  onRemove: () => void;
-  removing?: boolean;
-  showRemove?: boolean;
 }
 
 export function PaymentMethodRow({
   brand,
   last4,
   onUpdateCard,
-  onRemove,
-  removing = false,
-  showRemove = true,
 }: PaymentMethodRowProps) {
   const { t } = useTranslation("settings");
 
@@ -53,27 +47,14 @@ export function PaymentMethodRow({
           )}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button
-          variant="ghost"
-          onClick={onUpdateCard}
-          data-testid="payment-method-update"
-        >
-          {t("paymentMethodRow.updateCard")}
-        </Button>
-        {showRemove && (
-          <Button
-            variant="dangerGhost"
-            onClick={onRemove}
-            disabled={removing}
-            data-testid="payment-method-remove"
-          >
-            {removing
-              ? t("paymentMethodRow.removing")
-              : t("paymentMethodRow.remove")}
-          </Button>
-        )}
-      </div>
+      <Button
+        variant="ghost"
+        onClick={onUpdateCard}
+        data-testid="payment-method-update"
+        className="shrink-0"
+      >
+        {t("paymentMethodRow.updateCard")}
+      </Button>
     </div>
   );
 }
