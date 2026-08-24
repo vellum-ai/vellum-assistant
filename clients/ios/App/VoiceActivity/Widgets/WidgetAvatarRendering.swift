@@ -68,6 +68,10 @@ struct WidgetAvatarPalette {
     /// A control's fill on ``surface``: ``onSurface`` at low opacity.
     let controlFill: Color
 
+    /// ``onSurface`` resolved for each appearance, so a card mixing its own
+    /// fill can ask how bright the color it would be washing with is.
+    private let resolvedOnSurface: (light: UIColor, dark: UIColor)
+
     /// The palette for an avatar accent, or the static brand card when there
     /// is no accent to work from and when the one on offer is unreadable.
     init(accentHex: String?) {
@@ -79,6 +83,9 @@ struct WidgetAvatarPalette {
             surface = WidgetTheme.brandCardSurface
             onSurface = WidgetTheme.onBrand
             controlFill = WidgetTheme.onBrandFill
+            // The brand card is a deep green in both appearances, so what sits
+            // on it is white in both.
+            resolvedOnSurface = (.white, .white)
             return
         }
         // A card surface is opaque by definition. An 8-digit accent keeps its
@@ -93,8 +100,29 @@ struct WidgetAvatarPalette {
             light: lightOn.withAlphaComponent(Self.controlFillOpacity),
             dark: darkOn.withAlphaComponent(Self.controlFillOpacity)
         )
+        resolvedOnSurface = (lightOn, darkOn)
     }
 
+    /// ``controlFill`` at a weight the caller picks, for a card whose controls
+    /// read lighter than the default.
+    ///
+    /// Two weights rather than one because ``onSurface`` comes out white over
+    /// some accents and near-black over others, and one opacity does not read
+    /// the same both ways: a white wash lifts a dark card further than a black
+    /// wash deepens a light one.
+    func controlFill(onWhite: Double, onDark: Double) -> Color {
+        WidgetTheme.appearanceDynamic(
+            light: weighted(resolvedOnSurface.light, onWhite: onWhite, onDark: onDark),
+            dark: weighted(resolvedOnSurface.dark, onWhite: onWhite, onDark: onDark)
+        )
+    }
+
+    private func weighted(_ color: UIColor, onWhite: Double, onDark: Double) -> UIColor {
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getWhite(&brightness, alpha: &alpha)
+        return color.withAlphaComponent(brightness > 0.5 ? onWhite : onDark)
+    }
 }
 
 /// The assistant's eyes, drawn straight onto the card behind them.
@@ -299,7 +327,9 @@ private struct WidgetAvatarKitPreviewCard: View {
 
 /// The same content in both appearances, side by side: every value in this file
 /// resolves per appearance, so a preview showing one of them is half a preview.
-private func previewAppearances<Content: View>(
+///
+/// Shared with the widgets built out of the kit, which have the same problem.
+func previewAppearances<Content: View>(
     @ViewBuilder _ content: @escaping () -> Content
 ) -> some View {
     HStack(spacing: 16) {
@@ -314,8 +344,8 @@ private func previewAppearances<Content: View>(
 }
 
 /// A stand-in photo, drawn rather than shipped so the previews cost the
-/// extension no asset.
-private func previewAvatarPhoto() -> UIImage {
+/// extension no asset. Shared with the widgets built out of the kit.
+func previewAvatarPhoto() -> UIImage {
     let size = CGSize(width: 120, height: 120)
     return UIGraphicsImageRenderer(size: size).image { context in
         (UIColor(cssHex: "#3B6EA5") ?? .systemBlue).setFill()
