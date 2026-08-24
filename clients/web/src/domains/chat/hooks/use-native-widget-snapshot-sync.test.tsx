@@ -36,6 +36,12 @@
  * The hook is also the seam that finishes a clear a previous session could not:
  * a sign-out or origin swap whose bridge call failed persists the obligation,
  * and a launch that reaches no sync of its own would otherwise never honor it.
+ *
+ * The avatar rides along so the widgets can draw the user's own colors and
+ * face. It is read from the two imperative publishers rather than subscribed
+ * to, and its encoded bytes are deliberately outside the dedup key: they are
+ * tens of kilobytes, the key is re-serialized on every list re-render, and an
+ * identity in their place still tells one photo from the next.
  */
 
 import {
@@ -57,6 +63,7 @@ import type {
   ConversationGroup,
 } from "@/types/conversation-types";
 import type { WidgetSnapshotPayload } from "@/runtime/widget-snapshot";
+import type { AvatarRender } from "@/utils/avatar-render";
 import * as listFetchers from "@/utils/conversation-list-fetchers";
 
 // Nothing in this file should reach the network: the count endpoint stands in
@@ -87,7 +94,7 @@ let persistedAssistantId: string | null = null;
 // Full module surface: `mock.module` is process-global in bun, so a partial
 // shape would shadow the other exports for later test files in the run.
 mock.module("@/runtime/widget-snapshot", () => ({
-  WIDGET_SNAPSHOT_SCHEMA_VERSION: 1,
+  WIDGET_SNAPSHOT_SCHEMA_VERSION: 2,
   isWidgetSnapshotSyncAvailable: () => syncAvailable,
   readWidgetSnapshotAssistantId: () => persistedAssistantId,
   syncWidgetSnapshot: async (
@@ -132,6 +139,74 @@ mock.module("@/runtime/widget-snapshot", () => ({
  */
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// The avatar, as `RootLayout` publishes it: two module-level getters the hook
+// reads imperatively, so a test sets them directly. The encode is stubbed
+// because it rasterizes onto a canvas, which happy-dom does not have. All three
+// modules are spread over their real surface, since `mock.module` is
+// process-global in bun.
+let avatarSource: AvatarRender | null = null;
+let avatarAccentHex: string | null = null;
+let encodeOutcome: "bytes" | "nothing-fits" | "throws" = "bytes";
+let encodeCalls = 0;
+/** Long enough that a dedup key carrying it would be unmistakable. */
+const AVATAR_BASE64 = "Zm9vYmFy".repeat(2_000);
+
+const realAvatarAccentVar = await import("@/hooks/use-avatar-accent-var");
+mock.module("@/hooks/use-avatar-accent-var", () => ({
+  ...realAvatarAccentVar,
+  getRenderedAvatarAccentHex: () => avatarAccentHex,
+}));
+
+const realIslandAvatarSource = await import("@/hooks/use-island-avatar-source");
+mock.module("@/hooks/use-island-avatar-source", () => ({
+  ...realIslandAvatarSource,
+  getIslandAvatarSource: () => avatarSource,
+}));
+
+const realAvatarIslandEncode = await import("@/utils/avatar-island-encode");
+mock.module("@/utils/avatar-island-encode", () => ({
+  ...realAvatarIslandEncode,
+  encodeAvatarForIsland: async () => {
+    encodeCalls++;
+    if (encodeOutcome === "throws") {
+      throw new Error("canvas unavailable");
+    }
+    return encodeOutcome === "bytes" ? AVATAR_BASE64 : null;
+  },
+}));
+
+/** A character avatar, a distinct render each call as a real change produces. */
+function characterAvatar(): AvatarRender {
+  return {
+    kind: "character",
+    svg: "<svg />",
+    dataUri: "data:image/svg+xml,%3Csvg%20%2F%3E",
+  };
+}
+
+function imageAvatar(url: string): AvatarRender {
+  return { kind: "image", url };
+}
+
+/** Everything `JSON.stringify` produced while `body` ran. */
+function recordSerialized(body: () => void): string[] {
+  const serialized: string[] = [];
+  const real = JSON.stringify;
+  JSON.stringify = ((...args: Parameters<typeof JSON.stringify>) => {
+    const result = real(...args);
+    if (typeof result === "string") {
+      serialized.push(result);
+    }
+    return result;
+  }) as typeof JSON.stringify;
+  try {
+    body();
+  } finally {
+    JSON.stringify = real;
+  }
+  return serialized;
 }
 
 // The pod half of the queries' daemon gate. Spread over the real module: the
@@ -236,6 +311,10 @@ beforeEach(() => {
   persistedAssistantId = null;
   podIsServing = true;
   armedTimers = [];
+  avatarSource = null;
+  avatarAccentHex = null;
+  encodeOutcome = "bytes";
+  encodeCalls = 0;
   useConversationStore.setState({ processingConversationIds: new Set() });
 
   globalThis.setInterval = ((handler: () => void, delay: number) => {
@@ -573,7 +652,7 @@ describe("useNativeWidgetSnapshotSync", () => {
 
     expect(syncedSnapshots).toHaveLength(1);
     const snapshot = syncedSnapshots[0];
-    expect(snapshot?.schemaVersion).toBe(1);
+    expect(snapshot?.schemaVersion).toBe(2);
     expect(snapshot?.unreadCount).toBe(1);
     // Both processing sources count, and the archived row is excluded from
     // the count as well as from the rows.
@@ -1008,6 +1087,205 @@ describe("useNativeWidgetSnapshotSync", () => {
     // timestamp, and racing it would retire the attempt it counts on.
     fireHeartbeat();
     expect(syncedSnapshots).toHaveLength(1);
+  });
+
+  it("carries a character avatar's rendered accent and encoded face", async () => {
+    avatarSource = characterAvatar();
+    avatarAccentHex = "#E9642F";
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(syncedSnapshots[0]?.avatar).toEqual({
+      kind: "character",
+      accentHex: "#E9642F",
+      imageBase64: AVATAR_BASE64,
+    });
+  });
+
+  it("carries a custom image with no accent to match", async () => {
+    // The rendered accent is null for an uploaded avatar by construction, and
+    // the widget blurs the photo for its background instead.
+    avatarSource = imageAvatar("blob:avatar-1");
+    avatarAccentHex = null;
+    render({
+      conversations: [conversation("c1")],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    expect(syncedSnapshots[0]?.avatar).toEqual({
+      kind: "image",
+      accentHex: null,
+      imageBase64: AVATAR_BASE64,
+    });
+  });
+
+  it("carries an empty avatar when the assistant has none", () => {
+    render({
+      conversations: [conversation("c1")],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+
+    // Nothing to encode, so the snapshot is not held for one either: the send
+    // is synchronous with the render that fired it.
+    expect(syncedSnapshots[0]?.avatar).toEqual({
+      kind: "none",
+      accentHex: null,
+      imageBase64: null,
+    });
+    expect(encodeCalls).toBe(0);
+  });
+
+  it("still sends the counts and rows when the avatar will not encode", async () => {
+    // Both ways it can fail: nothing fit the budget, and the raster threw. The
+    // widgets are for the counts and the rows, so neither may cost a snapshot.
+    encodeOutcome = "nothing-fits";
+    avatarSource = characterAvatar();
+    avatarAccentHex = "#E9642F";
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots[0]?.avatar).toEqual({
+      kind: "character",
+      accentHex: "#E9642F",
+      imageBase64: null,
+    });
+    expect(syncedSnapshots[0]?.conversations).toHaveLength(1);
+
+    encodeOutcome = "throws";
+    avatarSource = characterAvatar();
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.avatar.imageBase64).toBeNull();
+    expect(syncedSnapshots[1]?.conversations).toHaveLength(1);
+  });
+
+  it("re-sends unchanged conversations when the avatar changes", async () => {
+    // One photo swapped for another changes neither the kind nor the accent, so
+    // only the identity the key carries can tell the snapshots apart.
+    avatarSource = imageAvatar("blob:avatar-1");
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(1);
+
+    avatarSource = imageAvatar("blob:avatar-2");
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(2);
+
+    // And the same avatar with the same rows still costs no bridge traffic.
+    rerender({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(2);
+    // Once per avatar, however many snapshots each one feeds.
+    expect(encodeCalls).toBe(2);
+  });
+
+  it("drops a write the assistant switched out from under while it encoded", async () => {
+    // The wait on the canvas draw is the one window in which a switch can
+    // overtake a snapshot. Letting it land would put the departed assistant's
+    // rows straight back on a Home Screen that was just cleared.
+    avatarSource = characterAvatar();
+    const { rerender } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    expect(syncedSnapshots).toHaveLength(0);
+
+    rerender({
+      assistantId: "asst-2",
+      conversations: [],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: false,
+    });
+    expect(clearCount).toBe(1);
+
+    await settle();
+    expect(syncedSnapshots).toHaveLength(0);
+    expect(bridgeOrder).toEqual(["clear"]);
+  });
+
+  it("keeps the avatar's bytes out of the dedup key", async () => {
+    avatarSource = characterAvatar();
+    avatarAccentHex = "#E9642F";
+    const serialized = recordSerialized(() => {
+      const { rerender } = render({
+        conversations: [conversation("c1", { title: "Groceries" })],
+        conversationGroups: NO_GROUPS,
+        inputsResolved: true,
+      });
+      rerender({
+        conversations: [conversation("c1", { title: "Groceries" })],
+        conversationGroups: NO_GROUPS,
+        inputsResolved: true,
+      });
+    });
+    await settle();
+
+    // The key was built, and the multi-kilobyte body never went through it.
+    expect(serialized.some((entry) => entry.includes('"unreadCount"'))).toBe(
+      true,
+    );
+    expect(serialized.some((entry) => entry.includes(AVATAR_BASE64))).toBe(
+      false,
+    );
+    // The bytes still reached the bridge.
+    expect(syncedSnapshots[0]?.avatar.imageBase64).toBe(AVATAR_BASE64);
+  });
+
+  it("beats with an avatar that changed while nothing else did", async () => {
+    // An avatar change re-renders nothing here: the publishers are read
+    // imperatively, so the tick is what carries it to the Home Screen.
+    avatarSource = characterAvatar();
+    avatarAccentHex = "#E9642F";
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(1);
+
+    avatarSource = imageAvatar("blob:avatar-1");
+    avatarAccentHex = null;
+    fireHeartbeat();
+    await settle();
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.avatar).toEqual({
+      kind: "image",
+      accentHex: null,
+      imageBase64: AVATAR_BASE64,
+    });
+    expect(syncedSnapshots[1]?.conversations).toEqual(
+      syncedSnapshots[0]?.conversations ?? [],
+    );
   });
 
   it("is a no-op off Capacitor iOS", () => {

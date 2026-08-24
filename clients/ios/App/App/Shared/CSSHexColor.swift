@@ -6,9 +6,9 @@ import UIKit
 ///
 /// This is the single native parser for the `#RGB` / `#RRGGBB` / `#RRGGBBAA`
 /// strings the web side hands across (`--surface-overlay` for the shell
-/// background, `accentHex` for the Live Activity). `VoiceSessionAttributes`'s
-/// `canonicalAccentHex` validates against exactly this grammar, so a
-/// canonicalized accent always parses here.
+/// background, `accentHex` for the Live Activity, the widget snapshot's avatar
+/// accent). ``canonicalCSSHex(_:)`` validates against exactly this grammar, so
+/// a canonicalized string always parses here.
 extension UIColor {
     /// Parse a CSS hex color string (`#RGB`, `#RRGGBB`, or `#RRGGBBAA`) as
     /// reported by `getComputedStyle().getPropertyValue()`. Returns `nil` for
@@ -75,4 +75,28 @@ extension Color {
     var contrastingForeground: Color {
         Color(uiColor: UIColor(self).contrastingForeground)
     }
+}
+
+/// Canonicalizes a CSS hex color (`#RGB`, `#RRGGBB`, `#RRGGBBAA`, with the `#`
+/// optional) to `#` plus uppercase digits, or `nil` when it is none of those.
+///
+/// One canonicalizer for every web-supplied color, so the surfaces that read
+/// them cannot come to accept different spellings. Each supplies its own answer
+/// for `nil`: the Live Activity substitutes its neutral gray, since a running
+/// session always renders something, while a widget keeps a nil accent and
+/// falls back to its static brand palette.
+func canonicalCSSHex(_ raw: String) -> String? {
+    var digits = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    if digits.hasPrefix("#") {
+        digits.removeFirst()
+    }
+    if digits.count == 3 {
+        digits = digits.map { "\($0)\($0)" }.joined()
+    }
+    guard digits.count == 6 || digits.count == 8,
+          digits.allSatisfy({ $0.isASCII && $0.isHexDigit })
+    else {
+        return nil
+    }
+    return "#" + digits
 }

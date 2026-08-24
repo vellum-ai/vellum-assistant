@@ -4,6 +4,8 @@ import {
   useCanQueryDaemon,
   useUnreadConversationCount,
 } from "@/hooks/conversation-queries";
+import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
+import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useTranslation } from "@/i18n";
 import {
   clearWidgetSnapshot,
@@ -12,6 +14,7 @@ import {
   retryPendingWidgetSnapshotClear,
   syncWidgetSnapshot,
   WIDGET_SNAPSHOT_SCHEMA_VERSION,
+  type WidgetSnapshotAvatar,
   type WidgetSnapshotConversation,
   type WidgetSnapshotPayload,
 } from "@/runtime/widget-snapshot";
@@ -20,6 +23,8 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
+import type { AvatarRender } from "@/utils/avatar-render";
 import { activeConversationsByRecency } from "@/utils/conversation-order";
 
 /**
@@ -46,13 +51,126 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  */
 export const WIDGET_SNAPSHOT_HEARTBEAT_MS = 15 * 60 * 1000;
 
-/** A snapshot before it is stamped, which is also the dedup key's shape. */
-type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
+/**
+ * Byte ceiling for the avatar image a snapshot carries.
+ *
+ * Deliberately not the Live Activity's ceiling
+ * ({@link encodeAvatarForIsland}'s default): that one is ActivityKit's
+ * attribute budget, where going over costs the whole activity, so it is
+ * measured in single kilobytes. This payload is a UserDefaults write into an
+ * App Group, and a widget draws the avatar far larger than an island does, so
+ * the budget is set by what is worth writing rather than by what will start.
+ * The shell rejects anything past its own cap, which sits above this one.
+ */
+const WIDGET_AVATAR_MAX_BYTES = 64_000;
+
+/** A snapshot before it is stamped and before its avatar bytes are attached. */
+type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt" | "avatar">;
+
+/**
+ * The avatar as the dedup key sees it.
+ *
+ * `image` is the identity of the encoded bytes rather than the bytes
+ * themselves: a widget-sized avatar is tens of kilobytes of base64, and
+ * re-serializing that on every list re-render is exactly the cost the key
+ * exists to avoid. It has to be in the key at all because a photo swapped for
+ * another photo changes neither the kind nor the accent, and would otherwise
+ * never reach the Home Screen.
+ */
+interface SnapshotAvatarFingerprint {
+  kind: WidgetSnapshotAvatar["kind"];
+  accentHex: string | null;
+  image: number;
+}
+
+/**
+ * The avatar last encoded for a snapshot, keyed by the render it came from.
+ *
+ * Module scope, mirroring `use-live-activity-mirror.ts`: the encode is a canvas
+ * draw, and the key is the resolved `AvatarRender`, a stable object republished
+ * only when the avatar itself changes, so identity comparison is enough and
+ * there is nothing to invalidate. The resolved bytes are kept beside the
+ * promise so only the first snapshot after a change has anything to wait for.
+ */
+interface AvatarEncode {
+  source: AvatarRender | null;
+  /** Distinguishes one encode from the next inside the dedup key. */
+  revision: number;
+  /** Null while `encoding` is unsettled, and when nothing fit the budget. */
+  base64: string | null;
+  /** The encode in flight, or null when there is nothing to wait for. */
+  encoding: Promise<string | null> | null;
+}
+
+let avatarEncode: AvatarEncode | null = null;
+let avatarEncodes = 0;
+
+/**
+ * The avatar the next snapshot should carry, starting its encode if this is
+ * the first read since it changed.
+ *
+ * Read imperatively from the two publishers in `RootLayout` rather than
+ * subscribed to, for the reason they are published at all: this hook runs
+ * inside an effect at layout scope, and a query subscription here would
+ * re-render the whole layout on every avatar settle. An avatar that changes
+ * with nothing else reaches the Home Screen on the next heartbeat.
+ */
+function currentSnapshotAvatar(): {
+  fingerprint: SnapshotAvatarFingerprint;
+  encode: AvatarEncode;
+} {
+  const source = getIslandAvatarSource();
+  if (avatarEncode === null || avatarEncode.source !== source) {
+    avatarEncode = startAvatarEncode(source);
+  }
+  const encode = avatarEncode;
+  return {
+    fingerprint: {
+      kind: source?.kind ?? "none",
+      accentHex: getRenderedAvatarAccentHex(),
+      image: encode.revision,
+    },
+    encode,
+  };
+}
+
+/** Start encoding `source`, or record that there is nothing to encode. */
+function startAvatarEncode(source: AvatarRender | null): AvatarEncode {
+  avatarEncodes += 1;
+  const encode: AvatarEncode = {
+    source,
+    revision: avatarEncodes,
+    base64: null,
+    encoding: null,
+  };
+  if (source === null) {
+    return encode;
+  }
+  // An encode that fails or fits nothing is an avatar-less snapshot, never a
+  // missing one: the counts and the rows are what the widgets are for.
+  encode.encoding = encodeAvatarForIsland(source, WIDGET_AVATAR_MAX_BYTES)
+    .catch(() => null)
+    .then((base64) => {
+      encode.base64 = base64;
+      encode.encoding = null;
+      return base64;
+    });
+  return encode;
+}
+
+/** The dedup key: everything a snapshot says, with the avatar as an identity. */
+function snapshotKey(
+  content: SnapshotContent,
+  avatar: SnapshotAvatarFingerprint,
+): string {
+  return JSON.stringify({ ...content, avatar });
+}
 
 /**
  * Mirror the conversation list into the iOS shell's `WidgetSnapshot` plugin
- * so the Home Screen widgets can draw unread and in-progress counts and the
- * three most recent chats. No-ops everywhere but Capacitor iOS.
+ * so the Home Screen widgets can draw unread and in-progress counts, the three
+ * most recent chats, and the assistant's own avatar. No-ops everywhere but
+ * Capacitor iOS.
  *
  * Mount once at a layout that already holds the conversation list (currently
  * `ChatLayout`, beside `useNativeRecentChatsSync`, its Shortcuts sibling).
@@ -74,7 +192,9 @@ type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
  * Syncs are deduped on the serialized snapshot with `generatedAt` excluded.
  * Including it would make every render a fresh payload and the dedup dead,
  * so the shell would take bridge traffic and a widget timeline reload on
- * every re-render of the layout.
+ * every re-render of the layout. The avatar is in that key as an identity
+ * rather than as its bytes (see {@link SnapshotAvatarFingerprint}), and the
+ * bytes are attached as the payload is sent.
  *
  * That leaves the timestamp to a heartbeat
  * ({@link WIDGET_SNAPSHOT_HEARTBEAT_MS}), because the widget reads it as
@@ -239,7 +359,10 @@ export function useNativeWidgetSnapshotSync(
   // heartbeat cannot corrupt the bookkeeping a data sync depends on.
   const sendSnapshot = useCallback(
     (content: SnapshotContent, ownerId: string | null): void => {
-      const serialized = JSON.stringify(content);
+      // Resolved here rather than passed in, so a heartbeat carrying content
+      // nothing has re-rendered still picks up an avatar that changed under it.
+      const { fingerprint, encode } = currentSnapshotAvatar();
+      const serialized = snapshotKey(content, fingerprint);
       // The producer is recorded as the call is fired rather than when it
       // lands. A write already on the bridge can land at any moment, so a
       // switch that happens in between has to see this assistant as an owner.
@@ -249,22 +372,43 @@ export function useNativeWidgetSnapshotSync(
       syncedAssistantIdRef.current = ownerId;
       inFlightPayloadRef.current = serialized;
       const attempt = (syncAttemptRef.current += 1);
-      void syncWidgetSnapshot(
-        {
-          ...content,
-          generatedAt: new Date().toISOString(),
-        },
-        ownerId,
-      ).then((landed) => {
+      const write = (imageBase64: string | null): void => {
+        // Retires a write the wait below outlived: an assistant switch clears
+        // the App Group, and a snapshot landing after it would put the
+        // departed assistant's rows straight back on the Home Screen.
         if (attempt !== syncAttemptRef.current) {
           return;
         }
-        inFlightPayloadRef.current = null;
-        if (!landed) {
-          return;
-        }
-        lastPayloadRef.current = serialized;
-      });
+        void syncWidgetSnapshot(
+          {
+            ...content,
+            avatar: {
+              kind: fingerprint.kind,
+              accentHex: fingerprint.accentHex,
+              imageBase64,
+            },
+            generatedAt: new Date().toISOString(),
+          },
+          ownerId,
+        ).then((landed) => {
+          if (attempt !== syncAttemptRef.current) {
+            return;
+          }
+          inFlightPayloadRef.current = null;
+          if (!landed) {
+            return;
+          }
+          lastPayloadRef.current = serialized;
+        });
+      };
+      // Only the first snapshot after an avatar change waits on the canvas
+      // draw; every later one reads the bytes it left behind and stays
+      // synchronous with the render that fired it.
+      if (encode.encoding === null) {
+        write(encode.base64);
+        return;
+      }
+      void encode.encoding.then(write);
     },
     [],
   );
@@ -349,14 +493,18 @@ export function useNativeWidgetSnapshotSync(
         isProcessing: isProcessing(conversation),
       }));
 
-    // Built without `generatedAt` so the serialized form is the dedup key.
+    // Built without `generatedAt` and without the avatar's bytes, so the
+    // serialized form is the dedup key.
     const content: SnapshotContent = {
       schemaVersion: WIDGET_SNAPSHOT_SCHEMA_VERSION,
       unreadCount,
       inProgressCount,
       conversations: rows,
     };
-    const serialized = JSON.stringify(content);
+    const serialized = snapshotKey(
+      content,
+      currentSnapshotAvatar().fingerprint,
+    );
     // Recorded whether or not this run sends it, since it describes what the
     // App Group should hold rather than what reached it.
     desiredContentRef.current = content;

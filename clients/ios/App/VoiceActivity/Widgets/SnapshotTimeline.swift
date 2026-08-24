@@ -143,6 +143,9 @@ extension WidgetSnapshot {
                 hasUnseen: false,
                 isProcessing: true
             ),
-        ]
+        ],
+        // The gallery entry shows the brand palette rather than an invented
+        // avatar: whoever is holding the phone may not be the account holder.
+        avatar: nil
     )
 }

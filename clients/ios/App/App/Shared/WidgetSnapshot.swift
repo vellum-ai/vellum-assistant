@@ -14,19 +14,42 @@ struct WidgetSnapshotConversation: Codable, Equatable {
     let isProcessing: Bool
 }
 
+/// The assistant's avatar, so a widget can draw the user's own colors and face
+/// instead of a fixed brand palette.
+///
+/// The image travels as bytes because the extension has no network stack and
+/// no auth of its own, the same reason the Live Activity's avatar does.
+///
+/// `kind` is the web side's `AvatarRender` vocabulary (`character`, `image`,
+/// `none`) rather than a native enum: an unknown value has to read as "no
+/// avatar I can draw", which is a fallback every widget already has, and not as
+/// a decode failure that would cost the counts and rows too. `accentHex` is
+/// canonical (see ``canonicalCSSHex(_:)``) or nil, and is nil for a custom
+/// image by design, since there is no single color to match.
+struct WidgetSnapshotAvatar: Codable, Equatable {
+    let kind: String
+    let accentHex: String?
+    let imageData: Data?
+}
+
 /// Everything the Home Screen knows about the signed-in user's conversations:
-/// two counts and the few most recent threads, as of `generatedAt`.
+/// two counts and the few most recent threads, as of `generatedAt`, plus the
+/// avatar the widgets theme themselves from.
 struct WidgetSnapshot: Codable, Equatable {
     /// Version of the stored shape. `WidgetSnapshotStore` refuses a blob
     /// carrying any other value, so a field this build cannot make sense of
     /// reads as no snapshot rather than as a half-decoded one.
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     let generatedAt: Date
     let unreadCount: Int
     let inProgressCount: Int
     let conversations: [WidgetSnapshotConversation]
+    /// Optional even though the producer always sends it: a dict the shell
+    /// cannot make sense of should cost the widgets their theming, never their
+    /// counts and rows.
+    let avatar: WidgetSnapshotAvatar?
 }
 
 /// The `kind` string each Vellum widget registers under, and the identifier
