@@ -85,9 +85,7 @@ export function useCameraDeepLink({
       return;
     }
     const consume = () =>
-      usePendingDeepLinkStore
-        .getState()
-        .consumePendingCamera(PENDING_CAMERA_TTL_MS);
+      usePendingDeepLinkStore.getState().consumePendingCamera();
     // Spent whatever the age: an expired park is not left behind for a later
     // mount to drain.
     if (Date.now() - pendingCamera.parkedAt > PENDING_CAMERA_TTL_MS) {
