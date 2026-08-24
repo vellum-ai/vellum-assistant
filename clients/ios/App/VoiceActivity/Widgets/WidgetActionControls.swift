@@ -16,9 +16,10 @@ import UIKit
 /// `openAppWhenRun`, so the system performs them in the app process; the appex
 /// only needs the types to exist.
 struct WidgetActionTile<ActionIntent: AppIntent>: View {
-    /// Matched to the squircle the system clips the widget itself with, so a
-    /// tile reads as a smaller instance of the card it sits on.
-    private static var cornerRadius: CGFloat { 14 }
+    /// Close to the squircle the system clips the widget itself with, so a tile
+    /// reads as a smaller instance of the card it sits on rather than as a chip
+    /// placed on top of it.
+    private static var cornerRadius: CGFloat { 19 }
 
     private static var iconSize: CGFloat { 22 }
 
@@ -65,16 +66,27 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
 }
 
 extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
+    /// The New Chat tile on the static tokens, for the widgets with no avatar
+    /// in hand to theme it with.
+    static var newChat: Self {
+        newChat(accent: WidgetSoftAccent(accentHex: nil))
+    }
+
     /// The New Chat tile, spelled once so the widgets offering it cannot drift
     /// into different wording, glyphs or colors. The frame around it stays with
     /// the caller: the column and the row size their tiles differently.
-    static var newChat: Self {
+    ///
+    /// The accent themes the tile and the avatar replaces its mark, both from
+    /// the snapshot, so the tile that starts a chat with the assistant looks
+    /// like that assistant.
+    static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
             icon: Image("VellumV"),
             title: "New Chat",
-            fill: WidgetTheme.newChatFill,
-            tint: WidgetTheme.brand
+            fill: accent.fill,
+            tint: accent.onFill,
+            avatarImage: avatarImage
         )
     }
 }
