@@ -10,18 +10,23 @@
  * The sample is normalized rather than used raw: a photograph's average is
  * usually a washed-out near-white or a muddy near-black, neither of which is a
  * background anything can be drawn on. {@link normalizeFieldHex} keeps the
- * sampled hue and pins the lightness into the band the character palette
- * occupies, which is the band avatar-tinted treatments are tuned against.
+ * sampled hue and pins the perceived brightness into the band the character
+ * palette occupies, which is the band avatar-tinted treatments are tuned
+ * against.
  */
 
 import { coverCropSquare } from "./avatar-raster";
 
 /**
- * Lightness the field is pinned to, matching the character palette's own range
- * (its darkest color, teal, sits at ~0.44). Treatments drawn over an avatar
- * color assume that band: pale ink reads on it, and so does dark ink.
+ * Perceived brightness the field is pinned to, matching the character palette's
+ * own range (its darkest color, teal, sits at ~0.44). Treatments drawn over an
+ * avatar color assume that band: pale ink reads on it, and so does dark ink.
+ *
+ * Perceived, not HSL lightness: the eye weights green far above blue, so a
+ * fixed lightness leaves a saturated blue at roughly half the brightness of a
+ * saturated yellow, dark enough that the dark ink drawn over it disappears.
  */
-const FIELD_LIGHTNESS = 0.42;
+const FIELD_BRIGHTNESS = 0.45;
 
 /**
  * Saturation ceiling. A logo built from one fully-saturated ink samples at
@@ -96,8 +101,12 @@ function rgbToHsl(
   return { h: h < 0 ? h + 1 : h, s, l };
 }
 
-/** HSL (all 0-1) back to a `#rrggbb` hex. */
-function hslToHex(h: number, s: number, l: number): string {
+/** HSL (all 0-1) back to RGB (0-255). */
+function hslToRgb(
+  h: number,
+  s: number,
+  l: number,
+): [number, number, number] {
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const hp = h * 6;
   const x = c * (1 - Math.abs((hp % 2) - 1));
@@ -114,13 +123,40 @@ function hslToHex(h: number, s: number, l: number): string {
               ? [x, 0, c]
               : [c, 0, x];
   const m = l - c / 2;
-  return toHex((r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255);
+  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
+}
+
+/** Perceived brightness (YIQ), 0-1: the measure `toneForBg` judges a fill by. */
+function brightness(r: number, g: number, b: number): number {
+  return (r * 299 + g * 587 + b * 114) / 1000 / 255;
+}
+
+/**
+ * The `h`/`s` color whose perceived brightness is `target`.
+ *
+ * Brightness climbs monotonically with lightness at a fixed hue and saturation,
+ * so this bisects for it. Inverting the piecewise HSL conversion analytically
+ * would mean a case per hue sector for no gain: twenty halvings land within a
+ * thousandth of a channel step.
+ */
+function hexAtBrightness(h: number, s: number, target: number): string {
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 20; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (brightness(...hslToRgb(h, s, mid)) < target) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return toHex(...hslToRgb(h, s, (lo + hi) / 2));
 }
 
 /**
  * Pin a sampled color into the band avatar-tinted surfaces are drawn for: the
- * hue is kept, the lightness is set to {@link FIELD_LIGHTNESS}, and the
- * saturation is capped. Returns the input unchanged if it is not a hex.
+ * hue is kept, the saturation is capped, and the perceived brightness is set to
+ * {@link FIELD_BRIGHTNESS}. Returns the input unchanged if it is not a hex.
  */
 export function normalizeFieldHex(hex: string): string {
   const rgb = parseHex(hex);
@@ -128,7 +164,11 @@ export function normalizeFieldHex(hex: string): string {
     return hex;
   }
   const { h, s } = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-  return hslToHex(h, Math.min(s, FIELD_MAX_SATURATION), FIELD_LIGHTNESS);
+  return hexAtBrightness(
+    h,
+    Math.min(s, FIELD_MAX_SATURATION),
+    FIELD_BRIGHTNESS,
+  );
 }
 
 /**

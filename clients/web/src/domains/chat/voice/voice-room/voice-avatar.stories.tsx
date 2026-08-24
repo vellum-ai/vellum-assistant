@@ -13,6 +13,7 @@ import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import type { CharacterTraits } from "@/types/avatar";
 
 import { toneForBg } from "@/utils/avatar-tone";
+import { normalizeFieldHex } from "@/utils/avatar-image-color";
 
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {
@@ -548,8 +549,11 @@ export const RespondingSketches: Story = {
 // and the image standing where the eyes would.
 // ---------------------------------------------------------------------------
 
-/** A plausible sample: pinned to the same band `normalizeFieldHex` produces. */
-const SAMPLE_FIELD_HEX = "#3B5C8A";
+/** Plausible samples, run through the same normalization the room applies, so
+ *  the knob shows colors a real upload can actually produce. */
+const SAMPLE_FIELD_HEX = normalizeFieldHex("#3B5C8A");
+const SAMPLE_FIELD_WARM = normalizeFieldHex("#C2410C");
+const SAMPLE_FIELD_GRAY = normalizeFieldHex("#8A8A8A");
 
 const customArgs = {
   visual: "listening" as VoiceAvatarVisual,
@@ -564,7 +568,7 @@ const customArgs = {
 const customArgTypes = {
   ...sharedArgTypes,
   fieldHex: {
-    options: [SAMPLE_FIELD_HEX, "#8A5A3B", "#6B6B6B", null],
+    options: [SAMPLE_FIELD_HEX, SAMPLE_FIELD_WARM, SAMPLE_FIELD_GRAY, null],
     control: { type: "select" as const },
     description:
       "Field color sampled off the upload; null is the room before it lands.",
