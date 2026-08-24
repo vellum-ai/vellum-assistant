@@ -577,13 +577,18 @@
   },
   "documentViewerContainer": {
     "close": "Close",
-    "closeCommentsAria": "Close comments",
     "closeDocumentAria": "Close document",
     "comments": "Comments",
     "export": "Export",
-    "openCommentsAria": "Open comments",
+    "hideComments": "Hide comments",
+    "menuAria": "Document options",
+    "rename": "Rename",
+    "renameFailed": "Could not rename the document.",
+    "renameSave": "Save",
+    "renameTitle": "Rename document",
     "saved": "Saved",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "wordCount": "{count, plural, one {# word} other {# words}}"
   },
   "documentViewerPage": {
     "notFound": "Document not found."

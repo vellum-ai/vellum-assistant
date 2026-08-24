@@ -301,13 +301,20 @@ export function ConversationAssetsPill({
     <>
       <Popover.Root open={open} onOpenChange={handleOpenChange}>
         <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+        {/*
+          The popover keeps its own `p-2` inset and the heading takes the
+          same `px-2 py-1.5` a `Menu.Label` does, which puts the heading on
+          the column the rows' icons start from. Hand-rolled padding had the
+          heading inset 12px against rows inset 16px, and a 4px gap under it
+          against 8px everywhere else.
+        */}
         <Popover.Content
           side="bottom"
           align="center"
           sideOffset={8}
-          className="w-60 p-0"
+          className="w-60"
         >
-          <div className="px-3 pt-3 pb-1">
+          <div className="px-2 py-1.5">
             <Typography
               variant="label-small-default"
               className="text-[var(--content-tertiary)]"
@@ -315,9 +322,7 @@ export function ConversationAssetsPill({
               {t("conversationAssets.heading")}
             </Typography>
           </div>
-          <div className="max-h-[240px] overflow-y-auto px-2 pb-2">
-            {assetItems}
-          </div>
+          <div className="max-h-[240px] overflow-y-auto">{assetItems}</div>
         </Popover.Content>
       </Popover.Root>
       <DeleteAppDialog

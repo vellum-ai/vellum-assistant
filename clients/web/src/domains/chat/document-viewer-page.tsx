@@ -233,6 +233,7 @@ export function DocumentViewerPage() {
         documentName={doc.title}
         content={doc.content}
         onClose={handleClose}
+        onRenamed={(title) => setDoc((prev) => (prev ? { ...prev, title } : prev))}
         onExport={handleExport}
         onSubmitFeedback={handleSubmitFeedback}
         handleRef={viewerRef}

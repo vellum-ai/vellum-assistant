@@ -577,13 +577,18 @@
   },
   "documentViewerContainer": {
     "close": "Cerrar",
-    "closeCommentsAria": "Cerrar comentarios",
     "closeDocumentAria": "Cerrar documento",
     "comments": "Comentarios",
     "export": "Exportar",
-    "openCommentsAria": "Abrir comentarios",
+    "hideComments": "Ocultar comentarios",
+    "menuAria": "Opciones del documento",
+    "rename": "Cambiar nombre",
+    "renameFailed": "No se pudo cambiar el nombre del documento.",
+    "renameSave": "Guardar",
+    "renameTitle": "Cambiar el nombre del documento",
     "saved": "Guardado",
-    "saving": "Guardando…"
+    "saving": "Guardando…",
+    "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
   },
   "documentViewerPage": {
     "notFound": "Documento no encontrado."
