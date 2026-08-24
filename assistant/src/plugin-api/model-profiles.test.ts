@@ -61,17 +61,13 @@ describe("getModelProfiles", () => {
 
     const result = listProfiles();
     // The code-catalog defaults are always present; the two workspace
-    // entries shadow their catalog counterparts, and the remaining catalog
-    // defaults (managed backups included) sort after the explicit order.
+    // entries shadow their catalog counterparts, and managed backups remain
+    // internal fallback routes rather than picker options.
     expect(result.map((p) => p.key)).toEqual([
       "balanced",
       "quality-optimized",
-      "balanced-backup",
       "cost-optimized",
-      "cost-optimized-backup",
       "latency-optimized",
-      "latency-optimized-backup",
-      "quality-optimized-backup",
     ]);
   });
 
@@ -88,14 +84,10 @@ describe("getModelProfiles", () => {
     const result = listProfiles();
     expect(result.map((p) => p.key).sort()).toEqual([
       "balanced",
-      "balanced-backup",
       "cost-optimized",
-      "cost-optimized-backup",
       "disabled",
       "latency-optimized",
-      "latency-optimized-backup",
       "quality-optimized",
-      "quality-optimized-backup",
     ]);
     const disabled = result.find((p) => p.key === "disabled");
     expect(disabled?.isDisabled).toBe(true);
@@ -131,13 +123,9 @@ describe("getModelProfiles", () => {
       "provider-only",
       "mix",
       "balanced",
-      "balanced-backup",
       "cost-optimized",
-      "cost-optimized-backup",
       "latency-optimized",
-      "latency-optimized-backup",
       "quality-optimized",
-      "quality-optimized-backup",
     ]);
   });
 
@@ -145,13 +133,9 @@ describe("getModelProfiles", () => {
     const result = listProfiles();
     expect(result.map((p) => p.key).sort()).toEqual([
       "balanced",
-      "balanced-backup",
       "cost-optimized",
-      "cost-optimized-backup",
       "latency-optimized",
-      "latency-optimized-backup",
       "quality-optimized",
-      "quality-optimized-backup",
     ]);
     for (const profile of result) {
       expect(profile.isDisabled).toBe(false);

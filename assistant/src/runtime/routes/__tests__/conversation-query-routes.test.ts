@@ -50,6 +50,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
+import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import { getConfig, loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
@@ -1779,6 +1780,16 @@ describe("config invariant flag enrichment", () => {
     for (const name of ["balanced", "quality-optimized", "latency-optimized"]) {
       expect(profiles[name]!.invariant).toBe(true);
     }
+  });
+
+  test("GET /v1/config hides managed backups from the picker catalog", async () => {
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    for (const name of BACKUP_PROFILE_KEYS) {
+      expect(profiles).not.toHaveProperty(name);
+    }
+    expect(profiles.balanced).toBeDefined();
   });
 
   test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {

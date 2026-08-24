@@ -64,6 +64,7 @@ mock.module("../../sync/resource-sync-events.js", () => ({
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import { loadRawConfig } from "../../../config/loader.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
@@ -728,6 +729,20 @@ describe("DELETE inference/profiles/:name reference guard", () => {
 // ── provider-aware list/get (Finding 2) ───────────────────────────────────────
 
 describe("GET inference/profiles honors llm.defaultProvider", () => {
+  test("omits managed backup routes from the user-facing catalog", async () => {
+    setConfig("llm", { profiles: {} });
+
+    const listed = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{ name: string }>;
+    };
+    const names = new Set(listed.profiles.map((profile) => profile.name));
+
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(names.has(key)).toBe(false);
+    }
+    expect(names.has("balanced")).toBe(true);
+  });
+
   test("expands balanced through a BYOK default provider, not the vellum column", async () => {
     setConfig("llm", {
       defaultProvider: { provider: "anthropic" },
