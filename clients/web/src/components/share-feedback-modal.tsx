@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   type ChangeEvent,
+  type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
@@ -50,11 +51,18 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 import type { FeedbackReason } from "@/components/share-feedback-types";
-import {
-  SHARE_FEEDBACK_MODAL_BACKDROP_CLASS,
-  SHARE_FEEDBACK_MODAL_PANEL_CLASS,
-  SHARE_FEEDBACK_MODAL_PANEL_STYLE,
-} from "@/components/share-feedback-modal-shell";
+
+const BACKDROP_CLASS =
+  "fixed inset-0 z-50 flex items-center justify-center bg-black/50";
+
+const PANEL_CLASS =
+  "mx-4 flex w-full max-w-lg flex-col rounded-xl border p-6 shadow-xl";
+
+const PANEL_STYLE: CSSProperties = {
+  backgroundColor: "var(--surface-lift)",
+  borderColor: "var(--border-base)",
+  maxHeight: "calc(100vh - 2rem)",
+};
 
 type TimeRange = "past_hour" | "past_24_hours" | "all_time";
 
@@ -1006,17 +1014,14 @@ export function ShareFeedbackModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className={SHARE_FEEDBACK_MODAL_BACKDROP_CLASS}
+      className={BACKDROP_CLASS}
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
       onDrop={onDrop}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
     >
-      <div
-        className={SHARE_FEEDBACK_MODAL_PANEL_CLASS}
-        style={SHARE_FEEDBACK_MODAL_PANEL_STYLE}
-      >
+      <div className={PANEL_CLASS} style={PANEL_STYLE}>
         <div
           className="flex items-center justify-between border-b pb-4"
           style={{ borderColor: "var(--border-subtle)" }}

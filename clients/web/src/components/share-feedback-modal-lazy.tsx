@@ -54,7 +54,7 @@ export function ShareFeedbackModalLazy({
   return (
     <LazyBoundary
       key={attempt}
-      fallback={<ShareFeedbackModalFallback />}
+      fallback={<ShareFeedbackModalFallback onClose={props.onClose} />}
       errorFallback={
         <ShareFeedbackModalLoadError onRetry={retry} onClose={props.onClose} />
       }

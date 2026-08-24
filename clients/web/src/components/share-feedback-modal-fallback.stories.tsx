@@ -3,9 +3,9 @@
  * skeleton drawn while its chunk is in flight, and the failure drawn when the
  * chunk never arrives.
  *
- * The skeleton renders the dialog's own shell (`share-feedback-modal-shell.ts`)
- * so it lands exactly where the real dialog will. The failure renders the
- * design library modal, which is what gives it a focus trap and dismissal.
+ * Both render the design library modal, which is what gives each one a focus
+ * trap, escape-to-dismiss, and dialog semantics while it stands in for a
+ * dialog that is not there yet.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -21,7 +21,9 @@ const meta: Meta<typeof ShareFeedbackModalFallback> = {
 export default meta;
 
 /** What a tap on "Share Feedback" paints while the chunk is in flight. */
-export const Loading: StoryObj<typeof ShareFeedbackModalFallback> = {};
+export const Loading: StoryObj<typeof ShareFeedbackModalFallback> = {
+  args: { onClose: () => {} },
+};
 
 /** The chunk never arrived. Retry re-imports; Close drops the dialog. */
 export const LoadFailed: StoryObj<typeof ShareFeedbackModalLoadError> = {

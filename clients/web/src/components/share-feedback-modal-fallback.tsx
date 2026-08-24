@@ -1,54 +1,69 @@
-import { createPortal } from "react-dom";
-
+import { Modal } from "@vellumai/design-library/components/modal";
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
-import {
-  SHARE_FEEDBACK_MODAL_BACKDROP_CLASS,
-  SHARE_FEEDBACK_MODAL_PANEL_CLASS,
-  SHARE_FEEDBACK_MODAL_PANEL_STYLE,
-} from "@/components/share-feedback-modal-shell";
 import { useTranslation } from "@/i18n";
+
+export interface ShareFeedbackModalFallbackProps {
+  onClose: () => void;
+}
 
 /**
  * Suspense fallback for the lazily-loaded Share Feedback dialog.
  *
- * Renders the dialog's own shell around a skeleton of the form, so a tap lands
- * on the surface it asked for while the chunk is still in flight. Portalled to
- * `document.body` for the same reason the modal is: a transformed ancestor
- * would otherwise resolve `position: fixed` against itself and the placeholder
- * would jump when the real dialog arrives.
+ * Renders a skeleton of the form, so a tap lands on the surface it asked for
+ * while the chunk is still in flight. Built on the design library's modal for
+ * the same reason the load failure is: that is what supplies the focus trap,
+ * escape-to-dismiss, and dialog semantics. A bare portalled backdrop supplies
+ * none of them, so a chunk that takes a while covers the page with something
+ * the user cannot leave and cannot tab out of the way of.
+ *
+ * The title is what a screen reader announces on open and the only element
+ * Radix needs to name the dialog. It is visually hidden because the skeleton
+ * stands in for the heading on screen. `aria-describedby` is cleared because
+ * nothing further describes it.
+ *
+ * Radix's close-autofocus is left alone. It restores focus to a
+ * `Modal.Trigger`, and there is none here, so the dialog that Suspense swaps
+ * in as this unmounts keeps the focus it gives itself.
  */
-export function ShareFeedbackModalFallback() {
+export function ShareFeedbackModalFallback({
+  onClose,
+}: ShareFeedbackModalFallbackProps) {
   const { t } = useTranslation();
 
-  return createPortal(
-    <div className={SHARE_FEEDBACK_MODAL_BACKDROP_CLASS}>
-      <div
-        role="status"
-        aria-label={t("shareFeedbackModalFallback.loadingAria")}
-        className={SHARE_FEEDBACK_MODAL_PANEL_CLASS}
-        style={SHARE_FEEDBACK_MODAL_PANEL_STYLE}
+  return (
+    <Modal.Root
+      open
+      onOpenChange={(next) => {
+        if (!next) {
+          onClose();
+        }
+      }}
+    >
+      {/* max-w-lg pins the placeholder to the real dialog's width (its panel
+          is max-w-lg, 512px) so the swap-in does not visibly resize. */}
+      <Modal.Content
+        size="md"
+        className="max-w-lg"
+        hideCloseButton
+        aria-describedby={undefined}
       >
-        <div
-          className="flex items-center border-b pb-4"
-          style={{ borderColor: "var(--border-subtle)" }}
-        >
+        <Modal.Header className="pr-4">
+          <Modal.Title className="sr-only">
+            {t("shareFeedbackModalFallback.loadingAria")}
+          </Modal.Title>
           <Skeleton className="h-5 w-2/5" />
-        </div>
+        </Modal.Header>
 
-        <div className="flex flex-col gap-3.5 pt-4">
+        <Modal.Body role="status" className="flex flex-col gap-3.5">
           <Skeleton className="h-28 w-full rounded-lg" />
           <Skeleton className="h-4 w-3/5" />
-        </div>
+        </Modal.Body>
 
-        <div
-          className="mt-4 flex items-center justify-end border-t pt-4"
-          style={{ borderColor: "var(--border-subtle)" }}
-        >
+        <Modal.Footer>
           <Skeleton className="h-9 w-24 rounded-lg" />
-        </div>
-      </div>
-    </div>,
-    document.body,
+        </Modal.Footer>
+      </Modal.Content>
+    </Modal.Root>
   );
 }
