@@ -73,7 +73,7 @@ struct WidgetAvatarPalette {
     init(accentHex: String?) {
         guard let accentHex,
               let canonical = canonicalCSSHex(accentHex),
-              let light = UIColor(cssHex: canonical),
+              let parsed = UIColor(cssHex: canonical),
               let dark = UIColor(cssHex: darkenHex(canonical, Self.darkSurfaceFactor))
         else {
             surface = WidgetTheme.brandCardSurface
@@ -81,6 +81,10 @@ struct WidgetAvatarPalette {
             controlFill = WidgetTheme.onBrandFill
             return
         }
+        // A card surface is opaque by definition. An 8-digit accent keeps its
+        // alpha through the parser while the darkened variant drops it, so the
+        // light side is squared with the dark side here.
+        let light = parsed.withAlphaComponent(1)
         let lightOn = light.contrastingForeground
         let darkOn = dark.contrastingForeground
         surface = WidgetTheme.appearanceDynamic(light: light, dark: dark)
