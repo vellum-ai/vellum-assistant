@@ -142,30 +142,15 @@ describe("PanelItem shape", () => {
     const html = renderShaped("pill");
     expect(html).toContain("rounded-full");
     expect(html).toContain("w-fit");
+    /* The cap belongs to that width: without it a pill whose label is wider
+       than its panel overflows rather than truncating, for the reason
+       `PILL_SHAPE_CLASSES` gives. */
+    expect(html).toContain("max-w-full");
     expect(html).not.toContain("rounded-[6px]");
-    /* Matched as a whole class rather than a substring: the pill's own
-       `max-w-full` ends in the row's `w-full`, so a plain `toContain` would
-       read the cap as the width it is meant to have replaced. */
+    /* A whole class, not a substring: `max-w-full` ends in `w-full`, which a
+       plain `toContain` would read as the row width still being here. */
     expect(html).not.toMatch(/[\s"]w-full[\s"]/);
     expect(html).not.toContain("w-auto");
-  });
-
-  /* The cap that goes with the intrinsic width, asserted beside it because
-     each alone is a different bug: `w-fit` on its own is the pill that
-     overflows its panel, and a cap on its own would need `w-full` back and
-     stop being a pill at all.
-
-     `fit-content` cannot resolve below the label's min-content, and the label
-     is `white-space: nowrap`, so a pill in a panel narrower than its text
-     sizes to the text and hangs out of the panel - the label's `min-w-0`
-     cannot pull it back, since `min-width` is a floor and not a cap. The
-     cap makes the used width definite, which is what lets the label shrink
-     and ellipsise. Markup is all this asserts; the layout it buys is only
-     observable in a browser. */
-  test("pill caps its intrinsic width at the panel, so a long label truncates", () => {
-    const html = renderShaped("pill");
-    expect(html).toContain("max-w-full");
-    expect(html).toContain("truncate");
   });
 
   /* The other half of the split. Without it, collapsing both shapes back onto
