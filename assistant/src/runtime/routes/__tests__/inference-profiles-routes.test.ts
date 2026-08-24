@@ -554,6 +554,47 @@ describe("inference-profile writes are availability-aware", () => {
       'assistant inference send --profile my-fast "Reply with OK"',
     );
   });
+
+  test("a model-only update validates a namespaced exact connection by its decoded name", async () => {
+    const now = Date.now();
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "openai-compatible",
+        provider: "openai-compatible",
+        auth: JSON.stringify({ type: "none" }),
+        baseUrl: "http://localhost:9123/v1",
+        models: JSON.stringify([
+          { id: "stub-model-v1" },
+          { id: "stub-model-v2" },
+        ]),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    setConfig("llm", {
+      profiles: {
+        "stub-fast": {
+          source: "user",
+          provider: "connection:openai-compatible",
+          model: "stub-model-v1",
+        },
+      },
+    });
+
+    const result = (await call("inference_profiles_update", {
+      pathParams: { name: "stub-fast" },
+      body: { model: "stub-model-v2", allowUnavailable: true },
+    })) as { ok: true };
+
+    expect(result.ok).toBe(true);
+    expect(persistedProfiles()).toMatchObject({
+      "stub-fast": {
+        provider: "connection:openai-compatible",
+        model: "stub-model-v2",
+      },
+    });
+  });
 });
 
 // ── update validation ─────────────────────────────────────────────────────────

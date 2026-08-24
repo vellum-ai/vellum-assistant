@@ -37,6 +37,7 @@ import { getDb } from "../../persistence/db-connection.js";
 import {
   catalogProviderForProfile,
   connectionProviderKind,
+  resolveEntryConnectionName,
   resolveEntryProviderKind,
   writableProfileProviderIssue,
 } from "../../providers/connection-resolution.js";
@@ -210,13 +211,14 @@ function modelReachIssue(
       ? { identity: true, catalogProvider: provider, message: issue }
       : null;
   }
+  const entryConnectionName = resolveEntryConnectionName(provider);
   const entryKind = resolveEntryProviderKind(provider, model);
   const catalogProvider = entryKind ?? provider;
   if (isModelInCatalog(catalogProvider, model)) {
     return null;
   }
   const modelListConnection =
-    connectionName ?? (entryKind !== null ? provider : undefined);
+    connectionName ?? entryConnectionName ?? undefined;
   if (modelListConnection) {
     const connection = getConnection(getDb(), modelListConnection);
     if (connection?.models?.some((m) => m.id === model)) {
