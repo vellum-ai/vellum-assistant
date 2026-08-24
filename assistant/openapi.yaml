@@ -5153,6 +5153,7 @@ paths:
                       - profile
                       - weight
                 fallbackProfile:
+                  readOnly: true
                   type: string
                   minLength: 1
       responses:
@@ -34637,7 +34638,8 @@ components:
             - type: "null"
         fallbackProfile:
           anyOf:
-            - type: string
+            - readOnly: true
+              type: string
               minLength: 1
             - type: "null"
       additionalProperties: {}
@@ -35410,6 +35412,7 @@ components:
               - weight
             additionalProperties: false
         fallbackProfile:
+          readOnly: true
           type: string
           minLength: 1
         supportsVision:

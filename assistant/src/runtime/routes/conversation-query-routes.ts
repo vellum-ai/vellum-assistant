@@ -1408,18 +1408,14 @@ function assertRoutableIdentityEntries(
 }
 
 /**
- * Reject writes that would persist an invalid `fallbackProfile` graph.
- * `LLMSchema.superRefine` enforces the cross-profile fallback rules only on
- * a full-config parse; the write paths (PATCH deep-merge, SET, the profile
- * routes) save raw config without one, so a self-reference, dangling
- * target, mix target, or chain would reach disk and be stripped on the next
- * reload, silently disabling the configured fallback. Checked
- * unconditionally rather than scoped to pointers this write changes:
- * removing a target profile invalidates a pointer the write never touched,
- * and clearing the pointer (write `null`) through these same routes remains
- * the repair path for a hand-edited config.
+ * Reject writes that would persist unsupported `fallbackProfile` metadata.
+ * Automatic fallbacks are code-owned for managed default profiles. The write
+ * paths save raw config without a full-schema parse, so this check keeps a
+ * custom pointer from reaching disk. It runs unconditionally so an existing
+ * hand-edited pointer blocks unrelated rewrites until the user clears it with
+ * `null`.
  */
-function assertValidFallbackProfileGraph(raw: Record<string, unknown>): void {
+function assertCodeOwnedFallbackProfiles(raw: Record<string, unknown>): void {
   const llm = readPlainObject(raw.llm);
   const profiles = readPlainObject(llm?.profiles);
   // The sibling `llm.defaultProvider` decides whether the managed backups are
@@ -1445,7 +1441,7 @@ export async function commitConfigWrite(
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
-  assertValidFallbackProfileGraph(raw);
+  assertCodeOwnedFallbackProfiles(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write

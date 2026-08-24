@@ -39,6 +39,7 @@ import {
   isAdaptiveThinkingOnlyModel,
   isAdaptiveThinkingUnsupportedModel,
 } from "./model-catalog.js";
+import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import {
   isThinkingConfigAdaptive,
   isThinkingConfigDisabled,
@@ -510,19 +511,39 @@ function fallbackErrorType(error: unknown, retriesExhausted: boolean): string {
  * Whether a failed request can be re-routed to a backup profile. Fallback
  * re-resolves the ORIGINAL caller options with the backup profile forced,
  * which requires a `callSite`-bearing config. An explicit per-call
- * `config.model` pin (the live per-conversation `modelOverride` feature)
- * disqualifies the request: the pin wins over any resolved profile model in
- * `normalizeSendMessageOptions`, and silently serving a different model
- * against an explicit pin would violate user intent: a profile user asked
- * for a tier, a pinning user asked for that exact model. Pinned conversations
- * keep today's retry-then-error behavior.
+ * route pin (`model`, `provider`, or `provider_connection`) disqualifies the
+ * request, whether it came from this call or the persisted call-site config.
+ * Silently serving a different route would violate user intent: a profile
+ * user asked for a tier, while a pinning user asked for an exact route. Pinned
+ * calls keep retry-then-error behavior.
  */
+const EXACT_ROUTE_PIN_KEYS = [
+  "model",
+  "provider",
+  "provider_connection",
+] as const;
+
+function hasExactRoutePin(
+  config: Record<string, unknown> | undefined,
+): boolean {
+  return EXACT_ROUTE_PIN_KEYS.some((key) => {
+    const value = config?.[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
 function canReRouteToFallbackProfile(options?: SendMessageOptions): boolean {
   const config = options?.config;
   if (config?.callSite === undefined) {
     return false;
   }
-  return !(typeof config.model === "string" && config.model.trim().length > 0);
+  if (hasExactRoutePin(config)) {
+    return false;
+  }
+  const callSiteConfig = getConfig().llm.callSites?.[config.callSite] as
+    | Record<string, unknown>
+    | undefined;
+  return !hasExactRoutePin(callSiteConfig);
 }
 
 /**
@@ -1428,7 +1449,11 @@ export class RetryProvider implements Provider {
               // with the longer cooldown a repeat outage earns.
               return served;
             }
-            break;
+            // The probe confirmed this route is still down. If the backup
+            // cannot serve, surface that primary failure directly instead of
+            // spending a fresh retry budget on the route the probe just
+            // re-tripped.
+            throw error;
           }
         }
       }
@@ -1766,6 +1791,7 @@ export class RetryProvider implements Provider {
         : selectWinningProfile(callSite, getConfig().llm, {
             overrideProfile: route.overrideProfile,
             ...(selectionSeed !== undefined ? { selectionSeed } : {}),
+            isResolvableProvider: dispatchProviderResolvable,
           });
     if (
       selection === null ||
@@ -1873,14 +1899,20 @@ export class RetryProvider implements Provider {
       }
       return response;
     } catch (fallbackError) {
-      if (
-        originalError !== undefined &&
-        fallbackError instanceof Error &&
-        fallbackError.cause === undefined
-      ) {
-        fallbackError.cause = originalError;
+      if (originalError === undefined) {
+        throw fallbackError;
       }
-      throw fallbackError;
+      log.warn(
+        {
+          provider: this.name,
+          connectionName: this.options.connectionName,
+          fallbackProvider: route.provider.name,
+          overrideProfile: route.overrideProfile,
+          fallbackError,
+        },
+        "Backup profile failed; rethrowing the original provider error",
+      );
+      return null;
     }
   }
 }

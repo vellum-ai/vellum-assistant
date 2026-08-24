@@ -305,20 +305,19 @@ describe("resolveCallSiteConfig", () => {
 
   test("a winning profile's fallbackProfile metadata never leaks into the resolved config", () => {
     const llm = LLMSchema.parse({
+      defaultProvider: { provider: "vellum" },
       profiles: {
-        primary: {
-          provider: "anthropic",
-          model: "claude-opus-4-7",
-          fallbackProfile: "backup",
+        "quality-optimized": {
+          source: "managed",
+          fallbackProfile: "quality-optimized-backup",
         },
-        backup: { provider: "anthropic", model: "claude-sonnet-4-6" },
       },
       callSites: {
-        memoryExtraction: { profile: "primary" },
+        memoryExtraction: { profile: "quality-optimized" },
       },
     });
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
-    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.model).toBe("gpt-5.6-sol");
     // `fallbackProfile` is ProfileEntry-only metadata, absent from
     // `LLMConfigBase`; the resolved config must not carry the key at all.
     expect(Object.hasOwn(resolved, "fallbackProfile")).toBe(false);

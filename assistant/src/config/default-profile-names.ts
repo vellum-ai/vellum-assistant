@@ -59,6 +59,10 @@ export const FALLBACK_PROFILE_BY_KEY: Record<
   "latency-optimized": "latency-optimized-backup",
 };
 
+export function isDefaultProfileKey(value: string): value is DefaultProfileKey {
+  return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(value);
+}
+
 export function isBackupProfileKey(value: string): value is BackupProfileKey {
   return (BACKUP_PROFILE_KEYS as readonly string[]).includes(value);
 }
