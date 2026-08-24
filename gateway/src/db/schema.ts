@@ -273,6 +273,7 @@ export const actorTokenRecords = sqliteTable(
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     expiresAt: integer("expires_at"),
+    lastUsedAt: integer("last_used_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

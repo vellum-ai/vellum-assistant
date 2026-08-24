@@ -20,8 +20,12 @@ const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
 const { actorTokenRecords, contacts } = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
-const { isActorTokenRevoked, actorTokenRecordHash } =
-  await import("../auth/actor-token-revocation.js");
+const {
+  isActorTokenRevoked,
+  actorTokenRecordHash,
+  recordActorTokenUse,
+  __resetLastUsedDebounceForTests,
+} = await import("../auth/actor-token-revocation.js");
 const { createRuntimeProxyHandler } =
   await import("../http/routes/runtime-proxy.js");
 const { bustGuardianIntegrityCache } =
@@ -36,7 +40,11 @@ const actorClaims = { sub: ACTOR_SUB } as TokenClaims;
 
 let testRoot: string;
 
-function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
+function insertTokenRecord(
+  rawToken: string,
+  status: "active" | "revoked" | "derived",
+  deviceLabel = "device-A",
+) {
   const now = Date.now();
   getGatewayDb()
     .insert(actorTokenRecords)
@@ -44,7 +52,7 @@ function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
       id: `id-${rawToken}`,
       tokenHash: hashToken(rawToken),
       guardianPrincipalId: "guardian-001",
-      hashedDeviceId: hashToken("device-A"),
+      hashedDeviceId: hashToken(deviceLabel),
       platform: "web",
       status,
       issuedAt: now,
@@ -53,6 +61,17 @@ function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
       updatedAt: now,
     })
     .run();
+}
+
+function readRow(rawToken: string) {
+  return getGatewayDb()
+    .select({
+      lastUsedAt: actorTokenRecords.lastUsedAt,
+      updatedAt: actorTokenRecords.updatedAt,
+    })
+    .from(actorTokenRecords)
+    .where(eq(actorTokenRecords.tokenHash, hashToken(rawToken)))
+    .get();
 }
 
 function insertGuardianContact() {
@@ -76,6 +95,7 @@ beforeEach(async () => {
   mkdirSync(securityDir, { recursive: true });
   process.env.GATEWAY_SECURITY_DIR = securityDir;
   await initGatewayDb();
+  __resetLastUsedDebounceForTests();
   // The integrity state is module-cached across tests; token rows seeded here
   // are integrity evidence, so keep the reporter silenced and the cache cold.
   bustGuardianIntegrityCache();
@@ -453,5 +473,109 @@ describe("m0004 token-hash index migration", () => {
     // The index now exists and no longer filters on status.
     expect(indexSql()).not.toBe("");
     expect(indexSql().toLowerCase()).not.toContain("where");
+  });
+});
+
+describe("recordActorTokenUse", () => {
+  test("stamps last_used_at on the active row for a recorded actor token", () => {
+    insertTokenRecord("token-used", "active");
+    const before = readRow("token-used");
+    expect(before?.lastUsedAt).toBeNull();
+
+    recordActorTokenUse("token-used", actorClaims);
+
+    const after = readRow("token-used");
+    expect(after?.lastUsedAt).toBeGreaterThan(0);
+    // updatedAt tracks row lifecycle, not activity, so it must not move.
+    expect(after?.updatedAt).toBe(before?.updatedAt ?? 0);
+  });
+
+  test("does not write again inside the debounce window", () => {
+    insertTokenRecord("token-debounced", "active");
+    recordActorTokenUse("token-debounced", actorClaims);
+
+    const sentinel = 12_345;
+    getGatewayDb()
+      .update(actorTokenRecords)
+      .set({ lastUsedAt: sentinel })
+      .where(eq(actorTokenRecords.tokenHash, hashToken("token-debounced")))
+      .run();
+
+    recordActorTokenUse("token-debounced", actorClaims);
+
+    expect(readRow("token-debounced")?.lastUsedAt).toBe(sentinel);
+  });
+
+  test("a derived token stamps the sibling active row for the same device", () => {
+    insertTokenRecord("token-source", "active");
+    insertTokenRecord("token-derived", "derived");
+
+    recordActorTokenUse("token-derived", actorClaims);
+
+    expect(readRow("token-source")?.lastUsedAt).toBeGreaterThan(0);
+    expect(readRow("token-derived")?.lastUsedAt).toBeNull();
+  });
+
+  test("leaves other devices' rows untouched", () => {
+    insertTokenRecord("token-device-a", "active");
+    insertTokenRecord("token-device-b", "active", "device-B");
+
+    recordActorTokenUse("token-device-a", actorClaims);
+
+    expect(readRow("token-device-b")?.lastUsedAt).toBeNull();
+  });
+
+  test("is a no-op for non-actor tokens (svc)", () => {
+    insertTokenRecord("svc-token", "active");
+    const svcClaims = { sub: "svc:gateway:self" } as TokenClaims;
+
+    recordActorTokenUse("svc-token", svcClaims);
+
+    expect(readRow("svc-token")?.lastUsedAt).toBeNull();
+  });
+
+  test("is a no-op for an unrecorded token hash", () => {
+    insertTokenRecord("token-recorded", "active");
+
+    expect(() =>
+      recordActorTokenUse("token-unrecorded", actorClaims),
+    ).not.toThrow();
+    expect(readRow("token-recorded")?.lastUsedAt).toBeNull();
+  });
+
+  test("swallows a DB failure (fail-open)", () => {
+    resetGatewayDb();
+    expect(() =>
+      recordActorTokenUse("token-anything", actorClaims),
+    ).not.toThrow();
+  });
+
+  test("a failed stamp leaves the next attempt free to retry", () => {
+    insertTokenRecord("token-retry", "active");
+    const rawDb = (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    // Make the stamp UPDATE throw while the record lookup keeps working.
+    rawDb.exec(
+      "CREATE TRIGGER fail_last_used BEFORE UPDATE ON actor_token_records BEGIN SELECT RAISE(ABORT, 'stamp failed'); END",
+    );
+
+    recordActorTokenUse("token-retry", actorClaims);
+    expect(readRow("token-retry")?.lastUsedAt).toBeNull();
+
+    rawDb.exec("DROP TRIGGER fail_last_used");
+    // Inside the debounce window: only a completed stamp may suppress a retry.
+    recordActorTokenUse("token-retry", actorClaims);
+
+    expect(readRow("token-retry")?.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  test("a missing record leaves a later stamp for the same token free to run", () => {
+    recordActorTokenUse("token-late", actorClaims);
+
+    insertTokenRecord("token-late", "active");
+    recordActorTokenUse("token-late", actorClaims);
+
+    expect(readRow("token-late")?.lastUsedAt).toBeGreaterThan(0);
   });
 });

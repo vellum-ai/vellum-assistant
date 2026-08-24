@@ -1,5 +1,6 @@
 /**
- * Hot-path actor-token revocation check.
+ * Hot-path actor-token revocation check, plus the debounced last-used stamp
+ * that rides the same lookup ({@link recordActorTokenUse}).
  *
  * Edge-token validation ({@link validateEdgeToken}) only verifies the JWT
  * (signature, audience, expiry, policy epoch) — it never consults the DB. That
@@ -21,7 +22,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import { actorTokenRecords } from "../db/schema.js";
@@ -30,6 +31,13 @@ import type { TokenClaims } from "./types.js";
 import { parseSub } from "./subject.js";
 
 const log = getLogger("actor-token-revocation");
+
+/** One stamp per token per window; the label's resolution is this coarse. */
+const STAMP_DEBOUNCE_MS = 5 * 60 * 1000;
+/** Bound on the debounce map so long-lived gateways cannot leak. */
+const MAX_TRACKED_TOKENS = 5_000;
+
+const lastStampedByTokenHash = new Map<string, number>();
 
 /**
  * SHA-256 hex digest, matching how tokens are hashed at mint time. Inlined
@@ -113,4 +121,90 @@ export function isActorTokenRevoked(
     );
     return false;
   }
+}
+
+function evictStaleStamps(now: number): void {
+  for (const [hash, stamped] of lastStampedByTokenHash) {
+    if (now - stamped >= STAMP_DEBOUNCE_MS) {
+      lastStampedByTokenHash.delete(hash);
+    }
+  }
+  if (lastStampedByTokenHash.size > MAX_TRACKED_TOKENS) {
+    lastStampedByTokenHash.clear();
+  }
+}
+
+/**
+ * Stamp `lastUsedAt` for the device behind `rawToken`, powering the "Paired
+ * devices" list's last-used label.
+ *
+ * Debounced to one write per token per {@link STAMP_DEBOUNCE_MS}, counted from
+ * a completed stamp so a DB error leaves the next request free to retry.
+ *
+ * Resolved through the DEVICE rather than the presented row: `/auth/token`
+ * mints `status = 'derived'` rows sharing the source row's `hashed_device_id`
+ * and only the `active` row is ever displayed, so derived-token traffic counts.
+ *
+ * Deliberately leaves `updatedAt` alone: that column tracks row lifecycle
+ * (status changes), and moving it every few minutes would destroy that signal.
+ *
+ * Fail-open like the rest of this module: non-actor tokens, unrecorded tokens,
+ * and DB errors are all no-ops.
+ */
+export function recordActorTokenUse(
+  rawToken: string,
+  claims: TokenClaims,
+): void {
+  const parsed = parseSub(claims.sub);
+  if (!parsed.ok || parsed.principalType !== "actor") {
+    return;
+  }
+
+  const now = Date.now();
+  const tokenHash = actorTokenRecordHash(rawToken);
+  const stamped = lastStampedByTokenHash.get(tokenHash);
+  if (stamped !== undefined && now - stamped < STAMP_DEBOUNCE_MS) {
+    return;
+  }
+
+  try {
+    const db = getGatewayDb();
+    const record = db
+      .select({
+        guardianPrincipalId: actorTokenRecords.guardianPrincipalId,
+        hashedDeviceId: actorTokenRecords.hashedDeviceId,
+      })
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.tokenHash, tokenHash))
+      .get();
+    if (!record) {
+      return;
+    }
+
+    db.update(actorTokenRecords)
+      .set({ lastUsedAt: now })
+      .where(
+        and(
+          eq(actorTokenRecords.guardianPrincipalId, record.guardianPrincipalId),
+          eq(actorTokenRecords.hashedDeviceId, record.hashedDeviceId),
+          eq(actorTokenRecords.status, "active"),
+        ),
+      )
+      .run();
+
+    if (lastStampedByTokenHash.size >= MAX_TRACKED_TOKENS) {
+      evictStaleStamps(now);
+    }
+    lastStampedByTokenHash.set(tokenHash, now);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Actor-token last-used stamp failed, ignoring (fail-open)",
+    );
+  }
+}
+
+/** Clears the last-used debounce map. Exists solely for tests. */
+export function __resetLastUsedDebounceForTests(): void {
+  lastStampedByTokenHash.clear();
 }
