@@ -463,6 +463,17 @@ export function useNativeWidgetSnapshotSync(
     void retryPendingWidgetSnapshotClear();
   }, []);
 
+  // A write must not outlive the hook. Signing out clears the App Group and
+  // unmounts this layout while a first avatar encode can still be in flight;
+  // retiring every attempt here makes that write's own re-check drop it
+  // instead of putting the departed account's rows back on the Home Screen.
+  useEffect(() => {
+    const attempts = syncAttemptRef;
+    return () => {
+      attempts.current += 1;
+    };
+  }, []);
+
   useEffect(() => {
     if (!isWidgetSnapshotSyncAvailable()) {
       return;

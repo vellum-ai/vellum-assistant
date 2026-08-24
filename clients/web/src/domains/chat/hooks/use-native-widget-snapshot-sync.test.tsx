@@ -182,8 +182,10 @@ let avatarState: { data: AvatarData; isLoading: boolean } = {
   isLoading: false,
 };
 const avatarListeners = new Set<() => void>();
-let encodeOutcome: "bytes" | "nothing-fits" | "throws" = "bytes";
+let encodeOutcome: "bytes" | "nothing-fits" | "throws" | "held" = "bytes";
 let encodeCalls = 0;
+/** Resolver for a draw held open by the "held" outcome. */
+let releaseHeldRasterize: ((bytes: Uint8Array | null) => void) | null = null;
 /** Long enough that a dedup key carrying it would be unmistakable. */
 const AVATAR_BASE64 = "Zm9vYmFy".repeat(2_000);
 /**
@@ -246,6 +248,11 @@ const resetAvatarEncodeMemo =
 const stubRasterize = async (): Promise<Uint8Array | null> => {
   if (encodeOutcome === "throws") {
     throw new Error("canvas unavailable");
+  }
+  if (encodeOutcome === "held") {
+    return new Promise((resolve) => {
+      releaseHeldRasterize = resolve;
+    });
   }
   return encodeOutcome === "bytes" ? AVATAR_BYTES : OVERSIZED_BYTES;
 };
@@ -424,6 +431,7 @@ beforeEach(() => {
   avatarListeners.clear();
   encodeOutcome = "bytes";
   encodeCalls = 0;
+  releaseHeldRasterize = null;
   // The memo is module scope and shared with the Live Activity mirror, so a
   // slot left by an earlier case (or an earlier file in the run) would answer
   // for an avatar this one never encoded.
@@ -1415,6 +1423,29 @@ describe("useNativeWidgetSnapshotSync", () => {
       accentHex: ORANGE_HEX,
       imageBase64: AVATAR_BASE64,
     });
+  });
+
+  it("retires a write still waiting on the draw when the hook unmounts", async () => {
+    // Signing out clears the App Group and unmounts the layout while the
+    // first avatar encode can still be on the canvas. The write that draw
+    // eventually releases must not land: it would put the departed account's
+    // titles and face back on a Home Screen the clear just emptied.
+    encodeOutcome = "held";
+    setAvatar(characterAvatar("orange"));
+    const { unmount } = render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(0);
+    expect(releaseHeldRasterize).not.toBeNull();
+
+    unmount();
+    releaseHeldRasterize?.(AVATAR_BYTES);
+    await settle();
+
+    expect(syncedSnapshots).toHaveLength(0);
   });
 
   it("caches an avatar that legitimately encodes to nothing", async () => {
