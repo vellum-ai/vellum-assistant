@@ -25,6 +25,7 @@ import {
   appsGetOptions,
   appsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { AppsGetResponse } from "@/generated/daemon/types.gen";
 import { useSupportsDaemonAppPins } from "@/lib/backwards-compat/daemon-app-pins";
 import type { AppSummary } from "@/types/app-types";
 import {
@@ -119,11 +120,37 @@ export function usePinnedApps(
     [pinnedApps],
   );
 
-  /* The daemon publishes an apps-list invalidation on every pin write, which is
-     what carries the change to the user's other windows and devices. That
-     broadcast suppresses the client that caused it, so this settles its own. */
+  /*
+   * Optimistic through the cache rather than off `mutation.isPending`: pins are
+   * toggled from the Library and from an app card, and the sidebar showing them
+   * is a different component with a different mutation. The cache is what all
+   * of them share.
+   *
+   * The daemon publishes an apps-list invalidation on every pin write, which is
+   * what carries the change to the user's other windows and devices. That
+   * broadcast suppresses the client that caused it, so `onSettled` settles its
+   * own.
+   */
   const { mutate } = useMutation({
     ...appsByIdPinPostMutation(),
+    onMutate: async (variables) => {
+      const queryKey = appsGetQueryKey({ path });
+      /* A refetch already in flight would otherwise resolve after this write
+         and put the pre-pin list back. */
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<AppsGetResponse>(queryKey);
+      queryClient.setQueryData<AppsGetResponse>(queryKey, (current) =>
+        current
+          ? applyPin(current, variables.path.id, variables.body)
+          : current,
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(appsGetQueryKey({ path }), context.previous);
+      }
+    },
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path }) }),
   });
@@ -191,5 +218,45 @@ export function usePinnedApps(
     togglePin,
     unpin,
     setColor,
+  };
+}
+
+/**
+ * The app list as it will read once the daemon has applied this pin change.
+ *
+ * Positions are a fractional index, so a pin appends past the last one and an
+ * unpin leaves every survivor where it was. Nothing here has to renumber.
+ */
+function applyPin(
+  current: AppsGetResponse,
+  appId: string,
+  body: { pinned?: boolean; color?: string | null },
+): AppsGetResponse {
+  const lastPosition = current.apps.reduce(
+    (highest, app) => Math.max(highest, app.pinSortPosition ?? 0),
+    0,
+  );
+  return {
+    ...current,
+    apps: current.apps.map((app) => {
+      if (app.id !== appId) {
+        return app;
+      }
+      const next: AppSummary = { ...app };
+      if (body.pinned === false) {
+        delete next.pinSortPosition;
+        delete next.pinColor;
+        return next;
+      }
+      if (body.pinned === true && next.pinSortPosition === undefined) {
+        next.pinSortPosition = lastPosition + 1;
+      }
+      if (body.color === null) {
+        delete next.pinColor;
+      } else if (body.color !== undefined) {
+        next.pinColor = body.color;
+      }
+      return next;
+    }),
   };
 }

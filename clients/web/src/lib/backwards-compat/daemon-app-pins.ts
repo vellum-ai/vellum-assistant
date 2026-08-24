@@ -29,8 +29,12 @@ import { useAssistantSupports } from "@/lib/backwards-compat/utils";
  * `docs/BACKWARDS_COMPAT.md`: base versions compare first, so every later
  * release clears it, and dev builds cut from `main` after the daemon change
  * landed light up instead of waiting for the next tag.
+ *
+ * The stamp is a build time, not a commit time, so it has to sit at or after
+ * the merge that carried the route. A dev build produced between this stamp
+ * and that merge clears the floor without having the route.
  */
-const MIN_VERSION = "0.11.5-dev.202608241840.50a7cca74a";
+const MIN_VERSION = "0.11.5-dev.202608241907.e014539d77";
 
 /** Whether the connected daemon stores app pins. */
 export function useSupportsDaemonAppPins(): boolean {

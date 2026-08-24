@@ -6,7 +6,7 @@
  * nowhere.
  */
 
-import { desc, eq } from "drizzle-orm";
+import { eq, max } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
 import { appPins } from "../persistence/schema/index.js";
@@ -52,13 +52,11 @@ function getAppPin(appId: string): AppPin | null {
 
 /** One past the last pin, so pinning appends. */
 function nextSortPosition(): number {
-  const last = getDb()
-    .select({ sortPosition: appPins.sortPosition })
+  const highest = getDb()
+    .select({ value: max(appPins.sortPosition) })
     .from(appPins)
-    .orderBy(desc(appPins.sortPosition))
-    .limit(1)
     .get();
-  return (last?.sortPosition ?? 0) + 1;
+  return (highest?.value ?? 0) + 1;
 }
 
 export interface AppPinUpdate {
@@ -91,6 +89,7 @@ export function updateAppPin(
 
   const color = update.color === undefined ? existing?.color : update.color;
   const db = getDb();
+  const sortPosition = existing?.sortPosition ?? nextSortPosition();
 
   if (existing) {
     db.update(appPins)
@@ -103,7 +102,7 @@ export function updateAppPin(
     db.insert(appPins)
       .values({
         appId,
-        sortPosition: nextSortPosition(),
+        sortPosition,
         color: color ?? null,
         createdAt: Date.now(),
       })
@@ -114,7 +113,7 @@ export function updateAppPin(
       .run();
   }
 
-  return getAppPin(appId);
+  return { appId, sortPosition, ...(color == null ? {} : { color }) };
 }
 
 /**
