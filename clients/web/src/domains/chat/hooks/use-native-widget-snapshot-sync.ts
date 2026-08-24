@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   useCanQueryDaemon,
   useUnreadConversationCount,
 } from "@/hooks/conversation-queries";
-import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
-import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { resolveRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import {
   clearWidgetSnapshot,
@@ -24,7 +24,7 @@ import type {
   ConversationGroup,
 } from "@/types/conversation-types";
 import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
-import type { AvatarRender } from "@/utils/avatar-render";
+import { resolveAvatarRender, type AvatarRender } from "@/utils/avatar-render";
 import { activeConversationsByRecency } from "@/utils/conversation-order";
 
 /**
@@ -64,6 +64,16 @@ export const WIDGET_SNAPSHOT_HEARTBEAT_MS = 15 * 60 * 1000;
  */
 const WIDGET_AVATAR_MAX_BYTES = 64_000;
 
+/**
+ * Size the character avatar is composited at before it is rasterized.
+ *
+ * The composited SVG is resolution-independent, so this only caps the top of
+ * {@link encodeAvatarForIsland}'s ladder rather than setting the size a widget
+ * draws. Matches what `useIslandAvatarSource` composites for the Live Activity,
+ * so the two native surfaces rasterize the same source.
+ */
+const AVATAR_SOURCE_SIZE = 128;
+
 /** A snapshot before it is stamped and before its avatar bytes are attached. */
 type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt" | "avatar">;
 
@@ -87,13 +97,13 @@ interface SnapshotAvatarFingerprint {
  * The avatar last encoded for a snapshot, keyed by the render it came from.
  *
  * Module scope, mirroring `use-live-activity-mirror.ts`: the encode is a canvas
- * draw, and the key is the resolved `AvatarRender`, a stable object republished
+ * draw, and the key is the resolved `AvatarRender`, a stable object recomputed
  * only when the avatar itself changes, so identity comparison is enough and
  * there is nothing to invalidate. The resolved bytes are kept beside the
  * promise so only the first snapshot after a change has anything to wait for.
  */
 interface AvatarEncode {
-  source: AvatarRender | null;
+  source: AvatarRender;
   /** Distinguishes one encode from the next inside the dedup key. */
   revision: number;
   /** Null while `encoding` is unsettled, and when nothing fit the budget. */
@@ -109,25 +119,29 @@ let avatarEncodes = 0;
  * The avatar the next snapshot should carry, starting its encode if this is
  * the first read since it changed.
  *
- * Read imperatively from the two publishers in `RootLayout` rather than
- * subscribed to, for the reason they are published at all: this hook runs
- * inside an effect at layout scope, and a query subscription here would
- * re-render the whole layout on every avatar settle. An avatar that changes
- * with nothing else reaches the Home Screen on the next heartbeat.
+ * `source` and `accentHex` are resolved reactively by the hook rather than read
+ * back from the two imperative publishers in `RootLayout`. Those are written by
+ * a parent's effect, and React runs a child's effects first, so a sync that
+ * read them would be a render behind whenever the avatar and the conversation
+ * data move in the same commit. An in-SPA assistant switch into an already
+ * cached destination is exactly that commit, and the stale face would then be
+ * pinned by the dedup key until the heartbeat.
  */
-function currentSnapshotAvatar(): {
+function snapshotAvatar(
+  source: AvatarRender,
+  accentHex: string | null,
+): {
   fingerprint: SnapshotAvatarFingerprint;
   encode: AvatarEncode;
 } {
-  const source = getIslandAvatarSource();
   if (avatarEncode === null || avatarEncode.source !== source) {
     avatarEncode = startAvatarEncode(source);
   }
   const encode = avatarEncode;
   return {
     fingerprint: {
-      kind: source?.kind ?? "none",
-      accentHex: getRenderedAvatarAccentHex(),
+      kind: source.kind,
+      accentHex,
       image: encode.revision,
     },
     encode,
@@ -135,7 +149,7 @@ function currentSnapshotAvatar(): {
 }
 
 /** Start encoding `source`, or record that there is nothing to encode. */
-function startAvatarEncode(source: AvatarRender | null): AvatarEncode {
+function startAvatarEncode(source: AvatarRender): AvatarEncode {
   avatarEncodes += 1;
   const encode: AvatarEncode = {
     source,
@@ -143,7 +157,7 @@ function startAvatarEncode(source: AvatarRender | null): AvatarEncode {
     base64: null,
     encoding: null,
   };
-  if (source === null) {
+  if (source.kind === "none") {
     return encode;
   }
   // An encode that fails or fits nothing is an avatar-less snapshot, never a
@@ -195,6 +209,17 @@ function snapshotKey(
  * every re-render of the layout. The avatar is in that key as an identity
  * rather than as its bytes (see {@link SnapshotAvatarFingerprint}), and the
  * bytes are attached as the payload is sent.
+ *
+ * The avatar is a reactive input rather than a read taken as the payload is
+ * built, so an avatar that changes with nothing else re-runs the sync instead
+ * of waiting for whatever re-renders the layout next. It is resolved here from
+ * the same query `RootLayout` derives its published copies from, not read back
+ * through those publishers: they are written by a parent's effect, which React
+ * runs after this layout's, so a read would be a render behind whenever an
+ * avatar change and a conversation change land in one commit. That is precisely
+ * an in-SPA assistant switch whose destination is already cached, and the dedup
+ * key would then hold the previous assistant's face on the Home Screen until
+ * the heartbeat.
  *
  * That leaves the timestamp to a heartbeat
  * ({@link WIDGET_SNAPSHOT_HEARTBEAT_MS}), because the widget reads it as
@@ -355,13 +380,39 @@ export function useNativeWidgetSnapshotSync(
   const canQueryDaemon = useCanQueryDaemon(assistantId);
   const inputsAreLive = isAssistantActive && canQueryDaemon;
 
+  // The active assistant's avatar, off the same query and through the same
+  // resolvers `RootLayout` publishes from, so the widget can never draw a
+  // different face than the app does. Subscribed rather than read back from
+  // those publishers: see {@link snapshotAvatar}. The query is already mounted
+  // at root scope, so this is another observer on a cached entry rather than a
+  // second fetch.
+  const avatar = useAssistantAvatar(assistantId);
+  const avatarSource = useMemo(
+    () =>
+      resolveAvatarRender(
+        avatar.customImageUrl,
+        avatar.components,
+        avatar.traits,
+        AVATAR_SOURCE_SIZE,
+      ),
+    [avatar.customImageUrl, avatar.components, avatar.traits],
+  );
+  const avatarAccentHex = resolveRenderedAvatarAccentHex(
+    avatar.components,
+    avatar.traits,
+    avatar.customImageUrl,
+  );
+
   // The one way to the bridge, shared by data syncs and the heartbeat so a
   // heartbeat cannot corrupt the bookkeeping a data sync depends on.
   const sendSnapshot = useCallback(
-    (content: SnapshotContent, ownerId: string | null): void => {
-      // Resolved here rather than passed in, so a heartbeat carrying content
-      // nothing has re-rendered still picks up an avatar that changed under it.
-      const { fingerprint, encode } = currentSnapshotAvatar();
+    (
+      content: SnapshotContent,
+      ownerId: string | null,
+      source: AvatarRender,
+      accentHex: string | null,
+    ): void => {
+      const { fingerprint, encode } = snapshotAvatar(source, accentHex);
       const serialized = snapshotKey(content, fingerprint);
       // The producer is recorded as the call is fired rather than when it
       // lands. A write already on the bridge can land at any moment, so a
@@ -503,7 +554,7 @@ export function useNativeWidgetSnapshotSync(
     };
     const serialized = snapshotKey(
       content,
-      currentSnapshotAvatar().fingerprint,
+      snapshotAvatar(avatarSource, avatarAccentHex).fingerprint,
     );
     // Recorded whether or not this run sends it, since it describes what the
     // App Group should hold rather than what reached it.
@@ -514,7 +565,7 @@ export function useNativeWidgetSnapshotSync(
     ) {
       return;
     }
-    sendSnapshot(content, assistantId);
+    sendSnapshot(content, assistantId, avatarSource, avatarAccentHex);
   }, [
     assistantId,
     conversations,
@@ -522,6 +573,8 @@ export function useNativeWidgetSnapshotSync(
     processingConversationIds,
     unreadCount,
     inputsResolved,
+    avatarSource,
+    avatarAccentHex,
     sendSnapshot,
     t,
   ]);
@@ -534,6 +587,11 @@ export function useNativeWidgetSnapshotSync(
   // Current means both resolved and still being refetched: cached rows from an
   // assistant that stopped serving are resolved forever, and re-stamping them
   // would defeat the native staleness degradation exactly when it applies.
+  //
+  // The avatar is a dependency, so a change re-arms the interval. That is the
+  // wanted behavior rather than a cost: the same change syncs a fresh
+  // `generatedAt` through the effect above, so restarting the window from that
+  // write is what the timer would be counting from anyway.
   useEffect(() => {
     if (!isWidgetSnapshotSyncAvailable() || !inputsResolved || !inputsAreLive) {
       return;
@@ -548,10 +606,17 @@ export function useNativeWidgetSnapshotSync(
       if (desired === null || inFlightPayloadRef.current !== null) {
         return;
       }
-      sendSnapshot(desired, assistantId);
+      sendSnapshot(desired, assistantId, avatarSource, avatarAccentHex);
     }, WIDGET_SNAPSHOT_HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
     };
-  }, [assistantId, inputsResolved, inputsAreLive, sendSnapshot]);
+  }, [
+    assistantId,
+    inputsResolved,
+    inputsAreLive,
+    avatarSource,
+    avatarAccentHex,
+    sendSnapshot,
+  ]);
 }

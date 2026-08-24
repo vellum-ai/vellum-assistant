@@ -38,10 +38,14 @@
  * and a launch that reaches no sync of its own would otherwise never honor it.
  *
  * The avatar rides along so the widgets can draw the user's own colors and
- * face. It is read from the two imperative publishers rather than subscribed
- * to, and its encoded bytes are deliberately outside the dedup key: they are
+ * face. Its encoded bytes are deliberately outside the dedup key: they are
  * tens of kilobytes, the key is re-serialized on every list re-render, and an
- * identity in their place still tells one photo from the next.
+ * identity in their place still tells one photo from the next. It is a
+ * reactive input rather than a read taken as the payload is built, so a change
+ * with no conversation change still re-runs the sync: `RootLayout` publishes
+ * its own copies from a parent effect, which React runs after this layout's,
+ * and a snapshot that read those back would pin the previous assistant's face
+ * in the dedup key across an in-SPA switch into a cached destination.
  */
 
 import {
@@ -55,15 +59,16 @@ import {
 } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, renderHook } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { createElement, useSyncExternalStore, type ReactNode } from "react";
 
+import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
 import type { WidgetSnapshotPayload } from "@/runtime/widget-snapshot";
-import type { AvatarRender } from "@/utils/avatar-render";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import * as listFetchers from "@/utils/conversation-list-fetchers";
 
 // Nothing in this file should reach the network: the count endpoint stands in
@@ -141,28 +146,50 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// The avatar, as `RootLayout` publishes it: two module-level getters the hook
-// reads imperatively, so a test sets them directly. The encode is stubbed
-// because it rasterizes onto a canvas, which happy-dom does not have. All three
-// modules are spread over their real surface, since `mock.module` is
-// process-global in bun.
-let avatarSource: AvatarRender | null = null;
-let avatarAccentHex: string | null = null;
+// The avatar, as the hook reads it: the assistant-avatar query `RootLayout`
+// derives its own published copies from. Mocked as an external store rather
+// than as a plain getter because the hook SUBSCRIBES to it, and the claim under
+// test is that a new avatar re-runs the sync with nothing else moving. The
+// render and the accent come from the real resolvers, so the widget can only
+// ever draw what the app does. The encode is stubbed because it rasterizes onto
+// a canvas, which happy-dom does not have. Both mocked modules are spread over
+// their real surface, since `mock.module` is process-global in bun.
+const NO_AVATAR: AvatarData = {
+  components: null,
+  traits: null,
+  customImageUrl: null,
+};
+let avatarData: AvatarData = NO_AVATAR;
+const avatarListeners = new Set<() => void>();
 let encodeOutcome: "bytes" | "nothing-fits" | "throws" = "bytes";
 let encodeCalls = 0;
 /** Long enough that a dedup key carrying it would be unmistakable. */
 const AVATAR_BASE64 = "Zm9vYmFy".repeat(2_000);
 
-const realAvatarAccentVar = await import("@/hooks/use-avatar-accent-var");
-mock.module("@/hooks/use-avatar-accent-var", () => ({
-  ...realAvatarAccentVar,
-  getRenderedAvatarAccentHex: () => avatarAccentHex,
-}));
+/** Serve a new avatar the way a settling query does, waking its subscribers. */
+function publishAvatar(next: AvatarData): void {
+  avatarData = next;
+  for (const listener of avatarListeners) {
+    listener();
+  }
+}
 
-const realIslandAvatarSource = await import("@/hooks/use-island-avatar-source");
-mock.module("@/hooks/use-island-avatar-source", () => ({
-  ...realIslandAvatarSource,
-  getIslandAvatarSource: () => avatarSource,
+function subscribeAvatar(onChange: () => void): () => void {
+  avatarListeners.add(onChange);
+  return () => {
+    avatarListeners.delete(onChange);
+  };
+}
+
+const realAssistantAvatar = await import("@/hooks/use-assistant-avatar");
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...realAssistantAvatar,
+  // The assistant id is ignored: one avatar is served at a time, which is what
+  // the real query does too once the active assistant's entry settles.
+  useAssistantAvatar: () => {
+    const data = useSyncExternalStore(subscribeAvatar, () => avatarData);
+    return { ...data, isLoading: false, invalidate: () => {} };
+  },
 }));
 
 const realAvatarIslandEncode = await import("@/utils/avatar-island-encode");
@@ -177,18 +204,25 @@ mock.module("@/utils/avatar-island-encode", () => ({
   },
 }));
 
-/** A character avatar, a distinct render each call as a real change produces. */
-function characterAvatar(): AvatarRender {
+/**
+ * A character avatar in the palette color named, as the query serves one: a
+ * distinct object each call, which is what a real avatar change produces.
+ */
+function characterAvatar(color: string): AvatarData {
   return {
-    kind: "character",
-    svg: "<svg />",
-    dataUri: "data:image/svg+xml,%3Csvg%20%2F%3E",
+    components: BUNDLED_COMPONENTS,
+    traits: { bodyShape: "blob", eyeStyle: "grumpy", color },
+    customImageUrl: null,
   };
 }
 
-function imageAvatar(url: string): AvatarRender {
-  return { kind: "image", url };
+function imageAvatar(url: string): AvatarData {
+  return { components: null, traits: null, customImageUrl: url };
 }
+
+/** The hexes {@link characterAvatar}'s colors resolve to through the palette. */
+const ORANGE_HEX = "#E9642F";
+const TEAL_HEX = "#0E9B8B";
 
 /** Everything `JSON.stringify` produced while `body` ran. */
 function recordSerialized(body: () => void): string[] {
@@ -311,8 +345,8 @@ beforeEach(() => {
   persistedAssistantId = null;
   podIsServing = true;
   armedTimers = [];
-  avatarSource = null;
-  avatarAccentHex = null;
+  avatarData = NO_AVATAR;
+  avatarListeners.clear();
   encodeOutcome = "bytes";
   encodeCalls = 0;
   useConversationStore.setState({ processingConversationIds: new Set() });
@@ -1090,8 +1124,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   });
 
   it("carries a character avatar's rendered accent and encoded face", async () => {
-    avatarSource = characterAvatar();
-    avatarAccentHex = "#E9642F";
+    avatarData = characterAvatar("orange");
     render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1102,7 +1135,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots).toHaveLength(1);
     expect(syncedSnapshots[0]?.avatar).toEqual({
       kind: "character",
-      accentHex: "#E9642F",
+      accentHex: ORANGE_HEX,
       imageBase64: AVATAR_BASE64,
     });
   });
@@ -1110,8 +1143,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   it("carries a custom image with no accent to match", async () => {
     // The rendered accent is null for an uploaded avatar by construction, and
     // the widget blurs the photo for its background instead.
-    avatarSource = imageAvatar("blob:avatar-1");
-    avatarAccentHex = null;
+    avatarData = imageAvatar("blob:avatar-1");
     render({
       conversations: [conversation("c1")],
       conversationGroups: NO_GROUPS,
@@ -1147,8 +1179,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     // Both ways it can fail: nothing fit the budget, and the raster threw. The
     // widgets are for the counts and the rows, so neither may cost a snapshot.
     encodeOutcome = "nothing-fits";
-    avatarSource = characterAvatar();
-    avatarAccentHex = "#E9642F";
+    avatarData = characterAvatar("orange");
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1157,13 +1188,13 @@ describe("useNativeWidgetSnapshotSync", () => {
     await settle();
     expect(syncedSnapshots[0]?.avatar).toEqual({
       kind: "character",
-      accentHex: "#E9642F",
+      accentHex: ORANGE_HEX,
       imageBase64: null,
     });
     expect(syncedSnapshots[0]?.conversations).toHaveLength(1);
 
     encodeOutcome = "throws";
-    avatarSource = characterAvatar();
+    avatarData = characterAvatar("orange");
     rerender({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1178,7 +1209,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   it("re-sends unchanged conversations when the avatar changes", async () => {
     // One photo swapped for another changes neither the kind nor the accent, so
     // only the identity the key carries can tell the snapshots apart.
-    avatarSource = imageAvatar("blob:avatar-1");
+    avatarData = imageAvatar("blob:avatar-1");
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1187,7 +1218,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     await settle();
     expect(syncedSnapshots).toHaveLength(1);
 
-    avatarSource = imageAvatar("blob:avatar-2");
+    avatarData = imageAvatar("blob:avatar-2");
     rerender({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1211,7 +1242,7 @@ describe("useNativeWidgetSnapshotSync", () => {
     // The wait on the canvas draw is the one window in which a switch can
     // overtake a snapshot. Letting it land would put the departed assistant's
     // rows straight back on a Home Screen that was just cleared.
-    avatarSource = characterAvatar();
+    avatarData = characterAvatar("orange");
     const { rerender } = render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1233,8 +1264,7 @@ describe("useNativeWidgetSnapshotSync", () => {
   });
 
   it("keeps the avatar's bytes out of the dedup key", async () => {
-    avatarSource = characterAvatar();
-    avatarAccentHex = "#E9642F";
+    avatarData = characterAvatar("orange");
     const serialized = recordSerialized(() => {
       const { rerender } = render({
         conversations: [conversation("c1", { title: "Groceries" })],
@@ -1260,11 +1290,47 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots[0]?.avatar.imageBase64).toBe(AVATAR_BASE64);
   });
 
-  it("beats with an avatar that changed while nothing else did", async () => {
-    // An avatar change re-renders nothing here: the publishers are read
-    // imperatively, so the tick is what carries it to the Home Screen.
-    avatarSource = characterAvatar();
-    avatarAccentHex = "#E9642F";
+  it("syncs an avatar that changed while nothing else did", async () => {
+    // The gap this closes: `RootLayout` publishes its avatar copies from a
+    // PARENT effect, and React runs a child's effects first, so a snapshot
+    // built from those would be a render behind whenever the avatar and the
+    // conversation data move in one commit. An in-SPA assistant switch into an
+    // already-cached destination is that commit, and the dedup key would then
+    // pin the previous assistant's face until the heartbeat. Reading the avatar
+    // reactively is what makes the change its own trigger.
+    avatarData = characterAvatar("orange");
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(syncedSnapshots[0]?.avatar.accentHex).toBe(ORANGE_HEX);
+
+    // Nothing about the conversation list moves and nothing re-renders the
+    // layout of its own accord: the avatar arriving is the whole event.
+    act(() => {
+      publishAvatar(characterAvatar("teal"));
+    });
+    await settle();
+    expect(syncedSnapshots).toHaveLength(2);
+    expect(syncedSnapshots[1]?.avatar).toEqual({
+      kind: "character",
+      accentHex: TEAL_HEX,
+      imageBase64: AVATAR_BASE64,
+    });
+    expect(syncedSnapshots[1]?.conversations).toEqual(
+      syncedSnapshots[0]?.conversations ?? [],
+    );
+    // And it got there without the heartbeat, which is still armed and unfired.
+    expect(liveHeartbeats()).toHaveLength(1);
+  });
+
+  it("beats with the avatar the session currently has", async () => {
+    // The tick shares the send path, so it carries whatever the avatar is now
+    // rather than what the last data sync happened to encode.
+    avatarData = characterAvatar("orange");
     render({
       conversations: [conversation("c1", { title: "Groceries" })],
       conversationGroups: NO_GROUPS,
@@ -1273,17 +1339,21 @@ describe("useNativeWidgetSnapshotSync", () => {
     await settle();
     expect(syncedSnapshots).toHaveLength(1);
 
-    avatarSource = imageAvatar("blob:avatar-1");
-    avatarAccentHex = null;
-    fireHeartbeat();
+    act(() => {
+      publishAvatar(imageAvatar("blob:avatar-1"));
+    });
     await settle();
     expect(syncedSnapshots).toHaveLength(2);
-    expect(syncedSnapshots[1]?.avatar).toEqual({
+
+    fireHeartbeat();
+    await settle();
+    expect(syncedSnapshots).toHaveLength(3);
+    expect(syncedSnapshots[2]?.avatar).toEqual({
       kind: "image",
       accentHex: null,
       imageBase64: AVATAR_BASE64,
     });
-    expect(syncedSnapshots[1]?.conversations).toEqual(
+    expect(syncedSnapshots[2]?.conversations).toEqual(
       syncedSnapshots[0]?.conversations ?? [],
     );
   });
