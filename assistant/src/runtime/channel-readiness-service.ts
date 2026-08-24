@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
+import { CHANNEL_METADATA } from "../channels/types.js";
 import { getNestedValue, loadRawConfig } from "../config/loader.js";
 import { hasWebhookRoutingConfigured } from "../config/webhook-routing.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -365,9 +366,11 @@ const whatsappProbe: ChannelProbe = {
 /**
  * Ask the gateway whether a socket-backed channel's connection is receiving.
  *
- * One function for every such channel, matching the IPC route it reads: the
- * question and the answer are the same wherever a socket carries inbound, and
- * only the name in the message differs.
+ * One function for every such channel, matching the IPC route it reads, which
+ * is keyed by channel for the same reason: the question and the answer are the
+ * same wherever a socket carries inbound. A channel whose ingress is not a
+ * gateway-owned socket answers `unsupported`, which reads as indeterminate
+ * rather than a fault, so asking is always safe.
  *
  * Distinct from the credential checks: valid tokens establish that the
  * provider would accept us, not that anything is arriving. A socket can be
@@ -397,9 +400,12 @@ const whatsappProbe: ChannelProbe = {
  * meaning.
  */
 async function checkSocketInboundDelivery(
-  channel: "slack" | "discord",
-  label: string,
+  channel: ChannelId,
 ): Promise<ReadinessCheckResult> {
+  // The channel's own display name, so a socket-backed channel added later
+  // needs no string decision here. Falls back to the id for a channel with no
+  // metadata entry, which is every channel clients are not offered.
+  const label = CHANNEL_METADATA[channel]?.label ?? channel;
   // Imported here rather than at module scope, matching the Telegram probe:
   // the gateway IPC client pulls in a module graph that unrelated consumers of
   // this service should not have to mock.
@@ -463,7 +469,7 @@ const slackProbe: ChannelProbe = {
         "app_token",
         "Slack app token",
       ),
-      await checkSocketInboundDelivery("slack", "Slack Socket Mode"),
+      await checkSocketInboundDelivery("slack"),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
@@ -569,7 +575,7 @@ const discordProbe: ChannelProbe = {
         "bot_token",
         "Discord bot token",
       ),
-      await checkSocketInboundDelivery("discord", "The Discord gateway"),
+      await checkSocketInboundDelivery("discord"),
     ];
   },
 };
