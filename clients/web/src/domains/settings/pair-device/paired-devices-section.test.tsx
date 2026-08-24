@@ -101,12 +101,16 @@ function setListResult(result: LocalListDevicesResult) {
 
 async function renderExpanded(devices: LocalPairedDeviceRecord[]) {
   setListResult({ ok: true, devices });
-  render(<PairedDevicesSection />);
+  const result = render(<PairedDevicesSection />);
   // The list fetch is microtask-only; an awaited act drains it without timers.
   await act(async () => {});
-  fireEvent.click(
-    screen.getByRole("button", { name: `Paired devices (${devices.length})` }),
-  );
+  fireEvent.click(deviceListTrigger(devices.length));
+  return result;
+}
+
+/** The accordion trigger, which is also the expand/collapse toggle. */
+function deviceListTrigger(count: number): HTMLElement {
+  return screen.getByRole("button", { name: `Paired devices (${count})` });
 }
 
 function clickConfirm() {
@@ -421,6 +425,7 @@ describe("PairedDevicesSection", () => {
       setListResult({ ok: true, devices: [device()] });
       const { rerender } = render(<PairedDevicesSection pollWhilePairing />);
       await act(async () => {});
+      fireEvent.click(deviceListTrigger(1));
       expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(1);
       expect(
         liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
@@ -485,9 +490,7 @@ describe("PairedDevicesSection", () => {
     timerHarness.install();
 
     try {
-      setListResult({ ok: true, devices: [device()] });
-      const { unmount } = render(<PairedDevicesSection />);
-      await act(async () => {});
+      const { unmount } = await renderExpanded([device()]);
       expect(
         liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
       ).toHaveLength(1);
@@ -497,6 +500,51 @@ describe("PairedDevicesSection", () => {
       expect(
         liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
       ).toHaveLength(0);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("leaves the activity refresh disarmed while the list is collapsed", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      render(<PairedDevicesSection />);
+      await act(async () => {});
+
+      // The trigger renders, but the rows behind it do not: refreshing them
+      // would spawn a host subprocess every minute for a label nobody can read.
+      expect(deviceListTrigger(1)).toBeTruthy();
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+      expect(listCalls).toEqual(["self"]);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("arms the activity refresh on expand and clears it on collapse", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      render(<PairedDevicesSection />);
+      await act(async () => {});
+
+      fireEvent.click(deviceListTrigger(1));
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      fireEvent.click(deviceListTrigger(1));
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+      expect(listCalls).toEqual(["self"]);
     } finally {
       timerHarness.restore();
     }
