@@ -887,6 +887,119 @@ describe("RetryProvider fallback-route escalation", () => {
     expect(backup.seenToolNames()).toEqual(["read_file", "web_search"]);
   });
 
+  test("a tool-less call site loses the tool_choice paired with the sentinel", async () => {
+    // `AgentLoop` sets `tool_choice: { type: "auto" }` under the same condition
+    // that appends the sentinel, so a call site with no tools of its own sends
+    // the sentinel as its ONLY tool. Filtering it and leaving the tool_choice
+    // behind puts a choice with nothing to choose from on the wire, which
+    // Anthropic rejects outright: a recoverable outage would become a hard 400
+    // on the backup.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("gemini", { supportsNativeWebSearch: false });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
+      config: {
+        callSite: "mainAgent",
+        nativeWebSearchSentinel: true,
+        tool_choice: { type: "auto" },
+      },
+      tools: [
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.calls()).toBe(1);
+    expect(backup.seenToolNames()).toEqual([]);
+    expect(backup.seenConfig().tool_choice).toBeUndefined();
+  });
+
+  test("a tool_choice survives the fallback whenever a tool is left to choose", async () => {
+    // The rule is deliberately narrow. A conversation-level `toolChoice` takes
+    // precedence over the sentinel's `auto` in `AgentLoop`, so it is caller
+    // intent a route change must not quietly discard, and the request it
+    // produces is valid on every wire.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("gemini", { supportsNativeWebSearch: false });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
+      config: {
+        callSite: "mainAgent",
+        nativeWebSearchSentinel: true,
+        tool_choice: { type: "tool", name: "read_file" },
+      },
+      tools: [
+        {
+          name: "read_file",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.seenToolNames()).toEqual(["read_file"]);
+    expect(backup.seenConfig().tool_choice).toEqual({
+      type: "tool",
+      name: "read_file",
+    });
+  });
+
+  test("a tool_choice survives when the sentinel was never filtered", async () => {
+    // A backup that serves native search keeps the whole list, so nothing about
+    // the caller's config changes either.
+    const primary = failingProvider(
+      "openai",
+      () => new ProviderError("model not found", "openai", 404),
+    );
+    const backup = backupProvider("anthropic", {
+      supportsNativeWebSearch: true,
+    });
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    await wrapped.sendMessage(MESSAGES, {
+      config: {
+        callSite: "mainAgent",
+        nativeWebSearchSentinel: true,
+        tool_choice: { type: "auto" },
+      },
+      tools: [
+        {
+          name: "web_search",
+          description: "d",
+          input_schema: { type: "object" },
+        },
+      ],
+    });
+
+    expect(backup.seenToolNames()).toEqual(["web_search"]);
+    expect(backup.seenConfig().tool_choice).toEqual({ type: "auto" });
+  });
+
   test("the sentinel marker never reaches the provider wire config", async () => {
     const primary = failingProvider(
       "openai",
