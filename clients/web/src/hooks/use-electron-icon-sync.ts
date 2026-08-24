@@ -3,7 +3,10 @@ import { useEffect } from "react";
 import { isElectron } from "@/runtime/is-electron";
 import { setAssistantCharacter, setAssistantIcon } from "@/runtime/icon";
 import { rasterizeAvatar } from "@/utils/avatar-raster";
-import { resolveAvatarRender } from "@/utils/avatar-render";
+import {
+  resolveAvatarRender,
+  resolveEffectiveTraits,
+} from "@/utils/avatar-render";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /**
@@ -53,13 +56,16 @@ export function useElectronIconSync(
     // The traits themselves, for the surfaces that render the character live
     // rather than as pixels. Published off the same resolution as the still, so
     // the two can never describe different assistants: only a `character`
-    // render has traits to send, and every other outcome clears them.
+    // render has traits to send, and every other outcome clears them. The
+    // effective traits, so an assistant that never picked any sends the same
+    // default creature the still was composited from.
+    const effectiveTraits = resolveEffectiveTraits(components, traits);
     setAssistantCharacter(
-      render.kind === "character" && traits !== null
+      render.kind === "character" && effectiveTraits !== null
         ? {
-            bodyShape: traits.bodyShape,
-            eyeStyle: traits.eyeStyle,
-            color: traits.color,
+            bodyShape: effectiveTraits.bodyShape,
+            eyeStyle: effectiveTraits.eyeStyle,
+            color: effectiveTraits.color,
           }
         : null,
     );

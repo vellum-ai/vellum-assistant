@@ -288,9 +288,16 @@ function imageAvatar(url: string): AvatarData {
   return { components: null, traits: null, customImageUrl: url };
 }
 
+/** An assistant that has a palette but has never picked traits of its own. */
+function defaultCharacterAvatar(): AvatarData {
+  return { components: BUNDLED_COMPONENTS, traits: null, customImageUrl: null };
+}
+
 /** The hexes {@link characterAvatar}'s colors resolve to through the palette. */
 const ORANGE_HEX = "#E9642F";
 const TEAL_HEX = "#0E9B8B";
+/** The first palette color, which is what the default character is drawn in. */
+const GREEN_HEX = BUNDLED_COMPONENTS.colors[0]!.hex;
 
 /** Everything `JSON.stringify` produced while `body` ran. */
 function recordSerialized(body: () => void): string[] {
@@ -1208,6 +1215,27 @@ describe("useNativeWidgetSnapshotSync", () => {
     expect(syncedSnapshots[0]?.avatar).toEqual({
       kind: "character",
       accentHex: ORANGE_HEX,
+      imageBase64: AVATAR_BASE64,
+    });
+  });
+
+  it("carries the default character when the assistant has no traits", async () => {
+    // The app draws a creature for an assistant that never opened the avatar
+    // builder, off the first of each component. The widgets resolve through the
+    // same helpers, so they draw that face and tint themselves to its color
+    // rather than falling back to the brand mark and palette.
+    setAvatar(defaultCharacterAvatar());
+    render({
+      conversations: [conversation("c1", { title: "Groceries" })],
+      conversationGroups: NO_GROUPS,
+      inputsResolved: true,
+    });
+    await settle();
+
+    expect(syncedSnapshots).toHaveLength(1);
+    expect(syncedSnapshots[0]?.avatar).toEqual({
+      kind: "character",
+      accentHex: GREEN_HEX,
       imageBase64: AVATAR_BASE64,
     });
   });
