@@ -437,6 +437,7 @@ describe("ContactStore.getContactWithInfo", () => {
     expect(result!.notes).toBe("my guardian");
     expect(result!.interactionCount).toBe(7);
     expect(result!.lastInteraction).toBe(999);
+    expect(result!.autoApproveThreshold).toBeNull();
   });
 
   test("soft-fails on assistant DB outage for single contact", async () => {

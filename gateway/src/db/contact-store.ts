@@ -2,13 +2,17 @@ import { type Database } from "bun:sqlite";
 
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 
-import { isBindingDemotion } from "@vellumai/gateway-client";
+import {
+  isBindingDemotion,
+  type RiskThreshold,
+} from "@vellumai/gateway-client";
 import {
   type AssistantContactMetadata,
   type ContactRead,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { type GatewayDb, getGatewayDb } from "./connection.js";
+import { parseContactAutoApproveThreshold } from "./contact-auto-approve-threshold.js";
 import { contacts, contactChannels, ingressInvites } from "./schema.js";
 import {
   type ContactInfoFields,
@@ -100,6 +104,7 @@ export class ContactStore {
         displayName: contacts.displayName,
         role: contacts.role,
         principalId: contacts.principalId,
+        autoApproveThreshold: contacts.autoApproveThreshold,
         createdAt: contacts.createdAt,
         updatedAt: contacts.updatedAt,
       })
@@ -129,9 +134,9 @@ export class ContactStore {
   // These methods read the ACL shape (contacts + contact_channels) from the
   // gateway DB and join the informational shape (notes, userFile, contactType,
   // assistant_contact_metadata) from the assistant DB in a single batched
-  // query. Trust signals (interactionCount, lastInteraction, role) are
-  // derived from gateway rows only — the assistant copy is not trusted for
-  // ACL-relevant fields.
+  // query. Trust signals (interactionCount, lastInteraction, role,
+  // autoApproveThreshold) are derived from gateway rows only. The assistant
+  // copy is not trusted for ACL-relevant fields.
   //
   // Soft-fail: if the assistant DB read throws, info fields become null and
   // the ACL shape is still returned. A contact present in gateway but missing
@@ -373,6 +378,7 @@ export class ContactStore {
       contactType: c.contactType,
       interactionCount: c.interactionCount,
       lastInteraction: c.lastInteraction,
+      autoApproveThreshold: c.autoApproveThreshold,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
       channels: c.channels.map((ch) => ({
@@ -468,6 +474,9 @@ export class ContactStore {
       displayName: contact.displayName,
       role: contact.role,
       principalId: contact.principalId,
+      autoApproveThreshold: parseContactAutoApproveThreshold(
+        contact.autoApproveThreshold,
+      ),
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
       channels: channels.map((ch) => ({
@@ -1164,6 +1173,7 @@ export class ContactStore {
     id?: string;
     displayName?: string;
     notes?: string | null;
+    autoApproveThreshold?: RiskThreshold | null;
     contactType?: string;
     assistantMetadata?: {
       species: string;
@@ -1231,6 +1241,9 @@ export class ContactStore {
         updatedAt: gatewayRow.updatedAt,
         interactionCount: 0,
         lastInteraction: null,
+        autoApproveThreshold: parseContactAutoApproveThreshold(
+          gatewayRow.autoApproveThreshold,
+        ),
         channels: [],
         assistantMetadata: null,
       },
@@ -1276,6 +1289,9 @@ export class ContactStore {
       if (params.displayName !== undefined) {
         updateSet.displayName = params.displayName;
       }
+      if (params.autoApproveThreshold !== undefined) {
+        updateSet.autoApproveThreshold = params.autoApproveThreshold;
+      }
       this.db.update(contacts).set(updateSet).where(eq(contacts.id, id)).run();
     };
 
@@ -1299,6 +1315,7 @@ export class ContactStore {
             displayName: newContactName,
             role: "contact",
             principalId: null,
+            autoApproveThreshold: params.autoApproveThreshold ?? null,
             createdAt: now,
             updatedAt: now,
           })
@@ -1342,6 +1359,7 @@ export class ContactStore {
             params.displayName ?? canonicalChannels?.[0]?.address ?? "Unknown",
           role: "contact",
           principalId: null,
+          autoApproveThreshold: params.autoApproveThreshold ?? null,
           createdAt: now,
           updatedAt: now,
         })
@@ -1805,6 +1823,7 @@ export interface ContactWithInfo {
   displayName: string;
   role: string;
   principalId: string | null;
+  autoApproveThreshold: RiskThreshold | null;
   createdAt: number;
   updatedAt: number;
   channels: ContactChannelShape[];
