@@ -37,6 +37,7 @@ import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
+import { findConnectionsUsingCredential } from "../../providers/inference/credential-usage.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
@@ -429,6 +430,23 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
+        }
+      } else if (!isTrimmedIdentity) {
+        try {
+          const connections = findConnectionsUsingCredential(key);
+          if (connections.length > 0) {
+            await refreshProvidersAfterSecretChange();
+          }
+        } catch (err) {
+          log.warn(
+            {
+              service,
+              field,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            "Failed to inspect provider connections after credential update; refreshing providers anyway",
+          );
+          await refreshProvidersAfterSecretChange();
         }
       }
       if (
