@@ -54,6 +54,9 @@ const {
   restoreVoiceRoom,
 } = await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
+const { reconcileMaterializedDrafts } =
+  await import("@/domains/chat/hooks/use-materialized-draft-reconcile");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -2333,6 +2336,95 @@ describe("session context and controls", () => {
     expect(store.controls).toBeNull();
     expect(store.assistantId).toBeNull();
     expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Draft materialization
+// ---------------------------------------------------------------------------
+
+describe("draft materialization", () => {
+  const isDraft = (conversationId: string): boolean =>
+    useConversationStore.getState().draftConversationIds.has(conversationId);
+
+  beforeEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  afterEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  /** Open a session bound to `conversationId` and drive it to `ready`. */
+  async function startOn(
+    h: ReturnType<typeof renderController>,
+    conversationId: string,
+  ) {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", conversationId);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId,
+      });
+      await Promise.resolve();
+    });
+  }
+
+  /** The frame the daemon sends as a turn begins, ahead of any row. */
+  async function emitThinking(h: ReturnType<typeof renderController>) {
+    await act(async () => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      await Promise.resolve();
+    });
+  }
+
+  test("a dispatched turn whose row reaches the list stops being a draft", async () => {
+    // The composer's voice button starts on whatever key it is bound to, and a
+    // new chat's key is a client-minted draft, so this covers that route as
+    // much as the deep-link drain's freshly minted one.
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+    await emitThinking(h);
+    // The frame alone is a promise of a turn, not a row.
+    expect(isDraft("conv-draft")).toBe(true);
+
+    reconcileMaterializedDrafts(["conv-draft"]);
+
+    expect(isDraft("conv-draft")).toBe(false);
+  });
+
+  test("a turn cancelled before its row exists leaves the draft intact", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+    await emitThinking(h);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    // Cancellation means the turn never dispatched, so no row was written and
+    // every list the client sees from here holds only what existed before.
+    reconcileMaterializedDrafts(["conv-unrelated"]);
+
+    expect(isDraft("conv-draft")).toBe(true);
+  });
+
+  test("a materialized row clears only its own key", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    useConversationStore.getState().registerDraftConversationId("conv-other");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+    await emitThinking(h);
+
+    reconcileMaterializedDrafts(["conv-draft"]);
+
+    expect(isDraft("conv-draft")).toBe(false);
+    expect(isDraft("conv-other")).toBe(true);
   });
 });
 

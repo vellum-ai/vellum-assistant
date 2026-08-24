@@ -902,6 +902,13 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
+          // No draft bookkeeping here. `thinking` is sent before the turn is
+          // dispatched and the session can still return early on cancellation,
+          // so the row this frame promises may never be written. The draft mark
+          // is cleared where the row is confirmed instead, by
+          // `useMaterializedDraftReconcile` against the fetched conversation
+          // list.
+          //
           // New response: reset the per-response transcript and barge-in flags.
           session.responseEpoch += 1;
           session.responseAudioStarted = false;

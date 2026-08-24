@@ -15,6 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import type { VoiceAudioInterruptionEvent } from "@/runtime/native-audio-session";
 
 // The default client factory in use-live-voice statically imports the real
@@ -108,6 +109,7 @@ const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -123,23 +125,30 @@ function renderPersistentController(
 
   let renderCount = 0;
 
-  const view = renderHook(() => {
-    renderCount += 1;
-    useLiveVoiceSessionController({
-      createClient: () => {
-        const client = new FakeClient();
-        clients.push(client);
-        return client as unknown as LiveVoiceChannelClient;
-      },
-      createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
-      createCapture: (options) => {
-        const capture = new FakeCapture(options);
-        configureCapture?.(capture);
-        captures.push(capture);
-        return capture as unknown as LiveVoiceAudioCapture;
-      },
-    });
-  });
+  // Under a router because the controller lands on the conversation a drained
+  // start-voice request mints for its session, exactly as `ChatLayout` does.
+  const view = renderHook(
+    () => {
+      renderCount += 1;
+      useLiveVoiceSessionController({
+        createClient: () => {
+          const client = new FakeClient();
+          clients.push(client);
+          return client as unknown as LiveVoiceChannelClient;
+        },
+        createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
+        createCapture: (options) => {
+          const capture = new FakeCapture(options);
+          configureCapture?.(capture);
+          captures.push(capture);
+          return capture as unknown as LiveVoiceAudioCapture;
+        },
+      });
+    },
+    {
+      wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+    },
+  );
 
   return {
     view,
@@ -191,6 +200,7 @@ beforeEach(() => {
     firstRunSeen: true,
   });
   __resetPendingDeepLinkForTesting();
+  useConversationStore.getState().reset();
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   interruptionHandlers = [];
@@ -271,6 +281,7 @@ describe("starter registration", () => {
       version: "0.10.12",
     });
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    useConversationStore.getState().setActiveConversationId("conv-1");
     usePendingDeepLinkStore.getState().setPendingVoiceStart();
 
     const h = renderPersistentController();
@@ -279,9 +290,17 @@ describe("starter registration", () => {
       await Promise.resolve();
     });
 
+    // The drain mints a conversation for the session and lands on it, so the
+    // composer there can own it and show the room. Not `conv-1`: a start asked
+    // for from outside the chat is a new call, and the selection it finds is
+    // just wherever the user was last.
+    const draftId =
+      useConversationStore.getState().activeConversationId ?? undefined;
+    expect(draftId).toBeDefined();
+    expect(draftId).not.toBe("conv-1");
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
-      conversationId: undefined,
+      conversationId: draftId,
       turnDetection: "server_vad",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();

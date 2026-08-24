@@ -283,10 +283,11 @@ export function useGlobalDeepLinkConsumer(): void {
       requestComposerFocus();
       return;
     }
-    // The draft composer (no conversation): the session starts without one and
-    // the server assigns it on `ready`.
+    // The chat, so the layout that registers the starter is mounted. The drain
+    // mints the fresh conversation the session binds to and lands on it from
+    // there, reading the ref because it navigates after its own awaits.
     navigateRef.current(routes.assistant);
-    requestVoiceStart();
+    requestVoiceStart((to, options) => navigateRef.current(to, options));
   });
 
   // The Home Screen widgets' New Chat buttons. `navigateToNewConversation` is
