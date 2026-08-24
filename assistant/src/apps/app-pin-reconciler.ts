@@ -22,6 +22,7 @@
  */
 
 import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
+import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { listAppPins, removeAppPin } from "./app-pin-store.js";
 import { listApps, listPluginApps } from "./app-store.js";
@@ -53,6 +54,10 @@ export function reconcileAppPins(): void {
         { removed: stale.map((pin) => pin.appId) },
         "Dropped pins for apps that are no longer installed",
       );
+      /* A pass has no originating client, and every other pin write announces
+         itself, so a client would otherwise keep rendering a pin this just
+         deleted until some unrelated refetch. */
+      publishAppsChanged();
     }
   } catch (err) {
     log.error({ err }, "app pin reconcile failed");
