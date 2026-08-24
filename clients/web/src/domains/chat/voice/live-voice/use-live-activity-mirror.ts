@@ -133,12 +133,13 @@ function toActivityContent(
  * The island avatar for the current assistant, encoding it on first use.
  *
  * The memo is shared with the Home Screen widget snapshot, which rasterizes the
- * same source through the same ladder at a budget of its own, so a session that
- * drives both surfaces pays the canvas draw once per avatar rather than once
- * per surface. What reaches the island is unchanged: the memo is keyed on the
- * source's identity, exactly as this module's own cache was, and holds a
- * separate slot per budget so an island can never be handed the widgets' larger
- * encode and fail to start on it.
+ * same source through the same ladder at a budget of its own. Sharing it buys
+ * one owner of the caching rules and the failure semantics rather than one
+ * draw for both surfaces: the two run separate encodes, since each resolves its
+ * own render and reads at its own budget. What reaches the island is unchanged:
+ * the memo is keyed on the source's identity, exactly as this module's own
+ * cache was, and holds a separate slot per budget so an island can never be
+ * handed the widgets' larger encode and fail to start on it.
  */
 async function islandAvatarBase64(): Promise<string | undefined> {
   const source = getIslandAvatarSource();

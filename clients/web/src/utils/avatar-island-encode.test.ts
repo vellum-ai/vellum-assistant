@@ -73,7 +73,9 @@ describe("encodeAvatarForIsland", () => {
     byteSizes["128:image/png"] = 900;
 
     expect(await encode(CHARACTER)).not.toBeNull();
-    expect(attempts).toEqual([{ size: 128, type: "image/png", quality: undefined }]);
+    expect(attempts).toEqual([
+      { size: 128, type: "image/png", quality: undefined },
+    ]);
   });
 
   // The measured shape for the default character avatar: 128px PNG is 6860
@@ -143,11 +145,30 @@ describe("encodeAvatarForIsland", () => {
   });
 
   // An undrawable source fails identically at every size, so retrying the
-  // whole ladder would just be five more failures.
+  // whole ladder would just be seven more failures.
   test("gives up immediately when the source will not draw", async () => {
     throwOnDraw = true;
 
-    expect(await encode(IMAGE)).toBeNull();
+    await expect(encode(IMAGE)).rejects.toThrow("source failed to load");
+    expect(attempts).toHaveLength(1);
+  });
+
+  // The line the memo's caching depends on. Null is a fact about the avatar
+  // (nothing to draw, nothing that fits), and only a fact may be cached; a draw
+  // that failed says nothing about the avatar, so it has to arrive as a
+  // rejection or one bad canvas pins "no avatar" for the whole session.
+  test("rejects a failed draw rather than reporting it as nothing to send", async () => {
+    throwOnDraw = true;
+
+    await expect(encode(CHARACTER)).rejects.toThrow();
+  });
+
+  // The rasterizer's other failure: a 2d context the shell would not give up,
+  // or a `toBlob` that produced no blob. Same class as a throw, and no later
+  // rung draws on a canvas the first one could not get.
+  test("rejects when the rasterizer hands back no bytes", async () => {
+    // `byteSizes` is empty, so the stub returns null for the first rung.
+    await expect(encode(CHARACTER)).rejects.toThrow();
     expect(attempts).toHaveLength(1);
   });
 
@@ -274,5 +295,54 @@ describe("memoizedAvatarEncode", () => {
     // A fresh identity, so a caller keying a payload on the avatar can tell the
     // retry apart from the attempt that carried nothing.
     expect(retried.revision).not.toBe(failed.revision);
+  });
+
+  /**
+   * The two halves meeting. The cases above stub the encoder, so they pin the
+   * memo's rule and nothing else; the memo's rule is only worth as much as the
+   * encoder's classification of what happened, so these run the REAL ladder
+   * over the stub rasterizer at the top of this file.
+   */
+  const realMemo = (render: AvatarRender) =>
+    memoizedAvatarEncode(render, ISLAND_AVATAR_MAX_BYTES, (r, maxBytes) =>
+      encodeAvatarForIsland(r, maxBytes, rasterize as never),
+    );
+
+  test("drops the slot when the rasterizer fails, so the next read draws again", async () => {
+    // The whole point of the classification: one transient canvas failure used
+    // to resolve null, which the memo cached, and the session went avatar-less
+    // from there.
+    const render = source();
+    throwOnDraw = true;
+
+    const failed = realMemo(render);
+    // Still resolved rather than rejected at the caller: the payload goes out
+    // without a face rather than not at all.
+    expect(await failed.pending).toBeNull();
+    expect(attempts).toHaveLength(1);
+
+    throwOnDraw = false;
+    byteSizes["128:image/png"] = 900;
+    const retried = realMemo(render);
+    expect(await retried.pending).not.toBeNull();
+    expect(retried.revision).not.toBe(failed.revision);
+  });
+
+  test("keeps the slot for an avatar that fits no rung, which is not a failure", async () => {
+    const render = source();
+    for (const size of [128, 96, 64, 48, 40, 32]) {
+      byteSizes[`${size}:image/png`] = 99000;
+    }
+    byteSizes["64:image/jpeg"] = 99000;
+    byteSizes["48:image/jpeg"] = 99000;
+
+    expect(await realMemo(render).pending).toBeNull();
+    expect(attempts).toHaveLength(8);
+
+    const cached = realMemo(render);
+    expect(cached.pending).toBeNull();
+    expect(cached.base64).toBeNull();
+    // No second walk of the ladder: the verdict is a fact about the source.
+    expect(attempts).toHaveLength(8);
   });
 });

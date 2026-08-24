@@ -68,8 +68,11 @@ const actualPlatformDetection = await import("@/runtime/platform-detection");
 
 // Voice entry preflights readiness before a session opens; stub it ready so
 // the controller's drain tests stay about the starter. See `voice-entry-guards`.
+// A mock rather than a literal so a case can hold the round trip open and move
+// the app underneath a drain, which is the only way to reach the repark.
+const preflightLiveVoice = mock(async () => ({ status: "ready" }));
 mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
-  preflightLiveVoice: async () => ({ status: "ready" }),
+  preflightLiveVoice,
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
@@ -206,6 +209,8 @@ beforeEach(() => {
   interruptionHandlers = [];
   onNativeAndroid = false;
   onNativeIOS = false;
+  preflightLiveVoice.mockClear();
+  preflightLiveVoice.mockImplementation(async () => ({ status: "ready" }));
   activateVoiceAudioSession.mockClear();
   activateVoiceAudioSession.mockImplementation(async () => true);
   deactivateVoiceAudioSession.mockClear();
@@ -313,6 +318,111 @@ describe("starter registration", () => {
     });
 
     expect(h.clients).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Re-draining a parked start when the active assistant changes
+// ---------------------------------------------------------------------------
+
+/**
+ * The drain has two triggers, and only the second serves a reparked request.
+ *
+ * `drainPendingVoiceStart` leaves the request parked when the active assistant
+ * changed while its preflight was in flight, because the eligibility gate and
+ * the readiness verdict both answered for the assistant the user has just left.
+ * The starter-registration effect above cannot run that next drain: it is keyed
+ * on the starter's identity, which a switch does not touch. So the switch runs
+ * it, and a press the user really made is served on the assistant they moved to
+ * rather than sitting until its TTL takes it.
+ */
+describe("re-draining on an assistant switch", () => {
+  /** Resolved, active, and new enough to serve live voice. */
+  function activeAssistant(assistantId: string): void {
+    useAssistantIdentityStore.setState({ assistantId, version: "0.10.12" });
+    useResolvedAssistantsStore.setState({ activeAssistantId: assistantId });
+  }
+
+  /**
+   * Let the fire-and-forget drains run out. They cannot be awaited by design,
+   * and each one awaits the version resolution, the preflight, and the start.
+   */
+  async function flushDrains(): Promise<void> {
+    await act(async () => {
+      for (let i = 0; i < 12; i++) {
+        await Promise.resolve();
+      }
+    });
+  }
+
+  test("a request reparked mid-preflight starts on the assistant switched to", async () => {
+    activeAssistant("assistant-1");
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    let releasePreflight: () => void = () => {};
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releasePreflight = () => {
+            resolve({ status: "ready" });
+          };
+        }),
+    );
+
+    // The mount's drain gets as far as the held preflight and no further.
+    const h = renderPersistentController();
+    await flushDrains();
+    expect(h.clients).toHaveLength(0);
+
+    // The user switches assistants with that preflight still open, so the drain
+    // reparks when it resumes.
+    act(() => {
+      activeAssistant("assistant-2");
+      releasePreflight();
+    });
+    await flushDrains();
+
+    const draftId =
+      useConversationStore.getState().activeConversationId ?? undefined;
+    expect(draftId).toBeDefined();
+    expect(h.clients).toHaveLength(1);
+    expect(h.lastClient().connectArgs).toEqual({
+      assistantId: "assistant-2",
+      conversationId: draftId,
+      turnDetection: "server_vad",
+    });
+    // Spent, rather than left parked for the TTL to throw away.
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+  });
+
+  test("a switch with nothing parked starts nothing", async () => {
+    activeAssistant("assistant-1");
+    const h = renderPersistentController();
+    await flushDrains();
+
+    act(() => {
+      activeAssistant("assistant-2");
+    });
+    await flushDrains();
+
+    expect(h.clients).toHaveLength(0);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  test("a switch after the request was served starts no second session", async () => {
+    // The park is one-shot, so the trigger cannot turn every later switch into
+    // a session the user never asked for.
+    activeAssistant("assistant-1");
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    const h = renderPersistentController();
+    await flushDrains();
+    expect(h.clients).toHaveLength(1);
+
+    act(() => {
+      activeAssistant("assistant-2");
+    });
+    await flushDrains();
+
+    expect(h.clients).toHaveLength(1);
   });
 });
 

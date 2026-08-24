@@ -35,9 +35,11 @@
  * The widget snapshot rasterizes the same avatar from the same source through
  * the same ladder, differing only in the budget it can afford (an App Group
  * write rather than an ActivityKit attribute). Both surfaces therefore share
- * {@link memoizedAvatarEncode}, so a session pays the canvas draw once per
- * avatar however many of them ask for it, and the caching rules live in one
- * place rather than being restated per consumer.
+ * {@link memoizedAvatarEncode}. Not to draw once for both: slots are keyed per
+ * budget, and each surface resolves an {@link AvatarRender} of its own, so the
+ * two genuinely encode separately. What they share is an owner. One place
+ * decides what is cached, what is retried, and what a failed encode costs the
+ * payload, instead of each consumer restating those rules and drifting.
  */
 
 import { rasterizeAvatar } from "@/utils/avatar-raster";
@@ -103,11 +105,24 @@ function toBase64(bytes: Uint8Array): string {
  * Rasterize `render` as small as it needs to be to fit `maxBytes`, returning
  * base64 or null.
  *
- * Null means "show the accent glyph instead", and is the right answer for a
- * `none` avatar, a source that fails to draw, and an avatar that will not fit
- * at any rung. Every caller must treat it as ordinary rather than as an error:
- * the Live Activity is a flourish, and none of these cases should cost the
- * user their island.
+ * **Null is a fact about the avatar, not a failure to encode it.** Exactly two
+ * cases resolve null: a `none` avatar, and one whose smallest rung is still
+ * over budget. Both mean "show the accent glyph instead" and are ordinary
+ * rather than errors, because the Live Activity is a flourish and neither
+ * should cost the user their island. Both are also stable, so a caller may
+ * cache them.
+ *
+ * **An operational failure REJECTS.** The rasterizer throwing (a revoked blob
+ * URL, a cross-origin upload) and the rasterizer handing back no bytes at all
+ * (a 2d context the shell would not give up, a `toBlob` that produced nothing)
+ * say nothing about the avatar and may not be cached as if they did. Keeping
+ * the two apart at this seam is what lets {@link memoizedAvatarEncode} hold one
+ * for the session and retry the other; collapsing both into null pinned "no
+ * avatar" on the whole session after a single transient canvas failure.
+ *
+ * A rejection leaves the ladder rather than stepping down it: every rung draws
+ * the same source through the same canvas, so a draw that failed once fails the
+ * same way seven more times.
  */
 export async function encodeAvatarForIsland(
   render: AvatarRender,
@@ -123,21 +138,16 @@ export async function encodeAvatarForIsland(
   const src = render.kind === "character" ? render.dataUri : render.url;
 
   for (const candidate of CANDIDATES) {
-    let bytes: Uint8Array | null;
-    try {
-      bytes = await rasterize(
-        src,
-        candidate.size,
-        candidate.type,
-        candidate.quality,
-      );
-    } catch {
-      // The source itself will not draw (a revoked blob URL, a cross-origin
-      // upload). No later rung can fix that, so stop rather than retry it
-      // five more times.
-      return null;
+    const bytes = await rasterize(
+      src,
+      candidate.size,
+      candidate.type,
+      candidate.quality,
+    );
+    if (bytes === null) {
+      throw new Error("avatar rasterizer produced no bytes");
     }
-    if (bytes && bytes.byteLength <= maxBytes) {
+    if (bytes.byteLength <= maxBytes) {
       return toBase64(bytes);
     }
   }
@@ -172,10 +182,10 @@ interface AvatarEncodeSlot extends AvatarEncodeMemo {
 /**
  * The last encode per byte budget, each slot holding the source it came from.
  *
- * Module scope, so the canvas draw is paid once per avatar however many native
- * surfaces ask for it and however often they re-render. The key inside a slot
- * is the resolved {@link AvatarRender}, a stable object recomputed only when
- * the avatar itself changes, so identity comparison is enough and there is
+ * Module scope, so a surface pays the canvas draw once per avatar however often
+ * it re-renders, and a slot outlives the effect that filled it. The key inside
+ * a slot is the resolved {@link AvatarRender}, a stable object recomputed only
+ * when the avatar itself changes, so identity comparison is enough and there is
  * nothing to invalidate.
  *
  * Kept per budget rather than one slot for every caller, because the ceilings
