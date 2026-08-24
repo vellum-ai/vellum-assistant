@@ -1624,15 +1624,16 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
-  test("server_tool_start opens a tool block too, keyed by its own name field", async () => {
-    // Provider-native tools (web search and friends) emit server_tool_start
-    // and never a preview event, and the event names the tool as `name`, not
-    // `toolName`. A consumer wired only to tool_use_preview_start would miss
+  test("a provider-native tool opens a block via its translated tool_use_start", async () => {
+    // Web search and friends reach this layer as a wire `tool_use_start`: the
+    // daemon translates the loop's `server_tool_start` into one (see that case
+    // in conversation-agent-loop-handlers.ts), and no preview event is emitted
+    // for them. A consumer wired only to tool_use_preview_start would miss
     // every block boundary on such a turn.
     makeEventEmittingConversation([
       {
-        type: "server_tool_start",
-        name: "web_search",
+        type: "tool_use_start",
+        toolName: "web_search",
         toolUseId: "srvtoolu-1",
         input: { query: "weather" },
       },
@@ -1653,7 +1654,9 @@ describe("startVoiceTurn tool-event forwarding", () => {
     ]);
   });
 
-  test("both tool block kinds open blocks, in stream order", async () => {
+  test("a client tool that previews and then starts opens its block once", async () => {
+    // Both events describe the same call, so opening twice would advance the
+    // consumer's block counter past the block the following text belongs to.
     makeEventEmittingConversation([
       {
         type: "tool_use_preview_start",
@@ -1661,10 +1664,16 @@ describe("startVoiceTurn tool-event forwarding", () => {
         toolUseId: "toolu-1",
       },
       {
-        type: "server_tool_start",
-        name: "web_search",
+        type: "tool_use_start",
+        toolName: "calendar_read",
+        toolUseId: "toolu-1",
+        input: { day: "today" },
+      },
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
         toolUseId: "srvtoolu-1",
-        input: {},
+        input: { query: "weather" },
       },
     ]);
 
