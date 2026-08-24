@@ -70,7 +70,9 @@ beforeEach(() => {
   mockSecureKeys = {};
   askedChannels = [];
   socketHealth = { channel: "discord", status: "connected" };
-  admittedChannelCount = 1;
+  // The default install state: fail-closed and empty, admitting nothing until
+  // someone lists channel ids. Tests that need admission say so.
+  admittedChannelCount = 0;
 });
 
 async function runDiscordProbe() {
@@ -93,12 +95,23 @@ describe("discord readiness", () => {
     expect(askedChannels).toEqual(["discord"]);
   });
 
-  test("reports a missing bot token", async () => {
+  test("a fresh install has neither a token nor an allow-list", async () => {
     const [snapshot] = await runDiscordProbe();
 
-    const credential = findCheck(snapshot, "bot_token");
-    expect(credential.passed).toBe(false);
+    expect(findCheck(snapshot, "bot_token").passed).toBe(false);
+    expect(findCheck(snapshot, "guild_admission").passed).toBe(false);
+    // Nothing configured at all, which is a different report from a channel
+    // half set up: no step has been taken rather than one left undone.
     expect(snapshot.setupStatus).toBe("not_configured");
+  });
+
+  test("an allow-list without a token is half set up", async () => {
+    admittedChannelCount = 3;
+
+    const [snapshot] = await runDiscordProbe();
+
+    expect(findCheck(snapshot, "bot_token").passed).toBe(false);
+    expect(snapshot.setupStatus).toBe("incomplete");
   });
 
   test("a token, a live connection and an allow-list read as ready", async () => {
@@ -169,6 +182,9 @@ describe("discord readiness", () => {
 
   test("a dead socket reads as configured and failing, not unconfigured", async () => {
     mockSecureKeys[credentialKey("discord_channel", "bot_token")] = "bot-fake";
+    // Setup has to be finished for this to isolate the socket: an empty
+    // allow-list would leave it incomplete for a reason that is not the socket.
+    admittedChannelCount = 1;
     socketHealth = { channel: "discord", status: "disconnected" };
 
     const [snapshot] = await runDiscordProbe();
