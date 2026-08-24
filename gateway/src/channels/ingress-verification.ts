@@ -7,12 +7,13 @@
  * such a route could be declared, approved, registered with the vendor, and
  * then 403 every delivery — the only schemes the gateway knew were its own.
  *
- * So a route may declare *how* to verify it, as data. The gateway implements
- * one HMAC engine and reads the vendor's specifics — algorithm, which header
- * carries the digest, how it is encoded, and exactly which bytes it covers —
- * out of the manifest. A third vendor is a manifest edit rather than gateway
- * code, which is the whole point: the alternative is a growing switch of
- * per-vendor verifiers that only the gateway team can extend.
+ * So a route may declare *how* to verify it, as data. Most vendors fit the
+ * HMAC engine: algorithm, which header carries the digest, how it is
+ * encoded, and exactly which bytes it covers, all read from the manifest.
+ * Standard Webhooks is a second kind because its secret encoding and
+ * multi-signature header cannot be expressed as that list. A third HMAC
+ * vendor is still a manifest edit rather than gateway code. A fourth
+ * complete scheme is an added union member.
  *
  * What stays gateway-side, and must:
  *
@@ -121,15 +122,37 @@ export const HmacVerificationSchema = z
   .strict();
 
 /**
+ * Standard Webhooks (`standardwebhooks.com`).
+ *
+ * A complete scheme, not a list of HMAC parts: the signed content is always
+ * `{webhook-id}.{webhook-timestamp}.{raw body}`, the key is the base64
+ * payload of a `whsec_` secret, and the header is
+ * `webhook-signature: v1,<base64>` (space-separated when rotated). Linq
+ * and any other vendor that adopted the spec declare this kind instead of
+ * reconstructing those rules as an `hmac` payload list, which cannot decode
+ * the secret or accept multiple signatures.
+ *
+ * Replay window is five minutes, matching the spec's default.
+ */
+export const StandardWebhooksVerificationSchema = z
+  .object({
+    kind: z.literal("standard-webhooks"),
+    secret: z.object({ field: CredentialFieldSchema }).strict(),
+  })
+  .strict();
+
+/** Replay window Standard Webhooks requires. */
+export const STANDARD_WEBHOOKS_TOLERANCE_SECONDS = 5 * 60;
+
+/**
  * How a route is verified.
  *
- * A discriminated union of one member today. It is a union rather than a bare
- * object so a second scheme — a vendor that signs an asymmetric signature, say
- * — is an added member with its own required fields, and every existing
- * manifest keeps parsing.
+ * A discriminated union. A second scheme is an added member with its own
+ * required fields, and every existing manifest keeps parsing.
  */
 export const IngressVerificationSchema = z.discriminatedUnion("kind", [
   HmacVerificationSchema,
+  StandardWebhooksVerificationSchema,
 ]);
 export type IngressVerification = z.infer<typeof IngressVerificationSchema>;
 
@@ -199,6 +222,96 @@ function decodeDigest(
     : null;
 }
 
+/**
+ * Decode a Standard Webhooks secret into the HMAC key bytes.
+ *
+ * A `whsec_` prefix is stripped, then the remainder is base64. A secret
+ * stored without the prefix is decoded as-is so a caller that already
+ * stripped it still verifies.
+ */
+function standardWebhooksKey(secret: string): Buffer | null {
+  const encoded = secret.startsWith("whsec_") ? secret.slice(6) : secret;
+  if (!encoded) {
+    return null;
+  }
+  const key = Buffer.from(encoded, "base64");
+  return key.length > 0 ? key : null;
+}
+
+/**
+ * Verify a Standard Webhooks delivery.
+ *
+ * Headers are looked up case-insensitively (`Headers.get`). The signed
+ * content is `{webhook-id}.{webhook-timestamp}.{raw body}`. Any `v1,`
+ * signature in the space-separated header is enough.
+ */
+function verifyStandardWebhooks(opts: {
+  headers: Headers;
+  body: Uint8Array;
+  secret: string;
+  nowMs: number;
+}): VerificationResult {
+  const { headers, body, secret, nowMs } = opts;
+  if (!secret) {
+    return { ok: false, reason: "missing_signature" };
+  }
+
+  const msgId = headers.get("webhook-id");
+  const timestamp = headers.get("webhook-timestamp");
+  const signatureHeader = headers.get("webhook-signature");
+  if (!signatureHeader) {
+    return { ok: false, reason: "missing_signature" };
+  }
+  if (msgId === null) {
+    return { ok: false, reason: "missing_payload_header" };
+  }
+  if (timestamp === null) {
+    return { ok: false, reason: "missing_timestamp" };
+  }
+
+  if (!/^-?\d+$/.test(timestamp)) {
+    return { ok: false, reason: "missing_timestamp" };
+  }
+  const stampedMs = Number(timestamp) * 1000;
+  if (!Number.isSafeInteger(Number(timestamp))) {
+    return { ok: false, reason: "missing_timestamp" };
+  }
+  if (Math.abs(nowMs - stampedMs) > STANDARD_WEBHOOKS_TOLERANCE_SECONDS * 1000) {
+    return { ok: false, reason: "stale_timestamp" };
+  }
+
+  const key = standardWebhooksKey(secret);
+  if (!key) {
+    return { ok: false, reason: "missing_signature" };
+  }
+
+  const signedContent = Buffer.concat([
+    Buffer.from(`${msgId}.${timestamp}.`, "utf8"),
+    Buffer.from(body),
+  ]);
+  const expected = createHmac("sha256", key).update(signedContent).digest();
+
+  let sawV1 = false;
+  for (const entry of signatureHeader.split(" ")) {
+    if (!entry.startsWith("v1,")) {
+      continue;
+    }
+    sawV1 = true;
+    const digest = decodeDigest(entry.slice(3), "base64");
+    if (!digest || digest.length !== expected.length) {
+      continue;
+    }
+    if (timingSafeEqual(digest, expected)) {
+      return { ok: true };
+    }
+  }
+
+  return {
+    ok: false,
+    reason: sawV1 ? "bad_signature" : "malformed_signature",
+  };
+}
+
 /** Unix milliseconds for a timestamp in the declared format, or `null`. */
 function timestampMs(value: string, format: string): number | null {
   if (format === "rfc3339") {
@@ -226,6 +339,10 @@ export function verifyDeclaredSignature(opts: {
 }): VerificationResult {
   const { verification, headers, body, secret } = opts;
   const nowMs = opts.nowMs ?? Date.now();
+
+  if (verification.kind === "standard-webhooks") {
+    return verifyStandardWebhooks({ headers, body, secret, nowMs });
+  }
 
   const presented = headers.get(verification.signature.header);
   if (!presented || !secret) {

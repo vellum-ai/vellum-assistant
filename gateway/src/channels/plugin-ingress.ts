@@ -140,12 +140,16 @@ export const IngressRouteSchema = z.object({
    * the body, keyed by whichever `webhook_secret` {@link signer} selects.
    * That is right for a caller Vellum controls and wrong for every other one
    * — Comms signs `X-Osis-Signature`, Photon signs `X-Spectrum-Signature` over
-   * a timestamped preamble, and neither can be asked to sign ours.
+   * a timestamped preamble, and Linq signs Standard Webhooks
+   * (`webhook-id` / `webhook-timestamp` / `webhook-signature`). None of
+   * those callers can be asked to sign ours.
    *
-   * Present, the route is verified by the descriptor instead: the gateway
-   * runs one HMAC engine and reads the vendor's specifics as data, so a new
-   * vendor is a manifest edit rather than gateway code. See
-   * `ingress-verification.ts` for the scheme and for what stays gateway-side.
+   * Present, the route is verified by the descriptor instead. `hmac` is a
+   * single engine that reads the vendor's parts as data. `standard-webhooks`
+   * is a complete scheme (key encoding, signed content, and replay window)
+   * because that spec cannot be reconstructed as an `hmac` payload list.
+   * See `ingress-verification.ts` for the schemes and for what stays
+   * gateway-side.
    *
    * The descriptor supersedes {@link signer} — it names its own credential
    * field, under this plugin's own service — so declaring it alongside
