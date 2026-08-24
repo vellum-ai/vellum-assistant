@@ -1224,7 +1224,7 @@ export class RetryProvider implements Provider {
               messagesForAttempt,
               normalizedOptions,
             );
-            releaseRecoveryProbe(breakerRoute, true);
+            releaseRecoveryProbe(breakerRoute, { succeeded: true });
             return response;
           } catch (error) {
             if (
@@ -1244,7 +1244,17 @@ export class RetryProvider implements Provider {
               retriesExhausted: true,
               credentialSource: this.options.credentialSource,
             });
-            releaseRecoveryProbe(breakerRoute, !outage);
+            // The probe's own error decides what stays remembered, not the
+            // scope of the entry it was acquired under: an upstream that
+            // answers with a retired-model 404 has stopped being an outage,
+            // and a model outage that turns into a 503 has stopped being about
+            // the model.
+            releaseRecoveryProbe(breakerRoute, {
+              succeeded: !outage,
+              failedRoute: outage
+                ? failureBreakerRoute(breakerRoute, error)
+                : null,
+            });
             this.attributeCredential(error);
             if (!outage) {
               throw error;

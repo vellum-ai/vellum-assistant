@@ -273,7 +273,7 @@ describe("fallback breaker state machine", () => {
     const ready = T0 + observedCooldownMs(UPSTREAM_ROUTE, T0);
     expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
 
-    releaseRecoveryProbe(UPSTREAM_ROUTE, true, ready + 500);
+    releaseRecoveryProbe(UPSTREAM_ROUTE, { succeeded: true }, ready + 500);
 
     expect(shouldSkipPrimary(UPSTREAM_ROUTE, ready + 500)).toBe(false);
     expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready + 500)).toBe(false);
@@ -295,7 +295,11 @@ describe("fallback breaker state machine", () => {
     ]) {
       at += observedCooldownMs(UPSTREAM_ROUTE, at);
       expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, at)).toBe(true);
-      releaseRecoveryProbe(UPSTREAM_ROUTE, false, at);
+      releaseRecoveryProbe(
+        UPSTREAM_ROUTE,
+        { succeeded: false, failedRoute: UPSTREAM_ROUTE },
+        at,
+      );
       expectWithinJitterBand(
         observedCooldownMs(UPSTREAM_ROUTE, at),
         expectedBase,
@@ -337,7 +341,7 @@ describe("fallback breaker scope", () => {
     recordFallbackServed(OTHER_ROUTE, T0 - MAX_COOLDOWN_MS - 1);
 
     expect(tryAcquireRecoveryProbe(OTHER_ROUTE, T0)).toBe(true);
-    releaseRecoveryProbe(OTHER_ROUTE, true, T0);
+    releaseRecoveryProbe(OTHER_ROUTE, { succeeded: true }, T0);
 
     expect(shouldSkipPrimary(OTHER_ROUTE, T0)).toBe(false);
     expect(shouldSkipPrimary(PRIMARY_ROUTE, T0)).toBe(true);
@@ -366,6 +370,73 @@ describe("fallback breaker scope", () => {
 
     expect(tryAcquireRecoveryProbe(PRIMARY_ROUTE, upstreamReady)).toBe(false);
     expect(shouldSkipPrimary(PRIMARY_ROUTE, upstreamReady)).toBe(true);
+  });
+
+  test("a probe failing on one model narrows an upstream outage to that model", () => {
+    // The upstream answered the probe, so it is no longer the thing that is
+    // down; what it answered with is about a single model.
+    recordFallbackServed(UPSTREAM_ROUTE, T0);
+    const ready = T0 + observedCooldownMs(UPSTREAM_ROUTE, T0);
+    expect(tryAcquireRecoveryProbe(PRIMARY_ROUTE, ready)).toBe(true);
+
+    releaseRecoveryProbe(
+      PRIMARY_ROUTE,
+      { succeeded: false, failedRoute: PRIMARY_ROUTE },
+      ready,
+    );
+
+    // Every healthy model on the upstream is servable again.
+    expect(shouldSkipPrimary(OTHER_ROUTE, ready)).toBe(false);
+    expect(shouldSkipPrimary(UPSTREAM_ROUTE, ready)).toBe(false);
+    // The model the probe indicted is still skipped, on the escalated cooldown
+    // the failed probe earned rather than a fresh base wait.
+    expect(shouldSkipPrimary(PRIMARY_ROUTE, ready)).toBe(true);
+    expectWithinJitterBand(
+      observedCooldownMs(PRIMARY_ROUTE, ready),
+      BASE_COOLDOWN_MS * 2,
+    );
+
+    // And it is still clearable: nothing is stranded by the narrowing.
+    const modelReady = ready + observedCooldownMs(PRIMARY_ROUTE, ready);
+    expect(tryAcquireRecoveryProbe(PRIMARY_ROUTE, modelReady)).toBe(true);
+    releaseRecoveryProbe(PRIMARY_ROUTE, { succeeded: true }, modelReady);
+    expect(shouldSkipPrimary(PRIMARY_ROUTE, modelReady)).toBe(false);
+  });
+
+  test("a probe failing with an outage widens a model's outage to the upstream", () => {
+    recordFallbackServed(PRIMARY_ROUTE, T0);
+    const ready = T0 + observedCooldownMs(PRIMARY_ROUTE, T0);
+    expect(tryAcquireRecoveryProbe(PRIMARY_ROUTE, ready)).toBe(true);
+
+    releaseRecoveryProbe(
+      PRIMARY_ROUTE,
+      { succeeded: false, failedRoute: UPSTREAM_ROUTE },
+      ready,
+    );
+
+    // The fresh evidence is upstream-wide, so it governs every model on it.
+    expect(shouldSkipPrimary(OTHER_ROUTE, ready)).toBe(true);
+    expect(shouldSkipPrimary(PRIMARY_ROUTE, ready)).toBe(true);
+    expectWithinJitterBand(
+      observedCooldownMs(UPSTREAM_ROUTE, ready),
+      BASE_COOLDOWN_MS * 2,
+    );
+  });
+
+  test("a probe failure the breaker cannot name closes what it tested", () => {
+    recordFallbackServed(UPSTREAM_ROUTE, T0);
+    const ready = T0 + observedCooldownMs(UPSTREAM_ROUTE, T0);
+    expect(tryAcquireRecoveryProbe(UPSTREAM_ROUTE, ready)).toBe(true);
+
+    releaseRecoveryProbe(
+      UPSTREAM_ROUTE,
+      { succeeded: false, failedRoute: null },
+      ready,
+    );
+
+    // Better to rediscover the outage on the next request than to keep an
+    // entry open that names something no future probe can clear.
+    expect(shouldSkipPrimary(PRIMARY_ROUTE, ready)).toBe(false);
   });
 });
 
@@ -591,6 +662,37 @@ describe("RetryProvider under an open breaker", () => {
     await wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } });
     expect(backup.calls()).toBe(2);
     expect(primary.calls()).toBe(2);
+  });
+
+  test("a probe that comes back with a retired model frees the rest of the upstream", async () => {
+    const primary = primaryProvider(
+      () => new ProviderError("model not found", UPSTREAM, 404),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    // The probe reaches the upstream and comes back with a retired model, so
+    // the outage that opened the entry is over and the retirement replaces it.
+    const probed = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+    expect(primary.calls()).toBe(1);
+    expect(probed.model).toBe("backup-model");
+
+    // A healthy model on the same upstream is servable again...
+    const healthy = await wrapped.sendMessage(MESSAGES, {
+      config: { ...OTHER_MODEL_CALL },
+    });
+    expect(healthy.model).toBe("other-model");
+
+    // ...while the retired model keeps going to the backup.
+    await wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } });
+    expect(backup.calls()).toBe(2);
+    expect(primary.seenModels()).toEqual(["primary-model", "other-model"]);
   });
 
   test("an upstream outage diverts every model on it", async () => {
