@@ -4,7 +4,6 @@
   "ignoreDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
-    "@vellumai/electron-desktop",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",

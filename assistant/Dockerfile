@@ -121,7 +121,6 @@ COPY packages/ces-client /app/packages/ces-client
 COPY packages/service-contracts /app/packages/service-contracts
 COPY packages/credential-storage /app/packages/credential-storage
 COPY packages/egress-proxy /app/packages/egress-proxy
-COPY packages/electron-desktop /app/packages/electron-desktop
 COPY packages/environments /app/packages/environments
 COPY packages/gateway-client /app/packages/gateway-client
 COPY packages/ipc-server-utils /app/packages/ipc-server-utils

@@ -1,16 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import {
-  deriveSafeOffsiteAncestor,
-  getDefaultOffsiteBackupsDir as getPlatformDefaultOffsiteBackupsDir,
-  getICloudDriveRoot as getPlatformICloudDriveRoot,
-  type OffsitePathOptions,
-  resolveDefaultOffsiteDestinations,
-} from "@vellumai/electron-desktop/backup-paths";
-
 import { getBackupDirOverride } from "../config/env-registry.js";
-import type { BackupDestination } from "../config/schema.js";
 
 /**
  * Returns the backup root directory. Respects the `VELLUM_BACKUP_DIR`
@@ -28,47 +19,6 @@ export function getBackupRootDir(): string {
  */
 export function getLocalBackupsDir(override?: string | null): string {
   return override ?? join(getBackupRootDir(), "local");
-}
-
-/** Returns the absolute iCloud Drive root used by the macOS default. */
-export function getICloudDriveRoot(options?: OffsitePathOptions): string {
-  return getPlatformICloudDriveRoot(options);
-}
-
-/**
- * Returns the platform default offsite directory, when the OS exposes a
- * reliable cloud-sync root.
- */
-export function getDefaultOffsiteBackupsDir(
-  options?: OffsitePathOptions,
-): string | null {
-  return getPlatformDefaultOffsiteBackupsDir(options);
-}
-
-/**
- * Returns the ancestor that must exist before an offsite directory is created.
- * Missing cloud roots and mount points cause the destination to be skipped.
- */
-export function deriveSafeAncestor(
-  destinationPath: string,
-  options?: OffsitePathOptions,
-): string {
-  return deriveSafeOffsiteAncestor(destinationPath, options);
-}
-
-/**
- * Resolves the list of offsite backup destinations from an optional config
- * override. A null override uses the platform default when one exists. An
- * explicit array, including the empty array, is returned unchanged.
- */
-export function resolveOffsiteDestinations(
-  override?: BackupDestination[] | null,
-  options?: OffsitePathOptions,
-): BackupDestination[] {
-  if (override == null) {
-    return resolveDefaultOffsiteDestinations(options);
-  }
-  return override;
 }
 
 /**

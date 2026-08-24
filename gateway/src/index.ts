@@ -238,6 +238,7 @@ import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handl
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
+import { backupRoutes } from "./ipc/backup-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
@@ -2878,6 +2879,7 @@ async function main() {
 
   // ── IPC server ──
   const ipcServer = new GatewayIpcServer([
+    ...backupRoutes,
     ...featureFlagRoutes,
     ...contactRoutes,
     ...inviteRoutes,

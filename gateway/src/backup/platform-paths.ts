@@ -50,8 +50,6 @@ export function getDefaultOffsiteBackupsDir(
       "backups",
     );
   }
-  // Windows may expose personal and organization-managed OneDrive roots at
-  // the same time, so the user must choose the intended account.
   return null;
 }
 
@@ -60,6 +58,13 @@ export function resolveDefaultOffsiteDestinations(
 ): BackupDestination[] {
   const path = getDefaultOffsiteBackupsDir(options);
   return path ? [{ path, encrypt: true }] : [];
+}
+
+export function resolveOffsiteDestinations(
+  configured: BackupDestination[] | null,
+  options: OffsitePathOptions = {},
+): BackupDestination[] {
+  return configured ?? resolveDefaultOffsiteDestinations(options);
 }
 
 function isPathWithin(

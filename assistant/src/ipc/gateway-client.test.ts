@@ -17,6 +17,7 @@ import {
   ipcCall,
   ipcCallPersistent,
   ipcClassifyRisk,
+  ipcGetDefaultBackupDestinations,
   ipcGetFeatureFlags,
   resetPersistentClient,
 } from "./gateway-client.js";
@@ -132,6 +133,34 @@ describe("ipcGetFeatureFlags", () => {
 
     const flags = await ipcGetFeatureFlags();
     expect(flags).toEqual({});
+  });
+});
+
+describe("ipcGetDefaultBackupDestinations", () => {
+  test("returns validated gateway destinations", async () => {
+    mockGatewayIpc(null, {
+      results: {
+        get_default_backup_destinations: {
+          destinations: [{ path: "/backups", encrypt: true }],
+        },
+      },
+    });
+
+    await expect(ipcGetDefaultBackupDestinations()).resolves.toEqual([
+      { path: "/backups", encrypt: true },
+    ]);
+  });
+
+  test("rejects malformed gateway destinations", async () => {
+    mockGatewayIpc(null, {
+      results: {
+        get_default_backup_destinations: {
+          destinations: [{ path: "/backups", encrypt: "yes" }],
+        },
+      },
+    });
+
+    await expect(ipcGetDefaultBackupDestinations()).resolves.toBeUndefined();
   });
 });
 

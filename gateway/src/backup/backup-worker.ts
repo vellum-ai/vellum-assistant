@@ -22,8 +22,6 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-import { resolveDefaultOffsiteDestinations } from "@vellumai/electron-desktop/backup-paths";
-
 import { mintServiceToken } from "../auth/token-exchange.js";
 import { readConfigFileOrEmpty } from "../config-file-utils.js";
 import { fetchImpl } from "../fetch.js";
@@ -42,6 +40,7 @@ import {
   writeOffsiteSnapshotToAll,
 } from "./offsite-writer.js";
 import { getBackupKeyPath, getLocalBackupsDir } from "./paths.js";
+import { resolveOffsiteDestinations } from "./platform-paths.js";
 
 const log = getLogger("backup-worker");
 
@@ -170,7 +169,7 @@ async function performBackup(
 
   // Resolve offsite destinations
   const destinations = config.offsite.enabled
-    ? (config.offsite.destinations ?? resolveDefaultOffsiteDestinations())
+    ? resolveOffsiteDestinations(config.offsite.destinations)
     : [];
 
   // Ensure the backup key if any destination needs encryption

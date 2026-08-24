@@ -1,10 +1,9 @@
 /**
  * Gateway HTTP routes for backup operations.
  *
- * These routes are the guardian-facing API for backup management. The
- * assistant daemon has no backup CLI or routes — all backup operations
- * go through the gateway, which owns the encryption key and performs
- * the encrypt/decrypt operations.
+ * These routes are the guardian-facing API for snapshot operations. The
+ * gateway owns platform defaults, the encryption key, and encrypted backup
+ * I/O. The assistant retains its local config and plaintext restore routes.
  *
  * Routes:
  *   GET  /v1/backups        — list local + offsite snapshots
@@ -16,17 +15,16 @@ import { getLogger } from "../logger.js";
 import { listSnapshotsInDir, type SnapshotEntry } from "./list-snapshots.js";
 import { getLocalBackupsDir } from "./paths.js";
 import { createSnapshotNow } from "./backup-worker.js";
+import {
+  type BackupDestination,
+  resolveOffsiteDestinations,
+} from "./platform-paths.js";
 
 const log = getLogger("backup-routes");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-interface BackupDestination {
-  path: string;
-  encrypt: boolean;
-}
 
 function readBackupDestinations(): {
   localDir: string;
@@ -44,8 +42,9 @@ function readBackupDestinations(): {
   let offsiteDestinations: BackupDestination[] = [];
 
   if (offsiteEnabled) {
+    let configuredDestinations: BackupDestination[] | null = null;
     if (Array.isArray(offsiteRaw.destinations)) {
-      offsiteDestinations = offsiteRaw.destinations
+      configuredDestinations = offsiteRaw.destinations
         .filter(
           (d): d is { path: string; encrypt?: boolean } =>
             d &&
@@ -54,7 +53,7 @@ function readBackupDestinations(): {
         )
         .map((d) => ({ path: d.path, encrypt: d.encrypt !== false }));
     }
-    // Implicit platform destinations are not listed by this route.
+    offsiteDestinations = resolveOffsiteDestinations(configuredDestinations);
   }
 
   return { localDir, offsiteDestinations };

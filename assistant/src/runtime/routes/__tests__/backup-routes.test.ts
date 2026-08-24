@@ -112,6 +112,25 @@ mock.module("../../../persistence/checkpoints.js", () => ({
   },
 }));
 
+// -- Gateway backup defaults mock ------------------------------------------
+
+let mockDefaultBackupDestinationsAvailable = true;
+let mockDefaultBackupDestinationCalls = 0;
+
+mock.module("../../../ipc/gateway-client.js", () => ({
+  ipcGetDefaultBackupDestinations: async () => {
+    mockDefaultBackupDestinationCalls += 1;
+    return mockDefaultBackupDestinationsAvailable
+      ? [
+          {
+            path: join(ROOT, "default-cloud", "backups"),
+            encrypt: true,
+          },
+        ]
+      : undefined;
+  },
+}));
+
 // -- Backup key mock -------------------------------------------------------
 
 let mockBackupKey: Buffer | null = Buffer.alloc(32, 0xaa);
@@ -252,6 +271,8 @@ beforeEach(() => {
     restoredFiles: 0,
   };
   mockVerifyResult = { valid: true };
+  mockDefaultBackupDestinationsAvailable = true;
+  mockDefaultBackupDestinationCalls = 0;
   invalidateConfigCacheSpy.mockClear();
   recoveryCallOrder.length = 0;
   listSnapshotsCallLog.length = 0;
@@ -270,39 +291,42 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("handleBackupList", () => {
-  test("empty workspace resolves only the current platform default", async () => {
-    const origHome = process.env.HOME;
-    process.env.HOME = ROOT;
-    try {
-      setConfig(
-        "backup",
-        makeConfig({
-          localDirectory: LOCAL_DIR,
-          offsite: {
-            enabled: true,
-            destinations: null,
-          },
-        }),
-      );
+  test("empty workspace resolves the gateway-owned platform default", async () => {
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: {
+          enabled: true,
+          destinations: null,
+        },
+      }),
+    );
 
-      const result = await handleBackupList();
-      expect(result.local).toEqual([]);
-      if (process.platform === "darwin") {
-        expect(result.offsite).toHaveLength(1);
-        expect(result.offsite[0].destination.encrypt).toBe(true);
-        expect(result.offsite[0].snapshots).toEqual([]);
-        expect(result.offsite[0].reachable).toBe(false);
-      } else {
-        expect(result.offsite).toEqual([]);
-      }
-      expect(result.nextRunAt).toBeNull();
-    } finally {
-      if (origHome === undefined) {
-        delete process.env.HOME;
-      } else {
-        process.env.HOME = origHome;
-      }
-    }
+    const result = await handleBackupList();
+    expect(result.local).toEqual([]);
+    expect(result.offsite).toHaveLength(1);
+    expect(result.offsite[0].destination.encrypt).toBe(true);
+    expect(result.offsite[0].snapshots).toEqual([]);
+    expect(result.offsite[0].reachable).toBe(false);
+    expect(result.nextRunAt).toBeNull();
+    expect(mockDefaultBackupDestinationCalls).toBe(1);
+  });
+
+  test("fails when an implicit default cannot be resolved by gateway", async () => {
+    mockDefaultBackupDestinationsAvailable = false;
+    setConfig(
+      "backup",
+      makeConfig({
+        localDirectory: LOCAL_DIR,
+        offsite: { enabled: true, destinations: null },
+      }),
+    );
+
+    await expect(handleBackupList()).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      statusCode: 503,
+    });
   });
 
   test("two local files: returned newest-first", async () => {
@@ -321,6 +345,7 @@ describe("handleBackupList", () => {
     expect(result.local[0].filename).toBe("backup-20260411-120000.vbundle");
     expect(result.local[1].filename).toBe("backup-20260411-100000.vbundle");
     expect(result.offsite).toEqual([]);
+    expect(mockDefaultBackupDestinationCalls).toBe(0);
   });
 
   test("two offsite destinations: reachable + unreachable reflected per-entry", async () => {
@@ -537,9 +562,10 @@ describe("handleBackupRestore", () => {
       "backup",
       makeConfig({
         localDirectory: LOCAL_DIR,
-        offsite: { enabled: true, destinations: [] },
+        offsite: { enabled: true, destinations: null },
       }),
     );
+    mockDefaultBackupDestinationsAvailable = false;
     mockReadBackupKeyCalls = 0;
 
     const result = await handleBackupRestore({
@@ -551,6 +577,7 @@ describe("handleBackupRestore", () => {
     expect(mockReadBackupKeyCalls).toBe(0);
     expect(lastRestoreArgs).not.toBeNull();
     expect(lastRestoreArgs!.hasKey).toBe(false);
+    expect(mockDefaultBackupDestinationCalls).toBe(0);
     const expectedRealpath = await (
       await import("node:fs/promises")
     ).realpath(snapshotPath);

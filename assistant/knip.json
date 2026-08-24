@@ -18,7 +18,6 @@
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/egress-proxy",
-    "@vellumai/electron-desktop",
     "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",

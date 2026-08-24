@@ -1,24 +1,12 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  deriveSafeAncestor,
   formatBackupFilename,
   getBackupRootDir,
-  getDefaultOffsiteBackupsDir,
-  getICloudDriveRoot,
   getLocalBackupsDir,
   parseBackupTimestamp,
-  resolveOffsiteDestinations,
 } from "../paths.js";
 import { getSnapshotLockPath } from "../snapshot-lock.js";
-
-const MAC_OPTIONS = {
-  platform: "darwin" as const,
-  env: {},
-  homeDir: "/Users/example",
-};
 
 describe("getLocalBackupsDir", () => {
   test("returns a path containing /backups/local when no override is given", () => {
@@ -87,100 +75,6 @@ describe("VELLUM_BACKUP_DIR override", () => {
     expect(getSnapshotLockPath()).toMatch(
       /\/\.vellum\/backups\/\.snapshot\.lock$/,
     );
-  });
-});
-
-describe("deriveSafeAncestor", () => {
-  test("iCloud Drive subtree anchors on the iCloud Drive root", () => {
-    const iCloudRoot = getICloudDriveRoot(MAC_OPTIONS);
-    expect(
-      deriveSafeAncestor(
-        join(iCloudRoot, "VellumAssistant", "backups"),
-        MAC_OPTIONS,
-      ),
-    ).toBe(iCloudRoot);
-    const defaultPath = getDefaultOffsiteBackupsDir(MAC_OPTIONS);
-    expect(defaultPath).not.toBeNull();
-    expect(deriveSafeAncestor(defaultPath!, MAC_OPTIONS)).toBe(iCloudRoot);
-  });
-
-  test("the iCloud Drive root itself is its own safe ancestor", () => {
-    const iCloudRoot = getICloudDriveRoot(MAC_OPTIONS);
-    expect(deriveSafeAncestor(iCloudRoot, MAC_OPTIONS)).toBe(iCloudRoot);
-  });
-
-  test("paths under /Volumes/<name> anchor on the volume root", () => {
-    expect(
-      deriveSafeAncestor("/Volumes/MyExtSSD/vellum/backups", MAC_OPTIONS),
-    ).toBe("/Volumes/MyExtSSD");
-    expect(deriveSafeAncestor("/Volumes/MyExtSSD", MAC_OPTIONS)).toBe(
-      "/Volumes/MyExtSSD",
-    );
-  });
-
-  test("arbitrary user paths fall back to the immediate parent", () => {
-    // Preserves the pre-fix conservative behavior where we only mkdir the
-    // leaf directory and require its parent to exist — we have no reliable
-    // mount signal for arbitrary paths.
-    expect(deriveSafeAncestor("/tmp/some/where/backups", MAC_OPTIONS)).toBe(
-      "/tmp/some/where",
-    );
-    expect(
-      deriveSafeAncestor(
-        join(homedir(), "Documents", "vellum-backups"),
-        MAC_OPTIONS,
-      ),
-    ).toBe(join(homedir(), "Documents"));
-  });
-
-  test("bare /Volumes (no volume name) falls back to dirname", () => {
-    // `/Volumes` itself is not a volume mount; treat it like any other path.
-    expect(deriveSafeAncestor("/Volumes", MAC_OPTIONS)).toBe("/");
-  });
-});
-
-describe("getDefaultOffsiteBackupsDir", () => {
-  test("points at the iCloud Drive VellumAssistant backups folder", () => {
-    const dir = getDefaultOffsiteBackupsDir(MAC_OPTIONS);
-    expect(dir).not.toBeNull();
-    expect(dir).toContain("com~apple~CloudDocs/VellumAssistant/backups");
-  });
-});
-
-describe("resolveOffsiteDestinations", () => {
-  test("returns iCloud default with encrypt=true when override is null", () => {
-    const result = resolveOffsiteDestinations(null, MAC_OPTIONS);
-    expect(result).toHaveLength(1);
-    expect(result[0].encrypt).toBe(true);
-    expect(result[0].path).toContain(
-      "com~apple~CloudDocs/VellumAssistant/backups",
-    );
-  });
-
-  test("returns iCloud default when override is undefined", () => {
-    const result = resolveOffsiteDestinations(undefined, MAC_OPTIONS);
-    expect(result).toHaveLength(1);
-    expect(result[0].encrypt).toBe(true);
-  });
-
-  test("returns an empty array unchanged", () => {
-    expect(resolveOffsiteDestinations([])).toEqual([]);
-  });
-
-  test("does not infer a Windows cloud destination", () => {
-    const result = resolveOffsiteDestinations(null, {
-      platform: "win32",
-      env: { OneDrive: "C:\\Users\\Example\\OneDrive" },
-    });
-    expect(result).toEqual([]);
-  });
-
-  test("returns a multi-destination override unchanged", () => {
-    const destinations = [
-      { path: "/tmp/a", encrypt: true },
-      { path: "/tmp/b", encrypt: false },
-    ];
-    expect(resolveOffsiteDestinations(destinations)).toEqual(destinations);
   });
 });
 

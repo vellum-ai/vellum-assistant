@@ -15,17 +15,16 @@
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { deriveSafeOffsiteAncestor } from "@vellumai/electron-desktop/backup-paths";
-
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneDir } from "./list-snapshots.js";
 import { formatBackupFilename } from "./paths.js";
+import {
+  type BackupDestination,
+  deriveSafeOffsiteAncestor,
+} from "./platform-paths.js";
 import { encryptFile } from "./stream-crypt.js";
 
-export interface BackupDestination {
-  path: string;
-  encrypt: boolean;
-}
+export type { BackupDestination } from "./platform-paths.js";
 
 export interface OffsiteWriteResult {
   destination: BackupDestination;

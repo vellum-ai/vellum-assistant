@@ -11,9 +11,12 @@
  */
 
 import {
+  type BackupDestination,
   type ClassifyRiskIpcParams,
   type ClassifyRiskIpcResponse,
   ClassifyRiskIpcResponseSchema,
+  DefaultBackupDestinationsIpcResponseSchema,
+  GET_DEFAULT_BACKUP_DESTINATIONS_IPC_METHOD,
 } from "@vellumai/gateway-client";
 import {
   ipcCall as packageIpcCall,
@@ -114,6 +117,21 @@ export async function ipcGetFeatureFlags(
     return filtered;
   }
   return {};
+}
+
+export async function ipcGetDefaultBackupDestinations(): Promise<
+  BackupDestination[] | undefined
+> {
+  const result = await ipcCall(GET_DEFAULT_BACKUP_DESTINATIONS_IPC_METHOD);
+  const parsed = DefaultBackupDestinationsIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    log.warn(
+      { result, issues: parsed.error.issues },
+      "Gateway returned invalid default backup destinations",
+    );
+    return undefined;
+  }
+  return parsed.data.destinations;
 }
 
 // ---------------------------------------------------------------------------

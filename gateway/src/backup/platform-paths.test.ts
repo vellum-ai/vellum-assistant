@@ -4,7 +4,8 @@ import {
   deriveSafeOffsiteAncestor,
   getDefaultOffsiteBackupsDir,
   resolveDefaultOffsiteDestinations,
-} from "./backup-paths";
+  resolveOffsiteDestinations,
+} from "./platform-paths.js";
 
 describe("Windows offsite backups", () => {
   test("does not guess a OneDrive destination from the environment", () => {
@@ -49,5 +50,16 @@ describe("other platforms", () => {
     expect(
       resolveDefaultOffsiteDestinations({ platform: "linux", env: {} }),
     ).toEqual([]);
+  });
+
+  test("preserves explicitly configured destinations", () => {
+    const configured = [{ path: "/mnt/backups", encrypt: false }];
+    expect(
+      resolveOffsiteDestinations(configured, {
+        platform: "darwin",
+        env: {},
+        homeDir: "/Users/example",
+      }),
+    ).toBe(configured);
   });
 });

@@ -27,7 +27,6 @@
   "dependencies": {
     "@vellumai/assistant-client": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
-    "@vellumai/electron-desktop": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",
@@ -46,7 +45,6 @@
   "bundledDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
-    "@vellumai/electron-desktop",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",

@@ -30,10 +30,7 @@ import {
   listSnapshotsInDir,
   type SnapshotEntry,
 } from "../../backup/list-snapshots.js";
-import {
-  getLocalBackupsDir,
-  resolveOffsiteDestinations,
-} from "../../backup/paths.js";
+import { getLocalBackupsDir } from "../../backup/paths.js";
 import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
 import {
   getConfig,
@@ -43,12 +40,17 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import type { BackupConfig, BackupDestination } from "../../config/schema.js";
+import { ipcGetDefaultBackupDestinations } from "../../ipc/gateway-client.js";
 import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { DefaultPathResolver } from "../migrations/vbundle-import-analyzer.js";
-import { BadRequestError, RouteError } from "./errors.js";
+import {
+  BadRequestError,
+  RouteError,
+  ServiceUnavailableError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("backup-routes");
@@ -75,15 +77,19 @@ function isInside(candidate: string, root: string): boolean {
   return candidate.startsWith(root + sep);
 }
 
-function computeAllowedRoots(): string[] {
-  const config = getConfig();
-  const roots: string[] = [getLocalBackupsDir(config.backup.localDirectory)];
-  for (const dest of resolveOffsiteDestinations(
-    config.backup.offsite.destinations,
-  )) {
-    roots.push(dest.path);
+async function resolveOffsiteDestinations(
+  configured: BackupDestination[] | null,
+): Promise<BackupDestination[]> {
+  if (configured !== null) {
+    return configured;
   }
-  return roots;
+  const defaults = await ipcGetDefaultBackupDestinations();
+  if (defaults === undefined) {
+    throw new ServiceUnavailableError(
+      "The gateway could not resolve the platform backup destination",
+    );
+  }
+  return defaults;
 }
 
 /**
@@ -103,8 +109,19 @@ async function validateSnapshotPath(rawPath: unknown): Promise<string> {
     throw new BadRequestError(`Snapshot path does not exist: ${rawPath}`);
   }
 
-  const allowedRoots = computeAllowedRoots();
-  for (const root of allowedRoots) {
+  const config = getConfig();
+  const localRoot = await safeRealpath(
+    getLocalBackupsDir(config.backup.localDirectory),
+  );
+  if (localRoot !== null && isInside(realCandidate, localRoot)) {
+    return realCandidate;
+  }
+
+  const destinations = await resolveOffsiteDestinations(
+    config.backup.offsite.destinations,
+  );
+  for (const destination of destinations) {
+    const root = destination.path;
     const realRoot = await safeRealpath(root);
     if (realRoot == null) {
       continue;
@@ -155,9 +172,10 @@ export async function handleBackupList(): Promise<BackupListResponse> {
   const offsiteEnabled = config.backup.offsite.enabled;
   const offsite: BackupListResponse["offsite"] = [];
   if (offsiteEnabled) {
-    for (const destination of resolveOffsiteDestinations(
+    const destinations = await resolveOffsiteDestinations(
       config.backup.offsite.destinations,
-    )) {
+    );
+    for (const destination of destinations) {
       let reachable = false;
       try {
         await fs.stat(dirname(destination.path));
@@ -303,7 +321,7 @@ export async function handleBackupDestinationsList(): Promise<{
 }> {
   const config = getConfig();
   return {
-    destinations: resolveOffsiteDestinations(
+    destinations: await resolveOffsiteDestinations(
       config.backup.offsite.destinations,
     ),
   };
@@ -324,7 +342,7 @@ export async function handleBackupDestinationsAdd({
     throw new BadRequestError("`encrypt` must be a boolean");
   }
 
-  const current = resolveOffsiteDestinations(
+  const current = await resolveOffsiteDestinations(
     getConfig().backup.offsite.destinations,
   );
   if (current.some((d) => d.path === path)) {
@@ -357,7 +375,7 @@ export async function handleBackupDestinationsRemove({
     );
   }
 
-  const current = resolveOffsiteDestinations(
+  const current = await resolveOffsiteDestinations(
     getConfig().backup.offsite.destinations,
   );
   const filtered = current.filter((d) => d.path !== path);
@@ -390,7 +408,7 @@ export async function handleBackupDestinationsSetEncrypt({
     throw new BadRequestError("`encrypt` must be a boolean");
   }
 
-  const current = resolveOffsiteDestinations(
+  const current = await resolveOffsiteDestinations(
     getConfig().backup.offsite.destinations,
   );
   const idx = current.findIndex((d) => d.path === path);
@@ -455,7 +473,7 @@ export async function handleBackupStatus(): Promise<{
   }> = [];
 
   if (offsiteEnabled) {
-    const destinations = resolveOffsiteDestinations(
+    const destinations = await resolveOffsiteDestinations(
       backup.offsite.destinations,
     );
     for (const dest of destinations) {
