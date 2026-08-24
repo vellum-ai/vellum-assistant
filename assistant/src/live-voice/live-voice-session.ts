@@ -1569,10 +1569,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    await this.launchAssistantTurn(
-      createTypedUtterance(frame.text),
-      frame.text,
-    );
+    const utterance = createTypedUtterance(frame.text);
+    // Before the launch, so the anchor is the moment the text arrived rather
+    // than whatever the dispatch costs.
+    this.markTypedTurnSubmitted(utterance);
+    await this.launchAssistantTurn(utterance, frame.text);
   }
 
   /**
@@ -6081,6 +6082,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private markSpeechStart(utterance: UtteranceCycle): void {
     this.markUtteranceMetric(utterance, "speechStartAtMs", (turnId) =>
       this.metrics.markSpeechStart(turnId),
+    );
+  }
+
+  /**
+   * Stamp the moment a typed turn's text arrived as the end of the user's
+   * input.
+   *
+   * `roundTripMs` measures from the user finishing their turn to the first
+   * audio they hear, and it anchors on `utteranceEndAtMs ?? pttReleaseAtMs`.
+   * A typed turn produces neither, so without this every typed turn reports a
+   * null round trip and disappears from the latency numbers. That would bias
+   * them toward spoken turns rather than simply losing rows, which is the
+   * worse failure: the metric would still look healthy while describing less
+   * and less of the traffic.
+   *
+   * The text frame landing is the honest equivalent of an utterance closing:
+   * it is the instant the user stopped providing input and started waiting.
+   * `sttMs` and the partial-transcript durations stay null, because nothing
+   * was transcribed and claiming otherwise would invent a measurement.
+   */
+  private markTypedTurnSubmitted(utterance: UtteranceCycle): void {
+    this.markUtteranceMetric(utterance, "utteranceEndAtMs", (turnId) =>
+      this.metrics.markUtteranceEnd(turnId),
     );
   }
 

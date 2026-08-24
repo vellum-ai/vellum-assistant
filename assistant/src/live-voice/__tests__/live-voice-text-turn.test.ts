@@ -80,6 +80,7 @@ function createHarness(
      * the wrong reason.
      */
     autoCompleteTurns?: boolean;
+    emitMetrics?: boolean;
   } = {},
 ) {
   const sequencer = createLiveVoiceServerFrameSequencer();
@@ -114,6 +115,7 @@ function createHarness(
     resolveTranscriber,
     startVoiceTurn,
     createTurnId: () => "live-turn-1",
+    emitMetrics: options.emitMetrics ?? false,
     ...(options.resolveCredentialReadiness
       ? { resolveCredentialReadiness: options.resolveCredentialReadiness }
       : {}),
@@ -258,6 +260,47 @@ describe("typed live-voice turns", () => {
     await session.handleClientFrame({ type: "text", text: "second turn" });
     await waitFor(() => turnOptions.length === 2);
     expect(turnOptions[1]?.content).toContain("second turn");
+
+    await session.close("websocket_close");
+  });
+
+  test("a typed turn stamps the end-of-input anchor a round trip needs", async () => {
+    // roundTripMs measures end-of-user-input to first audio, anchored on
+    // utteranceEnd ?? pttRelease. A typed turn travels neither, so without an
+    // anchor of its own every typed turn reports null. That does not merely
+    // lose rows: it biases the voice latency numbers toward spoken turns while
+    // still looking healthy.
+    //
+    // Asserted on the anchor rather than on roundTripMs itself, because the
+    // far end of that duration is the first TTS chunk actually reaching the
+    // client, which this harness does not drive.
+    const { frames, session, turnOptions } = createHarness({
+      autoCompleteTurns: true,
+      emitMetrics: true,
+    });
+    await session.start();
+
+    await session.handleClientFrame({ type: "text", text: "how long is this" });
+    await waitFor(() => turnOptions.length === 1);
+    await waitFor(() => frames.some((frame) => frame.type === "metrics"));
+
+    const metrics = frames.find(
+      (frame): frame is Extract<LiveVoiceServerFrame, { type: "metrics" }> =>
+        frame.type === "metrics",
+    );
+    const turn = (
+      metrics?.metrics as {
+        recentTurns?: {
+          timestamps: Record<string, number | null>;
+        }[];
+      }
+    )?.recentTurns?.[0];
+
+    expect(turn?.timestamps.utteranceEndAtMs).not.toBeNull();
+    // Nothing was transcribed, and stamping a transcript mark would invent a
+    // measurement rather than report one.
+    expect(turn?.timestamps.finalTranscriptAtMs).toBeNull();
+    expect(turn?.timestamps.speechStartAtMs).toBeNull();
 
     await session.close("websocket_close");
   });
