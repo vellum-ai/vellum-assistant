@@ -26,6 +26,7 @@ import {
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
 import {
+  type BreakerRoute,
   recordFallbackServed,
   recordPrimaryFailure,
   recordPrimarySuccess,
@@ -353,6 +354,37 @@ function isRetryableError(error: unknown): boolean {
 const MANAGED_PROXY_UNSUPPORTED_MODEL_PATTERN =
   /is not yet supported on the Vellum hosted service/;
 
+/**
+ * Whether the failure indicts one model rather than the upstream serving it: a
+ * provider-classified `model_not_found`, a 404 with no definitive
+ * classification, or the managed proxy's preflight 400 for a renamed/retired
+ * model. As in `isRetryableError`, a provider-stamped semantic reason takes
+ * precedence over the status fallback: a 404 whose classifier assigned a
+ * definitive non-model reason (Anthropic, for example, stamps `bad_request` on
+ * a 404 without a model signal) marks a deterministic request/routing failure
+ * that a different model route would not fix. Only an absent or `unknown`
+ * reason falls through to the raw 404 check. `model_restricted` is a
+ * credential/policy denial, not a missing model, so it is deliberately absent.
+ */
+function isModelSpecificError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.reason === "model_not_found") {
+    return true;
+  }
+  if (
+    error.statusCode === 404 &&
+    (error.reason === undefined || error.reason === "unknown")
+  ) {
+    return true;
+  }
+  return (
+    error.statusCode === 400 &&
+    MANAGED_PROXY_UNSUPPORTED_MODEL_PATTERN.test(error.message)
+  );
+}
+
 /** Outage-shaped failures that justify switching to a backup profile. */
 function isFallbackEligibleError(
   error: unknown,
@@ -396,33 +428,10 @@ function isFallbackEligibleError(
   ) {
     return true;
   }
-  // (c) Model not found: a provider-classified model_not_found, a 404 with
-  // no definitive classification, or the managed proxy's preflight 400 for a
-  // renamed/retired model. As in `isRetryableError`, a provider-stamped
-  // semantic reason takes precedence over the status fallback: a 404 whose
-  // classifier assigned a definitive non-model reason (Anthropic, for
-  // example, stamps `bad_request` on a 404 without a model signal) marks a
-  // deterministic request/routing failure that a different model route would
-  // not fix, so it must not switch routes. Only an absent or `unknown`
-  // reason falls through to the raw 404 check. `model_restricted` is a
-  // credential/policy denial, not a missing model, so it is deliberately not
-  // fallback-eligible here.
-  if (error.reason === "model_not_found") {
-    return true;
-  }
-  if (
-    error.statusCode === 404 &&
-    (error.reason === undefined || error.reason === "unknown")
-  ) {
-    return true;
-  }
-  if (
-    error.statusCode === 400 &&
-    MANAGED_PROXY_UNSUPPORTED_MODEL_PATTERN.test(error.message)
-  ) {
-    return true;
-  }
-  return false;
+  // (c) The model is gone (a rename/retirement incident): a different model's
+  // route is exactly what fixes it. See `isModelSpecificError` for which
+  // shapes qualify and which deliberately do not.
+  return isModelSpecificError(error);
 }
 
 /** Structured error class for the "Falling back to backup profile" log. */
@@ -458,6 +467,24 @@ function canReRouteToFallbackProfile(options?: SendMessageOptions): boolean {
     return false;
   }
   return !(typeof config.model === "string" && config.model.trim().length > 0);
+}
+
+/**
+ * The route a failure indicts, or null when it must not be remembered at all.
+ * An outage marks the whole upstream; a retired or renamed model marks only
+ * that model, because diverting every healthy profile on the upstream for one
+ * model's 404 does more damage than the incident. A model-specific failure on
+ * a request whose model cannot be named is not remembered either: naming the
+ * upstream instead would be exactly that over-trip.
+ */
+function failureBreakerRoute(
+  route: BreakerRoute,
+  error: unknown,
+): BreakerRoute | null {
+  if (!isModelSpecificError(error)) {
+    return { upstream: route.upstream };
+  }
+  return route.model === undefined ? null : route;
 }
 
 /**
@@ -1067,6 +1094,40 @@ export class RetryProvider implements Provider {
     );
   }
 
+  /**
+   * Reload the managed credential after an auth rejection and swap the inner
+   * provider for one built around it, so a key rotated out of band is picked
+   * up without a restart. Returns true when a refreshed adapter took over and
+   * the request is worth attempting again. Never throws: a failed reload
+   * leaves the original error to surface.
+   */
+  private async refreshManagedCredential(): Promise<boolean> {
+    try {
+      const refreshed = await this.options.refreshCredentialProvider?.();
+      if (refreshed) {
+        this.inner = refreshed;
+        log.info(
+          {
+            provider: this.name,
+            connectionName: this.options.connectionName,
+          },
+          "Retrying managed inference with refreshed assistant credentials",
+        );
+        return true;
+      }
+    } catch (refreshError) {
+      log.warn(
+        {
+          provider: this.name,
+          connectionName: this.options.connectionName,
+          refreshError,
+        },
+        "Failed to reload managed assistant credentials",
+      );
+    }
+    return false;
+  }
+
   private attributeCredential(error: unknown): void {
     const { credentialSource, connectionName } = this.options;
     if (
@@ -1098,14 +1159,28 @@ export class RetryProvider implements Provider {
         this.options.forwardUsageAttributionHeaders === true,
     });
 
-    // Only a route with a wired backup consults the circuit breaker. BYOK,
-    // oauth-subscription, and no-auth routes have no escalation hook, so they
-    // keep today's behavior exactly.
-    const breakerUpstream =
-      this.options.resolveFallbackRoute !== undefined ? this.name : null;
+    // Only a request that can actually take the backup consults the circuit
+    // breaker: it needs a wired escalation hook (BYOK, oauth-subscription, and
+    // no-auth routes have none, so they keep today's behavior exactly) and it
+    // must be re-routable. One gate for reads and writes alike, so a request
+    // that bypasses the breaker can neither be skipped by it nor close a trip
+    // that re-routable traffic still needs.
+    //
+    // The model comes from the resolved options, since a retired model is
+    // remembered per model rather than per upstream.
+    const breakerRoute: BreakerRoute | null =
+      this.options.resolveFallbackRoute !== undefined &&
+      canReRouteToFallbackProfile(options)
+        ? {
+            upstream: this.name,
+            ...(typeof normalizedOptions?.config?.model === "string"
+              ? { model: normalizedOptions.config.model }
+              : {}),
+          }
+        : null;
 
-    if (breakerUpstream !== null && canReRouteToFallbackProfile(options)) {
-      if (shouldSkipPrimary(breakerUpstream)) {
+    if (breakerRoute !== null) {
+      if (shouldSkipPrimary(breakerRoute)) {
         // The primary is known to be down, so its retry budget would only add
         // latency to an answer the backup was always going to give.
         log.info(
@@ -1129,46 +1204,64 @@ export class RetryProvider implements Provider {
         // remembered outage), so the primary is the only route left. The
         // escalation path below stays disabled: it would resolve the same
         // options against the same config and get the same nothing.
-      } else if (tryAcquireRecoveryProbe(breakerUpstream)) {
+      } else if (tryAcquireRecoveryProbe(breakerRoute)) {
         log.info(
           {
             provider: this.name,
             connectionName: this.options.connectionName,
+            model: breakerRoute.model,
           },
           "Probing the primary route for recovery",
         );
-        try {
-          const response = await this.inner.sendMessage(
-            messagesForAttempt,
-            normalizedOptions,
-          );
-          releaseRecoveryProbe(breakerUpstream, true);
-          return response;
-        } catch (error) {
-          // The single probe stands in for the whole retry budget while the
-          // breaker is open, so a failure the retry loop would have exhausted
-          // itself against means the outage continues. Any other failure means
-          // the route answered the request, which is all the probe asked.
-          const outage = isFallbackEligibleError(error, {
-            retriesExhausted: true,
-            credentialSource: this.options.credentialSource,
-          });
-          releaseRecoveryProbe(breakerUpstream, !outage);
-          this.attributeCredential(error);
-          if (!outage) {
-            throw error;
-          }
-          fallbackAttempted = true;
-          const served = await this.sendOnFallbackRoute(
-            messages,
-            options,
-            error,
-            true,
-          );
-          if (served !== null) {
-            // No trip needed: the failed probe already re-tripped the breaker
-            // with the longer cooldown a repeat outage earns.
-            return served;
+        // One probe, one attempt: no retry loop. A managed credential that
+        // expired during the outage is the exception, because the probe would
+        // otherwise read its own 401 as the outage continuing and the route
+        // could never come back. The refresh is the same one-shot step the
+        // retry loop runs, and it shares the send's budget for it.
+        while (true) {
+          try {
+            const response = await this.inner.sendMessage(
+              messagesForAttempt,
+              normalizedOptions,
+            );
+            releaseRecoveryProbe(breakerRoute, true);
+            return response;
+          } catch (error) {
+            if (
+              !credentialRefreshAttempted &&
+              this.shouldRefreshManagedCredential(error)
+            ) {
+              credentialRefreshAttempted = true;
+              if (await this.refreshManagedCredential()) {
+                continue;
+              }
+            }
+            // The probe stands in for the whole retry budget while the breaker
+            // is open, so a failure the retry loop would have exhausted itself
+            // against means the outage continues. Any other failure means the
+            // route answered the request, which is all the probe asked.
+            const outage = isFallbackEligibleError(error, {
+              retriesExhausted: true,
+              credentialSource: this.options.credentialSource,
+            });
+            releaseRecoveryProbe(breakerRoute, !outage);
+            this.attributeCredential(error);
+            if (!outage) {
+              throw error;
+            }
+            fallbackAttempted = true;
+            const served = await this.sendOnFallbackRoute(
+              messages,
+              options,
+              error,
+              true,
+            );
+            if (served !== null) {
+              // No trip needed: the failed probe already re-tripped the breaker
+              // with the longer cooldown a repeat outage earns.
+              return served;
+            }
+            break;
           }
         }
       }
@@ -1180,8 +1273,8 @@ export class RetryProvider implements Provider {
           messagesForAttempt,
           normalizedOptions,
         );
-        if (breakerUpstream !== null) {
-          recordPrimarySuccess(breakerUpstream);
+        if (breakerRoute !== null) {
+          recordPrimarySuccess(breakerRoute);
         }
         return result;
       } catch (error) {
@@ -1190,28 +1283,8 @@ export class RetryProvider implements Provider {
           this.shouldRefreshManagedCredential(error)
         ) {
           credentialRefreshAttempted = true;
-          try {
-            const refreshed = await this.options.refreshCredentialProvider?.();
-            if (refreshed) {
-              this.inner = refreshed;
-              log.info(
-                {
-                  provider: this.name,
-                  connectionName: this.options.connectionName,
-                },
-                "Retrying managed inference with refreshed assistant credentials",
-              );
-              continue;
-            }
-          } catch (refreshError) {
-            log.warn(
-              {
-                provider: this.name,
-                connectionName: this.options.connectionName,
-                refreshError,
-              },
-              "Failed to reload managed assistant credentials",
-            );
+          if (await this.refreshManagedCredential()) {
+            continue;
           }
         }
 
@@ -1292,8 +1365,14 @@ export class RetryProvider implements Provider {
           })
         ) {
           fallbackAttempted = true;
-          if (breakerUpstream !== null) {
-            recordPrimaryFailure(breakerUpstream);
+          // What the failure indicts: the whole upstream for an outage, only
+          // this model for a retirement or rename.
+          const failedRoute =
+            breakerRoute === null
+              ? null
+              : failureBreakerRoute(breakerRoute, error);
+          if (failedRoute !== null) {
+            recordPrimaryFailure(failedRoute);
           }
           const fallbackResult = await this.sendOnFallbackRoute(
             messages,
@@ -1305,8 +1384,8 @@ export class RetryProvider implements Provider {
             // A completed backup serve is proof the primary is down and the
             // backup can carry the traffic, so later requests skip the retry
             // budget until a probe says the primary is back.
-            if (breakerUpstream !== null) {
-              recordFallbackServed(breakerUpstream);
+            if (failedRoute !== null) {
+              recordFallbackServed(failedRoute);
             }
             return fallbackResult;
           }

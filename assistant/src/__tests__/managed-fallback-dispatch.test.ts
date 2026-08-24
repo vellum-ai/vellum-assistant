@@ -23,6 +23,7 @@ import {
 } from "bun:test";
 
 import {
+  type BreakerRoute,
   recordFallbackServed,
   resetFallbackBreaker,
   shouldSkipPrimary,
@@ -60,6 +61,12 @@ let anthropicMode: "serve" | "retired" = "serve";
  * keeps serving on the same upstream.
  */
 const retiredModels = new Set<string>();
+
+/** The primary pin of the breaker case below, as its 404 marks it. */
+const RETIRED_ROUTE: BreakerRoute = {
+  upstream: "anthropic",
+  model: "claude-opus-5",
+};
 
 const ANTHROPIC_PATH = "/v1/runtime-proxy/anthropic";
 const OPENAI_PATH = "/v1/runtime-proxy/openai";
@@ -669,7 +676,12 @@ describe("managed fallback dispatch", () => {
       "claude-opus-5",
       "claude-sonnet-5",
     ]);
-    expect(shouldSkipPrimary("anthropic")).toBe(true);
+    // A retired pin is remembered for that model, not for the upstream, so the
+    // backup's own model on the same upstream stays available.
+    expect(shouldSkipPrimary(RETIRED_ROUTE)).toBe(true);
+    expect(
+      shouldSkipPrimary({ upstream: "anthropic", model: "claude-sonnet-5" }),
+    ).toBe(false);
 
     // The second request reaches the backup without touching the dead pin.
     requests.length = 0;
@@ -684,7 +696,7 @@ describe("managed fallback dispatch", () => {
     // process that has been degraded for a while looks.
     retiredModels.clear();
     resetFallbackBreaker();
-    recordFallbackServed("anthropic", Date.now() - 11 * 60_000);
+    recordFallbackServed(RETIRED_ROUTE, Date.now() - 11 * 60_000);
     requests.length = 0;
 
     const third: ProviderResponse = await provider!.sendMessage(MESSAGES, {
@@ -694,6 +706,6 @@ describe("managed fallback dispatch", () => {
     // The probe went to the primary pin, served, and closed the breaker.
     expect(requests.map((r) => r.body.model)).toEqual(["claude-opus-5"]);
     expect(third.actualInferenceProfile).toBeUndefined();
-    expect(shouldSkipPrimary("anthropic")).toBe(false);
+    expect(shouldSkipPrimary(RETIRED_ROUTE)).toBe(false);
   });
 });
