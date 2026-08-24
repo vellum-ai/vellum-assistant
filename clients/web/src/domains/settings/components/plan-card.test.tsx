@@ -415,12 +415,12 @@ const FREE_CHIPS = ["Small Machine", "4 GB Storage", "Pay as you go credits"];
 const MIGHTY_CHIPS = [
   "Small Machine",
   "10 GB Storage",
-  "$25 in credits included",
+  "Mighty Usage included",
 ];
 const SUPER_CHIPS = [
   "Medium Machine",
   "30 GB Storage",
-  "$45 in credits included",
+  "Super Usage included",
   "Assistant email and subdomain",
 ];
 
@@ -1167,13 +1167,13 @@ describe("PlanCard with obscure-credits on", () => {
 
     const current = within(currentTile(container));
     expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
-    expect(current.queryByText("$25 in credits included")).toBeNull();
+    expect(current.queryByText("Mighty Usage included")).toBeNull();
     // Machine and storage chips keep their own copy.
     expect(current.getByText("10 GB Storage")).toBeTruthy();
 
     const next = within(nextTile(container));
     expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
-    expect(next.queryByText("$45 in credits included")).toBeNull();
+    expect(next.queryByText("Super Usage included")).toBeNull();
   });
 
   test("both tiles wrap their short chips into a row, usage below", () => {
@@ -1239,7 +1239,7 @@ describe("PlanCard with obscure-credits on", () => {
     // A Custom sub still enumerates nothing and still quotes no price.
     const current = within(currentTile(container));
     expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
-    expect(current.queryByText("$25 in credits included")).toBeNull();
+    expect(current.queryByText("Mighty Usage included")).toBeNull();
     expect(current.queryByText("10 GB Storage")).toBeNull();
     expect(current.queryByTestId("plan-card-price")).toBeNull();
   });

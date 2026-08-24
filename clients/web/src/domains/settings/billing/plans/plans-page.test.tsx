@@ -407,8 +407,8 @@ describe("PlansPage — full catalog render", () => {
     expect(html).toContain("60 GB Storage");
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
-    // Credits row, formatted from credits_usd.
-    expect(html).toContain("$25 in credits included");
+    // Credits row: the catalog's usage_label, matching the invoice line.
+    expect(html).toContain("Mighty Usage included");
     // Machine "Computer" labels; a null machine_size renders "Small".
     expect(html).toContain("Small Computer");
     expect(html).toContain("Medium Computer");
@@ -1247,7 +1247,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 50 credits/mo");
+    await findByText("Medium Machine · 10 GB · 50 credits");
   });
 
   test("a legacy/unpinned Pro sub sees the Custom row marked current with a tier summary", async () => {
@@ -1257,7 +1257,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 50 credits/mo");
+    await findByText("Medium Machine · 10 GB · 50 credits");
   });
 
   test("a custom sub holding a deprecated credit tier shows a derived credit label", async () => {

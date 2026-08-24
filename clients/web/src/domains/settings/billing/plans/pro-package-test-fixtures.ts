@@ -25,7 +25,7 @@ export function makeProPackage(
     key: "mighty",
     name: "Mighty",
     description:
-      "10 GB of storage and $25 in monthly credits on the standard machine.",
+      "10 GB of storage and monthly Mighty Usage on the standard machine.",
     version: 1,
     machine_tier: null,
     storage_tier: "xs",
@@ -33,6 +33,7 @@ export function makeProPackage(
     machine_size: null,
     storage_gib: 10,
     credits_usd: 25,
+    usage_label: "Mighty Usage",
     // Mighty is the one package that skips the base platform fee.
     include_platform_fee: false,
     base_price_cents: 0,
@@ -51,14 +52,14 @@ export function makeSuperPackage(
   return makeProPackage({
     key: "super",
     name: "Super",
-    description:
-      "Medium machine, 30 GB of storage, and $45 in monthly credits.",
+    description: "Medium machine, 30 GB of storage, and monthly Super Usage.",
     machine_tier: "medium",
     storage_tier: "s",
     credit_tier: "credits_45",
     machine_size: "medium",
     storage_gib: 30,
     credits_usd: 45,
+    usage_label: "Super Usage",
     include_platform_fee: true,
     base_price_cents: 1000,
     machine_price_cents: 3500,
@@ -76,14 +77,14 @@ export function makeUltraPackage(
   return makeProPackage({
     key: "ultra",
     name: "Ultra",
-    description:
-      "Large machine, 60 GB of storage, and $115 in monthly credits.",
+    description: "Large machine, 60 GB of storage, and monthly Ultra Usage.",
     machine_tier: "large",
     storage_tier: "m",
     credit_tier: "credits_115",
     machine_size: "large",
     storage_gib: 60,
     credits_usd: 115,
+    usage_label: "Ultra Usage",
     include_platform_fee: true,
     base_price_cents: 1000,
     machine_price_cents: 6000,

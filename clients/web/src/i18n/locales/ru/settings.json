@@ -1329,6 +1329,7 @@
     "featureComputer": "Компьютер {machine}",
     "featureCreditsIncluded": "Входит {amount} кредитами",
     "featureStorage": "{gib} ГБ хранилища",
+    "featureUsageIncluded": "Входит {label}",
     "foreverCaption": "Навсегда",
     "freeFeaturePayAsYouGo": "Кредиты по мере использования",
     "freeFeatureSmallComputer": "Небольшой компьютер",

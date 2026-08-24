@@ -80,7 +80,7 @@ describe("PackageSwitchConfirmModal", () => {
     getByText(CHECKLIST_HEADING);
     getByText("Small machine (2 vCPU, 3 GiB)");
     getByText("10 GB storage");
-    getByText("$25 of bundled credits");
+    getByText("Mighty Usage");
     expect(getByTestId("confirm-package-switch-button").textContent).toBe(
       CONTINUE_LABEL,
     );
@@ -270,7 +270,7 @@ describe("PackageSwitchConfirmModal", () => {
     expect(getAllByRole("listitem").map((row) => row.textContent)).toEqual([
       "Medium machine (2.5 vCPU, 5 GiB)",
       "30 GB storage",
-      "$45 of bundled credits",
+      "Super Usage",
       "Assistant email and subdomain",
     ]);
   });

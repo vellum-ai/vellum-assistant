@@ -1329,6 +1329,7 @@
     "featureComputer": "Ordenador {machine}",
     "featureCreditsIncluded": "{amount} en créditos incluidos",
     "featureStorage": "{gib} GB de almacenamiento",
+    "featureUsageIncluded": "{label} incluido",
     "foreverCaption": "Para siempre",
     "freeFeaturePayAsYouGo": "Créditos de pago por uso",
     "freeFeatureSmallComputer": "Ordenador pequeño",
