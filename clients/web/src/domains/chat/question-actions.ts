@@ -100,9 +100,20 @@ export async function handleQuestionResponse(
         clearStaleQuestion(snapshot.requestId);
         return;
       }
-      // A retryable failure, so the card stays and the user is told, provided
-      // the prompt they are looking at is still this one.
-      reportSubmissionFailure("question", snapshot.requestId, result.error);
+      // The card stays and the user is told, provided the prompt they are
+      // looking at is still this one. The daemon's own message does not go in
+      // front of them: a rejected submission is a body the client built, so
+      // the text is developer copy about a payload the user never chose and
+      // cannot correct. It belongs in Sentry, where it names the mismatch.
+      captureError(new Error(`question-response failed: ${result.error}`), {
+        context: "submit_question_response",
+        extra: { status: result.status },
+      });
+      reportSubmissionFailure(
+        "question",
+        snapshot.requestId,
+        "Failed to submit response. Please try again.",
+      );
       useInteractionStore
         .getState()
         .releaseSubmission("question", snapshot.requestId);

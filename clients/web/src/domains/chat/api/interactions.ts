@@ -18,6 +18,7 @@ import type {
   PendinginteractionsGetResponse,
   QuestionresponsePostData,
 } from "@/generated/daemon/types.gen";
+import { resolveSupportsBatchedQuestionSubmit } from "@/lib/backwards-compat/batched-question-submit";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 /**
@@ -210,45 +211,64 @@ export async function submitContactPrompt(
 }
 
 /**
+ * Pick the wire shape for an answer and build the body.
+ *
+ * Only a one-entry answer has a choice to make, so only that case waits on the
+ * version. A close and a multi-entry answer are posted the same way to every
+ * assistant, and making them wait would stall a dismissal behind an identity
+ * fetch that cannot change what is sent.
+ */
+async function buildQuestionResponseBody(
+  assistantId: string,
+  requestId: string,
+  submission: QuestionSubmission,
+): Promise<QuestionresponsePostData["body"]> {
+  if (submission.kind === "close") {
+    return { requestId, kind: "close" };
+  }
+  const batched = {
+    requestId,
+    kind: "submit",
+    responses: submission.responses,
+  } as const;
+  const only =
+    submission.responses.length === 1 ? submission.responses[0] : undefined;
+  if (!only || (await resolveSupportsBatchedQuestionSubmit(assistantId))) {
+    return batched;
+  }
+  if (only.kind === "option") {
+    return { requestId, kind: "option", optionId: only.optionId };
+  }
+  if (only.kind === "free_text") {
+    return { requestId, kind: "free_text", text: only.text };
+  }
+  // The legacy shape has no `skip`, and an assistant that only speaks it would
+  // reject an unparseable body. Blank free text is the closest thing it can
+  // express, and `answered-question.ts` reads one back as a skip.
+  return { requestId, kind: "free_text", text: "" };
+}
+
+/**
  * Submit a response to a `question_request` event emitted by the daemon's
  * `ask_user_question` tool. Fire-and-forget, mirroring `submitConfirmation`:
  * the daemon resolves the awaiting tool call on its side and pushes any
- * follow-up state changes back through SSE. Body discriminator is `kind`:
- *  - `{ kind: "option", optionId }` — user picked one of the daemon-supplied options.
- *  - `{ kind: "free_text", text }` — user typed a manual answer.
+ * follow-up state changes back through SSE.
+ *
+ * The body is the batched `{ kind: "submit", responses }` shape, or
+ * `{ kind: "close" }` for a dismissal. Assistants older than the batched
+ * contract get the legacy single-question shape for a one-entry submission;
+ * see `lib/backwards-compat/batched-question-submit.ts` for what that costs.
  */
 export async function submitQuestionResponse(
   assistantId: string,
   requestId: string,
   submission: QuestionSubmission,
 ): Promise<SubmitSecretResponseResult> {
-  // For single-entry submissions, prefer the legacy `{ kind: "option" | "free_text" }`
-  // wire shape — older daemons predate the batched `{ kind: "submit", responses }`
-  // contract, and rolling deploys can leave the daemon side behind the web side.
-  // Both legacy and new daemons accept the legacy shape; only newer daemons accept
-  // the batched shape, so reserve it for multi-entry submissions where it's
-  // strictly required. `skip` is not a legacy top-level kind, so we coerce it
-  // to an empty `free_text` so the daemon resolves the interaction instead of
-  // hanging on a malformed payload.
-  const body: QuestionresponsePostData["body"] = (() => {
-    if (submission.kind === "close") {
-      return { requestId, kind: "close" };
-    }
-    if (submission.responses.length !== 1) {
-      return { requestId, kind: "submit", responses: submission.responses };
-    }
-    const only = submission.responses[0];
-    if (!only) {
-      return { requestId, kind: "submit", responses: submission.responses };
-    }
-    if (only.kind === "option") {
-      return { requestId, kind: "option", optionId: only.optionId };
-    }
-    if (only.kind === "free_text") {
-      return { requestId, kind: "free_text", text: only.text };
-    }
-    return { requestId, kind: "free_text", text: "" };
-  })();
+  const body = await buildQuestionResponseBody(
+    assistantId,
+    requestId,
+    submission,
+  );
   try {
     const { error, response: httpResponse } = await questionresponsePost({
       path: { assistant_id: assistantId },

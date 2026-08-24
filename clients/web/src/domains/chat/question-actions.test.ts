@@ -75,10 +75,13 @@ const throwByRequestId = new Set<string>();
 /** Per-requestId results, for tests where two requests resolve differently. */
 const resultByRequestId = new Map<string, SubmitSecretResponseResult>();
 
-const capturedErrors: Array<{ context?: string }> = [];
+const capturedErrors: Array<{ context?: string; message?: string }> = [];
 mock.module("@/lib/sentry/capture-error", () => ({
-  captureError: (_err: unknown, opts?: { context?: string }) => {
-    capturedErrors.push({ context: opts?.context });
+  captureError: (err: unknown, opts?: { context?: string }) => {
+    capturedErrors.push({
+      context: opts?.context,
+      message: err instanceof Error ? err.message : String(err),
+    });
   },
 }));
 
@@ -158,10 +161,18 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
       { questionId: "q1", kind: "option", optionId: "alice_work" },
     ]);
 
-    // A real server failure is retryable, so the card stays and the user is told.
+    // A real server failure is retryable, so the card stays and the user is
+    // told. In copy they can read: the daemon's own message describes a body
+    // the client built, so it goes to Sentry instead of the banner.
     expect(useChatSessionStore.getState().error?.message).toBe(
-      "Internal error",
+      "Failed to submit response. Please try again.",
     );
+    expect(capturedErrors).toEqual([
+      {
+        context: "submit_question_response",
+        message: "question-response failed: Internal error",
+      },
+    ]);
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "q-broken",
     );
@@ -317,14 +328,14 @@ describe("handleQuestionResponse: a late completion must not rewrite newer state
     releaseRequest("q-b");
     await answerB;
     expect(useChatSessionStore.getState().error?.message).toBe(
-      "Internal error",
+      "Failed to submit response. Please try again.",
     );
 
     releaseRequest("q-a");
     await answerA;
 
     expect(useChatSessionStore.getState().error?.message).toBe(
-      "Internal error",
+      "Failed to submit response. Please try again.",
     );
   });
 
@@ -343,7 +354,9 @@ describe("handleQuestionResponse: a late completion must not rewrite newer state
     await answerA;
 
     expect(useInteractionStore.getState().submittingByKind.question).toBeNull();
-    expect(useChatSessionStore.getState().error?.message).toBe("boom");
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Failed to submit response. Please try again.",
+    );
   });
 });
 
