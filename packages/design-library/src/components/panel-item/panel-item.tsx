@@ -262,6 +262,16 @@ const PILL_HOVER_CLASS =
  * row width in every ordinary layout. `width: fit-content` shrink-wraps while
  * leaving `display: flex` alone, which the row's internal layout depends on.
  *
+ * `max-w-full` is what lets a pill narrower than its label truncate rather
+ * than overflow, and it is not redundant with `fit-content`. A pill's label is
+ * `white-space: nowrap`, so its min-content contribution is the whole string,
+ * and `fit-content` never resolves below min-content; `min-w-0` on the label
+ * cannot lower that, because `min-width` is a floor and not a cap. Left alone,
+ * the pill sizes to its text and hangs out of the panel. Capping the used
+ * width at the containing block makes the width definite, which is the
+ * condition flex shrinking needs: the label then takes the space that is left
+ * and ellipsises, exactly as it does in a `w-full` row.
+ *
  * A pill is taller than a row, and how much taller is the panel's decision
  * rather than each caller's: `SideMenu` publishes `--side-menu-tile-size`, the
  * height its collapsed tiles are drawn at, and a pill mounted in one takes it,
@@ -290,7 +300,7 @@ const PILL_HOVER_CLASS =
  * whole treatment collapses to the default when nothing declares them.
  */
 const PILL_SHAPE_CLASSES = [
-  "w-fit rounded-full",
+  "w-fit max-w-full rounded-full",
   "h-[var(--side-menu-tile-size,36px)]",
   "max-md:min-h-[var(--side-menu-tile-size,36px)]",
   "bg-[var(--panel-item-bg,var(--surface-lift))]",
