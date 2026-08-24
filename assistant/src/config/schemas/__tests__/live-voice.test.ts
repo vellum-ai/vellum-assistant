@@ -275,6 +275,29 @@ describe("LiveVoiceWorkingCueConfigSchema", () => {
     }
   });
 
+  test("rejects an intervalMs past the timer maximum", () => {
+    // setTimeout holds its delay in a signed 32-bit int, so a larger value
+    // wraps and fires almost immediately: the cue would become a continuous
+    // tone rather than the very long silence the number asks for.
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({
+      intervalMs: 2_147_483_648,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.workingCue.intervalMs")),
+      ).toBe(true);
+    }
+  });
+
+  test("accepts the largest interval a timer can hold", () => {
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({
+      intervalMs: 2_147_483_647,
+    });
+    expect(result.success).toBe(true);
+  });
+
   test("rejects a durationMs past the cue-length cap", () => {
     // The value sizes a PCM buffer at the client's sample rate, so an
     // unbounded one is an unbounded Buffer.alloc from a timer callback.

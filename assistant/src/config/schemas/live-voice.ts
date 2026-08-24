@@ -182,6 +182,13 @@ export const LiveVoiceProgressConfigSchema = z
  */
 const MAX_WORKING_CUE_DURATION_MS = 2_000;
 
+// setTimeout stores its delay in a signed 32-bit int, so a larger value wraps
+// and fires almost immediately. A cue interval past this would not be a very
+// long silence, it would be a continuous tone: exactly inverted from what the
+// number says. Reject it instead, since anything near the cap is already far
+// longer than a working turn.
+const MAX_WORKING_CUE_INTERVAL_MS = 2_147_483_647;
+
 /**
  * Ceiling on the cue's fundamental. Above the top of human hearing the tone is
  * inaudible, and above half the session's sample rate it aliases down to some
@@ -201,9 +208,13 @@ export const LiveVoiceWorkingCueConfigSchema = z
       .number({ error: "liveVoice.workingCue.intervalMs must be a number" })
       .int("liveVoice.workingCue.intervalMs must be an integer")
       .positive("liveVoice.workingCue.intervalMs must be a positive integer")
+      .max(
+        MAX_WORKING_CUE_INTERVAL_MS,
+        `liveVoice.workingCue.intervalMs must be at most ${MAX_WORKING_CUE_INTERVAL_MS}`,
+      )
       .default(12_000)
       .describe(
-        "Audible silence (ms) between cues while a turn works. This is a cadence for punctuation, not for speech, so it can sit far below what a spoken update would tolerate",
+        `Audible silence (ms) between cues while a turn works. This is a cadence for punctuation, not for speech, so it can sit far below what a spoken update would tolerate. Capped at ${MAX_WORKING_CUE_INTERVAL_MS}, the largest delay a timer can hold without wrapping to near-zero`,
       ),
     frequencyHz: z
       .number({ error: "liveVoice.workingCue.frequencyHz must be a number" })
