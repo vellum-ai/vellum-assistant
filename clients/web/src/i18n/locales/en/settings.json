@@ -1263,8 +1263,7 @@
     "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
     "loading": "Loading…",
-    "subtitle": "Payment methods linked to your account.",
-    "title": "Payment Methods"
+    "title": "Payment Method"
   },
   "pendingPairingRequests": {
     "approveButton": "Approve",

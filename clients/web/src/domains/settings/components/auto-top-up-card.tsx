@@ -1,11 +1,10 @@
 import { Coins, Info, X } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
 import {
   organizationsBillingAutoTopUpDisableCreateMutation,
-  organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpRetrieveSetQueryData,
   organizationsBillingAutoTopUpUpdateMutation,
@@ -25,6 +24,7 @@ import {
   type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { useAutoTopUpConfigQuery } from "@/domains/settings/hooks/use-auto-top-up-config";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import { useTranslation } from "@/i18n";
@@ -112,7 +112,7 @@ function SummaryChip({
 export function AutoTopUpCard() {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
-  const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
+  const configQuery = useAutoTopUpConfigQuery();
   const updateMutation = useMutation(
     organizationsBillingAutoTopUpUpdateMutation(),
   );
@@ -252,7 +252,10 @@ export function AutoTopUpCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `enterFormMode`/`beginEnableFlow`/`searchParams` intentionally excluded
   }, [configureTopUpRequested, configQuery.data]);
 
-  if (configQuery.isLoading) {
+  // `isPending` rather than `isLoading`: the query idles with no data until
+  // the org store is ready, and that gap must read as loading, not as the
+  // error state below.
+  if (configQuery.isPending) {
     return (
       <div data-testid="auto-top-up-card">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">

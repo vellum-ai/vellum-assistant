@@ -8,6 +8,10 @@
  *    appears only while no card is on file.
  *  - "Add Payment Method" and "Update Card" open the Stripe setup modal
  *    (stubbed here; the modal has its own tests).
+ *  - The config query is gated on org readiness: before the org store
+ *    hydrates the card shows the loading state, never the Add button or the
+ *    error notice, so a headerless request can't mislabel the org as having
+ *    no saved card.
  *
  * Strategy: pre-populate the React Query cache so `useQuery` resolves
  * synchronously; mock the SDK boundary so any background refetch is
@@ -38,6 +42,17 @@ mock.module(
   }),
 );
 
+import * as orgReadyModule from "@/hooks/use-is-org-ready";
+
+// Drives the org-readiness gate. `true` matches the default test environment
+// (no platform session); the gating test flips it to simulate a platform
+// session whose org store has not hydrated yet.
+let orgReady = true;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  ...orgReadyModule,
+  useIsOrgReady: () => orgReady,
+}));
+
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 const { PaymentMethodsCard, paymentMethodCards } =
@@ -62,14 +77,19 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
   payment_method_last4: "4242",
 };
 
-function wrap(config: AutoTopUpConfigResponse) {
+function wrap(config?: AutoTopUpConfigResponse) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   });
-  client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), config);
+  if (config != null) {
+    client.setQueryData(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+      config,
+    );
+  }
   return (
     <QueryClientProvider client={client}>
       <PaymentMethodsCard />
@@ -79,6 +99,7 @@ function wrap(config: AutoTopUpConfigResponse) {
 
 beforeEach(() => {
   retrieveResponse = { ...DISABLED_CONFIG };
+  orgReady = true;
 });
 
 afterEach(cleanup);
@@ -140,6 +161,19 @@ describe("PaymentMethodsCard add button", () => {
     expect(
       container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();
+  });
+});
+
+describe("PaymentMethodsCard before the org store is ready", () => {
+  test("shows loading, never the Add button or the error notice", () => {
+    orgReady = false;
+    const { container } = render(wrap());
+
+    expect(container.textContent).toContain("Loading…");
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("Failed to load");
   });
 });
 
