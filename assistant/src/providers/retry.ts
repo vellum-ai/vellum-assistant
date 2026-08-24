@@ -1207,7 +1207,6 @@ export class RetryProvider implements Provider {
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    let didRetry = false;
     let retryAttempt = 0;
     let credentialRefreshAttempted = false;
     let correctiveResendAttempted = false;
@@ -1479,19 +1478,28 @@ export class RetryProvider implements Provider {
             },
             "Retrying after transient error",
           );
-          didRetry = true;
           retryAttempt++;
           await sleep(delay);
           continue;
         }
 
         // If we exhausted retries on a retryable error, tag the error so
-        // downstream consumers (Sentry capture, etc.) can recognize that the
-        // retry loop already tried its best. The catch-site logic above only
-        // stops retrying when either (a) retries are exhausted, or (b) the
-        // error isn't retryable — so we check the retryable predicate here to
-        // distinguish the two cases.
-        const retriesExhausted = didRetry && isRetryableError(error);
+        // downstream consumers (Sentry capture, escalation eligibility) can
+        // recognize that the retry loop already tried its best. Control
+        // reaches here for two reasons only, and the retryable predicate is
+        // what separates them: either the budget is gone, or the error was
+        // never retryable in the first place.
+        //
+        // Exhaustion is read off the same counter the retry guard above reads,
+        // never off whether this loop happened to perform a retry itself. A
+        // request can arrive here with its budget already consumed elsewhere:
+        // a recovery probe seeds `retryAttempt` with the sends it made, so a
+        // probe that spent the budget on its own repairs leaves the loop below
+        // no retry to perform and would otherwise look like a request that had
+        // never tried at all. Reading the counter keeps the two definitions
+        // from drifting apart however the seed changes.
+        const retriesExhausted =
+          retryAttempt >= DEFAULT_MAX_RETRIES && isRetryableError(error);
         if (retriesExhausted && error instanceof Error) {
           (error as Error & { retriesExhausted?: boolean }).retriesExhausted =
             true;

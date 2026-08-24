@@ -1151,3 +1151,138 @@ describe("recovery probe verdicts", () => {
     );
   });
 });
+
+// ── What counts as having spent the retry budget ────────────────────────────
+
+describe("retry exhaustion accounting", () => {
+  /**
+   * The primary of a probe that uses both of its repairs before failing for
+   * real. The first send is rejected as an expired managed credential, the
+   * refreshed adapter answers the resend with malformed tool arguments, and the
+   * corrective resend after that comes back as a stream corruption. Three sends
+   * are spent by the time the request reaches the ordinary loop, leaving it
+   * exactly one, which it spends on `lastError`.
+   */
+  function repairedProbeAdapters(lastError: () => unknown): {
+    primary: ReturnType<typeof primaryProvider>;
+    refreshed: ReturnType<typeof primaryProvider>;
+  } {
+    return {
+      primary: primaryProvider(
+        () =>
+          new ProviderError("Unauthorized", UPSTREAM, 401, {
+            reason: "invalid_credentials",
+          }),
+      ),
+      refreshed: primaryProvider(
+        () =>
+          new ProviderError(
+            `Anthropic: ${UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE}`,
+            UPSTREAM,
+            undefined,
+          ),
+        () => corruptedStream(),
+        lastError,
+      ),
+    };
+  }
+
+  test("a probe that spends the whole budget on repairs still reaches the backup", async () => {
+    // Exhaustion decides escalation eligibility, not just Sentry suppression,
+    // so a request whose budget was consumed inside the probe has to be seen as
+    // exhausted. Otherwise the turn this feature exists to rescue fails while a
+    // healthy backup sits unused.
+    const { primary, refreshed } = repairedProbeAdapters(() =>
+      corruptedStream(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      credentialSource: "vellum-managed",
+      refreshCredentialProvider: async () => refreshed.provider,
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(result.model).toBe("backup-model");
+    expect(backup.calls()).toBe(1);
+    // One send on the original adapter plus three on the refreshed one: the
+    // budget, spent exactly once.
+    expect(primary.calls() + refreshed.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(refreshed.calls()).toBe(3);
+  });
+
+  test("a probe that spends the whole budget on repairs tags the error as exhausted", async () => {
+    // The same sequence with no backup available, so the error surfaces and its
+    // tag can be read. Untagged, this is a Sentry capture for a flap the retry
+    // loop already did everything about.
+    const { primary, refreshed } = repairedProbeAdapters(() =>
+      corruptedStream(),
+    );
+    const wrapped = new RetryProvider(primary.provider, {
+      credentialSource: "vellum-managed",
+      refreshCredentialProvider: async () => refreshed.provider,
+      resolveFallbackRoute: async () => null,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect((thrown as { retriesExhausted?: boolean }).retriesExhausted).toBe(
+      true,
+    );
+    expect(primary.calls() + refreshed.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+  });
+
+  test("a request that spends its budget in the ordinary loop is exhausted", async () => {
+    // The control for a request that never probes: unchanged behavior, tagged
+    // and escalated after the full budget.
+    const primary = primaryProvider(
+      () => transient(),
+      () => transient(),
+      () => transient(),
+      () => transient(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(result.model).toBe("backup-model");
+  });
+
+  test("a request that fails on a non-retryable error is not exhausted", async () => {
+    // The other control: one attempt, no budget spent, so nothing is tagged and
+    // a plain request failure never counts as an outage.
+    const primary = primaryProvider(
+      () => new ProviderError("invalid request", UPSTREAM, 400),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const thrown = await captureError(
+      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
+    );
+
+    expect(
+      (thrown as { retriesExhausted?: boolean }).retriesExhausted,
+    ).toBeUndefined();
+    expect(primary.calls()).toBe(1);
+    expect(backup.calls()).toBe(0);
+  });
+});
