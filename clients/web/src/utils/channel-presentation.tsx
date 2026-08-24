@@ -30,12 +30,45 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { ChannelId } from "@vellumai/service-contracts/channels";
+
 import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { useTranslation } from "@/i18n";
 import type { AssistantChannelState } from "@/types/channel-types";
 
-const CHANNEL_LABELS: Record<string, string> = {
+/**
+ * Channels a client may be asked to draw before the availability response
+ * arrives, which is why these are declared here rather than read from it:
+ * several call sites are plain functions that cannot await a query.
+ *
+ * Listed once and shared by both maps below, so a channel cannot gain a label
+ * and lose an icon. `satisfies` ties the list to the canonical vocabulary, so
+ * a typo or a retired channel fails to compile rather than rendering a
+ * fallback nobody notices.
+ */
+const RENDERED_CHANNELS = [
+  "slack",
+  "telegram",
+  "discord",
+  "whatsapp",
+  "phone",
+  "email",
+  "a2a",
+] as const satisfies readonly ChannelId[];
+
+type RenderedChannel = (typeof RENDERED_CHANNELS)[number];
+
+/**
+ * Whether an id is one of the channels drawn here. A plugin channel's id is
+ * its plugin name, so what arrives at these lookups is any string, and this
+ * is what separates the ones with an entry from the ones that fall back.
+ */
+function isRenderedChannel(id: string): id is RenderedChannel {
+  return (RENDERED_CHANNELS as readonly string[]).includes(id);
+}
+
+const CHANNEL_LABELS: Record<RenderedChannel, string> = {
   slack: "Slack",
   telegram: "Telegram",
   discord: "Discord",
@@ -45,7 +78,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   a2a: "Assistant",
 };
 
-const CHANNEL_ICONS: Record<string, LucideIcon> = {
+const CHANNEL_ICONS: Record<RenderedChannel, LucideIcon> = {
   // Slack has a brand SVG used in the header; this `#` glyph is its
   // Lucide stand-in for compact surfaces (sidebar section, footer fallback).
   slack: Hash,
@@ -111,10 +144,9 @@ export function getChannelLabel(channelId: string | null | undefined): string {
   if (!channelId) {
     return "channel";
   }
-  return (
-    CHANNEL_LABELS[channelId] ??
-    channelId.charAt(0).toUpperCase() + channelId.slice(1)
-  );
+  return isRenderedChannel(channelId)
+    ? CHANNEL_LABELS[channelId]
+    : channelId.charAt(0).toUpperCase() + channelId.slice(1);
 }
 
 /**
@@ -130,14 +162,15 @@ export function getOpenInChannelLabel(
 
 /**
  * Lucide icon component for a channel id, for use as a small inline glyph
- * (header tag, footer secondary label). Slack is intentionally absent — it
- * has a brand SVG that callers render directly — so this returns a neutral
- * message icon for it, matching the fallback for unknown channels.
+ * (header tag, footer secondary label). Channels with a brand mark still
+ * answer with a Lucide stand-in here, since these surfaces are too small to
+ * carry one; a caller with room renders the brand svg itself. An id with no
+ * entry, which includes every plugin channel, gets the neutral message icon.
  */
 export function getChannelIcon(
   channelId: string | null | undefined,
 ): LucideIcon {
-  if (channelId && CHANNEL_ICONS[channelId]) {
+  if (channelId && isRenderedChannel(channelId)) {
     return CHANNEL_ICONS[channelId];
   }
   return MessageSquare;
