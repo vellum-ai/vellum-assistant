@@ -450,4 +450,50 @@ describe("managed fallback dispatch", () => {
     const models = new Set(requests.map((r) => r.body.model));
     expect(models).toEqual(new Set(["claude-opus-5"]));
   });
+
+  test("a managed backup still serves under a call-site provider tweak", async () => {
+    // A call-site fragment pinning a concrete upstream over a managed winner
+    // resolves to that provider while the resolver keeps the managed
+    // connection, so this is managed traffic and must still fall back. The
+    // guard above keys on the connection precisely so this case survives.
+    setConfig("llm", {
+      profiles: {
+        "tweak-primary": {
+          source: "user",
+          provider: "vellum",
+          model: "gpt-5.6-sol",
+          fallbackProfile: "tweak-managed-backup",
+          maxTokens: 1024,
+        },
+        "tweak-managed-backup": {
+          source: "user",
+          provider: "vellum",
+          model: "claude-opus-5",
+          maxTokens: 2048,
+        },
+      },
+      activeProfile: "tweak-primary",
+      callSites: { mainAgent: { provider: "anthropic" } },
+    });
+
+    const provider = createAdapterFromConnection(
+      vellumConnection,
+      managedAuth(OPENAI_PATH),
+      {
+        model: "gpt-5.6-sol",
+        provider: "openai",
+        streamTimeoutMs: 30_000,
+      },
+    );
+    expect(provider).not.toBeNull();
+
+    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const backup = requestsTo(ANTHROPIC_PATH);
+    expect(backup.length).toBe(1);
+    expect(backup[0].body.model).toBe("claude-opus-5");
+    expect(response.actualInferenceProfile).toBe("tweak-managed-backup");
+  });
 });

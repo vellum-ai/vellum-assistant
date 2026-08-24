@@ -379,12 +379,19 @@ export function createAdapterFromConnection(
         // serving one here would bill it as managed traffic and authenticate
         // it with a credential its author never chose, so it is refused and
         // the original error stands.
+        // Keyed on the connection, not the provider: a call-site fragment that
+        // pins a concrete upstream over a managed winner keeps the managed
+        // routing and is stamped with this connection's name by the resolver
+        // (see `llm-resolver.ts`), so a concrete `provider` here is still
+        // managed traffic. Only a profile that names a different connection,
+        // or a concrete provider carrying no managed connection at all (a BYOK
+        // winner), routes somewhere this callback cannot authenticate.
         const backupConnection = resolvedBackup.provider_connection;
-        if (
-          (backupConnection !== undefined &&
-            backupConnection !== connection.name) ||
-          resolvedBackup.provider !== VELLUM_MANAGED_PROVIDER
-        ) {
+        const routesThroughThisConnection =
+          backupConnection === undefined
+            ? resolvedBackup.provider === VELLUM_MANAGED_PROVIDER
+            : backupConnection === connection.name;
+        if (!routesThroughThisConnection) {
           log.warn(
             {
               connectionName: connection.name,
