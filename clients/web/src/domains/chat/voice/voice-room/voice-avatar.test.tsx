@@ -1,9 +1,8 @@
 /**
  * The voice room's centered avatar expresses the session phase and nothing
- * else. It used to ride the TTS output through a per-frame custom property,
- * which put the assistant's voice on screen twice once the floor band existed,
- * so these pin that it reads no audio at all: no frame loop, no amplitude
- * property, whatever phase it is in.
+ * else. The assistant's voice is drawn as a band at the room's floor, so an
+ * avatar that tracked it too would put one signal on screen twice. These pin
+ * that it reads no audio in any phase: no frame loop, no amplitude property.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
