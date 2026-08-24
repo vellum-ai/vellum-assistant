@@ -152,4 +152,13 @@ describe("SPA shell: boot splash", () => {
       expect(THEME_INIT).toContain(JSON.stringify(locale));
     }
   });
+
+  // Reading storage throws where it is disabled rather than returning null.
+  // Only its own catch keeps that throw from skipping the host's languages,
+  // which is the half of negotiation a storage-less browser still has.
+  test("theme-init reads the stored preference behind its own catch", () => {
+    expect(THEME_INIT).toMatch(
+      /try\s*\{\s*stored\s*=\s*window\.localStorage\.getItem\("device:locale"\);\s*\}\s*catch/,
+    );
+  });
 });

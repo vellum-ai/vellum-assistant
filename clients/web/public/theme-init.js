@@ -48,7 +48,16 @@
   var LABELS = { es: "Cargando" };
 
   function resolveLocale() {
-    var stored = window.localStorage.getItem("device:locale");
+    var stored = null;
+    try {
+      stored = window.localStorage.getItem("device:locale");
+    } catch {
+      // Storage access throws where it is disabled rather than returning null.
+      // Its own catch is what keeps that throw from reaching the outer one and
+      // skipping the host's languages, which `getLocalSetting` still negotiates
+      // over: without it a Spanish host keeps the English label while the app
+      // itself comes up in Spanish.
+    }
     if (stored && SUPPORTED_LOCALES.indexOf(stored) !== -1) {
       return stored;
     }
