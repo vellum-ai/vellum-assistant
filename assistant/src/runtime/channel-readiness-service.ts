@@ -363,11 +363,15 @@ const whatsappProbe: ChannelProbe = {
 // ── Slack Probe ─────────────────────────────────────────────────────────────
 
 /**
- * Ask the gateway whether Slack's Socket Mode connection is receiving.
+ * Ask the gateway whether a socket-backed channel's connection is receiving.
  *
- * Distinct from the credential checks: valid tokens and a reachable
- * `auth.test` establish that Slack would accept us, not that anything is
- * arriving. A socket can be open at the transport layer and deliver nothing.
+ * One function for every such channel, matching the IPC route it reads: the
+ * question and the answer are the same wherever a socket carries inbound, and
+ * only the name in the message differs.
+ *
+ * Distinct from the credential checks: valid tokens establish that the
+ * provider would accept us, not that anything is arriving. A socket can be
+ * open at the transport layer and deliver nothing.
  *
  * Three outcomes, matching the Telegram probe:
  *
@@ -392,7 +396,10 @@ const whatsappProbe: ChannelProbe = {
  * to die and recover. Placement is a cost decision here; `kind` carries the
  * meaning.
  */
-async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
+async function checkSocketInboundDelivery(
+  channel: "slack" | "discord",
+  label: string,
+): Promise<ReadinessCheckResult> {
   // Imported here rather than at module scope, matching the Telegram probe:
   // the gateway IPC client pulls in a module graph that unrelated consumers of
   // this service should not have to mock.
@@ -401,13 +408,13 @@ async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
 
   let health;
   try {
-    health = await readChannelSocketHealth("slack");
+    health = await readChannelSocketHealth(channel);
   } catch {
     return {
       name: "inbound_delivery",
       kind: "operational",
       passed: true,
-      message: "Could not reach the gateway to read the Slack connection state",
+      message: `Could not reach the gateway to read the ${label} connection state`,
       indeterminate: true,
     };
   }
@@ -419,8 +426,8 @@ async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
       passed: true,
       message:
         health.status === "not_configured"
-          ? "Slack Socket Mode is not running, because its credentials are not configured"
-          : "Slack does not report a gateway-owned socket",
+          ? `${label} is not connected, because its credentials are not configured`
+          : `${label} does not report a gateway-owned socket`,
       indeterminate: true,
     };
   }
@@ -433,8 +440,8 @@ async function checkSlackInboundDelivery(): Promise<ReadinessCheckResult> {
     ...check(
       "inbound_delivery",
       health.status === "connected",
-      `Slack is delivering to this assistant (${lastProof})`,
-      "Slack Socket Mode holds no live connection, so inbound messages are not reaching this assistant",
+      `${label} is delivering to this assistant (${lastProof})`,
+      `${label} holds no live connection, so inbound messages are not reaching this assistant`,
     ),
     kind: "operational",
   };
@@ -456,7 +463,7 @@ const slackProbe: ChannelProbe = {
         "app_token",
         "Slack app token",
       ),
-      await checkSlackInboundDelivery(),
+      await checkSocketInboundDelivery("slack", "Slack Socket Mode"),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
@@ -532,6 +539,38 @@ const slackProbe: ChannelProbe = {
         ),
       ];
     }
+  },
+};
+
+// ── Discord Probe ───────────────────────────────────────────────────────────
+
+/**
+ * Discord readiness.
+ *
+ * One credential and one socket, which is the whole of it. Discord holds a
+ * Gateway connection rather than receiving webhooks, so there is no ingress
+ * routing to check: nothing has to reach this deployment from outside for
+ * inbound to work.
+ *
+ * No remote check either, and that is a decision rather than an omission. The
+ * remote bucket exists to ask a provider whether it would accept us, which for
+ * Slack is worth asking separately because its socket authenticates with a
+ * different token than its sends. Discord uses one bot token for both, so a
+ * live Gateway connection already proves the token the sends will use, and a
+ * call to `GET /users/@me` would restate it a cache interval later.
+ */
+const discordProbe: ChannelProbe = {
+  channel: "discord",
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
+    return [
+      await checkCredential(
+        "bot_token",
+        "discord_channel",
+        "bot_token",
+        "Discord bot token",
+      ),
+      await checkSocketInboundDelivery("discord", "The Discord gateway"),
+    ];
   },
 };
 
@@ -735,5 +774,6 @@ export function createReadinessService(): ChannelReadinessService {
   service.registerProbe(emailProbe);
   service.registerProbe(whatsappProbe);
   service.registerProbe(slackProbe);
+  service.registerProbe(discordProbe);
   return service;
 }
