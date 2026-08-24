@@ -217,7 +217,7 @@ export async function deliverRenderedReplyViaCallback(
         chatId,
         messageId: editTarget,
         text: segmentText,
-        useBlocks: true,
+        renderRichly: true,
       });
       // An edit replaces the text of one message. Attachments are always new
       // messages, so they still have to be posted alongside it.
@@ -245,7 +245,7 @@ export async function deliverRenderedReplyViaCallback(
       result = await deliverChannelReply(callbackUrl, {
         chatId,
         text: segmentText,
-        useBlocks: true,
+        renderRichly: true,
         attachments: segmentAttachments,
         assistantId,
         audience,

@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.11.4",
+  "version": "0.11.5",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -43,10 +43,10 @@
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
     "@slack/types": "2.22.0",
-    "@vellumai/backup-paths": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/credential-storage": "workspace:*",
     "@vellumai/egress-proxy": "workspace:*",
+    "@vellumai/electron-desktop": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
@@ -86,14 +86,14 @@
     "node": ">=20.12.0"
   },
   "bundledDependencies": [
-    "@vellumai/backup-paths",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
-    "@vellumai/service-contracts",
     "@vellumai/egress-proxy",
+    "@vellumai/electron-desktop",
     "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
+    "@vellumai/service-contracts",
     "@vellumai/slack-text",
     "@vellumai/twilio-client"
   ],

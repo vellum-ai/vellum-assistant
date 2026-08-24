@@ -1,5 +1,7 @@
 import { join } from "path";
 
+import { TUNNEL_PROVIDERS } from "@vellumai/service-contracts/ingress";
+
 import {
   formatAssistantReference,
   loadAllAssistants,
@@ -10,6 +12,8 @@ import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import {
   getDefaultWorkspaceDir,
+  isLocalContainerEntry,
+  parseGatewayPortFromEntryUrls,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
 import {
@@ -17,19 +21,24 @@ import {
   formatEdgeMode,
   type TunnelEdge,
 } from "../lib/nginx-ingress.js";
-import { runNgrokTunnel } from "../lib/ngrok";
+import { hasWebhookIntegrationsConfigured, runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
-import { parseGatewayPortFromEntryUrls } from "./nginx-ingress.js";
 
-const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
+// `vellum` is the managed option this command owns; the local providers come
+// from the shared registry so validation here cannot drift from what the
+// workspace config accepts.
+const VALID_PROVIDERS = ["vellum", ...TUNNEL_PROVIDERS] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
 
-const DEFAULT_PROVIDER: TunnelProvider = "vellum";
+const DEFAULT_PROVIDER: TunnelProvider = "tailscale";
 
 interface TunnelArgs {
   assistantName: string | null;
   provider: TunnelProvider;
+  /** True when `--provider` named the provider, so the tailnet-only default
+   *  is a deliberate choice rather than one the user fell into. */
+  providerExplicit: boolean;
   domain: string | null;
   clearDomain: boolean;
 }
@@ -39,6 +48,7 @@ const FLAGS_WITH_VALUES = ["--provider", "--domain"] as const;
 function parseArgs(): TunnelArgs {
   const args = process.argv.slice(3);
   let provider: TunnelProvider = DEFAULT_PROVIDER;
+  let providerExplicit = false;
   let domain: string | null = null;
   let clearDomain = false;
 
@@ -47,14 +57,19 @@ function parseArgs(): TunnelArgs {
     if (arg === "--help" || arg === "-h") {
       console.log("Usage: vellum tunnel [<name>] [options]");
       console.log("");
+      console.log("Front a locally running assistant with an HTTPS tunnel.");
       console.log(
-        "Expose a locally running assistant to the internet via a tunnel.",
+        "The tunnel URL is saved to the workspace config as the ingress base URL.",
+      );
+      console.log("");
+      console.log(
+        "How far that URL reaches depends on the provider. The default tailscale",
       );
       console.log(
-        "The public URL is saved to the workspace config as the ingress base URL,",
+        "tunnel is reachable only from your own tailnet; webhook integrations need",
       );
       console.log(
-        "enabling webhook integrations (Telegram, Twilio, etc.) to reach the assistant.",
+        "a public tunnel: --provider ngrok or --provider cloudflare.",
       );
       console.log("");
       console.log(
@@ -88,7 +103,7 @@ function parseArgs(): TunnelArgs {
       console.log("");
       console.log("Providers:");
       console.log(
-        "  vellum       Managed tunnel via Vellum Cloud (default; requires account)",
+        "  vellum       Managed tunnel via Vellum Cloud (not yet available)",
       );
       console.log(
         "  ngrok        ngrok tunnel — install: brew install ngrok/ngrok/ngrok",
@@ -100,11 +115,18 @@ function parseArgs(): TunnelArgs {
         "               No Cloudflare account required for quick tunnels.",
       );
       console.log(
-        "  tailscale    Tailscale serve — install: brew install tailscale, then `tailscale up`",
+        "  tailscale    Tailscale serve (default). Install: https://tailscale.com/download, then run `tailscale up`",
       );
       console.log(
         "               Reachable only from your own tailnet (private; LetsEncrypt cert).",
       );
+      console.log(
+        "               Must be named explicitly when webhook integrations are configured,",
+      );
+      console.log(
+        "               and then records its URL for device pairing only, leaving the saved",
+      );
+      console.log("               webhook callback base as it is.");
       console.log("");
       console.log("Examples:");
       console.log("  $ vellum tunnel --provider ngrok");
@@ -133,6 +155,7 @@ function parseArgs(): TunnelArgs {
         process.exit(1);
       }
       provider = next as TunnelProvider;
+      providerExplicit = true;
       i++;
     } else if (arg === "--domain") {
       const next = args[i + 1];
@@ -178,7 +201,7 @@ function parseArgs(): TunnelArgs {
     process.exit(1);
   }
 
-  return { assistantName, provider, domain, clearDomain };
+  return { assistantName, provider, providerExplicit, domain, clearDomain };
 }
 
 /** A tunnelable assistant plus the gateway port and workspace the edge fronts. */
@@ -188,19 +211,13 @@ interface LocalTunnelTarget {
   workspaceDir: string;
 }
 
-/** Container topologies whose gateway runs on this machine without host `resources`. */
-function isLocalContainerEntry(entry: AssistantEntry): boolean {
-  return entry.cloud === "docker" || entry.cloud === "apple-container";
-}
-
 /**
  * Map an entry to its local tunnel target, or null when it has no locally
  * reachable gateway (e.g. platform-hosted). Entries with `resources` carry
  * their own gateway port and instance workspace. Local container entries
  * (docker, apple-container) run locally without host resources: their gateway
  * port comes from localUrl/runtimeUrl and their ingress state lives in the
- * default workspace, matching the `vellum nginx-ingress` resolution for the
- * same topology.
+ * default workspace.
  */
 function toLocalTunnelTarget(entry: AssistantEntry): LocalTunnelTarget | null {
   if (entry.resources) {
@@ -269,8 +286,57 @@ function resolveLocalTunnelTarget(
   process.exit(1);
 }
 
+/**
+ * Decide how the tailnet-only tailscale tunnel may treat the saved ingress base
+ * URL, which is also the webhook callback base. Returns true when the run must
+ * leave that URL in place and record the tailnet address for pairing only.
+ *
+ * A tailnet address in the callback base would repoint those callbacks at
+ * something external services cannot resolve, so no run replaces it while
+ * webhook integrations are configured. Falling into the tunnel by default is
+ * refused outright, since the tunnel cannot carry those callbacks either; an
+ * explicit choice is honored, with what it does and does not record spelled
+ * out.
+ */
+function guardTailnetOnlyWebhookIngress(
+  workspaceDir: string,
+  providerExplicit: boolean,
+): boolean {
+  if (!hasWebhookIntegrationsConfigured(workspaceDir)) {
+    return false;
+  }
+  if (providerExplicit) {
+    console.warn(
+      "⚠ Webhook integrations are configured, and the tailscale tunnel is reachable only from your own tailnet, " +
+        "so it cannot serve their callbacks. The saved ingress base URL stays as it is and the tailnet URL is " +
+        "recorded for device pairing only. For a tunnel those integrations can reach too, use --provider ngrok " +
+        "or --provider cloudflare.",
+    );
+    return true;
+  }
+  console.error(
+    "Error: webhook integrations are configured, and the default tailscale tunnel is reachable only from your own tailnet.",
+  );
+  console.error(
+    "It cannot serve their callbacks, so falling into it by default would leave them without working ingress.",
+  );
+  console.error("");
+  console.error("Run one of:");
+  console.error(
+    "  vellum tunnel --provider ngrok        Public tunnel that webhook integrations can reach",
+  );
+  console.error(
+    "  vellum tunnel --provider cloudflare   Public tunnel that webhook integrations can reach",
+  );
+  console.error(
+    "  vellum tunnel --provider tailscale    Tailnet-only tunnel for pairing; leaves the callback base alone",
+  );
+  process.exit(1);
+}
+
 export async function tunnel(): Promise<void> {
-  const { assistantName, provider, domain, clearDomain } = parseArgs();
+  const { assistantName, provider, providerExplicit, domain, clearDomain } =
+    parseArgs();
 
   if (provider === "vellum") {
     throw new Error(
@@ -281,6 +347,10 @@ export async function tunnel(): Promise<void> {
 
   const { entry, gatewayPort, workspaceDir } =
     resolveLocalTunnelTarget(assistantName);
+
+  const preserveIngressUrl =
+    provider === "tailscale" &&
+    guardTailnetOnlyWebhookIngress(workspaceDir, providerExplicit);
 
   if (clearDomain) {
     saveNgrokDomain(workspaceDir, null);
@@ -323,5 +393,8 @@ export async function tunnel(): Promise<void> {
     return;
   }
 
-  await runTailscaleTunnel(baseTunnelOpts);
+  await runTailscaleTunnel({
+    ...baseTunnelOpts,
+    ...(preserveIngressUrl ? { preserveIngressUrl } : {}),
+  });
 }

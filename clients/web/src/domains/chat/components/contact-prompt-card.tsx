@@ -2,6 +2,7 @@ import { CheckCircle, Loader2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { Button, Card, Input, Typography } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 export interface ContactPromptCardProps {
   contactRequest: {
@@ -26,6 +27,7 @@ export function ContactPromptCard({
   onSubmit,
   onCancel,
 }: ContactPromptCardProps) {
+  const { t } = useTranslation("chat");
   // Render sites must key this card by `requestId` so a new contact_request
   // remounts it and re-runs this initializer instead of keeping stale state.
   const [address, setAddress] = useState(contactRequest.defaultValue ?? "");
@@ -50,7 +52,7 @@ export function ContactPromptCard({
             variant="label-small-default"
             className="text-[var(--content-primary)]"
           >
-            {contactRequest.label ?? "Add a contact"}
+            {contactRequest.label ?? t("contactPromptCard.addContact")}
           </Typography>
           {contactRequest.description && (
             <Typography
@@ -67,7 +69,7 @@ export function ContactPromptCard({
             onClick={onCancel}
             disabled={isSubmitting}
             className="shrink-0 text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
-            aria-label="Dismiss"
+            aria-label={t("contactPromptCard.dismiss")}
           >
             <X size={16} />
           </button>
@@ -79,7 +81,7 @@ export function ContactPromptCard({
 
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
           <CheckCircle size={16} />
-          Contact saved
+          {t("contactPromptCard.contactSaved")}
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -88,7 +90,8 @@ export function ContactPromptCard({
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder={
-              contactRequest.placeholder ?? `Enter ${channelType} address`
+              contactRequest.placeholder ??
+              t("contactPromptCard.enterAddress", { channel: channelType })
             }
             disabled={isSubmitting}
             autoFocus
@@ -100,7 +103,7 @@ export function ContactPromptCard({
               onClick={onCancel}
               disabled={isSubmitting}
             >
-              Cancel
+              {t("contactPromptCard.cancel")}
             </Button>
             <Button
               type="submit"
@@ -110,7 +113,7 @@ export function ContactPromptCard({
                 isSubmitting ? <Loader2 className="animate-spin" /> : undefined
               }
             >
-              {isSubmitting ? "Saving…" : "Save"}
+              {isSubmitting ? t("contactPromptCard.saving") : t("contactPromptCard.save")}
             </Button>
           </div>
         </form>

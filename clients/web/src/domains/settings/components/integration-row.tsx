@@ -9,6 +9,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation } from "@/i18n";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -52,6 +53,7 @@ export function IntegrationRow({
   platformGate,
   onConfigure,
 }: IntegrationRowProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const isConnected = Boolean(connection?.connected);
 
@@ -67,7 +69,9 @@ export function IntegrationRow({
   const disconnectOAuth =
     useAssistantsOauthDisconnectByConnectionCreateMutation({
       onSuccess(_data, variables) {
-        toast.success(`${displayName} account disconnected.`);
+        toast.success(
+          t("integrationRow.disconnectedToast", { name: displayName }),
+        );
         const connectionId = variables.path.connection_id;
         assistantsOauthConnectionsListSetQueryData(
           queryClient,
@@ -80,7 +84,7 @@ export function IntegrationRow({
         const detail = extractErrorMessage(
           error,
           undefined,
-          `Failed to disconnect ${displayName} account.`,
+          t("integrationRow.disconnectFailedToast", { name: displayName }),
         );
         toast.error(detail);
       },
@@ -146,16 +150,16 @@ export function IntegrationRow({
               onClick={onConfigure}
               className="shrink-0"
             >
-              Enable
+              {t("integrationRow.enable")}
             </Button>
           )}
         </Card.Body>
       </Card.Root>
       <ConfirmDialog
         open={confirmDisableOpen}
-        title={`Disconnect ${displayName}?`}
-        message={`Disconnect your ${displayName} account? You can reconnect it later.`}
-        confirmLabel="Disconnect"
+        title={t("integrationRow.disconnectTitle", { name: displayName })}
+        message={t("integrationRow.disconnectMessage", { name: displayName })}
+        confirmLabel={t("integrationRow.disconnect")}
         destructive
         onConfirm={confirmDisable}
         onCancel={() => setConfirmDisableOpen(false)}
@@ -187,6 +191,7 @@ export function IntegrationConfigureMenu({
   onDisable,
   disablePending,
 }: IntegrationConfigureMenuProps) {
+  const { t } = useTranslation("settings");
   const isTouchMobile = useTouchMobile();
 
   if (isTouchMobile) {
@@ -199,7 +204,7 @@ export function IntegrationConfigureMenu({
             aria-haspopup="menu"
             aria-expanded={open}
           >
-            Configure
+            {t("integrationRow.configure")}
           </Button>
         </BottomSheet.Trigger>
         <BottomSheet.Content>
@@ -211,12 +216,12 @@ export function IntegrationConfigureMenu({
           <BottomSheet.Body>
             <PanelItem
               icon={Pencil}
-              label="Edit connections"
+              label={t("integrationRow.editConnections")}
               onSelect={onEditConnections}
             />
             <PanelItem
               icon={disablePending ? Loader2 : XCircle}
-              label="Disable"
+              label={t("integrationRow.disable")}
               onSelect={() => {
                 if (disablePending) {
                   return;
@@ -238,7 +243,7 @@ export function IntegrationConfigureMenu({
           aria-haspopup="menu"
           aria-expanded={open}
         >
-          Configure
+          {t("integrationRow.configure")}
         </Button>
       </Popover.Trigger>
       <Popover.Content
@@ -255,7 +260,7 @@ export function IntegrationConfigureMenu({
           className="w-full justify-start rounded-none"
           leftIcon={<Pencil aria-hidden />}
         >
-          Edit connections
+          {t("integrationRow.editConnections")}
         </Button>
         <Button
           type="button"
@@ -272,7 +277,7 @@ export function IntegrationConfigureMenu({
             )
           }
         >
-          Disable
+          {t("integrationRow.disable")}
         </Button>
       </Popover.Content>
     </Popover.Root>

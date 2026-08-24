@@ -1,4 +1,5 @@
 import type { Surface } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 import { DocumentCard } from "@/domains/chat/components/document-card";
 
@@ -33,6 +34,7 @@ export function DocumentPreviewSurface({
   onAction,
   onOpenDocument,
 }: DocumentPreviewSurfaceProps) {
+  const { t } = useTranslation("chat");
   const data: DocumentPreviewSurfaceData = {
     documentName:
       (surface.data.documentName as string) ??
@@ -58,7 +60,7 @@ export function DocumentPreviewSurface({
       mimeType={data.mimeType}
       content={data.content}
       onOpen={handleOpen}
-      ariaLabel={`Open ${data.documentName}`}
+      ariaLabel={t("documentPreviewSurface.openAria", { name: data.documentName })}
     />
   );
 }

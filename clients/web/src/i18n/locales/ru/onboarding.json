@@ -1,0 +1,285 @@
+{
+  "actions": {
+    "continue": "Продолжить",
+    "back": "Назад",
+    "forward": "Вперёд",
+    "cancel": "Отмена",
+    "start": "Начать",
+    "add": "Добавить",
+    "adding": "Добавление…",
+    "connect": "Подключить",
+    "connecting": "Подключение…",
+    "tryAgain": "Попробовать снова",
+    "remove": "Убрать {value}",
+    "logIn": "Войти",
+    "logOut": "Выйти",
+    "loginToUse": "Войти, чтобы пользоваться",
+    "downloadMacApp": "Скачать приложение для macOS",
+    "claim": "Забрать",
+    "skipForNow": "Пока пропустить",
+    "starting": "Запускаем…"
+  },
+  "welcome": {
+    "title": "Добро пожаловать в Vellum",
+    "body": "Личный интеллект уже в одном шаге.",
+    "continueWithoutAccount": "Продолжить без аккаунта"
+  },
+  "startScreen": {
+    "createAssistant": "Создание ассистента"
+  },
+  "privacyScreen": {
+    "title": "Перед началом",
+    "body": "Выбор настроек приватности. Потом их можно изменить в Настройках.",
+    "skipToChat": "Перейти к диалогу"
+  },
+  "hostingScreen": {
+    "title": "Хостинг",
+    "body": "Выбор места, где будет жить ассистент.",
+    "needHelp": "Нужна помощь с выбором?",
+    "optionsAriaLabel": "Варианты хостинга"
+  },
+  "apiKeyScreen": {
+    "title": "Подключение провайдера моделей",
+    "body": "Выбор провайдера моделей для ассистента.",
+    "providerLabel": "Провайдер",
+    "modelLabel": "Модель",
+    "baseUrlLabel": "Базовый URL",
+    "modelsLabel": "Модели",
+    "modelsPlaceholder": "model-1, model-2",
+    "modelsHelp": "Идентификаторы моделей через запятую, которые отдаёт endpoint.",
+    "apiKeyLabel": "API-ключ {provider}",
+    "apiKeyPlaceholder": "API-ключ",
+    "noKeyPrompt": "Нет ключа?",
+    "getKeyLink": "Получить API-ключ"
+  },
+  "selectAssistantScreen": {
+    "title": "Выбор ассистента",
+    "listAriaLabel": "Ассистенты",
+    "createNew": "Создать нового ассистента",
+    "connectRemote": "Подключить удалённого ассистента",
+    "addRemote": "Добавить удалённого ассистента",
+    "unnamedAssistant": "ассистент",
+    "connectingToAssistant": "Подключение к ассистенту…",
+    "rowActionsAriaLabel": "Действия для {name}",
+    "removeFromDevice": "Убрать с этого устройства…",
+    "selfHosted": "Свой хостинг",
+    "selfHostedWithHost": "Свой хостинг · {host}",
+    "currentWithHost": "Текущий · {host}",
+    "remoteWithHost": "Удалённый · {host}"
+  },
+  "hatchingScreen": {
+    "apiKeyFailed": "API-ключ не сработал",
+    "genericFailure": "Что-то пошло не так",
+    "localFallbackPitch": "Начало сегодня с локальным ассистентом",
+    "updateApiKey": "Обновить API-ключ",
+    "ready": "Ассистент готов!",
+    "waking": "Просыпается…",
+    "wakingBody": "Ожидание запуска ассистента: затем будет несколько вопросов.",
+    "progressAriaLabel": "Ход запуска ассистента",
+    "phase": {
+      "initializing": "Готовим всё…",
+      "provisioning": "Настраиваем ассистента…",
+      "connecting": "Подключаемся к ассистенту…",
+      "resizing": "Настраиваем машину…",
+      "ready": "Готово"
+    }
+  },
+  "addRemoteOriginDialog": {
+    "title": "Добавить удалённого ассистента",
+    "body": "Вставка https-ссылки со страницы сопряжения ассистента.",
+    "addressLabel": "Адрес ассистента"
+  },
+  "connectAssistantDialog": {
+    "importedTitle": "Сопряжение импортировано",
+    "importedBody": "Это сопряжение только для доступа: срок доступа истекает, и само оно не продлевается. Снова выполните vellum pair на машине ассистента и импортируйте новый пакет, когда срок истечёт.",
+    "title": "Подключить удалённого ассистента",
+    "bundleLabel": "Пакет сопряжения",
+    "nameLabel": "Имя (необязательно)",
+    "instruction": "На машине ассистента: <code>vellum pair --url https://...</code>, затем вставка пакета сюда."
+  },
+  "connectRecoveryDialog": {
+    "repairTitle": "Восстановить ассистента?",
+    "repairBody": "Восстановление заново выпускает токен аутентификации этого ассистента. На всех других устройствах и в сессиях браузера вход будет сброшен, и их нужно будет подключить заново.",
+    "repairConfirm": "Восстановить",
+    "authFailedTitle": "Не удаётся аутентифицировать ассистента",
+    "authFailedBody": "Токен аутентификации для {name} отсутствует или его больше нельзя обновить, поэтому этого ассистента не подключить. Его можно восстановить, отключить или выбрать другого.",
+    "wakeAndRepair": "Разбудить и восстановить",
+    "retire": "Отключить ассистента"
+  },
+  "consentControls": {
+    "whatsChanged": "Что изменилось",
+    "privacyPreferences": "Настройки приватности",
+    "analyticsLabel": "Отправлять аналитику",
+    "analyticsHelp": "Отправлять обезличенные данные об использовании",
+    "diagnosticsLabel": "Отправлять диагностику",
+    "diagnosticsHelp": "Отправлять отчёты о сбоях, трассы диалогов и записи сессий",
+    "agreements": "Соглашения",
+    "agreeTo": "Я принимаю <link>{policy}</link>"
+  },
+  "onboardingAutocomplete": {
+    "addOption": "Добавить «{value}»",
+    "enterHint": "↵ Enter",
+    "freeTextHint": "Ввод своего варианта и ↵, чтобы добавить"
+  },
+  "stepIndicator": {
+    "ariaLabel": "Шаг {current} из {total}"
+  },
+  "googleCalendar": {
+    "authorizationFailed": "Не удалось начать авторизацию Google Calendar."
+  },
+  "introductionScreen": {
+    "greetingNamed": "Привет, {name}!",
+    "greeting": "Привет!",
+    "introNamed": "Я {name}, новый ИИ-ассистент.",
+    "intro": "Я новый ИИ-ассистент."
+  },
+  "pitchStep": {
+    "setupLine": "ИИ, который только отвечает на вопросы, уже знаком.",
+    "helpLine": "Чем больше я помогаю,",
+    "punchLine": "Я другой.",
+    "betterLine": "тем лучше я становлюсь,",
+    "lessLine": "и тем меньше работы остаётся."
+  },
+  "createPersonalityStep": {
+    "title": "Создание характера",
+    "lockedBody": "Характер зафиксирован; чтобы что-то ещё поменять, сообщение ассистенту",
+    "axisAriaLabel": "От {left} до {right}",
+    "axes": {
+      "companionCoworker": {
+        "left": "Компаньон",
+        "right": "Коллега"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "executeCollaborate": {
+        "left": "Самостоятельный",
+        "right": "Совместный"
+      },
+      "playfulSerious": {
+        "left": "Игривый",
+        "right": "Серьёзный"
+      },
+      "politeUnfiltered": {
+        "left": "Вежливый",
+        "right": "Без фильтра"
+      }
+    }
+  },
+  "giveMeAFaceScreen": {
+    "title": "Лицо и имя",
+    "previousCharacter": "Предыдущий персонаж",
+    "nextCharacter": "Следующий персонаж",
+    "namePlaceholder": "Как зовут ассистента",
+    "nameAriaLabel": "Имя ассистента",
+    "editName": "Изменить имя",
+    "shuffle": "Случайные имя и внешность",
+    "hearVoice": "Послушай мой голос",
+    "stopVoice": "Остановить образец голоса"
+  },
+  "integrationStep": {
+    "title": "Вот бесплатные кредиты,<br></br> чтобы начать."
+  },
+  "researchOnboardingScreen": {
+    "title": "Начало.",
+    "body": "Пара деталей, чтобы узнать собеседника.",
+    "firstNameLabel": "Имя",
+    "firstNamePlaceholder": "Имя",
+    "lastNameLabel": "А фамилия?",
+    "lastNamePlaceholder": "Фамилия (необязательно)",
+    "roleLabel": "Род занятий",
+    "rolePlaceholder": "Должность",
+    "hobbiesLabel": "Есть хобби?",
+    "hobbiesPlaceholder": "Машины, книги, помидоры на подоконнике?"
+  },
+  "letsChatTomorrowStep": {
+    "wakingTitle": "Просыпается",
+    "missingScopeTitle": "Доступ не включён",
+    "title": "Давай упростим",
+    "wakingBody": "Ассистент готовится",
+    "missingScopeBody": "Отметь разрешение Google Calendar, чтобы я мог назначить Check-in.",
+    "body": "Подключение Google Calendar, чтобы найти время для Check-in.",
+    "startingAssistant": "Запускаем ассистента…",
+    "waitingAuthorization": "Ждём авторизацию…",
+    "connectCalendar": "Подключить календарь →"
+  },
+  "existingAssistantStep": {
+    "titleNamed": "{name} уже запущен и работает",
+    "title": "Ассистент уже запущен и работает",
+    "bodyNamed": "Общая история уже есть: характер, воспоминания и прошлые диалоги. Повторная настройка перезапишет то, кем сейчас является {name}.",
+    "body": "Уже есть общая история: характер, воспоминания и прошлые диалоги. Повторная настройка перезапишет то, кем сейчас является ассистент.",
+    "keepNamed": "Оставить {name} и начать диалог",
+    "keep": "Оставить ассистента и начать диалог",
+    "redoNamed": "Начать заново и собрать характер {name} снова",
+    "redo": "Начать заново и собрать характер заново"
+  },
+  "checkinConnectScreen": {
+    "title": "Давай поговорим завтра",
+    "body": "Добавление встречи в календарь, чтобы продолжить с того же места.",
+    "permissionBody": "{name} добавит одно событие Check-in на второй день. Для этого нужен доступ к событиям календаря и адресу почты, но не к входящим и не к файлам. Отключить можно в любой момент.",
+    "unnamedAssistant": "ассистент",
+    "waitingAuthorization": "Ждём авторизацию...",
+    "connectGoogleCalendar": "Подключить Google Calendar"
+  },
+  "meetingCreatedStep": {
+    "titleWithTime": "Check-in назначен на завтра в {time}!",
+    "title": "Check-in назначен!"
+  },
+  "lookingYouUpStep": {
+    "searching": "Поиск в интернете…",
+    "readingProfiles": "Читаю публичные профили…",
+    "skimming": "Просматриваю главное…",
+    "connectingDots": "Соединяю точки…",
+    "piecing": "Собираю картину…",
+    "almostThere": "Почти готово…"
+  },
+  "finishingUpStep": {
+    "updatingPersonality": "Обновляю характер…",
+    "findingVoice": "Ищу свой голос…",
+    "gettingIntoCharacter": "Вхожу в роль…",
+    "almostThere": "Почти готово…"
+  },
+  "researchResultsStep": {
+    "title": "Вот что удалось найти",
+    "bodyLoadingWithClaims": "Ещё проверяю остальное. Просмотр по мере появления.",
+    "bodyReadyWithClaims": "Я поискал в интернете. Смело убирай всё, что неправда.",
+    "bodyLoadingEmpty": "Ещё собираю это вместе…",
+    "bodyReadyEmpty": "Мало что нашлось, дозаполним по ходу диалога.",
+    "removeClaim": "Убрать «{claim}»",
+    "notMe": "Это не я",
+    "stillSearching": "Ещё ищу…"
+  },
+  "suggestionsStep": {
+    "title": "Вот с чего можно начать",
+    "pickOne": "Выбор одного, чтобы сразу включиться, или своё начало. <skip>Перейти к диалогу</skip>",
+    "loading": "Собираю несколько идей…",
+    "alreadySetUp": "Уже настроен {count, plural, one {плагин} few {плагина} many {плагинов} other {плагина}} <plugins></plugins> для работы",
+    "listAnd": " и ",
+    "listCommaAnd": " и ",
+    "listComma": ", ",
+    "fallbacks": {
+      "brief": {
+        "suggestion": "Соберу короткий бриф о новостях в этой сфере",
+        "prompt": "Сделай короткий бриф: что нового в моей сфере прямо сейчас."
+      },
+      "weekly": {
+        "suggestion": "Буду присылать еженедельный бриф по новостям в этой области",
+        "prompt": "Настройка еженедельного брифа по новостям в моей области."
+      },
+      "week": {
+        "suggestion": "Помогу взять неделю под контроль",
+        "prompt": "Помоги взять мою неделю под контроль."
+      },
+      "draft": {
+        "suggestion": "Набросаю текст по нескольким черновым заметкам",
+        "prompt": "Набросай текст по нескольким черновым заметкам, которые я дам."
+      }
+    }
+  },
+  "letsChatReadyStep": {
+    "title": "Всё готово",
+    "setupNote": "Плагины уже настроены под этот профиль.",
+    "letsChat": "Давай поговорим"
+  }
+}

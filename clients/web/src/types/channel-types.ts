@@ -27,7 +27,19 @@ export type ChannelStatus = "ready" | "incomplete" | "not_configured";
 
 export interface AssistantChannelState {
   key: SetupChannelId;
+  /** Whether the channel is working right now. Lists render this directly. */
   status: ChannelStatus;
+  /**
+   * Whether setup is finished, regardless of whether it is working.
+   *
+   * Separate from {@link AssistantChannelState.status} because the two answer
+   * different questions and a channel can be configured while down. Required,
+   * so a caller that means "is this set up" cannot reach for the working state
+   * by omission: which one a decision wants has to be stated.
+   */
+  configured: boolean;
+  /** Absent when the channel measures nothing operational. */
+  health?: ChannelReadinessSnapshot["health"];
   address?: string;
   warning?: string;
 }

@@ -41,6 +41,7 @@ import {
   parseCredentialRef,
   providerAllowsCustomBaseUrl,
   validationErrorMessage,
+  warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
@@ -323,6 +324,7 @@ export function ProviderCreateForm({
       // Single success confirmation for both the standalone and inline
       // surfaces; failures above already surface inline via `error` (no toast).
       toast.success(t("providerCreateForm.providerConnectedToast"));
+      warnOnFailedEndpointCheck(created, t);
       onCreated(created);
     } catch {
       setError(t("providerCreateForm.failedSaveProvider"));
@@ -433,8 +435,9 @@ export function ProviderCreateForm({
             }}
             options={[
               // Catalog providers first; the custom-provider entry closes the
-              // list. "OpenAI-compatible" is the protocol a custom provider
-              // must speak, not the provider's identity.
+              // list, pinned to the menu's bottom edge so the catalog can
+              // scroll past it. "OpenAI-compatible" is the protocol a custom
+              // provider must speak, not the provider's identity.
               ...connectionProviderOptions
                 .filter((p) => p !== "openai-compatible")
                 .map((p) => ({
@@ -446,6 +449,7 @@ export function ProviderCreateForm({
                     {
                       value: "openai-compatible" as ConnectionProvider,
                       label: t("providerCreateForm.customProviderOption"),
+                      sticky: true,
                     },
                   ]
                 : []),

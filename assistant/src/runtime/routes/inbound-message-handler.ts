@@ -39,7 +39,6 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
@@ -1030,7 +1029,11 @@ export async function handleChannelInbound({
     sourceMetadata.chatType.trim().length > 0
       ? sourceMetadata.chatType.trim()
       : undefined;
-  trustCtx.conversationType = mapChatTypeToConversationType(sourceChatType);
+  // Decided by the sending channel, which is the only side that knows what its
+  // own surfaces mean. The daemon reads the answer rather than re-deriving it
+  // from a vocabulary where `channel` means a public room on Slack and a
+  // broadcast feed on Telegram.
+  trustCtx.conversationType = sourceMetadata?.conversationType;
 
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =
@@ -1092,8 +1095,8 @@ export async function handleChannelInbound({
     // cleanup. When a Slack block_actions payload is forwarded, the gateway
     // sets sourceMetadata.messageId to the ts of the message containing
     // the button. This lets us edit the message after resolution.
-    const approvalMessageTs =
-      sourceChannel === "slack" && typeof sourceMetadata?.messageId === "string"
+    const approvalMessageId =
+      typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
         : undefined;
 
@@ -1109,7 +1112,7 @@ export async function handleChannelInbound({
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       approvalCopyGenerator,
       approvalConversationGenerator,
-      approvalMessageTs,
+      approvalMessageId,
     });
 
     if (approvalResult.handled) {
@@ -1199,10 +1202,10 @@ export async function handleChannelInbound({
       // instead of a silent no-op (JARVIS-299).
       // No channel check: a transport without `edit` declines the call, so a
       // channel gains this the moment it can revise a sent message.
-      if (replyCallbackUrl && approvalMessageTs) {
+      if (replyCallbackUrl && approvalMessageId) {
         editChannelMessage(replyCallbackUrl, {
           chatId: conversationExternalId,
-          messageId: approvalMessageTs,
+          messageId: approvalMessageId,
           text: "This approval request has been resolved.",
         }).catch((err) => {
           log.error(

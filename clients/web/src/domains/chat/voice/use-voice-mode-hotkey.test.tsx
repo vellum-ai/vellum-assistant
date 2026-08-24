@@ -42,6 +42,7 @@ const {
   keyboardDefaultActivator,
   writeVoiceModeActivator,
 } = await import("@/utils/voice-mode-activation");
+const { FN_PTT_ACTIVATOR } = await import("@/utils/ptt-activator");
 const { useVoiceModeHotkey } =
   await import("@/domains/chat/voice/use-voice-mode-hotkey");
 
@@ -180,7 +181,22 @@ describe("useVoiceModeHotkey", () => {
       fnSupported = true;
     });
 
+    /**
+     * Fn only ever fires because the user went to Settings and chose it. It is
+     * not the default and cannot become one: the Globe key belongs to the OS
+     * (Start Dictation, on a lot of machines) and to whatever the user has it
+     * doing, so an install that took it would be one press doing two things.
+     */
+    test("does nothing until it has been chosen in settings", () => {
+      renderVoiceModeHotkey();
+
+      emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
+
+      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    });
+
     test("toggles on the down edge and ignores the release", () => {
+      writeVoiceModeActivator(FN_PTT_ACTIVATOR);
       renderVoiceModeHotkey();
 
       emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });

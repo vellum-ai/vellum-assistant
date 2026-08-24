@@ -95,6 +95,11 @@ export function normalizeDiscordMessage(
       updateId: message.id,
       messageId: message.id,
       chatType: isDirectMessage ? "dm" : "channel",
+      // Discord proves a DM by the absence of a guild, and proves nothing about
+      // a guild channel's visibility without fetching the channel and reading
+      // its permission overwrites. Left unset rather than guessed, so a rule
+      // written for public rooms cannot reach a private one.
+      ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
       ...(inThread ? { threadId: message.channel_id } : {}),
     },
     raw: options.raw,

@@ -55,6 +55,12 @@ export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
 export const HELPER_DICTATION_SET_PARTIALS =
   "vellum:helper:dictation:setPartials";
 export const HELPER_DICTATION_PARTIAL_EVENT = "vellum:helper:dictation:partial";
+export const HELPER_DICTATION_FINALIZED_EVENT =
+  "vellum:helper:dictation:finalized";
+export const HELPER_DICTATION_TRANSCRIBE =
+  "vellum:helper:dictation:transcribe";
+export const HELPER_DICTATION_TRANSCRIBED_EVENT =
+  "vellum:helper:dictation:transcribed";
 
 // Commands
 export const COMMAND_EVENT = "vellum:command";
@@ -167,10 +173,16 @@ export const COMPANION_STATE_EVENT = "vellum:companion:state";
 export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
 export const COMPANION_MOVE_BY = "vellum:companion:moveBy";
 export const COMPANION_START_VOICE = "vellum:companion:startVoice";
+export const COMPANION_TOGGLE_WATCH = "vellum:companion:toggleWatch";
+export const COMPANION_ANSWER_WATCH_RETRO =
+  "vellum:companion:answerWatchRetro";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_COMPOSING = "vellum:companion:setComposing";
 export const COMPANION_SUBMIT = "vellum:companion:submit";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
+export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";
+export const COMPANION_CONTEXT_MENU = "vellum:companion:contextMenu";
+export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

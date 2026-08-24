@@ -7,7 +7,7 @@ import {
   getICloudDriveRoot as getPlatformICloudDriveRoot,
   type OffsitePathOptions,
   resolveDefaultOffsiteDestinations,
-} from "@vellumai/backup-paths";
+} from "@vellumai/electron-desktop/backup-paths";
 
 import { getBackupDirOverride } from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";

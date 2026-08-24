@@ -16,6 +16,7 @@
     "./components/virtual-list/go-to-newest": "./src/components/virtual-list/go-to-newest.tsx",
     "./components/virtual-grouped-list": "./src/components/virtual-list/virtual-grouped-list.tsx",
     "./utils/*": "./src/utils/*.ts",
+    "./utils/hover-capability": "./src/utils/hover-capability.tsx",
     "./utils/portal-container": "./src/utils/portal-container.tsx"
   },
   "trustedDependencies": ["@playwright/browser-chromium"],

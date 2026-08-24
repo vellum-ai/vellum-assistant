@@ -15,7 +15,7 @@
 import { copyFile, mkdir, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { deriveSafeOffsiteAncestor } from "@vellumai/backup-paths";
+import { deriveSafeOffsiteAncestor } from "@vellumai/electron-desktop/backup-paths";
 
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneDir } from "./list-snapshots.js";

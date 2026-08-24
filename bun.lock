@@ -7,7 +7,7 @@
     },
     "assistant": {
       "name": "@vellumai/assistant",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "bin": {
         "assistant": "./src/index.ts",
       },
@@ -20,10 +20,10 @@
         "@qdrant/js-client-rest": "1.17.0",
         "@resvg/resvg-js": "2.6.2",
         "@slack/types": "2.22.0",
-        "@vellumai/backup-paths": "workspace:*",
         "@vellumai/ces-client": "workspace:*",
         "@vellumai/credential-storage": "workspace:*",
         "@vellumai/egress-proxy": "workspace:*",
+        "@vellumai/electron-desktop": "workspace:*",
         "@vellumai/environments": "workspace:*",
         "@vellumai/gateway-client": "workspace:*",
         "@vellumai/ipc-server-utils": "workspace:*",
@@ -93,7 +93,7 @@
     },
     "cli": {
       "name": "@vellumai/cli",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "bin": {
         "vellum": "./src/index.ts",
       },
@@ -184,7 +184,7 @@
     },
     "clients/web": {
       "name": "@vellumai/web",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "dependencies": {
         "@capacitor-community/camera-preview": "8.0.1",
         "@capacitor/android": "8.3.4",
@@ -328,7 +328,7 @@
     },
     "credential-executor": {
       "name": "@vellumai/credential-executor",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "bin": {
         "credential-executor": "./src/main.ts",
         "credential-executor-managed": "./src/managed-main.ts",
@@ -352,11 +352,11 @@
     },
     "gateway": {
       "name": "@vellumai/vellum-gateway",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "dependencies": {
         "@vellumai/assistant-client": "workspace:*",
-        "@vellumai/backup-paths": "workspace:*",
         "@vellumai/ces-client": "workspace:*",
+        "@vellumai/electron-desktop": "workspace:*",
         "@vellumai/gateway-client": "workspace:*",
         "@vellumai/ipc-server-utils": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",
@@ -390,14 +390,6 @@
       "version": "0.0.1",
       "devDependencies": {
         "@types/bun": "1.3.10",
-        "typescript": "5.9.3",
-      },
-    },
-    "packages/backup-paths": {
-      "name": "@vellumai/backup-paths",
-      "version": "0.0.1",
-      "devDependencies": {
-        "@types/bun": "1.3.11",
         "typescript": "5.9.3",
       },
     },
@@ -1846,8 +1838,6 @@
     "@vellumai/assistant-api": ["@vellumai/assistant-api@workspace:assistant/src/api"],
 
     "@vellumai/assistant-client": ["@vellumai/assistant-client@workspace:packages/assistant-client"],
-
-    "@vellumai/backup-paths": ["@vellumai/backup-paths@workspace:packages/backup-paths"],
 
     "@vellumai/ces-client": ["@vellumai/ces-client@workspace:packages/ces-client"],
 
@@ -4385,8 +4375,6 @@
 
     "@unrs/resolver-binding-wasm32-wasi/@emnapi/runtime": ["@emnapi/runtime@1.10.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA=="],
 
-    "@vellumai/backup-paths/@types/bun": ["@types/bun@1.3.11", "", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
-
     "@vellumai/ces-client/@types/bun": ["@types/bun@1.2.4", "", { "dependencies": { "bun-types": "1.2.4" } }, "sha512-QtuV5OMR8/rdKJs213iwXDpfVvnskPXY/S0ZiFbsTjQZycuqPbMW8Gf/XhLfwE5njW8sxI2WjISURXPlHypMFA=="],
 
     "@vellumai/ces-client/typescript": ["typescript@5.7.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw=="],
@@ -5037,8 +5025,6 @@
 
     "@unrs/resolver-binding-wasm32-wasi/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w=="],
 
-    "@vellumai/backup-paths/@types/bun/bun-types": ["bun-types@1.3.11", "", { "dependencies": { "@types/node": "*" } }, "sha512-1KGPpoxQWl9f6wcZh57LvrPIInQMn2TQ7jsgxqpRzg+l0QPOFvJVH7HmvHo/AiPgwXy+/Thf6Ov3EdVn1vOabg=="],
-
     "@vellumai/ces-client/@types/bun/bun-types": ["bun-types@1.2.4", "", { "dependencies": { "@types/node": "*", "@types/ws": "~8.5.10" } }, "sha512-nDPymR207ZZEoWD4AavvEaa/KZe/qlrbMSchqpQwovPZCKc7pwMoENjEtHgMKaAjJhy+x6vfqSBA1QU3bJgs0Q=="],
 
     "@vellumai/cli/@types/bun/bun-types": ["bun-types@1.3.11", "", { "dependencies": { "@types/node": "*" } }, "sha512-1KGPpoxQWl9f6wcZh57LvrPIInQMn2TQ7jsgxqpRzg+l0QPOFvJVH7HmvHo/AiPgwXy+/Thf6Ov3EdVn1vOabg=="],
@@ -5529,8 +5515,6 @@
 
     "@tailwindcss/postcss/@tailwindcss/oxide/@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
-    "@vellumai/backup-paths/@types/bun/bun-types/@types/node": ["@types/node@26.1.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-O0A1G3xPGy4w7AgQdAQYUlQ+BKk2Oovw8eRpofyp5KdBZULnbe+WqaOVNrm705SHphCiG4XHsACrSmPu1f+Kgw=="],
-
     "@vellumai/ces-client/@types/bun/bun-types/@types/node": ["@types/node@26.1.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-O0A1G3xPGy4w7AgQdAQYUlQ+BKk2Oovw8eRpofyp5KdBZULnbe+WqaOVNrm705SHphCiG4XHsACrSmPu1f+Kgw=="],
 
     "@vellumai/ces-client/@types/bun/bun-types/@types/ws": ["@types/ws@8.5.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-bd/YFLW+URhBzMXurx7lWByOu+xzU9+kb3RboOteXYDfW+tr+JZa99OyNmPINEGB/ahzKrEuc8rcv4gnpJmxTw=="],
@@ -5970,8 +5954,6 @@
     "temp/rimraf/glob/minimatch": ["minimatch@3.1.5", "", { "dependencies": { "brace-expansion": "^1.1.7" } }, "sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w=="],
 
     "@tailwindcss/postcss/@tailwindcss/oxide/@tailwindcss/oxide-wasm32-wasi/@napi-rs/wasm-runtime/@tybys/wasm-util": ["@tybys/wasm-util@0.10.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg=="],
-
-    "@vellumai/backup-paths/@types/bun/bun-types/@types/node/undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
     "@vellumai/ces-client/@types/bun/bun-types/@types/node/undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 

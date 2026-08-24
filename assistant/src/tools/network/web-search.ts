@@ -21,6 +21,13 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
+import {
+  extractFirecrawlCompatSearchResults,
+  FASTCRW_DEFAULT_API_BASE,
+  type FirecrawlCompatSearchResult,
+  resolveProviderApiUrl,
+  searchResultSnippet,
+} from "./firecrawl-compat.js";
 import type { ManagedSearchProxyResult } from "./managed-search-proxy.js";
 import {
   classifyWebSearchFailure,
@@ -35,6 +42,7 @@ const BRAVE_API_URL = `https://api.search.brave.com${BRAVE_SEARCH_PATH}`;
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
+const FASTCRW_SEARCH_PATH = "/v1/search";
 // Keenable is keyless by default: the public path needs no key (rate-limited);
 // a key switches to the authenticated path and lifts the cap.
 const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
@@ -46,7 +54,8 @@ type WebSearchProvider =
   | "brave"
   | "tavily"
   | "firecrawl"
-  | "keenable";
+  | "keenable"
+  | "fastcrw";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -123,25 +132,21 @@ interface TavilySearchResponse {
   results?: TavilySearchResult[];
 }
 
-interface FirecrawlSearchResult {
-  title?: string;
-  description?: string;
-  url?: string;
-  category?: string;
-}
-
 /**
- * Firecrawl `/v2/search` returns one array per requested source under `data`
- * (defaults to `web`). We request only `web`, so that is the array we read;
- * `news`/`images` are typed loosely since we never request them here.
+ * Firecrawl `/v2/search` and fastCRW `/v1/search` payloads. Result rows are
+ * read via {@link extractFirecrawlCompatSearchResults} (grouped `data.web`,
+ * self-hosted `data.results.web`, flat `data.results`, or array `data`).
  */
-interface FirecrawlSearchResponse {
+interface FirecrawlCompatSearchResponse {
   success?: boolean;
-  data?: {
-    web?: FirecrawlSearchResult[];
-    news?: FirecrawlSearchResult[];
-    images?: unknown[];
-  };
+  data?:
+    | FirecrawlCompatSearchResult[]
+    | {
+        web?: FirecrawlCompatSearchResult[];
+        results?: FirecrawlCompatSearchResult[];
+        news?: FirecrawlCompatSearchResult[];
+        images?: unknown[];
+      };
   warning?: string | null;
 }
 
@@ -278,11 +283,11 @@ function formatTavilyResults(
   return lines.join("\n");
 }
 
-function formatFirecrawlResults(
-  data: FirecrawlSearchResponse,
+function formatFirecrawlCompatResults(
+  data: FirecrawlCompatSearchResponse,
   query: string,
 ): string {
-  const results = data.data?.web ?? [];
+  const results = extractFirecrawlCompatSearchResults(data);
 
   if (results.length === 0) {
     return `No results found for "${query}".`;
@@ -297,8 +302,9 @@ function formatFirecrawlResults(
     if (r.url) {
       lines.push(`   URL: ${r.url}`);
     }
-    if (r.description) {
-      lines.push(`   ${r.description}`);
+    const snippet = searchResultSnippet(r);
+    if (snippet) {
+      lines.push(`   ${snippet}`);
     }
     lines.push("");
   }
@@ -442,12 +448,13 @@ function tavilyTimeRangeForFreshness(
   }
 }
 
-function buildFirecrawlMetadata(
-  data: FirecrawlSearchResponse,
+function buildFirecrawlCompatMetadata(
+  data: FirecrawlCompatSearchResponse,
   query: string,
   durationMs: number,
+  provider: "firecrawl" | "fastcrw",
 ): WebSearchMetadata {
-  const results = data.data?.web ?? [];
+  const results = extractFirecrawlCompatSearchResults(data);
   const items: WebSearchResultItem[] = results.map((r, i) => {
     const url = r.url ?? "";
     const domain = extractDomain(url);
@@ -457,12 +464,12 @@ function buildFirecrawlMetadata(
       url,
       domain,
       faviconUrl: faviconUrlForDomain(domain),
-      snippet: r.description,
+      snippet: searchResultSnippet(r),
     };
   });
   return {
     query,
-    provider: "firecrawl",
+    provider,
     resultCount: items.length,
     durationMs,
     results: items,
@@ -1080,12 +1087,17 @@ async function executeTavilySearch(
   );
 }
 
-async function executeFirecrawlSearch(
+async function executeFirecrawlCompatSearch(
   query: string,
   count: number,
   freshness: string | undefined,
   apiKey: string,
-  signal?: AbortSignal,
+  options: {
+    endpoint: string;
+    provider: "firecrawl" | "fastcrw";
+    displayName: string;
+    signal?: AbortSignal;
+  },
 ): Promise<ToolExecutionResult> {
   const tbs = firecrawlTbsForFreshness(freshness);
   const body: Record<string, unknown> = {
@@ -1098,36 +1110,51 @@ async function executeFirecrawlSearch(
   }
 
   const startedAt = Date.now();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Client-Source": "vellum-assistant",
+  };
+  const trimmedKey = apiKey.trim();
+  if (trimmedKey.length > 0) {
+    headers.Authorization = `Bearer ${trimmedKey}`;
+  }
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch(FIRECRAWL_API_URL, {
+      response = await fetch(options.endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          "X-Client-Source": "vellum-assistant",
-        },
+        headers,
         body: JSON.stringify(body),
-        signal,
+        signal: options.signal,
       });
     } catch (err) {
-      return networkFailureResult(query, "firecrawl", startedAt, err, signal);
+      return networkFailureResult(
+        query,
+        options.provider,
+        startedAt,
+        err,
+        options.signal,
+      );
     }
 
     if (response.ok) {
-      const data = (await response.json()) as FirecrawlSearchResponse;
+      const data = (await response.json()) as FirecrawlCompatSearchResponse;
       const durationMs = Date.now() - startedAt;
       return {
         content:
-          wrapUntrustedContent(formatFirecrawlResults(data, query), {
+          wrapUntrustedContent(formatFirecrawlCompatResults(data, query), {
             source: "search",
-            sourceDetail: "firecrawl",
+            sourceDetail: options.provider,
           }) + CITATION_INSTRUCTION,
         isError: false,
         activityMetadata: {
-          webSearch: buildFirecrawlMetadata(data, query, durationMs),
+          webSearch: buildFirecrawlCompatMetadata(
+            data,
+            query,
+            durationMs,
+            options.provider,
+          ),
         },
       };
     }
@@ -1137,9 +1164,9 @@ async function executeFirecrawlSearch(
     if (response.status === 401 || response.status === 403) {
       return errorResult(
         query,
-        "firecrawl",
+        options.provider,
         startedAt,
-        "Invalid or expired Firecrawl API key",
+        `Invalid or expired ${options.displayName} API key`,
       );
     }
 
@@ -1150,32 +1177,71 @@ async function executeFirecrawlSearch(
         DEFAULT_BASE_DELAY_MS,
       );
       log.warn(
-        { attempt: attempt + 1, delayMs },
-        "Firecrawl Search rate limited, retrying",
+        { attempt: attempt + 1, delayMs, provider: options.provider },
+        `${options.displayName} Search rate limited, retrying`,
       );
       await sleep(delayMs);
       continue;
     }
 
-    log.warn({ status: response.status }, "Firecrawl Search API error");
+    log.warn(
+      { status: response.status, provider: options.provider },
+      `${options.displayName} Search API error`,
+    );
     return backendFailureResult(
       query,
-      "firecrawl",
+      options.provider,
       startedAt,
       { statusCode: response.status, error: rawBodyDetail(bodyText) },
       response.status === 429
-        ? "Firecrawl Search rate limit exceeded after retries. Try again shortly."
-        : `Firecrawl Search API returned status ${response.status}`,
+        ? `${options.displayName} Search rate limit exceeded after retries. Try again shortly.`
+        : `${options.displayName} Search API returned status ${response.status}`,
     );
   }
 
   return backendFailureResult(
     query,
-    "firecrawl",
+    options.provider,
     startedAt,
     { statusCode: 429 },
-    "Firecrawl Search rate limit exceeded after retries. Try again shortly.",
+    `${options.displayName} Search rate limit exceeded after retries. Try again shortly.`,
   );
+}
+
+function executeFirecrawlSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  return executeFirecrawlCompatSearch(query, count, freshness, apiKey, {
+    endpoint: FIRECRAWL_API_URL,
+    provider: "firecrawl",
+    displayName: "Firecrawl",
+    signal,
+  });
+}
+
+function executeFastcrwSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const apiBase = getConfig().services["web-search"]?.apiBase;
+  const endpoint = resolveProviderApiUrl(
+    apiBase,
+    FASTCRW_SEARCH_PATH,
+    FASTCRW_DEFAULT_API_BASE,
+  );
+  return executeFirecrawlCompatSearch(query, count, freshness, apiKey, {
+    endpoint,
+    provider: "fastcrw",
+    displayName: "fastCRW",
+    signal,
+  });
 }
 
 async function executeKeenableSearch(
@@ -1345,6 +1411,14 @@ const keenableSearchAdapter: WebSearchAdapter = {
     executeKeenableSearch(query, count, freshness, apiKey, signal),
 };
 
+const fastcrwSearchAdapter: WebSearchAdapter = {
+  id: "fastcrw",
+  providerKeyName: "fastcrw",
+  fallbackOrder: 6,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeFastcrwSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -1356,6 +1430,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   tavily: tavilySearchAdapter,
   firecrawl: firecrawlSearchAdapter,
   keenable: keenableSearchAdapter,
+  fastcrw: fastcrwSearchAdapter,
 };
 
 /**
@@ -1387,7 +1462,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, and Keenable providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, and fastCRW providers.",
       },
       offset: {
         type: "number",
@@ -1397,7 +1472,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, and Keenable providers.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, and fastCRW providers.',
       },
     },
     required: ["query"],
@@ -1462,13 +1537,24 @@ export const webSearchTool = {
     let provider = getWebSearchProvider();
     let apiKey = await getApiKey(provider);
 
+    const webSearchApiBase = getConfig().services["web-search"]?.apiBase;
+    const fastcrwAllowsKeylessSelfHost =
+      provider === "fastcrw" &&
+      typeof webSearchApiBase === "string" &&
+      webSearchApiBase.trim().length > 0;
+
     // A keyless provider (e.g. Keenable) runs without a stored key, so skip the
     // missing-key fallback/error entirely and execute it as configured.
+    // fastCRW with a custom API Base may also run without a key (self-hosted).
     // Fallback: if a key-based provider has no key, try other BYOK search
     // providers in a stable order. This preserves existing installs that only
     // configured one search-provider key while still allowing new providers to
     // be selected explicitly.
-    if (!apiKey && !WEB_SEARCH_ADAPTERS[provider].keyless) {
+    if (
+      !apiKey &&
+      !WEB_SEARCH_ADAPTERS[provider].keyless &&
+      !fastcrwAllowsKeylessSelfHost
+    ) {
       for (const fallback of fallbackProvidersFor(provider)) {
         const fallbackKey = await getApiKey(fallback);
         if (!fallbackKey) {
@@ -1502,7 +1588,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, or `keys set firecrawl <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key.",
         );
       }
     }

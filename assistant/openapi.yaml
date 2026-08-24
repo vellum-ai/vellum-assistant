@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.4
+  version: 0.11.5
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4148,6 +4148,12 @@ paths:
                       type: string
                     chatType:
                       type: string
+                    conversationType:
+                      type: string
+                      enum:
+                        - dm
+                        - private
+                        - public
                     threadId:
                       type: string
                     channelName:
@@ -4360,7 +4366,17 @@ paths:
                         setupStatus:
                           anyOf:
                             - type: string
+                              enum:
+                                - not_configured
+                                - incomplete
+                                - ready
                             - type: "null"
+                        health:
+                          type: string
+                          enum:
+                            - ok
+                            - failing
+                            - unknown
                         checkedAt:
                           anyOf:
                             - type: number
@@ -4370,7 +4386,16 @@ paths:
                         reasons:
                           type: array
                           items:
-                            type: string
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                              text:
+                                type: string
+                            required:
+                              - code
+                              - text
+                            additionalProperties: false
                         localChecks:
                           type: array
                           items:
@@ -4384,6 +4409,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -4401,6 +4433,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -4482,7 +4521,17 @@ paths:
                         setupStatus:
                           anyOf:
                             - type: string
+                              enum:
+                                - not_configured
+                                - incomplete
+                                - ready
                             - type: "null"
+                        health:
+                          type: string
+                          enum:
+                            - ok
+                            - failing
+                            - unknown
                         checkedAt:
                           anyOf:
                             - type: number
@@ -4492,7 +4541,16 @@ paths:
                         reasons:
                           type: array
                           items:
-                            type: string
+                            type: object
+                            properties:
+                              code:
+                                type: string
+                              text:
+                                type: string
+                            required:
+                              - code
+                              - text
+                            additionalProperties: false
                         localChecks:
                           type: array
                           items:
@@ -4506,6 +4564,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -4523,6 +4588,13 @@ paths:
                                 anyOf:
                                   - type: string
                                   - type: "null"
+                              indeterminate:
+                                type: boolean
+                              kind:
+                                type: string
+                                enum:
+                                  - configuration
+                                  - operational
                             required:
                               - name
                               - passed
@@ -5067,6 +5139,8 @@ paths:
                 provider_connection:
                   type: string
                   minLength: 1
+                allowUnlisted:
+                  type: boolean
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -14929,6 +15003,38 @@ paths:
           description: Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile
         "404":
           description: Profile not found
+  /v1/inference/profiles/{name}/validate:
+    post:
+      operationId: inference_profiles_by_name_validate_post
+      summary: Probe a saved profile with one minimal request
+      description:
+        "Dispatch one minimal test request through the named profile's resolved model and connection, and classify
+        any failure by which object the user should fix (the profile vs its provider connection). Advisory: the probe
+        never mutates the profile. Returns a null check when there is no verdict to give (missing, disabled, managed, or
+        routing-identity profiles, or a probe timeout). The probe spends one tiny request on the profile's own key."
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  check:
+                    anyOf:
+                      - $ref: "#/components/schemas/InferenceProfileCheck"
+                      - type: "null"
+                required:
+                  - check
+                additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
@@ -15010,7 +15116,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProviderConnection"
+                $ref: "#/components/schemas/SavedProviderConnection"
         "400":
           description: Invalid provider or auth schema
         "409":
@@ -15121,7 +15227,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProviderConnection"
+                $ref: "#/components/schemas/SavedProviderConnection"
         "400":
           description: Invalid auth schema, or attempt to change auth on a managed connection
         "404":
@@ -15467,6 +15573,67 @@ paths:
                   - publicBaseUrl
                   - localGatewayTarget
                   - success
+                additionalProperties: false
+  /v1/integrations/ingress/status:
+    get:
+      operationId: integrations_ingress_status_get
+      summary: Get ingress tunnel status
+      description:
+        Probe the configured public ingress URL and report whether a tunnel is serving this assistant.
+        `unconfigured` means no tunnel has ever been recorded (or the ingress is managed for this assistant, as it is
+        when platform-hosted or fronted by a Velay tunnel), `stopped` means a tunnel ran before and is not running now
+        (callback ingress is explicitly switched off, or its URL is gone), `healthy` means the URL answers and fronts
+        this assistant's web app, `unpairable` means it answers but does not serve that app, so a pairing link minted
+        against it would not open, `unreachable` means it does not answer, and `foreign` means it answers for a
+        different assistant. `lastTunnel` names the tunnel to restart, on the states where a recorded one applies to the
+        configured URL.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - unconfigured
+                      - stopped
+                      - healthy
+                      - unpairable
+                      - unreachable
+                      - foreign
+                  publicBaseUrl:
+                    description: The probed URL. Set for healthy, unpairable, unreachable, and foreign.
+                    type: string
+                  lastTunnel:
+                    description:
+                      The tunnel to restart. Set on stopped whenever one is recorded, and on unpairable, unreachable and foreign
+                      when the recorded tunnel fronted the configured URL.
+                    type: object
+                    properties:
+                      provider:
+                        type: string
+                      publicBaseUrl:
+                        type: string
+                    required:
+                      - provider
+                      - publicBaseUrl
+                    additionalProperties: false
+                  servingAssistantName:
+                    description: Name the edge serves under. Set for foreign when it reports one.
+                    type: string
+                  detail:
+                    description: Short failure reason, free of the URL. Set for unreachable, and for unpairable when the edge gave one.
+                    type: string
+                  checkedAt:
+                    description: ISO-8601 instant the probe finished. Set whenever one ran.
+                    type: string
+                required:
+                  - state
                 additionalProperties: false
   /v1/integrations/oauth/start:
     post:
@@ -19054,6 +19221,7 @@ paths:
                                           - tavily
                                           - keenable
                                           - firecrawl
+                                          - fastcrw
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -19106,6 +19274,7 @@ paths:
                                         enum:
                                           - default
                                           - firecrawl
+                                          - fastcrw
                                       status:
                                         type: number
                                       contentType:
@@ -19563,6 +19732,7 @@ paths:
                                                   - tavily
                                                   - keenable
                                                   - firecrawl
+                                                  - fastcrw
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -19615,6 +19785,7 @@ paths:
                                                 enum:
                                                   - default
                                                   - firecrawl
+                                                  - fastcrw
                                               status:
                                                 type: number
                                               contentType:
@@ -24097,10 +24268,11 @@ paths:
       summary: Disable a plugin
       description:
         Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant
-        plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
-        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
-        refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404
-        (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.
+        plugins disable <name>`. Awaits the same source reconcile enable uses so the plugin's shutdown hook runs. Tools,
+        injectors, and hook gates also honor the sentinel at read time. Broadcasts a `sync_changed` invalidation
+        carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns
+        409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-`
+        prefix); a malformed name returns 400.
       tags:
         - plugins
       parameters:
@@ -34445,6 +34617,10 @@ components:
             - type: string
               minLength: 1
             - type: "null"
+        allowUnlisted:
+          anyOf:
+            - type: boolean
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -35217,6 +35393,8 @@ components:
         provider_connection:
           type: string
           minLength: 1
+        allowUnlisted:
+          type: boolean
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -35493,6 +35671,8 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - label
@@ -35520,6 +35700,21 @@ components:
           type: string
       required:
         - status
+      additionalProperties: false
+    InferenceProfileConfigIssue:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - model_unknown
+            - over_output_cap
+            - no_input_room
+        message:
+          type: string
+      required:
+        - code
+        - message
       additionalProperties: false
     InferenceProfileWriteResult:
       type: object
@@ -35561,10 +35756,35 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - entry
         - availability
+      additionalProperties: false
+    InferenceProfileCheck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        blame:
+          type: string
+          enum:
+            - profile
+            - provider
+            - transient
+            - unknown
+        reason:
+          type: string
+        detail:
+          type: string
+        connection:
+          type: string
+        message:
+          type: string
+      required:
+        - ok
       additionalProperties: false
     ProviderConnection:
       type: object
@@ -35612,6 +35832,78 @@ components:
         - createdAt
         - updatedAt
         - isManaged
+      additionalProperties: false
+    SavedProviderConnection:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        provider:
+          $ref: "#/components/schemas/ConnectionProvider"
+        auth:
+          $ref: "#/components/schemas/AuthOutput"
+        label:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        baseUrl:
+          anyOf:
+            - type: string
+              format: uri
+            - type: "null"
+        models:
+          anyOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/ConnectionModelOutput"
+            - type: "null"
+        createdAt:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        updatedAt:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        isManaged:
+          type: boolean
+        endpoint_check:
+          $ref: "#/components/schemas/EndpointCheck"
+      required:
+        - name
+        - provider
+        - auth
+        - label
+        - baseUrl
+        - models
+        - createdAt
+        - updatedAt
+        - isManaged
+      additionalProperties: false
+    EndpointCheck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        resolved_url:
+          type: string
+        error_class:
+          type: string
+          enum:
+            - http_error
+            - timeout
+            - network
+        hint:
+          type: string
+      required:
+        - ok
+        - resolved_url
       additionalProperties: false
     ProcessEntry:
       type: object

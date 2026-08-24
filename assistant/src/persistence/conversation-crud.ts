@@ -51,6 +51,10 @@ import {
   withSqliteRetry,
 } from "../util/sqlite-retry.js";
 import {
+  purgeAllWatchTimelines,
+  purgeWatchTimelineForConversation,
+} from "../watch/watch-timeline.js";
+import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
@@ -191,6 +195,36 @@ function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
  * keys on `conversation_id` regardless of event name, so this covers every
  * conversation-scoped pending event.
  */
+/**
+ * Remove a conversation's watch-session timeline: the narration, the screens,
+ * and the frames of them the entries carry.
+ *
+ * The rows are keyed by conversation id with no cascade behind them, so a
+ * delete that skipped them would keep pictures of the user's screen for a
+ * conversation they asked to remove. It runs after the row deletes, which is
+ * the order the watch store expects: once `conversations` no longer has the
+ * row, a later append is refused rather than left for a purge that has already
+ * been.
+ *
+ * Best-effort, like the rest of the post-transaction cleanup. The conversation
+ * row is already gone by this point, so throwing here would turn a completed
+ * delete into an error the caller cannot usefully retry. A swallowed failure
+ * is not the end of the story: `sweepOrphanedWatchTimelineEntries` runs from
+ * daemon startup and from database maintenance and deletes entries whose
+ * conversation no longer exists, so whatever this pass leaves behind is
+ * reclaimed on a later one.
+ */
+function purgeWatchTimelineForDeletedConversation(id: string): void {
+  try {
+    purgeWatchTimelineForConversation(id);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: id },
+      "Failed to purge the watch timeline for a deleted conversation",
+    );
+  }
+}
+
 function deletePendingTelemetryEventsForConversation(id: string): void {
   const telemetry = getTelemetryDb({ createIfMissing: false });
   if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
@@ -2109,6 +2143,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  purgeWatchTimelineForDeletedConversation(id);
+
   // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
   // still-pending jobs for this conversation). Fire-and-forget from this
   // synchronous primitive — the pipeline contains per-hook failures, and
@@ -2258,6 +2294,8 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  purgeWatchTimelineForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
   // the synchronous delete primitive.
@@ -3588,6 +3626,14 @@ export async function clearAll(): Promise<{
   // cascade; wipe them explicitly so labels/objectives don't survive (or
   // rehydrate after) a clear-all.
   await runOrThrow("DELETE FROM subagents");
+  // Watch-session timelines are conversation-keyed rows the cascade does not
+  // reach. They come after `conversations` so this statement is the last thing
+  // that needs to reach one: an append arriving from here on finds no
+  // conversation to key itself to and is refused, and an append that already
+  // ran is a row this deletes. The bulk deletes above run in a sqlite3
+  // subprocess, so the event loop is free while they work; this one is a
+  // synchronous in-process statement, which nothing can interleave with.
+  purgeAllWatchTimelines();
 
   // The memory feature's relocated conversation-keyed tables lost their main-DB
   // cascade. Signal the wipe through the hook rather than reaching into the

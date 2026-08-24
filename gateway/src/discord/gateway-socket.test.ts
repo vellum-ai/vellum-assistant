@@ -4,9 +4,9 @@ import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import { RESUMABLE_CLOSE_CODE } from "./close-codes.js";
 import {
   DiscordGatewayClient,
-  type CancelTimer,
   type GatewaySocketLike,
 } from "./gateway-socket.js";
+import type { CancelTimer } from "../util/schedule.js";
 import "../__tests__/test-preload.js";
 
 const INTERVAL = 41_250;

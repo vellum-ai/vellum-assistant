@@ -10,6 +10,7 @@ import {
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
@@ -23,6 +24,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
  * post-portal-return toast can diff old → new state.
  */
 export function GracePeriodBanner() {
+  const { t } = useTranslation("settings");
   const { data } = useQuery(organizationsBillingSubscriptionRetrieveOptions());
 
   const snapshot = useMemo(() => buildPortalReturnSnapshot(data), [data]);
@@ -46,7 +48,7 @@ export function GracePeriodBanner() {
   return (
     <Notice
       tone="info"
-      title={`Your Pro plan will end on ${formatted}.`}
+      title={t("gracePeriodBanner.title", { date: formatted })}
       actions={
         <Button
           variant="outlined"
@@ -60,12 +62,12 @@ export function GracePeriodBanner() {
           }
           data-testid="grace-period-reactivate-button"
         >
-          Reactivate
+          {t("gracePeriodBanner.reactivate")}
         </Button>
       }
       data-testid="grace-period-banner"
     >
-      You&apos;ll keep Pro features until then.
+      {t("gracePeriodBanner.body")}
     </Notice>
   );
 }

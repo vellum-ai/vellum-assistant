@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
+import { useTranslation } from "@/i18n";
 
 import { NameInputDialog } from "@/domains/chat/components/name-input-dialog";
 import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
@@ -19,6 +20,7 @@ export function RenameDialogFromStore({
 }: {
   assistantId: string | null;
 }) {
+  const { t } = useTranslation("chat");
   const renameRequest = useRenameRequestStore.use.renameRequest();
   const clearRename = useRenameRequestStore.use.clearRename();
   const queryClient = useQueryClient();
@@ -59,8 +61,8 @@ export function RenameDialogFromStore({
   return (
     <NameInputDialog
       open={renameRequest !== null}
-      title="Rename conversation"
-      submitLabel="Save"
+      title={t("renameDialogFromStore.title")}
+      submitLabel={t("renameDialogFromStore.save")}
       initialValue={renameRequest?.currentTitle ?? ""}
       onSubmit={handleSubmit}
       onCancel={clearRename}

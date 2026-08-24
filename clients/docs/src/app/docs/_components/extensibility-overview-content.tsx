@@ -30,7 +30,9 @@ const PLUGIN_API_URL =
 const HOOKS_PAGE_URL = "/docs/extensibility/hooks";
 const SKILLS_PAGE_URL = "/docs/extensibility/skills";
 const TOOLS_PAGE_URL = "/docs/extensibility/tools";
+const MCP_PAGE_URL = "/docs/extensibility/mcp";
 const ROUTES_PAGE_URL = "/docs/extensibility/routes";
+const CHANNELS_PAGE_URL = "/docs/extensibility/channels";
 const APPS_PAGE_URL = "/docs/extensibility/apps";
 
 export function ExtensibilityOverviewContent() {
@@ -139,6 +141,21 @@ export function ExtensibilityOverviewContent() {
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4">
+                    <Link href={MCP_PAGE_URL} className={linkClass}>
+                      MCP servers
+                    </Link>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <code>mcp.json</code>
+                  </td>
+                  <td className="py-2">
+                    Declare MCP servers the assistant connects on install.
+                    Their tools land as <code>mcp__&lt;id&gt;__&lt;tool&gt;</code>{" "}
+                    alongside workspace-configured MCP tools.
+                  </td>
+                </tr>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                  <td className="py-2 pr-4">
                     <Link href={ROUTES_PAGE_URL} className={linkClass}>
                       HTTP routes
                     </Link>
@@ -147,9 +164,24 @@ export function ExtensibilityOverviewContent() {
                     <code>routes/&lt;path&gt;.ts</code>
                   </td>
                   <td className="py-2">
-                    Serve HTTP endpoints (webhooks, integrations, callbacks) in
-                    the plugin&apos;s own <code>/x/plugins/&lt;name&gt;/</code>{" "}
-                    namespace.
+                    Serve HTTP endpoints in the plugin&apos;s own{" "}
+                    <code>/x/plugins/&lt;name&gt;/</code> namespace (apps, local
+                    callers, and the handler behind public ingress).
+                  </td>
+                </tr>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                  <td className="py-2 pr-4">
+                    <Link href={CHANNELS_PAGE_URL} className={linkClass}>
+                      Channels
+                    </Link>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <code>channels/ingress.json</code>
+                  </td>
+                  <td className="py-2">
+                    Declare public webhook and WebSocket routes that make the
+                    plugin a channel. The gateway signature-checks them and
+                    forwards to matching routes.
                   </td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
@@ -189,7 +221,9 @@ export function ExtensibilityOverviewContent() {
             a tool, <code>/workspace/skills/&lt;name&gt;/</code> for a skill,{" "}
             <code>/workspace/hooks/&lt;event&gt;.ts</code> for a lifecycle hook)
             and the assistant picks it up automatically. No manifest, no install
-            step, no peer dependency.
+            step, no peer dependency. MCP servers can also be added in
+            settings without a plugin; <code>mcp.json</code> is the way to ship
+            them with one.
           </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
             Several surfaces that plugins contribute run in the same process as

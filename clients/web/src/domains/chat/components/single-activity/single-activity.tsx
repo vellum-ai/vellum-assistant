@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Inline single-activity link — the lone affordance for ONE step of agent work,
  * in one of three variants:
@@ -111,6 +113,7 @@ interface ResolvedView {
 }
 
 export function SingleActivity(props: SingleActivityProps) {
+  const { t } = useTranslation("chat");
   // Both variants TOGGLE the shared tool-detail drawer and read its active
   // payload to drive the selected highlight. Hooks run unconditionally; the only
   // early return (empty, settled thinking) happens after them below.
@@ -146,7 +149,7 @@ export function SingleActivity(props: SingleActivityProps) {
           type="button"
           data-testid="inline-web-link"
           aria-expanded={expanded}
-          aria-label="Web Search"
+          aria-label={t("singleActivity.webSearch")}
           onClick={() => onExpandChange(!expanded)}
           className={cn(
             "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
@@ -170,10 +173,10 @@ export function SingleActivity(props: SingleActivityProps) {
               data-testid="inline-web-loading"
               className="shrink-0"
             >
-              Web Search
+              {t("singleActivity.webSearch")}
             </StreamingShimmerText>
           ) : (
-            <span className="shrink-0">Web Search</span>
+            <span className="shrink-0">{t("singleActivity.webSearch")}</span>
           )}
           <span aria-hidden className="shrink-0 text-[var(--content-tertiary)]">
             |

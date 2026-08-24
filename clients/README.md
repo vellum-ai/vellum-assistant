@@ -60,6 +60,10 @@ features. Dependency-free Electron helpers remain in `@vellumai/electron-utils`.
   `ci-main-macos.yaml`.
 - **Windows workflow filenames** - `clients/windows/` uses `pr-windows.yaml` /
   `ci-main-windows.yaml`.
+- **Desktop parity** - the two Electron shells expose the same `VellumBridge`
+  contract from `packages/ipc-contract`; `clients/windows/docs/parity-matrix.md`
+  maps each capability to its Windows module, macOS counterpart, and test, and
+  names the macOS concepts with no Windows equivalent.
 
 ## Chrome Extension
 

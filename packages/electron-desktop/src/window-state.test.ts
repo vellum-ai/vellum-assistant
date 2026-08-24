@@ -12,6 +12,7 @@ type SavedState = {
 let savedWindows: Record<string, SavedState> = {};
 let savedOnboardingActive: boolean | undefined = undefined;
 let savedCompanionHidden: boolean | undefined = undefined;
+let savedCompanionIntroSeen: boolean | undefined = undefined;
 let savedTitleBarOverlay: unknown = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
@@ -27,6 +28,8 @@ mock.module("electron-store", () => ({
       // when the key is absent.
       if (key === "onboardingActive") return savedOnboardingActive ?? fallback;
       if (key === "companionHidden") return savedCompanionHidden ?? fallback;
+      if (key === "companionIntroSeen")
+        return savedCompanionIntroSeen ?? fallback;
       if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
@@ -51,9 +54,11 @@ const {
   restoreBounds,
   track,
   readCompanionHidden,
+  readCompanionIntroSeen,
   readOnboardingActive,
   readTitleBarOverlayTheme,
   writeCompanionHidden,
+  writeCompanionIntroSeen,
   writeOnboardingActive,
   writeTitleBarOverlayTheme,
 } = await import("./window-state");
@@ -83,6 +88,7 @@ beforeEach(() => {
   savedWindows = {};
   savedOnboardingActive = undefined;
   savedCompanionHidden = undefined;
+  savedCompanionIntroSeen = undefined;
   savedTitleBarOverlay = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
@@ -359,6 +365,38 @@ describe("companion surface visibility flag", () => {
 
     writeCompanionHidden(true);
     expect(storeSetMock).toHaveBeenCalledWith("companionHidden", true);
+  });
+});
+
+describe("companion introduction seen flag", () => {
+  /**
+   * Absent means the run is still owed. That is the right way round: the
+   * surface appears on the desktop without the user having opened it, and the
+   * people most owed an explanation are the ones who have not had one.
+   */
+  test("absent flag defaults to not yet seen", () => {
+    expect(readCompanionIntroSeen()).toBe(false);
+  });
+
+  test("an explicit persisted flag wins over the default", () => {
+    savedCompanionIntroSeen = true;
+    expect(readCompanionIntroSeen()).toBe(true);
+  });
+
+  test("writing records that the run has happened", () => {
+    writeCompanionIntroSeen();
+    expect(storeSetMock).toHaveBeenCalledWith("companionIntroSeen", true);
+  });
+
+  /**
+   * One way only. Every path out of a run writes this, and more than one can
+   * fire for the same run (the last beat, then the tray hiding the surface), so
+   * re-asserting it must not churn the store file.
+   */
+  test("writing again once seen is a no-op", () => {
+    savedCompanionIntroSeen = true;
+    writeCompanionIntroSeen();
+    expect(storeSetMock).not.toHaveBeenCalled();
   });
 });
 

@@ -9,6 +9,7 @@ import {
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import type { OAuthConnectPreset } from "@/domains/settings/oauth-scope-presets";
 import type { OAuthConnection } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 
 export interface ManagedTabProps {
@@ -40,6 +41,7 @@ export function ManagedTab({
   onDisconnect,
   connectPresets = [],
 }: ManagedTabProps) {
+  const { t } = useTranslation("settings");
   const connectBusy = startPending || oauthInProgress;
   if (connectionsLoading) {
     return (
@@ -61,7 +63,7 @@ export function ManagedTab({
           />
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Waiting for authorization...
+            {t("managedOauthTab.waitingForAuthorization")}
           </div>
         </div>
       );
@@ -75,7 +77,7 @@ export function ManagedTab({
           size={48}
         />
         <p className="text-body-medium-default text-[var(--content-secondary)]">
-          Connect Account to continue
+          {t("managedOauthTab.connectToContinue")}
         </p>
         <div className="flex flex-col items-center gap-2">
           <Button
@@ -85,7 +87,7 @@ export function ManagedTab({
             onClick={() => onConnect()}
             disabled={connectBusy}
           >
-            Connect Account
+            {t("managedOauthTab.connectAccount")}
           </Button>
           {connectPresets.map((preset) => (
             <Button
@@ -109,6 +111,9 @@ export function ManagedTab({
       <ul className="divide-y divide-[var(--border-base)]">
         {connections.map((connection) => {
           const isDisconnecting = disconnectingId === connection.id;
+          const accountLabel =
+            connection.account_label ??
+            t("managedOauthTab.accountFallback", { name: displayName });
           return (
             <li
               key={connection.id}
@@ -121,7 +126,7 @@ export function ManagedTab({
                 size={20}
               />
               <span className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-default)]">
-                {connection.account_label ?? `${displayName} Account`}
+                {accountLabel}
               </span>
               <Button
                 variant="dangerOutline"
@@ -135,7 +140,9 @@ export function ManagedTab({
                 }
                 onClick={() => onDisconnect(connection)}
                 disabled={isDisconnecting}
-                aria-label={`Disconnect ${connection.account_label ?? `${displayName} account`}`}
+                aria-label={t("managedOauthTab.disconnectAriaLabel", {
+                  account: accountLabel,
+                })}
               />
             </li>
           );
@@ -145,7 +152,7 @@ export function ManagedTab({
         {connectBusy ? (
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Waiting for authorization...
+            {t("managedOauthTab.waitingForAuthorization")}
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
@@ -156,7 +163,7 @@ export function ManagedTab({
               onClick={() => onConnect()}
               disabled={connectBusy}
             >
-              Connect account
+              {t("managedOauthTab.connectAccountLower")}
             </Button>
             {connectPresets.map((preset) => (
               <Button

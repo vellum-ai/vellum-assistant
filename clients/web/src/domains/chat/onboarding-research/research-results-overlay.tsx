@@ -39,6 +39,7 @@ import {
   parseResearchResultStreaming,
   type RemovalReason,
 } from "@/domains/chat/onboarding-research/research-facts";
+import { useTranslation } from "@/i18n";
 
 /** Stable empty messages ref so the store selector doesn't churn when the
  *  snapshot is unseeded. */
@@ -55,6 +56,7 @@ function faviconService(domain: string): string {
 }
 
 export function ResearchResultsOverlay() {
+  const { t } = useTranslation("chat");
   // The assistant's research reply folds into the materialized snapshot as it
   // streams; read it from there (the onboarding conversation has no other
   // history, so the snapshot is the whole transcript).
@@ -217,8 +219,8 @@ export function ResearchResultsOverlay() {
         suggestions={suggestions}
         resultsTitle={
           settled
-            ? "Here's what I know about you. You can remove any that aren't true:"
-            : "Getting to know you…"
+            ? t("researchResultsOverlay.body")
+            : t("researchResultsOverlay.loading")
         }
         showSuggestions={settled && suggestions.length > 0}
         canContinue={!processing}

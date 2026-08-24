@@ -2190,6 +2190,16 @@ export function catalogMaxOutputTokens(
   )?.maxOutputTokens;
 }
 
+/** The `contextWindowTokens` declared for a (provider, model) catalog entry, if any. */
+export function catalogContextWindowTokens(
+  provider: string,
+  modelId: string,
+): number | undefined {
+  return PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
+    (m) => m.id === modelId,
+  )?.contextWindowTokens;
+}
+
 /**
  * Model IDs (across all catalog providers) flagged
  * `supportsPromptCacheBreakpoints`. Consumed by the OpenAI Responses

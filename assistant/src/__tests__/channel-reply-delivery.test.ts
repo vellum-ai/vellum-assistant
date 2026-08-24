@@ -266,7 +266,7 @@ describe("channel-reply-delivery", () => {
       payload: {
         chatId: "chat-1",
         text: "Before tool.",
-        useBlocks: true,
+        renderRichly: true,
         attachments: undefined,
         assistantId: "assistant-1",
       },
@@ -276,7 +276,7 @@ describe("channel-reply-delivery", () => {
       payload: {
         chatId: "chat-1",
         text: "After tool.",
-        useBlocks: true,
+        renderRichly: true,
         attachments,
         assistantId: "assistant-1",
       },
@@ -335,14 +335,14 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload).toEqual({
       chatId: "chat-3",
       text: "Before tool.",
-      useBlocks: true,
+      renderRichly: true,
       attachments: undefined,
       assistantId: "assistant-2",
     });
     expect(deliveryCalls[1].payload).toEqual({
       chatId: "chat-3",
       text: "After tool.",
-      useBlocks: true,
+      renderRichly: true,
       attachments: [
         {
           id: "att-2",

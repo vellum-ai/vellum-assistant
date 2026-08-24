@@ -11,13 +11,13 @@ class FakeChild extends EventEmitter {
 
 let lastChild: FakeChild;
 const spawnArgs: Array<
-  [string, string[], { env?: NodeJS.ProcessEnv; stdio?: unknown }]
+  [string, string[], { env?: NodeJS.ProcessEnv; stdio?: unknown; windowsHide?: boolean }]
 > = [];
 const spawnMock = mock(
   (
     command: string,
     args: string[],
-    options: { env?: NodeJS.ProcessEnv; stdio?: unknown },
+    options: { env?: NodeJS.ProcessEnv; stdio?: unknown; windowsHide?: boolean },
   ) => {
     spawnArgs.push([command, args, options]);
     lastChild = new FakeChild();
@@ -50,7 +50,7 @@ describe("runRetire", () => {
     expect(spawnArgs[0]).toEqual([
       "bun",
       ["run", "cli", "retire", "asst-42", "--yes"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     ]);
   });
 

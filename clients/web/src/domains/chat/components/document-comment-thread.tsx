@@ -9,47 +9,21 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { currentLocale, useTranslation } from "@/i18n";
+import { formatRelativeTime } from "@/lib/relative-time";
+
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatTimestamp(epoch: number): string {
-  const date = new Date(epoch);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-
-  if (diffMins < 1) {
-    return "just now";
-  }
-  if (diffMins < 60) {
-    return `${diffMins}m ago`;
-  }
-
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) {
-    return `${diffHours}h ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) {
-    return `${diffDays}d ago`;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: now.getFullYear() !== date.getFullYear() ? "numeric" : undefined,
-  });
-}
+type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
 
 function authorLabel(
   author: DocumentsByIdCommentsPostResponse["author"],
+  t: ChatTranslate,
 ): string {
-  return author === "assistant" ? "Assistant" : "You";
+  return author === "assistant"
+    ? t("documentCommentThread.authorAssistant")
+    : t("documentCommentThread.authorYou");
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +37,7 @@ function CommentBubble({
   comment: DocumentsByIdCommentsPostResponse;
   onCommentSelect?: (comment: DocumentsByIdCommentsPostResponse) => void;
 }) {
+  const { t } = useTranslation("chat");
   const isInline = comment.anchorText != null;
   return (
     <div className="flex gap-2">
@@ -81,7 +56,7 @@ function CommentBubble({
             variant="label-small-default"
             className="text-[var(--primary-base)]"
           >
-            V
+            {t("documentCommentThread.assistantMonogram")}
           </Typography>
         ) : (
           <User size={12} style={{ color: "var(--content-secondary)" }} />
@@ -94,13 +69,16 @@ function CommentBubble({
             variant="body-small-emphasised"
             className="text-[var(--content-emphasised)]"
           >
-            {authorLabel(comment.author)}
+            {authorLabel(comment.author, t)}
           </Typography>
           <Typography
             variant="label-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            {formatTimestamp(comment.createdAt)}
+            {formatRelativeTime(comment.createdAt, {
+              locale: currentLocale(),
+              minimumUnit: "minute",
+            })}
           </Typography>
         </div>
 
@@ -109,7 +87,7 @@ function CommentBubble({
             type="button"
             className="mt-1 cursor-pointer border-none bg-transparent p-0"
             onClick={() => onCommentSelect?.(comment)}
-            title="Jump to highlighted text"
+            title={t("documentCommentThread.jumpToHighlight")}
           >
             <Tag tone="neutral" leftIcon={<Quote />}>
               <span className="max-w-[200px] truncate">
@@ -158,6 +136,7 @@ export function DocumentCommentThread({
   onReply,
   onCommentSelect,
 }: DocumentCommentThreadProps) {
+  const { t } = useTranslation("chat");
   const [replyOpen, setReplyOpen] = useState(false);
   const isResolved = comment.status === "resolved";
 
@@ -181,11 +160,11 @@ export function DocumentCommentThread({
       <div className="flex items-center justify-between">
         {isResolved ? (
           <Tag tone="positive" leftIcon={<CheckCircle />}>
-            Resolved
+            {t("documentCommentThread.resolved")}
           </Tag>
         ) : (
           <Tag tone="neutral" leftIcon={<CircleDot />}>
-            Open
+            {t("documentCommentThread.open")}
           </Tag>
         )}
 
@@ -197,7 +176,7 @@ export function DocumentCommentThread({
               leftIcon={<CircleDot />}
               onClick={() => void onReopen(comment.id)}
             >
-              Reopen
+              {t("documentCommentThread.reopen")}
             </Button>
           ) : (
             <Button
@@ -206,14 +185,14 @@ export function DocumentCommentThread({
               leftIcon={<CheckCircle />}
               onClick={() => void onResolve(comment.id)}
             >
-              Resolve
+              {t("documentCommentThread.resolve")}
             </Button>
           )}
           <Button
             variant="dangerGhost"
             size="compact"
             iconOnly={<Trash2 />}
-            aria-label="Delete comment"
+            aria-label={t("documentCommentThread.deleteCommentAria")}
             onClick={() => void onDelete(comment.id)}
           />
         </div>
@@ -237,7 +216,7 @@ export function DocumentCommentThread({
         <div className="ml-8">
           <DocumentCommentForm
             onSubmit={handleReply}
-            placeholder="Write a reply…"
+            placeholder={t("documentCommentThread.replyPlaceholder")}
             autoFocus
           />
         </div>
@@ -249,7 +228,7 @@ export function DocumentCommentThread({
           onClick={() => setReplyOpen(true)}
           className="self-start"
         >
-          Reply
+          {t("documentCommentThread.reply")}
         </Button>
       )}
     </div>

@@ -1,0 +1,48 @@
+{
+  "workspaceTree": {
+    "heading": "Файлы",
+    "newFile": "Новый файл",
+    "newFolder": "Новая папка",
+    "delete": "Удалить",
+    "rename": "Переименовать",
+    "renaming": "Переименование…",
+    "create": "Создать",
+    "creating": "Создание…",
+    "creatingHeading": "Создать",
+    "createTriggerAria": "Создать файл или папку",
+    "createTriggerTitle": "Новый файл или папка",
+    "nameLabel": "Имя",
+    "nameError": "Имя одного файла или папки без слэшей.",
+    "cancel": "Отмена",
+    "sortByNameAria": "Сортировать по имени",
+    "sortBySizeAria": "Сортировать по размеру",
+    "sortedBySizeTitle": "Сортировка по размеру, переключить на имя",
+    "sortedByNameTitle": "Сортировка по имени, переключить на размер",
+    "hideHiddenAria": "Скрыть скрытые файлы",
+    "showHiddenAria": "Показать скрытые файлы",
+    "searchPlaceholder": "Поиск файлов",
+    "clearSearchAria": "Очистить поиск",
+    "noFilesFound": "Файлы не найдены",
+    "deleteFolderTitle": "Удалить папку",
+    "deleteFileTitle": "Удалить файл",
+    "deleteFileMessage": "Точно удалить <name>{name}</name>? Это нельзя отменить.",
+    "deleteFolderMessage": "Точно удалить <name>{name}</name> и всё содержимое? Это нельзя отменить.",
+    "deleting": "Удаление…"
+  },
+  "workspaceBrowser": {
+    "drawerTitle": "Файлы"
+  },
+  "workspaceFileViewer": {
+    "download": "Скачать",
+    "downloading": "Скачивание…",
+    "downloadFailed": "Не удалось скачать. Повторите попытку.",
+    "preview": "Просмотр",
+    "source": "Исходник",
+    "modifiedLabel": "Изменён:",
+    "selectAFile": "Выбор файла для просмотра",
+    "browseFiles": "Обзор файлов",
+    "fileNotFound": "Файл не найден",
+    "saveFailed": "Не удалось сохранить",
+    "downloadAria": "Скачать {name}"
+  }
+}

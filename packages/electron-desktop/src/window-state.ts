@@ -46,6 +46,11 @@ interface StoreSchema {
   // from this before any renderer loads. Optional: absent means the default
   // (see `readCompanionSize`).
   companionSize?: CompanionSize;
+  // Whether the companion's one-time introduction has run. Held here rather
+  // than in the surface's renderer because that renderer reloads, and a run
+  // recorded there would start again from the top every time it did. Optional:
+  // absent means it has not run (see `readCompanionIntroSeen`).
+  companionIntroSeen?: boolean;
   // How the Windows title-bar overlay's caption buttons are painted, as last
   // published by the renderer's active theme. A main-process concern for the
   // same reason the flags above are: the overlay's colors are constructor
@@ -95,7 +100,7 @@ export const writeOnboardingActive = (active: boolean): void => {
 
 /**
  * Whether the user has hidden the companion surface from the tray's
- * "Show Floating Companion" item. Absent defaults to `false`: the surface
+ * "Show Companion" item. Absent defaults to `false`: the surface
  * is a standing presence, and this flag records only the opt-out.
  */
 export const readCompanionHidden = (): boolean =>
@@ -125,6 +130,30 @@ export const readCompanionSize = (): CompanionSize => {
   return stored !== undefined && COMPANION_SIZES.includes(stored)
     ? stored
     : DEFAULT_COMPANION_SIZE;
+};
+
+/**
+ * Whether the companion's one-time introduction has already run.
+ *
+ * Absent defaults to `false`, so an install with nothing recorded gets a run.
+ * That is the right way round: the surface appears on the desktop without the
+ * user having opened it, and the people most owed an explanation of it are the
+ * ones who have not had one.
+ */
+export const readCompanionIntroSeen = (): boolean =>
+  store().get("companionIntroSeen", false);
+
+/**
+ * Record that the introduction has been seen. One way only, and no-op when
+ * already set: nothing in the app un-sees it, and a run that could be reset by
+ * a stray write is a floating panel that starts explaining itself again months
+ * later.
+ */
+export const writeCompanionIntroSeen = (): void => {
+  if (readCompanionIntroSeen()) {
+    return;
+  }
+  store().set("companionIntroSeen", true);
 };
 
 /** Persist the companion's size. No-op when unchanged, as the opt-out is. */

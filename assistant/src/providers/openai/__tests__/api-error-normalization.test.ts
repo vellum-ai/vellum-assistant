@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type OpenAI from "openai";
+import OpenAI from "openai";
 
 import type { NormalizedOpenAIAPIError } from "../api-error-normalization.js";
 import {
@@ -42,6 +42,22 @@ describe("normalizeOpenAIAPIError", () => {
     expect(formatNormalizedOpenAIAPIError("Together AI", 400, n)).toBe(
       "Together AI API error (400): Model 'MiniMax-M3' is not yet supported on Vellum.",
     );
+  });
+
+  test("stamps network_error for SDK connection failures", () => {
+    const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9"), {
+      code: "ECONNREFUSED",
+    });
+    const n = normalizeOpenAIAPIError(new OpenAI.APIConnectionError({ cause }));
+    expect(n.reason).toBe("network_error");
+  });
+
+  test("does not stamp network_error for user aborts", () => {
+    // APIUserAbortError covers caller cancellation and inner stream
+    // deadlines; classifying it as transient would make retry re-run
+    // 30-minute deadline failures.
+    const n = normalizeOpenAIAPIError(new OpenAI.APIUserAbortError());
+    expect(n.reason).not.toBe("network_error");
   });
 
   test("extracts OpenAI-shaped error metadata", () => {

@@ -13,6 +13,8 @@ public static class DictationServiceTests
         public bool Finished;
         public bool Cancelled;
         public bool Disposed;
+        public bool FinalizeOnFinish = true;
+        public TimeSpan? CompletionTimeout;
         public readonly List<byte[]> Chunks = [];
         public Exception? StartError;
 
@@ -30,10 +32,14 @@ public static class DictationServiceTests
 
         public void Append(byte[] pcm) => Chunks.Add(pcm);
 
-        public void Finish()
+        public void Finish(TimeSpan completionTimeout)
         {
             Finished = true;
-            Finalized?.Invoke("final text");
+            CompletionTimeout = completionTimeout;
+            if (FinalizeOnFinish)
+            {
+                Finalized?.Invoke("final text");
+            }
         }
 
         public void Cancel() => Cancelled = true;
@@ -43,6 +49,8 @@ public static class DictationServiceTests
         public void EmitPartial(string text) => Partial?.Invoke(text);
 
         public void EmitFailure(string message) => Failed?.Invoke(message);
+
+        public void EmitFinalized(string text) => Finalized?.Invoke(text);
     }
 
     public static void Run()
@@ -108,6 +116,51 @@ public static class DictationServiceTests
             .Contains("audio device unavailable", StringComparison.Ordinal));
         Assert(events.Any(e => e.Method == "dictation.error" &&
             e.Json.Contains("audio device unavailable", StringComparison.Ordinal)));
+
+        // Whole-recording transcription uses an independent pushed-audio
+        // engine, publishes its final text, and does not disturb streaming.
+        events.Clear();
+        var streaming = new FakeEngine();
+        var oneShot = new FakeEngine();
+        var engines = new Queue<FakeEngine>([streaming, oneShot]);
+        manager = new DictationSessionManager(_ => engines.Dequeue(), Notify);
+        manager.SetPartials(true, true, 16000);
+        Assert(Json(manager.Transcribe(
+            Convert.ToBase64String(new byte[] { 5, 6 }), 16000, "request-1"))
+            .Contains("\"ok\":true", StringComparison.Ordinal));
+        Assert(oneShot.Chunks.Count == 1 && oneShot.Finished);
+        Assert(!streaming.Cancelled && !streaming.Disposed);
+        Assert(events.Any(e => e.Method == "dictation.transcribed" &&
+            e.Json.Contains("final text", StringComparison.Ordinal) &&
+            e.Json.Contains("request-1", StringComparison.Ordinal)));
+
+        // A newer one-shot request cancels the old request and suppresses
+        // callbacks that arrive after replacement.
+        events.Clear();
+        var replaced = new FakeEngine { FinalizeOnFinish = false };
+        var current = new FakeEngine();
+        engines = new Queue<FakeEngine>([replaced, current]);
+        manager = new DictationSessionManager(_ => engines.Dequeue(), Notify);
+        manager.Transcribe(
+            Convert.ToBase64String(new byte[] { 1 }), 16000, "request-1");
+        manager.Transcribe(
+            Convert.ToBase64String(new byte[] { 2 }), 16000, "request-2");
+        Assert(replaced.Cancelled && replaced.Disposed);
+        replaced.EmitFinalized("stale");
+        Assert(events.Count(e => e.Method == "dictation.transcribed") == 1);
+        Assert(!events.Any(e => e.Json.Contains("stale", StringComparison.Ordinal)));
+
+        Assert(Json(manager.Transcribe("not-base64", 16000, "request-3"))
+            .Contains("invalid audio", StringComparison.Ordinal));
+
+        // The completion guard includes the submitted recording duration so
+        // a long pushed buffer can drain before the fallback finalizes it.
+        var oneMinutePcm = new byte[16000 * sizeof(short) * 60];
+        var longRecordingEngine = new FakeEngine();
+        manager = new DictationSessionManager(_ => longRecordingEngine, Notify);
+        manager.Transcribe(
+            Convert.ToBase64String(oneMinutePcm), 16000, "request-4");
+        Assert(longRecordingEngine.CompletionTimeout == TimeSpan.FromSeconds(63));
 
         Console.WriteLine("Dictation tests passed");
     }

@@ -42,6 +42,16 @@ export interface SelectOption<T extends string> {
   readonly tooltip?: ReactNode;
   /** Renders dimmed and cannot be chosen by click, keyboard, or typeahead. */
   readonly disabled?: boolean;
+  /**
+   * Pins the row to the bottom edge of the scrolling menu, so it stays on
+   * screen however far the list is scrolled.
+   *
+   * For the row that escapes the list rather than continuing it ("Create
+   * new..."): in a menu long enough to scroll, an unpinned last row is the
+   * one nobody finds. Only meaningful on the last option, and only one row
+   * should claim it.
+   */
+  readonly sticky?: boolean;
 }
 
 export interface SelectProps<T extends string> {
@@ -97,6 +107,18 @@ const TRIGGER_SIZE_CLASSES: Record<SelectSize, string> = {
 const OPTION_SIZE_CLASSES: Record<SelectSize, string> = {
   regular: "px-3 py-2 text-body-medium-default",
   compact: "px-2.5 py-1.5 text-body-small-default",
+};
+
+/**
+ * Scroll padding held clear at the bottom of the menu, roughly one row tall,
+ * applied when an option is pinned there. Keyboard navigation scrolls a
+ * highlighted row to the nearest edge, and the pinned row floats over that
+ * edge, so without the reserve the highlight can land underneath it and Enter
+ * commits a choice nobody saw.
+ */
+const STICKY_SCROLL_PADDING_CLASSES: Record<SelectSize, string> = {
+  regular: "scroll-pb-10",
+  compact: "scroll-pb-8",
 };
 
 const CHEVRON_SIZE_CLASSES: Record<SelectSize, string> = {
@@ -217,6 +239,8 @@ export function Select<T extends string>({
   const selectedOption = selectableOptions.find(
     (option) => option.value === value,
   );
+
+  const hasStickyOption = selectableOptions.some((option) => option.sticky);
 
   const control = (
     <RadixSelect.Root
@@ -361,7 +385,17 @@ export function Select<T extends string>({
             maxHeight: `min(${menuMaxHeight}px, var(--radix-select-content-available-height))`,
           }}
         >
-          <RadixSelect.Viewport className="py-1">
+          <RadixSelect.Viewport
+            className={cn(
+              "pt-1",
+              // A pinned row sticks to the padding edge, so bottom padding
+              // leaves a band below it where scrolling rows stay visible.
+              // Drop the padding and let the pinned row close the menu.
+              hasStickyOption
+                ? cn("pb-0", STICKY_SCROLL_PADDING_CLASSES[size])
+                : "pb-1",
+            )}
+          >
             {selectableOptions.map((option) => {
               const optionRow = (
                 <RadixSelect.Item
@@ -414,7 +448,7 @@ export function Select<T extends string>({
                   </RadixSelect.ItemIndicator>
                 </RadixSelect.Item>
               );
-              return option.tooltip ? (
+              const row = option.tooltip ? (
                 <Tooltip
                   key={tokenFor(option.value)}
                   content={option.tooltip}
@@ -424,6 +458,19 @@ export function Select<T extends string>({
                 </Tooltip>
               ) : (
                 optionRow
+              );
+              if (!option.sticky) {
+                return row;
+              }
+              return (
+                <div
+                  key={tokenFor(option.value)}
+                  data-slot="select-pinned-option"
+                  role="presentation"
+                  className="sticky bottom-0 z-10 border-t border-[var(--border-element)] bg-[var(--field-bg)]"
+                >
+                  {row}
+                </div>
               );
             })}
           </RadixSelect.Viewport>

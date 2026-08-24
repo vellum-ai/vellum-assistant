@@ -28,6 +28,8 @@ interface ProfileSummary {
   source: "managed" | "user";
   provider_connection?: string;
   availability: { status: string; message?: string } | null;
+  /** Static problem with the stored entry itself; absent when it checks out. */
+  config_issue?: { code: string; message: string };
 }
 
 interface ProfileWriteResult {
@@ -37,6 +39,29 @@ interface ProfileWriteResult {
   warnings: string[];
   /** Live-call command the daemon suggests for verifying the written profile. */
   verify?: string;
+  /** Save-time probe verdict (null = no verdict); absent when the daemon predates the route. */
+  check?: ProfileCheck | null;
+}
+
+interface ProfileCheck {
+  ok: boolean;
+  blame?: string;
+  message?: string;
+}
+
+/**
+ * Probe the just-written profile with one minimal request through the
+ * daemon's validate route. Advisory: any transport or route error (e.g. a
+ * daemon predating the route) yields undefined and the save flow proceeds.
+ */
+async function fetchProfileCheck(
+  name: string,
+): Promise<ProfileCheck | null | undefined> {
+  const probe = await cliIpcCall<{ check: ProfileCheck | null }>(
+    "inference_profiles_validate",
+    { pathParams: { name } },
+  );
+  return probe.ok ? probe.result!.check : undefined;
 }
 
 type WriteFlags = {
@@ -123,6 +148,9 @@ function printWriteResult(
   for (const warning of result.warnings) {
     writeLine(`warning: ${warning}`);
   }
+  if (result.check && !result.check.ok && result.check.message) {
+    writeLine(`warning: ${result.check.message}`);
+  }
   writeLine(`profile ${result.name} ${verb}`);
   if (result.verify) {
     writeLine(`Verify it works: ${result.verify}`);
@@ -152,7 +180,16 @@ export function attachProfilesSubcommand(inference: Command): void {
       return;
     }
     renderTable(
-      ["NAME", "LABEL", "PROVIDER", "MODEL", "STATUS", "SOURCE", "AVAIL"],
+      [
+        "NAME",
+        "LABEL",
+        "PROVIDER",
+        "MODEL",
+        "STATUS",
+        "SOURCE",
+        "AVAIL",
+        "CONFIG",
+      ],
       rows.map((p) => [
         p.name,
         p.label ?? "-",
@@ -161,6 +198,7 @@ export function attachProfilesSubcommand(inference: Command): void {
         p.status,
         p.source,
         p.availability ? p.availability.status : "-",
+        p.config_issue ? p.config_issue.code : "ok",
       ]),
     );
   });
@@ -172,6 +210,7 @@ export function attachProfilesSubcommand(inference: Command): void {
         name: string;
         entry: Record<string, unknown>;
         availability: { status: string; message?: string } | null;
+        config_issue?: { code: string; message: string };
       }>("inference_profiles_get", { pathParams: { name } });
       if (!ipcResult.ok) {
         writeCliError(ipcResult.error ?? "Unknown error", opts.json);
@@ -191,6 +230,10 @@ export function attachProfilesSubcommand(inference: Command): void {
         if (result.availability.message) {
           writeLine(`    ${result.availability.message}`);
         }
+      }
+      if (result.config_issue) {
+        writeLine(`  config: ${result.config_issue.code}`);
+        writeLine(`    ${result.config_issue.message}`);
       }
     },
   );
@@ -219,7 +262,12 @@ export function attachProfilesSubcommand(inference: Command): void {
         writeCliError(ipcResult.error ?? "Unknown error", opts.json);
         return;
       }
-      printWriteResult("created", ipcResult.result!, opts.json);
+      const check = await fetchProfileCheck(name);
+      printWriteResult(
+        "created",
+        { ...ipcResult.result!, ...(check !== undefined ? { check } : {}) },
+        opts.json,
+      );
     },
   );
 
@@ -246,7 +294,12 @@ export function attachProfilesSubcommand(inference: Command): void {
         writeCliError(ipcResult.error ?? "Unknown error", opts.json);
         return;
       }
-      printWriteResult("updated", ipcResult.result!, opts.json);
+      const check = await fetchProfileCheck(name);
+      printWriteResult(
+        "updated",
+        { ...ipcResult.result!, ...(check !== undefined ? { check } : {}) },
+        opts.json,
+      );
     },
   );
 

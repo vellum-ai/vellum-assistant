@@ -28,6 +28,7 @@ const linkClass =
   "font-semibold text-emerald-700 underline hover:text-emerald-800";
 
 const APPS_PAGE_URL = "/docs/extensibility/apps";
+const CHANNELS_PAGE_URL = "/docs/extensibility/channels";
 
 const PLUGIN_API_URL =
   "https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api";
@@ -49,7 +50,7 @@ export function ExtensibilityRoutesContent() {
       <DocsContent
         title="Routes"
         breadcrumb="Docs / Extensibility / Routes"
-        subtitle="Expose HTTP endpoints from a plugin. A route lets external systems (webhooks, integrations, callbacks, small tools) reach the Assistant over HTTP inside the plugin's own namespace."
+        subtitle="Expose HTTP endpoints from a plugin. A route is a file the assistant serves in the plugin's own /x/plugins/<name>/ namespace: app frontends, local callers, and the handler behind a public ingress declaration."
       >
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">
           A route is a file under <code>routes/&lt;path&gt;.ts</code> that
@@ -57,6 +58,19 @@ export function ExtensibilityRoutesContent() {
           no manifest entry: the Assistant&apos;s <code>/x/*</code> route
           dispatcher resolves each request against the plugin&apos;s{" "}
           <code>routes/</code> directory on disk at request time.
+        </p>
+        <p className="mb-8 text-zinc-600 dark:text-zinc-400">
+          Public internet webhooks are a different surface. Declare them in{" "}
+          <code>channels/ingress.json</code> (see the{" "}
+          <Link href={CHANNELS_PAGE_URL} className={linkClass}>
+            Channels page
+          </Link>
+          ). The gateway signature-checks those requests and forwards them to
+          the matching route at{" "}
+          <code>/v1/x/plugins/&lt;name&gt;/&lt;path&gt;</code>. A{" "}
+          <code>routes/</code> file with no ingress declaration is not a public
+          webhook. Do not tell a vendor to POST at{" "}
+          <code>/x/plugins/...</code>.
         </p>
 
         <section id="where-routes-are-served">
@@ -244,9 +258,14 @@ if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
 const data = await res.json();`}</code>
           </pre>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            Webhooks and other external callers reach the same route over plain
-            HTTP; the <code>window.vellum.fetch</code> rule is specific to an app
-            frontend&apos;s sandboxed origin.
+            Authenticated callers (the plugin&apos;s own app, local tools) reach
+            the same route over HTTP. Third-party vendors on the public internet
+            must go through{" "}
+            <Link href={CHANNELS_PAGE_URL} className={linkClass}>
+              plugin ingress
+            </Link>{" "}
+            instead; the <code>window.vellum.fetch</code> rule is specific to an
+            app frontend&apos;s sandboxed origin.
           </p>
         </section>
 
@@ -255,14 +274,19 @@ const data = await res.json();`}</code>
             When should my assistant write a Route?
           </SectionHeading>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            Reach for a route when something <em>outside</em> the assistant needs
-            to reach <em>in</em> over HTTP: a webhook from a third-party service,
-            an OAuth callback, an integration that posts events, or a small
-            status endpoint. Unlike a tool (which the model calls) or a hook
-            (which fires inside the turn), a route is driven by an external
-            caller and runs whenever a request arrives. Bundle it in a plugin
-            when you want that endpoint to ship, version, and install alongside
-            the plugin&apos;s other surfaces.
+            Reach for a route when something already inside the assistant needs
+            to call in over HTTP: an app frontend, a local tool, or a status
+            endpoint. Unlike a tool (which the model calls) or a hook (which
+            fires inside the turn), a route is driven by a caller and runs
+            whenever a request arrives. If the caller is a third party on the
+            public internet, also declare{" "}
+            <Link href={CHANNELS_PAGE_URL} className={linkClass}>
+              plugin ingress
+            </Link>{" "}
+            so the gateway can signature-check the request before it reaches
+            this handler. Bundle both in a plugin when you want that endpoint to
+            ship, version, and install alongside the plugin&apos;s other
+            surfaces.
           </p>
         </section>
       </DocsContent>

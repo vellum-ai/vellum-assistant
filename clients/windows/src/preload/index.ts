@@ -1,63 +1,19 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 
 import type {
   AppVersionInfo,
-  TitleBarOverlayTheme,
   VellumBridge,
   VellumCommand,
 } from "@vellumai/ipc-contract";
 
-import type { WindowsCoreBridge } from "./core-capabilities";
+import { createWindowsCoreBridge } from "./core-capabilities";
 import { composePreloadFeatures } from "./features";
 
 export type { AppVersionInfo, VellumBridge, VellumCommand };
 
-/**
- * Minimal subset of the `VellumBridge` contract for the Windows skeleton.
- *
- * Most of the renderer's runtime wrappers (`clients/web/src/runtime/`)
- * feature-detect their namespace (`if (!bridge?.hotkeys) return ...`) so a
- * newer renderer can run against an older - or, here, narrower - preload.
- * Capabilities that are dereferenced unguarded live in this core bridge or
- * are installed through the feature modules below.
- */
-const coreBridge: WindowsCoreBridge = {
-  platform: "electron",
-  hostOS: "windows",
-  app: {
-    versionInfo: (): Promise<AppVersionInfo> =>
-      ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
-    openWebsite: (): Promise<void> =>
-      ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
-  },
-  commands: {
-    on: (callback) => {
-      const handler = (_event: IpcRendererEvent, command: VellumCommand) => {
-        callback(command);
-      };
-      ipcRenderer.on("vellum:command", handler);
-      return () => {
-        ipcRenderer.off("vellum:command", handler);
-      };
-    },
-  },
-  mainWindow: {
-    ensureVisible: (): Promise<void> =>
-      ipcRenderer.invoke("vellum:mainWindow:ensureVisible") as Promise<void>,
-    setOnboarding: (active: boolean): Promise<void> =>
-      ipcRenderer.invoke(
-        "vellum:mainWindow:setOnboarding",
-        active,
-      ) as Promise<void>,
-    setTitleBarOverlay: (theme: TitleBarOverlayTheme): Promise<void> =>
-      ipcRenderer.invoke(
-        "vellum:mainWindow:setTitleBarOverlay",
-        theme,
-      ) as Promise<void>,
-  },
-};
-
-const bridge = composePreloadFeatures(coreBridge);
+// The always-present core plus every `./features/` module;
+// `bridge-parity.test.ts` holds the composed bridge to the full contract.
+const bridge = composePreloadFeatures(createWindowsCoreBridge(ipcRenderer));
 contextBridge.exposeInMainWorld("vellum", bridge);
 
 const vellumConfig = ipcRenderer.sendSync("vellum:config:get") as {

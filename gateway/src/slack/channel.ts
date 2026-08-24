@@ -14,7 +14,7 @@
  * multi-party, so it keeps its own `mpim` chat type end to end rather than
  * being flattened into `im`. The daemon already branches on that value
  * (group-chat etiquette in `isGroupChatType`, and the `private`
- * permission-matrix cell in `mapChatTypeToConversationType`).
+ * permission-matrix cell via `slackConversationType`).
  */
 
 /**

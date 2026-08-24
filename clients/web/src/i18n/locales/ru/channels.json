@@ -1,0 +1,114 @@
+{
+  "assistantChannelsList": {
+    "drawerTitle": "Каналы",
+    "disconnectTitle": "Отключить {channel}?",
+    "disconnectConfirm": "Отключить",
+    "confirmFallback": "Подтвердить"
+  },
+  "channelAdapterList": {
+    "pluginChannelAria": "{channel}, из плагина"
+  },
+  "connectionCard": {
+    "connected": "Подключено",
+    "reconnecting": "Переподключение…",
+    "statusUnavailable": "Статус недоступен",
+    "disconnecting": "Отключение…",
+    "disconnect": "Отключить"
+  },
+  "slackChannelCard": {
+    "setupHeading": "Настройка Slack"
+  },
+  "channelPanel": {
+    "incompleteTitle": "{channel} ещё не работает",
+    "disconnectedTitle": "{channel} не подключён",
+    "incompleteDescription": "{channel} настроен, но сообщения ещё не доставляет. Ассистент может продолжить настройку и сказать, что не так.",
+    "opening": "Открываем…",
+    "finishSetup": "Закончить настройку с ассистентом",
+    "setUp": "Настроить",
+    "connectManually": "или подключить вручную"
+  },
+  "pluginChannelPanel": {
+    "openPluginPage": "Открыть страницу плагина",
+    "ingressLoading": "Проверяем, кто может достучаться до {channel}…",
+    "ingressUnsupported": "Шлюз этого ассистента не сообщает о входящих разрешениях, поэтому здесь нечего решать.",
+    "ingressForbidden": "Смотреть и менять входящие разрешения может только опекун этого ассистента.",
+    "ingressUnreadable": "Не удалось прочитать входящее разрешение для {channel}.",
+    "ingressNone": "Шлюз не видит объявления входящего доступа для {channel}, поэтому пока нечего одобрять.",
+    "ingressApprovedTag": "Входящий доступ одобрен",
+    "ingressPendingTag": "Входящий доступ ждёт одобрения",
+    "approvedAddresses": "{channel} принимает сообщения на эти адреса:",
+    "pendingAddresses": "{channel} просит принимать сообщения на эти адреса. Пока нет одобрения, доставка на них отклоняется:",
+    "ungovernedAddresses": "Эти адреса открыты независимо от решения, потому что до них достучится только Vellum:",
+    "deliversInbound": "То, что приходит сюда, становится сообщением ассистенту, а не просто обратным вызовом, который получает {channel}. Кто пройдёт, по-прежнему решает уровень доступа.",
+    "revokeIngress": "Отозвать входящий доступ",
+    "approveIngress": "Одобрить входящий доступ"
+  },
+  "channelTrustFloor": {
+    "heading": "Кто может писать {assistant}",
+    "loading": "Загрузка…",
+    "loadFailed": "Не удалось загрузить эту настройку. Повторите открытие страницы.",
+    "selectAria": "Кто может писать {assistant}",
+    "trustedContactsNotice": "Люди, которых ещё не подтвердили (даже коллеги в том же канале), не проходят: {assistant} сообщает им, что нужна проверка, и присылает уведомление. Подтвердить людей заранее можно в Контактах."
+  },
+  "slackChannelTypeDefaults": {
+    "heading": "Доступ по умолчанию",
+    "subtitle": "Насколько самостоятельно действует {assistant} в зависимости от типа диалога. Отдельные каналы могут переопределить это ниже, а <trustRules>правила доверия</trustRules> уточняют, когда спрашивать.",
+    "bucketAria": "Доступ ассистента по умолчанию для {bucket}"
+  },
+  "tierPicker": {
+    "defaultSuffix": "по умолчанию",
+    "defaultPlaceholder": "По умолчанию"
+  },
+  "slackChannelTierLegend": {
+    "defaultMarker": "· по умолчанию"
+  },
+  "slackChannelSection": {
+    "overridesLoadFailed": "Не удалось загрузить настройки доступа. Эти элементы останутся недоступны, пока данные не загрузятся. Повторите открытие страницы.",
+    "perChannelOverrides": "Переопределения по каналам"
+  },
+  "slackThreadBehavior": {
+    "heading": "Поведение в ветках",
+    "selectAria": "Поведение Slack в ветках",
+    "mentionsOnly": "Только упоминания",
+    "mentionsOnlyHelp": "Бот отвечает только когда его @упоминают.",
+    "followThreads": "Следить за веткой после первого упоминания",
+    "followThreadsHelp": "После @упоминания в ветке бот слушает остальную ветку."
+  },
+  "slackChannelList": {
+    "presenceHint": "Добавление через <invite>/invite {handle}</invite> или удаление через <remove>/remove {handle}</remove> в этом канале Slack. Здесь видны только каналы, в которых есть {assistant}.",
+    "loading": "Загрузка…",
+    "loadFailed": "Не удалось загрузить каналы. Повторите открытие страницы.",
+    "emptyTitle": "Каналов пока нет",
+    "searchPlaceholder": "Поиск каналов",
+    "searchAria": "Поиск каналов",
+    "filterGroupAria": "Фильтр каналов по типу",
+    "noMatches": "Нет подходящих каналов.",
+    "accessAria": "Доступ ассистента в {channel}",
+    "filterAll": "{count, plural, one {Все (#)} few {Все (#)} many {Все (#)} other {Все (#)}}",
+    "filterPublic": "{count, plural, one {Открытые (#)} few {Открытые (#)} many {Открытые (#)} other {Открытые (#)}}",
+    "filterPrivate": "{count, plural, one {Закрытые (#)} few {Закрытые (#)} many {Закрытые (#)} other {Закрытые (#)}}"
+  },
+  "twilioCredentialEntry": {
+    "accountSid": "Account SID",
+    "authToken": "Auth Token",
+    "authTokenPlaceholder": "Auth-токен Twilio",
+    "saving": "Сохранение…",
+    "save": "Сохранить"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "Это удалит сохранённые токены бота и приложения Slack для этого ассистента. Потом можно подключить снова."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "Это удалит сохранённый токен бота Telegram для этого ассистента. Потом можно подключить снова.",
+      "disconnectedPitch": "Подключение бота Telegram, чтобы {assistant} мог отправлять и получать сообщения в Telegram."
+    },
+    "phone": {
+      "label": "Телефонные звонки",
+      "disconnectMessage": "Это удалит сохранённые учётные данные Twilio для этого ассистента. Потом можно подключить снова.",
+      "disconnectedPitch": "Подключение аккаунта Twilio, чтобы {assistant} мог звонить и отвечать на звонки."
+    }
+  }
+}

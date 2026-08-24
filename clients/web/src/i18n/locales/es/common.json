@@ -2,6 +2,29 @@
   "addCreditsModal": {
     "configureAutoReload": "Configurar la recarga automática"
   },
+  "companionIntro": {
+    "ariaLabel": "Te presento a tu compañero",
+    "meet": {
+      "title": "Este soy yo",
+      "titleNamed": "Soy {name}",
+      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
+    },
+    "talk": {
+      "title": "Talk",
+      "body": "Inicia una conversación por voz."
+    },
+    "type": {
+      "title": "Type",
+      "body": "Envía un mensaje desde aquí y lee la respuesta aquí también."
+    },
+    "menu": {
+      "title": "Haz clic derecho sobre mí",
+      "body": "Ahí puedes ocultarme o cambiar mi tamaño."
+    },
+    "skip": "Omitir",
+    "next": "Siguiente",
+    "done": "Entendido"
+  },
   "notFound": {
     "badge": "Error 404",
     "title": "Página no encontrada",
@@ -18,6 +41,20 @@
   },
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
+  },
+  "sttProviderForm": {
+    "windowsNativeDisplayName": "Dictado nativo de Windows",
+    "windowsNativeSubtitle": "Reconocimiento de voz integrado de Windows, ejecutado localmente mediante el asistente nativo de Windows. Funciona sin conexión y no necesita una clave de API.",
+    "windowsNativeSetupWarning": "Requiere Reconocimiento de voz básico para el idioma de visualización de Windows: abre Configuración > Hora e idioma > Idioma y región, selecciona los tres puntos junto al idioma de visualización, elige Opciones de idioma y, en Características de idioma, descarga Reconocimiento de voz básico."
+  },
+  "useConnectClaude": {
+    "failed": "No se pudo conectar Claude. Inténtalo de nuevo.",
+    "timedOut": "Se agotó el tiempo de espera para conectar Claude. Inténtalo de nuevo.",
+    "startFailed": "No se pudo iniciar Connect Claude. Inténtalo de nuevo.",
+    "popupBlocked": "Tu navegador bloqueó la pestaña de inicio de sesión. Permite las ventanas emergentes para este sitio y vuelve a hacer clic en Conectar.",
+    "pasteEmpty": "Pega el código que se muestra en la página de Claude.",
+    "notStarted": "Primero inicia el flujo de Connect Claude.",
+    "exchangeFailed": "Comprueba la clave pegada e inténtalo de nuevo."
   },
   "windowsMenuBar": {
     "file": "Archivo",

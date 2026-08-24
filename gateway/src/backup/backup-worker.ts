@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-import { resolveDefaultOffsiteDestinations } from "@vellumai/backup-paths";
+import { resolveDefaultOffsiteDestinations } from "@vellumai/electron-desktop/backup-paths";
 
 import { mintServiceToken } from "../auth/token-exchange.js";
 import { readConfigFileOrEmpty } from "../config-file-utils.js";

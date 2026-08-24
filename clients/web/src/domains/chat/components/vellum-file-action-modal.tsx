@@ -10,6 +10,8 @@ import {
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
+import { useTranslation } from "@/i18n";
+
 /** A `vellum://` file link the user clicked, pending an action choice. */
 export interface VellumFileActionTarget {
   /** Decoded display filename (resolved via the shared attachment-naming rule). */
@@ -62,6 +64,7 @@ export function VellumFileActionModal({
   onDownload: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("chat");
   // Mounted only while a link click is pending an action choice — the
   // transcript renders one instance per message row, so an always-mounted
   // dialog would add per-row Radix overhead for a modal that is almost
@@ -91,12 +94,12 @@ export function VellumFileActionModal({
           {target.workspacePath ? (
             <Button variant="outlined" onClick={onGoToFile}>
               <ExternalLink aria-hidden className="h-4 w-4" />
-              Go to file
+              {t("vellumFileActionModal.goToFile")}
             </Button>
           ) : null}
           <Button variant="primary" onClick={onDownload}>
             <ArrowDownToLine aria-hidden className="h-4 w-4" />
-            Download file
+            {t("vellumFileActionModal.downloadFile")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

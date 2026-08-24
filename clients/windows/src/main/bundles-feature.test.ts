@@ -7,10 +7,14 @@ const onFileOpenMock = mock(
   (_handler: (filePath: string) => void) => stopFileOpenMock,
 );
 const appOnceMock = mock((_event: string, _handler: () => void) => undefined);
-const registerGetDataMock = mock((_handler: () => unknown) => undefined);
-const registerResponseMock = mock(
-  (_handler: (accepted: boolean) => void) => undefined,
-);
+const resolveInvocationMock = mock(async () => ({
+  command: "vellum.exe",
+  baseArgs: [] as string[],
+}));
+const getGuardianAccessTokenMock = mock(async () => ({
+  ok: true as const,
+  accessToken: "guardian-token",
+}));
 
 mock.module("electron", () => ({
   app: {
@@ -18,6 +22,9 @@ mock.module("electron", () => ({
     isPackaged: true,
     once: appOnceMock,
   },
+  BrowserWindow: class {},
+  session: { defaultSession: {} },
+  shell: {},
 }));
 
 mock.module("@vellumai/electron-desktop/bundle-flow", () => ({
@@ -29,29 +36,29 @@ mock.module("@vellumai/electron-desktop/file-open", () => ({
   onFileOpen: onFileOpenMock,
 }));
 
+const localMode = await import("@vellumai/local-mode");
+mock.module("@vellumai/local-mode", () => ({
+  ...localMode,
+  getGuardianAccessToken: getGuardianAccessTokenMock,
+  getLockfileData: () => ({ ok: false, error: "missing" }),
+  resolveConfigDir: () => "C:\\Vellum\\config",
+  resolveLockfilePaths: () => ["C:\\Vellum\\lockfile.json"],
+}));
+
 mock.module("./ipc.client", () => ({
-  handle: (_channel: string, _schema: unknown, handler: () => unknown) => {
-    registerGetDataMock(handler);
-  },
-  on: (
-    _channel: string,
-    _schema: unknown,
-    handler: (args: [boolean]) => void,
-  ) => {
-    registerResponseMock((accepted) => {
-      handler([accepted]);
-    });
-  },
+  handle: () => undefined,
+  on: () => undefined,
 }));
 
 const {
   bundleFileHandlerToken,
-  bundleHostProviderToken,
   getBundlePlatform,
   resetBundlePlatformForTest,
 } = await import("@vellumai/electron-desktop/bundle-platform");
 const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
+const { LOCAL_MODE_CLI } =
+  await import("@vellumai/electron-desktop/local-mode");
 const { default: bundles } = await import("./features/bundles");
 
 beforeEach(() => {
@@ -61,29 +68,13 @@ beforeEach(() => {
   onFileOpenMock.mockClear();
   stopFileOpenMock.mockClear();
   appOnceMock.mockClear();
-  registerGetDataMock.mockClear();
-  registerResponseMock.mockClear();
+  resolveInvocationMock.mockClear();
+  getGuardianAccessTokenMock.mockClear();
 });
 
 describe("Windows bundle workflow", () => {
-  test("stays disabled without a host provider", () => {
+  test("installs the bundle flow and file-open handler", () => {
     const registry = new DesktopCapabilityRegistry();
-    bundles.install(registry);
-
-    expect(registry.get(bundleFileHandlerToken)).toBeUndefined();
-    expect(installBundleFlowMock).not.toHaveBeenCalled();
-    expect(onFileOpenMock).not.toHaveBeenCalled();
-  });
-
-  test("installs through an explicit host provider", () => {
-    const registry = new DesktopCapabilityRegistry();
-    const denyAllPermissions = mock(() => undefined);
-    registry.provide(bundleHostProviderToken, {
-      resolveActiveGateway: () => ({ assistantId: "assistant-1", port: 9000 }),
-      acquireGatewayToken: async () => "token",
-      denyAllPermissions,
-    });
-
     bundles.install(registry);
 
     expect(registry.get(bundleFileHandlerToken)).toBe(handleBundleFileMock);
@@ -93,5 +84,29 @@ describe("Windows bundle workflow", () => {
     expect(handleBundleFileMock).toHaveBeenCalledWith("C:\\bundle.vellum");
     expect(appOnceMock).toHaveBeenCalledWith("before-quit", stopFileOpenMock);
     expect(getBundlePlatform().bundlesRoot()).toBe("C:\\Vellum/bundles");
+  });
+
+  test("mints gateway tokens through the CLI provider installed later", async () => {
+    const registry = new DesktopCapabilityRegistry();
+    bundles.install(registry);
+
+    // Without the provider, the token request degrades to null.
+    await expect(
+      getBundlePlatform().acquireGatewayToken("assistant-1"),
+    ).resolves.toBeNull();
+
+    // A cold launch from a `.vellum` file asks for the token in the same
+    // tick that installs the remaining modules, including the CLI provider.
+    const pending = getBundlePlatform().acquireGatewayToken("assistant-1");
+    registry.provide(LOCAL_MODE_CLI, {
+      resolveInvocation: resolveInvocationMock,
+    });
+    await expect(pending).resolves.toBe("guardian-token");
+    expect(getGuardianAccessTokenMock).toHaveBeenCalledWith(
+      "assistant-1",
+      "C:\\Vellum\\config",
+      { command: "vellum.exe", baseArgs: [] },
+      true,
+    );
   });
 });

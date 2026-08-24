@@ -46,6 +46,21 @@ export const LIVE_VOICE_AUDIO_FORMAT: LiveVoiceAudioConfig = {
   channels: 1,
 };
 
+/**
+ * {@link LIVE_VOICE_AUDIO_FORMAT} as the query params a gateway audio socket
+ * is opened with.
+ *
+ * Every client-facing audio stream sends the same capture at the same rate and
+ * has to say so on the upgrade, so the two that do (`/v1/stt/stream` and
+ * `/v1/watch/stream`) read the format from here rather than each restating it.
+ * Two copies of a sample rate are two places to change it, and the format is
+ * already pinned to the capture worklet by the note above.
+ */
+export const LIVE_VOICE_AUDIO_FORMAT_PARAMS: Record<string, string> = {
+  mimeType: LIVE_VOICE_AUDIO_FORMAT.mimeType,
+  sampleRate: String(LIVE_VOICE_AUDIO_FORMAT.sampleRate),
+};
+
 export type LiveVoiceTurnDetectionMode = "manual" | "server_vad";
 
 export interface LiveVoiceClientStartFrame {
