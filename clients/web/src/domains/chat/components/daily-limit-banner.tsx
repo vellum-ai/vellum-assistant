@@ -1,10 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { CalendarClock } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "@/i18n";
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
-import { organizationsBillingAutoTopUpRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useSkipDailyLimitToday } from "@/hooks/use-daily-limit-skip";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
@@ -39,9 +38,7 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
   // are on. An errored or in-flight query means we do not know, and a
   // confident-but-wrong statement about someone's card is worse than omitting
   // the line. The billing settings page states this authoritatively either way.
-  const autoTopUpQuery = useQuery(
-    organizationsBillingAutoTopUpRetrieveOptions(),
-  );
+  const autoTopUpQuery = useAutoTopUpConfigQuery();
   const autoTopUpOn =
     autoTopUpQuery.data?.enabled === true && !autoTopUpQuery.isError;
 

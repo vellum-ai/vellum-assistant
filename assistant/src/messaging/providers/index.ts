@@ -11,7 +11,7 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
-  SlackStreamOp,
+  StreamOp,
 } from "@vellumai/gateway-client";
 
 import { a2aTransport } from "./a2a/transport.js";
@@ -117,7 +117,7 @@ export async function editChannelMessage(
 export async function sendChannelStreamOp(
   callbackUrl: string,
   chatId: string,
-  op: SlackStreamOp,
+  op: StreamOp,
 ): Promise<ChannelDeliveryResult> {
   const transport = getTransportForCallback(callbackUrl);
   if (!transport?.streamReply) {
