@@ -275,6 +275,36 @@ describe("LiveVoiceWorkingCueConfigSchema", () => {
     }
   });
 
+  test("rejects a durationMs past the cue-length cap", () => {
+    // The value sizes a PCM buffer at the client's sample rate, so an
+    // unbounded one is an unbounded Buffer.alloc from a timer callback.
+    const result = LiveVoiceWorkingCueConfigSchema.safeParse({
+      durationMs: 1_000_000_000,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("liveVoice.workingCue.durationMs")),
+      ).toBe(true);
+    }
+    // The cap is a ceiling on a short tone, not a ban on tuning it.
+    expect(
+      LiveVoiceWorkingCueConfigSchema.parse({ durationMs: 2_000 }).durationMs,
+    ).toBe(2_000);
+  });
+
+  test("rejects a frequencyHz past the top of hearing", () => {
+    expect(
+      LiveVoiceWorkingCueConfigSchema.safeParse({ frequencyHz: 96_000 })
+        .success,
+    ).toBe(false);
+    expect(
+      LiveVoiceWorkingCueConfigSchema.parse({ frequencyHz: 20_000 })
+        .frequencyHz,
+    ).toBe(20_000);
+  });
+
   test("rejects a gain outside 0..1", () => {
     // The renderer clamps, so an out-of-range gain would otherwise be a
     // silently ignored setting rather than a visible mistake.

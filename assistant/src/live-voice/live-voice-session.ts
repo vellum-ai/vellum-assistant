@@ -543,6 +543,15 @@ interface TtsSegmentJob {
   // block-scoped promotion or retraction selects exactly that block's
   // segments. NON_BLOCK_TTS_SEQ marks a segment that belongs to no block.
   readonly blockSeq: number;
+  // Rendered non-speech audio (the working cue) rather than a synthesized
+  // utterance. It is ordinary audio in every other respect: it reaches the
+  // client, enters the echo reference, and extends the playback-tail
+  // estimate. What it must not do is anchor the turn's first-TTS metrics,
+  // which measure when the answer starts being spoken. A cue plays into the
+  // dead air of a long working turn, well before the answer, so latching on
+  // it would report the tone's timing as the turn's speech latency on exactly
+  // the turns whose latency is worth knowing.
+  readonly nonSpeechCue: boolean;
   // The provider stream was started (the job holds an open-job slot).
   started: boolean;
   // The provider is done with this job, either because emission finished or
@@ -5298,11 +5307,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     // Escalated legs run the slowest work in the system (strong-model
     // thinking + tool loops), and the bridge only covers the first couple of
-    // seconds of it — exactly the dead air the floor-holder exists for.
-    // Re-arm the idle timer (cleared above with the ack): its audible-silence
-    // gating means nothing plays until the bridge audio has fully drained plus
-    // a whole idle interval. Acks stay suppressed post-handoff — the bridge
-    // already served that role.
+    // seconds of it, which is exactly the dead air the floor-holder exists
+    // for. Re-arm the idle timer (cleared above with the ack): its
+    // audible-silence gating means nothing plays until the bridge audio has
+    // fully drained plus a whole idle interval. Acks stay suppressed
+    // post-handoff, since the bridge already served that role.
     if (this.canHoldFloorWhileWorking()) {
       this.armProgressIdleTimer(activeTurn);
     }
@@ -5382,8 +5391,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Arms (or re-arms) the dead-air timer. The countdown measures audible
-  // silence — time since the turn's audio last (estimatedly) reached the
-  // user's ears — not time since launch, so it covers mid-turn silences for
+  // silence (time since the turn's audio last, estimatedly, reached the user's
+  // ears) rather than time since launch, so it covers mid-turn silences for
   // the whole turn. On expiry with audio still pending, or with the silence
   // not yet a full interval old, it re-arms for the remainder; only a full
   // interval of audible silence reaches the floor-holder gatekeeper.
@@ -5426,27 +5435,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return this.progressSilenceSinceMs(turn) + this.floorHolderIntervalMs;
   }
 
-  // Cadence of whichever floor-holder is configured, and so the resolution of
-  // every silence measurement built on the idle tick. The two are paced
+  // Cadence of whichever floor-holder holds this turn, and so the resolution
+  // of every silence measurement built on the idle tick. The two are paced
   // separately on purpose: a tone every few seconds is punctuation, while a
   // sentence every few seconds is the chatter this design exists to remove.
   private get floorHolderIntervalMs(): number {
-    return this.workingCueConfig.enabled
-      ? this.workingCueConfig.intervalMs
-      : this.frontModelConfig.progress.idleIntervalMs;
+    return this.narrationFloorHolder() !== null
+      ? this.frontModelConfig.progress.idleIntervalMs
+      : this.workingCueConfig.intervalMs;
+  }
+
+  // The narrator when spoken narration, rather than the cue, is what a working
+  // turn plays into its silence; null when the cue has the floor.
+  //
+  // `liveVoice.frontModel.progress.enabled` defaults to false, so a true value
+  // can only have come from a workspace explicitly asking to be narrated at,
+  // and that ask outranks the cue's default. The narrator is part of the test:
+  // narration's static phrase is the fallback for a failed generation, not a
+  // substitute for having a narrator at all.
+  private narrationFloorHolder(): VoiceProgressNarrator | null {
+    return this.frontModelConfig.progress.enabled
+      ? this.progressNarrator
+      : null;
   }
 
   // Whether the idle tick has anything to play, and so whether arming it is
-  // worth a timer at all. The cue needs only the TTS path; spoken narration
-  // also needs a narrator to generate from, since its static phrase is what a
-  // failed generation falls back to rather than a substitute for one.
+  // worth a timer at all.
   private canHoldFloorWhileWorking(): boolean {
     if (!this.streamTtsAudio) {
       return false;
     }
     return (
-      this.workingCueConfig.enabled ||
-      (this.frontModelConfig.progress.enabled && this.progressNarrator !== null)
+      this.narrationFloorHolder() !== null || this.workingCueConfig.enabled
     );
   }
 
@@ -5554,27 +5574,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    if (this.workingCueConfig.enabled) {
-      // The cue answers "am I still here", which is a question about silence
-      // and not about tool activity. A tool starting or finishing changes
-      // nothing a wordless tone could carry, so the activity triggers say
-      // nothing and only the idle tick plays it.
-      if (trigger === "idle") {
-        this.playWorkingCue(turn);
+    // Narration first: a workspace that turned it on asked to be told what is
+    // happening, and the cue is what a turn plays when nobody asked for words.
+    const progressNarrator = this.narrationFloorHolder();
+    if (progressNarrator !== null) {
+      if (
+        (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||
+        (trigger === "idle" && !this.progressIdleHasSomethingToSay(turn))
+      ) {
+        return;
       }
+      void this.speakProgressUpdate(turn, progressNarrator, trigger);
       return;
     }
 
-    const progressNarrator = this.progressNarrator;
-    if (
-      !cfg.enabled ||
-      !progressNarrator ||
-      (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||
-      (trigger === "idle" && !this.progressIdleHasSomethingToSay(turn))
-    ) {
-      return;
+    // The cue answers "am I still here", which is a question about silence and
+    // not about tool activity. A tool starting or finishing changes nothing a
+    // wordless tone could carry, so the activity triggers say nothing and only
+    // the idle tick plays it.
+    if (this.workingCueConfig.enabled && trigger === "idle") {
+      this.playWorkingCue(turn);
     }
-    void this.speakProgressUpdate(turn, progressNarrator, trigger);
   }
 
   // Play one working cue into the turn's silence. It holds the floor exactly
@@ -6020,6 +6040,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       text: segment,
       language: options.language,
       blockSeq: options.blockSeq ?? activeTurn.textBlockSeq,
+      nonSpeechCue: false,
       started: false,
       settled: false,
       emitting: false,
@@ -6063,6 +6084,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // The cue belongs to no model text block, so no block-scoped promotion
       // or retraction can reach it.
       blockSeq: NON_BLOCK_TTS_SEQ,
+      // Keeps the tone out of the turn's first-TTS metrics (see the field).
+      nonSpeechCue: true,
       started: true,
       settled: false,
       emitting: false,
@@ -6088,8 +6111,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       frames: Promise.resolve(),
     };
     activeTurn.ttsJobs.push(job);
-    // `ttsSegmentEnqueued` stays where it was: the eager first-clause flush is
-    // for the model's opening words, and a cue must not spend it.
+    // A cue does not spend the eager first-segment latch. `ttsSegmentEnqueued`
+    // gates the eager first-clause flush, which belongs to the model's opening
+    // words: whatever a turn plays into its dead air, its real first segment
+    // still flushes on the opening clause rather than waiting for a full
+    // sentence, so speech onset is as early as it would be without the cue.
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
       .then(() => this.emitTtsJob(token, job));
@@ -6307,8 +6333,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.appendEchoReference(chunk);
       this.assistantPlaybackTailUntilMs =
         Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
+      // Everything above is what a cue is here for: the client hears it, the
+      // canceller learns it was us, and the tail estimate covers it. The
+      // first-TTS latch is where a cue stops, because that mark is the onset
+      // of the turn's speech (see `nonSpeechCue`).
       const turnAfterSend = this.activeAssistantTurn;
-      if (turnAfterSend?.token !== token || turnAfterSend.ttsAudioStarted) {
+      if (
+        job.nonSpeechCue ||
+        turnAfterSend?.token !== token ||
+        turnAfterSend.ttsAudioStarted
+      ) {
         return;
       }
       turnAfterSend.ttsAudioStarted = true;

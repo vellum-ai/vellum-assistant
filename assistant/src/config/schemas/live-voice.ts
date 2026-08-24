@@ -82,7 +82,7 @@ export const LiveVoiceProgressConfigSchema = z
       })
       .default(false)
       .describe(
-        "Speak short progress updates during long-running tool-heavy turns. Off by default: a working turn holds its silence with the wordless liveVoice.workingCue instead, which says the same thing without making a claim the user has to listen to. Turning this on replaces the cue with spoken narration.",
+        "Speak short progress updates during long-running tool-heavy turns. Off by default: a working turn holds its silence with the wordless liveVoice.workingCue instead, which says the same thing without making a claim the user has to listen to. This setting wins over the cue, so turning it on replaces the cue with spoken narration even where liveVoice.workingCue.enabled is also true.",
       ),
     opsThreshold: z
       .number({
@@ -172,13 +172,30 @@ export const LiveVoiceProgressConfigSchema = z
     "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
   );
 
+/**
+ * Ceiling on the cue tone's length. The value is multiplied by the client's
+ * sample rate to size the rendered PCM buffer, so it is an allocation request
+ * arriving from config and reaching `Buffer.alloc` from a timer callback: a
+ * large finite value asks for gigabytes the moment the first cue fires. Two
+ * seconds is far past anything that still reads as punctuation and leaves the
+ * worst case well under a megabyte at any sample rate a client can ask for.
+ */
+const MAX_WORKING_CUE_DURATION_MS = 2_000;
+
+/**
+ * Ceiling on the cue's fundamental. Above the top of human hearing the tone is
+ * inaudible, and above half the session's sample rate it aliases down to some
+ * unrelated pitch, so a value up here is always a mistake rather than a taste.
+ */
+const MAX_WORKING_CUE_FREQUENCY_HZ = 20_000;
+
 export const LiveVoiceWorkingCueConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "liveVoice.workingCue.enabled must be a boolean" })
       .default(true)
       .describe(
-        "Hold a working turn's silence with a short wordless tone; the opt-out for the working cue. Disabling it leaves the turn silent unless liveVoice.frontModel.progress.enabled speaks instead.",
+        "Hold a working turn's silence with a short wordless tone; the opt-out for the working cue. liveVoice.frontModel.progress.enabled wins over this, so a turn plays the cue only where spoken narration is off. Turning both off leaves the working turn silent.",
       ),
     intervalMs: z
       .number({ error: "liveVoice.workingCue.intervalMs must be a number" })
@@ -191,17 +208,25 @@ export const LiveVoiceWorkingCueConfigSchema = z
     frequencyHz: z
       .number({ error: "liveVoice.workingCue.frequencyHz must be a number" })
       .positive("liveVoice.workingCue.frequencyHz must be a positive number")
+      .max(
+        MAX_WORKING_CUE_FREQUENCY_HZ,
+        `liveVoice.workingCue.frequencyHz must be at most ${MAX_WORKING_CUE_FREQUENCY_HZ}`,
+      )
       .default(DEFAULT_WORKING_CUE_SHAPE.frequencyHz)
       .describe(
-        "Fundamental (Hz) of the cue tone. Low reads as a hum under the call, high as a notification chime",
+        `Fundamental (Hz) of the cue tone. Low reads as a hum under the call, high as a notification chime. Capped at ${MAX_WORKING_CUE_FREQUENCY_HZ}, the top of human hearing, above which the tone is either inaudible or aliased into an unrelated pitch`,
       ),
     durationMs: z
       .number({ error: "liveVoice.workingCue.durationMs must be a number" })
       .int("liveVoice.workingCue.durationMs must be an integer")
       .positive("liveVoice.workingCue.durationMs must be a positive integer")
+      .max(
+        MAX_WORKING_CUE_DURATION_MS,
+        `liveVoice.workingCue.durationMs must be at most ${MAX_WORKING_CUE_DURATION_MS}`,
+      )
       .default(DEFAULT_WORKING_CUE_SHAPE.durationMs)
       .describe(
-        "Length (ms) of the cue tone, fades included. Short enough to read as punctuation rather than as audio the user is meant to attend to",
+        `Length (ms) of the cue tone, fades included. Short enough to read as punctuation rather than as audio the user is meant to attend to. Capped at ${MAX_WORKING_CUE_DURATION_MS}: the value sizes the rendered PCM buffer, so an unbounded one is an unbounded allocation from a timer callback`,
       ),
     gain: z
       .number({ error: "liveVoice.workingCue.gain must be a number" })
