@@ -23,7 +23,6 @@ import {
   setLocalNumber,
   watchSetting,
 } from "@/utils/local-settings";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 const DISMISS_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -75,7 +74,6 @@ export function ResourcePressureBannerSlot({
   hidden = false,
 }: ResourcePressureBannerSlotProps) {
   const navigate = useNavigate();
-  const isNativeAndroid = useIsNativeAndroid();
 
   const dismissedUntilKey = assistantId
     ? `vellum:resourcePressureDismissedUntil:${assistantId}`
@@ -208,7 +206,7 @@ export function ResourcePressureBannerSlot({
         key={assistantId ?? "no-assistant"}
         onDismiss={dismiss}
         onUpgrade={
-          assistantStateKind === "active" && !isNativeAndroid
+          assistantStateKind === "active"
             ? () => void navigate(routes.plans)
             : null
         }

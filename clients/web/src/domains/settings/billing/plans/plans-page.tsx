@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import {
   isCleanPin,
   PACKAGE_ORDER,
@@ -75,11 +74,13 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { lowersMachineCeiling } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
@@ -276,6 +277,11 @@ function PlansPageContent() {
     buildPortalReturnSnapshot(subscription),
   );
 
+  // Native Android shows the takeover exactly as iOS does, but every plan CTA
+  // hands off to this same page on the web app instead of starting an in-app
+  // billing flow.
+  const isNativeAndroid = useIsNativeAndroid();
+
   // Pro features lost by downgrading to Free — the confirm dialog lists these.
   const baseFeatureSet = new Set(
     plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ??
@@ -404,6 +410,10 @@ function PlansPageContent() {
     // portal opening) — ignore the click. The CTAs are also disabled; this
     // guards against a race between the click and the disabled re-render.
     if (billingActionPending) {
+      return;
+    }
+    if (isNativeAndroid) {
+      openBillingPathInBrowser(routes.plans);
       return;
     }
     if (isProUser) {
@@ -712,6 +722,10 @@ function PlansPageContent() {
       if (billingActionPending) {
         return;
       }
+      if (isNativeAndroid) {
+        openBillingPathInBrowser(routes.plans);
+        return;
+      }
       // A Pro sub's current tiers load after the page renders; the modal seeds
       // from them, so hold the click until that first load settles (the CTA is
       // also held disabled meanwhile — see `configureDisabled`).
@@ -930,9 +944,5 @@ function PlansPageContent() {
 }
 
 export function PlansPage() {
-  return (
-    <AndroidBillingGate redirectToBilling>
-      <PlansPageContent />
-    </AndroidBillingGate>
-  );
+  return <PlansPageContent />;
 }

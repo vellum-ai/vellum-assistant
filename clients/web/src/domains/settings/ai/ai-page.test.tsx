@@ -131,13 +131,12 @@ describe("EmailServiceCard managed-email gate", () => {
     expect(html).toContain("Register");
   });
 
-  test("native Android shows website guidance without an upgrade action", () => {
+  test("native Android keeps the upgrade action, same as iOS", () => {
     nativeAndroid = true;
     const html = renderCard(makeSubscription(false, "base"));
 
-    expect(html).toContain("Manage your subscription on our website.");
-    expect(html).not.toContain(">Upgrade<");
-    expect(html).not.toContain("/assistant/plans");
+    expect(html).not.toContain("Manage your subscription on our website.");
+    expect(html).toContain(">Upgrade<");
   });
 
   test("Successful payload WITHOUT entitlements is treated as unknown and fails open", () => {
