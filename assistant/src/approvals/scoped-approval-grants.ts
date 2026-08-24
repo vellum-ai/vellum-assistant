@@ -1,14 +1,20 @@
 /**
- * CRUD and atomic consume for scoped approval grants.
+ * CRUD, atomic consume, and peek for scoped approval grants.
  *
- * Grants authorise exactly one tool execution.  Two scope modes exist:
- *   - `request_id`      — grant is bound to a specific pending request
- *   - `tool_signature`  — grant is bound to a tool name + input digest
+ * Scope modes:
+ *   - `request_id`      grant is bound to a specific pending request
+ *   - `tool_signature`  grant is bound to a tool name + input digest
+ *   - `contact_tool`    standing grant bound to a requester + tool name
+ *
+ * `request_id` and `tool_signature` authorise exactly one tool execution
+ * (CAS: active -> consumed). `contact_tool` is peeked and left active so
+ * later matching invocations from that requester can reuse it.
  *
  * Invariants:
- *   - At most one successful consume per grant (CAS: active -> consumed).
+ *   - At most one successful consume per consumable grant.
  *   - Matching requires all non-null scope fields to match exactly.
- *   - Expired and revoked grants cannot be consumed.
+ *   - Expired and revoked grants cannot be consumed or peeked.
+ *   - `contact_tool` peek requires an exact requesterExternalUserId match.
  */
 
 import { and, eq, sql } from "drizzle-orm";
@@ -25,7 +31,7 @@ const log = getLogger("scoped-approval-grants");
 // Types
 // ---------------------------------------------------------------------------
 
-export type ScopeMode = "request_id" | "tool_signature";
+export type ScopeMode = "request_id" | "tool_signature" | "contact_tool";
 export type GrantStatus = "active" | "consumed" | "expired" | "revoked";
 
 export interface ScopedApprovalGrant {
@@ -541,11 +547,163 @@ export function revokeScopedApprovalGrantsForContext(
   return count;
 }
 
-// @internal — exposed for tests and the approval-primitive wrapper only.
+// ---------------------------------------------------------------------------
+// Peek contact_tool (does not consume)
+// ---------------------------------------------------------------------------
+
+export interface PeekContactToolGrantParams {
+  toolName: string;
+  requesterExternalUserId: string;
+  now?: number;
+}
+
+/**
+ * Look up an active contact_tool grant without changing its status.
+ * toolName and requesterExternalUserId must match exactly.
+ */
+function peekContactToolGrant(
+  params: PeekContactToolGrantParams,
+): ScopedApprovalGrant | null {
+  const db = getDb();
+  const currentTime = params.now ?? Date.now();
+
+  const row = db
+    .select()
+    .from(scopedApprovalGrants)
+    .where(
+      and(
+        eq(scopedApprovalGrants.scopeMode, "contact_tool"),
+        eq(scopedApprovalGrants.status, "active"),
+        eq(scopedApprovalGrants.toolName, params.toolName),
+        eq(
+          scopedApprovalGrants.requesterExternalUserId,
+          params.requesterExternalUserId,
+        ),
+        sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
+      ),
+    )
+    .limit(1)
+    .get();
+
+  if (!row) {
+    return null;
+  }
+
+  log.info(
+    {
+      event: "scoped_grant_peek_hit",
+      grantId: row.id,
+      scopeMode: "contact_tool",
+      toolName: params.toolName,
+      requesterExternalUserId: params.requesterExternalUserId,
+    },
+    "Active contact_tool grant peeked",
+  );
+
+  return rowToGrant(row);
+}
+
+function findActiveContactToolGrant(params: {
+  toolName: string;
+  requesterExternalUserId: string;
+  now?: number;
+}): ScopedApprovalGrant | null {
+  return peekContactToolGrant(params);
+}
+
+function hasActiveContactToolGrant(params: {
+  toolName: string;
+  requesterExternalUserIds: string[];
+  now?: number;
+}): boolean {
+  if (params.requesterExternalUserIds.length === 0) {
+    return false;
+  }
+  const db = getDb();
+  const currentTime = params.now ?? Date.now();
+  for (const requesterExternalUserId of params.requesterExternalUserIds) {
+    const row = db
+      .select({ id: scopedApprovalGrants.id })
+      .from(scopedApprovalGrants)
+      .where(
+        and(
+          eq(scopedApprovalGrants.scopeMode, "contact_tool"),
+          eq(scopedApprovalGrants.status, "active"),
+          eq(scopedApprovalGrants.toolName, params.toolName),
+          eq(
+            scopedApprovalGrants.requesterExternalUserId,
+            requesterExternalUserId,
+          ),
+          sql`${scopedApprovalGrants.expiresAt} > ${currentTime}`,
+        ),
+      )
+      .limit(1)
+      .get();
+    if (row) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function revokeContactToolGrants(
+  requesterExternalUserIds: string[],
+  toolName: string,
+  now?: number,
+): number {
+  if (requesterExternalUserIds.length === 0) {
+    return 0;
+  }
+
+  const db = getDb();
+  const currentTime = now ?? Date.now();
+  let count = 0;
+
+  for (const requesterExternalUserId of requesterExternalUserIds) {
+    db.update(scopedApprovalGrants)
+      .set({
+        status: "revoked",
+        updatedAt: currentTime,
+      })
+      .where(
+        and(
+          eq(scopedApprovalGrants.status, "active"),
+          eq(scopedApprovalGrants.scopeMode, "contact_tool"),
+          eq(scopedApprovalGrants.toolName, toolName),
+          eq(
+            scopedApprovalGrants.requesterExternalUserId,
+            requesterExternalUserId,
+          ),
+        ),
+      )
+      .run();
+    count += rawChanges();
+  }
+
+  if (count > 0) {
+    log.info(
+      {
+        event: "scoped_grant_revoked",
+        count,
+        scopeMode: "contact_tool",
+        toolName,
+      },
+      `Revoked ${count} contact_tool grant(s)`,
+    );
+  }
+
+  return count;
+}
+
+// @internal. Exposed for tests and the approval-primitive wrapper only.
 // Do not import these from production code outside this package; use the
 // approval-primitive API instead.
 export const _internal = {
   createScopedApprovalGrant,
   consumeScopedApprovalGrantByRequestId,
   consumeScopedApprovalGrantByToolSignature,
+  peekContactToolGrant,
+  findActiveContactToolGrant,
+  hasActiveContactToolGrant,
+  revokeContactToolGrants,
 };

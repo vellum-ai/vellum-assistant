@@ -5926,6 +5926,147 @@ paths:
                   - ok
                   - contact
                 additionalProperties: false
+  /v1/contacts/{id}/workspace-commands:
+    get:
+      operationId: contacts_by_id_workspacecommands_get
+      summary: Get workspace commands for a contact
+      description: Whether this trusted contact may run workspace shell commands without a per-command approval.
+      tags:
+        - contacts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contactId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - contactId
+                  - enabled
+                additionalProperties: false
+    put:
+      operationId: contacts_by_id_workspacecommands_put
+      summary: Set workspace commands for a contact
+      description:
+        Enable or disable standing workspace shell access for a trusted contact. High-risk commands still require
+        approval.
+      tags:
+        - contacts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contactId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - contactId
+                  - enabled
+                additionalProperties: false
+  /v1/contacts/cli/workspace-commands/get:
+    post:
+      operationId: contacts_cli_workspacecommands_get_post
+      summary: Get workspace commands for a contact (CLI)
+      description: Look up standing workspace-command access by contact ID.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contactId:
+                  type: string
+              required:
+                - contactId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contactId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - contactId
+                  - enabled
+                additionalProperties: false
+  /v1/contacts/cli/workspace-commands/set:
+    post:
+      operationId: contacts_cli_workspacecommands_set_post
+      summary: Set workspace commands for a contact (CLI)
+      description: Enable or disable standing workspace-command access by contact ID.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contactId:
+                  type: string
+                enabled:
+                  type: boolean
+              required:
+                - contactId
+                - enabled
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contactId:
+                    type: string
+                  enabled:
+                    type: boolean
+                required:
+                  - contactId
+                  - enabled
+                additionalProperties: false
   /v1/contacts/invites:
     get:
       operationId: contacts_invites_get

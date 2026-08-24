@@ -603,4 +603,55 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
     // Should return nearly instantly — no retry loop
     expect(elapsed).toBeLessThan(100);
   });
+
+  test("mints a contact_tool grant when requesterExternalUserId and toolName are set", () => {
+    const result = mintGrantFromDecision(
+      mintParams({
+        scopeMode: "contact_tool",
+        toolName: "bash",
+        requesterExternalUserId: "U12345678",
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.grant.scopeMode).toBe("contact_tool");
+    expect(result.grant.requesterExternalUserId).toBe("U12345678");
+  });
+
+  test("rejects contact_tool scope when requesterExternalUserId is missing", () => {
+    const result = mintGrantFromDecision(
+      mintParams({
+        scopeMode: "contact_tool",
+        toolName: "bash",
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe("missing_contact_fields");
+  });
+
+  test("consumeGrantForInvocation does not treat a contact_tool grant as a one-shot consume", async () => {
+    mintGrantFromDecision(
+      mintParams({
+        scopeMode: "contact_tool",
+        toolName: "bash",
+        requesterExternalUserId: "U12345678",
+      }),
+    );
+
+    const result = await consumeGrantForInvocation(
+      {
+        toolName: "bash",
+        inputDigest: "sha256:first",
+        consumingRequestId: "c1",
+        requesterExternalUserId: "U12345678",
+      },
+      { maxWaitMs: 0 },
+    );
+    expect(result.ok).toBe(false);
+  });
 });

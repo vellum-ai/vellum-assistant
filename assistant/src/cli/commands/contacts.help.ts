@@ -18,6 +18,7 @@ is the source of truth for identity resolution across all channels.
 Examples:
   $ assistant contacts list
   $ assistant contacts get abc-123
+  $ assistant contacts workspace-commands allow abc-123
   $ assistant contacts invites list`,
   subcommands: [
     {
@@ -127,6 +128,62 @@ address (phone number, email, Telegram ID, etc.). The address is saved with
 status "unverified". Verification is a separate step.
 
 Run \`assistant contacts prompt --help\` for full option details.`,
+    },
+    {
+      name: "workspace-commands",
+      description:
+        "Allow a trusted contact to run workspace shell commands without per-command approval",
+      helpText: `
+Standing access for one trusted contact to run workspace shell commands
+(sandbox bash) in their conversations without a per-command approval.
+High-risk commands still require guardian approval. host_bash is never
+covered.
+
+Find the contact ID with 'assistant contacts list' or
+'assistant contacts list --channel-address <id>'.
+
+Examples:
+  $ assistant contacts workspace-commands get abc-123
+  $ assistant contacts workspace-commands allow abc-123
+  $ assistant contacts workspace-commands deny abc-123`,
+      subcommands: [
+        {
+          name: "get",
+          args: "<contactId>",
+          description: "Show whether workspace commands are allowed",
+          helpText: `
+Arguments:
+  contactId   Contact ID. Run 'assistant contacts list' to find it.
+
+Examples:
+  $ assistant contacts workspace-commands get abc-123
+  $ assistant contacts workspace-commands get abc-123 --json`,
+        },
+        {
+          name: "allow",
+          args: "<contactId>",
+          description:
+            "Allow this contact to run workspace commands without per-command approval",
+          helpText: `
+Writes a standing grant so this trusted contact can run workspace shell
+commands in their conversations without paging the owner for each command.
+High-risk commands still require approval.
+
+Examples:
+  $ assistant contacts workspace-commands allow abc-123`,
+        },
+        {
+          name: "deny",
+          args: "<contactId>",
+          description: "Revoke standing workspace-command access",
+          helpText: `
+Revokes standing workspace-command access for this contact. They will
+need guardian approval again for sandbox bash.
+
+Examples:
+  $ assistant contacts workspace-commands deny abc-123`,
+        },
+      ],
     },
     {
       name: "channels",

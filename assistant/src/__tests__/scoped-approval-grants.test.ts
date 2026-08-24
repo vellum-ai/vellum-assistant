@@ -547,3 +547,86 @@ describe("tool-approval-digest", () => {
     expect(d1).toBe(d2);
   });
 });
+
+describe("scoped-approval-grants / contact_tool scope", () => {
+  beforeEach(() => clearTables());
+
+  const {
+    peekContactToolGrant,
+    hasActiveContactToolGrant,
+    revokeContactToolGrants,
+  } = _internal;
+
+  test("peek matches an active grant and does not consume it", () => {
+    const grant = createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "contact_tool",
+        toolName: "bash",
+        requesterExternalUserId: "U12345678",
+      }),
+    );
+
+    const first = peekContactToolGrant({
+      toolName: "bash",
+      requesterExternalUserId: "U12345678",
+    });
+    expect(first?.id).toBe(grant.id);
+    expect(first?.status).toBe("active");
+
+    const second = peekContactToolGrant({
+      toolName: "bash",
+      requesterExternalUserId: "U12345678",
+    });
+    expect(second?.id).toBe(grant.id);
+    expect(second?.status).toBe("active");
+  });
+
+  test("peek does not match a different requester or tool", () => {
+    createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "contact_tool",
+        toolName: "bash",
+        requesterExternalUserId: "U12345678",
+      }),
+    );
+
+    expect(
+      peekContactToolGrant({
+        toolName: "bash",
+        requesterExternalUserId: "U99999999",
+      }),
+    ).toBeNull();
+    expect(
+      peekContactToolGrant({
+        toolName: "host_bash",
+        requesterExternalUserId: "U12345678",
+      }),
+    ).toBeNull();
+  });
+
+  test("revokeContactToolGrants revokes only contact_tool rows", () => {
+    createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "contact_tool",
+        toolName: "bash",
+        requesterExternalUserId: "U12345678",
+      }),
+    );
+    createScopedApprovalGrant(
+      grantParams({
+        scopeMode: "tool_signature",
+        toolName: "bash",
+        inputDigest: "sha256:keep",
+        requesterExternalUserId: "U12345678",
+      }),
+    );
+
+    expect(revokeContactToolGrants(["U12345678"], "bash")).toBe(1);
+    expect(
+      hasActiveContactToolGrant({
+        toolName: "bash",
+        requesterExternalUserIds: ["U12345678"],
+      }),
+    ).toBe(false);
+  });
+});

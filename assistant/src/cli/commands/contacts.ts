@@ -309,6 +309,77 @@ export function registerContactsCommand(program: Command): void {
       );
 
       // -----------------------------------------------------------------------
+      // workspace-commands
+      // -----------------------------------------------------------------------
+
+      const workspaceCommands = subcommand(contacts, "workspace-commands");
+
+      const runWorkspaceCommands = async (
+        action: "get" | "allow" | "deny",
+        contactIdArg: string | undefined,
+        cmd: Command,
+      ): Promise<void> => {
+        const contactId = contactIdArg?.trim();
+        if (!contactId) {
+          writeError(
+            cmd,
+            "Provide a contact ID. Run 'assistant contacts list' to find IDs.",
+          );
+          process.exitCode = 1;
+          return;
+        }
+
+        type WorkspaceCommandsResult = {
+          contactId: string;
+          enabled: boolean;
+        };
+
+        const result =
+          action === "get"
+            ? await cliIpcCall<WorkspaceCommandsResult>(
+                "contact_workspace_commands_get_cli",
+                { body: { contactId } },
+              )
+            : await cliIpcCall<WorkspaceCommandsResult>(
+                "contact_workspace_commands_set_cli",
+                { body: { contactId, enabled: action === "allow" } },
+              );
+
+        if (!result.ok) {
+          return exitFromIpcResult(
+            result as { ok: false; error?: string; statusCode?: number },
+            cmd,
+          );
+        }
+
+        const payload = result.result!;
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, ...payload });
+          return;
+        }
+        const state = payload.enabled ? "allowed" : "denied";
+        process.stdout.write(
+          `Workspace commands for this contact are ${state} (${payload.contactId}).\n`,
+        );
+      };
+
+      subcommand(workspaceCommands, "get").action(
+        async (contactId: string | undefined, _opts: unknown, cmd: Command) => {
+          await runWorkspaceCommands("get", contactId, cmd);
+        },
+      );
+      subcommand(workspaceCommands, "allow").action(
+        async (contactId: string | undefined, _opts: unknown, cmd: Command) => {
+          await runWorkspaceCommands("allow", contactId, cmd);
+        },
+      );
+      subcommand(workspaceCommands, "deny").action(
+        async (contactId: string | undefined, _opts: unknown, cmd: Command) => {
+          await runWorkspaceCommands("deny", contactId, cmd);
+        },
+      );
+
+      // -----------------------------------------------------------------------
       // channels
       // -----------------------------------------------------------------------
 

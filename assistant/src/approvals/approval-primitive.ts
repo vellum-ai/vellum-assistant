@@ -15,6 +15,7 @@ import {
   _internal,
   type ConsumeByRequestIdResult,
   type ConsumeByToolSignatureResult,
+  type ScopeMode,
   type ScopedApprovalGrant,
 } from "./scoped-approval-grants.js";
 
@@ -22,6 +23,7 @@ const {
   createScopedApprovalGrant,
   consumeScopedApprovalGrantByRequestId,
   consumeScopedApprovalGrantByToolSignature,
+  peekContactToolGrant,
 } = _internal;
 import { getLogger } from "../util/logger.js";
 
@@ -32,7 +34,7 @@ const log = getLogger("approval-primitive");
 // ---------------------------------------------------------------------------
 
 export interface MintGrantParams {
-  scopeMode: "request_id" | "tool_signature";
+  scopeMode: ScopeMode;
   requestId?: string | null;
   toolName?: string | null;
   inputDigest?: string | null;
@@ -50,7 +52,11 @@ type MintGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
   | {
       ok: false;
-      reason: "missing_request_id" | "missing_tool_fields" | "storage_error";
+      reason:
+        | "missing_request_id"
+        | "missing_tool_fields"
+        | "missing_contact_fields"
+        | "storage_error";
       error?: unknown;
     };
 
@@ -61,6 +67,7 @@ type MintGrantResult =
  * storage layer:
  *   - `request_id` scope requires a non-null `requestId`.
  *   - `tool_signature` scope requires both `toolName` and `inputDigest`.
+ *   - `contact_tool` scope requires both `toolName` and `requesterExternalUserId`.
  *
  * Returns a discriminated result so callers can inspect failure reasons
  * without catching exceptions.
@@ -100,6 +107,24 @@ export function mintGrantFromDecision(
       "Mint rejected: tool_signature scope requires both toolName and inputDigest",
     );
     return { ok: false, reason: "missing_tool_fields" };
+  }
+
+  if (
+    params.scopeMode === "contact_tool" &&
+    (!params.toolName || !params.requesterExternalUserId)
+  ) {
+    log.warn(
+      {
+        event: "approval_primitive_mint_rejected",
+        reason: "missing_contact_fields",
+        scopeMode: params.scopeMode,
+        toolName: params.toolName ?? null,
+        requestChannel: params.requestChannel,
+        decisionChannel: params.decisionChannel,
+      },
+      "Mint rejected: contact_tool scope requires both toolName and requesterExternalUserId",
+    );
+    return { ok: false, reason: "missing_contact_fields" };
   }
 
   try {
@@ -270,6 +295,14 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
   );
 
   return { ok: false, reason: "no_match" };
+}
+
+export function peekContactToolGrantForInvocation(params: {
+  toolName: string;
+  requesterExternalUserId: string;
+  now?: number;
+}): ScopedApprovalGrant | null {
+  return peekContactToolGrant(params);
 }
 
 // ---------------------------------------------------------------------------

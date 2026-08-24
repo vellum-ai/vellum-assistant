@@ -44,6 +44,7 @@ import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
+import { ROUTES as CONTACT_WORKSPACE_COMMANDS_ROUTES } from "./contact-workspace-commands-routes.js";
 import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
@@ -193,6 +194,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
   ...CONTACT_ROUTES,
+  ...CONTACT_WORKSPACE_COMMANDS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_CLI_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
