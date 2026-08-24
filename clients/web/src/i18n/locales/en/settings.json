@@ -805,8 +805,8 @@
     "valueAriaLabel": "{label} value"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "You'll be taken to Stripe to cancel your subscription.",
-    "bodyWithFeatures": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
+    "bodyCancelOnly": "Your subscription will be canceled at the end of your current billing period. You'll keep Pro access until then.",
+    "bodyWithFeatures": "Downgrading removes the following Pro features. Your subscription will be canceled at the end of your current billing period.",
     "cancel": "Cancel",
     "confirm": "Downgrade to Base",
     "title": "Downgrade to Base?"
@@ -2097,6 +2097,11 @@
   },
   "useBillingPortalSession": {
     "openError": "Couldn't open the billing portal. Please try again."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "Couldn't cancel your subscription. Please try again.",
+    "canceledToast": "Pro plan canceled. You'll have access until {date}.",
+    "endOfBillingPeriod": "the end of your billing period"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",

@@ -805,8 +805,8 @@
     "valueAriaLabel": "Valor de {label}"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "Se te llevará a Stripe para cancelar tu suscripción.",
-    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
+    "bodyCancelOnly": "Tu suscripción se cancelará al final de tu período de facturación actual. Mantendrás el acceso Pro hasta entonces.",
+    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Tu suscripción se cancelará al final de tu período de facturación actual.",
     "cancel": "Cancelar",
     "confirm": "Bajar a Base",
     "title": "¿Bajar a Base?"
@@ -2097,6 +2097,11 @@
   },
   "useBillingPortalSession": {
     "openError": "No se pudo abrir el portal de facturación. Inténtalo de nuevo."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "No se pudo cancelar tu suscripción. Inténtalo de nuevo.",
+    "canceledToast": "Plan Pro cancelado. Tendrás acceso hasta {date}.",
+    "endOfBillingPeriod": "el final de tu período de facturación"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",

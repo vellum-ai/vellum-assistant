@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
 import { currentPlanFeatures } from "@/domains/settings/billing/plan-spec";
+import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -94,7 +95,11 @@ function AdjustPlanModalContent({
     organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
+  // The portal is still where "Keep your Plan" reactivates a pending
+  // cancellation; the cancellation itself posts the cancel endpoint directly.
   const portalMutation = useBillingPortalSession(portalSnapshot);
+  const { cancelSubscription, isPending: cancelPending } =
+    useCancelSubscription();
   const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
   const [tierDowngradeOpen, setTierDowngradeOpen] = useState(false);
   const [selectedMachineTier, setSelectedMachineTier] =
@@ -325,12 +330,18 @@ function AdjustPlanModalContent({
     );
   };
 
-  const handleConfirmDowngrade = () => {
-    if (portalMutation.isPending) {
+  // Success returns to the plans view, where the invalidated subscription
+  // read now shows "Your plan ends on ..." and the Keep-plan CTA; failure
+  // stays on the confirm step so the user can retry (the hook already
+  // toasted).
+  const handleConfirmDowngrade = async () => {
+    if (cancelPending) {
       return;
     }
-    setView("plans");
-    portalMutation.mutate({});
+    const result = await cancelSubscription();
+    if (result) {
+      setView("plans");
+    }
   };
 
   const invalidateBillingQueries = () => {
@@ -584,15 +595,15 @@ function AdjustPlanModalContent({
                 <Button
                   variant="ghost"
                   onClick={() => setView("plans")}
-                  disabled={portalMutation.isPending}
+                  disabled={cancelPending}
                   leftIcon={<ArrowLeft className="h-4 w-4" />}
                 >
                   {t("adjustPlanModal.back")}
                 </Button>
                 <Button
                   variant="danger"
-                  onClick={handleConfirmDowngrade}
-                  disabled={portalMutation.isPending}
+                  onClick={() => void handleConfirmDowngrade()}
+                  disabled={cancelPending}
                   data-testid="confirm-downgrade-button"
                 >
                   {t("adjustPlanModal.confirmDowngrade")}

@@ -805,8 +805,8 @@
     "valueAriaLabel": "Значение {label}"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "Перенаправление в Stripe, чтобы отменить подписку.",
-    "bodyWithFeatures": "При понижении пропадут эти функции Pro. Перенаправление в Stripe, чтобы отменить подписку.",
+    "bodyCancelOnly": "Подписка будет отменена в конце текущего расчётного периода. Доступ Pro сохранится до этого момента.",
+    "bodyWithFeatures": "При понижении пропадут эти функции Pro. Подписка будет отменена в конце текущего расчётного периода.",
     "cancel": "Отмена",
     "confirm": "Перейти на Base",
     "title": "Перейти на Base?"
@@ -2097,6 +2097,11 @@
   },
   "useBillingPortalSession": {
     "openError": "Не удалось открыть портал оплаты. Повторите попытку."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "Не удалось отменить подписку. Повторите попытку.",
+    "canceledToast": "План Pro отменён. Доступ сохранится до {date}.",
+    "endOfBillingPeriod": "конца расчётного периода"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Ассистент не готов. Повторите попытку.",

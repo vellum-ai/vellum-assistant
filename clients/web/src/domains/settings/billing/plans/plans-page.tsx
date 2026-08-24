@@ -52,10 +52,7 @@ import {
   formatDollars,
   priceLabelFromCents,
 } from "@/domains/settings/components/tier-pricing";
-import {
-  buildPortalReturnSnapshot,
-  useBillingPortalSession,
-} from "@/domains/settings/hooks/use-billing-portal-session";
+import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
@@ -274,13 +271,12 @@ function PlansPageContent() {
         ? subscription.package.key
         : null;
 
-  // Pro → Free is a cancellation: after a confirm step it opens the Stripe
-  // billing portal (the same destination as the adjust-plan modal's "Downgrade
-  // to Base") so the user can cancel there. Snapshot the pre-redirect state for
-  // the post-return toast.
-  const portalMutation = useBillingPortalSession(
-    buildPortalReturnSnapshot(subscription),
-  );
+  // Pro to Free is a cancellation: after a confirm step it posts the
+  // subscription-cancel endpoint (the same action as the adjust-plan modal's
+  // "Downgrade to Base"), which schedules the sub to end at the period
+  // boundary. No Stripe portal round-trip.
+  const { cancelSubscription, isPending: cancelPending } =
+    useCancelSubscription();
 
   // Native Android shows the takeover exactly as iOS does, but every plan CTA
   // hands off to this same page on the web app instead of starting an in-app
@@ -296,11 +292,11 @@ function PlansPageContent() {
     (f) => !baseFeatureSet.has(f),
   );
 
-  // Any billing action in flight — a checkout, a package switch, or the Stripe
-  // portal opening — disables every plan CTA (and Configure) so a second click
+  // Any billing action in flight (a checkout, a package switch, or a
+  // cancellation) disables every plan CTA (and Configure) so a second click
   // can't start a competing billing operation before the first resolves.
   const billingActionPending =
-    pending || changePackagePending || portalMutation.isPending;
+    pending || changePackagePending || cancelPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -412,7 +408,7 @@ function PlansPageContent() {
       return;
     }
     // A billing action is already in flight (checkout / package switch /
-    // portal opening) — ignore the click. The CTAs are also disabled; this
+    // cancellation): ignore the click. The CTAs are also disabled; this
     // guards against a race between the click and the disabled re-render.
     if (billingActionPending) {
       return;
@@ -423,11 +419,11 @@ function PlansPageContent() {
     }
     if (isProUser) {
       if (tierKey === "free") {
-        // Pro → Free is a subscription cancellation, not a package switch.
-        // Confirm first (which Pro features are lost), then open the Stripe
-        // billing portal — the same destination as the adjust-plan modal's
-        // "Downgrade to Base" — where the user actually cancels. The
-        // package-only change-package endpoint 400s on non-package keys.
+        // Pro to Free is a subscription cancellation, not a package switch.
+        // Confirm first (which Pro features are lost), then post the
+        // subscription-cancel endpoint, the same action as the adjust-plan
+        // modal's "Downgrade to Base". The package-only change-package
+        // endpoint 400s on non-package keys.
         setFreeDowngradeOpen(true);
         return;
       }
@@ -581,11 +577,14 @@ function PlansPageContent() {
       ? customCurrentSummary(current, proPlan)
       : undefined;
 
-    // Confirmed Pro → Free cancellation: close the confirm and hand off to the
-    // Stripe billing portal, where the actual cancellation happens.
-    const confirmFreeDowngrade = () => {
-      setFreeDowngradeOpen(false);
-      portalMutation.mutate({});
+    // Confirmed Pro → Free cancellation: schedule it server-side. Success
+    // closes the confirm (the hook's toast names the end date); failure keeps
+    // it open for a retry (the hook already toasted the error).
+    const confirmFreeDowngrade = async () => {
+      const result = await cancelSubscription();
+      if (result) {
+        setFreeDowngradeOpen(false);
+      }
     };
 
     /**
@@ -870,9 +869,9 @@ function PlansPageContent() {
         <FreeDowngradeConfirmModal
           open={freeDowngradeOpen}
           lostFeatures={freeDowngradeLostFeatures}
-          pending={portalMutation.isPending}
+          pending={cancelPending}
           onCancel={() => setFreeDowngradeOpen(false)}
-          onConfirm={confirmFreeDowngrade}
+          onConfirm={() => void confirmFreeDowngrade()}
         />
 
         <BillingOnboardingModal
