@@ -260,7 +260,12 @@ describe("secret routes managed proxy registry sync", () => {
     expect(providerRefreshCalls).toBe(2);
   });
 
+  /**
+   * Verifies that rotating a credential refreshes providers for dependent connections.
+   */
   test("non-managed credentials refresh providers when a connection uses them", async () => {
+    // GIVEN a non-managed credential.
+    // AND a provider connection references its canonical credential key.
     const now = Date.now();
     getDb()
       .insert(providerConnections)
@@ -276,14 +281,23 @@ describe("secret routes managed proxy registry sync", () => {
       })
       .run();
 
+    // WHEN the credential is rotated.
     await addCredential("openrouter:api_key", "openrouter-key");
 
+    // THEN the provider refresh runs once.
     expect(providerRefreshCalls).toBe(1);
   });
 
+  /**
+   * Verifies that rotating an unused credential does not refresh providers.
+   */
   test("non-managed credentials do not refresh providers when no connection uses them", async () => {
+    // GIVEN a non-managed credential.
+    // AND no provider connection references its credential key.
+    // WHEN the credential is rotated.
     await addCredential("openrouter:api_key", "openrouter-key");
 
+    // THEN the provider refresh does not run.
     expect(providerRefreshCalls).toBe(0);
   });
 
