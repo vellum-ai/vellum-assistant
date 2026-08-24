@@ -994,6 +994,32 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     expect((err as ConflictError).message).toContain("my-profile");
   });
 
+  test("throws 409 for an explicit reference to a self-named connection", async () => {
+    seedConnection({
+      name: "anthropic",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    setConfig("llm", {
+      profiles: {
+        pinned: {
+          provider: "connection:anthropic",
+          model: "claude-opus-4-8",
+        },
+      },
+    });
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic" } },
+    ).catch((error: unknown) => error);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["pinned"],
+    });
+  });
+
   test("throws 404 (not 409) when a profile references a missing connection", async () => {
     // Stale ref in config: a profile points at a connection that was
     // already deleted. Delete on the dangling name must return 404 so

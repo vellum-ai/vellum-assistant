@@ -166,6 +166,24 @@ describe("POST inference/profiles (create) validation", () => {
     expect(result.entry.model).toBe("claude-opus-4-8");
   });
 
+  test("stores an exact self-named connection without changing conventional provider meaning", async () => {
+    seedConnection("anthropic", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "pinned-anthropic",
+        provider: "anthropic",
+        connection: "anthropic",
+        model: "claude-opus-4-8",
+      },
+    })) as { entry: Record<string, unknown> };
+
+    expect(result.entry.provider).toBe("connection:anthropic");
+    expect(result.entry.provider_connection).toBeUndefined();
+  });
+
   test("rejects an entry-backed profile whose model the row's kind cannot serve", async () => {
     seedConnection("anthropic-work", "anthropic", {
       type: "api_key",

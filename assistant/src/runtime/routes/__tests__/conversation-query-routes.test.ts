@@ -852,7 +852,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("openai");
+    expect(savedProfile.provider).toBe("openai-personal");
+    expect(savedProfile.provider_connection).toBeUndefined();
     expect(savedProfile.model).toBe("gpt-5.5");
     // Write normalization completes the entry against llm.default (schema
     // defaults here — the fixture has none), so UI-cleared fields land as
@@ -928,7 +929,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.provider_connection).toBe("personal-openai");
   });
 
-  test("auto-derives provider_connection when omitted from body (Any active)", async () => {
+  test("stores the managed route in provider when the connection picker is omitted", async () => {
     // Start from a clean connection slate — provider_connections persists
     // across tests in this file, so a leaked openai-personal would otherwise
     // win the derivation.
@@ -968,7 +969,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     // No personal openai connection exists, so the route auto-derives the
     // single Vellum-managed connection for this managed-routable provider.
-    expect(savedProfile.provider_connection).toBe("vellum");
+    expect(savedProfile.provider).toBe("vellum");
+    expect(savedProfile.provider_connection).toBeUndefined();
   });
 
   test("Any active derivation skips orphaned legacy *-managed rows", async () => {
@@ -997,10 +999,11 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
-    expect(savedProfile.provider_connection).toBe("vellum");
+    expect(savedProfile.provider).toBe("vellum");
+    expect(savedProfile.provider_connection).toBeUndefined();
   });
 
-  test("auto-derives provider_connection for BYOK provider (Any active)", async () => {
+  test("stores an exact colliding BYOK entry as an explicit provider reference", async () => {
     // Seed a fireworks connection in the DB.
     createConnection(getDb(), {
       name: "fireworks",
@@ -1023,11 +1026,11 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("fireworks");
-    expect(savedProfile.provider_connection).toBe("fireworks");
+    expect(savedProfile.provider).toBe("connection:fireworks");
+    expect(savedProfile.provider_connection).toBeUndefined();
   });
 
-  test("auto-creates provider_connection when no connection exists for provider", async () => {
+  test("auto-creates and stores a non-colliding entry reference", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
@@ -1043,8 +1046,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("openrouter");
-    expect(savedProfile.provider_connection).toBe("openrouter-personal");
+    expect(savedProfile.provider).toBe("openrouter-personal");
+    expect(savedProfile.provider_connection).toBeUndefined();
 
     const conn = getConnection(getDb(), "openrouter-personal");
     expect(conn).not.toBeNull();
@@ -1073,9 +1076,9 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("minimax");
+    expect(savedProfile.provider).toBe("minimax-personal");
     expect(savedProfile.model).toBe("MiniMax-M2.7");
-    expect(savedProfile.provider_connection).toBe("minimax-personal");
+    expect(savedProfile.provider_connection).toBeUndefined();
 
     const conn = getConnection(getDb(), "minimax-personal");
     expect(conn).not.toBeNull();

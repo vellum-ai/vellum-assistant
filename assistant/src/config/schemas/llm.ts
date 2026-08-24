@@ -598,10 +598,10 @@ export const ProfileEntry = LLMConfigFragment.extend({
   label: z.string().min(1).nullable().optional(),
   description: z.string().optional(),
   /**
-   * Name of a `provider_connections` row to use for this profile.
-   * The dispatcher resolves auth from this connection; the legacy `provider`
-   * and `source` fields remain as read-only deprecated fallbacks for profiles
-   * not yet backfilled by the boot-time migration.
+   * Legacy exact-connection reference. Current writers store the route in
+   * `provider` as a routing identity or entry reference. This field remains a
+   * read fallback for profiles whose two routing facts could not be collapsed
+   * without changing behavior.
    */
   provider_connection: z.string().min(1).optional(),
   /**

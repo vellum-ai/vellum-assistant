@@ -44,6 +44,7 @@ import {
   testInferenceConnection,
 } from "../../providers/inference/endpoint-probe.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import { connectionNameFromProfileProviderReference } from "../../providers/profile-provider-reference.js";
 import {
   isVellumManagedConnection,
   VELLUM_MANAGED_PROVIDER,
@@ -659,7 +660,9 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       const entry = p as Record<string, unknown>;
       return (
         entry.provider_connection === name ||
-        (nameIsEntryName && entry.provider === name)
+        (nameIsEntryName && entry.provider === name) ||
+        (typeof entry.provider === "string" &&
+          connectionNameFromProfileProviderReference(entry.provider) === name)
       );
     })
     .map(([profileName]) => profileName);

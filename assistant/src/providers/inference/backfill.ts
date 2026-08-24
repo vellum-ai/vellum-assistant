@@ -1,14 +1,15 @@
 /**
- * Boot-time backfill: migrates existing config.json from the legacy
- * `provider` + `source` model to the new `provider_connection` model.
+ * Boot-time connection-row repair and route canonicalization.
  *
  * Walks three locations in `llm.*` on every boot:
  *   - `llm.default`           — the legacy raw base blob still present in older configs
  *   - `llm.profiles.*`        — named alternate profiles (fast/balanced/...)
  *   - `llm.callSites.*`       — per-call-site overrides with bare `provider`
  *
- * Idempotent: any object that already has `provider_connection` is skipped.
- * Only modifies config.json when at least one location needs updating.
+ * Named profiles store an exact choice in `provider` as an entry reference.
+ * The legacy default blob and call-site fragments retain their compatibility
+ * `provider_connection` field. Only modifies config.json when a location needs
+ * repair.
  *
  * The `default` and `callSites` walks were added alongside Phase 1.1 of the
  * post-v1 inference-providers cleanup: dispatch now throws on missing
@@ -23,10 +24,12 @@ import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
+import { profileProviderForConnection } from "../profile-provider-reference.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
 import {
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
 import {
   createConnection,
@@ -51,7 +54,8 @@ const log = getLogger("provider-connections-backfill");
  *   1. Upsert canonical connections.
  *   2. Walk `llm.default`, `llm.profiles.*`, `llm.callSites.*` in config.json.
  *   3. For each entry without `provider_connection`, derive one from the
- *      entry's `provider` field + the global inference mode and write it back.
+ *      entry's `provider` field + the global inference mode. Named profiles
+ *      fold the result into `provider`; legacy locations keep the old field.
  *   4. Save config.json if any entry was updated.
  */
 export function runProviderConnectionsBackfill(db: DrizzleDb): void {
@@ -99,6 +103,14 @@ function backfillConfigProfiles(db: DrizzleDb): void {
         continue;
       }
       if (ensureProviderConnection(profile, profileName, db, globalMode)) {
+        const connectionName = profile.provider_connection;
+        if (typeof connectionName === "string") {
+          profile.provider =
+            connectionName === VELLUM_MANAGED_CONNECTION_NAME
+              ? "vellum"
+              : profileProviderForConnection(connectionName);
+          delete profile.provider_connection;
+        }
         profiles[profileName] = profile;
         changed = true;
       }
@@ -176,6 +188,13 @@ function ensureProviderConnection(
 
   const provider = entry.provider as string | undefined;
   if (!provider) {
+    return false;
+  }
+
+  // A non-vendor provider is already an entry reference. Its row owns the
+  // provider kind, so deriving a second connection from the label would
+  // create a bogus `<entry>-personal` row and reintroduce two routing axes.
+  if (!VALID_CONNECTION_PROVIDERS.includes(provider)) {
     return false;
   }
 
