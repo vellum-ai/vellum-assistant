@@ -8,7 +8,7 @@ import {
 describe("liveVoiceSilenceReason", () => {
   it("blames the transport when the session never went active", () => {
     // Nothing after `ready` can be held against a session that never got
-    // there — the user had no chance to speak.
+    // there: the user had no chance to speak.
     expect(
       liveVoiceSilenceReason({
         reachedActive: false,

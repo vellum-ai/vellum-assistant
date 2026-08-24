@@ -1863,7 +1863,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private async handleAudio(chunk: Buffer): Promise<void> {
     // Both transports funnel through here, and this runs before any of the
-    // early returns below — the question it answers is "did the microphone ever
+    // early returns below. The question it answers is "did the microphone ever
     // open", which a chunk arriving at all settles regardless of what the
     // session then does with it.
     this.receivedAudio = true;
@@ -4771,7 +4771,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // end event carries a silence classification, and the dashboard decides
       // silence from persisted turn rows instead. Setting it after would let a
       // dispatch that persisted a turn and then threw stamp "this session was
-      // silent" onto a session that has turns — a contradictory row. Setting it
+      // silent" onto a session that has turns, a contradictory row. Setting it
       // before can at worst leave a silent session unexplained, which is a gap
       // rather than a false statement.
       this.dispatchedTurn = true;

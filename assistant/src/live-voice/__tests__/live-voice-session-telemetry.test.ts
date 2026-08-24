@@ -149,7 +149,7 @@ describe("live-voice session telemetry", () => {
 
     // These sessions reach `ready` and are closed without ever sending audio,
     // so they are silent by construction and the reason says which layer
-    // stopped short — see `telemetry/live-voice-funnel.ts`.
+    // stopped short. See `telemetry/live-voice-funnel.ts`.
     expect(recordLiveVoiceSessionEnded).toHaveBeenCalledWith({
       sessionId: "session-123",
       screen: "ended_client_end:silent_no_audio",

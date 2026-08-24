@@ -62,21 +62,20 @@ export type LiveVoiceSessionOutcome = "completed" | "failed";
  *
  * A quarter of live-voice sessions end without a single turn, at a median of a
  * few seconds. That is the closest thing the telemetry has to a "voice didn't
- * work for me" rate, and until now it was unactionable: the rows said only that
- * the session connected and closed, which cannot separate a denied microphone
- * from a muted one from someone deliberately backing out. Those have completely
- * different fixes.
+ * work for me" rate, and a bare connect/close row cannot separate a denied
+ * microphone from a muted one from someone deliberately backing out. Those have
+ * completely different fixes, so the reason is what makes the rate actionable.
  *
  * The four values are ordered by how far the session got, and each one narrows
  * the cause to a different layer:
  *
- * - `no_ready`  never reached `active` — died in the credential preflight or
+ * - `no_ready`  never reached `active`: died in the credential preflight or
  *               the transport, before the user could have said anything.
- * - `no_audio`  reached `active` but not one audio chunk ever arrived — the
+ * - `no_audio`  reached `active` but not one audio chunk ever arrived, so the
  *               microphone never opened. Permission denial looks like this.
  * - `no_speech` audio arrived but the detector never classified any of it as
- *               speech — a muted or dead mic, or a genuinely silent user.
- * - `no_turn`   speech was detected but no turn was ever dispatched — the
+ *               speech: a muted or dead mic, or a genuinely silent user.
+ * - `no_turn`   speech was detected but no turn was ever dispatched, so the
  *               utterance was abandoned, aborted, or failed to arm.
  */
 export type LiveVoiceSilenceReason =
@@ -87,7 +86,7 @@ export type LiveVoiceSilenceReason =
 
 /**
  * Classify a zero-turn session from what the session observed. Call only when
- * the session really produced no turn — every branch here asserts silence, so a
+ * the session really produced no turn: every branch here asserts silence, so a
  * session that did dispatch a turn would be mislabelled by the last one.
  */
 export function liveVoiceSilenceReason(signals: {
@@ -109,8 +108,8 @@ export function liveVoiceSilenceReason(signals: {
 
 /**
  * The `screen` dimension for an ended session: how it closed, plus a detail
- * half — the protocol error code when a failure closed it, or the silence
- * classification when the session produced no turn at all.
+ * half. That detail is the protocol error code when a failure closed it, or the
+ * silence classification when the session produced no turn at all.
  *
  * Every part is the daemon's own vocabulary verbatim
  * (`LiveVoiceSessionCloseReason`, `LiveVoiceProtocolErrorCode`,
@@ -125,7 +124,7 @@ export function liveVoiceSilenceReason(signals: {
  *
  * The silence value carries a `silent_` prefix on purpose. It shares the detail
  * slot with failure codes, and the admin dashboard currently renders that slot
- * in a column labelled "failure code" — so the value has to read correctly even
+ * in a column labelled "failure code", so the value has to read correctly even
  * where the column header is wrong, until that panel learns the difference.
  */
 export function liveVoiceEndScreen(
