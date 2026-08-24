@@ -1,11 +1,14 @@
 /**
  * Tests for the payment-method-saved follow-ups.
  *
- * usePaymentMethodSavedPoll: the returned callback resolves as soon as the
- * refetched config reports a payment method whose
- * `stripe_payment_method_updated_at` advanced past the pre-call cache value,
- * and keeps polling while the marker is unchanged (webhook not landed yet).
- * The 20s timeout path is not exercised here; it would need real time.
+ * usePaymentMethodSavedPoll: Stripe has already confirmed the save when the
+ * callback runs, so it flips the cached config to `has_payment_method: true`
+ * up front, then resolves as soon as a refetch reports a payment method
+ * whose `stripe_payment_method_updated_at` advanced past the pre-call cache
+ * value. While the marker is unchanged (webhook not landed yet) it keeps
+ * polling without writing the pre-webhook "no card" responses into the
+ * cache, so the flipped config stays visible. The 20s timeout path is not
+ * exercised here; it would need real time.
  *
  * usePaymentMethodSavedSync: confirms the SetupIntent server-side and seeds
  * the config cache from the response, falling back to the poll when the
@@ -81,9 +84,16 @@ function makeWrapper(client: QueryClient) {
 
 function setup(cached: AutoTopUpConfigResponse) {
   const client = makeClient(cached);
-  return renderHook(() => usePaymentMethodSavedPoll(), {
+  const rendered = renderHook(() => usePaymentMethodSavedPoll(), {
     wrapper: makeWrapper(client),
   });
+  return { ...rendered, client };
+}
+
+function cachedConfig(client: QueryClient): AutoTopUpConfigResponse | undefined {
+  return client.getQueryData<AutoTopUpConfigResponse>(
+    organizationsBillingAutoTopUpRetrieveQueryKey(),
+  );
 }
 
 function setupSync(cached: AutoTopUpConfigResponse) {
@@ -134,6 +144,67 @@ describe("usePaymentMethodSavedPoll", () => {
 
     expect(retrieveCalls).toBe(1);
   });
+
+  test("flips the cached config to a saved card before the webhook lands", async () => {
+    retrieveResponses = [makeConfig("2026-08-19T00:00:01Z", true)];
+    const { result, client } = setup(makeConfig(null, false));
+
+    const done = result.current();
+
+    // The flip lands right after in-flight fetches are cancelled, ahead of
+    // the first poll response resolving.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cachedConfig(client)?.has_payment_method).toBe(true);
+    await done;
+  });
+
+  test("a pre-webhook response does not clobber the flipped config", async () => {
+    retrieveResponses = [
+      makeConfig(null, false),
+      makeConfig("2026-08-19T00:00:01Z", true),
+    ];
+    const { result, client } = setup(makeConfig(null, false));
+
+    const done = result.current();
+    // Let the first (pre-webhook, still no card) response come back and be
+    // examined; the cache must keep showing the saved card through it.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(cachedConfig(client)?.has_payment_method).toBe(true);
+
+    await done;
+
+    expect(retrieveCalls).toBe(2);
+    expect(cachedConfig(client)).toEqual(
+      makeConfig("2026-08-19T00:00:01Z", true),
+    );
+  }, 10_000);
+
+  test("flips back when an observer refetch writes pre-webhook data over it", async () => {
+    retrieveResponses = [
+      makeConfig(null, false),
+      makeConfig("2026-08-19T00:00:01Z", true),
+    ];
+    const { result, client } = setup(makeConfig(null, false));
+
+    const done = result.current();
+    // Let the first (still no card) poll response come back; the poll is now
+    // waiting for its next attempt.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Simulate a focus/reconnect refetch landing the server's pre-webhook
+    // config over the flip; the cache subscription restores it.
+    client.setQueryData(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+      makeConfig(null, false),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cachedConfig(client)?.has_payment_method).toBe(true);
+
+    await done;
+    expect(cachedConfig(client)).toEqual(
+      makeConfig("2026-08-19T00:00:01Z", true),
+    );
+  }, 10_000);
 });
 
 describe("usePaymentMethodSavedSync", () => {

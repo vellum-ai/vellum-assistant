@@ -28,7 +28,9 @@ export {
   ChannelReplyPayloadSchema,
   MessageAudienceSchema,
   PermissionRequestDetailsSchema,
-  SlackStreamOpSchema,
+  StreamOpSchema,
+  StreamPlanSchema,
+  StreamPlanStepSchema,
   SlackStreamTaskSchema,
 } from "./outbound-contract.js";
 
@@ -40,7 +42,9 @@ export type {
   ChannelReplyPayload,
   MessageAudience,
   PermissionRequestDetails,
-  SlackStreamOp,
+  StreamOp,
+  StreamPlan,
+  StreamPlanStep,
   SlackStreamTask,
 } from "./outbound-contract.js";
 
