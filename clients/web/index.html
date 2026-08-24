@@ -85,9 +85,84 @@
   <meta name="twitter:image:alt" content="Vellum: Your Personal Intelligence" />
 
   <script src="/theme-init.js"></script>
+
+  <!--
+    Boot splash styles.
+
+    The app stylesheet is part of the module graph the splash exists to cover,
+    so nothing here can read a token: the colors are the resolved values of
+    `--surface-base` and `--content-tertiary` from
+    `packages/design-library/src/tokens.css`, light block and dark block.
+
+    Two dark selectors, because there are two ways to be dark before the app
+    runs. `theme-init.js` (above) stamps `data-theme="dark"` synchronously and
+    maps velvet onto it, which covers every launch that has a stored theme or a
+    working `matchMedia`. The media query covers the case it cannot: a document
+    that reached paint before the attribute landed, or with the script blocked.
+    It is written against `:not([data-theme="light"])` so an explicit light
+    choice still wins on a dark OS.
+  -->
+  <style>
+    #boot-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #F6F5F4;
+      color: #71808E;
+    }
+
+    #boot-splash svg {
+      animation: boot-splash-spin 1s linear infinite;
+    }
+
+    @keyframes boot-splash-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #boot-splash svg { animation: none; }
+    }
+
+    :root[data-theme="dark"] #boot-splash {
+      background: #17191C;
+      color: #8D99A5;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) #boot-splash {
+        background: #17191C;
+        color: #8D99A5;
+      }
+    }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
+  <!--
+    The splash lives inside #root on purpose: `createRoot(...).render()` clears
+    the container on mount, so React replacing it is the handoff. Mirrors
+    `RootHydrateFallback` (24px lucide Loader2 arc, content-tertiary) so the
+    spinner the WebView shows during the bundle download is the same one the
+    router shows once it is running.
+  -->
+  <div id="root">
+    <div id="boot-splash" role="status" aria-label="Loading">
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+      </svg>
+    </div>
+  </div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>
