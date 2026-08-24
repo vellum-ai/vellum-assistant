@@ -37,9 +37,9 @@ type SocketHealth = {
 /**
  * Every channel the socket-health reader was asked about, in order.
  *
- * The reader takes the channel as an argument and one function now serves
- * every socket-backed channel, so a probe naming the wrong one would report a
- * different channel's connection as its own and no type would notice.
+ * The reader takes the channel as an argument and one function serves every
+ * socket-backed channel, so a probe naming the wrong one reports a different
+ * channel's connection as its own and no type notices.
  */
 let askedChannels: string[];
 let socketHealth: SocketHealth | Error;

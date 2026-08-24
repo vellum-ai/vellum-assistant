@@ -772,7 +772,13 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in Voice, Telegram, Email, WhatsApp, and Slack probes registered. */
+/**
+ * A service with every built-in probe registered.
+ *
+ * The registrations below are the list; naming them here as well gives the set
+ * a second home that drifts the moment a channel is added, which is what it
+ * did.
+ */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(voiceProbe);
