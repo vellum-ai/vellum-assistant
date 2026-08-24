@@ -22,7 +22,6 @@ import { z } from "zod";
 import {
   type AppPin,
   listAppPins,
-  pruneAppPins,
   removeAppPin,
   updateAppPin,
 } from "../../apps/app-pin-store.js";
@@ -858,6 +857,11 @@ function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   assertNotPluginApp(appId, "delete a plugin app");
   deleteApp(appId);
+  /* `deleteApp` cannot do this itself: it is filesystem-level and runs where no
+     migrated database exists. A deletion that skips this (the `app_delete`
+     tool, a plugin uninstall) leaves a row behind, which is inert rather than
+     wrong: `handleListApps` builds from the apps that exist, so a pin without
+     one is never returned and never renders. */
   removeAppPin(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
@@ -890,10 +894,6 @@ function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
   if (pinned === true && !existing.includes(appId)) {
     throw new NotFoundError(`App not found: ${appId}`);
   }
-  /* Reconcile while the live set is already in hand. Deletions that cannot
-     clear their own pin (the `app_delete` tool, a plugin uninstall, a directory
-     removed by hand) leave a row the list hides but nothing collects. */
-  pruneAppPins(existing);
   const pin = updateAppPin(appId, {
     ...(pinned === undefined ? {} : { pinned: pinned as boolean }),
     ...(color === undefined ? {} : { color: color as string | null }),
