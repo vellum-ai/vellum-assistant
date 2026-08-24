@@ -48,9 +48,13 @@ export function parseRequestBodyData(
   if (contentType !== undefined && !isJsonContentType(contentType)) {
     return raw;
   }
+  let parsed: unknown;
   try {
-    return JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
     return raw;
   }
+  // A JSON string scalar ("hello") would be indistinguishable from a raw
+  // body once unquoted, so the original quoted text is kept as the wire form.
+  return typeof parsed === "string" ? raw : parsed;
 }

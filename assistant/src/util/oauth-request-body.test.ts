@@ -66,4 +66,9 @@ describe("parseRequestBodyData", () => {
   test("keeps unparseable text raw when no Content-Type is given", () => {
     expect(parseRequestBodyData("a=1&b=2", undefined)).toBe("a=1&b=2");
   });
+
+  test("keeps a JSON string scalar in its quoted wire form", () => {
+    expect(parseRequestBodyData('"hello"', "application/json")).toBe('"hello"');
+    expect(parseRequestBodyData('"hello"', undefined)).toBe('"hello"');
+  });
 });
