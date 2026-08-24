@@ -1,11 +1,10 @@
 /**
  * Hand the browser's old pinned-app list to the daemon, once per assistant.
  *
- * Pins used to live in a single `vellum:pinnedApps` key for the whole browser
- * profile, shared by every assistant. That is the defect this migration exists
- * to clean up, and it makes the stored list a union of pins from every
- * assistant the user ever opened, with nothing in it saying which pin belonged
- * to which.
+ * The `vellum:pinnedApps` key holds one list for the whole browser profile,
+ * shared by every assistant. That is the defect this migration exists to clean
+ * up, and it makes the stored list a union of pins from every assistant the
+ * user has opened, with nothing in it saying which pin belongs to which.
  *
  * The app list is the discriminator that splits the union back apart: an id is
  * this assistant's only if this assistant has an app with that id. So each

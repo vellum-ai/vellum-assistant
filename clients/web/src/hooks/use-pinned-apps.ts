@@ -9,7 +9,7 @@
  * live name and icon, and an app that no longer exists brings no pin with it.
  *
  * Against a daemon too old to store pins, this falls back wholesale to the
- * browser-local list it used to keep (`utils/app-pin-storage.ts`, legacy). The
+ * browser-local list in `utils/app-pin-storage.ts` (legacy). The
  * two paths are alternatives, not layers: one of them owns every pin for the
  * session, and each handles workspace and plugin apps alike. Which one is in
  * play is {@link PinnedApps.source}. See {@link useSupportsDaemonAppPins}.
