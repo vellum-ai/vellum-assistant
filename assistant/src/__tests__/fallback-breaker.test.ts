@@ -196,6 +196,21 @@ function transient(status = 503): ProviderError {
   });
 }
 
+/**
+ * A mid-stream corruption: the upstream accepted the request and streamed, so
+ * the error carries no HTTP status. `retryAfterMs` is a test convenience only,
+ * standing in for a Retry-After header this shape would not really carry, so a
+ * retry budget can be counted without sitting through real backoff.
+ */
+function corruptedStream(): ProviderError {
+  return new ProviderError(
+    "stream ended without producing a message",
+    UPSTREAM,
+    undefined,
+    { retryAfterMs: 0 },
+  );
+}
+
 function makeRoute(provider: Provider): {
   resolveFallbackRoute: (
     failedOptions: SendMessageOptions | undefined,
@@ -953,17 +968,14 @@ describe("the backup's retry budget", () => {
 // ── What a failed probe is allowed to conclude ──────────────────────────────
 
 describe("recovery probe verdicts", () => {
-  test("a probe that fails with a corrupted stream does not extend the outage", async () => {
+  test("a probe that fails with a corrupted stream closes the breaker and still completes the turn", async () => {
     // Every stream-corruption pattern requires an absent HTTP status, which
     // means the upstream accepted the request, returned 200, and streamed. The
     // failure is in the bytes it produced, not in its ability to serve, so it
-    // is evidence the primary is healthy.
-    const corrupted = new ProviderError(
-      "stream ended without producing a message",
-      UPSTREAM,
-      undefined,
-    );
-    const primary = primaryProvider(() => corrupted);
+    // is evidence the primary is healthy. The verdict must not cost the request
+    // that established it: this is exactly the failure the main loop repairs by
+    // resending, so the probe hands the request back to that loop.
+    const primary = primaryProvider(() => corruptedStream());
     const backup = backupProvider();
     const route = makeRoute(backup.provider);
     const wrapped = new RetryProvider(primary.provider, {
@@ -971,16 +983,47 @@ describe("recovery probe verdicts", () => {
     });
     recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
 
-    const thrown = await captureError(
-      wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } }),
-    );
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
 
-    expect(thrown).toBe(corrupted);
-    expect(primary.calls()).toBe(1);
+    // The turn completed on the route the probe just cleared.
+    expect(result.model).toBe("primary-model");
+    expect(primary.calls()).toBe(2);
     expect(backup.calls()).toBe(0);
     // The breaker closed rather than re-tripping with a doubled cooldown, so
     // the next request takes the primary and gets its full retry budget.
     expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(false);
+  });
+
+  test("a corrupted-stream probe leaves the request the budget it would have had without probing", async () => {
+    // The probe's send counts as this request's first attempt, so continuing
+    // into the retry loop must not hand it a wider budget than everyone else.
+    // Four sends total, then the backup as the loop's ordinary last resort, so
+    // the turn still finishes even when the primary never stops corrupting.
+    const primary = primaryProvider(
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(result.model).toBe("backup-model");
+    // A backup that had to serve is proof the route is down after all, so the
+    // breaker is remembered again on the way out.
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
   });
 
   test("a probe repairs malformed tool arguments instead of reporting an outage", async () => {
@@ -1035,7 +1078,10 @@ describe("recovery probe verdicts", () => {
       config: { callSite: "mainAgent" },
     });
 
+    // Exactly one attempt on a route just judged down: the request goes
+    // straight to the backup rather than spending a retry budget on it.
     expect(primary.calls()).toBe(1);
+    expect(backup.calls()).toBe(1);
     expect(result.model).toBe("backup-model");
     expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
   });
@@ -1059,6 +1105,9 @@ describe("recovery probe verdicts", () => {
     });
 
     expect(result.model).toBe("backup-model");
+    // No extra attempts on the primary either: an outage verdict fails fast
+    // into the backup instead of continuing into the retry loop.
+    expect(primary.calls()).toBe(1);
     expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
     // A failed probe doubles the wait, so the re-trip lands above the base.
     expectWithinJitterBand(

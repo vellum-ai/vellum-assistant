@@ -1286,6 +1286,12 @@ export class RetryProvider implements Provider {
         // back. Malformed tool-argument JSON gets the same corrective note the
         // retry loop appends, because that failure is conditioned on the
         // request rather than the route.
+        //
+        // The probe ends the moment it reports a verdict. What happens to the
+        // request that carried it then depends on that verdict: an outage sends
+        // it to the backup, and a recovery hands it back to the ordinary retry
+        // loop below, which is now the right place for it because the route it
+        // just cleared is the one that loop sends to.
         while (true) {
           try {
             const response = await this.inner.sendMessage(
@@ -1371,7 +1377,30 @@ export class RetryProvider implements Provider {
             );
             this.attributeCredential(error);
             if (!outage) {
-              throw error;
+              // The route answered, the breaker is closed, and this request is
+              // an ordinary request again. A deterministic rejection (a plain
+              // 400, a classified 404, a context overflow) is the route's real
+              // answer and no resend changes it, so it surfaces as itself.
+              if (!isRetryableError(error)) {
+                throw error;
+              }
+              // Anything still standing here is the stream-corruption family
+              // the exclusion above lets through: exactly the failure the main
+              // loop repairs by resending, against a route that was just
+              // cleared. Throwing it would sacrifice the request that carried
+              // the probe to establish a verdict every LATER request gets to
+              // use, so it falls through into the ordinary loop instead. That
+              // loop also keeps the backup as its last resort, so a primary
+              // that streams corruption all the way through still finishes the
+              // turn somewhere.
+              //
+              // The probe's send WAS this request's first attempt, so the loop
+              // starts one attempt in. Total sends on the primary stay at
+              // `DEFAULT_MAX_RETRIES + 1`, exactly what a request that never
+              // probed would get, which is what keeps this from quietly
+              // becoming a wider budget than everyone else's.
+              retryAttempt = 1;
+              break;
             }
             fallbackAttempted = true;
             const served = await this.sendOnFallbackRoute(
