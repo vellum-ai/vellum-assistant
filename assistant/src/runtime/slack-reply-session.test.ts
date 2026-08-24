@@ -902,6 +902,7 @@ describe("createSlackReplySession", () => {
       {
         action: "append",
         streamId: "stream-ts-1",
+        text: "On it, starting now.",
         plan: {
           steps: [
             { label: "Search docs", status: "in_progress" },
