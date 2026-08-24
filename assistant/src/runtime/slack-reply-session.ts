@@ -399,7 +399,7 @@ export function createSlackReplySession(params: {
   };
 
   const observeTaskProgressToolResult = (msg: AssistantEvent): void => {
-    // guard:allow-tool-result-only — this reads `AssistantEvent`, not the
+    // guard:allow-tool-result-only. This reads `AssistantEvent`, not the
     // provider content blocks the guard protects. `web_search_tool_result` is
     // a block type in conversation history and never an event, so no result
     // can be dropped here by omitting it.
@@ -427,7 +427,7 @@ export function createSlackReplySession(params: {
       if (msg.type === "tool_use_start") {
         observeTaskProgressToolStart(msg);
       }
-      // guard:allow-tool-result-only — same reason as the handler above: this
+      // guard:allow-tool-result-only. Same reason as the handler above: this
       // is the event union, where `web_search_tool_result` does not exist.
       if (msg.type === "tool_result") {
         observeTaskProgressToolResult(msg);
