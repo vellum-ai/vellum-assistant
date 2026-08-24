@@ -55,6 +55,8 @@ const {
 } = await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { reconcileMaterializedDrafts } =
+  await import("@/domains/chat/hooks/use-materialized-draft-reconcile");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -2372,7 +2374,7 @@ describe("draft materialization", () => {
     });
   }
 
-  /** The frame the daemon sends as it dispatches a turn. */
+  /** The frame the daemon sends as a turn begins, ahead of any row. */
   async function emitThinking(h: ReturnType<typeof renderController>) {
     await act(async () => {
       h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
@@ -2380,41 +2382,46 @@ describe("draft materialization", () => {
     });
   }
 
-  test("a dispatched turn stops the started conversation being a draft", async () => {
+  test("a dispatched turn whose row reaches the list stops being a draft", async () => {
     // The composer's voice button starts on whatever key it is bound to, and a
     // new chat's key is a client-minted draft, so this covers that route as
     // much as the deep-link drain's freshly minted one.
     useConversationStore.getState().registerDraftConversationId("conv-draft");
     const h = renderController();
     await startOn(h, "conv-draft");
-    // `ready` is not the row: the daemon mints it on the first dispatch.
+    await emitThinking(h);
+    // The frame alone is a promise of a turn, not a row.
     expect(isDraft("conv-draft")).toBe(true);
 
-    await emitThinking(h);
+    reconcileMaterializedDrafts(["conv-draft"]);
 
     expect(isDraft("conv-draft")).toBe(false);
   });
 
-  test("a session that produces no turn leaves the draft intact", async () => {
+  test("a turn cancelled before its row exists leaves the draft intact", async () => {
     useConversationStore.getState().registerDraftConversationId("conv-draft");
     const h = renderController();
     await startOn(h, "conv-draft");
+    await emitThinking(h);
 
     await act(async () => {
       await h.view.result.current.stop();
     });
+    // Cancellation means the turn never dispatched, so no row was written and
+    // every list the client sees from here holds only what existed before.
+    reconcileMaterializedDrafts(["conv-unrelated"]);
 
-    // Nothing was said, so nothing exists server-side to stop being a draft.
     expect(isDraft("conv-draft")).toBe(true);
   });
 
-  test("a turn clears only the conversation its own session started on", async () => {
+  test("a materialized row clears only its own key", async () => {
     useConversationStore.getState().registerDraftConversationId("conv-draft");
     useConversationStore.getState().registerDraftConversationId("conv-other");
     const h = renderController();
     await startOn(h, "conv-draft");
-
     await emitThinking(h);
+
+    reconcileMaterializedDrafts(["conv-draft"]);
 
     expect(isDraft("conv-draft")).toBe(false);
     expect(isDraft("conv-other")).toBe(true);

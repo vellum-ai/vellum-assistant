@@ -99,7 +99,6 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import {
   interruptSensitivityToMs,
   useVoicePrefsStore,
@@ -903,26 +902,13 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
-          // Dispatching the first turn is what mints the conversation row
-          // server-side (`defaultStartVoiceTurn` ensures it exists before
-          // persisting the user message, then publishes the conversation-list
-          // invalidation), so a client-minted key stops being a draft here,
-          // exactly as a text send stops being one once its POST returns. Not
-          // on `ready`: a session that opens and never speaks leaves no row, so
-          // clearing at start would strand a key naming nothing. Not on
-          // `archived`: audio archiving is off by default, so that frame
-          // usually never arrives. Both entry points pass through, the
-          // composer's voice button (bound to whatever conversation is on
-          // screen, drafts included) and the deep-link drain's own mint.
-          // The start-time key, not the id `ready` republished: the daemon
-          // adopts the client's verbatim, and an id it picked for itself was
-          // never a draft. Clearing a non-draft is a no-op, so the repeat on
-          // later turns is free.
-          if (conversationId !== undefined) {
-            useConversationStore
-              .getState()
-              .clearDraftConversationId(conversationId);
-          }
+          // No draft bookkeeping here. `thinking` is sent before the turn is
+          // dispatched and the session can still return early on cancellation,
+          // so the row this frame promises may never be written. The draft mark
+          // is cleared where the row is confirmed instead, by
+          // `useMaterializedDraftReconcile` against the fetched conversation
+          // list.
+          //
           // New response: reset the per-response transcript and barge-in flags.
           session.responseEpoch += 1;
           session.responseAudioStarted = false;

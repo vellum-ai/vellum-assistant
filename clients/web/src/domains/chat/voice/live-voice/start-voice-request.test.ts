@@ -211,9 +211,9 @@ describe("starting a session", () => {
   });
 
   test("a start binds to a conversation of its own, never the one the app was left on", async () => {
-    // The regression this guards: reading the store's selection attached the
-    // call to whatever thread the user was last in, which for a widget button
-    // or a Siri shortcut is an unrelated conversation from another day.
+    // The store's selection is wherever the user was last, which for a widget
+    // button or a Siri shortcut is an unrelated conversation from another day.
+    // An externally initiated start must never reuse it.
     identityHydrated();
     registerStarter();
 
