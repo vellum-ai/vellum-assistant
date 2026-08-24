@@ -115,10 +115,7 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
     id: "discord",
     label: "Discord",
     subtitle: "Message your assistant from Discord",
-    // Discord names its text channels the way Slack does, so the metaphor is
-    // the same one. The two share the glyph until the icon vocabulary grows a
-    // mark for each; the label is what tells them apart in a list.
-    icon: "hash",
+    icon: "discord",
     // Verification needs nothing channel-specific here. The inbound intercept
     // that matches a code takes the source channel as data, Discord inbound
     // reaches it through the same `handleInbound` every channel uses, and a

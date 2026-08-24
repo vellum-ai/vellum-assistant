@@ -9,6 +9,7 @@ import {
   Phone,
   Send,
 } from "lucide-react";
+import { DiscordLogo } from "@/components/icons/discord-logo";
 import type { CSSProperties } from "react";
 import { useState } from "react";
 
@@ -163,6 +164,11 @@ function ChannelIcon({
       return <Mail className={className} style={style} />;
     case "message-square":
       return <MessageSquare className={className} style={style} />;
+    case "discord":
+      // Sized explicitly as well as by class: this one draws its own svg
+      // dimensions, where the lucide icons above take theirs from the class
+      // alone.
+      return <DiscordLogo size={16} className={className} style={style} />;
     default:
       return <HelpCircle className={className} style={style} />;
   }

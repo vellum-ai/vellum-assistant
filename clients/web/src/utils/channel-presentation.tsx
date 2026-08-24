@@ -38,6 +38,7 @@ import type { AssistantChannelState } from "@/types/channel-types";
 const CHANNEL_LABELS: Record<string, string> = {
   slack: "Slack",
   telegram: "Telegram",
+  discord: "Discord",
   whatsapp: "WhatsApp",
   phone: "Phone",
   email: "Email",
@@ -48,6 +49,9 @@ const CHANNEL_ICONS: Record<string, LucideIcon> = {
   // Slack has a brand SVG used in the header; this `#` glyph is its
   // Lucide stand-in for compact surfaces (sidebar section, footer fallback).
   slack: Hash,
+  // Discord names its text channels the way Slack does, so it borrows the same
+  // stand-in here. The brand mark is used where a surface has room for one.
+  discord: Hash,
   telegram: Send,
   whatsapp: MessageCircle,
   phone: Phone,

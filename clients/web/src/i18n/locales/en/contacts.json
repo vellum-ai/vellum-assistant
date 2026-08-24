@@ -22,7 +22,8 @@
     "whatsapp": "WhatsApp",
     "a2a": "A2A",
     "phone": "Phone",
-    "email": "Email"
+    "email": "Email",
+    "discord": "Discord"
   },
   "contact": {
     "nameLabel": "Name",
