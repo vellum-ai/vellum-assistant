@@ -215,13 +215,13 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
 
 Phone access is a channel trust floor, separate from Twilio credentials. Credentials decide whether calls can reach the assistant. The floor decides **who** is allowed to talk once a call arrives.
 
-| Floor               | Who can talk                                                                              |
-| ------------------- | ----------------------------------------------------------------------------------------- |
-| **No one**          | Nobody, including you. Inbound calls are rejected.                                        |
-| **Only you**        | Only the verified owner.                                                                  |
+| Floor                           | Who can talk                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **No one**                      | Nobody, including you. Inbound calls are rejected.                                                     |
+| **Only you**                    | Only the verified owner.                                                                               |
 | **Verified contacts** (default) | You and people you have verified. Everyone else is asked to identify themselves, and you are notified. |
-| **Any contact**     | You and any known contact, including unverified ones. Strangers still request access.     |
-| **Strangers**       | Anyone who dials the number, including complete strangers.                                |
+| **Any contact**                 | You and any known contact, including unverified ones. Strangers still request access.                  |
+| **Strangers**                   | Anyone who dials the number, including complete strangers.                                             |
 
 The control lives on the **Channels** page. Select **Phone** (it must be connected) and use **Who can message**. Only the guardian can change this setting. Point them there; do not treat this as a webhook or ingress repair.
 
