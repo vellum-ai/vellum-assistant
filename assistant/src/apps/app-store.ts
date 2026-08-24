@@ -41,7 +41,6 @@ import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
-import { removeAppPin } from "./app-pin-store.js";
 
 const log = getLogger("app-store");
 
@@ -1022,10 +1021,6 @@ export function deleteApp(id: string): void {
   }
   rmSync(appDir, { recursive: true, force: true });
   invalidateDirNameCache(id);
-  /* Every deletion path goes through here: the HTTP route and the `app_delete`
-     tool both land on this function, and a pin left behind would come back as a
-     sidebar row if the id were ever reused. */
-  removeAppPin(id);
 }
 
 export function createAppRecord(

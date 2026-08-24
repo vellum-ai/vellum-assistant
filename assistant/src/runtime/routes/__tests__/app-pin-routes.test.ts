@@ -209,19 +209,43 @@ describe("apps_pin", () => {
   });
 });
 
-describe("apps_delete", () => {
-  /* The invariant lives in `deleteApp`, not in this route, because the
-     `app_delete` tool deletes through the same function without passing here.
-     Asserted against that function directly so a future caller is covered too. */
-  test("deleting through the store clears the pin, route or not", async () => {
-    const appId = makeApp("Tool deleted");
-    await pin(appId, { pinned: true });
+/*
+ * `deleteApp` is filesystem-level and runs where no migrated database exists,
+ * so it cannot clear a pin itself. Deletions that bypass the route (the
+ * `app_delete` tool, a plugin uninstall, a directory removed by hand) therefore
+ * leave a row behind, and the next pin write is what collects it.
+ */
+describe("orphan reconcile", () => {
+  test("a pin write clears pins whose app is gone", async () => {
+    const survivor = makeApp("Survivor");
+    const doomed = makeApp("Doomed");
+    await pin(survivor, { pinned: true });
+    await pin(doomed, { pinned: true });
 
-    deleteApp(appId);
+    deleteApp(doomed);
+    expect(listAppPins().map((entry) => entry.appId)).toEqual([
+      survivor,
+      doomed,
+    ]);
 
-    expect(listAppPins()).toEqual([]);
+    await pin(survivor, { color: "teal" });
+
+    expect(listAppPins().map((entry) => entry.appId)).toEqual([survivor]);
   });
 
+  test("leaves pins whose app still exists", async () => {
+    const first = makeApp("First");
+    const second = makeApp("Second");
+    await pin(first, { pinned: true });
+    await pin(second, { pinned: true });
+
+    await pin(first, { color: "teal" });
+
+    expect(listAppPins().map((entry) => entry.appId)).toEqual([first, second]);
+  });
+});
+
+describe("apps_delete", () => {
   test("takes the deleted app's pin with it", async () => {
     const appId = makeApp("Deleted");
     await pin(appId, { pinned: true });

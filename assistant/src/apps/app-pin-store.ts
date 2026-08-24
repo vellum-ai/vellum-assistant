@@ -123,3 +123,22 @@ export function updateAppPin(
 export function removeAppPin(appId: string): void {
   getDb().delete(appPins).where(eq(appPins.appId, appId)).run();
 }
+
+/**
+ * Drop pins whose app no longer exists, and report how many went.
+ *
+ * The list join already hides such a row, so this is bookkeeping rather than
+ * correctness. It exists because not every deletion path can clear a pin
+ * itself: `deleteApp` is filesystem-level and runs where no migrated database
+ * exists, and an app can also leave by a plugin uninstall or a directory
+ * removed by hand. Reconciling against the live set covers all of them.
+ */
+export function pruneAppPins(existingAppIds: readonly string[]): number {
+  const stale = listAppPins().filter(
+    (pin) => !existingAppIds.includes(pin.appId),
+  );
+  for (const pin of stale) {
+    removeAppPin(pin.appId);
+  }
+  return stale.length;
+}
