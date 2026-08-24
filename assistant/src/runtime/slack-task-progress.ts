@@ -1,5 +1,7 @@
 import type { SlackStreamTask } from "@vellumai/gateway-client";
 
+import { coerceSurfaceDataRecord } from "../api/surfaces.js";
+
 /**
  * A single step of a `task_progress` UI surface: an ordered, status-bearing
  * unit of work the assistant reports while a turn runs.
@@ -82,17 +84,16 @@ function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
  * input is what lets a channel render a plan at all.
  *
  * The template may sit at the top level of the input or nested under `data`,
- * matching the tolerance the server-side normalization already allows.
+ * and `data` itself may arrive double-encoded as a JSON string, which is why
+ * the coercion is shared with the surface tools rather than restated here.
  */
 export function getTaskProgressDataFromToolInput(
   input: unknown,
 ): TaskProgressData | undefined {
-  if (!isRecord(input)) {
-    return undefined;
-  }
+  const record = coerceSurfaceDataRecord(input);
   return (
-    getTaskProgressDataFromSurfaceData(input) ??
-    getTaskProgressDataFromSurfaceData(input.data)
+    getTaskProgressDataFromSurfaceData(record) ??
+    getTaskProgressDataFromSurfaceData(coerceSurfaceDataRecord(record.data))
   );
 }
 

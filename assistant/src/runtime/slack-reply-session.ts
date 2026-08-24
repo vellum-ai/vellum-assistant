@@ -1,6 +1,10 @@
 import type { SlackStreamOp, SlackStreamTask } from "@vellumai/gateway-client";
 
-import type { AssistantEvent } from "../api/index.js";
+import type {
+  AssistantEvent,
+  ToolResultEvent,
+  ToolUseStartEvent,
+} from "../api/index.js";
 import {
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
@@ -363,17 +367,19 @@ export function createSlackReplySession(params: {
   };
 
   /**
-   * Track the plan the model is drawing, from the tool calls that draw it.
+   * The plan tool calls this turn has made, awaiting their results.
    *
    * `ui_show` and `ui_update` are tools the model reaches for, so a plan is
    * turn output and arrives on this session's own stream. The daemon also
    * publishes `ui_surface_show`, but that goes to the conversation sink, which
    * no channel consumes.
    *
-   * A call is held until its result reports success. A `tool_use_start` is an
+   * Held rather than applied on sight, because a `tool_use_start` is an
    * intention: the surface tool rejects a stale `surface_id` or a malformed
-   * payload, so applying one on sight would show a plan the canonical surface
-   * refused.
+   * payload, and showing a plan the canonical surface refused is worse than
+   * showing none. An update is also merged at result time so it composes onto
+   * the plan actually in effect rather than the one in effect when the call
+   * began.
    *
    * `ui_show` carries no surface id in its input, since the id is minted when
    * the tool runs, so a later `ui_update` cannot be matched to the card it
@@ -381,40 +387,47 @@ export function createSlackReplySession(params: {
    * surface id collapsed to in practice: whichever entry was touched last was
    * the one rendered.
    */
-  const pendingProgressByToolUseId = new Map<string, TaskProgressData>();
+  const pendingPlanCalls = new Map<
+    string,
+    {
+      readonly kind: "show" | "update";
+      readonly input: Record<string, unknown>;
+    }
+  >();
 
-  const observeTaskProgressToolStart = (msg: AssistantEvent): void => {
-    if (msg.type !== "tool_use_start" || !msg.toolUseId) {
+  const observePlanToolStart = (msg: ToolUseStartEvent): void => {
+    const kind =
+      msg.toolName === "ui_show"
+        ? "show"
+        : msg.toolName === "ui_update"
+          ? "update"
+          : undefined;
+    if (!kind || !msg.toolUseId) {
       return;
     }
-    const progress =
-      msg.toolName === "ui_show"
-        ? getTaskProgressDataFromToolInput(msg.input)
-        : msg.toolName === "ui_update"
-          ? mergeTaskProgressData(activeProgress, msg.input.data)
-          : undefined;
-    if (progress) {
-      pendingProgressByToolUseId.set(msg.toolUseId, progress);
-    }
+    pendingPlanCalls.set(msg.toolUseId, { kind, input: msg.input });
   };
 
-  const observeTaskProgressToolResult = (msg: AssistantEvent): void => {
-    // guard:allow-tool-result-only. This reads `AssistantEvent`, not the
-    // provider content blocks the guard protects. `web_search_tool_result` is
-    // a block type in conversation history and never an event, so no result
-    // can be dropped here by omitting it.
-    if (msg.type !== "tool_result" || !msg.toolUseId) {
+  const observePlanToolResult = (msg: ToolResultEvent): void => {
+    if (!msg.toolUseId) {
       return;
     }
-    const pending = pendingProgressByToolUseId.get(msg.toolUseId);
+    const pending = pendingPlanCalls.get(msg.toolUseId);
     if (!pending) {
       return;
     }
-    pendingProgressByToolUseId.delete(msg.toolUseId);
+    pendingPlanCalls.delete(msg.toolUseId);
     if (msg.isError === true) {
       return;
     }
-    activeProgress = pending;
+    const progress =
+      pending.kind === "show"
+        ? getTaskProgressDataFromToolInput(pending.input)
+        : mergeTaskProgressData(activeProgress, pending.input.data);
+    if (!progress) {
+      return;
+    }
+    activeProgress = progress;
     scheduleFlush();
   };
 
@@ -425,12 +438,14 @@ export function createSlackReplySession(params: {
       }
 
       if (msg.type === "tool_use_start") {
-        observeTaskProgressToolStart(msg);
+        observePlanToolStart(msg);
       }
-      // guard:allow-tool-result-only. Same reason as the handler above: this
-      // is the event union, where `web_search_tool_result` does not exist.
+      // guard:allow-tool-result-only. This reads `AssistantEvent`, not the
+      // provider content blocks the guard protects: `web_search_tool_result`
+      // is a block type in conversation history and never an event, so no
+      // result can be dropped by omitting it.
       if (msg.type === "tool_result") {
-        observeTaskProgressToolResult(msg);
+        observePlanToolResult(msg);
       }
       if (msg.type === "assistant_text_delta") {
         if (pendingSegmentBoundary && msg.text.length > 0) {
