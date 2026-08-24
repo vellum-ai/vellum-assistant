@@ -19,6 +19,7 @@ import {
   ServicesSchema,
 } from "../../config/schemas/services.js";
 import type { OAuthConnectionRequest } from "../../oauth/connection.js";
+import { jsonSafeOAuthBody } from "../../oauth/connection.js";
 import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
@@ -924,16 +925,20 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   };
 
   const response = await connection.request(req);
+  const encodedBody = jsonSafeOAuthBody(response.body);
 
   const result: Record<string, unknown> = {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
     headers: response.headers,
-    body: response.body,
+    body: encodedBody.body,
     // Which connected account actually served the request, so the caller can
     // tell whether the intended account was used.
     account: connection.accountInfo,
   };
+  if (encodedBody.bodyEncoding) {
+    result.bodyEncoding = encodedBody.bodyEncoding;
+  }
 
   // Surface a caller-visible warning when the provider had several active
   // connections and no account was pinned — the model must see that a

@@ -8,13 +8,18 @@
  * plain text with typed-command instructions.
  */
 
-import { sendTelegramReply } from "../../messaging/providers/telegram-bot/send.js";
+import {
+  editTelegramMessage,
+  sendTelegramReply,
+} from "../../messaging/providers/telegram-bot/send.js";
 import { ConfigError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
+  ChannelUpdateContext,
+  ChannelUpdatePayload,
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
@@ -93,6 +98,48 @@ export class TelegramAdapter implements ChannelAdapter {
       logFn(
         { err, sourceEventName: payload.sourceEventName, chatId },
         "Failed to deliver Telegram notification",
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Replace a delivered notification in place, so a card that has been
+   * answered or withdrawn stops reading as still waiting.
+   *
+   * `editTelegramMessage` clears the card's inline keyboard as part of the
+   * revision, so a card rewritten to read as settled cannot keep live Approve
+   * and Reject buttons beside that text.
+   */
+  async update(
+    delivery: ChannelUpdateContext,
+    patch: ChannelUpdatePayload,
+  ): Promise<DeliveryResult> {
+    if (!delivery.messageId) {
+      return {
+        success: false,
+        error:
+          "missing_message_id: this delivery has no captured Telegram message id",
+      };
+    }
+    const text = patch.body?.trim() || patch.title?.trim();
+    if (!text) {
+      return { success: false, error: "no body or title supplied for update" };
+    }
+    try {
+      await editTelegramMessage(delivery.destination, delivery.messageId, text);
+      log.info(
+        { chatId: delivery.destination, messageId: delivery.messageId },
+        "Telegram notification updated",
+      );
+      // An edit keeps the message it addressed, so the delivery row's id
+      // still identifies the card.
+      return { success: true, messageId: delivery.messageId };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, chatId: delivery.destination, messageId: delivery.messageId },
+        "Failed to update Telegram notification",
       );
       return { success: false, error: message };
     }

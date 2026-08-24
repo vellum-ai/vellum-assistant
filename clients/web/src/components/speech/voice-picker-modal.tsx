@@ -22,6 +22,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
+import { useTranslation } from "@/i18n";
 import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 
 export interface VoicePickerModalProps {
@@ -58,13 +59,14 @@ function VoicePickerContent({
   assistantId: string | null;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const { available, currentModel, selectModel, selecting } =
     useManagedVoiceSelection(assistantId);
 
   return (
     <>
       <Modal.Header>
-        <Modal.Title>Voices</Modal.Title>
+        <Modal.Title>{t("voicePickerModal.title")}</Modal.Title>
         {available && (
           <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
         )}
@@ -91,7 +93,7 @@ function VoicePickerContent({
           disabled={selecting}
           className="shrink-0"
         >
-          Done
+          {t("voicePickerModal.done")}
         </Button>
       </Modal.Footer>
     </>

@@ -75,9 +75,9 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   /**
-   * Trailing control in the overlay's glyph row, opposite dismiss and search.
-   * A slot rather than a direct render: the control belongs to another
-   * domain, so the page composes it and this menu stays free of the
+   * Trailing control in the overlay's glyph row, beside search and opposite
+   * dismiss. A slot rather than a direct render: the control belongs to
+   * another domain, so the page composes it and this menu stays free of the
    * dependency (and of the router context it needs).
    */
   notificationsAction?: ReactNode;
@@ -522,29 +522,32 @@ export function AssistantSideMenu({
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            /* Dismiss and search lead together on the left, notifications
-               sits alone on the right (Figma 7842-83305). In Capacitor
-               mobile shells the row floats over the scrollport so list
-               content travels beneath the bare glyphs;
-               `pointer-events-none` keeps the gap between the clusters
-               scrollable. */
+            /* Dismiss leads alone on the left; search sits with
+               notifications on the right, mirroring the chat header's
+               right cluster so the glyphs hold one position whether the
+               drawer is open or closed. In Capacitor mobile shells the row
+               floats over the scrollport so list content travels beneath
+               the bare glyphs; `pointer-events-none` keeps the gap between
+               the clusters scrollable. */
             <div
               data-slot="side-menu-glyph-row"
               className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-3 native-mobile:top-4 native-mobile:z-10"
             >
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  iconOnly={<X />}
-                  aria-label={t("assistantSideMenu.closeNavAria")}
-                  className="pointer-events-auto"
-                  onClick={() => onClose?.()}
-                />
+              <Button
+                variant="ghost"
+                iconOnly={<X />}
+                aria-label={t("assistantSideMenu.closeNavAria")}
+                className="pointer-events-auto"
+                onClick={() => onClose?.()}
+              />
+              <div className="flex items-center gap-2">
                 <SearchButton />
+                {notificationsAction ? (
+                  <div className="pointer-events-auto">
+                    {notificationsAction}
+                  </div>
+                ) : null}
               </div>
-              {notificationsAction ? (
-                <div className="pointer-events-auto">{notificationsAction}</div>
-              ) : null}
             </div>
           ) : (
             builtInNav

@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { t } from "@/i18n";
 import { type ManagedVoiceOption } from "@/lib/tts/use-managed-voices";
 
 export interface UseVoiceSamplePreview {
@@ -68,7 +69,7 @@ export function useVoiceSamplePreview(): UseVoiceSamplePreview {
     audio.onerror = clear;
     void audio.play().catch(() => {
       if (tokenRef.current === token) {
-        toast.error("Could not play the voice sample.");
+        toast.error(t("useVoiceSamplePreview.playFailed"));
         setPreviewingModel(null);
       }
     });

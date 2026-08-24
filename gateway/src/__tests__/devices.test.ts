@@ -24,8 +24,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords, actorRefreshTokenRecords, contacts, contactChannels } =
-  await import("../db/schema.js");
+const {
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+  contacts,
+  contactChannels,
+} = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { handleListDevices, handleRevokeDevice } =
   await import("../http/routes/devices.js");
@@ -35,27 +39,33 @@ const GUARDIAN_ID = "guardian-001";
 
 let testRoot: string;
 
+let actorSeedSeq = 0;
+
 function seedActor(opts: {
   device: string;
   principal?: string;
   status?: "active" | "revoked";
   platform?: string;
+  lastUsedAt?: number;
+  updatedAt?: number;
 }): void {
   const now = Date.now();
   const principal = opts.principal ?? GUARDIAN_ID;
+  actorSeedSeq += 1;
   getGatewayDb()
     .insert(actorTokenRecords)
     .values({
       id: randomUUID(),
-      tokenHash: hashToken(`acc-${principal}-${opts.device}`),
+      tokenHash: hashToken(`acc-${principal}-${opts.device}-${actorSeedSeq}`),
       guardianPrincipalId: principal,
       hashedDeviceId: hashToken(opts.device),
       platform: opts.platform ?? "cli",
       status: opts.status ?? "active",
       issuedAt: now,
       expiresAt: now + 86_400_000,
+      lastUsedAt: opts.lastUsedAt ?? null,
       createdAt: now,
-      updatedAt: now,
+      updatedAt: opts.updatedAt ?? now,
     })
     .run();
 }
@@ -196,10 +206,8 @@ describe("GET /v1/devices", () => {
     expect(a?.platform).toBe("cli");
   });
 
-  test("surfaces lastUsedAt from the refresh record (null when none)", async () => {
-    seedActor({ device: "device-A" });
-    seedActor({ device: "device-B" });
-    seedRefresh({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
+  test("surfaces lastUsedAt from the actor token row", async () => {
+    seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
 
     const res = await handleListDevices(listRequest(), LOOPBACK_IP);
     const body = (await res.json()) as {
@@ -208,11 +216,82 @@ describe("GET /v1/devices", () => {
     const a = body.devices.find(
       (d) => d.hashedDeviceId === hashToken("device-A"),
     );
+    expect(a?.lastUsedAt).toBe(1_700_000_000_000);
+  });
+
+  test("serializes lastUsedAt as null when the token row is unstamped", async () => {
+    seedActor({ device: "device-B" });
+    // Guards against the refresh record's timestamp leaking into the response.
+    seedRefresh({ device: "device-B", lastUsedAt: 1_700_000_000_000 });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
     const b = body.devices.find(
       (d) => d.hashedDeviceId === hashToken("device-B"),
     );
-    expect(a?.lastUsedAt).toBe(1_700_000_000_000);
     expect(b?.lastUsedAt).toBeNull();
+  });
+
+  test("keeps the stamp from a rotated-out row when the active row is unstamped", async () => {
+    // Refreshing credentials revokes the stamped row and mints an unstamped
+    // replacement; the device's activity history must survive that.
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBe(1_700_000_000_000);
+  });
+
+  test("prefers the active row's stamp when it is newer than a rotated-out one", async () => {
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A", lastUsedAt: 1_800_000_000_000 });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices[0]?.lastUsedAt).toBe(1_800_000_000_000);
+  });
+
+  test("returns null when no row for the device carries a stamp", async () => {
+    seedActor({ device: "device-A", status: "revoked" });
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("does not borrow another principal's stamp for the same device hash", async () => {
+    seedActor({
+      device: "device-A",
+      principal: "other-guardian",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
   });
 
   test("rejects a non-loopback caller (403)", async () => {
@@ -258,6 +337,103 @@ describe("POST /v1/devices/revoke", () => {
     expect(activeRefreshCount("device-A")).toBe(0);
     expect(activeActorCount("device-B")).toBe(1);
     expect(activeRefreshCount("device-B")).toBe(1);
+  });
+
+  test("clears the device's activity stamp so a re-pair starts fresh", async () => {
+    // Device ids hash stably, so re-pairing reuses the same hashedDeviceId. The
+    // list reads the max stamp across statuses, so an uncleared revoked row
+    // would report a last use predating the new pairing.
+    seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
+    seedRefresh({ device: "device-A" });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    // Re-pair: a fresh, unstamped active row for the same device.
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("clears the stamp on a rotated-out row so a re-pair starts fresh", async () => {
+    // Any device older than one access-token TTL has rotated at least once,
+    // which leaves a stamped revoked row behind. The list reads the max stamp
+    // across statuses, so a revoke that only clears the active row would still
+    // report the old activity after the re-pair.
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A", lastUsedAt: 1_800_000_000_000 });
+    seedRefresh({ device: "device-A" });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    // Re-pair: a fresh, unstamped active row for the same device.
+    seedActor({ device: "device-A" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("does not bump updatedAt on rows whose status is already revoked", async () => {
+    // updatedAt tracks lifecycle, lastUsedAt tracks activity: clearing the
+    // stamp on an already-revoked row must not read as a lifecycle change.
+    seedActor({
+      device: "device-A",
+      status: "revoked",
+      lastUsedAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-A" });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    const rows = getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.hashedDeviceId, hashToken("device-A")))
+      .all();
+    const untouched = rows.filter((r) => r.updatedAt === 1_700_000_000_000);
+    expect(untouched).toHaveLength(1);
+    expect(untouched[0]?.lastUsedAt).toBeNull();
+  });
+
+  test("leaves another device's stamp intact", async () => {
+    seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
+    seedActor({ device: "device-B", lastUsedAt: 1_800_000_000_000 });
+
+    await handleRevokeDevice(
+      revokeRequest({ hashedDeviceId: hashToken("device-A") }),
+      LOOPBACK_IP,
+    );
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; lastUsedAt: number | null }[];
+    };
+    const b = body.devices.find(
+      (d) => d.hashedDeviceId === hashToken("device-B"),
+    );
+    expect(b?.lastUsedAt).toBe(1_800_000_000_000);
   });
 
   test("rejects a request without hashedDeviceId (400)", async () => {

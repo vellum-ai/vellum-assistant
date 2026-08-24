@@ -112,11 +112,11 @@ export function SidebarSectionCard({
            row: the card is what owns the fill, and every swipeable thing it
            holds inherits the one value. */
         "[--swipe-reveal-bg:var(--surface-lift)]",
-        /* No padding of its own: the header row is already a self-contained
-           pill (its own height, its own 12px/6px inset) per Figma, and
-           wrapping it in another layer of padding would inflate the pill
-           past its spec. The row list picks up the matching horizontal
-           inset directly (see `CollapsibleNavSection.Section`'s Content). */
+        /* No padding of its own: the overlay class branch below owns the
+           card's inset, and wrapping it in another layer of Card padding
+           would inflate the pill past its spec. The row list picks up the
+           matching horizontal inset directly (see
+           `CollapsibleNavSection.Section`'s Content). */
         /* Collapsed, a section is a pill that hugs its own header: nothing
            inside it needs the full rail width. Its own `Collapsible.Item`
            descendant carries Radix's `data-state`, so `has-[]` reads that
@@ -132,11 +132,15 @@ export function SidebarSectionCard({
            lag behind the width/height change since it never moves. */
         "w-[var(--section-collapsed-width,fit-content)]",
         /* The overlay's card is squarer than the rail's pill and carries the
-           inset its header and row list sit flush inside (Figma 7842-83305);
-           the rail keeps the radius that makes its 36px header read as fully
-           round. */
+           inset its header and row list sit flush inside (Figma 7842-83305).
+           The 12px vertical inset plus the 20px header row makes the
+           collapsed pill exactly the overlay tile size (44px), so it stands
+           level with the assistant pill above it. `border-0` drops the
+           Card's default transparent 1px border, which would otherwise grow
+           the border-box to 46px. The rail keeps that border and the radius
+           that makes its header read as fully round. */
         overlayCards
-          ? "rounded-[16px] pt-2.5 pr-3 pb-1.5 pl-2"
+          ? "rounded-[16px] border-0 pt-3 pr-3 pb-3 pl-2"
           : "rounded-[18px]",
         "has-[[data-state=open]]:w-full",
         /* `width` toggles between the measured `--section-collapsed-width`

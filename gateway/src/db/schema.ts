@@ -273,6 +273,7 @@ export const actorTokenRecords = sqliteTable(
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     expiresAt: integer("expires_at"),
+    lastUsedAt: integer("last_used_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -283,6 +284,15 @@ export const actorTokenRecords = sqliteTable(
     // Unfiltered (not WHERE status='active') so the hot-path revocation lookup
     // — which matches by token_hash and must find REVOKED rows — is indexed.
     index("idx_actor_tokens_hash").on(table.tokenHash),
+    // Covers the device list's max(last_used_at) group-by, which spans every
+    // status and so cannot use the active-only unique index. Device-first so
+    // the active-only lookup keeps preferring the narrower partial index, and
+    // so per-device revocation (status IN ('active','derived')) seeks too.
+    index("idx_actor_tokens_device_last_used").on(
+      table.hashedDeviceId,
+      table.guardianPrincipalId,
+      table.lastUsedAt,
+    ),
   ],
 );
 

@@ -52,6 +52,9 @@ export const buildWindowsMenu = ({
       commandItem("New Conversation", { kind: "newConversation" }),
       commandItem("Current Conversation", { kind: "currentConversation" }),
       { type: "separator" },
+      commandItem("Pin Current Conversation", {
+        kind: "togglePinConversation",
+      }),
       commandItem("Mark Current as Unread", { kind: "markCurrentUnread" }),
       commandItem("Previous Conversation", { kind: "previousConversation" }),
       commandItem("Next Conversation", { kind: "nextConversation" }),

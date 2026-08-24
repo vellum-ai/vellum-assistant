@@ -1,65 +1,674 @@
 {
+  "aboutPage": {
+    "build": "Compilación",
+    "tagline": "Asistente de IA para tu Mac",
+    "version": "Versión"
+  },
+  "activeAssistantGate": {
+    "connecting": "Conectando con tu asistente…",
+    "logIn": "Iniciar sesión",
+    "logOut": "Cerrar sesión"
+  },
+  "addCredentialModal": {
+    "cancel": "Cancelar",
+    "credentialSaved": "Credencial guardada.",
+    "description": "Añade una clave API o un token para que las herramientas e integraciones lo usen.",
+    "fieldLabel": "Campo",
+    "fieldPlaceholder": "p. ej. api_token",
+    "labelOptional": "Etiqueta (opcional)",
+    "labelPlaceholder": "p. ej. token de acceso personal de GitHub",
+    "save": "Guardar",
+    "saveFailed": "No se pudo guardar la credencial",
+    "serviceLabel": "Servicio",
+    "servicePlaceholder": "p. ej. github",
+    "title": "Añadir credencial",
+    "valueLabel": "Valor",
+    "valuePlaceholder": "Introduce el valor secreto"
+  },
   "addCreditsModal": {
-    "configureAutoReload": "Configurar la recarga automática"
+    "amount": "Importe",
+    "cancel": "Cancelar",
+    "configureAutoReload": "Configurar la recarga automática",
+    "continue": "Continuar",
+    "description": "Se te redirigirá a Stripe para completar el pago.",
+    "title": "Añadir créditos"
+  },
+  "appCard": {
+    "openApp": "Abrir app",
+    "pin": "Fijar",
+    "previewTitle": "Vista previa de {name}",
+    "unpin": "Desfijar"
+  },
+  "appNavBar": {
+    "close": "Cerrar",
+    "copyLink": "Copiar enlace",
+    "deploy": "Desplegar",
+    "deployToVercel": "Desplegar en Vercel",
+    "deployToVercelSubtitle": "Publicar como página estática",
+    "deployedCopyLinkAria": "Desplegada en Vercel, copiar enlace",
+    "deployedCopyLinkTooltip": "Desplegada: copiar enlace",
+    "deployedToVercel": "Desplegada en Vercel",
+    "deploying": "Desplegando…",
+    "edit": "Editar",
+    "expandApp": "Expandir app",
+    "fullscreen": "Pantalla completa",
+    "openApp": "Abrir app",
+    "redeploy": "Volver a desplegar",
+    "redeploySubtitle": "Publicar la versión actual",
+    "share": "Compartir",
+    "shareAndDeploy": "Compartir y desplegar",
+    "shareExportSubtitle": "Exportar como archivo .vellum",
+    "sharing": "Compartiendo…"
+  },
+  "appViewerContainer": {
+    "exitFullscreen": "Salir de pantalla completa"
+  },
+  "avatarManagementModal": {
+    "body": "Cuerpo",
+    "color": "Color",
+    "eyes": "Ojos",
+    "keepUploadedDescription": "Guardar el personaje la reemplaza",
+    "keepUploadedLabel": "Conservar tu imagen subida",
+    "loadError": "No se pudieron cargar los componentes del avatar. Asegúrate de que tu asistente esté en ejecución.",
+    "name": "Nombre",
+    "next": "Siguiente {label}",
+    "previous": "Anterior {label}",
+    "randomize": "Aleatorio",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "title": "Actualizar avatar",
+    "uploadImage": "Subir imagen",
+    "uploadedAlt": "Avatar subido",
+    "useCharacterDescription": "Elige entre nuestros avatares integrados",
+    "useCharacterLabel": "Usar un personaje en su lugar"
+  },
+  "bundleConfirmPage": {
+    "bySigner": "por {name}",
+    "cancel": "Cancelar",
+    "capabilities": "Capacidades",
+    "createdBy": "Creado por",
+    "hideWarnings": "Ocultar advertencias ({count})",
+    "install": "Instalar",
+    "installAnyway": "Instalar de todos modos",
+    "loading": "Cargando...",
+    "showWarnings": "Mostrar advertencias ({count})",
+    "size": "Tamaño"
+  },
+  "byoVoiceNote": {
+    "body": "Tu asistente habla a través de un proveedor que configuraste tú. Define su voz en <settingsLink>Modelos y servicios</settingsLink>."
+  },
+  "chatAvatar": {
+    "alt": "Avatar del asistente",
+    "fallbackLetter": "V"
+  },
+  "collapsibleNavSection": {
+    "actionsTitle": "Acciones de {title}"
+  },
+  "commandPalette": {
+    "ariaLabel": "Paleta de comandos",
+    "clear": "Borrar",
+    "clearSearch": "Borrar búsqueda",
+    "closeSearch": "Cerrar búsqueda",
+    "noResults": "Sin resultados",
+    "placeholder": "Buscar conversaciones, recuerdos…",
+    "searchAriaLabel": "Buscar",
+    "searching": "Buscando…",
+    "shortcutHint": "⌘K"
   },
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",
+    "done": "Entendido",
     "meet": {
+      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista.",
       "title": "Este soy yo",
-      "titleNamed": "Soy {name}",
-      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
-    },
-    "talk": {
-      "title": "Talk",
-      "body": "Inicia una conversación por voz."
-    },
-    "type": {
-      "title": "Type",
-      "body": "Envía un mensaje desde aquí y lee la respuesta aquí también."
+      "titleNamed": "Soy {name}"
     },
     "menu": {
-      "title": "Haz clic derecho sobre mí",
-      "body": "Ahí puedes ocultarme o cambiar mi tamaño."
+      "body": "Ahí puedes ocultarme o cambiar mi tamaño.",
+      "title": "Haz clic derecho sobre mí"
     },
-    "skip": "Omitir",
     "next": "Siguiente",
-    "done": "Entendido"
+    "skip": "Omitir",
+    "talk": {
+      "body": "Inicia una conversación por voz.",
+      "title": "Talk"
+    },
+    "type": {
+      "body": "Envía un mensaje desde aquí y lee la respuesta aquí también.",
+      "title": "Type"
+    }
+  },
+  "companionSurface": {
+    "allow": "Permitir",
+    "deny": "Denegar",
+    "endSession": "Finalizar sesión",
+    "goBack": "Volver",
+    "messagePlaceholder": "Mensaje a {name}",
+    "muteAssistant": "Silenciar asistente",
+    "muteMicrophone": "Silenciar micrófono",
+    "notNow": "Ahora no",
+    "send": "Enviar",
+    "showSummary": "Mostrar resumen",
+    "stopTeaching": "Dejar de enseñar",
+    "summarizing": "Resumiendo",
+    "talk": "Hablar",
+    "teach": "Enseñar",
+    "type": "Escribir",
+    "unmuteAssistant": "Activar sonido del asistente",
+    "unmuteMicrophone": "Activar micrófono"
+  },
+  "contentActionBar": {
+    "copiedAria": "Copiado",
+    "copyFailed": "No se pudo copiar el contenido del archivo.",
+    "copyFileContentsAria": "Copiar contenido del archivo",
+    "downloadFileAria": "Descargar archivo",
+    "editFileAria": "Editar archivo"
+  },
+  "createAssistantDialog": {
+    "cancel": "Cancelar",
+    "create": "Crear",
+    "description": "Provisiona un asistente nuevo. Se iniciará en segundo plano.",
+    "namePlaceholder": "Nombre del asistente (opcional)",
+    "title": "Nuevo asistente",
+    "toastSuccess": "Nuevo asistente creado."
+  },
+  "dateRangeSelect": {
+    "ariaLabel": "Rango de fechas",
+    "lastDays": "{days, plural, one {Último # día} other {Últimos # días}}"
+  },
+  "deleteAppDialog": {
+    "delete": "Eliminar",
+    "deleting": "Eliminando…",
+    "message": "\"{name}\" se eliminará de forma permanente.",
+    "title": "Eliminar app"
+  },
+  "deployDialogs": {
+    "confirmLabel": "Deja que tu asistente se encargue",
+    "confirmLabelNamed": "Deja que {assistantName} se encargue",
+    "message": "\"{appName}\" usa servicios de backend que no funcionarán en una página estática de Vercel. Tu asistente puede desplegarla correctamente con funciones serverless.",
+    "messageNamed": "\"{appName}\" usa servicios de backend que no funcionarán en una página estática de Vercel. {assistantName} puede desplegarla correctamente con funciones serverless.",
+    "title": "Esta app necesita un despliegue completo"
+  },
+  "detailPrimitives": {
+    "copied": "Copiado",
+    "copy": "Copiar"
+  },
+  "dictationOverlayPage": {
+    "stopRecording": "Detener grabación"
+  },
+  "discordNudgeBanner": {
+    "ariaLabel": "Únete a la comunidad de Discord de Vellum",
+    "ctaLong": "Unirse a Discord",
+    "ctaShort": "Unirse",
+    "subtitleLong": "Habla con el equipo: comparte comentarios, solicita funciones y obtén respuestas más rápido",
+    "subtitleShort": "Comparte comentarios, solicita funciones y obtén respuestas más rápido",
+    "title": "¡Únete a nuestra comunidad!"
+  },
+  "diskPressureBanner": {
+    "acknowledge": "Reconocer",
+    "acknowledging": "Reconociendo...",
+    "cleanupBody": "Pide a tu asistente que libere espacio antes de que se agote y entre en un estado bloqueado.",
+    "cleanupTitle": "El modo de limpieza está activo",
+    "criticalBody": "Tu asistente entrará en un estado bloqueado si se queda sin almacenamiento.",
+    "criticalModalDescription": "Tu asistente entrará en un estado bloqueado si se queda sin almacenamiento. Debes pedir a tu asistente que libere espacio o aumentar tu almacenamiento.",
+    "criticalTitle": "El almacenamiento está críticamente bajo",
+    "dontShowAgain": "No mostrar de nuevo",
+    "manageStorage": "Gestionar almacenamiento",
+    "review": "Revisar",
+    "upgrade": "Mejorar plan",
+    "warningBody": "Libera espacio para evitar interrupciones.",
+    "warningBodyWithUpgrade": "Libera espacio o añade más almacenamiento para evitar interrupciones.",
+    "warningTitle": "Tu almacenamiento está casi lleno"
+  },
+  "editFooter": {
+    "discard": "Descartar",
+    "save": "Guardar",
+    "saving": "Guardando…"
+  },
+  "generateInviteLinkDialog": {
+    "copyAriaLabel": "Copiar enlace de invitación",
+    "createFailed": "No se pudo crear el enlace de invitación. Asegúrate de que A2A esté habilitado para tu asistente.",
+    "creating": "Creando enlace de invitación…",
+    "done": "Listo",
+    "shareHint": "Comparte este enlace con otro propietario de asistente para establecer una conexión.",
+    "title": "Compartir enlace de conexión",
+    "tryAgain": "Reintentar"
+  },
+  "githubNudgeBanner": {
+    "ariaLabel": "Vellum es de código abierto en GitHub",
+    "ctaAriaLabel": "Dar una estrella a Vellum en GitHub",
+    "ctaLabel": "Danos una estrella",
+    "subtitle": "Danos una estrella en GitHub o contribuye",
+    "title": "Vellum es de código abierto"
+  },
+  "lazyBoundary": {
+    "loadError": "Esta sección no se pudo cargar. Recarga la página para intentarlo de nuevo."
+  },
+  "macosAppBanner": {
+    "ariaLabel": "Descargar la app de macOS",
+    "ctaAriaLabel": "Descargar la app de macOS",
+    "ctaLabel": "Descargar",
+    "subtitle": "Uso del ordenador · acceso a terminal · automatización nativa",
+    "title": "Consigue la app de macOS"
+  },
+  "nativeAppBanner": {
+    "bannerAria": "Descargar la app de {appName}",
+    "download": "Descargar",
+    "downloadAppAria": "Descargar la app de {appName}",
+    "subtitle": "Notificaciones push · inicio biométrico · háptica",
+    "title": "Obtén la app de {appName}"
+  },
+  "nativeSplash": {
+    "logoAlt": "Vellum"
   },
   "notFound": {
-    "badge": "Error 404",
-    "title": "Página no encontrada",
-    "body": "La página que buscas no existe o puede haberse movido.",
     "backToAssistant": "Volver a tu asistente",
-    "goBack": "Atrás"
+    "badge": "Error 404",
+    "body": "La página que buscas no existe o puede haberse movido.",
+    "goBack": "Atrás",
+    "title": "Página no encontrada"
+  },
+  "nudgeChatBanner": {
+    "dismissAria": "Descartar"
+  },
+  "onboardingBackButton": {
+    "back": "Atrás"
+  },
+  "platformLoginNotice": {
+    "cancel": "Cancelar",
+    "logIn": "Iniciar sesión"
+  },
+  "profileCard": {
+    "assistantHandleIdleEmpty": "Tu asistente aún no tiene identificador; reclama uno para poder mencionarlo.",
+    "assistantHandleLabel": "Identificador del asistente",
+    "assistantHandleUpdated": "Identificador del asistente actualizado.",
+    "available": "Disponible",
+    "availableHelper": "Disponible.",
+    "checkAvailabilityFailed": "No se pudo comprobar la disponibilidad.",
+    "checkingAvailability": "Comprobando disponibilidad…",
+    "chooseDifferentHandle": "Elige un identificador diferente.",
+    "emailLabel": "Correo electrónico",
+    "handleHelper": "Letras minúsculas, dígitos, guiones y guiones bajos. De 3 a 30 caracteres.",
+    "handleLocked": "El identificador de tu asistente está bloqueado porque se usa como su subdominio de correo. Para cambiarlo, <releaseLink>libera el subdominio</releaseLink> primero.",
+    "loading": "Cargando tu perfil…",
+    "notAvailable": "No disponible",
+    "profileUpdated": "Perfil actualizado.",
+    "save": "Guardar",
+    "saved": "Guardado",
+    "saving": "Guardando…",
+    "subtitle": "Gestiona los detalles y las preferencias de tu cuenta.",
+    "title": "Perfil",
+    "userHandleIdleAutoGenerated": "Tu identificador se generó automáticamente al registrarte; elige uno que te guste.",
+    "userHandleLabel": "Identificador de usuario"
+  },
+  "profileQuickAddProvider": {
+    "created": "Perfil \"{name}\" creado"
+  },
+  "quickInputPage": {
+    "logoAlt": "Vellum",
+    "placeholder": "Pregunta lo que quieras a Vellum..."
+  },
+  "removeFromDeviceDialog": {
+    "confirm": "Eliminar",
+    "messageOrigin": "Esto no afectará a {assistantName} ni cerrará tu sesión allí. Solo olvida la entrada en este dispositivo. Puedes añadirla de nuevo cuando quieras.",
+    "messagePaired": "Esto no afectará a {assistantName} en su máquina anfitriona. Solo olvida el emparejamiento en este dispositivo. Puedes emparejarlo de nuevo cuando quieras con vellum connect import.",
+    "messagePlatform": "Esto no eliminará a {assistantName}. Solo lo quita de este dispositivo. Al iniciar sesión volverá a estar disponible.",
+    "title": "¿Eliminar de este dispositivo?"
   },
   "resourcePressureBanner": {
-    "title": "La utilización de recursos es alta",
     "body": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado; mejora tu plan para potenciar tu asistente.",
     "bodyNoUpgrade": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado.",
-    "upgrade": "Mejorar plan",
-    "dontShowAgain": "No mostrar de nuevo"
+    "dontShowAgain": "No mostrar de nuevo",
+    "title": "La utilización de recursos es alta",
+    "upgrade": "Mejorar plan"
+  },
+  "retireConfirmDialog": {
+    "confirmLabel": "Retirar",
+    "message": "Esto retirará de forma permanente este asistente y todos sus datos. Tendrás que volver a completar el flujo de incorporación para crear uno nuevo. Esta acción no se puede deshacer.",
+    "title": "Retirar asistente"
+  },
+  "rootHydrateFallback": {
+    "loadingAria": "Cargando"
+  },
+  "routeErrorBoundary": {
+    "chunkFailBody": "Esta sección no se pudo cargar. Probablemente un fallo de red o una versión antigua. Recarga la página para intentarlo de nuevo.",
+    "reload": "Recargar"
+  },
+  "runtimeUpgradeBanner": {
+    "confirmMessage": "¿Actualizar a la versión {version}? El asistente no estará disponible brevemente durante la actualización.",
+    "confirmTitle": "Actualizar el runtime del asistente",
+    "later": "Más tarde",
+    "title": "Nueva versión del asistente disponible: {version}",
+    "toastComplete": "Actualización completa. Tu asistente está en buen estado.",
+    "toastFailed": "No se pudo iniciar la actualización. Inténtalo de nuevo.",
+    "update": "Actualizar"
   },
   "sectionActionsButton": {
     "ariaLabel": "Acciones de {name}"
   },
+  "serviceFormControls": {
+    "reset": "Restablecer",
+    "save": "Guardar"
+  },
+  "shareConnectionLinkButton": {
+    "label": "Compartir enlace de conexión"
+  },
+  "shareFeedbackModal": {
+    "aboutDiagnosticsAria": "Acerca de los diagnósticos",
+    "addFiles": "Añadir archivos",
+    "adminOnlyHint": "Solo para administradores: crea el archivo de diagnósticos en local y lo descarga en lugar de enviar comentarios o notificar a Slack.",
+    "attachments": "Adjuntos",
+    "bugTip": "Consejo: obtén soporte más rápido publicando en nuestra <discordLink>comunidad de Discord</discordLink>",
+    "cancel": "Cancelar",
+    "category": "Categoría",
+    "closeAria": "Cerrar",
+    "diagnosticsTooltip": "Los diagnósticos incluyen el contexto del navegador, los registros del asistente y marcas de tiempo; nunca contraseñas ni credenciales.",
+    "downloadDiagnostics": "Descargar diagnósticos directamente",
+    "downloadDiagnosticsAria": "Descargar diagnósticos directamente",
+    "downloadDiagnosticsButton": "Descargar diagnósticos",
+    "dropFiles": "Suelta archivos para adjuntarlos…",
+    "email": "Correo electrónico",
+    "featureTip": "Consejo: vota funciones en nuestro <roadmapLink>roadmap público</roadmapLink>",
+    "includeConversation": "Incluir la conversación más reciente",
+    "includeConversationAria": "Incluir la conversación más reciente",
+    "includeDiagnostics": "Incluir diagnósticos",
+    "includeDiagnosticsAria": "Incluir diagnósticos del navegador",
+    "messageLabelBug": "¿Qué salió mal?",
+    "messageLabelFeature": "Describe tu idea",
+    "messageLabelOther": "¿Qué tienes en mente?",
+    "messagePlaceholderBug": "¿Qué esperabas que ocurriera y qué ocurrió en su lugar?",
+    "messagePlaceholderFeature": "¿Qué problema te resolvería esto?",
+    "messagePlaceholderOther": "Comparte tus pensamientos...",
+    "preparingDiagnostics": "Preparando diagnósticos…",
+    "reasonBugReport": "Informe de error",
+    "reasonFeatureRequest": "Solicitud de función",
+    "reasonOther": "Otro",
+    "removeAttachmentAria": "Eliminar {name}",
+    "sendingFeedback": "Enviando comentarios…",
+    "submit": "Enviar",
+    "timeRange": "Intervalo de tiempo",
+    "timeRangeAllTime": "Todo el tiempo",
+    "timeRangeAria": "Intervalo de tiempo de diagnósticos",
+    "timeRangePast24Hours": "Últimas 24 horas",
+    "timeRangePastHour": "Última hora",
+    "title": "Compartir comentarios"
+  },
+  "sideListDrawer": {
+    "closeAria": "Cerrar",
+    "closeSidebarAria": "Cerrar barra lateral",
+    "openSidebarAria": "Abrir barra lateral"
+  },
+  "sidebarShell": {
+    "backFrom": "Volver desde {title}",
+    "backToMenu": "Volver al menú de {title}",
+    "navigationAria": "Navegación de {title}"
+  },
+  "sidebarTree": {
+    "ariaLabel": "Navegación de la barra lateral"
+  },
+  "skillLineageLink": {
+    "label": "Aprendido de esta conversación"
+  },
+  "skillRemovalDialog": {
+    "message": "¿Quitar \"{name}\" de este asistente?",
+    "remove": "Quitar",
+    "title": "Quitar skill"
+  },
+  "slackSetupCreateStep": {
+    "approvalNotice": "Si Slack muestra “Request approval” en lugar de <strong>Install</strong>, un administrador del espacio de trabajo debe aprobar la app primero.",
+    "createdApp": "He creado la app",
+    "inSlack": "En Slack:",
+    "stepManifest": "En <strong>Or start your own way</strong>, elige <strong>From a manifest</strong> y luego <strong>Continue</strong>",
+    "stepPaste": "Elige tu espacio de trabajo y pega el manifiesto",
+    "stepReview": "Revisa los permisos y haz clic en <strong>Create and Install</strong>"
+  },
+  "slackSetupNameStep": {
+    "appName": "Nombre de la app",
+    "appNamePlaceholder": "Mi asistente",
+    "copied": "¡Copiado!",
+    "copyManifest": "Copiar manifiesto",
+    "description": "Descripción (opcional)",
+    "descriptionHelper": "Se muestra en el perfil de Slack de la app.",
+    "descriptionPlaceholder": "En qué ayuda este asistente",
+    "intro": "Ponle nombre a tu app de Slack y copia su manifiesto. Todos los permisos y ajustes vienen preconfigurados.",
+    "next": "Siguiente"
+  },
+  "slackSetupOpenStep": {
+    "body": "Abre Slack en una pestaña nueva para crear la app y vuelve aquí para los pasos siguientes.",
+    "copied": "¡Copiado!",
+    "copyManifest": "Copiar manifiesto",
+    "manifestCopiedNotice": "Copiaste el manifiesto de esta app aquí. Si has copiado algo desde entonces, cópialo de nuevo antes de pegar.",
+    "manifestNotCopiedNotice": "Aún no has copiado el manifiesto de esta app. El modal de crear app de Slack no tiene otra forma de obtenerlo, así que cópialo antes de pegar.",
+    "next": "Siguiente",
+    "openSlack": "Abrir Slack"
+  },
+  "slackSetupTokensStep": {
+    "appTokenLabel": "Token de la app",
+    "botTokenLabel": "Token del bot",
+    "connectSlack": "Conectar Slack",
+    "connecting": "Conectando…",
+    "credentialsSaved": "Credenciales guardadas.",
+    "instructions": "En la pantalla de confirmación de Slack, expande <credentials>Your app credentials</credentials> y copia ambos tokens.",
+    "skipNotice": "Esa pantalla también ofrece una guía por línea de comandos y un botón <download>Download app files</download>. Omite ambos. Configuran una app local aparte, y este asistente solo necesita los dos tokens."
+  },
+  "slackSetupWizard": {
+    "channelLabel": "Slack",
+    "copyError": "No se pudo copiar el manifiesto. Cópialo de nuevo antes de continuar.",
+    "stepConnect": "Conectar",
+    "stepCreate": "Crear",
+    "stepName": "Nombre",
+    "stepOpen": "Abrir"
+  },
+  "stackedBarTooltip": {
+    "total": "Total: {value}"
+  },
+  "startupFailure": {
+    "reloadApp": "Recargar app"
+  },
+  "statusBanner": {
+    "dismiss": "Descartar",
+    "goToDoctor": "Ir a Doctor",
+    "resumeAssistant": "Reanudar asistente",
+    "retryNow": "Reintentar ahora",
+    "wakeUp": "Despertar"
+  },
+  "sttLanguagePicker": {
+    "allLanguages": "Todos los idiomas",
+    "featured": "Destacados",
+    "languagesAriaLabel": "Idiomas",
+    "noMatch": "Ningún idioma coincide.",
+    "searchAriaLabel": "Buscar idiomas",
+    "searchPlaceholder": "Buscar idiomas",
+    "suggested": "Sugerido"
+  },
+  "sttLanguagePickerModal": {
+    "description": "Se aplica desde tu próximo turno hablado."
+  },
   "sttProviderForm": {
+    "apiKeyLabel": "Clave de API",
+    "apiKeyPlaceholderReplace": "••••••••  (Introduce una clave nueva para reemplazarla)",
+    "providerAriaLabel": "Proveedor de STT",
+    "providerLabel": "Proveedor",
+    "saveFailed": "No se pudieron guardar los ajustes de voz a texto",
+    "saveSuccess": "Ajustes de voz a texto guardados",
+    "spokenLanguage": "Idioma hablado",
+    "spokenLanguageApplies": "Se aplica a partir de tu próximo turno hablado.",
+    "vellumTranscription": "La transcripción se realiza a través de tu cuenta de Vellum.",
     "windowsNativeDisplayName": "Dictado nativo de Windows",
-    "windowsNativeSubtitle": "Reconocimiento de voz integrado de Windows, ejecutado localmente mediante el asistente nativo de Windows. Funciona sin conexión y no necesita una clave de API.",
-    "windowsNativeSetupWarning": "Requiere Reconocimiento de voz básico para el idioma de visualización de Windows: abre Configuración > Hora e idioma > Idioma y región, selecciona los tres puntos junto al idioma de visualización, elige Opciones de idioma y, en Características de idioma, descarga Reconocimiento de voz básico."
+    "windowsNativeSetupWarning": "Requiere Reconocimiento de voz básico para el idioma de visualización de Windows: abre Configuración > Hora e idioma > Idioma y región, selecciona los tres puntos junto al idioma de visualización, elige Opciones de idioma y, en Características de idioma, descarga Reconocimiento de voz básico.",
+    "windowsNativeSubtitle": "Reconocimiento de voz integrado de Windows, ejecutado localmente mediante el asistente nativo de Windows. Funciona sin conexión y no necesita una clave de API."
+  },
+  "subagentAvatarChip": {
+    "ariaLabel": "Subagente {subagentId}"
+  },
+  "systemPermissionsCard": {
+    "accessibilityDescription": "Permite que tu asistente haga clic, escriba y controle apps en tu nombre.",
+    "accessibilityLabel": "Accesibilidad",
+    "checking": "Comprobando permisos...",
+    "dockIcon": "icono del Dock",
+    "microphoneDescription": "Permite que tu asistente capture audio para entrada de voz y grabaciones.",
+    "microphoneLabel": "Micrófono",
+    "notificationBadgesDescription": "Permite que tu asistente muestre el recuento de conversaciones no vistas en el {surface}.",
+    "notificationBadgesLabel": "Insignias de notificación",
+    "notificationsDescription": "Permite que tu asistente envíe alertas de macOS para aprobaciones, mensajes y actualizaciones de tareas.",
+    "notificationsLabel": "Notificaciones",
+    "notificationsWindowsDescription": "Permite que tu asistente muestre notificaciones de Windows para aprobaciones, mensajes y actualizaciones de tareas.",
+    "screenDescription": "Permite que tu asistente capture el contexto de la pantalla durante tareas de uso del ordenador.",
+    "screenLabel": "Grabación de pantalla",
+    "speechRecognitionDescription": "Permite que tu asistente transcriba tu voz a texto en el dispositivo.",
+    "speechRecognitionLabel": "Reconocimiento de voz",
+    "speechRecognitionWindowsDescription": "Permite que tu asistente transcriba tu voz a texto con el reconocimiento de voz de Windows.",
+    "taskbarIcon": "icono de la barra de tareas",
+    "title": "Permisos del sistema"
+  },
+  "telegramSetupConnectStep": {
+    "botTokenLabel": "Token del bot",
+    "connectTelegram": "Conectar Telegram",
+    "instructions": "Pega el token de la respuesta de BotFather. Es la línea completa después de <tokenLine>Use this token to access the HTTP API</tokenLine>.",
+    "saving": "Guardando…",
+    "successNotice": "Token guardado. El resto termina solo. Tu asistente confirmará que Telegram entrega la próxima vez que chatees, y se asegurará de poder alcanzarte."
+  },
+  "telegramSetupCreateStep": {
+    "copied": "¡Copiado!",
+    "copyName": "Copiar nombre",
+    "displayNameHint": "Para el nombre visible, <strong>{suggestedName}</strong> mantiene este bot alineado con tu asistente. El nombre de usuario es independiente y no tiene que coincidir.",
+    "inBotFather": "En BotFather:",
+    "intro": "Los bots de Telegram se crean enviando un mensaje a <strong>@BotFather</strong>. Ábrelo, sigue las indicaciones y vuelve con el token que te dé.",
+    "next": "Siguiente",
+    "openBotFather": "Abrir BotFather",
+    "stepDisplayName": "Dale un nombre visible, que es lo que la gente ve en el chat",
+    "stepSendNewBot": "Envía <strong>/newbot</strong>",
+    "stepTokenReply": "BotFather responde con un token después de <strong>Use this token to access the HTTP API</strong>",
+    "stepUsername": "Dale un nombre de usuario, que debe ser único y terminar en <strong>bot</strong>"
+  },
+  "telegramSetupWizard": {
+    "channelLabel": "Telegram",
+    "copyError": "No se pudo copiar el nombre. Escríbelo en BotFather en su lugar.",
+    "stepConnect": "Conectar",
+    "stepCreate": "Crear bot"
+  },
+  "terminalPanel": {
+    "recoveryModeBanner": "Modo de recuperación activo: esta sesión está conectada al terminal de depuración."
+  },
+  "themeStagePage": {
+    "accentFill": "Relleno de acento",
+    "activeBorder": "Borde activo",
+    "activeSurface": "Superficie activa",
+    "assistantBubble": "Una respuesta del asistente, a ancho completo sobre la superficie de la página.",
+    "buttonDisabled": "Deshabilitado",
+    "buttonPrimary": "Principal",
+    "buttonSecondary": "Secundario",
+    "chatAssistant1": "Listo. El resumen está preparado. Los ingresos crecieron de forma constante, los dos riesgos señalados del trimestre pasado están resueltos y reuní en una página aparte los tres gráficos que conviene mostrar.",
+    "chatAssistant2": "Programado para las 9:00. Incluiré los gráficos y una versión de un párrafo para quien lo revise en el teléfono.",
+    "chatUser1": "¿Puedes resumir el informe trimestral antes de la reunión de mañana?",
+    "chatUser2": "Perfecto. Envíalo al equipo por la mañana.",
+    "composerPlaceholder": "Escribe a tu asistente",
+    "faintText": "Texto tenue: el último escalón legible de la rampa.",
+    "inputFilled": "Texto que alguien ya ha escrito en un campo.",
+    "inputPlaceholder": "Un marcador de posición en un campo vacío",
+    "newConversation": "Nueva conversación",
+    "overlaySurface": "Superficie de superposición",
+    "primaryText": "Texto principal: la superficie de lectura principal de la app.",
+    "quietText": "Texto discreto: metadatos y marcas de tiempo.",
+    "raisedCard": "Tarjeta elevada",
+    "raisedCardBody": "Las superficies elevadas se sitúan por encima de los paneles y del fondo de la página.",
+    "samplerTitle": "Muestreador de tema",
+    "secondaryText": "Texto secundario: textos de apoyo y descripciones.",
+    "sectionAccent": "Acento",
+    "sectionButtons": "Botones",
+    "sectionInputs": "Campos",
+    "sectionMessages": "Mensajes",
+    "sectionSurfaces": "Superficies y bordes",
+    "sectionText": "Texto",
+    "send": "Enviar",
+    "subtleDivider": "Divisor sutil encima de esta línea.",
+    "tertiaryText": "Texto terciario: pies de foto, etiquetas y marcadores de posición.",
+    "userBubble": "Un mensaje del usuario, en su burbuja."
+  },
+  "themeToggle": {
+    "dark": "Oscuro",
+    "label": "Tema",
+    "light": "Claro",
+    "system": "Sistema",
+    "velvet": "Velvet"
+  },
+  "tipCard": {
+    "dismiss": "Descartar",
+    "nextTip": "Consejo siguiente",
+    "previousTip": "Consejo anterior"
+  },
+  "ttsProviderForm": {
+    "apiKey": "Clave de API",
+    "apiKeyRequired": "Guarda una clave de API para este proveedor antes de probar.",
+    "chooseFromCatalog": "Elegir del catálogo",
+    "customVoiceIdAriaLabel": "ID de voz personalizado",
+    "noManagedVoices": "No hay voces gestionadas disponibles en este momento.",
+    "provider": "Proveedor",
+    "providerAriaLabel": "Proveedor de TTS",
+    "saveFailed": "No se pudieron guardar los ajustes de texto a voz",
+    "saved": "Ajustes de texto a voz guardados",
+    "test": "Probar",
+    "testing": "Probando…",
+    "voice": "Voz",
+    "voiceId": "ID de voz",
+    "voiceIdPlaceholder": "Introduce un ID de voz"
+  },
+  "updateToast": {
+    "available": "Actualización disponible. Iniciando descarga…",
+    "closeAriaLabel": "Cerrar",
+    "downloading": "Descargando actualización…",
+    "ready": "Vellum {version} está listo.",
+    "restartToInstall": "Reiniciar para instalar",
+    "versionFallback": "actualización"
   },
   "useConnectClaude": {
+    "exchangeFailed": "Comprueba la clave pegada e inténtalo de nuevo.",
     "failed": "No se pudo conectar Claude. Inténtalo de nuevo.",
-    "timedOut": "Se agotó el tiempo de espera para conectar Claude. Inténtalo de nuevo.",
-    "startFailed": "No se pudo iniciar Connect Claude. Inténtalo de nuevo.",
-    "popupBlocked": "Tu navegador bloqueó la pestaña de inicio de sesión. Permite las ventanas emergentes para este sitio y vuelve a hacer clic en Conectar.",
-    "pasteEmpty": "Pega el código que se muestra en la página de Claude.",
     "notStarted": "Primero inicia el flujo de Connect Claude.",
-    "exchangeFailed": "Comprueba la clave pegada e inténtalo de nuevo."
+    "pasteEmpty": "Pega el código que se muestra en la página de Claude.",
+    "popupBlocked": "Tu navegador bloqueó la pestaña de inicio de sesión. Permite las ventanas emergentes para este sitio y vuelve a hacer clic en Conectar.",
+    "startFailed": "No se pudo iniciar Connect Claude. Inténtalo de nuevo.",
+    "timedOut": "Se agotó el tiempo de espera para conectar Claude. Inténtalo de nuevo."
+  },
+  "useVoiceSamplePreview": {
+    "playFailed": "No se pudo reproducir la muestra de voz."
+  },
+  "vercelTokenDialog": {
+    "body": "Introduce tu token de API de Vercel para publicar apps como páginas estáticas.",
+    "cancel": "Cancelar",
+    "createToken": "Crear un token en Vercel →",
+    "save": "Guardar",
+    "saveFailed": "No se pudo guardar el token de Vercel.",
+    "saving": "Guardando…",
+    "title": "Conectar Vercel",
+    "tokenLabel": "Token de API",
+    "tokenPlaceholder": "Token de API de Vercel"
+  },
+  "voiceList": {
+    "assistantVoiceAriaLabel": "Voz del asistente",
+    "defaultSuffix": "(predeterminada)",
+    "previewVoice": "Vista previa de {description}",
+    "providerAriaLabel": "Proveedor de voz",
+    "stopPreview": "Detener vista previa"
+  },
+  "voicePickerField": {
+    "ariaLabel": "Voz",
+    "selectVoice": "Selecciona una voz"
+  },
+  "voicePickerModal": {
+    "done": "Listo",
+    "title": "Voces"
+  },
+  "voiceProvidersNote": {
+    "body": "Los proveedores de voz, la transcripción y las claves de API están en <modelsLink>Modelos y servicios</modelsLink>."
+  },
+  "voiceTranscriptToggles": {
+    "recommendedOff": "Recomendado desactivado"
   },
   "windowsMenuBar": {
-    "file": "Archivo",
-    "view": "Ver",
     "developer": "Desarrollador",
-    "help": "Ayuda"
+    "file": "Archivo",
+    "help": "Ayuda",
+    "view": "Ver"
   }
 }

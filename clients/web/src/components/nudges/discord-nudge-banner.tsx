@@ -1,5 +1,6 @@
 import { DiscordLogo } from "@/components/icons/discord-logo";
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
+import { useTranslation } from "@/i18n";
 
 interface DiscordNudgeBannerProps {
   onJoin: () => void;
@@ -10,34 +11,33 @@ export function DiscordNudgeBanner({
   onJoin,
   onDismiss,
 }: DiscordNudgeBannerProps) {
+  const { t } = useTranslation();
+
   return (
     <NudgeChatBanner
       icon={
         <DiscordLogo size={16} style={{ color: "var(--content-default)" }} />
       }
-      title="Join our community!"
+      title={t("discordNudgeBanner.title")}
       subtitle={
         <>
-          <span className="sm:hidden">
-            Share feedback, request features, get answers faster
-          </span>
+          <span className="sm:hidden">{t("discordNudgeBanner.subtitleShort")}</span>
           <span className="hidden sm:inline">
-            Talk to the team — share feedback, request features, get answers
-            faster
+            {t("discordNudgeBanner.subtitleLong")}
           </span>
         </>
       }
       ctaLabel={
         <>
-          <span className="sm:hidden">Join</span>
+          <span className="sm:hidden">{t("discordNudgeBanner.ctaShort")}</span>
           <span className="hidden sm:inline-flex items-center gap-1.5">
             <DiscordLogo size={16} style={{ color: "currentColor" }} />
-            Join Discord
+            {t("discordNudgeBanner.ctaLong")}
           </span>
         </>
       }
-      ctaAriaLabel="Join the Vellum Discord community"
-      ariaLabel="Join the Vellum Discord community"
+      ctaAriaLabel={t("discordNudgeBanner.ariaLabel")}
+      ariaLabel={t("discordNudgeBanner.ariaLabel")}
       onAction={onJoin}
       onDismiss={onDismiss}
     />

@@ -420,6 +420,32 @@ describe("BYOOAuthConnection", () => {
       expect(result.body).toBe("plain text response");
     });
 
+    test("preserves non-ASCII binary bytes for media downloads", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const binary = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
+      ]);
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(binary, {
+            status: 200,
+            headers: { "content-type": "application/octet-stream" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/drive/v3/files/file-123?alt=media",
+      });
+
+      expect(result.status).toBe(200);
+      expect(Buffer.isBuffer(result.body)).toBe(true);
+      expect(Buffer.from(result.body as Uint8Array).equals(binary)).toBe(true);
+    });
+
     test("returns response headers", async () => {
       await setupCredential("google");
       const conn = createConnection();

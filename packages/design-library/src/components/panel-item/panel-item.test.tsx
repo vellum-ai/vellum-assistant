@@ -142,8 +142,14 @@ describe("PanelItem shape", () => {
     const html = renderShaped("pill");
     expect(html).toContain("rounded-full");
     expect(html).toContain("w-fit");
+    /* The cap belongs to that width: without it a pill whose label is wider
+       than its panel overflows rather than truncating, for the reason
+       `PILL_SHAPE_CLASSES` gives. */
+    expect(html).toContain("max-w-full");
     expect(html).not.toContain("rounded-[6px]");
-    expect(html).not.toContain("w-full");
+    /* A whole class, not a substring: `max-w-full` ends in `w-full`, which a
+       plain `toContain` would read as the row width still being here. */
+    expect(html).not.toMatch(/[\s"]w-full[\s"]/);
     expect(html).not.toContain("w-auto");
   });
 

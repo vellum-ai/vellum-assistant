@@ -334,13 +334,13 @@ export function SttProviderForm({
       void queryClient.invalidateQueries({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
-      toast.success("Speech-to-text settings saved");
+      toast.success(t("sttProviderForm.saveSuccess"));
       return true;
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to save speech-to-text settings",
+          : t("sttProviderForm.saveFailed"),
       );
       return false;
     } finally {
@@ -355,6 +355,7 @@ export function SttProviderForm({
     daemonHasProvider,
     daemonSttProvider,
     queryClient,
+    t,
   ]);
 
   // Publish save state so a parent rendering its own Save (see
@@ -370,14 +371,14 @@ export function SttProviderForm({
   }, [draftProvider]);
 
   const apiKeyPlaceholder = providerHasKey
-    ? "••••••••  (Enter a new key to replace)"
+    ? t("sttProviderForm.apiKeyPlaceholderReplace")
     : selectedProvider.apiKeyPlaceholder;
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
+          {t("sttProviderForm.providerLabel")}
         </label>
         <Select
           value={draftProvider}
@@ -386,31 +387,31 @@ export function SttProviderForm({
             value: p.id,
             label: p.displayName,
           }))}
-          aria-label="STT provider"
+          aria-label={t("sttProviderForm.providerAriaLabel")}
         />
       </div>
 
       {languagePickerVisible && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Spoken language
+            {t("sttProviderForm.spokenLanguage")}
           </label>
           {/* A trigger row (current value + chevron) opening the shared
               search-first picker: mirrors the Select trigger's field
               styling so the form reads uniformly, but opens a dialog. */}
           <SelectTriggerRow
-            aria-label="Spoken language"
+            aria-label={t("sttProviderForm.spokenLanguage")}
             aria-haspopup="dialog"
             onClick={() => setLanguagePickerOpen(true)}
             value={sttLanguageLabelForCode(languageCode, languageProviderId)}
           />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Applies from your next spoken turn.
+            {t("sttProviderForm.spokenLanguageApplies")}
           </p>
           <SttLanguagePickerModal
             open={languagePickerOpen}
             onOpenChange={setLanguagePickerOpen}
-            title="Spoken language"
+            title={t("sttProviderForm.spokenLanguage")}
             currentCode={languageCode}
             configuredProviderId={languageProviderId}
             selectLanguage={selectLanguage}
@@ -422,7 +423,7 @@ export function SttProviderForm({
       {requiresApiKey && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            API Key
+            {t("sttProviderForm.apiKeyLabel")}
           </label>
           <Input
             type="password"
@@ -447,7 +448,7 @@ export function SttProviderForm({
 
       {draftProvider === "vellum" && (
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Transcription runs through your Vellum account.
+          {t("sttProviderForm.vellumTranscription")}
         </p>
       )}
 

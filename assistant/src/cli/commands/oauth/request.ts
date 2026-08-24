@@ -215,6 +215,7 @@ export function registerRequestCommand(oauth: Command): void {
             status: number;
             headers: Record<string, string>;
             body: unknown;
+            bodyEncoding?: "base64";
             hint?: string;
             account?: string | null;
             accountWarning?: string;
@@ -265,20 +266,24 @@ export function registerRequestCommand(oauth: Command): void {
             writeInfo(`<`);
           }
 
-          // Body output (skip for null bodies — HEAD requests, 204, etc.)
-          if (result.body != null) {
-            const bodyStr =
-              typeof result.body === "string"
-                ? result.body
-                : JSON.stringify(result.body, null, 2);
-
-            if (opts.output) {
-              writeFileSync(opts.output, bodyStr, "utf-8");
-            } else {
-              process.stdout.write(bodyStr + "\n");
+          // Body output (skip for null bodies: HEAD requests, 204, etc.)
+          if (result.body != null || result.bodyEncoding === "base64") {
+            const { materializeOAuthRequestOutput } = await import(
+              "../../../oauth/connection.js"
+            );
+            const output = materializeOAuthRequestOutput(result);
+            if (output) {
+              if (opts.output) {
+                writeFileSync(opts.output, output.bytes);
+              } else {
+                process.stdout.write(output.bytes);
+                if (!output.isBinary) {
+                  process.stdout.write("\n");
+                }
+              }
             }
           } else if (opts.output) {
-            writeFileSync(opts.output, "", "utf-8");
+            writeFileSync(opts.output, Buffer.alloc(0));
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

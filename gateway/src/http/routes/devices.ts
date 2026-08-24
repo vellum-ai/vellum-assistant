@@ -11,17 +11,14 @@
  * the local assistant's guardian principal.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, max } from "drizzle-orm";
 
 import {
   revokeActorTokensByDevice,
   revokeRefreshTokensByDevice,
 } from "../../auth/guardian-bootstrap.js";
 import { getGatewayDb } from "../../db/connection.js";
-import {
-  actorRefreshTokenRecords,
-  actorTokenRecords,
-} from "../../db/schema.js";
+import { actorTokenRecords } from "../../db/schema.js";
 import {
   enforceLoopbackOnly,
   errorResponse,
@@ -66,22 +63,23 @@ export async function handleListDevices(
     )
     .all();
 
-  // lastUsedAt lives on the refresh record; map by device for enrichment.
-  const refresh = db
+  // Refreshing credentials revokes the active row and mints an unstamped
+  // replacement, so the newest stamp for a device can live on a revoked row.
+  // Take the max across every status to keep activity history across rotation.
+  // Same principal filter as above with no status filter, so every listed
+  // device is covered by a group here.
+  const lastUsedRows = db
     .select({
-      hashedDeviceId: actorRefreshTokenRecords.hashedDeviceId,
-      lastUsedAt: actorRefreshTokenRecords.lastUsedAt,
+      hashedDeviceId: actorTokenRecords.hashedDeviceId,
+      lastUsedAt: max(actorTokenRecords.lastUsedAt),
     })
-    .from(actorRefreshTokenRecords)
-    .where(
-      and(
-        eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
-        eq(actorRefreshTokenRecords.status, "active"),
-      ),
-    )
+    .from(actorTokenRecords)
+    .where(eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId))
+    .groupBy(actorTokenRecords.hashedDeviceId)
     .all();
-  const lastUsedByDevice = new Map(
-    refresh.map((r) => [r.hashedDeviceId, r.lastUsedAt ?? null]),
+
+  const lastUsedByDevice = new Map<string, number | null>(
+    lastUsedRows.map((r) => [r.hashedDeviceId, r.lastUsedAt ?? null]),
   );
 
   const devices = tokens.map((t) => ({

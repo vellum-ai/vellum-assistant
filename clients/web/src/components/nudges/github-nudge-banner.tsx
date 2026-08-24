@@ -1,6 +1,7 @@
 import { Star } from "lucide-react";
 
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
+import { useTranslation } from "@/i18n";
 
 function GitHubIcon({ size = 16 }: { size?: number }) {
   return (
@@ -25,15 +26,16 @@ export function GitHubNudgeBanner({
   onStar,
   onDismiss,
 }: GitHubNudgeBannerProps) {
+  const { t } = useTranslation();
   return (
     <NudgeChatBanner
       icon={<GitHubIcon size={16} />}
-      title="Vellum is open source"
-      subtitle="Star us on GitHub or contribute"
-      ctaLabel="Star us"
+      title={t("githubNudgeBanner.title")}
+      subtitle={t("githubNudgeBanner.subtitle")}
+      ctaLabel={t("githubNudgeBanner.ctaLabel")}
       ctaLeftIcon={<Star />}
-      ctaAriaLabel="Star Vellum on GitHub"
-      ariaLabel="Vellum is open source on GitHub"
+      ctaAriaLabel={t("githubNudgeBanner.ctaAriaLabel")}
+      ariaLabel={t("githubNudgeBanner.ariaLabel")}
       onAction={onStar}
       onDismiss={onDismiss}
     />

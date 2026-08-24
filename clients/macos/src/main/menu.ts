@@ -193,6 +193,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         fileItem("New Conversation", { kind: "newConversation" }),
         fileItem("Current Conversation", { kind: "currentConversation" }),
         { type: "separator" },
+        fileItem("Pin Current Conversation", { kind: "togglePinConversation" }),
         fileItem("Mark Current as Unread", { kind: "markCurrentUnread" }),
         { type: "separator" },
         fileItem("Previous Conversation", { kind: "previousConversation" }),

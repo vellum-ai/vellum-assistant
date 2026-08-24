@@ -9,6 +9,7 @@
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 
@@ -28,6 +29,8 @@ export function SkillLineageLink({
   className,
   onNavigate,
 }: SkillLineageLinkProps) {
+  const { t } = useTranslation();
+
   if (skill.origin !== "assistant-memory" || !skill.sourceConversationId) {
     return null;
   }
@@ -41,7 +44,7 @@ export function SkillLineageLink({
         className,
       )}
     >
-      Learned from this conversation
+      {t("skillLineageLink.label")}
       <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
     </Link>
   );

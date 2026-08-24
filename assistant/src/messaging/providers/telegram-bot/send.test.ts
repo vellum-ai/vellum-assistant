@@ -343,7 +343,28 @@ describe("editTelegramMessage", () => {
     expect(method).toBe("editMessageText");
     // Telegram wants a numeric message id, where the capability carries the
     // channel's id as a string.
-    expect(body).toEqual({ chat_id: "123", message_id: 456, text: "revised" });
+    expect(body).toEqual({
+      chat_id: "123",
+      message_id: 456,
+      text: "revised",
+      reply_markup: { inline_keyboard: [] },
+    });
+  });
+
+  test("clears the inline keyboard, so a settled message keeps no buttons", async () => {
+    await telegramTransport.edit!(ctx as CallbackContext, {
+      chatId: "123",
+      messageId: "456",
+      text: "\u2713 Approved",
+    });
+
+    const [, body] = callTelegramBotApiMock.mock.calls[0]!;
+    // Omitting reply_markup leaves an existing keyboard in place, which would
+    // leave live Approve and Reject buttons under text saying the request is
+    // already decided. The field has to be sent, and sent empty.
+    expect((body as Record<string, unknown>).reply_markup).toEqual({
+      inline_keyboard: [],
+    });
   });
 
   test("treats an unchanged message as already done", async () => {
