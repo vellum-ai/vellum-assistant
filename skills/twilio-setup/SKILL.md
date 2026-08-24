@@ -1,6 +1,6 @@
 ---
 name: twilio-setup
-description: Configure Twilio credentials and phone numbers for voice calls. Use when setting up Twilio, when someone asks who can call the assistant, or when an inbound call greets with "I don't recognize this number" or asks for the caller's name (Phone channel trust floor).
+description: Configure Twilio credentials and phone numbers for voice calls
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   icon: assets/icon.svg
@@ -9,18 +9,9 @@ metadata:
     category: "integrations"
     display-name: "Twilio Setup"
     includes: ["public-ingress"]
-    activation-hints:
-      - "Twilio setup, Account SID, Auth Token, or assigning a phone number"
-      - "Who can call the assistant, Phone channel trust floors, or inbound call access"
-      - "Inbound call greets with I don't recognize this number, asks for the caller's name, or holds for permission"
-    avoid-when:
-      - "Local push-to-talk or microphone setup (use voice-setup)"
-      - "Placing or steering a live call after Twilio is already working (use phone-calls)"
 ---
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
-
-USE THIS SKILL ALSO WHEN the user complains about the first thing a caller hears, that unknown callers cannot just talk, or who is allowed to reach the assistant by phone. That is the Phone channel trust floor, not a broken Twilio webhook.
 
 ## Value Classification
 
@@ -118,8 +109,6 @@ Once both the Account SID and Auth Token are stored, tell the user how Phone acc
 > Connecting Twilio does not open the line to everyone. Phone starts on **Verified contacts**: you and people you have verified can talk. Anyone else who calls hears that I don't recognize the number, is asked for their name, and you get a request so you can decide.
 >
 > Change this any time on the **Channels** page: select **Phone**, then **Who can message**. The options are **No one**, **Only you**, **Verified contacts**, **Any contact**, and **Strangers** (anyone who dials can talk immediately).
->
-> You can verify people ahead of time in Contacts. I will not change this setting unless you ask.
 
 See "Channel Trust Floors" below if they want more detail or want to change the floor.
 
@@ -234,7 +223,7 @@ Phone access is a channel trust floor, separate from Twilio credentials. Credent
 | **Any contact**     | You and any known contact, including unverified ones. Strangers still request access.     |
 | **Strangers**       | Anyone who dials the number, including complete strangers.                                |
 
-The control lives on the **Channels** page. Select **Phone** (it must be connected) and use **Who can message**. Do not change the floor unless the user asks. Point them there; do not treat this as a webhook or ingress repair.
+The control lives on the **Channels** page. Select **Phone** (it must be connected) and use **Who can message**. Only the guardian can change this setting. Point them there; do not treat this as a webhook or ingress repair.
 
 Unknown callers on **Verified contacts** or **Any contact** hear a scripted greeting: the assistant does not recognize the number, will let the owner know, and asks for a name. After a name, the caller is held while you decide. That greeting means the call reached the assistant and the floor is doing its job.
 
@@ -279,7 +268,7 @@ Identify it that way. Then:
 
 1. Explain the default floor and that the greeting is expected for unrecognized numbers.
 2. Point them to **Channels → Phone → Who can message**.
-3. Ask what they want: keep the gate, verify specific people in Contacts, verify themselves (`guardian-verify-setup`), or open the line with **Strangers**.
+3. Ask what they want: keep the gate, verify specific people in Contacts, verify themselves (`guardian-verify-setup`), or change **Who can message** to **Strangers** on Channels → Phone. Only the guardian can change that setting.
 4. Do not retune webhooks, ingress, or TTS unless the call never answered, Twilio reported an application error, or the spoken message named a missing speech credential and hung up.
 
 The same floor applies if the user calls from their own unverified number and hears that greeting. Offer `guardian-verify-setup` so their number is recognized.
