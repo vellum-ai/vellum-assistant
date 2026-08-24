@@ -19,7 +19,10 @@
  */
 
 import { resolveDefaultProfileForProvider } from "../../config/default-profile-catalog.js";
-import { selectWinningProfile } from "../../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
@@ -349,14 +352,32 @@ export function createAdapterFromConnection(
           overrideProfile,
           llm.defaultProvider ?? null,
         );
-        const upstream =
-          backup?.model != null ? getManagedUpstream(backup.model) : null;
-        if (backup?.model == null || upstream === null) {
+        if (backup?.model == null) {
+          log.warn(
+            { connectionName: connection.name, overrideProfile },
+            "Backup profile does not resolve on this default provider; keeping the original error",
+          );
+          return null;
+        }
+        // The model the adapter serves must be the model the request will
+        // actually carry, so it comes from the same resolution the fallback
+        // send runs (`sendOnFallbackRoute` forces this profile through
+        // `normalizeSendMessageOptions`). Building from `backup.model` alone
+        // would ignore a call-site fragment that pins a model, and a pinned
+        // Gemini model on an Anthropic backup would send Gemini wire params to
+        // an Anthropic adapter.
+        const resolvedBackup = resolveCallSiteConfig(callSite, llm, {
+          overrideProfile,
+          forceOverrideProfile: true,
+          selectionSeed: failedConfig?.selectionSeed,
+        });
+        const upstream = getManagedUpstream(resolvedBackup.model);
+        if (upstream === null) {
           log.warn(
             {
               connectionName: connection.name,
               overrideProfile,
-              backupModel: backup?.model,
+              backupModel: resolvedBackup.model,
             },
             "Backup profile does not resolve to a managed upstream; keeping the original error",
           );
@@ -378,7 +399,7 @@ export function createAdapterFromConnection(
           // `useNativeWebSearch` carries over from the primary: it is a
           // property of this request's web-search config, and every managed
           // backup pin either supports native search or ignores the flag.
-          { ...opts, model: backup.model, provider: upstream },
+          { ...opts, model: resolvedBackup.model, provider: upstream },
         );
         if (backupAdapter === null) {
           return null;

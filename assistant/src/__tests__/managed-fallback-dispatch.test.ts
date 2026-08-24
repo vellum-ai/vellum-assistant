@@ -344,4 +344,60 @@ describe("managed fallback dispatch", () => {
     const models = new Set(requests.map((r) => r.body.model));
     expect(models).toEqual(new Set(["claude-opus-5"]));
   });
+
+  test("the backup adapter serves the model a call-site tweak resolves to", async () => {
+    // A call site's own tuning fragment layers OVER the winning profile, so a
+    // `model` tweak decides the model even when the backup profile is forced.
+    // The adapter has to be built for THAT model's upstream: deriving it from
+    // the backup profile's own pin would send an OpenAI-shaped request through
+    // an Anthropic adapter (or the reverse).
+    setConfig("llm", {
+      profiles: {
+        "tweaked-primary": {
+          source: "user",
+          provider: "vellum",
+          model: "gpt-5.6-sol",
+          fallbackProfile: "tweaked-backup",
+          maxTokens: 1024,
+        },
+        // Deliberately an OpenAI pin, so the backup profile's own model and the
+        // call-site tweak below resolve to different upstreams.
+        "tweaked-backup": {
+          source: "user",
+          provider: "vellum",
+          model: "gpt-5.6-terra",
+          maxTokens: 2048,
+        },
+      },
+      activeProfile: "tweaked-primary",
+      callSites: { mainAgent: { model: "claude-opus-5" } },
+    });
+
+    const provider = createAdapterFromConnection(
+      vellumConnection,
+      managedAuth(OPENAI_PATH),
+      {
+        model: "gpt-5.6-sol",
+        provider: "openai",
+        streamTimeoutMs: 30_000,
+      },
+    );
+    expect(provider).not.toBeNull();
+
+    const response: ProviderResponse = await provider!.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // The escalation followed the tweak, not the backup profile's own pin: the
+    // request reached the Anthropic upstream carrying the Anthropic model.
+    const backup = requestsTo(ANTHROPIC_PATH);
+    expect(backup.length).toBe(1);
+    expect(backup[0].body.model).toBe("claude-opus-5");
+    // Deriving the upstream from the backup profile's own OpenAI pin instead
+    // would have escalated straight back to the failing OpenAI path, so the
+    // request never reaches Anthropic at all.
+    expect(requestsTo(OPENAI_PATH).length).toBeGreaterThan(0);
+    expect(response.actualProvider).toBe("anthropic");
+    expect(response.actualInferenceProfile).toBe("tweaked-backup");
+  });
 });
