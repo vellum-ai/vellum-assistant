@@ -1026,6 +1026,41 @@ describe("recovery probe verdicts", () => {
     expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(true);
   });
 
+  test("a probe that spent a corrective resend keeps the same total budget", async () => {
+    // The repaired path: the probe sends twice (the original plus the
+    // corrective resend) before the stream corruption hands the request to the
+    // retry loop. A seed that counted only the original probe would let this
+    // request make one more primary send than everyone else, which is the
+    // opposite of what seeding was for.
+    const primary = primaryProvider(
+      () =>
+        new ProviderError(
+          `Anthropic: ${UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE}`,
+          UPSTREAM,
+          undefined,
+        ),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+      () => corruptedStream(),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+    recordFallbackServed(UPSTREAM_ROUTE, Date.now() - MAX_COOLDOWN_MS - 1);
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // Two probe sends plus two loop sends, not two plus three.
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(result.model).toBe("backup-model");
+  });
+
   test("a probe repairs malformed tool arguments instead of reporting an outage", async () => {
     // The main retry loop repairs this deterministically with a corrective
     // note; the probe gets the same one-shot repair rather than reading a

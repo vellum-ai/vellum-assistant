@@ -1292,8 +1292,15 @@ export class RetryProvider implements Provider {
         // it to the backup, and a recovery hands it back to the ordinary retry
         // loop below, which is now the right place for it because the route it
         // just cleared is the one that loop sends to.
+        //
+        // Every send the probe makes is counted, repairs included. A repair is
+        // still a send against the primary, so it is what the seed below has to
+        // be built from: a constant would only be right on the path where no
+        // repair ran.
+        let probeSends = 0;
         while (true) {
           try {
+            probeSends += 1;
             const response = await this.inner.sendMessage(
               messagesForAttempt,
               normalizedOptions,
@@ -1394,12 +1401,18 @@ export class RetryProvider implements Provider {
               // that streams corruption all the way through still finishes the
               // turn somewhere.
               //
-              // The probe's send WAS this request's first attempt, so the loop
-              // starts one attempt in. Total sends on the primary stay at
-              // `DEFAULT_MAX_RETRIES + 1`, exactly what a request that never
-              // probed would get, which is what keeps this from quietly
-              // becoming a wider budget than everyone else's.
-              retryAttempt = 1;
+              // Every send the probe made WAS this request spending its own
+              // attempts, so the loop starts that many attempts in. The loop
+              // retries while `retryAttempt < DEFAULT_MAX_RETRIES`, so seeding
+              // it with `probeSends` leaves `1 + (DEFAULT_MAX_RETRIES -
+              // probeSends)` sends below and `DEFAULT_MAX_RETRIES + 1` in
+              // total, for any number of probe sends. That is exactly what a
+              // request that never probed gets, which is what keeps this from
+              // quietly becoming a wider budget than everyone else's. Counting
+              // the sends rather than the entries into this branch is what
+              // makes a repaired probe (a credential refresh, a corrective
+              // resend) come out at the same total as a plain one.
+              retryAttempt = probeSends;
               break;
             }
             fallbackAttempted = true;
