@@ -12,6 +12,7 @@ import { actorRefreshTokenRecords, actorTokenRecords } from "../db/schema.js";
 import { getLogger } from "../logger.js";
 
 import {
+  clearDeviceActivityStamp,
   getExternalAssistantId,
   hashToken,
   ACCESS_TOKEN_TTL_MS,
@@ -106,8 +107,9 @@ function revokeActiveActorTokensByDevice(
     .run();
 }
 
-// Security revoke on refresh-token reuse: clears `lastUsedAt` so a replayed
-// family's activity history does not survive onto whatever pairs next.
+// Security revoke on refresh-token reuse: clears the device's stamp on every
+// row, at any status, so a replayed family's activity history does not survive
+// onto whatever pairs next.
 function revokeAllActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
@@ -115,7 +117,7 @@ function revokeAllActorTokensByDevice(
   const now = Date.now();
   getGatewayDb()
     .update(actorTokenRecords)
-    .set({ status: "revoked", lastUsedAt: null, updatedAt: now })
+    .set({ status: "revoked", updatedAt: now })
     .where(
       and(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
@@ -124,6 +126,7 @@ function revokeAllActorTokensByDevice(
       ),
     )
     .run();
+  clearDeviceActivityStamp(guardianPrincipalId, hashedDeviceId);
 }
 
 // ---------------------------------------------------------------------------
