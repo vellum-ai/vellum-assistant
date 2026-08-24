@@ -30,10 +30,12 @@ interface HotkeyCommand {
 }
 
 /**
- * The rebindable commands surfaced in the Keyboard Shortcuts settings, in menu
- * order. Voice input, Find, Command Palette, and Settings are intentionally
- * absent: they are bound but not rebindable, and ride along in
- * `RESERVED_COMMANDS` below so conflict detection still sees their chords.
+ * The rebindable commands surfaced in the Keyboard Shortcuts settings, in the
+ * order their rows render: system-wide shortcuts first, then the menu
+ * commands. This is not the menu's own order and does not track it. Voice
+ * input, Find, Command Palette, and Settings are intentionally absent: they
+ * are bound but not rebindable, and ride along in `RESERVED_COMMANDS` below
+ * so conflict detection still sees their chords.
  */
 const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
   { key: "globalHotkey", label: "Open Vellum", scope: "global" },

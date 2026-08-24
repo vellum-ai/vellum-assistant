@@ -74,14 +74,17 @@ describe("compiled accelerator defaults", () => {
       ...Object.entries(GLOBAL_SHORTCUT_DEFAULTS),
     ]) {
       if (!accelerator) continue;
-      owners.set(accelerator, [...(owners.get(accelerator) ?? []), kind]);
+      const claimants = owners.get(accelerator);
+      if (claimants) {
+        claimants.push(kind);
+      } else {
+        owners.set(accelerator, [kind]);
+      }
     }
 
     // Electron binds a duplicated chord to whichever menu item it builds
     // first and drops the other silently, so a collision reads as "the
-    // shortcut does nothing" rather than as an error. Naming the colliding
-    // commands here means the next default lands with its conflict spelled
-    // out instead of as a bug report.
+    // shortcut does nothing" rather than as an error.
     const collisions = [...owners.entries()]
       .filter(([, kinds]) => kinds.length > 1)
       .map(([accelerator, kinds]) => `${accelerator}: ${kinds.join(", ")}`);

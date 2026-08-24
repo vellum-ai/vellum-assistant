@@ -792,6 +792,17 @@ export function ChatLayout({
     }
   }, [commandPalette.isOpen, paletteEverOpened]);
 
+  // Menu commands that act on the open conversation take the row from
+  // `activeConversation`, which resolves background, scheduled, and archived
+  // threads the foreground `conversations` list deliberately omits. They
+  // no-op while no conversation is open.
+  const withActiveConversation =
+    (action: (conversation: Conversation) => void) => () => {
+      if (activeConversation) {
+        action(activeConversation);
+      }
+    };
+
   // Electron host commands (File menu / global hotkeys). The hook is a
   // no-op on the web host. Handlers close over the latest state via an
   // internal ref, so we don't need to memoize them. Composer focus is
@@ -813,28 +824,8 @@ export function ChatLayout({
       }
       requestComposerFocus();
     },
-    markCurrentUnread: () => {
-      if (!activeConversationId) {
-        return;
-      }
-      const conversation = conversations.find(
-        (c) => c.conversationId === activeConversationId,
-      );
-      if (conversation) {
-        handleMarkConversationUnread(conversation);
-      }
-    },
-    togglePinConversation: () => {
-      if (!activeConversationId) {
-        return;
-      }
-      const conversation = conversations.find(
-        (c) => c.conversationId === activeConversationId,
-      );
-      if (conversation) {
-        handleTogglePinConversation(conversation);
-      }
-    },
+    markCurrentUnread: withActiveConversation(handleMarkConversationUnread),
+    togglePinConversation: withActiveConversation(handleTogglePinConversation),
     markAllRead: () => {
       void handleMarkAllReadInGroup(conversations);
     },
