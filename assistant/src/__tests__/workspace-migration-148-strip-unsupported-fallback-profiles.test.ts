@@ -125,6 +125,33 @@ describe("148-strip-unsupported-fallback-profiles migration", () => {
     });
   });
 
+  test.each(["openai", "chatgpt"] as const)(
+    "strips managed pointers when backups do not resolve under %s",
+    (provider) => {
+      writeConfig({
+        llm: {
+          defaultProvider: { provider },
+          profiles: {
+            balanced: {
+              source: "managed",
+              fallbackProfile: "balanced-backup",
+            },
+            "quality-optimized": {
+              source: "managed",
+              fallbackProfile: "quality-optimized-backup",
+            },
+          },
+        },
+      });
+
+      stripUnsupportedFallbackProfilesMigration.run(workspaceDir);
+
+      const profiles = readConfig().llm.profiles;
+      expect(profiles.balanced.fallbackProfile).toBeUndefined();
+      expect(profiles["quality-optimized"].fallbackProfile).toBeUndefined();
+    },
+  );
+
   test("handles missing config, missing profiles, and invalid JSON", () => {
     stripUnsupportedFallbackProfilesMigration.run(workspaceDir);
 

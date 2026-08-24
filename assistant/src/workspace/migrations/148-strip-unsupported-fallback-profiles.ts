@@ -8,12 +8,13 @@
  * and would make later config writes fail validation.
  *
  * This migration removes every persisted pointer except the exact managed
- * default mapping. It runs before config parsing, so legacy values are cleaned
- * up without depending on schema salvage. The operation is idempotent: a
- * second run finds no unsupported fields and writes nothing.
+ * default mapping while managed backups resolve under the selected provider.
+ * It runs before config parsing, so legacy values are cleaned up without
+ * depending on schema salvage. The operation is idempotent: a second run
+ * finds no unsupported fields and writes nothing.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
@@ -54,9 +55,12 @@ export const stripUnsupportedFallbackProfilesMigration: WorkspaceMigration = {
 
     const llm = asObject(config.llm);
     const profiles = llm === null ? null : asObject(llm.profiles);
-    if (profiles === null) {
+    if (llm === null || profiles === null) {
       return;
     }
+    const backupsResolve = backupProfilesResolveUnderDefaultProvider(
+      llm.defaultProvider,
+    );
 
     const strippedProfiles: string[] = [];
     for (const [name, value] of Object.entries(profiles)) {
@@ -68,6 +72,7 @@ export const stripUnsupportedFallbackProfilesMigration: WorkspaceMigration = {
         continue;
       }
       const isCodeOwnedMapping =
+        backupsResolve &&
         entry.source === "managed" &&
         entry.fallbackProfile === CODE_OWNED_FALLBACKS[name];
       if (isCodeOwnedMapping) {
@@ -80,7 +85,9 @@ export const stripUnsupportedFallbackProfilesMigration: WorkspaceMigration = {
     if (strippedProfiles.length === 0) {
       return;
     }
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    const tempPath = `${configPath}.tmp`;
+    writeFileSync(tempPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    renameSync(tempPath, configPath);
     log.info(
       { profiles: strippedProfiles },
       "Removed unsupported custom fallback profile pointers",
@@ -98,4 +105,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return isPlainObject(value) ? value : null;
+}
+
+function backupProfilesResolveUnderDefaultProvider(
+  defaultProvider: unknown,
+): boolean {
+  const provider = isPlainObject(defaultProvider)
+    ? defaultProvider.provider
+    : undefined;
+  return typeof provider !== "string" || provider === "vellum";
 }
