@@ -230,6 +230,30 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(frontDoorPrompt).not.toContain("This includes connecting accounts");
   });
 
+  test("the spoken-close teaching reaches the escalated leg only", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      escalated: ["The detailed answer is 42."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    // The teaching opens by telling the model what the caller has already
+    // heard ("you told them you were on it, and nothing since"), which is
+    // true of exactly one leg: the one that took over after a hand-off
+    // bridge. Any other leg is told something false about the call it is
+    // joining, including a turn the user never asked for.
+    expect(escalatedPrompt).toContain("You already told the caller");
+    expect(frontDoorPrompt).not.toContain("You already told the caller");
+  });
+
   test("the screen-reveal teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],

@@ -17,6 +17,8 @@ import type {
 } from "../../stt/types.js";
 import {
   LiveVoiceSession,
+  type LiveVoiceSessionArchiveAudioInput,
+  type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
@@ -128,6 +130,10 @@ function createRecordingTtsStreamer(
   // audio at all, so the session's client playback-tail estimate never moves
   // and every turn reads as instantly silent.
   emitChunkMs?: number,
+  // Content type the provider labels its chunks with. Some return a container
+  // format despite outputFormat "pcm", which is what makes the archive's mime
+  // stamp worth pinning.
+  chunkContentType = "audio/pcm",
 ): {
   streamTtsAudio: LiveVoiceTtsStreamer;
   ttsTexts: string[];
@@ -141,7 +147,7 @@ function createRecordingTtsStreamer(
     if (emitChunkMs !== undefined) {
       options.onAudioChunk({
         type: "tts_audio",
-        contentType: "audio/pcm",
+        contentType: chunkContentType,
         sampleRate: START_FRAME.audio.sampleRate,
         dataBase64: Buffer.alloc(
           Math.round((START_FRAME.audio.sampleRate * emitChunkMs) / 1_000) * 2,
@@ -198,6 +204,8 @@ function createProgressHarness(options: {
   emitMetrics?: boolean;
   gateTtsText?: (text: string) => Promise<void> | null;
   emitChunkMs?: number;
+  chunkContentType?: string;
+  archiveAudio?: LiveVoiceSessionAudioArchiver;
   // Events the transcriber flushes at utterance release; defaults to a plain
   // untagged "hello" final.
   sttStopEvents?: SttStreamServerEvent[];
@@ -207,6 +215,7 @@ function createProgressHarness(options: {
   const { streamTtsAudio, ttsTexts, ttsCalls } = createRecordingTtsStreamer(
     options.gateTtsText,
     options.emitChunkMs,
+    options.chunkContentType,
   );
   const { context, frames } = createContext();
   const session = new LiveVoiceSession(context, {
@@ -218,6 +227,7 @@ function createProgressHarness(options: {
     frontModelConfig: options.frontModelConfig,
     workingCueConfig: options.workingCueConfig ?? { enabled: false },
     progressNarrator: options.progressNarrator,
+    ...(options.archiveAudio ? { archiveAudio: options.archiveAudio } : {}),
     createTurnId: () => "live-turn-1",
     emitMetrics: options.emitMetrics ?? false,
   });
@@ -994,6 +1004,12 @@ const CUE_PCM = renderWorkingCuePcm(START_FRAME.audio.sampleRate, {
 });
 const CUE_BASE64 = CUE_PCM.toString("base64");
 
+// One `emitChunkMs: 10` speech chunk at the session rate, as bytes. The
+// archive assertion compares against exactly this, so a cue spliced into the
+// recording shows up as extra length rather than as "some audio came out".
+const SPEECH_CHUNK_BYTES =
+  Math.round((START_FRAME.audio.sampleRate * 10) / 1_000) * 2;
+
 function cueFrames(
   frames: LiveVoiceServerFrame[],
 ): Extract<LiveVoiceServerFrame, { type: "tts_audio" }>[] {
@@ -1270,6 +1286,149 @@ describe("LiveVoiceSession working cue", () => {
 
     await waitFor(() => cueFrames(frames).length >= 1);
     expect(turnInternals(session).ttsSegmentEnqueued()).toBe(false);
+  });
+
+  test("the cue is marked non-speech on the wire and real speech is not", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitChunkMs: 10,
+    });
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    // The client drives speaking state, hands-free barge-in eligibility,
+    // client-heard latency, and the spoken-word cursor off tts_audio frames.
+    // An unmarked tone corrupts all four, and the payload is the only other
+    // thing that separates it from speech.
+    expect(cueFrames(frames)[0]?.nonSpeech).toBe(true);
+
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "tts_audio" && frame.dataBase64 !== CUE_BASE64,
+      ),
+    );
+
+    const speech = frames.filter(
+      (frame): frame is Extract<LiveVoiceServerFrame, { type: "tts_audio" }> =>
+        frame.type === "tts_audio" && frame.dataBase64 !== CUE_BASE64,
+    );
+    // Absent, not false: speech frames stay byte-identical to what they were
+    // before the cue existed.
+    for (const frame of speech) {
+      expect(frame).not.toHaveProperty("nonSpeech");
+    }
+  });
+
+  test("the cue stays out of the archived assistant audio", async () => {
+    const archived: LiveVoiceSessionArchiveAudioInput[] = [];
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitChunkMs: 10,
+      // A provider that returns a container format despite outputFormat
+      // "pcm", which real ones do.
+      chunkContentType: "audio/wav",
+      archiveAudio: (input) => {
+        archived.push(input);
+        return {
+          type: "warning",
+          warning: {
+            code: "archive_failed",
+            message: "not stored in tests",
+          },
+        };
+      },
+    });
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+    await waitFor(() => archived.some((input) => input.role === "assistant"));
+
+    // The archive is a recording of what the assistant said. Splicing raw cue
+    // PCM into it interleaves two encodings under one mime type, so the
+    // recording is corrupt from the first cue onward.
+    const assistant = archived.find((input) => input.role === "assistant");
+    expect(assistant?.mimeType).toBe("audio/wav");
+    const bytes = Buffer.from(assistant?.audio.dataBase64 ?? "", "base64");
+    expect(bytes.byteLength).toBe(SPEECH_CHUNK_BYTES);
+    expect(bytes.includes(CUE_PCM)).toBe(false);
+  });
+
+  test("a spoken filler does not anchor the turn's first-TTS metrics", async () => {
+    // The approval-pending line is not gated on progress.enabled, so it
+    // speaks on any turn that hits a decision gate in the default config.
+    const answerSpoken = deferred<void>();
+    const { frames, session, getCallbacks, approvalPending, ttsTexts } =
+      createProgressHarness({
+        frontModelConfig: progressConfig({ enabled: false }),
+        progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+        gateTtsText: (text) =>
+          text === ANSWER_TEXT ? answerSpoken.promise : null,
+        emitChunkMs: 10,
+      });
+    await startReleasedTurn(session, getCallbacks);
+
+    const approvalPhrase = sanitizeForTts(approvalPendingPhraseFor()).trim();
+    approvalPending("approval-request-1");
+    await waitFor(() => ttsTexts.includes(approvalPhrase));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // roundTripMs and friends measure to this mark, and they mean "when did
+    // the answer start". A filler plays into the dead air before the answer,
+    // so latching on it reports the wait as the turn's speech latency.
+    expect(turnInternals(session).ttsAudioStarted()).toBe(false);
+    expect(turnInternals(session).firstTtsAudioAtMs()).toBeNull();
+
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+
+    // The first real answer audio still latches: a filler skips the mark, it
+    // does not consume it.
+    await waitFor(() => turnInternals(session).ttsAudioStarted() === true);
+    expect(turnInternals(session).firstTtsAudioAtMs()).not.toBeNull();
+    answerSpoken.resolve(undefined);
+  });
+
+  test("a cue turn lands workingCuesPlayed on the turn's metrics frame", async () => {
+    const { frames, session, getCallbacks } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitMetrics: true,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await waitFor(() => cueFrames(frames).length >= 1);
+
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    );
+
+    // progressUpdatesSpoken is omitted when zero and narration is off by
+    // default, so without this counter nothing in telemetry separates a turn
+    // that hummed through its silence from one that sat in it.
+    const completedMetrics = frames.find(
+      (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+    );
+    expect(completedMetrics).toMatchObject({
+      type: "metrics",
+      turnId: "live-turn-1",
+      workingCuesPlayed: 1,
+    });
   });
 
   test("the cue's chunk enters the echo reference", async () => {
