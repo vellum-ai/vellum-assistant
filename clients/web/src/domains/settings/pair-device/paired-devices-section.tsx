@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { ChevronDown } from "lucide-react";
 
@@ -14,6 +14,9 @@ import { usePairedDevices } from "./use-paired-devices";
 
 /** Wider than the gateway's stamp debounce, so the label cannot flap. */
 const ACTIVE_NOW_WINDOW_MS = 10 * 60 * 1000;
+
+/** The accordion's single item; its presence in `value` means "expanded". */
+const DEVICES_ITEM_VALUE = "paired-devices";
 
 function shortHash(hashedDeviceId: string): string {
   return hashedDeviceId.slice(0, 12);
@@ -76,7 +79,14 @@ export function PairedDevicesSection({
   revalidateKey,
 }: PairedDevicesSectionProps = {}) {
   const { t } = useTranslation("settings");
-  const controller = usePairedDevices({ pollWhilePairing, revalidateKey });
+  // The accordion mounts collapsed, and refreshing the list costs a host
+  // subprocess, so the controller only resamples once the rows are on screen.
+  const [isExpanded, setIsExpanded] = useState(false);
+  const controller = usePairedDevices({
+    pollWhilePairing,
+    revalidateKey,
+    isExpanded,
+  });
   const { devices, confirmTarget } = controller;
 
   // Activity labels are formatted from a fixed instant, and the list only
@@ -101,8 +111,14 @@ export function PairedDevicesSection({
 
   return (
     <>
-      <Collapsible.Root type="multiple">
-        <Collapsible.Item value="paired-devices">
+      <Collapsible.Root
+        type="multiple"
+        value={isExpanded ? [DEVICES_ITEM_VALUE] : []}
+        onValueChange={(open) =>
+          setIsExpanded(open.includes(DEVICES_ITEM_VALUE))
+        }
+      >
+        <Collapsible.Item value={DEVICES_ITEM_VALUE}>
           <Collapsible.Trigger className="group flex w-full items-center justify-between gap-3">
             <span className="text-body-medium-default text-[var(--content-secondary)]">
               {t("pairedDevicesSection.title", {
