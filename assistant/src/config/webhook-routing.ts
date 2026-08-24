@@ -83,6 +83,14 @@ function isIngressExplicitlyDisabled(): boolean {
  *
  * `allowManagedCallbacks` gates both platform tiers: channels that can only be
  * served by a self-hosted ingress pass `false` and never see them.
+ *
+ * The gateway's Telegram webhook reconciler implements this same resolution
+ * order when deciding what URL to hand Telegram's setWebhook
+ * (`resolveExpectedTelegramWebhookUrl` in
+ * `gateway/src/telegram/webhook-manager.ts`). The two must stay in agreement:
+ * a tier this derivation reports as configured but the reconciler declines
+ * leaves Telegram setup reporting success while no webhook is ever
+ * registered. Change the tiers in both places or not at all.
  */
 export async function hasWebhookRoutingConfigured(
   allowManagedCallbacks = false,

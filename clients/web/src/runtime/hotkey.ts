@@ -2,10 +2,6 @@ import { isElectron, type HotkeyEvent } from "@/runtime/is-electron";
 
 export type { HotkeyEvent };
 
-export function canConfigureFnPushToTalk(): boolean {
-  return isElectron();
-}
-
 export function supportsFnPushToTalk(): boolean {
   return (
     isElectron() &&

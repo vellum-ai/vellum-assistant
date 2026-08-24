@@ -56,7 +56,12 @@ const TEXT_ENTRY_SELECTOR = [
   '[role="textbox"]',
 ].join(",");
 
-function isTextEntryElement(element: Element | null): boolean {
+/**
+ * Whether `element` sits inside a text-entry surface. Matches on `closest()`
+ * rather than the element itself so a focused node *inside* a rich editor
+ * counts too, which a bare `tagName` check misses.
+ */
+export function isTextEntryElement(element: Element | null): boolean {
   return Boolean(element?.closest(TEXT_ENTRY_SELECTOR));
 }
 

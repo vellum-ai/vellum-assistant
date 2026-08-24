@@ -29,7 +29,11 @@ import {
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
-import { restoreTunnelEdgeAndAutoTunnel } from "../lib/tunnel-edge.js";
+import {
+  DOCKER_GATEWAY_READY_TIMEOUT_MS,
+  restoreContainerTunnelEdge,
+  restoreTunnelEdgeAndAutoTunnel,
+} from "../lib/tunnel-edge.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -82,6 +86,7 @@ export async function wake(): Promise<void> {
     const res = dockerResourceNames(entry.assistantId);
     await wakeContainers(res);
     console.log("Docker containers started.");
+    await restoreContainerTunnelEdge(entry, DOCKER_GATEWAY_READY_TIMEOUT_MS);
     console.log("Wake complete.");
     return;
   }
@@ -229,7 +234,19 @@ export async function wake(): Promise<void> {
       startCes(watch, resources),
       startLocalDaemon(watch, resources, { foreground, signingKey }),
     ]);
-    // startLocalDaemon's post-spawn wait is bounded (60s) — a longer
+    // A daemon that aborts during startup (an occupied runtime HTTP port, a
+    // fatal subsystem failure) leaves no process behind, and readiness alone
+    // cannot see that: whatever foreign listener holds the port answers the
+    // probe in its place. Liveness is the authoritative signal, so check it
+    // first and fail the command instead of reporting a successful wake for
+    // an assistant that is not running.
+    if (!isProcessAlive(pidFile).alive) {
+      console.error(
+        `Error: the assistant exited during startup and is not running. Its runtime HTTP port ${resources.daemonPort} may be held by another process (check \`lsof -i :${resources.daemonPort}\`); the daemon log records the startup error it reported.`,
+      );
+      process.exit(1);
+    }
+    // startLocalDaemon's post-spawn wait is bounded (60s), and a longer
     // migration outlives it. Classify the fresh spawn the same way the
     // attach path does, so the gateway-coordination wait below applies to
     // both paths and wake's closing summary stays honest.

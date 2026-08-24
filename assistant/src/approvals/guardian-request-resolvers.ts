@@ -23,8 +23,10 @@ import type {
   GuardianRequestWire,
 } from "../channels/gateway-guardian-requests.js";
 import { getGuardianRequestOrNull } from "../channels/gateway-guardian-requests.js";
+import { audienceForReader } from "../channels/message-audience.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { findConversation } from "../daemon/conversation-registry.js";
+import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { parseQuestionAnswerActionId } from "../notifications/guardian-question-mode.js";
 import {
@@ -62,6 +64,7 @@ import {
   channelDeliversToUserId,
   resolveDeliverCallbackUrlForChannel,
   resolveRequesterDeliveryTarget,
+  stripTurnDestination,
 } from "./guardian-channel-delivery.js";
 
 const log = getLogger("guardian-request-resolvers");
@@ -69,38 +72,6 @@ const log = getLogger("guardian-request-resolvers");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Determines whether a Slack delivery should use ephemeral mode.
- *
- * Ephemeral messages (`chat.postEphemeral`) require a real channel ID
- * (starts with `C` for public/private channels, or `D` for DM conversations).
- * When the chat ID is a user ID (starts with `U`), `chat.postEphemeral` fails
- * with `channel_not_found`. In that case the message is already going to a DM
- * opened by `chat.postMessage`, so ephemeral isn't needed.
- *
- * Returns `true` only when the source channel is Slack AND the chatId is a
- * shared channel (starts with `C`), meaning other users could see the message.
- */
-function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
-  return sourceChannel === "slack" && chatId.startsWith("C");
-}
-
-/**
- * Strip the `threadTs` query param from a reply callback URL. The param
- * addresses the guardian's channel thread; reusing it for a DM delivery
- * raises `thread_not_found`. Relative or malformed URLs are returned as-is —
- * they carry no threadTs to strip.
- */
-function stripThreadTsParam(replyCallbackUrl: string): string {
-  try {
-    const url = new URL(replyCallbackUrl);
-    url.searchParams.delete("threadTs");
-    return url.toString();
-  } catch {
-    return replyCallbackUrl;
-  }
-}
 
 /**
  * Deliver the verification code straight to the requester's DM so the
@@ -125,7 +96,7 @@ async function deliverVerificationCodeToRequester(params: {
   verificationCode: string;
   assistantId: string;
 }): Promise<boolean> {
-  const callbackUrl = stripThreadTsParam(params.replyCallbackUrl);
+  const callbackUrl = stripTurnDestination(params.replyCallbackUrl);
 
   try {
     await deliverChannelReply(callbackUrl, {
@@ -194,13 +165,13 @@ function buildRequesterChannelNotice(params: {
     text: params.text,
     assistantId: params.assistantId,
   };
-  if (
-    shouldUseEphemeral(params.channel, params.requesterChatId) &&
-    params.requesterExternalUserId
-  ) {
-    payload.ephemeral = true;
-    payload.user = params.requesterExternalUserId;
-  }
+  payload.audience = audienceForReader(
+    params.channel,
+
+    params.requesterChatId,
+
+    params.requesterExternalUserId,
+  );
   return payload;
 }
 
@@ -1309,16 +1280,11 @@ const accessRequestResolver: GuardianRequestResolver = {
         };
         // On Slack shared channels, deliver the verification code as ephemeral
         // so only the guardian sees the secret — not all channel members.
-        if (
-          shouldUseEphemeral(
-            ctx.actor.channel,
-            guardianInBandContext.guardianChatId,
-          ) &&
-          ctx.actor.actorExternalUserId
-        ) {
-          codePayload.ephemeral = true;
-          codePayload.user = ctx.actor.actorExternalUserId;
-        }
+        codePayload.audience = audienceForReader(
+          ctx.actor.channel,
+          guardianInBandContext.guardianChatId,
+          ctx.actor.actorExternalUserId,
+        );
         await deliverChannelReply(
           guardianInBandContext.replyCallbackUrl,
           codePayload,
@@ -1339,9 +1305,9 @@ const accessRequestResolver: GuardianRequestResolver = {
         codeDelivered &&
         ctx.actor.channel === "slack" &&
         guardianUserId &&
-        !guardianInBandContext.guardianChatId.startsWith("D")
+        !isSlackDmConversation(guardianInBandContext.guardianChatId)
       ) {
-        const dmCallbackUrl = stripThreadTsParam(
+        const dmCallbackUrl = stripTurnDestination(
           guardianInBandContext.replyCallbackUrl,
         );
 
@@ -1543,13 +1509,13 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
               text: `Your request to use "${request.toolName}" has been denied by the guardian.`,
               assistantId,
             };
-          if (
-            shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
-            request.requesterExternalUserId
-          ) {
-            grantDenialPayload.ephemeral = true;
-            grantDenialPayload.user = request.requesterExternalUserId;
-          }
+          grantDenialPayload.audience = audienceForReader(
+            request.sourceChannel,
+
+            requesterChatId,
+
+            request.requesterExternalUserId,
+          );
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
             grantDenialPayload,
@@ -1642,13 +1608,13 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
             text: `Your request to use "${request.toolName}" has been approved. Please retry your request.`,
             assistantId,
           };
-        if (
-          shouldUseEphemeral(request.sourceChannel ?? "", requesterChatId) &&
-          request.requesterExternalUserId
-        ) {
-          grantApprovalPayload.ephemeral = true;
-          grantApprovalPayload.user = request.requesterExternalUserId;
-        }
+        grantApprovalPayload.audience = audienceForReader(
+          request.sourceChannel,
+
+          requesterChatId,
+
+          request.requesterExternalUserId,
+        );
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
           grantApprovalPayload,

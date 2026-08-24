@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 import { z } from "zod";
 
 import { setImage } from "../../avatar/avatar-store.js";
@@ -24,6 +25,7 @@ import {
 } from "../../daemon/conversation-tool-setup.js";
 import {
   computeGatewayTarget,
+  dropTunnelRecordsForNewUrl,
   getIngressConfigResult,
 } from "../../daemon/handlers/config-ingress.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
@@ -837,12 +839,12 @@ function handleGetPlatformConfig() {
 function handleUpdatePlatformConfig({ body = {} }: RouteHandlerArgs) {
   try {
     const { baseUrl: rawBaseUrl } = body as { baseUrl?: string };
-    const value = (rawBaseUrl ?? "").trim().replace(/\/+$/, "");
+    const value = normalizePublicBaseUrl(rawBaseUrl);
     const raw = loadRawConfig();
     const platform = (raw?.platform ?? {}) as Record<string, unknown>;
-    platform.baseUrl = value || undefined;
+    platform.baseUrl = value;
     saveRawConfig({ ...raw, platform });
-    return { baseUrl: value, success: true };
+    return { baseUrl: value ?? "", success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to update platform config");
@@ -860,10 +862,11 @@ function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
       publicBaseUrl?: string;
       enabled?: boolean;
     };
-    const value = (rawUrl ?? "").trim().replace(/\/+$/, "");
+    const value = normalizePublicBaseUrl(rawUrl);
     const raw = loadRawConfig();
     const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    ingress.publicBaseUrl = value || undefined;
+    dropTunnelRecordsForNewUrl(ingress, value);
+    ingress.publicBaseUrl = value;
     if (enabled !== undefined) {
       ingress.enabled = enabled;
     }
@@ -878,7 +881,7 @@ function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
 
     return {
       enabled: isEnabled,
-      publicBaseUrl: value,
+      publicBaseUrl: value ?? "",
       localGatewayTarget: computeGatewayTarget(),
       success: true,
     };

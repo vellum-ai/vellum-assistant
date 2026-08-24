@@ -25,6 +25,30 @@ export interface ConversationStarterChipProps {
   "aria-label"?: string;
 }
 
+/**
+ * The chip's box: its size floor, border, insets, corner, and type. Shared
+ * with the dock's reserved placeholder so the space held for a chip and the
+ * chip that lands in it are measured from the same classes.
+ *
+ * The border is stated here rather than left to `Button`, which sets a 1px
+ * one on its base and paints it transparent for `ghost`. A chip taller than
+ * its size floor (the two-line case the dock reserves for) is content plus
+ * padding plus that border, so a placeholder without it comes up 2px short
+ * per chip and the arriving chips push the dock open.
+ */
+export const CONVERSATION_STARTER_CHIP_BOX =
+  "h-auto min-h-[40px] sm:min-h-[44px] border border-transparent px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px] text-body-small-lighter sm:text-body-medium-lighter";
+
+/**
+ * The label's line box. The body-type tokens pin `line-height` to 18px, which
+ * is tighter than the glyphs need: `line-clamp`'s overflow clipping cuts
+ * descenders (the "g" in "morning") without real line height. Shared with the
+ * dock's reserved placeholder for the same reason as
+ * {@link CONVERSATION_STARTER_CHIP_BOX}: two reserved lines and two rendered
+ * lines have to measure the same.
+ */
+export const CONVERSATION_STARTER_CHIP_LINE = "leading-normal";
+
 export const ConversationStarterChip = forwardRef<
   HTMLButtonElement,
   ConversationStarterChipProps
@@ -41,21 +65,20 @@ export const ConversationStarterChip = forwardRef<
       onClick={onSelect}
       aria-label={ariaLabel}
       className={cn(
-        // Override Button's fixed h-8 / single-line / default body size.
-        "h-auto whitespace-normal",
-        "min-h-[40px] sm:min-h-[44px]",
-        "px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px]",
-        // Theme body type in the secondary tone — reads like the app's
-        // buttons rather than heavy title text.
-        "text-body-small-lighter sm:text-body-medium-lighter text-center",
+        // Override Button's single-line default.
+        "whitespace-normal",
+        // The box overrides Button's fixed height and default body size, and
+        // themes the type in the secondary tone: reads like the app's buttons
+        // rather than heavy title text.
+        CONVERSATION_STARTER_CHIP_BOX,
+        "text-center",
         // Soft white card, no border (Figma 7471-25047).
         "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-secondary)]",
       )}
     >
-      {/* leading-normal: the title-small token is line-height:1, and
-          line-clamp's overflow clipping would cut descenders (the "g" in
-          "morning") without real line height. */}
-      <span className="line-clamp-2 leading-normal">{label}</span>
+      <span className={`line-clamp-2 ${CONVERSATION_STARTER_CHIP_LINE}`}>
+        {label}
+      </span>
     </Button>
   );
 });

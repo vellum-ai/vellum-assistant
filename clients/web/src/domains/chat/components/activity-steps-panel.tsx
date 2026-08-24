@@ -175,7 +175,7 @@ export function ActivityStepsPanel({
           </span>
         )
       }
-      closeLabel="Close steps"
+      closeLabel={t("activityStepsPanel.closeSteps")}
       onClose={onClose}
     >
       {stepDetail ? (
@@ -220,6 +220,7 @@ function TimelineStep({
   messageId?: string;
   groupIndex?: number;
 }) {
+  const { t } = useTranslation("chat");
   // Thinking steps drill into the full reasoning markdown. Genuine reasoning
   // segments carry a `thinkingItemIndex` and a threaded message identity so
   // the detail level streams live; web-synthesized thinking steps
@@ -238,14 +239,14 @@ function TimelineStep({
       <ToolStepPill
         iconName="brain"
         label={truncate(thinkingPreview(step.text), THINKING_PILL_MAX_CHARS)}
-        ariaLabel="View thinking"
+        ariaLabel={t("activityStepsPanel.viewThinkingAria")}
         active={false}
         onClick={() =>
           onOpenDetail({
             kind: "thinking",
             toolCallId: "",
             toolName: "",
-            title: "Thinking",
+            title: t("activityStepsPanel.thinkingTitle"),
             activity: "",
             input: {},
             status: "completed",

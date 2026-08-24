@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { WindowsMenuBar } from "@/components/windows-menu-bar";
 import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { detectElectronHostOS } from "@/runtime/platform-detection";
@@ -49,17 +50,24 @@ export function WindowDragRegion() {
     return null;
   }
 
+  // On Windows the strip doubles as the menu-bar host: routes without the
+  // inline chat title bar (settings, logs, onboarding) would otherwise have
+  // no File/Edit/View menus at all, since the hidden native frame hides the
+  // OS menu bar too. The strip already swallows pointer events in this band,
+  // so the buttons claim no space that was interactive before.
   return (
     <div
-      aria-hidden="true"
+      aria-hidden={hostOS === "windows" ? undefined : "true"}
       className={`fixed left-0 top-0 z-[100] h-7 [-webkit-app-region:drag] ${
-        hostOS === "windows" ? "" : "right-0"
+        hostOS === "windows" ? "flex items-center pl-1" : "right-0"
       }`}
       style={
         hostOS === "windows"
           ? { right: WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX }
           : undefined
       }
-    />
+    >
+      {hostOS === "windows" ? <WindowsMenuBar /> : null}
+    </div>
   );
 }

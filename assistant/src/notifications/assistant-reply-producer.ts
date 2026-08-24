@@ -23,12 +23,13 @@ import {
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import {
-  isMacOriginatedUserMessage,
+  isDesktopOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
 import { isDesktopAttended } from "../runtime/desktop-presence.js";
+import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import {
@@ -44,6 +45,9 @@ const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 
 /** Gates the desktop-attended suppression below, on by default. */
 const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
+
+/** Gates the web-focused suppression below, on by default. */
+const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
 
 /**
  * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
@@ -118,13 +122,34 @@ function readSuppressionMarkers(
  *
  * No `actorPrincipalId`: the platform delivers this push to the assistant
  * owner's device tokens, and a pod has exactly one owner, so any attended
- * macOS client is that owner's.
+ * desktop client is that owner's.
  */
 function readDesktopAttended(rlog: pino.Logger): boolean {
   try {
     return isDesktopAttended();
   } catch (err) {
     rlog.warn({ err }, "Desktop presence read failed; treating as unattended");
+    return false;
+  }
+}
+
+/**
+ * Web presence, kept fail-open here for the same reason as
+ * {@link readDesktopAttended}: a presence read that fails has to send the
+ * push, not reach the producer's catch and silence it.
+ *
+ * No `actorPrincipalId`: the platform delivers this push to the assistant
+ * owner's device tokens, and a pod has exactly one owner, so any focused web
+ * tab is that owner's.
+ */
+function readWebConversationFocused(
+  conversationId: string,
+  rlog: pino.Logger,
+): boolean {
+  try {
+    return isWebConversationFocused(conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Web presence read failed; treating as unfocused");
     return false;
   }
 }
@@ -221,13 +246,21 @@ export async function emitAssistantReplyNotification(params: {
     );
 
     // Read as close to the emit as possible: nothing short-circuits on it.
-    // Presence only speaks for a turn the Mac itself opened, on that row's own
-    // OS evidence. A turn sent from the phone still needs its push while the
-    // Mac sits idle within the desktop client's attendance window.
+    // Presence only speaks for a turn the desktop itself opened, on that row's
+    // own OS evidence. A turn sent from the phone still needs its push while the
+    // desktop sits idle within the attendance window.
     const desktopAttended =
       isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
-      isMacOriginatedUserMessage(initiatingMetadata) &&
+      isDesktopOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
+
+    // Conversation-scoped web presence applies regardless of which device
+    // initiated the turn: a visible matching tab proves where this reply is
+    // currently being displayed, while the conversation id prevents an
+    // unrelated tab from suppressing the push.
+    const webFocused =
+      isAssistantFeatureFlagEnabled(WEB_PRESENCE_FLAG) &&
+      readWebConversationFocused(conversationId, rlog);
 
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
@@ -243,10 +276,10 @@ export async function emitAssistantReplyNotification(params: {
         // opting into v2.
         urgency: "medium",
         isAsyncBackground: false,
-        // Read weakly, as "at the machine this landed on": the attended Mac
-        // that opened the turn renders the reply in-app, and its Dock unread
-        // badge carries it while the window is hidden.
-        visibleInSourceNow: desktopAttended,
+        // Read weakly, as "at the surface this landed on": the attended desktop
+        // or focused web tab that opened the turn renders the reply in-app,
+        // so a redundant push would only duplicate what's already on screen.
+        visibleInSourceNow: desktopAttended || webFocused,
       },
       contextPayload: {
         ...(requestedTitle ? { requestedTitle } : {}),

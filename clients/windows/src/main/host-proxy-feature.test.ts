@@ -13,6 +13,12 @@ mock.module("electron", () => ({
     },
   },
   BrowserWindow: { getAllWindows: () => [] },
+  powerMonitor: {
+    on: () => undefined,
+    off: () => undefined,
+    getSystemIdleTime: () => 0,
+    getSystemIdleState: () => "active",
+  },
   safeStorage: {
     isEncryptionAvailable: () => false,
     encryptString: (value: string) => Buffer.from(value),

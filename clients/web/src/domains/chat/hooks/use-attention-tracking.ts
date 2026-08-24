@@ -18,6 +18,12 @@ interface UseAttentionTrackingParams {
   assistantId: string | null;
   /** From `useAssistantLifecycle` in `ChatLayout`. */
   assistantStateKind: AssistantState["kind"];
+  /**
+   * Whether the transcript is on screen. `ChatLayout` reads the route and the
+   * viewer, so the answer is resolved once there rather than by each hook
+   * that needs it.
+   */
+  isTranscriptOnScreen: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +55,7 @@ interface UseAttentionTrackingParams {
 export function useAttentionTracking({
   assistantId,
   assistantStateKind,
+  isTranscriptOnScreen,
 }: UseAttentionTrackingParams) {
   const { conversations } = useConversationListQuery(
     assistantId,
@@ -77,6 +84,7 @@ export function useAttentionTracking({
     assistantStateKind,
     activeConversationId,
     activeConversation,
+    isTranscriptOnScreen,
   });
 
   // -------------------------------------------------------------------------

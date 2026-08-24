@@ -694,8 +694,11 @@ export class GeminiProvider implements Provider {
     model: string,
   ): Promise<genai.Content[]> {
     // Swap any persisted attachment references back to inline base64 before
-    // building parts, so the transforms below can read `source.data`.
-    messages = await resolveMediaReferences(messages);
+    // building parts, so the transforms below can read `source.data`. Gemini
+    // decodes HEIF itself, so an untranscoded HEIC photo stays an image here
+    // rather than being replaced by an omission note:
+    // https://ai.google.dev/gemini-api/docs/image-understanding
+    messages = await resolveMediaReferences(messages, { acceptsHeif: true });
     const result: genai.Content[] = [];
 
     // Build a map from tool_use id → function name so tool_result blocks

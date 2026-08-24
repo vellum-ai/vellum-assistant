@@ -165,8 +165,8 @@ const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {
  */
 const SETTINGS_TAB_ROUTE_ALIASES: Record<string, string> = {
   // Shortcut rebinding lives in the Preferences modal on General.
-  "keyboard-shortcuts": `${routes.settings.general}?preferences=open`,
-  "keyboard shortcuts": `${routes.settings.general}?preferences=open`,
+  "keyboard-shortcuts": routes.settings.keyboardShortcuts,
+  "keyboard shortcuts": routes.settings.keyboardShortcuts,
   // Speech services (Text-to-Speech / Speech-to-Text) are BYO provider config,
   // so they live with every other provider on Models & Services.
   services: routes.settings.ai,

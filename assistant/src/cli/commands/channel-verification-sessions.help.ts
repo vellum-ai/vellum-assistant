@@ -10,15 +10,16 @@ export const channelVerificationSessionsHelp: CliCommandHelp = {
   ],
   helpText: `
 Verification sessions are used to verify guardian bindings and trusted
-contacts across channels (telegram, phone, slack, email). Three flows exist:
+contacts across channels (telegram, phone, slack, discord, email). Three
+flows exist:
 
   1. Inbound challenge — the assistant generates a secret code and waits
      for the guardian to send it back on the channel. Used when the
      guardian can already message the assistant.
 
   2. Outbound verification — the assistant sends a verification code to
-     a destination (Telegram handle, phone number, Slack user ID) and
-     waits for confirmation. Used when bootstrapping a new channel.
+     a destination (Telegram handle, phone number, Slack or Discord user
+     ID) and waits for confirmation. Used when bootstrapping a new channel.
 
   3. Trusted contact verification — verifies a contact channel that
      already exists in the contact graph, sending a code to the channel
@@ -36,7 +37,7 @@ Examples:
       options: [
         {
           flags: "--channel <channel>",
-          description: "Channel type (telegram, phone, slack, email)",
+          description: "Channel type (telegram, phone, slack, discord, email)",
         },
         {
           flags: "--destination <destination>",
@@ -72,8 +73,8 @@ Routes between three creation modes based on the provided options:
 
   2. Outbound: --channel <ch> --destination <dest>
      Sends a verification code to the given destination. Supports telegram
-     (handle or chat ID), phone (E.164 number), slack (user ID), and email.
-     Use --rebind to replace an existing guardian binding.
+     (handle or chat ID), phone (E.164 number), slack and discord (user ID),
+     and email. Use --rebind to replace an existing guardian binding.
 
   3. Inbound: --channel <ch> (no --destination)
      Generates a challenge secret for the guardian to send back on the
@@ -91,7 +92,8 @@ Examples:
       options: [
         {
           flags: "--channel <channel>",
-          description: "Channel type (telegram, phone). Defaults to telegram.",
+          description:
+            "Channel type (telegram, phone, slack, discord, email). Defaults to telegram.",
         },
       ],
       helpText: `
@@ -113,7 +115,7 @@ Examples:
       options: [
         {
           flags: "--channel <channel>",
-          description: "Channel type (telegram, phone, slack, email)",
+          description: "Channel type (telegram, phone, slack, discord, email)",
           required: true,
         },
         {
@@ -137,7 +139,7 @@ Examples:
       options: [
         {
           flags: "--channel <channel>",
-          description: "Channel type (telegram, phone, slack, email)",
+          description: "Channel type (telegram, phone, slack, discord, email)",
           required: true,
         },
       ],

@@ -11,7 +11,10 @@ mock.module("@/runtime/is-electron", () => ({
 
 mock.module("@/stores/title-bar-store", () => ({
   useTitleBarStore: {
-    use: { inlineTitleBarActive: () => inlineTitleBarActiveMock },
+    use: {
+      inlineTitleBarActive: () => inlineTitleBarActiveMock,
+      windowsMenuBarSuppressed: () => false,
+    },
   },
 }));
 

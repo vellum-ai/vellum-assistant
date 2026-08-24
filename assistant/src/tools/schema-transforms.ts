@@ -6,6 +6,45 @@ import type { ToolDefinition } from "../providers/types.js";
  */
 export const ACTIVITY_SKIP_SET = new Set<string>();
 
+/** The status field injected into every advertised tool input schema. */
+export const ACTIVITY_FIELD = "activity";
+
+const ACTIVITY_PROPERTY = {
+  type: "string",
+  description:
+    "Brief, natural description of what you're doing, shown as a live status update (e.g. 'Checking your project settings')",
+};
+
+/**
+ * Add the injected `activity` property to a schema, so a validator checking a
+ * call against the tool's own schema accepts the field the advertised schema
+ * asked the model to send.
+ *
+ * `injectActivityField` rewrites the definitions the model sees, not the
+ * manifest a skill tool validates against, so without this the model is
+ * offered a field its own tool then rejects as unknown. The property is added
+ * but never the `required` entry: the advertised copy asks for it, and a call
+ * that leaves it out is still a call the tool can serve.
+ */
+export function withActivityProperty(
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!schema || schema.type !== "object") {
+    return schema;
+  }
+  const properties = schema.properties;
+  if (typeof properties !== "object" || properties === null) {
+    return schema;
+  }
+  if (schemaDefinesProperty(schema, ACTIVITY_FIELD)) {
+    return schema;
+  }
+  return {
+    ...schema,
+    properties: { ...properties, [ACTIVITY_FIELD]: ACTIVITY_PROPERTY },
+  };
+}
+
 /**
  * Injects an `activity` string property into each tool definition's input
  * schema, unless the tool is in the skip set, already has an activity field,
@@ -46,11 +85,7 @@ export function injectActivityField(
     // Deep clone to avoid mutating shared refs
     const newProperties = {
       ...properties,
-      activity: {
-        type: "string",
-        description:
-          "Brief, natural description of what you're doing, shown as a live status update (e.g. 'Checking your project settings')",
-      },
+      [ACTIVITY_FIELD]: ACTIVITY_PROPERTY,
     };
     const existingRequired = Array.isArray(schema.required)
       ? [...schema.required, "activity"]

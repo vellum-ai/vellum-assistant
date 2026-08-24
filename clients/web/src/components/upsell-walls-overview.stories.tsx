@@ -55,6 +55,7 @@ const NOT_ENTITLED: SubscriptionResponse = {
   plan_id: "base",
   status: "active",
   renewal_date: null,
+  current_period_start: null,
   current_period_end: null,
   cancel_at_period_end: false,
   cancel_at: null,

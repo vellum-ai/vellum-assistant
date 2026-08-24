@@ -39,6 +39,10 @@ import type {
 } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import {
+  hasValidJpegStructure,
+  sniffImageMimeType,
+} from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { preModelCallSanitize } from "./outbound-sanitize.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
@@ -865,7 +869,8 @@ function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
 // Retained-image hydration
 // ---------------------------------------------------------------------------
 
-async function buildRetainedImageBlocks(
+/** Exported for unit testing (the corrupt-bytes drop gate). */
+export async function buildRetainedImageBlocks(
   filenames: string[],
   manifest: ManifestEntry[],
 ): Promise<{ blocks: ImageContent[]; resolved: string[]; missing: string[] }> {
@@ -883,7 +888,11 @@ async function buildRetainedImageBlocks(
       missing.push(name);
       continue;
     }
-    const sourceMime = guessMimeFromFilename(name);
+    // Sniff the declared MIME from the stored bytes rather than the filename:
+    // clients derive extensions from user input, and providers reject an image
+    // whose bytes disagree with the declared media type.
+    const sourceMime =
+      sniffImageMimeType(content) ?? guessMimeFromFilename(name);
     // Run the same downscale pass the agent uses when first sending an
     // image. Without this, attachments that exceed the provider's per-image
     // byte limit (Anthropic: 5 MB) crash the next turn after compaction.
@@ -891,6 +900,26 @@ async function buildRetainedImageBlocks(
       content.toString("base64"),
       sourceMime,
     );
+    // Last-line gate before the bytes are baked into the rebuilt history: a
+    // corrupt payload would be rejected by the provider with a 400 on EVERY
+    // subsequent turn, wedging the conversation. Dropping the image loses a
+    // retained picture; shipping it loses the conversation. Format sniffing
+    // alone is not enough for JPEG: a truncated JPEG (e.g. persisted from a
+    // torn conversion-cache read) keeps its SOI header, so JPEG payloads must
+    // also walk to a terminal EOI marker.
+    const optimizedBytes = Buffer.from(optimized.data, "base64");
+    const optimizedFormat = sniffImageMimeType(optimizedBytes);
+    const bytesAreValidImage =
+      optimizedFormat != null &&
+      (optimizedFormat !== "image/jpeg" ||
+        hasValidJpegStructure(optimizedBytes));
+    if (!bytesAreValidImage) {
+      log.warn(
+        { filename: name, attachmentId: entry.attachmentId },
+        "Retained image bytes are not a valid image after transport optimization; dropping",
+      );
+      continue;
+    }
     blocks.push({
       type: "image",
       source: {

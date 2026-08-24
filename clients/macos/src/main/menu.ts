@@ -8,7 +8,7 @@ import {
 import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
 
 import { openAboutWindow } from "./about.client";
-import { checkForUpdates } from "./auto-update";
+import { checkForUpdates } from "./auto-update.client";
 import {
   isCliPathFlowInFlight,
   runInstallCliCommandFlow,

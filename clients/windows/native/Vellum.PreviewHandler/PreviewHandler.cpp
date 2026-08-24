@@ -233,8 +233,9 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void*) {
   }
   return TRUE;
 }
-extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(
-    REFCLSID clsid, REFIID id, void** value) {
+// STDAPI matches the combaseapi.h declarations; the exports are emitted
+// via the linker pragmas below to avoid C2375 linkage conflicts.
+STDAPI DllGetClassObject(REFCLSID clsid, REFIID id, void** value) {
   IUnknown* (*create)() = clsid == CLSID_VellumPreview ? CreatePreviewHandler
                          : clsid == CLSID_VellumThumbnail ? CreateThumbnailProvider
                                                          : nullptr;
@@ -249,6 +250,8 @@ extern "C" __declspec(dllexport) HRESULT __stdcall DllGetClassObject(
   factory->Release();
   return status;
 }
-extern "C" __declspec(dllexport) HRESULT __stdcall DllCanUnloadNow() {
+STDAPI DllCanUnloadNow() {
   return gModuleRefs == 0 ? S_OK : S_FALSE;
 }
+#pragma comment(linker, "/EXPORT:DllGetClassObject,PRIVATE")
+#pragma comment(linker, "/EXPORT:DllCanUnloadNow,PRIVATE")

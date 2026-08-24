@@ -49,6 +49,7 @@ class FakePromptInput extends EventEmitter {
   private paused = false;
   pauseCount = 0;
   rawModes: boolean[] = [];
+  events: string[] = [];
 
   isPaused(): boolean {
     return this.paused;
@@ -68,6 +69,7 @@ class FakePromptInput extends EventEmitter {
   setRawMode(value: boolean): this {
     this.isRaw = value;
     this.rawModes.push(value);
+    this.events.push(`raw:${value}`);
     return this;
   }
 }
@@ -228,6 +230,7 @@ describe("provider secret helpers", () => {
     let outputText = "";
     const output = {
       write: (text: string) => {
+        input.events.push(`write:${text}`);
         outputText += text;
         return true;
       },
@@ -243,7 +246,38 @@ describe("provider secret helpers", () => {
     expect(input.pauseCount).toBe(1);
     expect(input.listenerCount("data")).toBe(0);
     expect(input.rawModes).toEqual([true, false]);
+    expect(input.events[0]).toBe("raw:true");
+    expect(input.events[1]).toBe("write:Enter key: ");
     expect(outputText).toBe("Enter key: \n");
+  });
+
+  test("refuses to read a secret when hidden input is unavailable", async () => {
+    const input = new FakePromptInput();
+    input.isTTY = false;
+
+    await expect(
+      promptSecret("Enter key: ", {
+        input: input as unknown as NodeJS.ReadStream,
+      }),
+    ).rejects.toThrow("requires an interactive terminal");
+    expect(input.listenerCount("data")).toBe(0);
+  });
+
+  test("restores terminal mode when the prompt cannot be written", async () => {
+    const input = new FakePromptInput();
+    const output = {
+      write: () => {
+        throw new Error("output unavailable");
+      },
+    };
+
+    await expect(
+      promptSecret("Enter key: ", {
+        input: input as unknown as NodeJS.ReadStream,
+        output: output as unknown as NodeJS.WriteStream,
+      }),
+    ).rejects.toThrow("output unavailable");
+    expect(input.rawModes).toEqual([true, false]);
   });
 
   test("returns a missing-key result in non-interactive shells", async () => {

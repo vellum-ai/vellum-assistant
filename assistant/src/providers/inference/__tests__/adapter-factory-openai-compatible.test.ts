@@ -74,6 +74,36 @@ describe("adapter factory", () => {
     ).toBe(true);
   });
 
+  test("openai-compatible round-trips thinking as reasoning_content", () => {
+    const adapter = buildProviderAdapter("openai-compatible", {
+      apiKey: "test-key",
+      model: "deepseek-reasoner",
+      streamTimeoutMs: 60_000,
+      baseURL: "https://example.com/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    expect(
+      (adapter as unknown as { assistantReasoningField?: string })
+        .assistantReasoningField,
+    ).toBe("reasoning_content");
+  });
+
+  test("litellm round-trips thinking as reasoning_content", () => {
+    const adapter = buildProviderAdapter("litellm", {
+      apiKey: "test-key",
+      model: "deepseek-reasoner",
+      streamTimeoutMs: 60_000,
+      baseURL: "https://example.com/v1",
+      useNativeWebSearch: false,
+    });
+    expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
+    expect(
+      (adapter as unknown as { assistantReasoningField?: string })
+        .assistantReasoningField,
+    ).toBe("reasoning_content");
+  });
+
   test("backfills placeholder content after an aborted empty assistant turn", async () => {
     const adapter = buildProviderAdapter("openai-compatible", {
       apiKey: "test-key",

@@ -38,7 +38,12 @@ export function ChatEmptyState({
     // group with clear air above the composer (Figma: New-App 7471-25035).
     <div className="pt-8 pb-16">
       <div className="mx-auto w-full max-w-[var(--chat-max-width)] px-3 sm:px-6">
-        <div className="flex flex-col items-center justify-center">
+        {/* The slot reserves the headline's own line box at both type sizes,
+            so the busy indicator standing in for a greeting that has not
+            streamed yet occupies exactly the height the headline will, and
+            the centered greeting + composer group holds still through the
+            swap. */}
+        <div className="flex min-h-[34px] flex-col items-center justify-center md:min-h-[44px]">
           {isGenerating ? (
             <BusyIndicator size={10} />
           ) : (

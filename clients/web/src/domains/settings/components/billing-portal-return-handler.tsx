@@ -13,6 +13,7 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { t } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -32,7 +33,10 @@ export function pickPortalReturnToast(
   current: SubscriptionDelta,
 ): { kind: "info" | "success"; message: string } {
   if (!snapshot) {
-    return { kind: "info", message: "Subscription updated." };
+    return {
+      kind: "info",
+      message: t("settings:billingPortalReturnHandler.subscriptionUpdated"),
+    };
   }
   const wasCancelling =
     snapshot.cancel_at_period_end || Boolean(snapshot.cancel_at);
@@ -41,16 +45,22 @@ export function pickPortalReturnToast(
   if (!wasCancelling && isCancelling) {
     const date = current.cancel_at
       ? formatGraceDate(current.cancel_at)
-      : "the end of your billing period";
+      : t("settings:billingPortalReturnHandler.endOfBillingPeriod");
     return {
       kind: "info",
-      message: `Pro plan canceled. You'll have access until ${date}.`,
+      message: t("settings:billingPortalReturnHandler.proCanceled", { date }),
     };
   }
   if (wasCancelling && !isCancelling) {
-    return { kind: "success", message: "Pro plan reactivated." };
+    return {
+      kind: "success",
+      message: t("settings:billingPortalReturnHandler.proReactivated"),
+    };
   }
-  return { kind: "info", message: "Subscription updated." };
+  return {
+    kind: "info",
+    message: t("settings:billingPortalReturnHandler.subscriptionUpdated"),
+  };
 }
 
 /**
@@ -134,7 +144,9 @@ export function BillingPortalReturnHandler() {
         if (unmountedRef.current) {
           return;
         }
-        toast.info("Subscription updated.", { id: TOAST_ID });
+        toast.info(t("settings:billingPortalReturnHandler.subscriptionUpdated"), {
+          id: TOAST_ID,
+        });
       } finally {
         if (!unmountedRef.current) {
           clearPortalReturnSnapshot();

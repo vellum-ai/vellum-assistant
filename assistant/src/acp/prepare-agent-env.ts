@@ -25,9 +25,11 @@ import { basename } from "node:path";
 import { FailedDependencyError } from "../runtime/routes/errors.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import {
+  type CredentialMetadata,
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
@@ -41,90 +43,147 @@ const log = getLogger("acp:prepare-agent-env");
 const ACP_SPAWN_TOOL = "acp_spawn";
 
 /**
+ * `usageDescription` recorded on `acp/claude_oauth_token` when a record is
+ * created, shared by the spawn-time ensure and the Connect repair so the two
+ * paths can't describe the same credential differently.
+ */
+export const ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION =
+  "Claude OAuth token for ACP agent authentication";
+
+/**
  * Stable, machine-readable marker carried on the `FailedDependencyError.details`
  * when a `claude-agent-acp` spawn is missing `CLAUDE_CODE_OAUTH_TOKEN`. Threaded
  * through the tool result / error payload as a structured field so clients can
  * offer the inline "Connect Claude Code" flow instead of re-parsing the human
  * message string. Kept in lockstep with the web literal in
- * `clients/web/src/domains/chat/transcript/acp-connect-affordance.tsx`.
+ * `clients/web/src/domains/chat/utils/acp-connect.ts`.
  */
 export const ACP_CLAUDE_OAUTH_MISSING_CODE = "acp_claude_oauth_missing";
 
 /**
- * Ensure an `acp/<field>` credential has metadata that allows the
- * `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
+ * The metadata an `acp/<field>` credential has once the `acp_spawn` read policy
+ * is ensured, given what is stored now. This is the single definition of that
+ * decision: {@link ensureAcpCredentialPolicy} persists the result and
+ * {@link acpSpawnCredentialDenialReason} evaluates it without writing.
  *
- * - No metadata at all: create with `allowedTools: ["acp_spawn"]`.
- * - Metadata exists with an empty `allowedTools`: default provisioning
- *   path (user ran `credentials set` without `--allowed-tools`), add it.
- * - Metadata exists with a non-empty `allowedTools`: explicit policy set
- *   by the user/admin. Respect it even if `acp_spawn` is absent; the
- *   broker will deny the read and the caller decides whether that's fatal.
+ * The policy is only repaired for legacy/unmanaged cases:
+ *
+ * - No metadata at all: a record with `allowedTools: ["acp_spawn"]` and the
+ *   caller's `usageDescription`.
+ * - Metadata with an empty `allowedTools`: default provisioning path (user ran
+ *   `credentials set` without `--allowed-tools`), so `acp_spawn` is added.
+ * - Metadata with a non-empty `allowedTools`: explicit policy set by the
+ *   user/admin, returned as the very same object so callers can tell by
+ *   identity that there is nothing to persist. It stands even when `acp_spawn`
+ *   is absent; the broker denies the read and the caller decides whether that's
+ *   fatal.
+ *
+ * Everything else on an existing record, `allowedDomains` included, is
+ * preserved.
+ */
+function projectEnsuredAcpPolicy(
+  meta: CredentialMetadata | undefined,
+  field: string,
+  usageDescription?: string,
+): CredentialMetadata {
+  if (!meta) {
+    return {
+      credentialId: "",
+      service: ACP_SERVICE,
+      field,
+      allowedTools: [ACP_SPAWN_TOOL],
+      allowedDomains: [],
+      usageDescription,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  }
+  if ((meta.allowedTools ?? []).length === 0) {
+    return { ...meta, allowedTools: [ACP_SPAWN_TOOL] };
+  }
+  return meta;
+}
+
+/**
+ * Bring the stored metadata for `acp/<field>` up to the policy
+ * {@link projectEnsuredAcpPolicy} describes, writing only the fields that
+ * projection decides and only when it differs from what is stored.
  */
 export function ensureAcpCredentialPolicy(
   field: string,
   usageDescription: string,
 ): void {
   const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription,
-    });
+  const ensured = projectEnsuredAcpPolicy(meta, field, usageDescription);
+  if (ensured === meta) {
     return;
   }
-  const tools = meta.allowedTools ?? [];
-  if (tools.length === 0) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-    });
-  }
+  upsertCredentialMetadata(ACP_SERVICE, field, {
+    allowedTools: ensured.allowedTools,
+    usageDescription: ensured.usageDescription,
+  });
 }
 
 /**
- * Force-grant the `acp_spawn` read policy on `acp/<field>`, unioning it into any
- * existing `allowedTools`. Unlike {@link ensureAcpCredentialPolicy} (which
- * PRESERVES an explicit non-empty policy so a passive spawn can't silently widen
- * it), this is for the EXPLICIT Connect flow: a user connecting Claude is a
- * deliberate opt-in to `acp_spawn`, so granting it makes the CTA actually repair
- * a policy-denied credential instead of dead-looping the missing-token card.
+ * Make `acp/<field>` readable by the spawn: union `acp_spawn` into any existing
+ * `allowedTools` and drop any domain restriction, in ONE write and only when the
+ * stored record fails either half. This is the whole repair the Connect flow
+ * performs, so a new dimension of {@link serverUseDenialReason} is repaired in
+ * exactly one place.
+ *
+ * Unlike {@link ensureAcpCredentialPolicy} (which PRESERVES an explicit non-empty
+ * policy so a passive spawn can't silently widen it), this is for the EXPLICIT
+ * Connect flow: a user connecting Claude is a deliberate opt-in to `acp_spawn`,
+ * so granting it makes the CTA actually repair a policy-denied credential instead
+ * of dead-looping the missing-token card. Domains are cleared under the same
+ * opt-in: this field is OAuth-only and server-use-only, and the broker refuses a
+ * domain-restricted credential server-side, so a lingering restriction would keep
+ * every spawn failing even after a successful connect.
  */
-export function grantAcpSpawnPolicy(
+export function repairAcpSpawnPolicy(
   field: string,
   usageDescription: string,
 ): void {
   const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [ACP_SPAWN_TOOL],
-      usageDescription,
-    });
+  const tools = meta?.allowedTools ?? [];
+  const spawnAllowed = tools.includes(ACP_SPAWN_TOOL);
+  const domainUnrestricted = (meta?.allowedDomains ?? []).length === 0;
+  if (meta && spawnAllowed && domainUnrestricted) {
     return;
   }
-  const tools = meta.allowedTools ?? [];
-  if (!tools.includes(ACP_SPAWN_TOOL)) {
-    upsertCredentialMetadata(ACP_SERVICE, field, {
-      allowedTools: [...tools, ACP_SPAWN_TOOL],
-    });
-  }
+  upsertCredentialMetadata(ACP_SERVICE, field, {
+    allowedTools: spawnAllowed ? tools : [...tools, ACP_SPAWN_TOOL],
+    allowedDomains: [],
+    // Only a fresh record takes the description; an existing one keeps its own.
+    ...(meta ? {} : { usageDescription }),
+  });
 }
 
 /**
- * Whether the `acp_spawn` broker read for `acp/<field>` would actually be
- * permitted, mirroring {@link ensureAcpCredentialPolicy}'s grant rules: a
- * missing or empty `allowedTools` is auto-granted `acp_spawn` at spawn time, so
- * it can read; a non-empty explicit policy is respected as-is, so it can read
- * only when it lists `acp_spawn`. Lets a connected-status check avoid reporting
- * "connected" for a token the spawn is policy-denied from reading (which would
- * otherwise hide the repair CTA and trap the user in a missing-token loop).
+ * Why the `acp_spawn` broker read for `acp/<field>` would be denied, or
+ * `undefined` when it would be permitted. Lets a connected-status check avoid
+ * reporting "connected" for a token the spawn is policy-denied from reading
+ * (which would otherwise hide the repair CTA and trap the user in a
+ * missing-token loop).
+ *
+ * The verdict comes from `serverUseDenialReason`, the single policy source the
+ * broker itself consults, so the status check and the spawn read can never
+ * disagree. The stored metadata is first run through
+ * {@link projectEnsuredAcpPolicy}, the same repair the spawn persists, computed
+ * in memory and never written: this runs on a side-effect-free GET route, so it
+ * has to predict what the spawn's ensure-then-read sequence would do rather
+ * than perform it.
  */
-export function acpSpawnCanReadCredential(field: string): boolean {
+export function acpSpawnCredentialDenialReason(
+  field: string,
+): string | undefined {
   const meta = getCredentialMetadata(ACP_SERVICE, field);
-  if (!meta) {
-    return true;
-  }
-  const tools = meta.allowedTools ?? [];
-  return tools.length === 0 || tools.includes(ACP_SPAWN_TOOL);
+  return serverUseDenialReason(
+    projectEnsuredAcpPolicy(meta, field),
+    ACP_SPAWN_TOOL,
+    ACP_SERVICE,
+    field,
+  );
 }
 
 /**
@@ -243,25 +302,57 @@ export async function prepareAgentEnv(
     };
 
     dropApiKeyOauthToken();
+    let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      await injectCredential(
+      missReason = await injectCredential(
         env,
         ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
-        "Claude OAuth token for ACP agent authentication",
+        ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
       );
     }
+    // Any api-key-shaped value still standing here came from the vault read:
+    // the config override was already dropped above, and the read only runs
+    // when the override left the var unset.
+    const storedValueIsApiKeyShaped =
+      env.CLAUDE_CODE_OAUTH_TOKEN !== undefined &&
+      classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key";
     dropApiKeyOauthToken();
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // The operator's record of WHY the spawn has no token. `missReason` is
+      // the broker's own reason string and the rest are policy verdicts, so no
+      // field can carry the credential value.
+      const policyDenialReason = acpSpawnCredentialDenialReason(
+        ACP_OAUTH_TOKEN_FIELD,
+      );
+      log.warn(
+        {
+          field: ACP_OAUTH_TOKEN_FIELD,
+          missReason,
+          policyBlocked: policyDenialReason !== undefined,
+          apiKeyShaped: storedValueIsApiKeyShaped,
+        },
+        "Claude OAuth token not injected for acp_spawn",
+      );
       // Carry the stable marker as structured `details` so the client renders
       // the inline "Connect Claude Code" card. The message itself is the tool
       // result the model reads at the failure moment, so it directs the model
       // AT that card and away from CLI/token-paste workarounds — otherwise the
       // model relays a `claude setup-token` / paste-a-token flow that the card
       // exists to replace. The CLI command stays only as a headless fallback.
+      // A policy-blocked read is a different repair story from an absent value,
+      // so the opening states which one happened. The guidance after it is
+      // shared: the Connect card fixes both.
+      const opening = policyDenialReason
+        ? "claude-agent-acp cannot read the Claude OAuth token: the credential " +
+          "policy on acp/claude_oauth_token blocks the acp_spawn read, so " +
+          "CLAUDE_CODE_OAUTH_TOKEN is not set for the spawn. Clicking Connect " +
+          "signs in again and repairs that policy. "
+        : "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
+          "which is not set. ";
       throw new FailedDependencyError(
-        "claude-agent-acp needs a Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN), " +
-          'which is not set. The app shows the user an inline "Connect Claude ' +
+        opening +
+          'The app shows the user an inline "Connect Claude ' +
           'Code" card. Reply with ONE short sentence: ask them to click Connect ' +
           "in that card to sign in, and tell them you'll continue automatically " +
           "once they're connected. Do NOT say where the card is — never say " +

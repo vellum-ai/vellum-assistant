@@ -21,27 +21,44 @@ const utils = await import("@/lib/backwards-compat/utils");
 let versionResolution: Promise<void> = Promise.resolve();
 const whenAssistantVersionKnown = mock(() => versionResolution);
 
+const ensureMainWindowVisibleMock = mock(() => Promise.resolve());
+mock.module("@/runtime/main-window", () => ({
+  ensureMainWindowVisible: ensureMainWindowVisibleMock,
+}));
+
 mock.module("@/lib/backwards-compat/utils", () => ({
   ...utils,
   whenAssistantVersionKnown,
+}));
+
+/**
+ * Readiness is a real network call at entry time; stub it so these tests stay
+ * about the parked-request plumbing. `preflightVerdict` is what the daemon
+ * would answer.
+ */
+let preflightVerdict: { status: string; userMessage?: string } | null = {
+  status: "ready",
+};
+const preflightLiveVoice = mock(async () => preflightVerdict);
+mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
+  preflightLiveVoice,
 }));
 
 const {
   PENDING_VOICE_START_TTL_MS,
   drainPendingVoiceStart,
   requestVoiceStart,
+  startVoiceFromSurface,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -50,8 +67,8 @@ const { useResolvedAssistantsStore } = await import(
 /** New enough to serve `POST /v1/live-voice/preflight`. */
 const SUPPORTED_VERSION = "0.10.12";
 
-const starter = mock((_assistantId: string, _conversationId: string | null) =>
-  undefined,
+const starter = mock(
+  (_assistantId: string, _conversationId: string | null) => undefined,
 );
 
 function registerStarter(): void {
@@ -72,6 +89,17 @@ function identityHydrated(version: string = SUPPORTED_VERSION): void {
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
 }
 
+/**
+ * Let a fire-and-forget drain run to completion. `requestVoiceStart` cannot be
+ * awaited by design (it is called from click handlers and command dispatch),
+ * and the drain awaits both the version resolution and readiness.
+ */
+async function flushDrain(): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    await Promise.resolve();
+  }
+}
+
 function isParked(): boolean {
   return usePendingDeepLinkStore.getState().pendingVoiceStartAt !== null;
 }
@@ -88,7 +116,14 @@ beforeEach(() => {
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   starter.mockClear();
   whenAssistantVersionKnown.mockClear();
+  preflightLiveVoice.mockClear();
+  ensureMainWindowVisibleMock.mockClear();
   versionResolution = Promise.resolve();
+  preflightVerdict = { status: "ready" };
+  // These tests are about delivery, not about the first-ever entry: a user who
+  // has never opened voice gets the preferences card instead of a session, and
+  // that interception has its own tests below.
+  useVoicePrefsStore.setState({ firstRunSeen: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -101,8 +136,7 @@ describe("starting a session", () => {
     registerStarter();
 
     requestVoiceStart();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushDrain();
 
     // `null` conversation is the supported "new conversation" start — the
     // server assigns one and echoes it on `ready`.
@@ -267,5 +301,164 @@ describe("one-shot delivery", () => {
     await drainPendingVoiceStart();
 
     expect(starter).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The shared surface entry
+// ---------------------------------------------------------------------------
+
+describe("startVoiceFromSurface", () => {
+  test("navigates to the draft composer and parks the request", () => {
+    identityHydrated();
+    const navigate = mock((_to: string) => undefined);
+
+    startVoiceFromSurface(navigate);
+
+    // The draft route, not the open conversation: the session starts with no
+    // conversation and the server assigns one on `ready`. Navigating is also
+    // what mounts the layout that owns the starter.
+    expect(navigate).toHaveBeenCalledWith("/assistant");
+    expect(isParked()).toBe(true);
+  });
+
+  test("starts once the starter registers, which is the press that used to be lost", async () => {
+    // The press lands where no chat layout is mounted, so nothing can serve it
+    // yet. It must survive until one does rather than being spent on arrival.
+    identityHydrated();
+    const navigate = mock((_to: string) => undefined);
+
+    startVoiceFromSurface(navigate);
+    await Promise.resolve();
+    expect(starter).not.toHaveBeenCalled();
+    expect(isParked()).toBe(true);
+
+    registerStarter();
+    await drainPendingVoiceStart();
+
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+  });
+
+  test("a running session spends the press", () => {
+    identityHydrated();
+    registerStarter();
+    useLiveVoiceStore.getState().setState("listening");
+    const navigate = mock((_to: string) => undefined);
+
+    startVoiceFromSurface(navigate);
+
+    // That session is the one the user is in. Navigating would only walk the
+    // app away from the composer that owns it.
+    expect(navigate).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The guards a session has to get past
+// ---------------------------------------------------------------------------
+
+describe("entry guards", () => {
+  test("the first-ever entry opens the preferences card instead of a session", async () => {
+    // The card is the answer to this press. Something the user can see took
+    // the request, so it is spent rather than left parked for later.
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    requestVoiceStart();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(true);
+    expect(starter).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+
+  /**
+   * The card is drawn in the app's window, and the press that summoned it can
+   * come from the companion surface, which deliberately never raises. Left
+   * behind whatever the user is working in, the card is a question nobody can
+   * see and the press reads as having done nothing.
+   */
+  test("the first-ever entry brings the app forward to ask its question", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    requestVoiceStart();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalled();
+  });
+
+  /**
+   * And only then. Every other entry is a surface the user reached for because
+   * they are working somewhere else, so raising would take the app away from
+   * them to show a call that is already on the surface they pressed.
+   */
+  test("an ordinary start leaves the app where it is", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: true });
+
+    requestVoiceStart();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
+  });
+
+  test("an unconfigured assistant gets the notice, not a room that opens and closes", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
+
+    requestVoiceStart();
+    await drainPendingVoiceStart();
+
+    expect(useLiveVoiceStore.getState().configNotice).toBe("Set up a voice.");
+    expect(starter).not.toHaveBeenCalled();
+    expect(isParked()).toBe(false);
+  });
+
+  test("a failed preflight starts anyway rather than blocking voice", async () => {
+    // An outage on the readiness call must not be the thing that stops a user
+    // talking; a real credential problem still surfaces at the handshake.
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = null;
+
+    requestVoiceStart();
+    await drainPendingVoiceStart();
+
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(useLiveVoiceStore.getState().configNotice).toBeNull();
+  });
+
+  test("a controller that unmounts during preflight leaves the request parked", async () => {
+    // The one precondition here that can still become true, so this is the one
+    // case that must not spend the press.
+    identityHydrated();
+    registerStarter();
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    let released: () => void = () => {};
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          released = () => resolve({ status: "ready" });
+        }),
+    );
+
+    const drain = drainPendingVoiceStart();
+    await Promise.resolve();
+    await Promise.resolve();
+    useLiveVoiceStore.getState().setStarter(null);
+    released();
+    await drain;
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(isParked()).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ import {
   type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill";
 import { Notice, type NoticeTone } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -141,11 +142,13 @@ export interface ChatBodyProps {
   channelFooterSlot?: ReactNode;
 
   /**
-   * Optional conversation-starter chip grid rendered inside the max-width
-   * wrapper directly below the composer. Visible only on the empty state;
-   * the parent passes `undefined` once messages arrive. Rendered as a
-   * slot (like {@link bannerSlot}) so `ChatBody` stays agnostic of the
-   * starter data model.
+   * Optional conversation-starter content for the empty state: the bottom
+   * dock when {@link dockStartersToBottom} is set, otherwise a chip grid
+   * inside the max-width wrapper directly below the composer. The parent
+   * passes `undefined` once messages arrive. Rendered as a slot (like
+   * {@link bannerSlot}) so `ChatBody` stays agnostic of the starter data
+   * model, including whether the node it hands over is holding space for
+   * chips that have not loaded.
    */
   startersSlot?: ReactNode;
 
@@ -172,13 +175,23 @@ export interface ChatBodyProps {
    * When true (and on the empty state), the greeting + composer are centered
    * in the first viewport, {@link startersSlot} is docked to the bottom of
    * that viewport, and {@link belowFoldSlot} is placed below the fold. Used by
-   * the new-thread suggestions library. When false, the empty state keeps the
-   * default layout where the starters sit directly below the composer.
+   * the whole plain empty state (starter chips and the new-thread suggestions
+   * library alike). When false, the empty state uses the layout where the
+   * starters sit directly below the composer.
    * While the soft keyboard is open the greeting + composer anchor to the
    * bottom edge and the dock fades out and collapses its reserved height
    * (kept mounted so dismissing the keyboard restores it without a remount).
    */
   dockStartersToBottom?: boolean;
+
+  /**
+   * When true, the docked {@link startersSlot} keeps its place in the tree but
+   * collapses to nothing, through the same transition an open soft keyboard
+   * uses. The empty state sets it once its starter query has settled with no
+   * chips to show. The collapse wraps the whole docked column, padding
+   * included, so an empty dock gives back every pixel it was holding.
+   */
+  startersDockCollapsed?: boolean;
 
   /**
    * Top-center floating row of active background-process overlays (subagents,
@@ -213,8 +226,10 @@ export function ChatBody({
   pluginPillsSlot,
   belowFoldSlot,
   dockStartersToBottom = false,
+  startersDockCollapsed = false,
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
+  const { t } = useTranslation("chat");
   const isEmptyState = scrollAreaProps.showEmptyState;
   const keyboardOpen = useKeyboardOpen();
   // Banners (app-download nudge, GitHub star, Discord) show once the user
@@ -232,13 +247,13 @@ export function ChatBody({
       ? "relative flex min-h-0 flex-1 flex-col"
       : "relative flex h-full min-h-0 flex-col";
 
-  // While the soft keyboard is open and nothing renders below the composer
-  // (`startersSlot` absent: starters have not arrived yet), the plain
-  // non-docked empty state bottom-anchors instead of centering so the
-  // composer docks to the keyboard edge, and the flip to the docked branch
-  // when starters arrive keeps that alignment instead of jumping
-  // mid-typing. The app-editing side panel always passes inline starters,
-  // so it keeps its centered layout regardless of keyboard state.
+  // The undocked empty state bottom-anchors while the soft keyboard is open
+  // and nothing at all sits below the composer, so the composer reaches the
+  // keyboard edge; with content down there it stays centered and lets the
+  // scroll container handle the overflow. The predicate reads the slot
+  // itself rather than any "still loading" flag, because the slot is exactly
+  // what would occupy that space. The docked branch answers the same
+  // question on `groupClass` below, where its dock collapses instead.
   const nonDockedAlignmentClass =
     keyboardOpen && startersSlot == null
       ? "justify-end"
@@ -291,22 +306,26 @@ export function ChatBody({
   }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
 
   // Shared treatment for the below-composer extras (the starters dock and
-  // the plugin pills) while the soft keyboard is open: fade out and collapse
+  // the plugin pills) when something should stand down: fade out and collapse
   // the reserved height so the bottom-anchored composer reaches the keyboard
-  // edge. Each stays mounted so dismissing the keyboard restores it without
-  // a remount, and `inert` removes it from the tab order and the
-  // accessibility tree. The inner div clips only while the keyboard is
-  // open: the collapse needs the clip, but at rest it would shave the
-  // keyboard-focus rings that paint outside the cards and buttons inside
-  // the slot.
-  const renderKeyboardCollapse = (dataSlot: string, children: ReactNode) => (
+  // edge, or so an empty dock gives its space back. Each stays mounted so the
+  // reason going away restores it without a remount, and `inert` removes it
+  // from the tab order and the accessibility tree. The inner div clips only
+  // while collapsed: the collapse needs the clip, but at rest it would shave
+  // the keyboard-focus rings that paint outside the cards and buttons inside
+  // the slot. Reduced motion gets the same end states without the tween.
+  const renderCollapse = (
+    dataSlot: string,
+    collapsed: boolean,
+    children: ReactNode,
+  ) => (
     <div
       data-slot={dataSlot}
-      inert={keyboardOpen || undefined}
-      className={`grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
-      style={{ gridTemplateRows: keyboardOpen ? "0fr" : "1fr" }}
+      inert={collapsed || undefined}
+      className={`grid transition-[grid-template-rows,opacity] duration-150 motion-reduce:transition-none${collapsed ? " pointer-events-none opacity-0" : ""}`}
+      style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
     >
-      <div className={`min-h-0${keyboardOpen ? " overflow-hidden" : ""}`}>
+      <div className={`min-h-0${collapsed ? " overflow-hidden" : ""}`}>
         {children}
       </div>
     </div>
@@ -367,8 +386,9 @@ export function ChatBody({
         <StagedQuotesStrip />
         {composerSlot}
         {pluginPillsSlot &&
-          renderKeyboardCollapse(
+          renderCollapse(
             "new-chat-plugins",
+            keyboardOpen,
             <div className="mt-4">{pluginPillsSlot}</div>,
           )}
         {trailingStarters}
@@ -383,7 +403,7 @@ export function ChatBody({
     >
       <div className="flex flex-col items-center gap-2 text-[var(--content-default)]">
         <Paperclip className="h-6 w-6" />
-        <span className="text-body-medium-default">Drop files to attach</span>
+        <span className="text-body-medium-default">{t("chatBody.dropFiles")}</span>
       </div>
     </div>
   );
@@ -414,8 +434,9 @@ export function ChatBody({
         </div>
         {isDockedEmpty &&
           startersSlot &&
-          renderKeyboardCollapse(
+          renderCollapse(
             "docked-starters",
+            keyboardOpen || startersDockCollapsed,
             <ChatColumn className="pb-3">{startersSlot}</ChatColumn>,
           )}
       </div>

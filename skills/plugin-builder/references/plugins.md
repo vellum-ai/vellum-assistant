@@ -10,6 +10,7 @@ A plugin lives at `<workspaceDir>/plugins/<name>/`. The host introspects the dir
 my-plugin/
 ├── package.json               # Manifest (required)
 ├── README.md                  # Optional plugin docs
+├── mcp.json                   # Optional MCP server declarations
 ├── config.json                # User-editable config (preserved across upgrades)
 ├── data/                      # Runtime data directory (preserved across upgrades)
 ├── hooks/                     # Lifecycle hooks, one per file
@@ -19,6 +20,8 @@ my-plugin/
 │   └── example.ts
 ├── routes/                    # HTTP routes, served under /x/plugins/<name>/
 │   └── status.ts
+├── channels/                  # Public ingress that makes the plugin a channel
+│   └── ingress.json
 ├── skills/                    # On-demand instruction bundles
 │   └── my-skill/
 │       └── SKILL.md
@@ -61,7 +64,7 @@ A plugin must be fully self-contained: every byte of durable state it keeps live
 
 The assistant's own database is internal — `@vellumai/plugin-api` exposes no handle to it, and a plugin must not persist state elsewhere in the workspace. Keeping everything in `data/` is also what makes uninstall clean: removing the plugin directory removes all of its state.
 
-Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
+Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin, except MCP servers (workspace MCP is configured in settings, not by dropping an `mcp.json` into the workspace). A plugin is what lets you ship several surfaces together as one installable unit.
 
 Each surface's contract lives in its own reference file next to this one, linked from the surfaces table in `SKILL.md`.
 
@@ -83,6 +86,7 @@ Every plugin has a `package.json`. The loader reads three fields and passes ever
 - **`name`** (required). Any npm-style name. The loader strips the scope (`@you/`) for the in-runtime plugin name, and duplicate names fail registration. The unscoped portion must be kebab-case (e.g. `my-plugin`, not `myPlugin` or `my_plugin`), matching the convention used for catalog entries and directory names.
 - **`version`**. Informational, and defaults to `0.0.0` when absent.
 - **`peerDependencies["@vellumai/plugin-api"]`**. A semver range checked against the running assistant. While plugins are in beta a mismatch is logged but does not block load. Once the install path stabilizes the mismatch will harden into a hard reject, so pin a real range.
+- **`displayName`**, **`description`**, **`icon`**. Optional presentation for the channels list when the plugin declares ingress. `icon` is a Lucide name without the `lucide-` prefix. None of them gate load. See [channels.md](channels.md).
 - **`vellum`**. Reserved for future use.
 
 The marketplace catalog entry can point at a subdirectory of a repo using `source.path` in the catalog manifest. See `references/distribution.md` for the full `source.path` field and the catalog manifest schema.
@@ -128,14 +132,14 @@ Values, not just types, that a plugin consumes at module-load or init time. A bo
 
 #### Credentials
 
-| Export                      | Kind  | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resolveCredential`         | value | Resolve a stored credential to its plaintext value (the same value `assistant credentials reveal` prints) from a UUID or a `service/field` reference. When a plugin is in context, resolution is scoped to credentials whose `field` matches the plugin's manifest name; outside any plugin it is unscoped. Throws `CredentialResolutionError` on failure.                                                                                                                                                    |
-| `CredentialResolutionError` | class | Thrown when the credential ref does not resolve, the store is unreachable, or the credential is out of the plugin's scope. Catch it to degrade gracefully rather than crashing the hook.                                                                                                                                                                                                                                                                                                                      |
-| `storeCredential`           | value | Store a credential's plaintext value (the same write `assistant credentials set` performs), creating it or replacing an existing one, named by a UUID or a `service/field` reference. Options: `label`, `description`, and `skipTranscriptScrub`. Returns `{ credentialId, service, field }`. A plugin writes only its own field, and the write fails closed with no plugin in context, so call it from a hook, tool, or route handler rather than at module scope. Throws `CredentialStoreError` on failure. |
-| `CredentialStoreError`      | class | Thrown when no plugin is in context, the ref is malformed or names no credential, the value is empty or invalid for its service, the secure store rejects the write, or the credential is out of the plugin's scope.                                                                                                                                                                                                                                                                                          |
-| `StoreCredentialOptions`    | type  | Options accepted by `storeCredential`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `StoredCredentialRef`       | type  | What `storeCredential` returns: the credential's id, service, and field. The id is a valid ref for `resolveCredential`.                                                                                                                                                                                                                                                                                                                                                                                       |
+| Export                      | Kind  | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `resolveCredential`         | value | Resolve a stored credential to its plaintext value (the same value `assistant credentials reveal` prints) from a UUID or a `service/field` reference. When a plugin is in context, resolution is scoped to credentials whose service matches the plugin's manifest name; outside any plugin it is unscoped. Throws `CredentialResolutionError` on failure.                                                                                                                                                                                 |
+| `CredentialResolutionError` | class | Thrown when the credential ref does not resolve, the store is unreachable, or the credential is out of the plugin's scope. Catch it to degrade gracefully rather than crashing the hook.                                                                                                                                                                                                                                                                                                                                                   |
+| `storeCredential`           | value | Store a credential's plaintext value (the same write `assistant credentials set` performs), creating it or replacing an existing one, named by a UUID or a `service/field` reference. Options: `label`, `description`, and `skipTranscriptScrub`. Returns `{ credentialId, service, field }`. A plugin writes only credentials whose service matches its name, and the write fails closed with no plugin in context, so call it from a hook, tool, or route handler rather than at module scope. Throws `CredentialStoreError` on failure. |
+| `CredentialStoreError`      | class | Thrown when no plugin is in context, the ref is malformed or names no credential, the value is empty or invalid for its service, the secure store rejects the write, or the credential is out of the plugin's scope.                                                                                                                                                                                                                                                                                                                       |
+| `StoreCredentialOptions`    | type  | Options accepted by `storeCredential`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `StoredCredentialRef`       | type  | What `storeCredential` returns: the credential's id, service, and field. The id is a valid ref for `resolveCredential`.                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 #### Public URLs
 
@@ -255,13 +259,12 @@ Reads and writes on the host conversation store (rows, message history, processi
 
 The assistant supports these surfaces today, but they are not yet contributed through the plugin system. They may be added in the future.
 
-| Surface        | What it does                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| Schedules      | Cron-style triggers that fire on a recurring schedule.                                                        |
-| Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files).                   |
-| Webhooks       | Inbound HTTP endpoints that deliver external events into the assistant.                                       |
-| Prompts        | Reusable system prompt fragments and templates.                                                               |
-| UIs            | Custom UI surfaces rendered in the conversation or workspace.                                                 |
-| Bin            | CLI commands the assistant exposes as tools.                                                                  |
-| Integrations   | OAuth-connected and MCP-connected external services (Google, Linear, Slack, etc.) with credential management. |
-| Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.                     |
+| Surface        | What it does                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| Schedules      | Cron-style triggers that fire on a recurring schedule.                                      |
+| Artifacts      | Versioned outputs the assistant produces and tracks (documents, diagrams, generated files). |
+| Prompts        | Reusable system prompt fragments and templates.                                             |
+| UIs            | Custom UI surfaces rendered in the conversation or workspace.                               |
+| Bin            | CLI commands the assistant exposes as tools.                                                |
+| Integrations   | OAuth-connected external services (Google, Linear, Slack, etc.) with credential management. |
+| Slash commands | Shortcuts triggered by typing `/` in the conversation, expanding into prompts or actions.   |

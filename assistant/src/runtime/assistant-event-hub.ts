@@ -109,6 +109,24 @@ export interface ClientPresence {
   reportedAt: Date;
 }
 
+/**
+ * Web tab visibility and conversation focus, as reported by a `web`-interface
+ * client (a browser tab or the Electron renderer). Distinct from
+ * {@link ClientPresence}: scoped to a single conversation rather than app-wide
+ * attendance, and reported by the shared web renderer rather than the macOS
+ * host-proxy bridge. See `runtime/web-presence.ts` for the read-side policy.
+ */
+export interface WebPresenceReport {
+  visible: boolean;
+  /** The conversation currently focused (chat composer on screen), or `null`. */
+  focusedConversationId: string | null;
+}
+
+export interface ClientWebPresence extends WebPresenceReport {
+  /** When the daemon last heard from the client. Drives staleness. */
+  reportedAt: Date;
+}
+
 interface ClientEntry extends BaseSubscriberEntry {
   type: "client";
   clientId: string;
@@ -130,6 +148,11 @@ interface ClientEntry extends BaseSubscriberEntry {
    * In-memory only, so consumers must fail open when it is absent.
    */
   presence?: ClientPresence;
+  /**
+   * Last web tab visibility/focus reported by this client, for clients that
+   * report it. In-memory only, so consumers must fail open when it is absent.
+   */
+  webPresence?: ClientWebPresence;
 }
 
 interface ProcessEntry extends BaseSubscriberEntry {
@@ -616,6 +639,21 @@ export class AssistantEventHub {
     let matched = false;
     for (const entry of this.activeClientEntries(clientId)) {
       entry.presence = { state, reportedAt: now };
+      matched = true;
+    }
+    return matched;
+  }
+
+  /**
+   * Record the web tab visibility/focused-conversation reported by a client.
+   * `reportedAt` always advances. Returns true when at least one active
+   * client entry matched.
+   */
+  setClientWebPresence(clientId: string, report: WebPresenceReport): boolean {
+    const now = new Date();
+    let matched = false;
+    for (const entry of this.activeClientEntries(clientId)) {
+      entry.webPresence = { ...report, reportedAt: now };
       matched = true;
     }
     return matched;

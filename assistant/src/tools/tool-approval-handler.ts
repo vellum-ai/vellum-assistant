@@ -136,23 +136,29 @@ const TC_GRANT_WAIT_INTERVAL_MS = 500;
 export const TC_GRANT_WAIT_MAX_MS = 60_000;
 
 /**
- * Resolve the wait budget for an escalated tool grant.
+ * Resolve how long one approval decision stays open, in milliseconds.
  *
- * A guardian answering an escalated tool call is making the same decision as a
- * local user answering a permission prompt, so both paths spend the same
+ * Every actor deciding a gated tool call is making the same decision as a
+ * local user answering a permission prompt, so every path spends the same
  * budget: `timeouts.permissionTimeoutSec` (read by `permissions/prompter.ts`).
- * If anything, this path needs the larger share of it: the prompter's user
- * already has the prompt on screen, while the guardian is notified
- * out-of-band and has to context-switch before deciding.
+ * If anything, an off-channel path needs the larger share of it: the
+ * prompter's user already has the prompt on screen, while a guardian is
+ * notified out-of-band and has to context-switch before deciding.
  *
  * Falls back to {@link TC_GRANT_WAIT_MAX_MS} rather than the tool-execution
  * default on a non-positive value, so a bad config can never collapse the
  * window to zero and auto-deny every escalation.
  *
- * Exported because the grant resolver sizes its `inline_wait_active` staleness
- * threshold off this same budget: if the two drift, an approval arriving while
- * a waiter is still live gets misread as a dead waiter and the requester is
- * told to retry a call that is about to resume on its own.
+ * This is the one owner of that budget, and every clock measuring the same
+ * window reads it here rather than restating the number:
+ *
+ * - the inline grant wait, which spends it directly;
+ * - the grant resolver's `inline_wait_active` staleness threshold, because if
+ *   the two drift, an approval arriving while a waiter is still live gets
+ *   misread as a dead waiter and the requester is told to retry a call that is
+ *   about to resume on its own;
+ * - the `tool_approval` row deadline, so the card stops offering a decision at
+ *   the same moment the prompt stops waiting for one.
  */
 export function resolveInlineGrantWaitMs(): number {
   return safeTimeoutMs(

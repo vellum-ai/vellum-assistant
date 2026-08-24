@@ -89,6 +89,7 @@ import {
 } from "../usage/pricing.js";
 import { ProviderError } from "../util/errors.js";
 import { faviconUrlForDomain } from "../util/favicon.js";
+import { redactLogString } from "../util/log-redact.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -143,6 +144,7 @@ import type {
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
 import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
+import { buildProviderRejectionLogFields } from "./provider-rejection-log-fields.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
@@ -2708,7 +2710,8 @@ function handleError(
           event.error instanceof ProviderError
             ? event.error.provider
             : undefined,
-        errorMessage: event.error.message,
+        errorMessage: redactLogString(event.error.message),
+        ...buildProviderRejectionLogFields(event.error),
       },
       "Provider rejected request with unclassified 4xx error",
     );

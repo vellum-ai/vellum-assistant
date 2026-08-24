@@ -68,6 +68,7 @@ describe("resolveHotkeyCatalog", () => {
     expect(catalog.filter((c) => c.rebindable).map((c) => c.key)).toEqual([
       "globalHotkey",
       "quickInput",
+      "toggleVoice",
       "newConversation",
       "currentConversation",
       "markCurrentUnread",

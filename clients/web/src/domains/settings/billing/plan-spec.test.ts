@@ -29,6 +29,16 @@ describe("freePlanSpecs", () => {
     ]);
     expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
   });
+
+  test("gives the credits chip a row of its own", () => {
+    // The machine and storage chips are short enough to share a row; the
+    // credits chip is a phrase, so the wrapped layout drops it onto its own.
+    expect(freePlanSpecs().map((s) => s.ownRow)).toEqual([
+      undefined,
+      undefined,
+      true,
+    ]);
+  });
 });
 
 describe("packageSpecs", () => {
@@ -78,6 +88,31 @@ describe("packageSpecs", () => {
     expect(specs[3].icon).toBe(Mail);
   });
 
+  test("gives the credits chip and every extra a row of its own", () => {
+    const specs = packageSpecs({
+      key: "super",
+      machine_size: "medium",
+      credits_usd: 45,
+      storage_gib: 30,
+    } as ProPackage);
+    // Machine and storage share the wrapping row; the credits phrase and the
+    // email/subdomain extra each take a full row below it.
+    expect(specs.map((s) => s.ownRow)).toEqual([
+      undefined,
+      undefined,
+      true,
+      true,
+    ]);
+  });
+
+  test("keeps the credits chip on its own row under the obscured label", () => {
+    const specs = packageSpecs(
+      { key: "mighty", credits_usd: 25, storage_gib: 10 } as ProPackage,
+      { obscuredUsageLabel: "Mighty usage, reset monthly" },
+    );
+    expect(specs[2].ownRow).toBe(true);
+  });
+
   test("falls back to $0 when credits_usd is null", () => {
     const specs = packageSpecs({
       key: "unknown",
@@ -86,6 +121,39 @@ describe("packageSpecs", () => {
       storage_gib: 8,
     } as ProPackage);
     expect(specs[2].label).toBe("$0 in credits included");
+  });
+
+  test("swaps the credits chip for an obscured usage label when given one", () => {
+    const specs = packageSpecs(
+      {
+        key: "mighty",
+        name: "Mighty",
+        machine_size: null,
+        credits_usd: 25,
+        storage_gib: 10,
+      } as ProPackage,
+      { obscuredUsageLabel: "Mighty usage, reset monthly" },
+    );
+    expect(specs.map((s) => s.label)).toEqual([
+      "Small Machine",
+      "10 GB Storage",
+      "Mighty usage, reset monthly",
+    ]);
+    // Only the credits chip's copy moves; its icon and the rest are untouched.
+    expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
+  });
+
+  test("keeps the dollar label when the options carry no override", () => {
+    const specs = packageSpecs(
+      {
+        key: "mighty",
+        machine_size: null,
+        credits_usd: 25,
+        storage_gib: 10,
+      } as ProPackage,
+      {},
+    );
+    expect(specs[2].label).toBe("$25 in credits included");
   });
 
   test("formats a sub-dollar credit amount cents-aware", () => {

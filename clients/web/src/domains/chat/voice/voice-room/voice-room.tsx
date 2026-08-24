@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * "Voice room" — the owning-composer surface for a live-voice session,
  * mounted by `chat-layout.tsx` as a purely additive overlay: the composer's
@@ -339,6 +340,7 @@ function VoiceRoomSheet({
   motionProps: MotionProps;
   children: ReactNode;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <MotionBottomSheetContent
@@ -391,7 +393,7 @@ function VoiceRoomSheet({
           }
         }}
         style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
-        aria-label="Voice session"
+        aria-label={t("voiceRoom.ariaLabel")}
         // The room narrates itself through its own live region; a description
         // element would be a second, redundant announcement.
         aria-describedby={undefined}
@@ -408,6 +410,7 @@ function VoiceRoomSheet({
  * exit.
  */
 function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
+  const { t } = useTranslation("chat");
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
@@ -592,7 +595,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       // the rest of the app is inert would be a lie to assistive tech; the
       // sheet gets real modality from Radix instead of asserting it here.
       aria-modal={fullscreen || undefined}
-      aria-label={sheet ? undefined : "Voice session"}
+      aria-label={sheet ? undefined : t("voiceRoom.ariaLabel")}
       // Fullscreen covers `ChatLayoutHeader`, so it loses the header's
       // safe-area protection — pad the centered avatar inside the
       // notch/home-indicator per docs/CAPACITOR.md. The background layers are
@@ -799,8 +802,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         className="absolute z-10 flex items-center gap-1"
       >
         <VoiceRoomControl
-          label="Minimize voice room"
-          tooltip="Minimize (session keeps going)"
+          label={t("voiceRoom.minimizeAria")}
+          tooltip={t("voiceRoom.minimizeTooltip")}
           onClick={minimizeVoiceRoom}
           bare
           overMedia={cameraOpen}
@@ -976,12 +979,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               reaches for without looking. */}
           {cameraOpen ? (
             <div className="relative flex w-full items-center justify-center">
-              <Tooltip content="Take a photo">
+              <Tooltip content={t("voiceRoom.takePhoto")}>
                 <button
                   type="button"
                   onClick={() => void shutter()}
                   disabled={sending}
-                  aria-label="Take a photo"
+                  aria-label={t("voiceRoom.takePhoto")}
                   data-testid="voice-room-shutter"
                   className={cn(
                     "flex size-16 items-center justify-center rounded-full border-4 transition",
@@ -1013,7 +1016,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               </Tooltip>
 
               <VoiceRoomControl
-                label="Flip camera"
+                label={t("voiceRoom.flipCamera")}
                 onClick={() => void camera.flipCamera()}
                 overMedia={cameraOpen}
                 className="absolute right-8"
@@ -1033,7 +1036,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
         <VoiceRoomControl
-          label={muted ? "Unmute microphone" : "Mute microphone"}
+          label={muted ? t("voiceRoom.unmuteMicrophone") : t("voiceRoom.muteMicrophone")}
           onClick={() => setLiveVoiceMuted(!muted)}
           pressed={muted}
           tone={muted ? "destructive" : "neutral"}
@@ -1044,7 +1047,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </VoiceRoomControl>
 
         <VoiceRoomControl
-          label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          label={outputMuted ? t("voiceRoom.unmuteAssistant") : t("voiceRoom.muteAssistant")}
           onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
           pressed={outputMuted}
           tone={outputMuted ? "destructive" : "neutral"}
@@ -1080,7 +1083,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             self-evident would be worse than nothing. */}
         {cameraSupported ? (
           <VoiceRoomControl
-            label={cameraOpen ? "Close camera" : "Show the camera"}
+            label={cameraOpen ? t("voiceRoom.closeCamera") : t("voiceRoom.showCamera")}
             onClick={() => (cameraOpen ? close() : void open())}
             pressed={cameraOpen}
             overMedia={cameraOpen}
@@ -1095,8 +1098,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null}
 
         <VoiceRoomControl
-          label="End voice session"
-          tooltip="End session"
+          label={t("voiceRoom.endSessionAria")}
+          tooltip={t("voiceRoom.endSessionTooltip")}
           onClick={endLiveVoiceSession}
           tone="destructive"
           isLight={tone?.isLight}
@@ -1112,7 +1115,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         {/* A muted `listening` already reads as "Muted", so prefixing it again
             would announce "Muted — Muted". The assistant's own phases still
             need the prefix: "Thinking…" alone would not say the mic is off. */}
-        {muted && state !== "listening" ? `Muted. ${stateLabel}` : stateLabel}
+        {muted && state !== "listening" ? t("voiceRoom.mutedState", { state: stateLabel }) : stateLabel}
       </div>
     </motion.div>
   );

@@ -5,12 +5,14 @@ import {
   formatScheduleRunCount,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // StatusDot — shared status indicator for schedules and runs
 // ---------------------------------------------------------------------------
 
 export function StatusDot({ status }: { status: string | null }) {
+  const { t } = useTranslation("settings");
   const color =
     status === "ok" || status === "completed"
       ? "var(--system-positive-strong)"
@@ -21,7 +23,7 @@ export function StatusDot({ status }: { status: string | null }) {
     <span
       className="inline-block h-2 w-2 rounded-full"
       style={{ backgroundColor: color }}
-      aria-label={status ?? "unknown"}
+      aria-label={status ?? t("scheduleSharedUi.unknownStatus")}
     />
   );
 }
@@ -42,10 +44,12 @@ export function ScheduleUsageStats({
   usage: ScheduleRowUsage;
   onOpenUsage?: () => void;
 }) {
+  const { t } = useTranslation("settings");
+
   if (usage.status === "loading") {
     return (
       <div
-        aria-label="Loading schedule usage"
+        aria-label={t("scheduleSharedUi.loadingUsage")}
         className="flex w-[156px] shrink-0 items-center justify-end gap-3"
       >
         <Skeleton as="span" className="h-5 w-16" />
@@ -78,21 +82,27 @@ export function ScheduleUsageStats({
         <button
           type="button"
           onClick={onOpenUsage}
-          aria-label={`View usage for ${scheduleName}`}
+          aria-label={t("scheduleSharedUi.viewUsageFor", { name: scheduleName })}
           className={`min-w-[64px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)] ${costClass}`}
         >
           {cost}
         </button>
       ) : (
         <span
-          aria-label={`Cost for ${scheduleName} in the last 7 days: ${cost}`}
+          aria-label={t("scheduleSharedUi.costFor", {
+            name: scheduleName,
+            cost,
+          })}
           className={`block min-w-[64px] px-1 py-0.5 ${costClass}`}
         >
           {cost}
         </span>
       )}
       <span
-        aria-label={`Runs for ${scheduleName} in the last 7 days: ${runs}`}
+        aria-label={t("scheduleSharedUi.runsFor", {
+          name: scheduleName,
+          runs,
+        })}
         className={`block min-w-[64px] px-1 py-0.5 ${runsClass}`}
       >
         {runs}

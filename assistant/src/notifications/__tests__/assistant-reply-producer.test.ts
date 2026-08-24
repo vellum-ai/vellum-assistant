@@ -94,6 +94,23 @@ mock.module("../../runtime/desktop-presence.js", () => ({
   },
 }));
 
+// Defaults to unfocused, so every other case in this file exercises the
+// unsuppressed path.
+let webFocused = false;
+let webPresenceShouldThrow = false;
+const webPresenceArgs: unknown[][] = [];
+const realWebPresence = await import("../../runtime/web-presence.js");
+mock.module("../../runtime/web-presence.js", () => ({
+  ...realWebPresence,
+  isWebConversationFocused: (...args: unknown[]) => {
+    webPresenceArgs.push(args);
+    if (webPresenceShouldThrow) {
+      throw new Error("simulated presence read failure");
+    }
+    return webFocused;
+  },
+}));
+
 const realAttentionStore =
   await import("../../persistence/conversation-attention-store.js");
 mock.module("../../persistence/conversation-attention-store.js", () => ({
@@ -183,6 +200,33 @@ function makeMacOriginatedMessage(): MessageRow {
   });
 }
 
+function makeWindowsOriginatedMessage(): MessageRow {
+  return makeMessage({
+    metadata: JSON.stringify({
+      userMessageChannel: "vellum",
+      userMessageInterface: "web",
+      client: { os: "windows" },
+      clientOsFromRequest: true,
+    }),
+  });
+}
+
+/**
+ * A turn opened from a plain browser tab, as opposed to the Electron desktop
+ * renderer sharing the same web bundle: `client.os` is `"web"` only when
+ * `detectClientOs()` fails to resolve an Electron host OS first.
+ */
+function makeWebOriginatedMessage(): MessageRow {
+  return makeMessage({
+    metadata: JSON.stringify({
+      userMessageChannel: "vellum",
+      userMessageInterface: "web",
+      client: { os: "web" },
+      clientOsFromRequest: true,
+    }),
+  });
+}
+
 function makeAssistantRow(content: ContentBlock[]): MessageRow {
   return makeMessage({
     id: ASSISTANT_MESSAGE_ID,
@@ -250,9 +294,12 @@ beforeEach(() => {
   messageLookups.length = 0;
   attachmentLookups.length = 0;
   desktopPresenceArgs.length = 0;
+  webPresenceArgs.length = 0;
   assistantAttachments = [];
   desktopAttended = false;
   desktopPresenceShouldThrow = false;
+  webFocused = false;
+  webPresenceShouldThrow = false;
   getConversationShouldThrow = false;
   conversationRow = makeConversation();
   assistantRow = makeAssistantRow([
@@ -311,7 +358,7 @@ describe("emitAssistantReplyNotification", () => {
       desktopAttended = true;
     });
 
-    test("marks the signal source-active while a Mac reports itself attended", async () => {
+    test("marks the signal source-active while a desktop reports itself attended", async () => {
       await run();
 
       expect(emitCalls).toHaveLength(1);
@@ -321,7 +368,16 @@ describe("emitAssistantReplyNotification", () => {
       expect(desktopPresenceArgs).toEqual([[]]);
     });
 
-    test("leaves the signal live when no Mac is attended", async () => {
+    test("marks a Windows-originated signal source-active while attended", async () => {
+      initiatingRow = makeWindowsOriginatedMessage();
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+    });
+
+    test("leaves the signal live when no desktop is attended", async () => {
       desktopAttended = false;
 
       await run();
@@ -350,10 +406,13 @@ describe("emitAssistantReplyNotification", () => {
       expect(warnCalls).toHaveLength(1);
     });
 
-    // An attended Mac only speaks for a turn the Mac itself opened: the user
-    // can send from the phone minutes after last touching the keyboard, which
+    // An attended desktop only speaks for a turn that desktop itself opened.
+    // The user can send from the phone minutes after last touching the keyboard,
     // is exactly the reply this producer exists to push.
-    const NON_MAC_ORIGIN_CASES: Array<{ name: string; metadata: unknown }> = [
+    const NON_DESKTOP_ORIGIN_CASES: Array<{
+      name: string;
+      metadata: unknown;
+    }> = [
       {
         name: "the iOS app",
         metadata: { client: { os: "ios" }, clientOsFromRequest: true },
@@ -376,7 +435,7 @@ describe("emitAssistantReplyNotification", () => {
       // `macos` the conversation's live client state kept from an earlier
       // desktop send. Without the marker that OS names an earlier turn, not
       // this one, and the push the user is waiting for on their phone would
-      // be dropped by the attended Mac.
+      // be dropped by the attended desktop.
       {
         name: "a row whose macOS OS was inherited, not reported",
         metadata: { userMessageInterface: "web", client: { os: "macos" } },
@@ -388,7 +447,7 @@ describe("emitAssistantReplyNotification", () => {
       },
     ];
 
-    for (const { name, metadata } of NON_MAC_ORIGIN_CASES) {
+    for (const { name, metadata } of NON_DESKTOP_ORIGIN_CASES) {
       test(`leaves the signal live for a turn opened from ${name}`, async () => {
         initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
 
@@ -430,6 +489,64 @@ describe("emitAssistantReplyNotification", () => {
 
       expect(emitCalls).toHaveLength(1);
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+    });
+  });
+
+  // Same pre-gate as "desktop presence" above, scoped to a browser tab
+  // instead of the whole app.
+  describe("web presence", () => {
+    beforeEach(() => {
+      initiatingRow = makeWebOriginatedMessage();
+      webFocused = true;
+    });
+
+    test("marks the signal source-active while a web tab reports itself focused on this conversation", async () => {
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      // Scoped to this conversation, unlike desktop attendance: a focused tab
+      // only speaks for the conversation it is actually looking at.
+      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
+    });
+
+    test("leaves the signal live when no web tab is focused on this conversation", async () => {
+      webFocused = false;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+    });
+
+    test("leaves the signal live when the web presence flag is off", async () => {
+      setOverridesForTesting({ "web-presence-suppression": false });
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(webPresenceArgs).toEqual([]);
+    });
+
+    test("leaves the signal live when the web presence read throws", async () => {
+      webPresenceShouldThrow = true;
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+      expect(warnCalls).toHaveLength(1);
+    });
+
+    test("marks the signal source-active for a turn opened from the macOS app when a web tab is focused here", async () => {
+      initiatingRow = makeMacOriginatedMessage();
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(true);
+      expect(webPresenceArgs).toEqual([[CONVERSATION_ID]]);
     });
   });
 

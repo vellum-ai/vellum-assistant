@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 
+import { ChannelConversationTypeSchema } from "./channel-permission-contract.js";
+
 import { AdmissionPolicySchema } from "./admission-policy-contract.js";
 import { TrustVerdictSchema } from "./trust-verdict-contract.js";
 
@@ -37,8 +39,21 @@ export const SourceMetadataSchema = z
     updateId: z.string().optional(),
     /** Provider message ID (e.g. Slack message `ts`). */
     messageId: z.string().optional(),
-    /** Provider chat type (e.g. Telegram "private", "group"). */
+    /**
+     * Provider chat type (e.g. Telegram "private", "group"). Answers whether a
+     * room is multi-party, which drives group etiquette.
+     */
     chatType: z.string().optional(),
+    /**
+     * How visible the conversation is, on the permission matrix's axis, as
+     * decided by the sending channel's own normalizer. A different question
+     * from `chatType`: a group DM is multi-party and private, a public channel
+     * is multi-party and public.
+     *
+     * Absent means not established rather than public, so a permissive rule
+     * cannot reach a room whose visibility nobody proved.
+     */
+    conversationType: ChannelConversationTypeSchema.optional(),
     /** Thread/conversation-group ID (e.g. Slack `thread_ts`). */
     threadId: z.string().optional(),
     /** Channel name (e.g. Slack channel display name). */

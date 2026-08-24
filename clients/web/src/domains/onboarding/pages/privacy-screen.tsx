@@ -12,7 +12,12 @@ import {
   getOnboardingFunnelSessionId,
   ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
-import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
+import {
+  canSkipOnboardingResearch,
+  onboardingDestinationAfterConsent,
+  withSkipResearch,
+} from "@/domains/onboarding/onboarding-destination";
 import { SETUP_NAVIGATE } from "@/domains/onboarding/onboarding-navigation";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
@@ -33,6 +38,7 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { saveConsent } from "@/lib/consent/consent-persistence";
 import { useTranslation } from "@/i18n";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
@@ -65,12 +71,14 @@ export function PrivacyScreen() {
   const setTosAccepted = isPreview ? noop : setTosAcceptedReal;
   const setPrivacyConsent = isPreview ? noop : setPrivacyConsentReal;
 
-  const onStart = useCallback(() => {
+  const showSkipToChat = canSkipOnboardingResearch();
+
+  const onAdvance = useCallback((skipResearch: boolean) => {
     if (isPreview) {
       // Developer "Replay Onboarding": preview mode does not advance to any
       // side-effecting onboarding route. Hatching is excluded from the preview
       // route allowlist in onboardingCompletedMiddleware (it has real side
-      // effects), so Start is a no-op here.
+      // effects), so Start and Skip to chat are no-ops here.
       return;
     }
 
@@ -92,7 +100,10 @@ export function PrivacyScreen() {
       searchParams.get("returnTo"),
     );
     if (paidHatchReturnTo) {
-      void navigate(paidHatchReturnTo, SETUP_NAVIGATE);
+      void navigate(
+        skipResearch ? withSkipResearch(paidHatchReturnTo) : paidHatchReturnTo,
+        SETUP_NAVIGATE,
+      );
       return;
     }
 
@@ -111,13 +122,22 @@ export function PrivacyScreen() {
     // A local-hosting onboarding (hosting=local/docker in a local-mode build)
     // must run the foreground local hatch first, so it goes to `hatching`, which
     // then redirects into the research flow. Vellum-Cloud goes straight to
-    // research (managed background hatch).
+    // research (managed background hatch). Skip-to-chat also uses hatching:
+    // there is no research form, so the hatch screen provisions then hands off
+    // to chat.
     const isLocalHatch =
       isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
+    const alreadyOnboarded = hasOnboardedAssistant(
+      useResolvedAssistantsStore.getState().assistants,
+    );
     const destination = onboardingDestinationAfterConsent({
       isLocalHatch,
+      skipResearch,
+      alreadyOnboarded,
     });
-    const onboardingNext = `${destination}${qs ? `?${qs}` : ""}`;
+    const onboardingNext = skipResearch
+      ? withSkipResearch(`${destination}${qs ? `?${qs}` : ""}`)
+      : `${destination}${qs ? `?${qs}` : ""}`;
 
     // A pricing-CTA signup stashes its chosen plan (see navigation-resolver
     // post-auth). With consent now recorded, resume checkout so payment happens
@@ -127,8 +147,9 @@ export function PrivacyScreen() {
     // it's ignored here and left untouched for its own flow — onboarding proceeds
     // normally. The checkout route owns the marked stash's lifecycle from here —
     // re-stashing on a Stripe redirect, clearing it on an already-Pro no_op — so
-    // this screen just hands off. Resuming only from this explicit Start click —
-    // never a render effect — keeps consent and checkout from looping.
+    // this screen just hands off. Resuming only from this explicit click
+    // (Start or Skip to chat), never a render effect, keeps consent and
+    // checkout from looping.
     // A positively-off `marketing-pricing-takeover` drops the dead selection and
     // continues onboarding: handing off would bounce through a gated checkout
     // route and out of the funnel before research runs. An unresolved flag still
@@ -225,11 +246,23 @@ export function PrivacyScreen() {
             size="regular"
             fullWidth
             disabled={!tosAccepted || !privacyConsent}
-            onClick={onStart}
+            onClick={() => onAdvance(false)}
             className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.start")}
           </Button>
+          {showSkipToChat && (
+            <Button
+              variant="outlined"
+              size="regular"
+              fullWidth
+              disabled={!tosAccepted || !privacyConsent}
+              onClick={() => onAdvance(true)}
+              className={electron ? undefined : "h-11 text-base"}
+            >
+              {t("privacyScreen.skipToChat")}
+            </Button>
+          )}
           {/*
            * Back's destination is mode-specific, but always stays inside the SPA
            * (react-router `navigate`, never a full-document nav). In local mode

@@ -6,9 +6,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { LOG_FILE_JSON_PATTERN, initLogger } from "../logger.js";
 import {
   DiscordGatewayClient,
-  type CancelTimer,
   type GatewaySocketLike,
 } from "./gateway-socket.js";
+import type { CancelTimer } from "../util/schedule.js";
 import "../__tests__/test-preload.js";
 
 /**

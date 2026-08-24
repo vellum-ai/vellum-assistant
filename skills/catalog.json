@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T01:16:55.000Z"
+      "updatedAt": "2026-08-20T22:31:34.000Z"
     },
     {
       "id": "doordash",
@@ -375,7 +375,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, Discord, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-13T01:05:59.000Z"
+      "updatedAt": "2026-08-20T22:55:26.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -747,6 +747,8 @@
             "User wants to build, scaffold, or author a Vellum plugin",
             "User wants to edit, update, or push changes to an existing plugin's GitHub repo",
             "User wants to package skills, hooks, or tools into an installable plugin",
+            "User wants to ship MCP servers as part of a plugin (mcp.json)",
+            "User wants a plugin to receive public webhooks or become a channel (channels/ingress.json)",
             "User wants to extend their assistant with a new capability shipped as a plugin",
             "User wants to publish a plugin to the Vellum marketplace catalog",
             "User asks how to ship or distribute extensions for Vellum"
@@ -759,7 +761,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-18T22:07:54.000Z"
+      "updatedAt": "2026-08-21T15:44:11.000Z"
     },
     {
       "id": "public-ingress",
@@ -897,7 +899,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-24T22:39:12.000Z"
+      "updatedAt": "2026-08-22T11:18:08.000Z"
     },
     {
       "id": "start-the-day",
@@ -1041,9 +1043,30 @@
       "updatedAt": "2026-07-07T20:33:02.000Z"
     },
     {
+      "id": "vellum-client-capabilities",
+      "name": "vellum-client-capabilities",
+      "description": "Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client and there is no location permission prompt to approve, so location requests are answered by asking for a typed city or address instead.",
+      "metadata": {
+        "emoji": "📍",
+        "vellum": {
+          "category": "system",
+          "display-name": "Vellum Client Capabilities",
+          "activation-hints": [
+            "asked to use the user's current location, GPS, or device position",
+            "whether the app can access a device sensor, permission, or hardware feature"
+          ],
+          "avoid-when": [
+            "the user already gave a location as text (just use it)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-08-21T21:09:58.000Z"
+    },
+    {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export)",
+      "description": "Manage conversation threads (rename, list, search, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -1052,7 +1075,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T16:01:24.000Z"
+      "updatedAt": "2026-08-20T21:25:08.000Z"
     },
     {
       "id": "vellum-github-app-setup",

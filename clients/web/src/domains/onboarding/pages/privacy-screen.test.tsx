@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { SKIP_RESEARCH_PARAM } from "@/domains/onboarding/onboarding-destination";
+import { ONBOARDED_HATCH_AGE_MS } from "@/domains/onboarding/onboarded-assistant";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 // react-router: capture navigate() targets and drive the ?preview flag.
@@ -117,6 +120,10 @@ function clickStart(): void {
   fireEvent.click(screen.getByText("Start"));
 }
 
+function clickSkipToChat(): void {
+  fireEvent.click(screen.getByText("Skip to chat"));
+}
+
 /** The query of the single URL `navigate()` was called with. */
 function navigatedQuery(): URLSearchParams {
   const target = navigateMock.mock.calls[0]?.[0] as string;
@@ -134,6 +141,7 @@ describe("PrivacyScreen — Start navigation", () => {
     localMode = false;
     checkoutIntentValue = null;
     takeoverValue = "enabled";
+    useResolvedAssistantsStore.setState({ assistants: [] });
   });
   afterEach(() => {
     cleanup();
@@ -141,6 +149,7 @@ describe("PrivacyScreen — Start navigation", () => {
     localMode = false;
     checkoutIntentValue = null;
     takeoverValue = "enabled";
+    useResolvedAssistantsStore.setState({ assistants: [] });
   });
 
   test("preview mode no-ops on Start without persisting consent", () => {
@@ -211,6 +220,28 @@ describe("PrivacyScreen — Start navigation", () => {
       userId: "user-1",
     });
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.research, {
+      replace: true,
+    });
+  });
+
+  test("skips research when the assistant was hatched over a week ago", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          hatchedAt: new Date(Date.now() - ONBOARDED_HATCH_AGE_MS).toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+    searchParamsValue = new URLSearchParams();
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledWith(routes.assistant, {
       replace: true,
     });
   });
@@ -533,6 +564,89 @@ describe("PrivacyScreen — Start navigation", () => {
     const target = navigateMock.mock.calls[0]?.[0] as string;
     expect(target.startsWith(`${routes.checkout}?`)).toBe(true);
     expect(navigatedQuery().get("package")).toBe("super");
+  });
+});
+
+describe("PrivacyScreen — Skip to chat", () => {
+  const env = import.meta.env as Record<string, string | undefined>;
+  let previousEnv: string | undefined;
+
+  beforeEach(() => {
+    previousEnv = env.VITE_SENTRY_ENVIRONMENT;
+    env.VITE_SENTRY_ENVIRONMENT = "staging";
+    navigateMock.mockClear();
+    saveConsentMock.mockClear();
+    emitFunnelStepCompletedMock.mockClear();
+    nativePlatform = false;
+    localMode = false;
+    checkoutIntentValue = null;
+    takeoverValue = "enabled";
+  });
+  afterEach(() => {
+    env.VITE_SENTRY_ENVIRONMENT = previousEnv;
+    cleanup();
+    nativePlatform = false;
+    localMode = false;
+    checkoutIntentValue = null;
+    takeoverValue = "enabled";
+  });
+
+  test("saves consent and hatches, skipping the research funnel", () => {
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickSkipToChat();
+
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.hatching)).toBe(true);
+    expect(target).toContain("hosting=managed");
+    expect(target).toContain(`${SKIP_RESEARCH_PARAM}=1`);
+    expect(navigateMock.mock.calls[0]?.[1]).toEqual({ replace: true });
+  });
+
+  test("preview mode no-ops on Skip to chat without persisting consent", () => {
+    searchParamsValue = new URLSearchParams("preview=true");
+    render(<PrivacyScreen />);
+
+    clickSkipToChat();
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(saveConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("carries skip_research onto a paid hatch return", () => {
+    const paidHatch = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
+    searchParamsValue = new URLSearchParams({ returnTo: paidHatch });
+    render(<PrivacyScreen />);
+
+    clickSkipToChat();
+
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.hatching)).toBe(true);
+    expect(target).toContain("post_checkout=1");
+    expect(target).toContain(`${SKIP_RESEARCH_PARAM}=1`);
+  });
+
+  test("checkout continuation carries the skip-to-chat hatch URL", () => {
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickSkipToChat();
+
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(`${routes.checkout}?`)).toBe(true);
+    expect(navigatedQuery().get("continue")).toBe(
+      `${routes.onboarding.hatching}?hosting=managed&${SKIP_RESEARCH_PARAM}=1`,
+    );
   });
 });
 

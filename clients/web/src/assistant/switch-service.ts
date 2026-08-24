@@ -2,12 +2,16 @@ import { setSelectedAssistant } from "@/assistant/selection";
 import {
   getLockfileAssistant,
   getSelectedAssistant,
+  isLocalClient,
   isPairedAssistant,
   loadLockfile,
   removePairedAssistantFromLockfile,
 } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -48,6 +52,34 @@ export async function switchToAssistant(
   }
   await setSelectedAssistant(assistantId);
   return { ok: true };
+}
+
+/**
+ * Switch to a resolved assistant through the connect entry its kind needs,
+ * mirroring the chooser screen's dispatch: a paired entry primes the
+ * host-authorized proxy, a local entry on a local client primes a gateway
+ * token for its gateway, and everything else (platform-hosted, or a
+ * hub-listed local entry reached through the platform) goes through the
+ * platform session path.
+ *
+ * Unlike {@link switchToAssistant}, which serves id-only host commands whose
+ * surfaces exclude local entries, this rethrows so UI callers can surface the
+ * failure. Every connect entry fails before the selection write, so a failed
+ * switch leaves the previous assistant intact.
+ */
+export async function switchToResolvedAssistant(
+  assistant: ResolvedAssistant,
+): Promise<void> {
+  const auth = useAuthStore.getState();
+  if (assistant.isPaired) {
+    await auth.connectPairedAssistant(assistant.id);
+    return;
+  }
+  if (assistant.isLocal && isLocalClient()) {
+    await auth.connectLocalAssistant(assistant.id);
+    return;
+  }
+  await auth.connectPlatformAssistant(assistant.id);
 }
 
 export type RemovePairedOutcome =

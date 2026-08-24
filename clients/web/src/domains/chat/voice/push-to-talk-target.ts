@@ -1,4 +1,13 @@
-import type { PushToTalkTarget } from "@/domains/chat/voice/use-push-to-talk";
+/**
+ * Imperative handle (subset of `VoiceInputButtonHandle`) that dictation is
+ * driven through from outside the button, today the Electron dictation
+ * overlay's stop control. Declared here rather than beside the button to
+ * avoid a cycle with the component.
+ */
+export interface PushToTalkTarget {
+  start: () => void;
+  stop: () => void;
+}
 
 let activeTarget: PushToTalkTarget | null = null;
 

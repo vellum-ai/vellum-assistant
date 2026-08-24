@@ -160,6 +160,13 @@ function cachedPrefixBlock(text: string): ContentBlock {
   } as unknown as ContentBlock;
 }
 
+/**
+ * A 1x1 PNG. The send boundary validates image bytes before serialization, so
+ * an image fixture has to carry a real signature to reach the wire.
+ */
+const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+
 const sampleTools: ToolDefinition[] = [
   {
     name: "file_read",
@@ -2754,7 +2761,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
                 source: {
                   type: "base64",
                   media_type: "image/png",
-                  data: "iVBOR",
+                  data: PNG_B64,
                 },
               },
               { type: "text", text: "extra error detail" },
@@ -2806,7 +2813,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
                 source: {
                   type: "base64",
                   media_type: "image/png",
-                  data: "iVBOR",
+                  data: PNG_B64,
                 },
               },
             ],
@@ -2853,7 +2860,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
                 source: {
                   type: "base64",
                   media_type: "image/png",
-                  data: "iVBOR",
+                  data: PNG_B64,
                 },
               },
             ],

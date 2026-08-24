@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
+import { useTranslation } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import { isMacOSBrowser } from "@/runtime/platform-detection";
@@ -18,6 +19,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
  * context-window indicator.
  */
 function ComposerSection() {
+  const { t } = useTranslation("settings");
   const sendWithModifier = cmdEnterToSend.useValue();
   const showContextWindow = showContextWindowIndicator.useValue();
 
@@ -25,27 +27,35 @@ function ComposerSection() {
   // a newline; sending happens via the send button), so that toggle would be
   // a no-op control. The context-window toggle applies on every surface.
   const showSendToggle = !isPointerCoarse();
-  const modifier = isMacOSBrowser() ? "Cmd" : "Ctrl";
+  const isMac = isMacOSBrowser();
 
   return (
     <section>
       <h3 className="text-title-small text-[var(--content-emphasised)]">
-        Composer
+        {t("preferencesModal.composerTitle")}
       </h3>
       <div className="mt-2 space-y-4">
         {showSendToggle && (
           <Toggle
             checked={sendWithModifier}
             onChange={cmdEnterToSend.save}
-            label={`Send with ${modifier}+Enter`}
-            helperText={`When enabled, Enter inserts a new line and ${modifier}+Enter sends.`}
+            label={
+              isMac
+                ? t("preferencesModal.sendWithCmdEnter")
+                : t("preferencesModal.sendWithCtrlEnter")
+            }
+            helperText={
+              isMac
+                ? t("preferencesModal.sendWithCmdEnterHelper")
+                : t("preferencesModal.sendWithCtrlEnterHelper")
+            }
           />
         )}
         <Toggle
           checked={showContextWindow}
           onChange={showContextWindowIndicator.save}
-          label="Show context window usage"
-          helperText="Adds a ring to the composer tracking how full the context window is. Your assistant compacts its context automatically either way."
+          label={t("preferencesModal.showContextWindow")}
+          helperText={t("preferencesModal.showContextWindowHelper")}
         />
       </div>
     </section>
@@ -54,6 +64,7 @@ function ComposerSection() {
 
 /** Electron-only toggle for launching the app when the user logs in. */
 function LaunchAtLoginSection() {
+  const { t } = useTranslation("settings");
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
@@ -72,16 +83,16 @@ function LaunchAtLoginSection() {
   return (
     <section>
       <h3 className="text-title-small text-[var(--content-emphasised)]">
-        Launch at Login
+        {t("preferencesModal.launchAtLoginTitle")}
       </h3>
       <p className="text-body-medium-default text-[var(--content-tertiary)]">
-        Automatically start Vellum when you log in to your Mac.
+        {t("preferencesModal.launchAtLoginDescription")}
       </p>
       <div className="mt-2">
         <Toggle
           checked={enabled}
           onChange={(next) => void handleToggle(next)}
-          aria-label="Launch at Login"
+          aria-label={t("preferencesModal.launchAtLoginAriaLabel")}
         />
       </div>
     </section>
@@ -101,6 +112,8 @@ export interface PreferencesModalProps {
  * Appearance card on Settings → General.
  */
 export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <Modal.Root
       open={open}
@@ -112,9 +125,9 @@ export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
     >
       <Modal.Content size="lg">
         <Modal.Header>
-          <Modal.Title>Preferences</Modal.Title>
+          <Modal.Title>{t("preferencesModal.title")}</Modal.Title>
           <Modal.Description>
-            Customize shortcuts and how Vellum behaves on this device.
+            {t("preferencesModal.description")}
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
@@ -122,10 +135,10 @@ export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
             {isElectron() && (
               <section>
                 <h3 className="text-title-small text-[var(--content-emphasised)]">
-                  Keyboard Shortcuts
+                  {t("preferencesModal.keyboardShortcutsTitle")}
                 </h3>
                 <p className="text-body-medium-default text-[var(--content-tertiary)]">
-                  Customize the shortcuts for Vellum&apos;s commands.
+                  {t("preferencesModal.keyboardShortcutsDescription")}
                 </p>
                 <div className="mt-2">
                   <ShortcutsSections />

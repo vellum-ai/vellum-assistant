@@ -7,6 +7,11 @@ import { verifySecretWithRefresh } from "../../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { ContentMismatchError } from "../../download-validation.js";
+import {
+  appendFailedAttachmentNotice,
+  AttachmentTooLargeError,
+  ingestAttachments,
+} from "../../attachments/ingest.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";
@@ -576,7 +581,6 @@ export function createTelegramWebhookHandler(
     // Download and upload attachments if present (skip for edits and callback
     // queries — edits only update text, callbacks have no media to process)
     let attachmentIds: string[] | undefined;
-    const failedAttachmentNames: string[] = [];
     const eventAttachments = normalized.message.attachments;
     if (
       eventAttachments &&
@@ -586,46 +590,16 @@ export function createTelegramWebhookHandler(
       !isCallback
     ) {
       try {
-        attachmentIds = [];
-
-        // Filter oversized attachments
-        const eligible = eventAttachments.filter((att) => {
-          if (
-            att.fileSize !== undefined &&
-            att.fileSize >
-              (config.maxAttachmentBytes.telegram ??
-                config.maxAttachmentBytes.default)
-          ) {
-            tlog.warn(
-              {
-                fileId: att.fileId,
-                fileSize: att.fileSize,
-                limit:
-                  config.maxAttachmentBytes.telegram ??
-                  config.maxAttachmentBytes.default,
-              },
-              "Skipping oversized attachment",
-            );
-            return false;
-          }
-          return true;
-        });
-
-        // Process with bounded concurrency. Validation errors (unsupported
-        // MIME type, dangerous extension) are skipped so that a bad attachment
-        // doesn't drop the user's message. Transient errors (download timeout,
-        // upload 5xx, network failures) are propagated so that Telegram retries
-        // the webhook delivery.
-        for (
-          let i = 0;
-          i < eligible.length;
-          i += config.maxAttachmentConcurrency
-        ) {
-          const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
-          const results = await Promise.allSettled(
-            batch.map(async (att) => {
-              const downloaded = await downloadTelegramFile(
+        const result = await ingestAttachments(
+          config,
+          "telegram",
+          eventAttachments,
+          tlog,
+          {
+            download: (att, maxBytes) =>
+              downloadTelegramFile(
                 att.fileId,
+                maxBytes,
                 {
                   fileName: att.fileName,
                   mimeType: att.mimeType,
@@ -634,33 +608,22 @@ export function createTelegramWebhookHandler(
                   credentials: caches?.credentials,
                   configFile: caches?.configFile,
                 },
-              );
-              return uploadAttachment(config, downloaded);
-            }),
-          );
-          for (let j = 0; j < results.length; j++) {
-            const result = results[j];
-            if (result.status === "fulfilled") {
-              attachmentIds.push(result.value.id);
-            } else if (result.reason instanceof AttachmentValidationError) {
-              tlog.warn(
-                { err: result.reason },
-                "Skipping attachment with validation error",
-              );
-              failedAttachmentNames.push(batch[j].fileName || batch[j].fileId);
-            } else if (result.reason instanceof ContentMismatchError) {
-              tlog.warn(
-                { err: result.reason },
-                "Skipping attachment with content mismatch",
-              );
-              failedAttachmentNames.push(batch[j].fileName || batch[j].fileId);
-            } else {
-              // Transient failure — propagate so the webhook returns 500 and
-              // Telegram retries the update delivery.
-              throw result.reason;
-            }
-          }
-        }
+              ),
+            upload: (downloaded) => uploadAttachment(config, downloaded),
+            failurePolicy: {
+              mode: "rethrow-unless-skippable",
+              isSkippableError: (error) =>
+                error instanceof AttachmentValidationError ||
+                error instanceof ContentMismatchError ||
+                error instanceof AttachmentTooLargeError,
+            },
+          },
+        );
+        attachmentIds = result.attachmentIds;
+        normalized.message.content = appendFailedAttachmentNotice(
+          normalized.message.content,
+          result.failedAttachmentNames,
+        );
       } catch (err) {
         // Transient attachment failure — return 500 so Telegram retries.
         // Use Response.json() instead of respond() to bypass the dedup cache,
@@ -674,16 +637,6 @@ export function createTelegramWebhookHandler(
           { error: "Attachment processing failed" },
           { status: 500 },
         );
-      }
-    }
-
-    // Inject context about failed attachments into the message
-    if (failedAttachmentNames.length > 0) {
-      const failureNotice = `[The user attached file(s) that could not be retrieved: ${failedAttachmentNames.map((n) => `"${n}"`).join(", ")}. Ask them to re-send if the content is important.]`;
-      if (normalized.message.content.length > 0) {
-        normalized.message.content += `\n\n${failureNotice}`;
-      } else {
-        normalized.message.content = failureNotice;
       }
     }
 

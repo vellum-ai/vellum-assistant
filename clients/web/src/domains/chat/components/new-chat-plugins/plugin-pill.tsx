@@ -1,6 +1,7 @@
 import { Plug } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 interface PluginPillProps {
   name: string;
@@ -9,6 +10,7 @@ interface PluginPillProps {
 }
 
 export function PluginPill({ name, selected, onToggle }: PluginPillProps) {
+  const { t } = useTranslation("chat");
   return (
     <Button
       variant="outlined"
@@ -16,7 +18,11 @@ export function PluginPill({ name, selected, onToggle }: PluginPillProps) {
       leftIcon={<Plug className="h-4 w-4 shrink-0" aria-hidden />}
       onClick={onToggle}
       aria-pressed={selected}
-      aria-label={`${selected ? "Disable" : "Enable"} ${name} for this chat`}
+      aria-label={
+        selected
+          ? t("pluginPill.disableAria", { name })
+          : t("pluginPill.enableAria", { name })
+      }
       tintColor={
         selected ? "var(--content-default)" : "var(--content-secondary)"
       }

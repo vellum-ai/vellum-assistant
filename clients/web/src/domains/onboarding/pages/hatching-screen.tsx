@@ -28,6 +28,7 @@ import {
   ProviderKeyRejectedError,
 } from "@/domains/onboarding/provider-key";
 import { onboardingProvider } from "@/domains/onboarding/provider-catalog";
+import { shouldSkipResearchAfterHatch } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import {
   awaitPurchasedProvisioning,
@@ -299,6 +300,14 @@ export function HatchingScreen() {
         void (async () => {
           await lifecycleService.checkAssistant();
           if (cancelled) {
+            return;
+          }
+          // Non-production skip-to-chat: the assistant is live, so drop into
+          // the workspace instead of the research/personality funnel.
+          if (shouldSkipResearchAfterHatch(searchParams)) {
+            void navigate(`${routes.assistant}?onboarding=1`, {
+              replace: true,
+            });
             return;
           }
           // A local hatch feeds the research/personality flow. The assistant is

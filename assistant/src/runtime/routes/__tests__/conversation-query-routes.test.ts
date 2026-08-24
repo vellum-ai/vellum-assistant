@@ -1764,3 +1764,83 @@ describe("provider membership at the write choke point", () => {
     ).rejects.toThrow(/Invalid provider/);
   });
 });
+
+describe("ingress URL writes through the generic config routes", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+  const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  const TUNNEL_URL = "https://assistant-1.example.ts.net";
+  const OTHER_URL = "https://assistant-2.example.ts.net";
+  const LAST_TUNNEL = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
+
+  const savedIngress = () =>
+    (loadRawConfig().ingress ?? {}) as Record<string, unknown>;
+
+  beforeEach(() => {
+    // `assistant config set ingress.publicBaseUrl <url>` is what the webhook
+    // diagnostics tell users to run when their tunnel address changed, so it
+    // has to leave the same clean state the settings route does.
+    rawConfigFixture = {
+      ingress: {
+        publicBaseUrl: TUNNEL_URL,
+        assistantId: "assistant-1",
+        lastTunnel: LAST_TUNNEL,
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("a config_set retarget drops the tunnel records", async () => {
+    await configSetRoute.handler({
+      body: { path: "ingress.publicBaseUrl", value: OTHER_URL },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.publicBaseUrl).toBe(OTHER_URL);
+    expect(ingress.assistantId).toBeUndefined();
+    expect(ingress.lastTunnel).toBeUndefined();
+  });
+
+  test("a config_set of the same URL keeps them", async () => {
+    await configSetRoute.handler({
+      body: { path: "ingress.publicBaseUrl", value: `${TUNNEL_URL}/` },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+
+  test("a config_set of another ingress key keeps them", async () => {
+    await configSetRoute.handler({
+      body: { path: "ingress.enabled", value: false },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+
+  test("a config_patch retarget drops the tunnel records", async () => {
+    await configPatchRoute.handler({
+      body: { ingress: { publicBaseUrl: OTHER_URL } },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.publicBaseUrl).toBe(OTHER_URL);
+    expect(ingress.assistantId).toBeUndefined();
+    expect(ingress.lastTunnel).toBeUndefined();
+  });
+
+  test("a config_patch that leaves the URL alone keeps them", async () => {
+    await configPatchRoute.handler({
+      body: { ingress: { enabled: false } },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+});

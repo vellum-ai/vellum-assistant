@@ -53,6 +53,7 @@ import { TextSelectionPopover } from "@/domains/chat/components/text-selection-p
 import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeholder";
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -163,6 +164,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { shouldMintNewChatDraft } from "@/domains/chat/utils/conversation-selection";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { paneState } from "@/stores/pane-state";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
@@ -193,7 +195,9 @@ export interface ChatMainPanelProps {
   handleEditQueueTail: () => void;
 
   // Conversation secondary actions (orchestration dependency)
-  handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Forks through a message. Omitted unless the viewer passes the
+   *  staff + `fork-from-message` gate, which hides the hover action. */
+  handleForkConversation?: (throughMessageId: string) => Promise<void>;
   /** Opens the "Summarize up to here" confirm dialog for a message. */
   onSummarizeUpToHere?: (messageId: string) => void;
   /** Opens the "Retry" confirm dialog for the latest assistant turn. */
@@ -304,6 +308,7 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useTranslation("chat");
   // A pop-out renders no header and no status banner, which changes both what
   // chrome is available and which kinds the overlay row has to carry.
   const isPopout = isPopoutWindow(location.search);
@@ -508,10 +513,13 @@ export function ChatMainPanel({
     [],
   );
 
-  const handleForkConversationCallback = useCallback(
-    (messageId: string) => {
-      void handleForkConversation(messageId);
-    },
+  const handleForkConversationCallback = useMemo(
+    () =>
+      handleForkConversation
+        ? (messageId: string) => {
+            void handleForkConversation(messageId);
+          }
+        : undefined,
     [handleForkConversation],
   );
 
@@ -777,7 +785,9 @@ export function ChatMainPanel({
     assistantState.kind === "active" && !assistantState.isLocal;
   const doctorAction = showDoctorAction ? (
     <Button asChild variant="outlined" size="compact">
-      <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
+      <Link to={`${routes.settings.debug}?tab=doctor`}>
+        {t("chatRouteContent.goToDoctor")}
+      </Link>
     </Button>
   ) : undefined;
 
@@ -802,7 +812,7 @@ export function ChatMainPanel({
             .setPendingPrompt("Help me re-provision my assistant's API key")
         }
       >
-        Ask the Doctor
+        {t("chatRouteContent.askTheDoctor")}
       </Link>
     </Button>
   ) : assistantState.kind === "active" ? (
@@ -816,7 +826,7 @@ export function ChatMainPanel({
         })
       }
     >
-      Copy CLI fix
+      {t("chatRouteContent.copyCliFix")}
     </Button>
   ) : undefined;
 
@@ -837,7 +847,7 @@ export function ChatMainPanel({
           }
         }}
       >
-        Open page
+        {t("chatRouteContent.openPage")}
       </Button>
     ) : undefined;
 
@@ -1164,6 +1174,7 @@ export function ChatMainPanel({
     startersSlot,
     belowFoldSlot,
     dockStartersToBottom,
+    startersDockCollapsed,
     renderAvatar,
     emptyStatePlaceholder,
     composerPeekSlot,
@@ -1280,17 +1291,18 @@ export function ChatMainPanel({
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const settingsSheetOpen = accessSheetOpen || profileSheetOpen;
 
-  // The narrow composer is one slim row with no room for a sentence, so it
-  // names the assistant it is addressed to instead. An assistant whose name
-  // has not loaded keeps the wider copy.
-  const { t } = useTranslation("chat");
   const composerAssistantName = assistantName?.trim();
-  const mobilePlaceholder =
-    isMobile && composerAssistantName
-      ? t("chatComposer.askAssistantPlaceholder", {
-          assistantName: composerAssistantName,
-        })
-      : null;
+  const composerPlaceholder = resolveComposerPlaceholder({
+    isEmptyConversation,
+    emptyStatePlaceholder,
+    assistantPlaceholder:
+      isMobile && composerAssistantName
+        ? t("chatComposer.askAssistantPlaceholder", {
+            assistantName: composerAssistantName,
+          })
+        : null,
+    defaultPlaceholder: "What would you like to do?",
+  });
 
   // Explicit props (no spread bundle): the contract is visible here, and the
   // composer self-sources its own store state, so nothing high-frequency is
@@ -1298,12 +1310,7 @@ export function ChatMainPanel({
   const composerNode = (
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
-      placeholder={
-        mobilePlaceholder ??
-        (isEmptyConversation
-          ? emptyStatePlaceholder
-          : "What would you like to do?")
-      }
+      placeholder={composerPlaceholder}
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
       typingDisabled={typingDisabled}
@@ -1445,19 +1452,23 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const editingConversationId =
     useConversationStore.use.editingConversationId();
-  const isSidePanel =
-    mainView === "app-editing" && !!openedAppState && !!editingConversationId;
+  const paneArrangement = paneState({
+    mainView,
+    appId: openedAppState?.appId ?? null,
+    conversationId: activeConversationId,
+    boundConversationId: editingConversationId,
+    isAppMinimized,
+  }).presentation;
+  const isSidePanel = paneArrangement === "side";
   const variant = isSidePanel ? "side-panel" : "main";
 
-  // Mobile-only: while the app overlay is minimized to its bottom strip, the
-  // strip covers the bottom of the chat. Reserve its height so the composer
-  // sits above it. The guard mirrors the strip's mount condition — the strip
-  // renders only while `mainView === "app"`, and navigation can leave
-  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
-  // `--app-strip-h` above the safe area, and the chat shell already pads for
-  // the safe area itself, so only the strip height needs reserving.
+  // Mobile-only: while the app is parked to its bottom strip, the strip covers
+  // the bottom of the chat, so its height is reserved to keep the composer
+  // above it. The strip peeks `--app-strip-h` above the safe area, and the
+  // chat shell already pads for the safe area itself, so only the strip height
+  // needs reserving.
   const appStripBottomInset =
-    isMobile && mainView === "app" && isAppMinimized && openedAppState
+    isMobile && paneArrangement === "bottom"
       ? "var(--app-strip-h, 64px)"
       : undefined;
 
@@ -1490,6 +1501,7 @@ export function ChatMainPanel({
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
+      startersDockCollapsed={startersDockCollapsed}
       activeProcessOverlaysSlot={
         hasActiveProcess ? activeProcessOverlays : undefined
       }
@@ -1553,7 +1565,8 @@ export function ChatMainPanel({
           >
             <BottomSheet.Header className="sr-only">
               <BottomSheet.Title>
-                {selectedSuggestion?.detail.heading ?? "Suggestion"}
+                {selectedSuggestion?.detail.heading ??
+                  t("chatRouteContent.suggestionFallback")}
               </BottomSheet.Title>
             </BottomSheet.Header>
             {suggestionDetailPanel}

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   assistantsOauthConnectionsListOptions,
@@ -9,6 +9,7 @@ import {
   useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import {
@@ -30,11 +31,6 @@ import { YourOwnTab } from "@/domains/settings/components/your-own-oauth-tab";
 import { getConnectPresets } from "@/domains/settings/oauth-scope-presets";
 
 type ModalTab = "managed" | "your-own";
-
-const MODE_SEGMENTS: SegmentControlItem<ModalTab>[] = [
-  { value: "managed", label: "Managed" },
-  { value: "your-own", label: "Your Own" },
-];
 
 interface IntegrationDetailModalProps {
   assistantId: string;
@@ -62,12 +58,21 @@ export function IntegrationDetailModal({
   platformGate,
   onClose,
 }: IntegrationDetailModalProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const managedAvailable = platformGate === "full";
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const yourOwnAvailable = !isPlatformHosted;
   const [activeTab, setActiveTab] = useState<ModalTab>(
     platformGate === "gated" && yourOwnAvailable ? "your-own" : "managed",
+  );
+
+  const modeSegments: SegmentControlItem<ModalTab>[] = useMemo(
+    () => [
+      { value: "managed", label: t("integrationDetailModal.managedTab") },
+      { value: "your-own", label: t("integrationDetailModal.yourOwnTab") },
+    ],
+    [t],
   );
 
   useEffect(() => {
@@ -113,7 +118,9 @@ export function IntegrationDetailModal({
   const disconnectOAuth =
     useAssistantsOauthDisconnectByConnectionCreateMutation({
       onSuccess(_data, variables) {
-        toast.success(`${displayName} account disconnected.`);
+        toast.success(
+          t("integrationDetailModal.disconnectedToast", { name: displayName }),
+        );
         const connectionId = variables.path.connection_id;
         assistantsOauthConnectionsListSetQueryData(
           queryClient,
@@ -127,7 +134,9 @@ export function IntegrationDetailModal({
         const detail = extractErrorMessage(
           error,
           undefined,
-          `Failed to disconnect ${displayName} account.`,
+          t("integrationDetailModal.disconnectFailedToast", {
+            name: displayName,
+          }),
         );
         toast.error(detail);
         setPendingDisconnectId(null);
@@ -166,9 +175,16 @@ export function IntegrationDetailModal({
     });
   };
 
+  const accountLabel =
+    connectionPendingDisconnect?.account_label ??
+    t("integrationDetailModal.accountFallback", { name: displayName });
+
   const subtitle = description
-    ? `Configure ${displayName} OAuth for ${description}`
-    : `Configure ${displayName} OAuth`;
+    ? t("integrationDetailModal.subtitleWithDescription", {
+        name: displayName,
+        description,
+      })
+    : t("integrationDetailModal.subtitle", { name: displayName });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -191,7 +207,7 @@ export function IntegrationDetailModal({
                 id="integration-modal-title"
                 className="text-title-small text-[var(--content-default)]"
               >
-                {displayName} OAuth
+                {t("integrationDetailModal.title", { name: displayName })}
               </h2>
               <p className="text-body-small-default text-[var(--content-tertiary)]">
                 {subtitle}
@@ -202,7 +218,7 @@ export function IntegrationDetailModal({
             variant="ghost"
             size="compact"
             iconOnly={<X />}
-            aria-label="Close"
+            aria-label={t("integrationDetailModal.close")}
             onClick={onClose}
           />
         </div>
@@ -210,8 +226,8 @@ export function IntegrationDetailModal({
         <div className="space-y-4 px-5 py-4">
           {platformGate !== "gated" && yourOwnAvailable && (
             <SegmentControl
-              ariaLabel="OAuth mode"
-              items={MODE_SEGMENTS}
+              ariaLabel={t("integrationDetailModal.oauthModeAriaLabel")}
+              items={modeSegments}
               value={activeTab}
               onChange={setActiveTab}
             />
@@ -220,7 +236,7 @@ export function IntegrationDetailModal({
           {activeTab === "managed" && platformGate !== "gated" ? (
             platformGate === "disabled" ? (
               <PlatformLoginNotice>
-                Log in to the Vellum platform to manage OAuth connections.
+                {t("integrationDetailModal.loginNotice")}
               </PlatformLoginNotice>
             ) : (
               <ManagedTab
@@ -251,19 +267,23 @@ export function IntegrationDetailModal({
 
         <div className="flex justify-end border-t border-[var(--border-base)] px-5 py-3 dark:border-[var(--border-base)]">
           <Button variant="outlined" size="compact" onClick={onClose}>
-            Confirm
+            {t("integrationDetailModal.confirm")}
           </Button>
         </div>
       </div>
       <ConfirmDialog
         open={connectionPendingDisconnect !== null}
-        title={`Disconnect ${displayName}?`}
+        title={t("integrationDetailModal.disconnectTitle", {
+          name: displayName,
+        })}
         message={
           connectionPendingDisconnect
-            ? `Disconnect ${connectionPendingDisconnect.account_label ?? `${displayName} Account`}? You can reconnect later.`
+            ? t("integrationDetailModal.disconnectMessage", {
+                account: accountLabel,
+              })
             : ""
         }
-        confirmLabel="Disconnect"
+        confirmLabel={t("integrationDetailModal.disconnect")}
         destructive
         onConfirm={confirmDisconnect}
         onCancel={() => setConnectionPendingDisconnect(null)}

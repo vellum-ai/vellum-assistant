@@ -100,16 +100,57 @@ export function assertHasResponse(
 }
 
 /**
+ * The machine-readable half of the daemon's error envelope
+ * (`{ error: { code, message, details? } }`).
+ */
+export interface ApiErrorEnvelope {
+  code?: string;
+  details?: unknown;
+}
+
+/**
+ * Read the daemon error envelope's `code` and `details` off a raw error body.
+ * Bodies in any other shape yield an empty envelope.
+ */
+export function extractErrorEnvelope(error: unknown): ApiErrorEnvelope {
+  if (!error || typeof error !== "object" || !("error" in error)) {
+    return {};
+  }
+  const inner = error.error;
+  if (!inner || typeof inner !== "object") {
+    return {};
+  }
+  return {
+    ...("code" in inner && typeof inner.code === "string"
+      ? { code: inner.code }
+      : {}),
+    ...("details" in inner ? { details: inner.details } : {}),
+  };
+}
+
+/**
  * Error class that carries the HTTP status code from API responses.
  * Callers can inspect `status` to show context-specific UI (e.g. 401 vs 500).
+ *
+ * `code` and `details` carry the daemon envelope's machine-readable fields
+ * when the body supplied them, so a caller can branch on a specific rejection
+ * (rather than pattern-matching the prose) and read its structured context.
  */
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly details?: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, envelope: ApiErrorEnvelope = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    if (envelope.code !== undefined) {
+      this.code = envelope.code;
+    }
+    if (envelope.details !== undefined) {
+      this.details = envelope.details;
+    }
   }
 }
 
@@ -146,5 +187,6 @@ export function toApiError(error: unknown, response: Response): ApiError {
   return new ApiError(
     response.status,
     extractErrorMessage(error, response, `HTTP ${response.status}`),
+    extractErrorEnvelope(error),
   );
 }

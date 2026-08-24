@@ -1,16 +1,18 @@
 import { LogIn, LogOut } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
 import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
 import { routes } from "@/utils/routes";
 import { SETTINGS_SIDEBAR } from "@/utils/settings-navigation";
 import { SidebarShell } from "@/components/sidebar-shell";
@@ -25,6 +27,15 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
 export function SettingsLayout() {
   const settingsDeveloperNav =
     useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  // Settings brings its own full-screen chrome; the Windows in-title-bar
+  // menu bar yields while it's up (inert off the Windows shell, where the
+  // menu bar doesn't render anyway).
+  const setWindowsMenuBarSuppressed =
+    useTitleBarStore.use.setWindowsMenuBarSuppressed();
+  useEffect(() => {
+    setWindowsMenuBarSuppressed(true);
+    return () => setWindowsMenuBarSuppressed(false);
+  }, [setWindowsMenuBarSuppressed]);
   const isNativeAndroid = useIsNativeAndroid();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   // The Bookmarks and Credentials tabs need routes that only newer assistants
@@ -33,6 +44,10 @@ export function SettingsLayout() {
   // so a stale cross-store version can't light a tab mid-switch.
   const supportsBookmarks = useSupportsBookmarks(activeAssistantId);
   const supportsCredentials = useSupportsCredentialsSettings(activeAssistantId);
+  // Bookmarks are internal-only, behind the same gate as the fork and
+  // inspector affordances. Hides the tab rather than leaving a route whose
+  // only content-producing affordance (the per-message toggle) is hidden.
+  const canUseInternalActions = useCanUseInternalThreadActions();
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
   // Billing tab is actually shown — i.e. signed in to the Vellum platform
@@ -52,7 +67,10 @@ export function SettingsLayout() {
         if (item.id === "notifications" && !isNativeAndroid) {
           return false;
         }
-        if (item.id === "bookmarks" && !supportsBookmarks) {
+        if (
+          item.id === "bookmarks" &&
+          (!supportsBookmarks || !canUseInternalActions)
+        ) {
           return false;
         }
         if (item.id === "credentials" && !supportsCredentials) {
@@ -65,7 +83,13 @@ export function SettingsLayout() {
       }).map((item) =>
         item.id === "billing" ? { ...item, label: billingLabel } : item,
       ),
-    [isNativeAndroid, supportsBookmarks, supportsCredentials, billingLabel],
+    [
+      isNativeAndroid,
+      supportsBookmarks,
+      canUseInternalActions,
+      supportsCredentials,
+      billingLabel,
+    ],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {

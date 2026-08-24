@@ -9,6 +9,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { TrustRuleFormModal } from "@/domains/settings/components/trust-rules/trust-rule-form-modal";
+import { useTranslation } from "@/i18n";
 import { deleteTrustRule, fetchTrustRules } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
 import { Button } from "@vellumai/design-library/components/button";
@@ -16,8 +18,6 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
-
-import { TrustRuleFormModal } from "@/domains/settings/components/trust-rules/trust-rule-form-modal";
 
 function isDefaultRule(rule: TrustRuleItem): boolean {
   return rule.origin === "default" && !rule.userModified;
@@ -60,10 +60,6 @@ function riskBadgeTone(risk: TrustRuleRisk): TagTone {
   }
 }
 
-function riskLabel(risk: TrustRuleRisk): string {
-  return risk.charAt(0).toUpperCase() + risk.slice(1);
-}
-
 export interface TrustRulesModalProps {
   assistantId: string;
   onClose: () => void;
@@ -73,6 +69,7 @@ export function TrustRulesModal({
   assistantId,
   onClose,
 }: TrustRulesModalProps) {
+  const { t } = useTranslation("settings");
   const dialogRef = useRef<HTMLDivElement>(null);
   const [rules, setRules] = useState<TrustRuleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,6 +77,20 @@ export function TrustRulesModal({
   const [editingRule, setEditingRule] = useState<TrustRuleItem | null>(null);
   const [ruleToDelete, setRuleToDelete] = useState<TrustRuleItem | null>(null);
   const [showAllDefaults, setShowAllDefaults] = useState(false);
+
+  const riskLabel = useCallback(
+    (risk: TrustRuleRisk): string => {
+      switch (risk) {
+        case "low":
+          return t("trustRulesModal.riskLow");
+        case "medium":
+          return t("trustRulesModal.riskMedium");
+        case "high":
+          return t("trustRulesModal.riskHigh");
+      }
+    },
+    [t],
+  );
 
   const fetchRulesForState = useCallback(
     async (showAll: boolean): Promise<TrustRuleItem[]> => {
@@ -103,12 +114,14 @@ export function TrustRulesModal({
       setErrorMessage(null);
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : "Failed to load trust rules.",
+        err instanceof Error
+          ? err.message
+          : t("trustRulesModal.loadErrorFallback"),
       );
     } finally {
       setIsLoading(false);
     }
-  }, [fetchRulesForState, showAllDefaults]);
+  }, [fetchRulesForState, showAllDefaults, t]);
 
   useEffect(() => {
     let stale = false;
@@ -123,7 +136,9 @@ export function TrustRulesModal({
       } catch (err) {
         if (!stale) {
           setErrorMessage(
-            err instanceof Error ? err.message : "Failed to load trust rules.",
+            err instanceof Error
+              ? err.message
+              : t("trustRulesModal.loadErrorFallback"),
           );
         }
       } finally {
@@ -135,7 +150,7 @@ export function TrustRulesModal({
     return () => {
       stale = true;
     };
-  }, [fetchRulesForState, showAllDefaults]);
+  }, [fetchRulesForState, showAllDefaults, t]);
 
   const handleDelete = useCallback(async () => {
     if (!ruleToDelete) {
@@ -146,12 +161,14 @@ export function TrustRulesModal({
       void loadRules();
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : "Failed to delete trust rule.",
+        err instanceof Error
+          ? err.message
+          : t("trustRulesModal.deleteErrorFallback"),
       );
     } finally {
       setRuleToDelete(null);
     }
-  }, [assistantId, ruleToDelete, loadRules]);
+  }, [assistantId, ruleToDelete, loadRules, t]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -189,16 +206,16 @@ export function TrustRulesModal({
               id="trust-rules-title"
               className="text-title-medium text-[var(--content-default)]"
             >
-              Trust Rules
+              {t("trustRulesModal.title")}
             </h2>
             <div className="flex items-center gap-3">
               <Toggle
                 checked={showAllDefaults}
                 onChange={setShowAllDefaults}
-                label="Show all defaults"
+                label={t("trustRulesModal.showAllDefaults")}
               />
               <Button variant="outlined" onClick={onClose}>
-                Done
+                {t("trustRulesModal.done")}
               </Button>
             </div>
           </div>
@@ -211,14 +228,13 @@ export function TrustRulesModal({
             )}
             {isLoading ? (
               <div className="flex h-48 items-center justify-center text-body-medium-lighter text-[var(--content-tertiary)]">
-                Loading…
+                {t("trustRulesModal.loading")}
               </div>
             ) : rules.length === 0 ? (
               <div className="flex h-48 flex-col items-center justify-center gap-2 px-6 text-[var(--content-tertiary)]">
                 <ShieldCheck className="h-8 w-8" />
                 <p className="max-w-xs text-center text-body-medium-lighter">
-                  No trust rules yet. Rules are created when you classify
-                  actions from permission prompts.
+                  {t("trustRulesModal.empty")}
                 </p>
               </div>
             ) : (
@@ -236,10 +252,14 @@ export function TrustRulesModal({
                             {riskLabel(rule.risk)}
                           </Tag>
                           {rule.origin === "default" && (
-                            <Tag tone="neutral">Default</Tag>
+                            <Tag tone="neutral">
+                              {t("trustRulesModal.defaultTag")}
+                            </Tag>
                           )}
                           {rule.userModified && (
-                            <Tag tone="warning">Modified</Tag>
+                            <Tag tone="warning">
+                              {t("trustRulesModal.modifiedTag")}
+                            </Tag>
                           )}
                         </div>
                         <div className="mt-1 truncate font-mono text-body-small-default text-[var(--content-secondary)]">
@@ -254,7 +274,9 @@ export function TrustRulesModal({
                       <div className="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
-                          aria-label={`Edit ${rule.tool} rule`}
+                          aria-label={t("trustRulesModal.editRuleAria", {
+                            tool: rule.tool,
+                          })}
                           onClick={() => setEditingRule(rule)}
                           className="rounded-lg p-1.5 text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-base)] hover:text-[var(--content-default)]"
                         >
@@ -265,7 +287,9 @@ export function TrustRulesModal({
                             variant="dangerGhost"
                             size="compact"
                             iconOnly={<Trash2 className="h-4 w-4" />}
-                            aria-label={`Delete ${rule.tool} rule`}
+                            aria-label={t("trustRulesModal.deleteRuleAria", {
+                              tool: rule.tool,
+                            })}
                             onClick={() => setRuleToDelete(rule)}
                           />
                         )}
@@ -293,14 +317,18 @@ export function TrustRulesModal({
 
       <ConfirmDialog
         open={ruleToDelete !== null}
-        title="Delete Trust Rule?"
+        title={t("trustRulesModal.deleteTitle")}
         message={
           ruleToDelete
-            ? `Remove the ${riskLabel(ruleToDelete.risk).toLowerCase()}-risk rule for ${ruleToDelete.tool} matching "${ruleToDelete.pattern}"?`
+            ? t("trustRulesModal.deleteMessage", {
+                risk: riskLabel(ruleToDelete.risk).toLowerCase(),
+                tool: ruleToDelete.tool,
+                pattern: ruleToDelete.pattern,
+              })
             : ""
         }
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        confirmLabel={t("trustRulesModal.delete")}
+        cancelLabel={t("trustRulesModal.cancel")}
         destructive
         onConfirm={() => void handleDelete()}
         onCancel={() => setRuleToDelete(null)}

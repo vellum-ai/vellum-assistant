@@ -1,7 +1,9 @@
 /**
- * Tests for the confirmation → guardian-request promotion, including the
- * in-flight race: a confirmation resolved while the fire-and-forget gateway
- * create is still pending must not strand a pending tool_approval row.
+ * Tests for the confirmation to guardian-request promotion, including the
+ * in-flight race (a confirmation resolved while the fire-and-forget gateway
+ * create is still pending must not strand a pending tool_approval row) and
+ * the deadline, which is derived from the approval-window resolver rather
+ * than restated as a constant.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -52,6 +54,15 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   },
 }));
 
+// Deliberately not 300_000, the resolver's default. A fixture on the default
+// passes whether the deadline is read from the resolver or restated as a
+// constant beside it; this value only matches if it is read.
+const APPROVAL_WINDOW_MS = 900_000;
+
+mock.module("../tools/tool-approval-handler.js", () => ({
+  resolveInlineGrantWaitMs: () => APPROVAL_WINDOW_MS,
+}));
+
 import { asConversation } from "../__tests__/helpers/mock-conversation.js";
 import type { AssistantEvent } from "../api/index.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -84,6 +95,20 @@ describe("createGuardianRequestForConfirmation", () => {
     });
     expect(expireCalls).toHaveLength(0);
     expect(bridgeCalls).toHaveLength(1);
+  });
+
+  test("takes the row deadline from the approval-window resolver", async () => {
+    const before = Date.now();
+    await createGuardianRequestForConfirmation(MSG, "conv-1");
+    const after = Date.now();
+
+    expect(createCalls).toHaveLength(1);
+    const expiresAt = createCalls[0].expiresAt as number;
+
+    // Bracketed against the clock either side of the call rather than compared
+    // to a single Date.now(), so the assertion cannot flake on a slow tick.
+    expect(expiresAt).toBeGreaterThanOrEqual(before + APPROVAL_WINDOW_MS);
+    expect(expiresAt).toBeLessThanOrEqual(after + APPROVAL_WINDOW_MS);
   });
 
   test("expires the row and skips the bridge when the confirmation resolved mid-create", async () => {

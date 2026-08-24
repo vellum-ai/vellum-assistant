@@ -14,6 +14,8 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 
+import type { PromptKind } from "@/domains/chat/prompt-submission";
+
 import type {
   PendingSecretState,
   PendingConfirmationState,
@@ -27,19 +29,44 @@ import type {
 // ---------------------------------------------------------------------------
 
 export interface InteractionState {
+  /**
+   * The request whose submission is in flight for each kind, or `null` when
+   * none is.
+   *
+   * Carries the id rather than a bare flag because the answer a resume needs
+   * after its await is "is this still *my* submission", and a boolean has
+   * forgotten. Claimed by the submission that starts it and released by that
+   * same submission, so the prompt's own lifecycle never touches it: a card
+   * being raised, retired, or superseded says nothing about whether a request
+   * is still on the wire. The daemon broadcasts `interaction_resolved` before
+   * its POST response returns, so the matching resolution routinely retires a
+   * card while its submission is still awaiting, and that submission must still
+   * finish its own cleanup.
+   *
+   * Keyed rather than one field per kind because every kind wants exactly this
+   * and they drifted apart when they were separate: questions grew a revision,
+   * confirmations a scrub, secrets and contact requests neither.
+   */
+  submittingByKind: Record<PromptKind, string | null>;
   pendingSecret: PendingSecretState | null;
-  isSubmittingSecret: boolean;
   secretSaved: boolean;
 
   pendingConfirmation: PendingConfirmationState | null;
-  isSubmittingConfirmation: boolean;
 
   pendingContactRequest: PendingContactRequestState | null;
-  isSubmittingContactRequest: boolean;
   contactRequestAccepted: boolean;
 
   pendingQuestion: PendingQuestionState | null;
-  isSubmittingQuestion: boolean;
+  /**
+   * Bumped on every change to {@link pendingQuestion}, so a reader that has to
+   * leave and come back can tell whether the slot moved while it was away.
+   * Comparing the value cannot answer that: a prompt that arrives and settles
+   * inside one await returns the slot to `null`, which is indistinguishable
+   * from never having changed, and a reconcile that trusted the comparison
+   * would raise the settled prompt back onto the screen. Monotonic, never
+   * reset, and meaningless in absolute terms; only differences matter.
+   */
+  questionRevision: number;
   /** When true, the question card is hidden but `pendingQuestion` stays set
    *  so the composer free-text intercept still routes to `submitQuestionResponse`. */
   isQuestionCardDismissed: boolean;
@@ -51,20 +78,21 @@ export interface InteractionState {
    * prompt, anchored to the failed tool call. Unlike the other prompts this is
    * NOT a turn-blocking interaction — the turn already ended in error; it is a
    * remediation CTA. It is restored on a `/messages` reseed from the failed
-   * tool call's persisted `errorCode` marker (so a reload/reconnect no longer
-   * loses it), but to avoid nagging from history — the reason it was originally
-   * kept off the reseed path — a dismissal (explicit X, or the implicit
-   * dismiss-on-send) is recorded in `dismissedAcpConnectToolUseIds` and
-   * suppresses any later restore of that same failed spawn.
+   * tool call's persisted `errorCode` marker, so a reload or reconnect does
+   * not lose it. To avoid nagging from history, a dismissal (the connect
+   * flow's auto-continue, or the already-connected self-heal) is recorded in
+   * `dismissedAcpConnectToolUseIds` and suppresses any later restore of that
+   * same failed spawn.
    */
   pendingAcpConnect: PendingAcpConnectState | null;
 
   /**
-   * Failed-`acp_spawn` tool-call ids whose Connect prompt the user already
-   * dealt with this session (dismissed via X or superseded by a send). The
+   * Failed-`acp_spawn` tool-call ids whose Connect prompt was already retired
+   * this session (by the connect flow's auto-continue or by the
+   * already-connected self-heal). The
    * `errorCode` marker lives permanently in history, so without this a reseed
    * would re-raise the card on every turn until Claude is connected; recording
-   * the id lets `showAcpConnect` no-op a restore the user already dismissed. A
+   * the id lets `showAcpConnect` no-op a restore of a retired prompt. A
    * genuine new failure gets a fresh tool-use id, so it is never suppressed.
    * Cleared with the rest of the store on conversation switch (`resetAll`).
    */
@@ -90,37 +118,45 @@ export interface InteractionState {
 // ---------------------------------------------------------------------------
 
 export interface InteractionActions {
+  /**
+   * Record the outcome of a secret submission, which drives the card's saved
+   * tick. Every submission that ends reports one, so a failed retry clears a
+   * tick an earlier success left behind — but only on its own card, since the
+   * tick belongs to the prompt on screen and a superseded request no longer
+   * owns that.
+   */
+  setSecretSavedIfMatches: (requestId: string, saved: boolean) => void;
+  /** Claim the submission slot for `kind`. */
+  claimSubmission: (kind: PromptKind, requestId: string) => void;
+  /** Release it, but only for the request that holds it. */
+  releaseSubmission: (kind: PromptKind, requestId: string) => void;
   // Secret
   showSecret: (payload: PendingSecretState) => void;
-  submitSecretStart: () => void;
-  submitSecretEnd: (saved?: boolean) => void;
-  dismissSecret: () => void;
+  dismissSecretIfMatches: (requestId: string) => void;
   updateSecret: (requestId: string, patch: Partial<PendingSecretState>) => void;
 
   // Confirmation
   showConfirmation: (payload: PendingConfirmationState) => void;
-  submitConfirmationStart: () => void;
-  submitConfirmationEnd: () => void;
-  dismissConfirmation: () => void;
   dismissConfirmationIfMatches: (requestId: string) => void;
   updateConfirmation: (
     requestId: string,
     patch: Partial<PendingConfirmationState>,
   ) => void;
   setInlineConfirmationToolCallId: (toolCallId: string | null) => void;
+  /**
+   * Unpin the inline card, but only when `toolCallId` is the anchor currently
+   * held. A decision, a stale-prompt retire, and a resolved broadcast all end
+   * one confirmation, and each must leave a different chip's card pinned.
+   */
+  releaseInlineAnchorIfMatches: (toolCallId: string | undefined) => void;
 
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
-  submitContactRequestStart: () => void;
-  submitContactRequestEnd: () => void;
-  dismissContactRequest: () => void;
+  dismissContactRequestIfMatches: (requestId: string) => void;
   acceptContactRequest: () => void;
 
   // Question
   showQuestion: (payload: PendingQuestionState) => void;
-  submitQuestionStart: () => void;
-  submitQuestionEnd: () => void;
-  dismissQuestion: () => void;
   dismissQuestionIfMatches: (requestId: string) => void;
   dismissQuestionCard: () => void;
 
@@ -146,19 +182,22 @@ export type InteractionStore = InteractionState & InteractionActions;
 // ---------------------------------------------------------------------------
 
 const INITIAL_STATE: InteractionState = {
+  submittingByKind: {
+    confirmation: null,
+    question: null,
+    secret: null,
+    contactRequest: null,
+  },
   pendingSecret: null,
-  isSubmittingSecret: false,
   secretSaved: false,
 
   pendingConfirmation: null,
-  isSubmittingConfirmation: false,
 
   pendingContactRequest: null,
-  isSubmittingContactRequest: false,
   contactRequestAccepted: false,
 
   pendingQuestion: null,
-  isSubmittingQuestion: false,
+  questionRevision: 0,
   isQuestionCardDismissed: false,
 
   inlineConfirmationToolCallId: null,
@@ -191,6 +230,23 @@ export function hasActiveInteraction(state: InteractionState): boolean {
 const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   ...INITIAL_STATE,
 
+  claimSubmission: (kind, requestId) =>
+    set((state) => ({
+      submittingByKind: { ...state.submittingByKind, [kind]: requestId },
+    })),
+
+  // Only the holder may release, so a response that has been superseded cannot
+  // reopen the double-submit guard for whoever holds it now. Returns `state`
+  // itself for a non-holder rather than an empty patch: zustand skips the
+  // notification only on an identical reference, and a superseded resume
+  // calling this is the ordinary case, not the rare one.
+  releaseSubmission: (kind, requestId) =>
+    set((state) =>
+      state.submittingByKind[kind] === requestId
+        ? { submittingByKind: { ...state.submittingByKind, [kind]: null } }
+        : state,
+    ),
+
   // ----- Secret -----
   showSecret: (payload) => {
     const { pendingSecret } = get();
@@ -207,19 +263,24 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       set({ pendingSecret: { ...pendingSecret, ...defined } });
       return;
     }
-    set({
-      pendingSecret: payload,
-      isSubmittingSecret: false,
-      secretSaved: false,
-    });
+    set({ pendingSecret: payload, secretSaved: false });
   },
 
-  submitSecretStart: () => set({ isSubmittingSecret: true }),
+  setSecretSavedIfMatches: (requestId, saved) => {
+    const { pendingSecret } = get();
+    if (!pendingSecret || pendingSecret.requestId !== requestId) {
+      return;
+    }
+    set({ secretSaved: saved });
+  },
 
-  submitSecretEnd: (saved) =>
-    set({ isSubmittingSecret: false, secretSaved: saved ?? false }),
-
-  dismissSecret: () => set({ pendingSecret: null, isSubmittingSecret: false }),
+  dismissSecretIfMatches: (requestId) => {
+    const { pendingSecret } = get();
+    if (!pendingSecret || pendingSecret.requestId !== requestId) {
+      return;
+    }
+    set({ pendingSecret: null });
+  },
 
   updateSecret: (requestId, patch) => {
     const { pendingSecret } = get();
@@ -230,22 +291,17 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   },
 
   // ----- Confirmation -----
-  showConfirmation: (payload) =>
-    set({ pendingConfirmation: payload, isSubmittingConfirmation: false }),
+  showConfirmation: (payload) => set({ pendingConfirmation: payload }),
 
-  submitConfirmationStart: () => set({ isSubmittingConfirmation: true }),
-
-  submitConfirmationEnd: () => set({ isSubmittingConfirmation: false }),
-
-  dismissConfirmation: () =>
-    set({ pendingConfirmation: null, isSubmittingConfirmation: false }),
-
+  // Retiring is by request only. There is deliberately no "dismiss whatever is
+  // on screen": a caller holding a stale request could use it to close a card
+  // it never decided, which is the shape of every bug this slot has had.
   dismissConfirmationIfMatches: (requestId) => {
     const { pendingConfirmation } = get();
     if (!pendingConfirmation || pendingConfirmation.requestId !== requestId) {
       return;
     }
-    set({ pendingConfirmation: null, isSubmittingConfirmation: false });
+    set({ pendingConfirmation: null });
   },
 
   updateConfirmation: (requestId, patch) => {
@@ -259,71 +315,72 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   setInlineConfirmationToolCallId: (toolCallId) =>
     set({ inlineConfirmationToolCallId: toolCallId }),
 
+  releaseInlineAnchorIfMatches: (toolCallId) => {
+    if (!toolCallId || get().inlineConfirmationToolCallId !== toolCallId) {
+      return;
+    }
+    set({ inlineConfirmationToolCallId: null });
+  },
+
   // ----- Contact request -----
   showContactRequest: (payload) =>
-    set({
-      pendingContactRequest: payload,
-      isSubmittingContactRequest: false,
-      contactRequestAccepted: false,
-    }),
+    set({ pendingContactRequest: payload, contactRequestAccepted: false }),
 
-  submitContactRequestStart: () => set({ isSubmittingContactRequest: true }),
-
-  submitContactRequestEnd: () => set({ isSubmittingContactRequest: false }),
-
-  dismissContactRequest: () =>
-    set({ pendingContactRequest: null, isSubmittingContactRequest: false }),
+  dismissContactRequestIfMatches: (requestId) => {
+    const { pendingContactRequest } = get();
+    if (
+      !pendingContactRequest ||
+      pendingContactRequest.requestId !== requestId
+    ) {
+      return;
+    }
+    set({ pendingContactRequest: null });
+  },
 
   acceptContactRequest: () => set({ contactRequestAccepted: true }),
 
   // ----- Question -----
   showQuestion: (payload) =>
-    set({
+    set((state) => ({
       pendingQuestion: payload,
-      isSubmittingQuestion: false,
+      questionRevision: state.questionRevision + 1,
       isQuestionCardDismissed: false,
-    }),
-
-  submitQuestionStart: () => set({ isSubmittingQuestion: true }),
-
-  submitQuestionEnd: () => set({ isSubmittingQuestion: false }),
-
-  dismissQuestion: () =>
-    set({
-      pendingQuestion: null,
-      isSubmittingQuestion: false,
-      isQuestionCardDismissed: false,
-    }),
+    })),
 
   dismissQuestionIfMatches: (requestId) => {
     const { pendingQuestion } = get();
     if (!pendingQuestion || pendingQuestion.requestId !== requestId) {
       return;
     }
-    set({
+    set((state) => ({
       pendingQuestion: null,
-      isSubmittingQuestion: false,
+      questionRevision: state.questionRevision + 1,
       isQuestionCardDismissed: false,
-    });
+    }));
   },
 
   dismissQuestionCard: () => set({ isQuestionCardDismissed: true }),
 
   // ----- Resets -----
   resetSecretAndConfirmation: () =>
-    set({
+    set((state) => ({
       pendingSecret: null,
-      isSubmittingSecret: false,
       secretSaved: false,
       pendingConfirmation: null,
-      isSubmittingConfirmation: false,
       inlineConfirmationToolCallId: null,
+      // A reset abandons the interaction outright, which is the one thing that
+      // legitimately ends someone else's submission.
+      submittingByKind: {
+        ...state.submittingByKind,
+        secret: null,
+        confirmation: null,
+      },
       // Question state is intentionally not cleared: the daemon blocks on
       // /question-response until the prompt settles, and clearing here would
       // hide a card that is still answerable. A question that the daemon does
       // settle retires through `dismissQuestionIfMatches`, driven by the
       // `interaction_resolved` handler and the 404 paths in `question-actions`.
-    }),
+    })),
 
   // ----- ACP Connect Claude prompt -----
   // Skip a restore the user already dismissed this session. The live-failure
@@ -332,7 +389,7 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   showAcpConnect: (payload) =>
     set((state) =>
       state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)
-        ? {}
+        ? state
         : { pendingAcpConnect: payload },
     ),
 
@@ -383,7 +440,17 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
+      // A conversation switch drops the card, which is a change like any other:
+      // carry the counter forward and advance it rather than restarting from
+      // the initial zero. Restarting would let a read issued before the switch
+      // compare equal to the state after it.
+      questionRevision: state.questionRevision + 1,
     })),
 }));
 
 export const useInteractionStore = createSelectors(useInteractionStoreBase);
+
+/** Atomic per-kind subscription, so a card re-renders only for its own kind. */
+export function useSubmittingRequestId(kind: PromptKind): string | null {
+  return useInteractionStore((state) => state.submittingByKind[kind]);
+}

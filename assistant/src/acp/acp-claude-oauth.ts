@@ -17,15 +17,19 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   classifyAnthropicToken,
 } from "./acp-credentials.js";
 import {
-  acpSpawnCanReadCredential,
-  grantAcpSpawnPolicy,
+  ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
+  acpSpawnCredentialDenialReason,
+  repairAcpSpawnPolicy,
 } from "./prepare-agent-env.js";
+
+const log = getLogger("acp:claude-oauth");
 
 /**
  * Verified Claude Code public OAuth client. PKCE-only (no client secret);
@@ -109,8 +113,9 @@ export function parseManualClaudeCode(input: string): {
 
 /**
  * Store a captured Claude OAuth token in the `acp/claude_oauth_token` vault
- * field and provision the `acp_spawn` read policy so the broker can inject it
- * at spawn time. Throws when the backing store rejects the write.
+ * field and provision the policy the broker applies at spawn time: grant the
+ * `acp_spawn` read and lift any domain restriction. Throws when the backing
+ * store rejects the write.
  */
 export async function storeAcpClaudeToken(token: string): Promise<void> {
   const stored = await setSecureKeyAsync(
@@ -120,13 +125,13 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
   if (!stored) {
     throw new Error("Failed to store Claude OAuth token in secure storage.");
   }
-  // Force-grant acp_spawn (union) rather than merely ensure it: an explicit
-  // Connect is a deliberate opt-in to ACP, so this repairs a credential whose
-  // explicit allowedTools omitted acp_spawn — otherwise the broker keeps denying
-  // the spawn read and the Connect card dead-loops on every auto-continue.
-  grantAcpSpawnPolicy(
+  // Repair rather than merely ensure the policy: an explicit Connect is a
+  // deliberate opt-in to ACP, so this widens a credential the broker would
+  // otherwise keep denying the spawn read on, which would dead-loop the Connect
+  // card on every auto-continue.
+  repairAcpSpawnPolicy(
     ACP_OAUTH_TOKEN_FIELD,
-    "Claude OAuth token for ACP agent authentication",
+    ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
   );
 }
 
@@ -142,20 +147,32 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
  * spawn, so keeping Connect offered (rather than self-dismissing) lets the user
  * repair the bad entry by connecting a real OAuth token.
  *
- * Likewise, a token the `acp_spawn` policy can't read (an explicit
- * `allowedTools` that omits `acp_spawn`) is NOT connected: the vault holds a
- * value but the spawn's broker read is denied, so self-dismissing the card would
- * hide the only repair CTA while every spawn keeps failing. Keep the card up in
- * that denied-policy case too.
+ * Likewise, a token the spawn's broker read would be denied (an explicit
+ * `allowedTools` that omits `acp_spawn`, or a domain-restricted policy) is NOT
+ * connected: the vault holds a value but every spawn fails, so self-dismissing
+ * the card would hide the only repair CTA. That half of the answer is delegated
+ * to `acpSpawnCredentialDenialReason`, which evaluates the exact policy the
+ * spawn-time broker read applies, so "connected" means precisely "the spawn
+ * would get this token". The token-shape guard stays here instead: the broker
+ * knows nothing about Anthropic token formats.
  */
 export async function hasAcpClaudeToken(): Promise<boolean> {
   const token = await getSecureKeyAsync(
     credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
   );
-  return (
-    token != null &&
-    token.length > 0 &&
-    classifyAnthropicToken(token) !== "api_key" &&
-    acpSpawnCanReadCredential(ACP_OAUTH_TOKEN_FIELD)
-  );
+  if (token == null || token.length === 0) {
+    return false;
+  }
+  if (classifyAnthropicToken(token) === "api_key") {
+    return false;
+  }
+  const denialReason = acpSpawnCredentialDenialReason(ACP_OAUTH_TOKEN_FIELD);
+  if (denialReason !== undefined) {
+    log.debug(
+      { field: ACP_OAUTH_TOKEN_FIELD, reason: denialReason },
+      "Connect Claude status: token present but spawn read would be denied",
+    );
+    return false;
+  }
+  return true;
 }

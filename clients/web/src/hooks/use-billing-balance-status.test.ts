@@ -153,8 +153,29 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: "0.00",
       balance: "20.00",
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: true,
     });
+  });
+
+  test("usage grants: passed through as the summary reports them", () => {
+    const { result } = setup({
+      seed: summary({
+        available_usage_balance: "1.60",
+        total_usage_balance: "5.00",
+      }),
+    });
+    expect(result.current.availableUsageBalance).toBe("1.60");
+    expect(result.current.totalUsageBalance).toBe("5.00");
+  });
+
+  test("usage grants: a platform reporting neither reads as unknown", () => {
+    // An older self-hosted platform omits both fields, which has to read as
+    // "no grant information" rather than a zeroed one.
+    const { result } = setup({ seed: summary() });
+    expect(result.current.availableUsageBalance).toBeNull();
+    expect(result.current.totalUsageBalance).toBeNull();
   });
 
   test("low balance: reflects the server-computed warning flag", () => {
@@ -169,6 +190,8 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: "0.00",
       balance: "3.00",
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: true,
     });
   });
@@ -218,6 +241,8 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: "0.00",
       balance: "20.00",
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: true,
     });
   });
@@ -313,6 +338,8 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: null,
       balance: null,
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: true,
     });
   });
@@ -354,6 +381,8 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: null,
       balance: null,
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: false,
     });
   });
@@ -374,6 +403,8 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: "0.00",
       balance: "0.00",
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: true,
     });
   });
@@ -413,6 +444,8 @@ describe("useBillingBalanceStatus", () => {
       dailyLimit: null,
       dailySpend: null,
       balance: null,
+      availableUsageBalance: null,
+      totalUsageBalance: null,
       enabled: false,
     });
   });

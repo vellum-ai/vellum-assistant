@@ -53,8 +53,8 @@ export const installWindowsTray = (
     // Windows has no companion surface, so every companion field here is the
     // inert answer rather than an implementation. The size still has to be a
     // real one: the tray model reads it to mark a radio item, and the menu it
-    // would appear in is gated off by `companionEnabled` anyway.
-    companionEnabled: () => false,
+    // would appear in is gated off by `companionSupported` anyway.
+    companionSupported: () => false,
     companionHidden: () => true,
     companionSize: () => DEFAULT_COMPANION_SIZE,
     dispatch,

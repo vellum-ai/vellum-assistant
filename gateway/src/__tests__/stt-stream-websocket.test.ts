@@ -2,11 +2,23 @@ import { describe, test, expect, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
-import {
-  createSttStreamWebsocketHandler,
-  getSttStreamWebsocketHandlers,
-  type SttStreamSocketData,
-} from "../http/routes/stt-stream-websocket.js";
+
+// Dictation is NOT a guardian-only surface. The binding lookup is mocked to a
+// principal that no token below matches, so any consultation of it would
+// refuse every case in this file. Mocked before the module under test is
+// imported, the way the guardian-only handlers' tests do it.
+const mockFindVellumGuardian = mock(
+  async (): Promise<{ principalId: string } | null> => ({
+    principalId: "somebody-who-is-not-the-caller",
+  }),
+);
+mock.module("../auth/guardian-bootstrap.js", () => ({
+  findVellumGuardian: () => mockFindVellumGuardian(),
+}));
+
+const { createSttStreamWebsocketHandler, getSttStreamWebsocketHandlers } =
+  await import("../http/routes/stt-stream-websocket.js");
+import type { SttStreamSocketData } from "../http/routes/stt-stream-websocket.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -385,5 +397,59 @@ describe("getSttStreamWebsocketHandlers", () => {
     handlers.close(ws as never, 1000, "normal");
 
     expect(fakeUpstream.close).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The regression guard for the watch stream's guardian pin.
+ *
+ * `/v1/watch/stream` opts into `guardian-pin` because it reads the owner's
+ * screen. Dictation is the user's own words going to a transcriber and back,
+ * so it takes any valid actor, and the shared authorization the two routes
+ * share must not quietly acquire the pin on this one's behalf.
+ *
+ * The mock at the top of this file binds the guardian to a principal none of
+ * these tokens carry, so a pin appearing here would turn every upgrade into a
+ * 403 and this describe into a wall of failures.
+ */
+describe("dictation is not a guardian-only surface", () => {
+  test("admits an actor who is not the bound guardian", async () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${mintEdgeToken("some-other-actor")}&mimeType=audio/webm`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+
+    expect(handler(req, server)).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("never consults the guardian binding at all", async () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${mintEdgeToken("some-other-actor")}&mimeType=audio/webm`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    handler(req, makeFakeServer());
+
+    expect(mockFindVellumGuardian).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The upgrade handler stays synchronous. Awaiting a binding lookup is what
+   * would make it async, so the signature is itself evidence of the posture.
+   */
+  test("stays a synchronous upgrade handler", () => {
+    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/stt/stream?token=${mintEdgeToken()}&mimeType=audio/webm`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    const result = handler(req, makeFakeServer());
+
+    expect(result).not.toBeInstanceOf(Promise);
   });
 });

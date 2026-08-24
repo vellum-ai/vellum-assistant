@@ -41,7 +41,10 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { VALID_CONNECTION_PROVIDERS } from "./inference/auth.js";
+import {
+  ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
+} from "./inference/auth.js";
 import {
   canonicalVellumConnection,
   getConnection,
@@ -191,6 +194,25 @@ export function resolveEntryProviderKind(
 ): string | null {
   const entryName = resolveEntryConnectionName(provider);
   return entryName ? connectionProviderKind(entryName, model) : null;
+}
+
+/**
+ * The catalog provider whose model limits judge a profile's (provider,
+ * model) pair: routing identities translate to their concrete upstream
+ * (chatgpt serves the OpenAI catalog; a vellum profile's bare native model
+ * names its managed owner), and an entry-name label resolves to its row's
+ * dispatchable kind. Null when no upstream is derivable (the pair stays
+ * unjudged). Shared by the profile-route budget validation and profile
+ * materialization so the two cannot drift.
+ */
+export function catalogProviderForProfile(
+  provider: string,
+  model: string,
+): string | null {
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    return provider === "chatgpt" ? "openai" : getManagedUpstream(model);
+  }
+  return resolveEntryProviderKind(provider, model) ?? provider;
 }
 
 /**
@@ -706,7 +728,8 @@ export async function preflightResolvedConfig(
 
   switch (connection.auth.type) {
     case "api_key":
-    case "oauth_subscription": {
+    case "oauth_subscription":
+    case "service_account": {
       const presence = await checkCredentialPresence(
         connection.auth.credential,
       );

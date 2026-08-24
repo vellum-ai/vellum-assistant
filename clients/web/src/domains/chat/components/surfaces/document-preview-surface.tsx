@@ -1,9 +1,7 @@
-import { ArrowUpRight, FileText } from "lucide-react";
-import type { KeyboardEvent } from "react";
-
 import type { Surface } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
-import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { DocumentCard } from "@/domains/chat/components/document-card";
 
 interface DocumentPreviewSurfaceData {
   documentName: string;
@@ -22,11 +20,21 @@ interface DocumentPreviewSurfaceProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
 }
 
+/**
+ * A `document_preview` surface, drawn through the shared {@link DocumentCard}.
+ *
+ * The assistant transcript collects a turn's documents into one card per
+ * document at the end of the response (see `resolve-response-artifacts.ts`),
+ * dropping the `document_preview` blocks that name them while it groups.
+ * This path serves a `document_preview` that arrives outside that projection,
+ * such as one the model writes inline with a `ui_show` tag.
+ */
 export function DocumentPreviewSurface({
   surface,
   onAction,
   onOpenDocument,
 }: DocumentPreviewSurfaceProps) {
+  const { t } = useTranslation("chat");
   const data: DocumentPreviewSurfaceData = {
     documentName:
       (surface.data.documentName as string) ??
@@ -36,63 +44,23 @@ export function DocumentPreviewSurface({
     content: surface.data.content as string | undefined,
     mimeType: surface.data.mimeType as string | undefined,
   };
-  const hasOpenAction = surface.actions && surface.actions.length > 0;
-  const isClickable = hasOpenAction || onOpenDocument != null;
+  const openAction = surface.actions?.[0];
+  const openDocument = onOpenDocument;
+  const documentSurfaceId = data.documentSurfaceId;
 
-  const handleClick = () => {
-    if (hasOpenAction) {
-      const action = surface.actions?.[0];
-      if (action) {
-        onAction(surface.surfaceId, action.id);
-      }
-    } else if (onOpenDocument && data.documentSurfaceId) {
-      onOpenDocument(data.documentSurfaceId);
-    }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      handleClick();
-    }
-  };
-
-  const surfaceWithoutTitle = { ...surface, title: undefined };
+  const handleOpen = openAction
+    ? () => onAction(surface.surfaceId, openAction.id)
+    : openDocument && documentSurfaceId
+      ? () => openDocument(documentSurfaceId)
+      : undefined;
 
   return (
-    <div className="max-w-sm">
-      <SurfaceContainer surface={surfaceWithoutTitle} onAction={onAction}>
-        <div
-          role={isClickable ? "button" : undefined}
-          tabIndex={isClickable ? 0 : undefined}
-          onClick={isClickable ? handleClick : undefined}
-          onKeyDown={isClickable ? handleKeyDown : undefined}
-          className={
-            isClickable ? "-m-2 cursor-pointer rounded-lg p-2" : undefined
-          }
-        >
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 shrink-0 text-[var(--content-quiet)]" />
-            <h3 className="text-title-small text-[var(--content-strong)]">
-              {data.documentName}
-            </h3>
-            {data.mimeType && (
-              <span className="rounded-full bg-[var(--tag-bg-neutral)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-                {data.mimeType}
-              </span>
-            )}
-            {isClickable && (
-              <ArrowUpRight className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--content-faint)]" />
-            )}
-          </div>
-
-          {data.content && (
-            <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
-              {data.content}
-            </pre>
-          )}
-        </div>
-      </SurfaceContainer>
-    </div>
+    <DocumentCard
+      documentName={data.documentName}
+      mimeType={data.mimeType}
+      content={data.content}
+      onOpen={handleOpen}
+      ariaLabel={t("documentPreviewSurface.openAria", { name: data.documentName })}
+    />
   );
 }

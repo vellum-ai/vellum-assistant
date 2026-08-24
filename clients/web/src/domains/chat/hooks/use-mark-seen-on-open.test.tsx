@@ -52,7 +52,11 @@ function unreadConversation(): Conversation {
   } as Conversation;
 }
 
-function setup(conversation: Conversation | undefined, unreadCount: number) {
+function setup(
+  conversation: Conversation | undefined,
+  unreadCount: number,
+  isTranscriptOnScreen = true,
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -72,6 +76,7 @@ function setup(conversation: Conversation | undefined, unreadCount: number) {
         assistantStateKind: "active",
         activeConversationId: conversation?.conversationId ?? null,
         activeConversation: conversation,
+        isTranscriptOnScreen,
       }),
     {
       wrapper: ({ children }: { children: ReactNode }) =>
@@ -166,5 +171,24 @@ describe("useMarkSeenOnOpen", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(seenCalls.length).toBe(1);
+  });
+});
+
+describe("useMarkSeenOnOpen only marks what the user can see", () => {
+  test("leaves the reply unread while the transcript is off screen", async () => {
+    const { client } = setup(unreadConversation(), 1, false);
+
+    await waitFor(() => {
+      expect(readUnseen(client)).toBe(true);
+    });
+    expect(seenCalls).toHaveLength(0);
+  });
+
+  test("marks it seen once the transcript is on screen", async () => {
+    setup(unreadConversation(), 1, true);
+
+    await waitFor(() => {
+      expect(seenCalls).toHaveLength(1);
+    });
   });
 });

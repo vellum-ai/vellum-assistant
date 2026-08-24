@@ -162,7 +162,7 @@ export interface CollapsibleNavSectionDrag {
   dropEdge: "before" | "after" | null;
 }
 
-export interface CollapsibleNavSectionSectionProps extends Omit<
+interface CollapsibleNavSectionSectionProps extends Omit<
   CollapsibleItemProps,
   "children"
 > {
@@ -530,5 +530,3 @@ export const CollapsibleNavSection = {
   Root: CollapsibleNavSectionRoot,
   Section: CollapsibleNavSectionSection,
 };
-
-export type CollapsibleNavSectionRootProps = CollapsibleRootProps;

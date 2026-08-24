@@ -13,6 +13,7 @@
  * reflected on the next send.
  */
 
+import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
 
 /**
@@ -23,7 +24,7 @@ import { useViewerStore } from "@/stores/viewer-store";
  */
 export function getVisibleAppIdForSend(): string | undefined {
   const { mainView, openedAppState } = useViewerStore.getState();
-  if (mainView !== "app" && mainView !== "app-editing") {
+  if (!isAppMainView(mainView)) {
     return undefined;
   }
   return openedAppState?.appId;

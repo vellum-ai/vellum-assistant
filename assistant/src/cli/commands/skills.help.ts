@@ -6,21 +6,8 @@ export const skillsHelp: CliCommandHelp = {
   name: "skills",
   description: "Browse and install skills from the Vellum catalog",
   helpText: `
-Manage skills from the Vellum catalog. Skills extend the assistant's
-capabilities with pre-built workflows and tools.
-
-Examples:
-  $ assistant skills list
-  $ assistant skills list --json
-  $ assistant skills inspect slack
-  $ assistant skills inspect resend-setup --json
-  $ assistant skills search react
-  $ assistant skills search react --limit 5 --json
-  $ assistant skills install weather
-  $ assistant skills install weather --overwrite
-  $ assistant skills uninstall weather
-  $ assistant skills add vercel-labs/skills@find-skills
-  $ assistant skills add vercel-labs/skills/find-skills --overwrite`,
+Manage skills from the Vellum catalog. Skills are instructions of
+workflows and tools that teach the assistant when dynamically relevant.`,
   subcommands: [
     {
       name: "list",
@@ -70,14 +57,24 @@ Examples:
         { flags: "--json", description: "Machine-readable JSON output" },
       ],
       helpText: `
+When to use:
+  Second stop after plugin search when the user asks to set up, install, or
+  add a capability (for example "Setup <app> for me", "add a skill for file management").
+  Search here before searching the web.
+
 Arguments:
   query    Free-text search term matched against skill names, descriptions,
-           and tags. Searches the Vellum catalog, the skills.sh community
+           and tags. Use the product or capability name, not the full user
+           sentence. Searches the Vellum catalog, the skills.sh community
            registry, and the clawhub registry.
 
 Displays results from all sources with clear labels. When a skill ID
 exists in both the Vellum catalog and a community registry, a conflict
 note is shown with guidance on which install command to use.
+
+If a catalog match is found, install it with 'assistant skills install <id>'.
+If a community match is found, add it with 'assistant skills add <source>'.
+If nothing matches, try web search.
 
 Examples:
   $ assistant skills search react

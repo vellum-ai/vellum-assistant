@@ -321,6 +321,54 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* Companion surface capture pulse: one breath of light around the same edge,
+ * each time a watch session has read the screen.
+ *
+ * The working ring above is a state, held for as long as the session is. This
+ * is an event, and it fires only when a read actually landed, so it has to
+ * arrive and leave rather than settle: one that lingered would be
+ * indistinguishable from the session simply being on, and the next read would
+ * have nothing left to announce itself against.
+ *
+ * The same band geometry as the ring, uniform rather than travelling. Both are
+ * drawn at once during a session, so a second shape would read as a second
+ * thing happening; brightening the edge that is already lit reads as the ring
+ * doing something, which is exactly what a capture is.
+ *
+ * Fast in and slow out, because that is the shape of a shutter rather than a
+ * blink, and it peaks well under full opacity: this fires three or four times
+ * a minute for as long as the user works, and it sits over whatever they are
+ * working in.
+ *
+ * No reduced-motion fallback, unlike the ring's travel, and the distinction is
+ * the point: this animates opacity and nothing else, with no travel, no scale,
+ * and nothing on screen displaced. Holding it still would not calm it down, it
+ * would delete it, and with it the only signal the user gets that their screen
+ * was read. */
+@keyframes companion-capture-pulse {
+  0% { opacity: 0; }
+  15% { opacity: 0.7; }
+  100% { opacity: 0; }
+}
+
+.companion-capture-pulse {
+  padding: 2px;
+  background: var(--companion-ring-accent, #ff9f45);
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--companion-ring-accent, #ff9f45) 60%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  animation: companion-capture-pulse 700ms ease-out 1;
+}
+
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is

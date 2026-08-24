@@ -12,7 +12,7 @@ export function KeyboardShortcutsRedirectPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    navigate(`${routes.settings.general}?preferences=open`, { replace: true });
+    navigate(routes.settings.keyboardShortcuts, { replace: true });
   }, [navigate]);
 
   return null;

@@ -1,5 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
 import { Ban } from "lucide-react";
 
 import { Button, Input, Modal } from "@vellumai/design-library";
@@ -72,6 +74,7 @@ function GroupIconPicker({
   value: string | null;
   onChange: (icon: string | null) => void;
 }) {
+  const { t } = useTranslation("chat");
   // The selected tile's `active` surface is `--surface-lift`, which is the
   // dialog's own background: the ring, not the fill, is what makes a
   // selection read without hover.
@@ -81,7 +84,7 @@ function GroupIconPicker({
   return (
     <fieldset className="mt-3 border-0 p-0">
       <legend className="mb-1.5 text-sm text-[var(--content-secondary)]">
-        Icon
+        {t("nameInputDialog.icon")}
       </legend>
       <div className="flex flex-wrap gap-1">
         <Button
@@ -90,8 +93,8 @@ function GroupIconPicker({
           expandOnMobile={false}
           active={value === null}
           aria-pressed={value === null}
-          aria-label="No icon"
-          tooltip="No icon"
+          aria-label={t("nameInputDialog.noIcon")}
+          tooltip={t("nameInputDialog.noIcon")}
           className={tileClassName}
           onClick={() => onChange(null)}
         />
@@ -129,6 +132,7 @@ export function NameInputDialog({
   onSubmit,
   onCancel,
 }: NameInputDialogProps) {
+  const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(initialValue);
   const initialIcon = iconPicker?.initialIcon ?? null;
@@ -209,7 +213,7 @@ export function NameInputDialog({
           <Modal.Body>
             <Input
               ref={inputRef}
-              label="Name"
+              label={t("nameInputDialog.name")}
               value={value}
               onChange={(event) => setValue(event.target.value)}
               maxLength={200}
@@ -223,7 +227,7 @@ export function NameInputDialog({
           </Modal.Body>
           <Modal.Footer>
             <Button type="button" variant="outlined" onClick={onCancel}>
-              Cancel
+              {t("nameInputDialog.cancel")}
             </Button>
             <Button type="submit" variant="primary" disabled={submitDisabled}>
               {submitLabel}

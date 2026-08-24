@@ -3,7 +3,10 @@
  * interaction-store state directly — no render-prop relay from the parent.
  */
 
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  useInteractionStore,
+  useSubmittingRequestId,
+} from "@/domains/chat/interaction-store";
 import {
   handleConfirmationSubmit,
   handleAllowAndCreateRule,
@@ -12,11 +15,15 @@ import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-p
 
 export function PendingConfirmationRow() {
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
-  const isSubmitting = useInteractionStore.use.isSubmittingConfirmation();
+  const submittingRequestId = useSubmittingRequestId("confirmation");
 
   if (!pendingConfirmation) {
     return null;
   }
+
+  // This card's own submission, not any submission: the spinner belongs to the
+  // prompt being answered rather than to whatever happens to be on the wire.
+  const isSubmitting = submittingRequestId === pendingConfirmation.requestId;
 
   // The card owns whether the rule option is offered; this only says the
   // surface can act on it.

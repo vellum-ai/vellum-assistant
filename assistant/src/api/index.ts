@@ -129,12 +129,18 @@ import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
+import { WatchRetroCompletedEventSchema } from "./events/watch-retro-completed.js";
 import { WorkflowCompletedEventSchema } from "./events/workflow-completed.js";
 import { WorkflowLeafFinishedEventSchema } from "./events/workflow-leaf-finished.js";
 import { WorkflowLeafStartedEventSchema } from "./events/workflow-leaf-started.js";
 import { WorkflowProgressEventSchema } from "./events/workflow-progress.js";
 import { WorkflowStartedEventSchema } from "./events/workflow-started.js";
 
+export {
+  APP_MUTATION_TOOL_NAMES,
+  APP_MUTATION_TOOLS,
+  type AppMutationTool,
+} from "./constants/app-tools.js";
 export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
@@ -146,6 +152,11 @@ export {
   type DocumentMutationTool,
   REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
 } from "./constants/document-tools.js";
+export {
+  MIN_INPUT_RESERVE_TOKENS,
+  type ProfileConfigIssue,
+  validateInferenceProfileConfig,
+} from "./constants/profile-config-validation.js";
 export {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
@@ -672,6 +683,10 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type WatchRetroCompletedEvent,
+  WatchRetroCompletedEventSchema,
+} from "./events/watch-retro-completed.js";
+export {
   type WorkflowCompletedEvent,
   WorkflowCompletedEventSchema,
   type WorkflowRunStatus,
@@ -1027,6 +1042,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UsageProgressEventSchema,
   UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
+  WatchRetroCompletedEventSchema,
   WorkflowCompletedEventSchema,
   WorkflowLeafFinishedEventSchema,
   WorkflowLeafStartedEventSchema,

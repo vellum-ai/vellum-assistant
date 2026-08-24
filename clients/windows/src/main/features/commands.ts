@@ -18,10 +18,10 @@ import { installHotkeysIpc } from "@vellumai/electron-desktop/hotkeys";
 import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 
-import { getDevRendererBase, RENDERER_BASE_PROD } from "../app-config";
+import { getRendererBase } from "../app-config";
 import { handle } from "../ipc.client";
 import log from "../logger";
-import { ensureVisible } from "../main-window";
+import { current, dispatchToMain, ensureVisible } from "../main-window";
 import { installWindowsMenu } from "../menu";
 
 const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
@@ -34,8 +34,7 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     }
 
     configureAboutRuntime({
-      rendererBase: () =>
-        app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase(),
+      rendererBase: () => getRendererBase(app.isPackaged),
     });
     installAbout({ handle });
 
@@ -43,6 +42,22 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
       handlers: {
         globalHotkey: () => {
           void ensureVisible();
+        },
+        // Talk, from wherever the user is. `registerAll` skips a command with
+        // no handler, so without this the binding would be offered in both
+        // Keyboard Shortcuts and Voice settings, show as bound, and do
+        // nothing. Never raises the window: the point of a global binding is
+        // that the user is working somewhere else.
+        toggleVoice: () => {
+          if (current() !== null) {
+            dispatchToMain({ kind: "toggleVoice" });
+            return;
+          }
+          // No renderer to act in. Building one necessarily shows it, which
+          // is still better than a press that lands nowhere.
+          void ensureVisible().then(() => {
+            dispatchToMain({ kind: "toggleVoice" });
+          });
         },
       },
       logger: log,

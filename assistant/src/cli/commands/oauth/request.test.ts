@@ -7,24 +7,38 @@ const PNG_MAGIC = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
 ]);
 
-let ipcResult: {
+const ipcCalls: string[] = [];
+const handleRequestCalls: unknown[] = [];
+
+let handleRequestResult: {
   ok: boolean;
   status: number;
   headers: Record<string, string>;
   body: unknown;
   bodyEncoding?: "base64";
+  account?: string | null;
 } = {
   ok: true,
   status: 200,
-  headers: { "content-type": "application/octet-stream" },
-  body: PNG_MAGIC.toString("base64"),
-  bodyEncoding: "base64",
+  headers: { "content-type": "application/json" },
+  body: { hello: "world" },
+  account: "user@example.com",
 };
 
 mock.module("../../../ipc/cli-client.js", () => ({
-  cliIpcCall: async () => ({ ok: true, result: ipcResult }),
+  cliIpcCall: async (method: string) => {
+    ipcCalls.push(method);
+    return { ok: false, error: `Unexpected IPC method ${method}` };
+  },
   exitFromIpcResult: (r: { error?: string }) => {
     throw new Error(r.error ?? "IPC error");
+  },
+}));
+
+mock.module("../../../runtime/routes/oauth-commands-routes.js", () => ({
+  handleRequest: async (args: unknown) => {
+    handleRequestCalls.push(args);
+    return handleRequestResult;
   },
 }));
 
@@ -37,14 +51,16 @@ import { registerRequestCommand } from "./request.js";
 let tempDir: string;
 
 beforeEach(() => {
+  ipcCalls.length = 0;
+  handleRequestCalls.length = 0;
   process.exitCode = 0;
   tempDir = mkdtempSync(join(tmpdir(), "oauth-request-"));
-  ipcResult = {
+  handleRequestResult = {
     ok: true,
     status: 200,
-    headers: { "content-type": "application/octet-stream" },
-    body: PNG_MAGIC.toString("base64"),
-    bodyEncoding: "base64",
+    headers: { "content-type": "application/json" },
+    body: { hello: "world" },
+    account: "user@example.com",
   };
 });
 
@@ -73,7 +89,9 @@ async function runRequestCommand(args: string[]): Promise<{
     applyCommandHelp(oauth, oauthHelp);
     registerRequestCommand(oauth);
     const request = oauth.commands.find((command) => command.name() === "request");
-    request?.option("--json");
+    if (request) {
+      request.option("--json");
+    }
     await program.parseAsync(["node", "test", "oauth", "request", ...args]);
   } catch {
     // Commander may throw under exitOverride for parse errors.
@@ -87,7 +105,39 @@ async function runRequestCommand(args: string[]): Promise<{
   };
 }
 
+describe("assistant oauth request", () => {
+  test("runs handleRequest in-process and does not call IPC", async () => {
+    const { stdout } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+    ]);
+
+    expect(ipcCalls).toEqual([]);
+    expect(handleRequestCalls).toEqual([
+      {
+        body: {
+          provider: "google",
+          url: "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        },
+      },
+    ]);
+    expect(stdout.toString("utf8")).toContain("hello");
+  });
+});
+
 describe("oauth request body output", () => {
+  beforeEach(() => {
+    handleRequestResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "application/octet-stream" },
+      body: PNG_MAGIC.toString("base64"),
+      bodyEncoding: "base64",
+    };
+  });
+
   test("decodes a base64 envelope to raw bytes when writing a file", async () => {
     const outputPath = join(tempDir, "drive.bin");
     const { exitCode } = await runRequestCommand([
@@ -134,7 +184,7 @@ describe("oauth request body output", () => {
   });
 
   test("writes text bodies as UTF-8 and appends a newline on stdout", async () => {
-    ipcResult = {
+    handleRequestResult = {
       ok: true,
       status: 200,
       headers: { "content-type": "text/plain" },

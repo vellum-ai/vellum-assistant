@@ -1,8 +1,10 @@
 # Routes
 
-Expose HTTP endpoints from a plugin. A route lets external systems — webhooks, integrations, callbacks, small tools — reach the Assistant over HTTP inside the plugin's own namespace.
+Expose HTTP endpoints from a plugin. A route is a file the assistant serves in the plugin's own `/x/plugins/<name>/` namespace: app frontends, local callers, and the handler behind a public ingress declaration.
 
 A route is a file under `routes/<path>.ts` that exports named HTTP-method functions. There is no registration step and no manifest entry: the Assistant's `/x/*` route dispatcher resolves each request against the plugin's `routes/` directory on disk at request time.
+
+Public internet webhooks are a different surface. Declare them in `channels/ingress.json` (see [channels.md](channels.md)). The gateway signature-checks those requests and forwards them to the matching route at `/v1/x/plugins/<name>/<path>`. A `routes/` file with no ingress declaration is not a public webhook. Do not tell a vendor to POST at `/x/plugins/...`.
 
 ## Where routes are served
 
@@ -68,7 +70,7 @@ if (!res.ok) throw new Error(`HTTP ${res.status}`);
 const data = await res.json();
 ```
 
-Webhooks and other external callers reach the same route over plain HTTP; the `window.vellum.fetch` rule is specific to an app frontend's sandboxed origin. The bridge itself (`fetch`, `asset`, `subscribe`, `sendAction`) is owned by the **app-builder** skill.
+Authenticated callers (the plugin's own app, local tools) reach the same route over HTTP. Third-party vendors on the public internet must go through [plugin ingress](channels.md) instead; the `window.vellum.fetch` rule is specific to an app frontend's sandboxed origin. The bridge itself (`fetch`, `asset`, `subscribe`, `sendAction`) is owned by the **app-builder** skill.
 
 ## Loading and lifecycle
 

@@ -10,6 +10,8 @@ import {
   organizationsBillingSummaryRetrieveQueryKey,
   useOrganizationsBillingSummaryCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
+import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -46,6 +48,7 @@ function formatCreditsShort(value: string): string {
 export function BillingPanel() {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
+  const obscureCredits = useObscureCredits();
 
   const { data, isLoading, isError } = useQuery(
     organizationsBillingSummaryRetrieveOptions(),
@@ -137,8 +140,15 @@ export function BillingPanel() {
     if (!summary) {
       return null;
     }
-    const effectiveNeg = parseFloat(summary.effective_balance) < 0;
-    const formatted = formatCreditsShort(summary.effective_balance);
+    // Under the flag the tile names only the credit bought or earned on top
+    // of the usage grants; the bar on the Plan tile measures those.
+    const shown = displayedCreditsUsd(
+      obscureCredits,
+      summary.effective_balance,
+      summary.available_usage_balance,
+    );
+    const effectiveNeg = parseFloat(shown) < 0;
+    const formatted = formatCreditsShort(shown);
     const display = formatted.startsWith("-")
       ? `-$${formatted.slice(1)}`
       : `$${formatted}`;
@@ -159,23 +169,21 @@ export function BillingPanel() {
       return (
         <div className="mt-4 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading billing summary...
+          {t("billingPanel.loading")}
         </div>
       );
     }
     if (isError) {
       return (
         <div className="mt-4">
-          <Notice tone="error">
-            Failed to load billing summary. Please try again later.
-          </Notice>
+          <Notice tone="error">{t("billingPanel.loadError")}</Notice>
         </div>
       );
     }
     if (!summary) {
       return (
         <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
-          No billing information available.
+          {t("billingPanel.noInfo")}
         </p>
       );
     }
@@ -184,10 +192,7 @@ export function BillingPanel() {
         {renderBalanceBox()}
         {summary.is_degraded && (
           <div className="mt-4">
-            <Notice tone="warning">
-              Pending charges could not be calculated. The balance shown may be
-              incomplete.
-            </Notice>
+            <Notice tone="warning">{t("billingPanel.degradedNotice")}</Notice>
           </div>
         )}
       </>

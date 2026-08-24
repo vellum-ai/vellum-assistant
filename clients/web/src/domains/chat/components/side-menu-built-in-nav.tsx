@@ -1,8 +1,9 @@
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
-import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
+import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { cn } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 export interface SideMenuBuiltInNavProps {
   assistantId: string | null;
@@ -41,6 +42,7 @@ export function SideMenuBuiltInNav({
   onOpenApp,
   onClose,
 }: SideMenuBuiltInNavProps) {
+  const { t } = useTranslation("chat");
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   /* One column at a single gap, rather than each cluster spacing itself.
@@ -61,9 +63,9 @@ export function SideMenuBuiltInNav({
           overlay drawer skips the New Chat row: its floating New Chat
           pill already owns that action in the thumb zone. */}
       <div>
-        <AssistantNavItem
+        <AssistantSwitcher
           assistantId={assistantId}
-          label={assistantName || "Your Assistant"}
+          label={assistantName || t("sideMenuBuiltInNav.yourAssistant")}
           active={isIntelligenceActive}
           collapsed={collapsed}
           onSelect={
@@ -82,6 +84,7 @@ export function SideMenuBuiltInNav({
                 }
               : undefined
           }
+          onSwitched={onClose}
         />
       </div>
       {pinnedApps.length > 0 ? (

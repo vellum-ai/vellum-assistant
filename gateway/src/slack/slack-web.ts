@@ -1,36 +1,55 @@
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
+import {
+  slackHistoryMessageSchema,
+  type SlackHistoryMessage,
+} from "./message-schemas.js";
 
 const log = getLogger("slack-web");
 
 /**
- * Subset of the Slack `conversations.history` / `conversations.replies`
- * message payload that the gateway needs for catch-up. Synthesized
- * Socket Mode envelopes are built by mapping these fields onto the
- * `app_mention` / `message` event shapes that the live path already
- * understands.
+ * The catch-up message shape, validated rather than asserted.
+ *
+ * Declared next to the event schemas it shares field definitions with, so a
+ * recovered message's `files` carries the same checked shape a live event's
+ * does and the catch-up path can build an event from one without a cast.
  */
-export type SlackHistoryMessage = {
-  type?: string;
-  subtype?: string;
-  user?: string;
-  bot_id?: string;
-  text?: string;
-  ts: string;
-  thread_ts?: string;
-  team?: string;
-  blocks?: unknown[];
-  files?: unknown[];
-  attachments?: unknown[];
-  edited?: { user?: string; ts?: string };
-};
+export type { SlackHistoryMessage };
 
 type SlackHistoryResponse = {
   ok: boolean;
   error?: string;
-  messages?: SlackHistoryMessage[];
+  messages?: unknown[];
   has_more?: boolean;
 };
+
+/**
+ * Validate what Slack returned, dropping anything that does not parse.
+ *
+ * Tolerant per message rather than per response: one malformed message in a
+ * recovered page must not discard the rest, since the alternative to a dropped
+ * message here is a message the user never sees after a reconnect.
+ */
+function parseHistoryMessages(
+  messages: unknown[] | undefined,
+): SlackHistoryMessage[] {
+  if (!messages) {
+    return [];
+  }
+  const parsed: SlackHistoryMessage[] = [];
+  for (const message of messages) {
+    const result = slackHistoryMessageSchema.safeParse(message);
+    if (result.success) {
+      parsed.push(result.data);
+    } else {
+      log.debug(
+        { issues: result.error.issues.length },
+        "Dropped an unparseable recovered Slack message",
+      );
+    }
+  }
+  return parsed;
+}
 
 export type FetchSlackHistoryResult = {
   /** Messages returned by Slack. Empty on transient failure. */
@@ -151,7 +170,7 @@ export async function fetchChannelHistorySince(params: {
   const data = await callSlackApi(url, botToken, abort);
   if (!data) return { messages: [], hasMore: false, ok: false };
   return {
-    messages: data.messages ?? [],
+    messages: parseHistoryMessages(data.messages),
     hasMore: data.has_more === true,
     ok: true,
   };
@@ -182,7 +201,7 @@ export async function fetchThreadRepliesSince(params: {
   const data = await callSlackApi(url, botToken, abort);
   if (!data) return { messages: [], hasMore: false, ok: false };
   return {
-    messages: data.messages ?? [],
+    messages: parseHistoryMessages(data.messages),
     hasMore: data.has_more === true,
     ok: true,
   };

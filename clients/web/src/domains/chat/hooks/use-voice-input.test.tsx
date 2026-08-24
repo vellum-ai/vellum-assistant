@@ -35,8 +35,8 @@ mock.module("@/domains/chat/voice/dictation-api", () => ({
   postDictation: async () => nextDictationResult,
 }));
 
-mock.module("@/domains/chat/voice/push-to-talk-host", () => ({
-  shouldEnablePushToTalk: () => false,
+mock.module("@/domains/chat/voice/keyboard-activation-host", () => ({
+  supportsKeyboardActivation: () => false,
 }));
 
 mock.module("@/domains/chat/voice/use-push-to-talk", () => ({

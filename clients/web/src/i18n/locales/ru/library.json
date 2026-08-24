@@ -1,0 +1,38 @@
+{
+  "libraryEmptyState": {
+    "heading": "Библиотека пуста",
+    "body": "Сборка через ассистента или импорт общего приложения",
+    "newConversation": "Новый диалог",
+    "separator": "или",
+    "importFile": "Импортировать файл .vellum"
+  },
+  "libraryView": {
+    "importFailed": "Не удалось импортировать приложение",
+    "imported": "Импортировано: {name}",
+    "loadingAria": "Загрузка приложений",
+    "retry": "Повторить",
+    "import": "Импорт",
+    "searchPlaceholder": "Поиск в библиотеке",
+    "noMatches": "Нет приложений и документов по запросу «{query}»",
+    "pinned": "Закреплённые",
+    "recents": "Недавние",
+    "documents": "Документы"
+  },
+  "libraryAppCard": {
+    "exported": "Приложение экспортировано",
+    "shareFailed": "Не удалось поделиться приложением",
+    "actionsTitle": "Действия для {appName}",
+    "unpin": "Открепить",
+    "pin": "Закрепить",
+    "share": "Поделиться",
+    "shareSub": "Экспортировать как файл .vellum",
+    "deployed": "Опубликовано на Vercel",
+    "copyLink": "Скопировать ссылку",
+    "redeploy": "Опубликовать снова",
+    "redeploySub": "Опубликовать текущую версию",
+    "deploy": "Опубликовать на Vercel",
+    "deploySub": "Опубликовать как статическую страницу",
+    "delete": "Удалить"
+  },
+  "libraryDetailPage": { "backToLibrary": "Назад в библиотеку" }
+}

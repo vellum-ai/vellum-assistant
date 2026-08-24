@@ -66,8 +66,8 @@ terminates TLS and makes the edge reachable from your devices.
 > **One assistant at a time.** The tunnel URL and pairing
 > all belong to a _specific_ assistant. With several local assistants, point
 > every step at the same one. `vellum ps` lists them and marks the active one
-> with `*`. `pair`, `tunnel`, and `nginx-ingress` take an assistant name as
-> their first argument (e.g. `vellum tunnel my-assistant`).
+> with `*`. `pair` and `tunnel` take an assistant name as their first
+> argument (e.g. `vellum tunnel my-assistant`).
 
 ## 2. The web app ships with the CLI
 
@@ -111,6 +111,12 @@ quick tunnel's URL is temporary on top (details in its section below).
 vellum tunnel --provider tailscale
 ```
 
+`tailscale` is the default provider, so a bare `vellum tunnel` does the same
+thing, unless a webhook integration (a phone number, a chat channel) is
+already configured: a tailnet-only front cannot carry its callbacks, so the
+bare command asks you to name a provider explicitly rather than let you fall
+into one. `vellum tunnel --help` lists the other providers and options.
+
 `vellum tunnel` manages the nginx edge for you: it starts the edge on
 `http://127.0.0.1:7840` (or reuses one already running) and fronts it, so a
 single address serves the web app and forwards API and webhook traffic to
@@ -118,16 +124,23 @@ the gateway. nginx must be installed (see
 [Before you start](#before-you-start)); without it the command fails with
 install instructions. The edge listen port defaults to `7840`; override it
 with the `VELLUM_NGINX_INGRESS_PORT` environment variable if it clashes with
-something else. To inspect or stop the edge later:
-
-```bash
-vellum nginx-ingress status   # is the edge running, in which mode, and where
-vellum nginx-ingress down     # stop the edge
-```
+something else. The edge runs in the background and outlives the tunnel:
+Ctrl+C on `vellum tunnel` leaves it listening, and `vellum sleep` stops it
+along with the rest of the assistant. Apple Container assistants are the
+exception, since the macOS app owns their lifecycle and `vellum sleep`
+declines them; their edge is cleared by `vellum retire`. Its config and log
+live under the assistant's workspace at `data/ingress/nginx.conf` and
+`data/logs/nginx-ingress.log` if you need to inspect what it is serving.
 
 The tunnel records the public URL in your workspace config
-(`ingress.publicBaseUrl`), so channel integrations (Telegram, Twilio, …) can
-reach the assistant too. It prints the address it established:
+(`ingress.publicBaseUrl`). A `ts.net` address is reachable only from inside
+your own tailnet, so channel integrations that call in from the public
+internet (Telegram, Twilio, …) need one of the public providers below
+instead: `--provider ngrok` or `--provider cloudflare`. With one of those
+integrations already configured, an explicit `--provider tailscale` leaves
+`ingress.publicBaseUrl` as it is and records the tailnet address for device
+pairing only, so inbound calls and messages keep reaching the public URL you
+set up for them. The tunnel prints the address it established:
 
 ```
 Tunnel established: https://your-machine.your-tailnet.ts.net
@@ -140,33 +153,16 @@ automatically.
 
 **Verify:** open that `https://…ts.net` address in the browser of a device
 you want to connect (with Tailscale connected on it). You should get the
-assistant's sign-in page. If it doesn't load, stop and fix this before
-pairing — a broken HTTPS front is the most common reason later steps fail.
-
-<details>
-<summary>Manual Tailscale fallback (no <code>vellum tunnel</code> needed)</summary>
-
-Tailscale can serve the edge directly. Start the edge yourself, then serve
-it (this works on any recent Tailscale install):
-
-```bash
-vellum nginx-ingress up
-tailscale serve --bg 7840
-tailscale serve status   # prints your https://<host>.<tailnet>.ts.net URL
-```
-
-That URL fronts the nginx edge over your tailnet with automatic HTTPS. Use it
-as the `--url` value in [Step 4](#4-pair-your-devices). To let channel
-integrations use it as well, run `vellum tunnel --provider tailscale` instead,
-which manages the edge itself and also writes the URL to
-`ingress.publicBaseUrl`.
-
-</details>
+assistant's sign-in page. A front that doesn't answer is the most common
+reason later steps fail, so fix it before pairing. Pairing from the desktop
+app instead of the terminal? Its card runs the same check from the host and
+reports the verdict in a status row (see [Step 4](#4-pair-your-devices)).
 
 <details>
 <summary>Public alternatives: ngrok / Cloudflare quick tunnels</summary>
 
-If you can't use Tailscale, expose the edge over the public internet:
+If you can't use Tailscale, or you need channel webhooks (Telegram, Twilio,
+…) to call in from the public internet, expose the edge publicly:
 
 ```bash
 vellum tunnel --provider cloudflare   # quick tunnel, no account required
@@ -252,10 +248,26 @@ stay signed in. Pairing codes are **single-use and expire after 10 minutes**;
 run `vellum pair --qr` again to add another device or replace a lapsed code.
 
 **Prefer a UI over the terminal?** The desktop app has the same flow as a
-card: **Settings → General → Pair a device**. It prefills the address
-`vellum tunnel` recorded (or shows "No tunnel detected" guidance when there
-isn't one), rejects lookalike tunnel-provider website URLs, and names the
-assistant it pairs — generate the QR there and scan it the same way.
+card: **Settings → General → Pair a device**. Generate the QR there and scan
+it the same way.
+
+The card doesn't assume your tunnel is up; it checks. A status row reports
+whether the saved address is answering right now and serving _this_
+assistant, along with the address and how long ago it was checked. It
+re-checks whenever you come back to the app, so the usual loop is to run
+`vellum tunnel` in a terminal, switch back, and find the row already updated.
+The refresh button beside it re-checks on demand. A stopped tunnel's row
+names the command that restarts it. An address that isn't answering demotes
+the button to **Generate anyway** rather than blocking you, since the check
+runs from the host and can be wrong about your network.
+
+When the card has a working address it leads with the button and keeps the
+**Public URL** field behind **Use a different address**, one click away for
+when your devices reach the assistant somewhere else. With no address to
+reuse, the field leads instead and the card shows the same `vellum tunnel`
+instructions as [Step 3](#3-put-an-https-address-in-front). The field rejects
+lookalike tunnel-provider website URLs, and the card names the assistant it
+pairs.
 
 ## 5. Using the Vellum iOS app
 

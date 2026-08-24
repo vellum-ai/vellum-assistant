@@ -14,6 +14,22 @@ let deliverImpl: (
   ts: "stream-ts-1",
 });
 
+const sentStreamOps: Array<Record<string, unknown>> = [];
+let streamOpImpl: (op: Record<string, unknown>) => Promise<{
+  ok: boolean;
+  ts?: string;
+}> = async () => ({ ok: true, ts: "stream-ts-1" });
+mock.module("../messaging/providers/index.js", () => ({
+  sendChannelStreamOp: async (
+    _callbackUrl: string,
+    _chatId: string,
+    op: Record<string, unknown>,
+  ) => {
+    sentStreamOps.push(op);
+    return streamOpImpl(op);
+  },
+}));
+
 mock.module("./gateway-client.js", () => ({
   deliverChannelReply: async (
     callbackUrl: string,
@@ -96,10 +112,7 @@ const taskProgressUpdate = (
 const tick = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-const slackStreamOps = (): Array<Record<string, unknown>> =>
-  deliverCalls
-    .map((call) => call.payload.slackStream as Record<string, unknown>)
-    .filter(Boolean);
+const slackStreamOps = (): Array<Record<string, unknown>> => sentStreamOps;
 
 const streamedMarkdown = (): string =>
   slackStreamOps()
@@ -108,6 +121,8 @@ const streamedMarkdown = (): string =>
 
 beforeEach(() => {
   deliverCalls.length = 0;
+  sentStreamOps.length = 0;
+  streamOpImpl = async () => ({ ok: true, ts: "stream-ts-1" });
   deliverImpl = async () => ({ ok: true, ts: "stream-ts-1" });
 });
 
@@ -314,7 +329,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("falls back when startStream returns no stream ts", async () => {
-    deliverImpl = async () => ({ ok: false });
+    streamOpImpl = async () => ({ ok: false });
     const session = createSlackReplySession({
       sourceChannel: "slack",
       chatType: "im",
@@ -331,7 +346,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("falls back when startStream throws", async () => {
-    deliverImpl = async () => {
+    streamOpImpl = async () => {
       throw new Error("rate limited");
     };
     const session = createSlackReplySession({
@@ -349,8 +364,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("falls back when stopStream throws after streaming text", async () => {
-    deliverImpl = async (_url, payload) => {
-      const op = payload.slackStream as { action: string };
+    streamOpImpl = async (op) => {
       if (op.action === "stop") {
         throw new Error("stop failed");
       }
@@ -482,11 +496,7 @@ describe("createSlackReplySession", () => {
   });
 
   test("leaves progress to stop when the task-only append fails", async () => {
-    deliverImpl = async (_url, payload) => {
-      const op = payload.slackStream as {
-        action: string;
-        markdownText?: string;
-      };
+    streamOpImpl = async (op) => {
       if (op.action === "append" && op.markdownText === undefined) {
         throw new Error("chunks-only append rejected");
       }

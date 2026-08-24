@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { argValue } from "./cli-args";
+
 export type PreviewArchitecture = "x64" | "arm64";
 
 const windowsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -56,12 +58,6 @@ function testArchitectureSelection() {
   assert.deepEqual(resolveArchitectures(undefined, "arm64"), ["arm64"]);
   assert.deepEqual(resolveArchitectures("all", "x64"), ["x64", "arm64"]);
   assert.throws(() => resolveArchitectures("ia32"), /Unsupported architecture/);
-}
-
-function argValue(flag: string) {
-  const index = process.argv.indexOf(flag);
-  const inline = process.argv.find((arg) => arg.startsWith(`${flag}=`));
-  return inline?.slice(flag.length + 1) ?? (index >= 0 ? process.argv[index + 1] : undefined);
 }
 
 export async function runNativeCommand(command: string[], cwd = windowsRoot) {

@@ -10,6 +10,7 @@ import {
   isTextInsertionPermissionError,
 } from "@/domains/chat/utils/chat";
 import { Button, Notice } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 /**
  * Orchestration banner stack rendered above the chat composer's form (in
@@ -105,6 +106,7 @@ export function ComposerNotices({
   assistantId,
   onMaintenanceExited,
 }: ComposerNoticesProps) {
+  const { t } = useTranslation("chat");
   return (
     <>
       {voiceError && (
@@ -119,7 +121,7 @@ export function ComposerNotices({
                   size="compact"
                   onClick={onRetryMicPermission}
                 >
-                  Allow Microphone
+                  {t("composerNotices.allowMicrophone")}
                 </Button>
               ) : isMicPermissionPermanentError(voiceError) &&
                 onOpenMicSettings ? (
@@ -130,7 +132,7 @@ export function ComposerNotices({
                     void onOpenMicSettings();
                   }}
                 >
-                  Open Settings
+                  {t("composerNotices.openSettings")}
                 </Button>
               ) : isTextInsertionPermissionError(voiceError) &&
                 onOpenTextInsertionSettings ? (
@@ -141,7 +143,7 @@ export function ComposerNotices({
                     void onOpenTextInsertionSettings();
                   }}
                 >
-                  Open Settings
+                  {t("composerNotices.openSettings")}
                 </Button>
               ) : undefined
             }

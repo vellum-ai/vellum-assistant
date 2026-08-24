@@ -27,9 +27,10 @@
   "startScreen": {
     "createAssistant": "Create your assistant"
   },
-  "privacyScreen": {
+    "privacyScreen": {
     "title": "Before You Start",
-    "body": "Choose your privacy preferences. You can update these anytime in the Settings."
+    "body": "Choose your privacy preferences. You can update these anytime in the Settings.",
+    "skipToChat": "Skip to chat"
   },
   "hostingScreen": {
     "title": "Hosting",

@@ -131,7 +131,7 @@
     },
     "superpowers": {
       "description": "What I can do",
-      "label": "My Superpowers"
+      "label": "Superpowers"
     },
     "workspace": {
       "description": "My files",
@@ -385,16 +385,16 @@
   "useIdentitySectionStats": {
     "activeCount": "{count, plural, one {# active} other {# active}}",
     "activeLabel": "{count, plural, one {active} other {active}}",
+    "appAndDocCount": "{count, plural, one {# app or doc} other {# apps & docs}}",
     "appCount": "{count, plural, one {# app} other {# apps}}",
     "connectedCount": "{count, plural, one {# connected} other {# connected}}",
     "connectedLabel": "{count, plural, one {connected} other {connected}}",
-    "docCount": "{count, plural, one {# doc} other {# docs}}",
     "itemCount": "{count, plural, one {# item} other {# items}}",
     "itemLabel": "{count, plural, one {item} other {items}}",
     "noSchedulesText": "Nothing scheduled yet",
     "personCount": "{count, plural, one {# person} other {# people}}",
     "personLabel": "{count, plural, one {person} other {people}}",
-    "pluginCount": "{count, plural, one {# plugin} other {# plugins}}",
+    "skillAndPluginCount": "{count, plural, one {# skill or plugin} other {# skills & plugins}}",
     "skillCount": "{count, plural, one {# skill} other {# skills}}"
   },
   "usePluginsList": {

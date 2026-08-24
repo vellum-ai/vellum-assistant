@@ -2,7 +2,11 @@
 
 For error handling conventions (throw vs result objects vs null), see [docs/error-handling.md](docs/error-handling.md).
 
-Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/permissions/`, `src/plugins/`, `src/workspace/migrations/`.
+Subdirectory-scoped rules live in local AGENTS.md files throughout `src/`, some
+of them nested several levels down. Read the one nearest the code you are
+changing plus any above it, and follow the nearest where two disagree.
+`git ls-files ':(top)assistant/src/**/AGENTS.md'` lists them from anywhere in
+the tree.
 
 ## Adding new environment variables
 
@@ -18,7 +22,7 @@ When you introduce a new env var that the assistant process needs to read at run
 
 The daemon must **never** block startup due to **subsystem** failures (DB, Qdrant, plugins, feature flags, etc.). If an individual subsystem fails, log the error and continue in degraded mode so the process remains reachable for health checks and diagnostics.
 
-**Exception — duplicate daemon detection:** If the daemon cannot establish **any** client-facing transport because another daemon already holds both the IPC socket and HTTP port, it must exit immediately. A daemon with no transport is unmanageable (invisible to health checks, unreachable by stop commands) yet still runs background jobs (scheduler, memory worker, background wake) against the shared database, causing duplicate side effects.
+**Exception, occupied client-facing transports:** A **transport** is not a subsystem. If either client-facing transport's address is taken (the IPC socket in `ipc/assistant-server.ts`, the runtime HTTP port in `runtime/http-server.ts`), the daemon exits with an `EADDRINUSE`-coded error so `emitDaemonError` reports `PORT_IN_USE`. Half a daemon is worse than none: missing IPC makes it unmanageable while its background jobs still write the shared database, and missing HTTP makes it read healthy over IPC while the gateway proxies `/v1/*` to a foreign listener. Bind failures that are not address collisions (permission denied, fd exhaustion) stay non-fatal.
 
 ## DB migration readiness gating
 

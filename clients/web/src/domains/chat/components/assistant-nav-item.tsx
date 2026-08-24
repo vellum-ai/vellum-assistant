@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
  * as the assistant (a standard-height row painted solid in the avatar's color
@@ -30,7 +31,13 @@
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import {
@@ -69,12 +76,13 @@ function NewChatTooltip({
   children: ReactElement;
   side: "right" | "top";
 }) {
+  const { t } = useTranslation("chat");
   const hint = newChatShortcutHint();
   return (
     <Tooltip
       content={
         <span className="inline-flex items-center gap-1.5">
-          New Chat
+          {t("assistantNavItem.newChat")}
           <span className="opacity-80">{hint}</span>
         </span>
       }
@@ -99,6 +107,18 @@ interface AssistantNavItemProps {
   onSelect?: () => void;
   /** Renders the "New Chat" row below the assistant row. */
   onNewConversation?: () => void;
+  /**
+   * Trailing control inside the expanded pill (the switcher's chevron). The
+   * collapsed rail's tile has no slot for it, and the tour suppresses it with
+   * the rest of the identity treatment.
+   */
+  trailingAction?: ReactNode;
+  /**
+   * Replaces the assistant row entirely (the switcher's expanded card),
+   * leaving the New Chat row in place beneath. Ignored on the collapsed rail
+   * and while the tour owns the nav.
+   */
+  expansion?: ReactNode;
 }
 
 export function AssistantNavItem({
@@ -108,7 +128,10 @@ export function AssistantNavItem({
   collapsed = false,
   onSelect,
   onNewConversation,
+  trailingAction,
+  expansion,
 }: AssistantNavItemProps) {
+  const { t } = useTranslation("chat");
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const reduce = useReducedMotion();
@@ -248,7 +271,7 @@ export function AssistantNavItem({
       <button
         type="button"
         onClick={onNewConversation}
-        aria-label="New Chat"
+        aria-label={t("assistantNavItem.newChat")}
         data-tour-id="new-chat"
         className={cn(
           "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
@@ -283,7 +306,7 @@ export function AssistantNavItem({
       <PanelItem
         shape="pill"
         icon={Plus}
-        label="New Chat"
+        label={t("assistantNavItem.newChat")}
         onSelect={onNewConversation}
         style={newConversationTint}
         data-tour-id="new-chat"
@@ -307,6 +330,15 @@ export function AssistantNavItem({
      expanded slot and the collapsed tile so the two cannot disagree. A url
      rather than a boolean, so each render site has the value it needs. */
   const uploadedAvatarUrl = navTourActive ? null : customImageUrl;
+
+  /* The switcher's affordances follow the identity treatment: the collapsed
+     tile has no slot for a trailing control, and the tour's drained nav must
+     not carry a live switcher. */
+  const pillTrailingAction =
+    !collapsed && !navTourActive ? trailingAction : undefined;
+  const activeExpansion =
+    !collapsed && !navTourActive ? (expansion ?? null) : null;
+  const pillGapClass = pillTrailingAction ? "gap-[12px]" : undefined;
 
   const avatarImage =
     uploadedAvatarUrl !== null ? (
@@ -383,15 +415,19 @@ export function AssistantNavItem({
              the pill wears its plain surface. Same component and same
              geometry as the tinted one below: the colour is the only
              difference between them. */
-          <PanelItem
-            shape="pill"
-            icon={Brain}
-            leadingSlot={avatarImage ?? undefined}
-            label={label}
-            active={active}
-            onSelect={onSelect}
-            data-tour-id="assistant-page"
-          />
+          (activeExpansion ?? (
+            <PanelItem
+              shape="pill"
+              icon={Brain}
+              leadingSlot={avatarImage ?? undefined}
+              label={label}
+              active={active}
+              onSelect={onSelect}
+              trailingAction={pillTrailingAction}
+              className={pillGapClass}
+              data-tour-id="assistant-page"
+            />
+          ))
         )}
         {newConversationRow}
       </div>
@@ -526,6 +562,8 @@ export function AssistantNavItem({
         label={label}
         active={active}
         onSelect={onSelect}
+        trailingAction={pillTrailingAction}
+        className={pillGapClass}
         data-tour-id="assistant-page"
       />
     </span>
@@ -533,7 +571,7 @@ export function AssistantNavItem({
 
   return (
     <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
-      {assistantRow}
+      {activeExpansion ?? assistantRow}
       {newConversationRow}
     </div>
   );

@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Route component for viewing a single document with comment integration.
  *
@@ -21,6 +23,7 @@ import {
   documentsByIdPdfGet,
 } from "@/generated/daemon/sdk.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
 import {
@@ -40,6 +43,7 @@ import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
 // ---------------------------------------------------------------------------
 
 export function DocumentViewerPage() {
+  const { t } = useTranslation("chat");
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -138,9 +142,7 @@ export function DocumentViewerPage() {
     const conversationId =
       doc.conversationId ||
       getEditChatConversationId(assistantId, surfaceId) ||
-      (typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      createDraftConversationId();
 
     setEditChatConversationId(assistantId, surfaceId, conversationId);
 
@@ -215,7 +217,7 @@ export function DocumentViewerPage() {
           variant="body-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          {error ?? "Document not found."}
+          {error ?? t("documentViewerPage.notFound")}
         </Typography>
       </div>
     );

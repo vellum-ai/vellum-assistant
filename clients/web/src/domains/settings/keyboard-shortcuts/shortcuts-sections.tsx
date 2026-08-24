@@ -1,44 +1,49 @@
 import { RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, type ReactNode } from "react";
 
-import {
-  getHotkeys,
-  onHotkeysChange,
-  setHotkey,
-  type ResolvedHotkey,
-} from "@/runtime/hotkeys";
+import { type ResolvedHotkey } from "@/runtime/hotkeys";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 
-import {
-  eventToAccelerator,
-  findConflict,
-} from "@/domains/settings/keyboard-shortcuts/electron-accelerator";
+import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 
-/** Section copy keyed by the command scope, ordered global-first. */
-const SCOPE_SECTIONS: {
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
+
+function scopeSections(t: SettingsTranslate): {
   scope: ResolvedHotkey["scope"];
   title: string;
   description: string;
-}[] = [
-  {
-    scope: "global",
-    title: "Global shortcuts",
-    description: "Work anywhere, even when Vellum is in the background.",
-  },
-  {
-    scope: "menu",
-    title: "App shortcuts",
-    description: "Work while a Vellum window is focused.",
-  },
-];
+}[] {
+  return [
+    {
+      scope: "global",
+      title: t("shortcutsSections.globalTitle"),
+      description: t("shortcutsSections.globalDescription"),
+    },
+    {
+      scope: "menu",
+      title: t("shortcutsSections.appTitle"),
+      description: t("shortcutsSections.appDescription"),
+    },
+  ];
+}
 
-interface ShortcutRowProps {
+export interface ShortcutRowProps {
   hotkey: ResolvedHotkey;
   recording: boolean;
   conflictLabel: string | null;
+  /**
+   * Another way to bind the same command, offered beside the recorder.
+   *
+   * Fn is the only one today: it is not an accelerator, so it cannot be
+   * recorded or held in `settings.hotkeys`, but to a user it is simply the
+   * other thing Talk can be bound to and belongs in the same row rather than
+   * in a control of its own.
+   */
+  alternateBinding?: ReactNode;
   onStartRecording: () => void;
   onCancelRecording: () => void;
   onReset: () => void;
@@ -47,20 +52,23 @@ interface ShortcutRowProps {
 
 /**
  * One rebindable command: its current binding plus record / reset / remove
- * controls. While recording, a keydown anywhere is captured by the page and
+ * controls. Shared with Settings, Voice, which renders this same row for Talk
+ * so the affordance is the one users already know. While recording, a keydown anywhere is captured by the page and
  * turned into an accelerator; this row just reflects the recording state and
  * surfaces a conflict message inline.
  */
-function ShortcutRow({
+export function ShortcutRow({
   hotkey,
   recording,
   conflictLabel,
+  alternateBinding,
   onStartRecording,
   onCancelRecording,
   onReset,
   onRemove,
 }: ShortcutRowProps) {
-  const isDisabled = hotkey.accelerator === "";
+  const { t } = useTranslation("settings");
+  const isUnbound = hotkey.accelerator === "";
   const isCustomized = hotkey.override !== null;
 
   return (
@@ -71,19 +79,24 @@ function ShortcutRow({
         </div>
         {conflictLabel !== null && (
           <div className="text-body-small-default text-[var(--system-negative-strong)]">
-            Already used by {conflictLabel}
+            {t("shortcutsSections.alreadyUsedBy", { label: conflictLabel })}
           </div>
         )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {alternateBinding}
         {recording ? (
           <span className="text-body-small-default text-[var(--content-secondary)]">
-            Recording… press a shortcut, or Esc to cancel
+            {t("shortcutsSections.recordingHint")}
           </span>
-        ) : isDisabled ? (
+        ) : isUnbound ? (
+          // Not "Disabled": the command still works from its menu item, its
+          // button, or its surface. What is absent is the shortcut, and for a
+          // command that ships without one (Talk) this is the first thing the
+          // user reads, not the result of them removing anything.
           <span className="text-body-small-default italic text-[var(--content-disabled)]">
-            Disabled
+            {t("shortcutsSections.none")}
           </span>
         ) : (
           <ShortcutKeys accelerator={hotkey.accelerator} />
@@ -91,16 +104,18 @@ function ShortcutRow({
 
         {recording ? (
           <Button variant="ghost" size="compact" onClick={onCancelRecording}>
-            Cancel
+            {t("shortcutsSections.cancel")}
           </Button>
         ) : (
           <Button
             variant="outlined"
             size="compact"
             onClick={onStartRecording}
-            aria-label={`Record shortcut for ${hotkey.label}`}
+            aria-label={t("shortcutsSections.recordShortcutAriaLabel", {
+              label: hotkey.label,
+            })}
           >
-            Record
+            {t("shortcutsSections.record")}
           </Button>
         )}
 
@@ -110,15 +125,19 @@ function ShortcutRow({
           disabled={!isCustomized}
           leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
           onClick={onReset}
-          aria-label={`Reset ${hotkey.label} to default`}
+          aria-label={t("shortcutsSections.resetShortcutAriaLabel", {
+            label: hotkey.label,
+          })}
         />
         <Button
           variant="ghost"
           size="compact"
-          disabled={isDisabled}
+          disabled={isUnbound}
           leftIcon={<X className="h-3.5 w-3.5" />}
           onClick={onRemove}
-          aria-label={`Remove ${hotkey.label} binding`}
+          aria-label={t("shortcutsSections.removeBindingAriaLabel", {
+            label: hotkey.label,
+          })}
         />
       </div>
     </div>
@@ -134,114 +153,42 @@ function ShortcutRow({
  * renders this on Electron, so the bridge calls here always have a host.
  */
 export function ShortcutsSections() {
-  const [catalog, setCatalog] = useState<ResolvedHotkey[]>([]);
-  const [recordingKey, setRecordingKey] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<{
-    key: string;
-    label: string;
-  } | null>(null);
-
-  const refresh = useCallback(() => {
-    void getHotkeys().then(setCatalog);
-  }, []);
-
-  useEffect(() => {
-    refresh();
-    return onHotkeysChange(setCatalog);
-  }, [refresh]);
-
-  const stopRecording = useCallback(() => {
-    setRecordingKey(null);
-    setConflict(null);
-  }, []);
-
-  useEffect(() => {
-    if (recordingKey === null) {
-      return;
-    }
-
-    const handleKeydown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (event.code === "Escape") {
-        stopRecording();
-        return;
-      }
-
-      const accelerator = eventToAccelerator(event);
-      if (accelerator === null) {
-        return;
-      }
-
-      const clash = findConflict(catalog, recordingKey, accelerator);
-      if (clash !== null) {
-        setConflict({ key: recordingKey, label: clash.label });
-        return;
-      }
-
-      void setHotkey(recordingKey, accelerator).then(refresh);
-      stopRecording();
-    };
-
-    window.addEventListener("keydown", handleKeydown, true);
-    return () => window.removeEventListener("keydown", handleKeydown, true);
-  }, [recordingKey, catalog, refresh, stopRecording]);
-
-  const startRecording = useCallback((key: string) => {
-    setConflict(null);
-    setRecordingKey(key);
-  }, []);
-
-  const resetHotkey = useCallback(
-    (key: string) => {
-      // Reverting to the compiled default is still a write, so it must clear the
-      // same conflict bar as recording: a default freed by rebinding this
-      // command may have since been claimed by another, and writing `null`
-      // blindly would resurrect that accelerator and shadow the other binding.
-      const fallback =
-        catalog.find((entry) => entry.key === key)?.defaultAccelerator ?? "";
-      const clash = findConflict(catalog, key, fallback);
-      if (clash !== null) {
-        setRecordingKey(null);
-        setConflict({ key, label: clash.label });
-        return;
-      }
-      stopRecording();
-      void setHotkey(key, null).then(refresh);
-    },
-    [catalog, refresh, stopRecording],
-  );
-
-  const removeHotkey = useCallback(
-    (key: string) => {
-      stopRecording();
-      void setHotkey(key, "").then(refresh);
-    },
-    [refresh, stopRecording],
-  );
+  const { t } = useTranslation("settings");
+  const {
+    catalog,
+    recordingKey,
+    conflict,
+    startRecording,
+    stopRecording,
+    resetHotkey,
+    removeHotkey,
+  } = useHotkeyRecorder();
 
   // Only rebindable commands get a row; reserved entries (e.g. Find) ride along
   // in `catalog` solely so `findConflict` can flag collisions against them.
   const sections = useMemo(
     () =>
-      SCOPE_SECTIONS.map((section) => ({
-        ...section,
-        commands: catalog.filter(
-          (entry) => entry.rebindable && entry.scope === section.scope,
-        ),
-      })).filter((section) => section.commands.length > 0),
-    [catalog],
+      scopeSections(t)
+        .map((section) => ({
+          ...section,
+          commands: catalog.filter(
+            (entry) => entry.rebindable && entry.scope === section.scope,
+          ),
+        }))
+        .filter((section) => section.commands.length > 0),
+    [catalog, t],
   );
 
   return (
     <div className="space-y-4">
       {conflict !== null && (
         <Notice tone="warning">
-          That shortcut is already used by {conflict.label}.{" "}
+          {t("shortcutsSections.conflictNoticePrefix", {
+            label: conflict.label,
+          })}{" "}
           {recordingKey !== null
-            ? "Pick a different combination, or press Esc to cancel."
-            : "Remove or change that binding before resetting."}
+            ? t("shortcutsSections.conflictRecordingHint")
+            : t("shortcutsSections.conflictResetHint")}
         </Notice>
       )}
 

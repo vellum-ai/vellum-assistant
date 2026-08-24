@@ -12,6 +12,7 @@ running.
 
 Examples:
   $ assistant conversations list
+  $ assistant conversations search "project planning"
   $ assistant conversations new "Project planning"
   $ assistant conversations export
   $ assistant conversations clear`,
@@ -168,6 +169,39 @@ include them.
 Examples:
   $ assistant conversations list
   $ assistant conversations list --include-archived`,
+    },
+    {
+      name: "search",
+      args: "<term>",
+      description: "Search conversations by title and message content",
+      options: [
+        {
+          flags: "--limit <n>",
+          description: "Maximum number of conversations to return (default 20)",
+        },
+        {
+          flags: "--json",
+          description: "Output result as machine-readable JSON",
+        },
+      ],
+      helpText: `
+Arguments:
+  term   Search query. Quote multi-word terms so the shell keeps them as one
+         argument. Matches conversation titles (substring) and message
+         content (full-text). Archived conversations are excluded, matching
+         'assistant conversations list'.
+
+Requires the assistant to be running. Communicates via IPC socket.
+
+Results are grouped by conversation, ordered by most recently updated, and
+capped at 20 conversations unless --limit is set. Each result includes the
+conversation ID, title, relative timestamp, and up to three matching
+message excerpts. Use the ID with rename, export, or wake.
+
+Examples:
+  $ assistant conversations search "project planning"
+  $ assistant conversations search flux --limit 5
+  $ assistant conversations search "quarterly metrics" --json`,
     },
     {
       name: "new",

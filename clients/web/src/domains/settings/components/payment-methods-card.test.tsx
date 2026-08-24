@@ -17,7 +17,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
@@ -68,8 +74,20 @@ mock.module(
 
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
-const { PaymentMethodsCard } = await import("./payment-methods-card");
+const { PaymentMethodsCard, paymentMethodCards, showsRemove } =
+  await import("./payment-methods-card");
 const { DISABLED_CONFIG } = await import("./auto-top-up-card");
+const { useClientFeatureFlagStore } =
+  await import("@/stores/client-feature-flag-store");
+
+/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
+function setObscureCredits(value: boolean): void {
+  act(() => {
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ obscureCredits: value }, null);
+  });
+}
 
 const ENABLED_WITH_CARD: AutoTopUpConfigResponse = {
   ...DISABLED_CONFIG,
@@ -263,5 +281,86 @@ describe("PaymentMethodsCard remove card", () => {
     expect(
       container.querySelector('[data-testid="payment-method-row"]'),
     ).not.toBeNull();
+  });
+});
+
+describe("PaymentMethodsCard with obscure-credits on", () => {
+  beforeEach(() => {
+    setObscureCredits(true);
+  });
+
+  afterEach(() => {
+    setObscureCredits(false);
+  });
+
+  test("the only card keeps Update but drops Remove", () => {
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const { container } = render(wrap(ENABLED_WITH_CARD));
+
+    const row = container.querySelector('[data-testid="payment-method-row"]');
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain("Ending in 4242");
+    expect(
+      container.querySelector('[data-testid="payment-method-update"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="payment-method-remove"]'),
+    ).toBeNull();
+  });
+
+  test("Update Card still opens the setup modal", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { container, getByTestId } = render(wrap(DISABLED_WITH_CARD));
+
+    fireEvent.click(getByTestId("payment-method-update"));
+
+    expect(
+      container.querySelector('[data-testid="pm-modal-stub"]'),
+    ).not.toBeNull();
+  });
+
+  test("the empty state is unchanged", () => {
+    const { container, getByTestId } = render(wrap(DISABLED_CONFIG));
+
+    expect(getByTestId("payment-methods-empty")).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="payment-method-row"]'),
+    ).toBeNull();
+  });
+});
+
+describe("PaymentMethodsCard with the flag off", () => {
+  test("the only card still offers Remove", () => {
+    setObscureCredits(false);
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const { container } = render(wrap(ENABLED_WITH_CARD));
+
+    expect(
+      container.querySelector('[data-testid="payment-method-remove"]'),
+    ).not.toBeNull();
+  });
+});
+
+/**
+ * The backend stores at most one payment method and has no list endpoint, so
+ * the multi-card rule is only reachable through the pure helper.
+ */
+describe("paymentMethodCards / showsRemove", () => {
+  test("maps a saved card onto a single stably-keyed entry", () => {
+    expect(paymentMethodCards(ENABLED_WITH_CARD)).toEqual([
+      { id: "primary", brand: "visa", last4: "4242" },
+    ]);
+  });
+
+  test("maps no card and a missing config onto an empty list", () => {
+    expect(paymentMethodCards(DISABLED_CONFIG)).toEqual([]);
+    expect(paymentMethodCards(undefined)).toEqual([]);
+  });
+
+  test("hides Remove only for a lone card under the flag", () => {
+    expect(showsRemove(1, true)).toBe(false);
+    expect(showsRemove(2, true)).toBe(true);
+    expect(showsRemove(1, false)).toBe(true);
+    expect(showsRemove(2, false)).toBe(true);
   });
 });

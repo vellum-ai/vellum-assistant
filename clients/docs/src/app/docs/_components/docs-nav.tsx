@@ -27,7 +27,9 @@ import {
   Lock,
   MessageSquare,
   Package,
+  Plug,
   Puzzle,
+  Radio,
   Rocket,
   Scale,
   Scroll,
@@ -402,6 +404,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         icon: icon(Wrench),
       },
       {
+        label: "MCP",
+        href: "/docs/extensibility/mcp",
+        icon: icon(Plug),
+      },
+      {
         label: "Skills",
         href: "/docs/extensibility/skills",
         icon: icon(Sparkles),
@@ -410,6 +417,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         label: "Routes",
         href: "/docs/extensibility/routes",
         icon: icon(Webhook),
+      },
+      {
+        label: "Channels",
+        href: "/docs/extensibility/channels",
+        icon: icon(Radio),
       },
       {
         label: "Apps",

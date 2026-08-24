@@ -18,6 +18,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
+import { t, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
@@ -124,7 +125,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
         // report it while polling.
         if (!isTransientNetworkError(error) && !opts?.keepStaleOnError) {
           captureError(error, { context: "fetch_assistant_healthz" });
-          toast.error("Failed to load assistant info");
+          toast.error(t("settings:assistantStatusPanel.loadHealthzFailed"));
         }
         return null;
       } finally {
@@ -232,11 +233,13 @@ export function AssistantStatusPanel({
   const user = useAuthStore.use.user();
   const email = user?.email;
 
+  const { t } = useTranslation("settings");
+
   if (assistantLoading) {
     return (
       <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading assistant info...
+        {t("assistantStatusPanel.loading")}
       </div>
     );
   }
@@ -244,7 +247,7 @@ export function AssistantStatusPanel({
   if (!assistant) {
     return (
       <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-        No assistant found. Hatch an assistant to get started.
+        {t("assistantStatusPanel.empty")}
       </p>
     );
   }
@@ -255,50 +258,50 @@ export function AssistantStatusPanel({
     <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
       {email && (
         <>
-          <Label>Account</Label>
+          <Label>{t("assistantStatusPanel.account")}</Label>
           <Value>{email}</Value>
         </>
       )}
 
-      <Label>Name</Label>
+      <Label>{t("assistantStatusPanel.name")}</Label>
       <Value>{assistant.name}</Value>
 
       {assistant.description && (
         <>
-          <Label>Description</Label>
+          <Label>{t("assistantStatusPanel.description")}</Label>
           <Value>{assistant.description}</Value>
         </>
       )}
 
-      <Label>Status</Label>
+      <Label>{t("assistantStatusPanel.status")}</Label>
       <div>
         <Tag tone={assistant.status === "active" ? "positive" : "neutral"}>
           {assistant.status}
         </Tag>
       </div>
 
-      <Label>Assistant ID</Label>
+      <Label>{t("assistantStatusPanel.assistantId")}</Label>
       <span className="break-all font-mono text-body-small-default text-[var(--content-tertiary)]">
         {assistant.id}
       </span>
 
       {isNonProduction && assistant.machine_id && (
         <>
-          <Label>Machine ID</Label>
+          <Label>{t("assistantStatusPanel.machineId")}</Label>
           <span className="break-all font-mono text-body-small-default text-[var(--content-tertiary)]">
             {assistant.machine_id}
           </span>
         </>
       )}
 
-      <Label>Created</Label>
+      <Label>{t("assistantStatusPanel.created")}</Label>
       <Value>
         {assistant.created
           ? new Date(assistant.created).toLocaleDateString()
-          : "Unknown"}
+          : t("assistantStatusPanel.unknown")}
       </Value>
 
-      <Label>Version</Label>
+      <Label>{t("assistantStatusPanel.version")}</Label>
       <DevModeVersionUnlock
         version={version ?? null}
         loading={healthzLoading && !assistant.current_release_version}
@@ -317,26 +320,30 @@ export function SystemResourcesPanel({
   healthz,
   healthzLoading,
 }: SystemResourcesPanelProps) {
+  const { t } = useTranslation("settings");
   return (
     <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-y-3">
-      <Label>Disk Usage</Label>
+      <Label>{t("assistantStatusPanel.diskUsage")}</Label>
       {healthzLoading ? (
-        <LoadingRow label="Loading disk status..." />
+        <LoadingRow label={t("assistantStatusPanel.loadingDisk")} />
       ) : healthz?.disk ? (
         <CapacityBar
           value={healthz.disk.usedMb}
           max={healthz.disk.totalMb}
-          caption={`${formatResourceMb(healthz.disk.usedMb)} used of ${formatResourceMb(healthz.disk.totalMb)}`}
+          caption={t("assistantStatusPanel.usedOf", {
+            used: formatResourceMb(healthz.disk.usedMb),
+            total: formatResourceMb(healthz.disk.totalMb),
+          })}
         />
       ) : (
         <span className="text-[var(--content-tertiary)]">
-          Disk status unavailable
+          {t("assistantStatusPanel.diskUnavailable")}
         </span>
       )}
 
-      <Label>CPU Usage</Label>
+      <Label>{t("assistantStatusPanel.cpuUsage")}</Label>
       {healthzLoading ? (
-        <LoadingRow label="Loading CPU status..." />
+        <LoadingRow label={t("assistantStatusPanel.loadingCpu")} />
       ) : healthz?.cpu ? (
         <CapacityBar
           value={healthz.cpu.currentPercent}
@@ -349,14 +356,17 @@ export function SystemResourcesPanel({
         </span>
       )}
 
-      <Label>Memory Usage</Label>
+      <Label>{t("assistantStatusPanel.memoryUsage")}</Label>
       {healthzLoading ? (
-        <LoadingRow label="Loading memory status..." />
+        <LoadingRow label={t("assistantStatusPanel.loadingMemory")} />
       ) : healthz?.memory ? (
         <CapacityBar
           value={healthz.memory.currentMb}
           max={healthz.memory.maxMb}
-          caption={`${formatResourceMb(healthz.memory.currentMb)} used of ${formatResourceMb(healthz.memory.maxMb)}`}
+          caption={t("assistantStatusPanel.usedOf", {
+            used: formatResourceMb(healthz.memory.currentMb),
+            total: formatResourceMb(healthz.memory.maxMb),
+          })}
         />
       ) : (
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">

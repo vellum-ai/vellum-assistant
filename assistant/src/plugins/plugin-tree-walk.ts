@@ -15,8 +15,29 @@
  * root (`realpathSync`) before walking.
  */
 
-import { readdirSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
+
+/**
+ * Top-level runtime-owned entries that belong to the live install, not the
+ * plugin's source tree. An upgrade must never take these from the incoming
+ * pin: `config.json` is user-edited, `data/` is whatever the plugin wrote at
+ * runtime, and `.disabled` is created by `assistant plugins disable`.
+ *
+ * The provenance sidecar is not in this list. Install rewrites `install-meta.json`
+ * at the swap boundary; carrying the outgoing copy forward would pin the
+ * upgrade to the previous commit.
+ */
+export const USER_STATE_ENTRIES = ["config.json", "data", ".disabled"] as const;
+
+const USER_STATE_NAME_SET: ReadonlySet<string> = new Set(USER_STATE_ENTRIES);
 
 /**
  * Top-level entries that are preserved across upgrades and excluded from
@@ -35,10 +56,48 @@ import { join } from "node:path";
  */
 export const PRESERVED_ENTRIES = [
   "install-meta.json",
-  "config.json",
-  "data",
-  ".disabled",
+  ...USER_STATE_ENTRIES,
 ] as const;
+
+/** True when `name` is a top-level user-state entry (`config.json`, `data`, `.disabled`). */
+export function isPluginUserStateEntry(name: string): boolean {
+  return USER_STATE_NAME_SET.has(name);
+}
+
+/**
+ * Remove user-state entries from `dir` so a pin-shipped `config.json` or
+ * `data/` cannot ride the swap. No-op when those paths are already absent.
+ */
+export function stripPreservedUserState(dir: string): void {
+  for (const entry of USER_STATE_ENTRIES) {
+    rmSync(join(dir, entry), { recursive: true, force: true });
+  }
+}
+
+/**
+ * Copy live user-state (`config.json`, `data/`, `.disabled`) from `fromDir`
+ * into `toDir`, replacing any copy already at the destination so the live
+ * bytes win whole-file / whole-tree.
+ */
+export function copyPreservedUserState(fromDir: string, toDir: string): void {
+  if (!existsSync(fromDir)) {
+    return;
+  }
+  for (const entry of USER_STATE_ENTRIES) {
+    const src = join(fromDir, entry);
+    if (!existsSync(src)) {
+      continue;
+    }
+    const dest = join(toDir, entry);
+    rmSync(dest, { recursive: true, force: true });
+    const stat = statSync(src);
+    if (stat.isDirectory()) {
+      cpSync(src, dest, { recursive: true });
+    } else {
+      copyFileSync(src, dest);
+    }
+  }
+}
 
 /**
  * Directory names {@link walkPluginTree} skips at any depth, unconditionally.

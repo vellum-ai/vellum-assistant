@@ -204,16 +204,6 @@ export function openedDocumentSurfaceId(
 }
 
 /**
- * Reactive form of {@link isDocumentOpen}, composed over atomic selectors so a
- * consumer only re-renders when the view or the opened document changes.
- */
-export function useIsDocumentOpen(surfaceId: string): boolean {
-  const mainView = useViewerStore.use.mainView();
-  const openedDocument = useViewerStore.use.openedDocumentState();
-  return isDocumentOpen(mainView, openedDocument, surfaceId);
-}
-
-/**
  * Open a workspace file the assistant referenced in the drawer's read-only
  * preview.
  *

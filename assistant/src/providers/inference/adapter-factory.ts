@@ -18,6 +18,7 @@
  *   3. Register the client in `ADAPTER_FACTORIES` below.
  */
 
+import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { AnthropicProvider } from "../anthropic/client.js";
 import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { BasetenProvider } from "../baseten/client.js";
@@ -39,6 +40,7 @@ import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
 import { effectiveConnectionAuth } from "./auth.js";
+import { MissingCredentialGuardProvider } from "./missing-credential-guard.js";
 import { resolveAuth } from "./resolve-auth.js";
 
 /** Unified construction opts. Adapters ignore fields they don't consume. */
@@ -131,6 +133,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       providerName: "litellm",
       providerLabel: "LiteLLM",
       streamTimeoutMs,
+      // Replay thinking as `reasoning_content` so DeepSeek-compatible
+      // thinking-mode upstreams accept follow-up requests that include tools.
+      assistantReasoningField: "reasoning_content",
       // Generic OpenAI-compat proxies may front a strict backend (vLLM,
       // DeepSeek, Portkey). Backfill empty assistant turns so the request
       // satisfies `content or tool_calls must be set`.
@@ -144,6 +149,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
+      // Replay thinking as `reasoning_content` so DeepSeek-compatible
+      // thinking-mode endpoints accept follow-up requests that include tools.
+      assistantReasoningField: "reasoning_content",
       // Custom endpoints (Portkey, vLLM, LM Studio, DeepSeek-compat) often
       // reject `{ role: "assistant", content: null }` after a Stop mid-stream
       // or a reasoning-only turn. Same guard as OpenRouter and Vercel AI
@@ -283,7 +291,7 @@ export function createAdapterFromConnection(
   // identity, the only route that flows through our proxy.
   const isManagedProxy = isVellumManagedConnection(connection);
   const effectiveAuth = effectiveConnectionAuth(connection);
-  return new UsageTrackingProvider(
+  const tracked = new UsageTrackingProvider(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isManagedProxy,
       credentialSource: isManagedProxy
@@ -301,6 +309,16 @@ export function createAdapterFromConnection(
         : {}),
     }),
   );
+
+  // A credential-backed connection can lose its key between construction and
+  // dispatch. Some upstreams answer that with 200 + empty content rather than
+  // a 401, which would otherwise land as a blank assistant turn.
+  return "credential" in effectiveAuth
+    ? new MissingCredentialGuardProvider(tracked, {
+        name: connection.name,
+        credentialAccount: normalizeCredentialRef(effectiveAuth.credential),
+      })
+    : tracked;
 }
 
 function buildConnectionAdapter(

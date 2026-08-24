@@ -34,11 +34,11 @@ mock.module(
   }),
 );
 
-// The reopen link names its own document from the documents query and hides
-// itself while that document is open; both are covered by
-// `document-reopen-link.test`. Stub it to a bare button so these tests assert
-// what the transcript owns: which documents a turn anchors, in what order,
-// where in the message the links land, and what the click reaches.
+// The document card names its own document from the documents query and waits
+// for that query to resolve; both are covered by `document-reopen-link.test`.
+// Stub it to a bare button so these tests assert what the transcript owns:
+// which documents a turn anchors, in what order, where in the message the
+// cards land, and what the click reaches.
 mock.module("@/domains/chat/transcript/document-reopen-link", () => ({
   DocumentReopenLink: ({
     surfaceId,
@@ -58,6 +58,27 @@ mock.module("@/domains/chat/transcript/document-reopen-link", () => ({
       data-assistant-id={assistantId ?? ""}
       data-conversation-id={conversationId ?? ""}
       onClick={() => onOpenDocument(surfaceId)}
+    />
+  ),
+}));
+
+// The app card resolves its name from the apps query and lazily loads a preview
+// iframe; both are covered by `app-reopen-card.test`. Stub it to a bare button
+// so these tests assert what the transcript owns rather than standing up a
+// QueryClient for every asset case.
+mock.module("@/domains/chat/transcript/app-reopen-card", () => ({
+  AppReopenCard: ({
+    appId,
+    onOpenApp,
+  }: {
+    appId: string;
+    onOpenApp: (appId: string) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="app-reopen-card"
+      data-app-id={appId}
+      onClick={() => onOpenApp(appId)}
     />
   ),
 }));
@@ -306,10 +327,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
+import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
 
@@ -740,6 +763,39 @@ describe("TranscriptMessageBody", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
+  test("renders all activity inline when inline-assistant-intermediates is on", () => {
+    useClientFeatureFlagStore.setState({ inlineAssistantIntermediates: true });
+    try {
+      const { queryByRole, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "inline-response",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("I will check that."),
+              toolUseBlock({
+                id: "tc-check",
+                name: "bash",
+                input: {},
+                completedAt: 1,
+              }),
+              textBlock("Here is the final answer."),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("I will check that.")).not.toBeNull();
+      expect(queryByText("Here is the final answer.")).not.toBeNull();
+    } finally {
+      useClientFeatureFlagStore.setState({
+        inlineAssistantIntermediates: false,
+      });
+    }
+  });
+
   test("renders the answered question card for a settled ask_question", () => {
     const { queryByTestId, queryByText } = render(
       <TranscriptMessageBody
@@ -919,23 +975,29 @@ describe("TranscriptMessageBody", () => {
     const image = container.querySelector("[data-testid='tool-result-image']");
     expect(image).not.toBeNull();
 
+    // One disclosure for the message, not one per run: the pinned image no
+    // longer splits the collapsed prose into two sections with two triggers.
     const triggers = getAllByRole("button", { name: "Earlier activity" });
-    expect(triggers.length).toBe(2);
-    triggers.forEach((trigger) => fireEvent.click(trigger));
+    expect(triggers.length).toBe(1);
+    fireEvent.click(triggers[0]!);
 
     const firstText = getByText("I will create that.");
     const secondText = getByText("I will summarize it.");
     const finalText = getByText("Here are the results.");
+    // Both collapsed runs read inside the one disclosure, which sits where the
+    // first of them was. That puts "I will summarize it." above the image it
+    // originally followed. That is the ordering cost of a single disclosure, paid only
+    // while it is open. The pinned image and the final answer keep their places.
     expect(
-      firstText.compareDocumentPosition(image!) &
+      firstText.compareDocumentPosition(secondText) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
-      image!.compareDocumentPosition(secondText) &
+      secondText.compareDocumentPosition(image!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
-      secondText.compareDocumentPosition(finalText) &
+      image!.compareDocumentPosition(finalText) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
   });
@@ -1102,9 +1164,10 @@ describe("TranscriptMessageBody", () => {
     );
   });
 
-  test("still collapses a run that pairs earlier prose with activity", () => {
-    // Two collapsible runs split by a surface: the leading [prose, thinking]
-    // pair earns a disclosure; the trailing lone thinking run does not.
+  test("a pinned surface does not strand the run on the far side of it", () => {
+    // A surface sits between two collapsible runs. Both collapse into the one
+    // message-wide disclosure, and the surface keeps its place: neither run is
+    // left rendering a bare row flush at the margin beside it.
     const { container, getAllByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
@@ -1122,15 +1185,113 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // Exactly one disclosure, not one per run.
-    expect(getAllByRole("button", { name: "Earlier activity" }).length).toBe(1);
+    const triggers = getAllByRole("button", { name: "Earlier activity" });
+    expect(triggers.length).toBe(1);
     expect(queryByText("Let me look that up.")).toBeNull();
-    // Only the un-wrapped trailing run's link is mounted; the collapsed run's
-    // link is not.
+    // Neither thinking link is mounted while closed: both are inside the one
+    // disclosure now, where before the trailing one hung outside it.
     expect(
       container.querySelectorAll("[data-testid='thought-process-link']").length,
-    ).toBe(1);
+    ).toBe(0);
+    // The surface is pinned, so it renders in place rather than collapsing.
+    expect(
+      container.querySelector("[data-surface-id='mixed-runs-surface']"),
+    ).not.toBeNull();
     expect(queryByText("Here is the final answer.")).not.toBeNull();
+
+    fireEvent.click(triggers[0]!);
+    expect(
+      container.querySelectorAll("[data-testid='thought-process-link']").length,
+    ).toBe(2);
+  });
+
+  test("collapses an image group whose images the attachments already show", () => {
+    // The group is pinned only when the strip draws something. Here every
+    // referenced image is already shown by the end-of-turn attachment chips, so
+    // the strip is empty and the group has nothing to keep it outside the
+    // disclosure.
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-shown-image",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated an image",
+      imageAttachmentIds: ["att-img"],
+      completedAt: 1,
+    };
+    const { container, getAllByRole } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "images-covered-by-attachments",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Making that image."),
+            toolUseBlock(toolCall),
+            textBlock("Here it is."),
+          ],
+          toolCalls: [toolCall],
+          attachments: [
+            {
+              id: "att-img",
+              filename: "image.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(getAllByRole("button", { name: "Earlier activity" }).length).toBe(1);
+    // The tool group collapsed with the prose rather than pinning itself.
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='tool-result-image']"),
+    ).toBeNull();
+  });
+
+  test("opens the one disclosure above the pinned rows it cannot swallow", () => {
+    // The shape the containment rule is for: work, a still-running tool that
+    // must stay visible, more work, then the answer. One trigger, anchored
+    // where the first collapsed group was, with the live row below it and the
+    // answer last.
+    const { container, getAllByRole, getByText, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "pinned-live-tool",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Starting on that."),
+            thinkingBlock("picking an approach"),
+            toolUseBlock({ id: "tc-live", name: "bash", input: {} }),
+            thinkingBlock("reading the output"),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const triggers = getAllByRole("button", { name: "Earlier activity" });
+    expect(triggers.length).toBe(1);
+    expect(queryByText("Starting on that.")).toBeNull();
+
+    // The still-running tool merges with the thinking either side of it into
+    // one activity group, which renders as a progress card rather than a link.
+    const live = container.querySelector("[data-testid='tool-progress-card']");
+    expect(live).not.toBeNull();
+    const finalText = getByText("Here is the final answer.");
+    expect(
+      triggers[0]!.compareDocumentPosition(live!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      live!.compareDocumentPosition(finalText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
   });
 
   test("merges contiguous thinking + tool runs into one card per run", () => {
@@ -2307,10 +2468,16 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
  * What the body owns is the slot: it renders exactly the ids it is handed,
  * below the response body and above the footer, and nothing without a handler.
  */
-describe("TranscriptMessageBody: changed-document reopen links", () => {
+describe("TranscriptMessageBody: response asset cards", () => {
   const DOC_ASSISTANT_ID = "asst-doc";
   const DOC_CONVERSATION_ID = "conv-doc";
   const onOpenDocumentMock = mock((_surfaceId: string) => {});
+  const onOpenAppMock = mock((_appId: string) => {});
+
+  /** The resolved-artifact shape the row now takes for a document. */
+  function documentArtifact(surfaceId: string): ResponseArtifact {
+    return { kind: "document", id: surfaceId };
+  }
 
   /** A settled `document_update` whose result carries the surface it wrote. */
   function documentUpdateCall(
@@ -2332,7 +2499,7 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
    * renders has to sit outside that disclosure to still be visible.
    */
   function turnElement(
-    changedDocumentIds: string[] | undefined,
+    surfaceIds: string[] | undefined,
     onOpenDocument: ((surfaceId: string) => void) | undefined,
   ) {
     const toolCalls = [documentUpdateCall("tc-doc", "surf-notes")];
@@ -2351,15 +2518,15 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
         }}
         conversationId={DOC_CONVERSATION_ID}
         assistantId={DOC_ASSISTANT_ID}
-        changedDocumentIds={changedDocumentIds}
+        responseArtifacts={surfaceIds?.map(documentArtifact)}
         onOpenDocument={onOpenDocument}
         onSurfaceAction={noop}
       />
     );
   }
 
-  function renderTurn(changedDocumentIds: string[] | undefined) {
-    return render(turnElement(changedDocumentIds, onOpenDocumentMock));
+  function renderTurn(surfaceIds: string[] | undefined) {
+    return render(turnElement(surfaceIds, onOpenDocumentMock));
   }
 
   function reopenLinks(container: HTMLElement): HTMLElement[] {
@@ -2444,5 +2611,161 @@ describe("TranscriptMessageBody: changed-document reopen links", () => {
     const { container } = render(turnElement(["surf-notes"], undefined));
 
     expect(reopenLinks(container).length).toBe(0);
+  });
+
+  test("a created-then-edited document renders one card, at the end", () => {
+    // `document_create` emits an inline `document_preview` where it ran and
+    // the edit names the same document again. The preview is not drawn, so the
+    // response closes with the single card it owes.
+    const toolCalls = [
+      {
+        id: "tc-create",
+        name: "document_create",
+        input: { title: "A Small Note About Weather" },
+        result: JSON.stringify({ surface_id: "surf-notes", opened: true }),
+        completedAt: 1,
+      } satisfies ChatMessageToolCall,
+      documentUpdateCall("tc-update", "surf-notes"),
+    ];
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-doc-create-edit",
+          role: "assistant",
+          contentBlocks: [
+            thinkingBlock("weather-themed test document"),
+            textBlock("i'll make a short weather-themed test document."),
+            toolUseBlock(toolCalls[0]!),
+            {
+              type: "surface",
+              surface: {
+                surfaceId: "preview-surf-notes",
+                surfaceType: "document_preview",
+                data: { surfaceId: "surf-notes", title: "A Small Note" },
+              },
+            } as ConversationContentBlock,
+            toolUseBlock(toolCalls[1]!),
+            textBlock("created the weather test document."),
+          ],
+          toolCalls,
+          timestamp: 1_000,
+        }}
+        conversationId={DOC_CONVERSATION_ID}
+        assistantId={DOC_ASSISTANT_ID}
+        responseArtifacts={[documentArtifact("surf-notes")]}
+        onOpenDocument={onOpenDocumentMock}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(reopenSurfaceIds(container)).toEqual(["surf-notes"]);
+    // The inline preview is gone rather than merely hidden.
+    expect(
+      container.querySelector("[data-surface-id='preview-surf-notes']"),
+    ).toBeNull();
+    // With nothing splitting the run, the whole lead-up collapses under ONE
+    // disclosure instead of leaving the trailing tool run flush outside it.
+    const triggers = screen.getAllByRole("button", {
+      name: "Earlier activity",
+    });
+    expect(triggers.length).toBe(1);
+    // Collapsed, so the lead-in is not mounted; the answer and the card are.
+    expect(
+      screen.queryByText("i'll make a short weather-themed test document."),
+    ).toBeNull();
+    expect(
+      screen.queryByText("created the weather test document."),
+    ).not.toBeNull();
+    // Both tool runs live in that one disclosure: with the preview dropped,
+    // the create and the edit form one contiguous run.
+    fireEvent.click(triggers[0]!);
+    expect(
+      screen.queryByText("i'll make a short weather-themed test document."),
+    ).not.toBeNull();
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']").length,
+    ).toBe(1);
+  });
+
+  test("an app follows the same rule: no inline preview, one card at the end", () => {
+    // The app kind runs through the same registry, so `app_create`'s auto-opened
+    // `dynamic_page` preview is dropped where it ran and the response closes
+    // with the app's card instead.
+    const toolCalls = [
+      {
+        id: "tc-app",
+        name: "app_create",
+        input: { name: "Tracker" },
+        result: JSON.stringify({ id: "app-7", name: "Tracker" }),
+        completedAt: 1,
+      } satisfies ChatMessageToolCall,
+    ];
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-app-turn",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Building that now."),
+            toolUseBlock(toolCalls[0]!),
+            {
+              type: "surface",
+              surface: {
+                surfaceId: "page-app-7",
+                surfaceType: "dynamic_page",
+                data: { appId: "app-7", preview: { title: "Tracker" } },
+              },
+            } as ConversationContentBlock,
+            textBlock("Built the tracker."),
+          ],
+          toolCalls,
+          timestamp: 1_000,
+        }}
+        conversationId={DOC_CONVERSATION_ID}
+        assistantId={DOC_ASSISTANT_ID}
+        responseArtifacts={[{ kind: "app", id: "app-7" }]}
+        onOpenApp={onOpenAppMock}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      container.querySelector("[data-surface-id='page-app-7']"),
+    ).toBeNull();
+    expect(
+      container.querySelectorAll("[data-testid='app-reopen-card']").length,
+    ).toBe(1);
+  });
+
+  test("an expanded dynamic_page still renders where it landed", () => {
+    // Without `preview` the surface is the live app itself, so it is content
+    // and the registry must leave it alone.
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-app-expanded",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here it is."),
+            {
+              type: "surface",
+              surface: {
+                surfaceId: "page-app-8",
+                surfaceType: "dynamic_page",
+                data: { appId: "app-8", html: "<main></main>" },
+              },
+            } as ConversationContentBlock,
+          ],
+          timestamp: 1_000,
+        }}
+        assistantId={DOC_ASSISTANT_ID}
+        onOpenApp={onOpenAppMock}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      container.querySelector("[data-surface-id='page-app-8']"),
+    ).not.toBeNull();
   });
 });

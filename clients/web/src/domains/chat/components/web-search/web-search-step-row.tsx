@@ -17,6 +17,7 @@ import { Popover, Typography } from "@vellumai/design-library";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
+import { useTranslation } from "@/i18n";
 
 /**
  * First uppercase letter of the result's domain (falling back to its title),
@@ -99,6 +100,7 @@ function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
  * matches the favicon chips' natural height.
  */
 export function OverflowChip({ results }: { results: WebSearchResultItem[] }) {
+  const { t } = useTranslation("chat");
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -111,7 +113,7 @@ export function OverflowChip({ results }: { results: WebSearchResultItem[] }) {
             variant="body-small-default"
             className="text-[var(--content-default)]"
           >
-            +{results.length} more
+            {t("webSearchStepRow.moreCount", { count: results.length })}
           </Typography>
         </button>
       </Popover.Trigger>

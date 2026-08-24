@@ -55,6 +55,8 @@ mock.module("@/components/speech/use-stt-language-selection", () => ({
 }));
 
 import { VoiceSections } from "@/domains/settings/pages/voice-page";
+import { activatorDisplayName } from "@/utils/ptt-activator";
+import { keyboardDefaultActivator } from "@/utils/voice-mode-activation";
 import {
   DEFAULT_PAUSE_BEFORE_REPLY_MS,
   useVoicePrefsStore,
@@ -314,5 +316,79 @@ describe("VoiceSections microphone picker", () => {
       expect(micTrigger().textContent).toContain("not connected"),
     );
     expect(localStorage.getItem("vellum:voice:inputDeviceId")).toBe("mic-gone");
+  });
+});
+
+describe("VoiceSections voice mode shortcut", () => {
+  // Cmd+Shift+V on macOS, Ctrl+Shift+V elsewhere, so read the label off the
+  // default rather than hardcoding one platform's.
+  const defaultChord = activatorDisplayName(keyboardDefaultActivator());
+
+  // The recorder's own chip is renamed as the chord builds ("Custom" →
+  // "Press a shortcut…" → "Ctrl"), so key events go to the zone that owns the
+  // handlers instead: a stable node across all of those renders.
+  function beginRecording() {
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    const zone = screen.getByRole("button", {
+      name: defaultChord,
+    }).parentElement;
+    if (!zone) {
+      throw new Error("recording zone not found");
+    }
+    return zone;
+  }
+
+  function storedBinding() {
+    return JSON.parse(
+      localStorage.getItem("vellum:voice:voiceModeActivation") ?? "null",
+    );
+  }
+
+  test("offers the platform chord as the default binding", () => {
+    renderPage();
+
+    expect(screen.getByRole("button", { name: defaultChord })).toBeTruthy();
+  });
+
+  test("refuses a bare modifier and says what is missing", () => {
+    renderPage();
+    const zone = beginRecording();
+
+    // Hold Shift, then let it go without pressing anything with it. As a
+    // toggle, that binding would fire on every abandoned chord.
+    fireEvent.keyDown(zone, { key: "Shift", shiftKey: true });
+    fireEvent.keyUp(zone, { key: "Shift", shiftKey: false });
+
+    expect(
+      screen.getByText(
+        "Hold a modifier (Cmd, Ctrl, Option, or Shift) and press a key.",
+      ),
+    ).toBeTruthy();
+    expect(storedBinding()).toBe(null);
+  });
+
+  test("records a chord and keeps it", () => {
+    renderPage();
+    const zone = beginRecording();
+
+    fireEvent.keyDown(zone, { key: "Control", ctrlKey: true });
+    fireEvent.keyDown(zone, { key: "j", ctrlKey: true, shiftKey: true });
+
+    expect(screen.getByRole("button", { name: "Ctrl+Shift+J" })).toBeTruthy();
+    expect(storedBinding()).toEqual({
+      kind: "key",
+      label: "J",
+      modifiers: ["control", "shift"],
+    });
+  });
+
+  test("turning the shortcut off stores an explicit off", () => {
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Enable voice mode shortcut" }),
+    );
+
+    expect(storedBinding()).toEqual({ kind: "off" });
   });
 });
