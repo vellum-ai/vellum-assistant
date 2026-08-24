@@ -85,10 +85,18 @@ struct QuickActionsWidgetView: View {
     let entry: SnapshotEntry
 
     var body: some View {
-        VStack(spacing: 0) {
-            markRow
-            Spacer(minLength: 0)
-            cameraAndVoice
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                markRow(width: geo.size.width)
+                Spacer(minLength: 0)
+                controlRow(
+                    diameter: min(
+                        Self.controlDiameter,
+                        (geo.size.width - Self.controlGap) / 2
+                    )
+                )
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         .padding(Self.contentMargin)
     }
@@ -99,18 +107,15 @@ struct QuickActionsWidgetView: View {
     /// margin. A chip in the corner over centered eyes reads as two things
     /// dropped on a card; the two at opposite margins read as one row across
     /// the top of it.
-    private var markRow: some View {
-        GeometryReader { geo in
-            HStack(alignment: .top, spacing: 0) {
-                if unreadCount == nil {
-                    Spacer(minLength: 0)
-                }
-                avatarMark(width: geo.size.width)
+    private func markRow(width: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            if unreadCount == nil {
                 Spacer(minLength: 0)
-                unreadChip
             }
+            avatarMark(width: width)
+            Spacer(minLength: 0)
+            unreadChip
         }
-        .frame(height: max(Self.eyeHeight, Self.avatarImageSize))
         .padding(.top, Self.markInset)
     }
 
@@ -189,24 +194,9 @@ struct QuickActionsWidgetView: View {
     /// The pair the card is built around, sized to the margins so they land in
     /// the same place whatever the avatar above them turns out to be. The
     /// diameter follows the card's width on compact widgets, where two full
-    /// 61pt circles plus their gap would overrun the margins.
-    private var cameraAndVoice: some View {
-        GeometryReader { geo in
-            controlRow(
-                diameter: min(
-                    Self.controlDiameter,
-                    (geo.size.width - Self.controlGap) / 2
-                )
-            )
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .bottomLeading
-            )
-        }
-        .frame(height: Self.controlDiameter)
-    }
-
+    /// 61pt circles plus their gap would overrun the margins, and the row's
+    /// own height is the resolved diameter so the column never reserves more
+    /// than it draws.
     private func controlRow(diameter: CGFloat) -> some View {
         HStack(spacing: Self.controlGap) {
             CircleActionButton(
