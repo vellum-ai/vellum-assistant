@@ -1038,7 +1038,7 @@ paths:
       summary: Pin or unpin an app
       description:
         Pin an app to the sidebar, unpin it, or set the colour it is tinted with. Pin state is read back from the
-        app list as `pinnedOrder` and `pinColor`.
+        app list as `pinSortPosition` and `pinColor`.
       tags:
         - apps
       parameters:

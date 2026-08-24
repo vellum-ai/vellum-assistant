@@ -165,6 +165,7 @@ describe("identity routes — health endpoint", () => {
       expect(body.capabilities).toEqual({
         memoryOptOut: true,
         retryLastTurn: true,
+        appPins: true,
       });
 
       // Profiler should either be absent or show enabled: false
