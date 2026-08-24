@@ -175,6 +175,23 @@ describe("apps_pin", () => {
     expect(listAppPins()[0]?.appId).toBe(pluginAppId);
   });
 
+  /* The list starts from the apps that exist, so a pin for anything else could
+     never be read back and would sit in the table forever. */
+  test("refuses to pin an app that does not exist", async () => {
+    await expect(pin("no-such-app", { pinned: true })).rejects.toThrow(
+      /App not found/,
+    );
+    expect(listAppPins()).toEqual([]);
+  });
+
+  /* Exempt from the check above: this is how a client clears a pin left over
+     from an app that has since gone. */
+  test("still accepts an unpin for an app that does not exist", async () => {
+    expect(await pin("no-such-app", { pinned: false })).toMatchObject({
+      pinSortPosition: null,
+    });
+  });
+
   test("rejects a request that asks for no change", async () => {
     const appId = makeApp("Untouched");
 
@@ -193,6 +210,18 @@ describe("apps_pin", () => {
 });
 
 describe("apps_delete", () => {
+  /* The invariant lives in `deleteApp`, not in this route, because the
+     `app_delete` tool deletes through the same function without passing here.
+     Asserted against that function directly so a future caller is covered too. */
+  test("deleting through the store clears the pin, route or not", async () => {
+    const appId = makeApp("Tool deleted");
+    await pin(appId, { pinned: true });
+
+    deleteApp(appId);
+
+    expect(listAppPins()).toEqual([]);
+  });
+
   test("takes the deleted app's pin with it", async () => {
     const appId = makeApp("Deleted");
     await pin(appId, { pinned: true });
