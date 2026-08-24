@@ -26,6 +26,7 @@ import {
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
 import {
+  type BreakerObservation,
   type BreakerRoute,
   recordFallbackServed,
   recordPrimaryFailure,
@@ -1551,8 +1552,9 @@ export class RetryProvider implements Provider {
             breakerRoute === null
               ? null
               : failureBreakerRoute(breakerRoute, error);
+          let failureObservation: BreakerObservation | undefined;
           if (failedRoute !== null) {
-            recordPrimaryFailure(failedRoute);
+            failureObservation = recordPrimaryFailure(failedRoute);
           }
           const fallbackResult = await this.sendOnFallbackRoute(
             messages,
@@ -1571,7 +1573,7 @@ export class RetryProvider implements Provider {
             // backup can carry the traffic, so later requests skip the retry
             // budget until a probe says the primary is back.
             if (failedRoute !== null) {
-              recordFallbackServed(failedRoute);
+              recordFallbackServed(failedRoute, Date.now(), failureObservation);
             }
             return fallbackResult;
           }

@@ -284,6 +284,15 @@ describe("fallback breaker state machine", () => {
     expect(shouldSkipPrimary(UPSTREAM_ROUTE, T0 + 1_000)).toBe(false);
   });
 
+  test("a stale fallback serve cannot re-trip a recovered route", () => {
+    const observation = recordPrimaryFailure(UPSTREAM_ROUTE, T0);
+    recordPrimarySuccess(UPSTREAM_ROUTE, T0 + 1_000);
+
+    recordFallbackServed(UPSTREAM_ROUTE, T0 + 2_000, observation);
+
+    expect(shouldSkipPrimary(UPSTREAM_ROUTE, T0 + 2_000)).toBe(false);
+  });
+
   test("the cooldown lands inside the jitter band and varies between trips", () => {
     const seen = new Set<number>();
     for (let i = 0; i < 40; i += 1) {
@@ -757,6 +766,44 @@ describe("RetryProvider under an open breaker", () => {
     await wrapped.sendMessage(MESSAGES, { config: { callSite: "mainAgent" } });
     expect(primary.calls()).toBe(1);
     expect(backup.calls()).toBe(2);
+  });
+
+  test("a late fallback completion cannot reopen a recovered primary", async () => {
+    const primary = primaryProvider(
+      () => new ProviderError("model not found", UPSTREAM, 404),
+    );
+    let resolveBackupStarted!: () => void;
+    const backupStarted = new Promise<void>((resolve) => {
+      resolveBackupStarted = resolve;
+    });
+    let resolveBackupResponse!: (response: ProviderResponse) => void;
+    const backupResponse = new Promise<ProviderResponse>((resolve) => {
+      resolveBackupResponse = resolve;
+    });
+    const backup: Provider = {
+      name: "anthropic",
+      sendMessage: async () => {
+        resolveBackupStarted();
+        return backupResponse;
+      },
+    };
+    const route = makeRoute(backup);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const first = wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+    await backupStarted;
+
+    // A concurrent recovery probe can prove the primary is healthy while the
+    // earlier request is still waiting for its backup response.
+    recordPrimarySuccess(PRIMARY_ROUTE);
+    resolveBackupResponse(okResponse("backup-model"));
+
+    await first;
+    expect(shouldSkipPrimary(PRIMARY_ROUTE)).toBe(false);
   });
 
   test("a retired model diverts only itself, not a healthy model on the same upstream", async () => {
