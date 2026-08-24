@@ -566,11 +566,11 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        threadTs,
-        markdownText: "Streamed DM reply.",
-        taskDisplayMode: "plan",
+        anchorMessageId: threadTs,
+        text: "Streamed DM reply.",
+        appended: "Streamed DM reply.",
       },
-      { action: "stop", streamTs },
+      { action: "stop", streamId: streamTs, text: "Streamed DM reply." },
     ]);
     expect(
       deliveredChannelReplies

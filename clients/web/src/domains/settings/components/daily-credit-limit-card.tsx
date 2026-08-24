@@ -3,7 +3,6 @@ import { useState, type ChangeEvent } from "react";
 
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import {
-  organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveQueryKey,
   organizationsBillingDailyCreditLimitRetrieveSetQueryData,
@@ -11,6 +10,7 @@ import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
 import { t, useTranslation } from "@/i18n";
@@ -72,9 +72,7 @@ export function DailyCreditLimitCard() {
     organizationsBillingDailyCreditLimitRetrieveOptions(),
   );
   const summaryQuery = useQuery(organizationsBillingSummaryRetrieveOptions());
-  const autoTopUpQuery = useQuery(
-    organizationsBillingAutoTopUpRetrieveOptions(),
-  );
+  const autoTopUpQuery = useAutoTopUpConfigQuery();
   const updateMutation = useMutation(
     organizationsBillingDailyCreditLimitUpdateMutation(),
   );

@@ -1263,8 +1263,7 @@
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
     "loading": "Cargando…",
-    "subtitle": "Métodos de pago vinculados a tu cuenta.",
-    "title": "Métodos de pago"
+    "title": "Método de pago"
   },
   "pendingPairingRequests": {
     "approveButton": "Aprobar",

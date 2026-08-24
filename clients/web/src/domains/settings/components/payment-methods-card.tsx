@@ -1,8 +1,5 @@
 import { useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
-
-import { organizationsBillingAutoTopUpRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -12,6 +9,7 @@ import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useTranslation } from "@/i18n";
 
 export interface PaymentMethodCardEntry {
@@ -49,7 +47,7 @@ export function paymentMethodCards(
  */
 export function PaymentMethodsCard() {
   const { t } = useTranslation("settings");
-  const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
+  const configQuery = useAutoTopUpConfigQuery();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
 
   const [pmModalOpen, setPmModalOpen] = useState(false);
@@ -59,7 +57,10 @@ export function PaymentMethodsCard() {
   const showAddButton = config != null && cards.length === 0;
 
   const renderBody = () => {
-    if (configQuery.isLoading) {
+    // `isPending` rather than `isLoading`: the query idles with no data until
+    // the org store is ready, and that gap must read as loading, not as the
+    // error state below.
+    if (configQuery.isPending) {
       return (
         <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
           {t("paymentMethodsCard.loading")}
@@ -100,7 +101,6 @@ export function PaymentMethodsCard() {
     <Card padding="md" data-testid="payment-methods-card">
       <BillingSectionHeader
         title={t("paymentMethodsCard.title")}
-        subtitle={t("paymentMethodsCard.subtitle")}
         actions={
           showAddButton ? (
             <Button

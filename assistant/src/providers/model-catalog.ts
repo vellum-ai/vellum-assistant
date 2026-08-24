@@ -1609,9 +1609,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.24,
-          outputPer1mTokens: 0.96,
-          cacheReadPer1mTokens: 0.048,
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
         },
       },
       {
