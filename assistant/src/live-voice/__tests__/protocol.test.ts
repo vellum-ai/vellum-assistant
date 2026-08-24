@@ -228,6 +228,45 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("rejects a capture rate past the sane-hardware cap", () => {
+    // The session hands this number straight to buffer sizing for every
+    // synthesized segment and for the rendered working cue, so an absurd rate
+    // becomes an absurd allocation inside a timer callback. It has to be
+    // refused at the frame boundary, where it is still just a bad field.
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 1_000_000_000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "audio.sampleRate",
+      frameType: "start",
+    });
+  });
+
+  test("accepts the highest capture rate real hardware opens with", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 192_000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   test("parses start frames with turnDetection manual", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({

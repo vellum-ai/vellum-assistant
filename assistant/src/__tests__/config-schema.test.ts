@@ -949,7 +949,9 @@ describe("AssistantConfigSchema", () => {
         endpointExtensionMs: 1500,
         endpointMaxExtensions: 2,
         progress: {
-          enabled: true,
+          // Off by default: the working cue holds a long turn's silence, and
+          // spoken narration is the opt-in that replaces it.
+          enabled: false,
           opsThreshold: 3,
           idleIntervalMs: 5000,
           maxSilenceMs: 35000,
@@ -957,6 +959,13 @@ describe("AssistantConfigSchema", () => {
           minGapMs: 6000,
           generationTimeoutMs: 1500,
         },
+      },
+      workingCue: {
+        enabled: true,
+        intervalMs: 12000,
+        frequencyHz: 220,
+        durationMs: 260,
+        gain: 0.09,
       },
       flux: {
         turnEnd: { enabled: true },
