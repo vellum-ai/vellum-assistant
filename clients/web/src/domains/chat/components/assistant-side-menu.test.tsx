@@ -1516,7 +1516,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
   test("the collapsed rail's header carries no separator, pinned apps or not", () => {
     for (const pinnedApps of [
       [],
-      [makeAppSummary({ id: "app-1", name: "Vex Ops", pinnedOrder: 1 })],
+      [makeAppSummary({ id: "app-1", name: "Vex Ops", pinSortPosition: 1 })],
     ]) {
       pinnedAppsFixture = pinnedApps;
 

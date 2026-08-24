@@ -92,9 +92,9 @@ export function writeLegacyPins(pins: LegacyPin[]): void {
  */
 export function planLegacyPinClaim(
   legacy: LegacyPin[],
-  apps: { id: string; pinnedOrder?: number }[],
+  apps: { id: string; pinSortPosition?: number }[],
 ): LegacyPin[] {
-  if (apps.some((app) => app.pinnedOrder !== undefined)) {
+  if (apps.some((app) => app.pinSortPosition !== undefined)) {
     return [];
   }
   const ownIds = new Set(apps.map((app) => app.id));

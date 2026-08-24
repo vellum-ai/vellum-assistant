@@ -80,7 +80,7 @@ const APP = makeAppSummary({
   id: "app-1",
   name: "My App",
   icon: "🚀",
-  pinnedOrder: 1,
+  pinSortPosition: 1,
 });
 
 const TEAL_APP = { ...APP, pinColor: "teal" };

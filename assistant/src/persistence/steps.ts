@@ -476,6 +476,7 @@ import { migrateAddConversationForkStrategy } from "./migrations/365-add-convers
 import { migrateChatgptSubscriptionRowIdentity } from "./migrations/366-chatgpt-subscription-row-identity.js";
 import { migrateCreateWatchTimelineEntries } from "./migrations/367-create-watch-timeline-entries.js";
 import { migrateWatchTimelineScreenshotBlob } from "./migrations/368-watch-timeline-screenshot-blob.js";
+import { migrateCreateAppPins } from "./migrations/369-create-app-pins.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1586,4 +1587,5 @@ export const migrationSteps: MigrationStep[] = [
   },
   migrateCreateWatchTimelineEntries,
   migrateWatchTimelineScreenshotBlob,
+  migrateCreateAppPins,
 ];

@@ -86,26 +86,33 @@ function getSharedAppsDir(): string {
 // Extracted business logic
 // ---------------------------------------------------------------------------
 
-interface AppListItem {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  createdAt: number;
-  updatedAt: number;
-  version: string;
-  contentId: string;
-  /** "workspace" or "plugin:<name>" — identifies where the app comes from. */
-  origin: string;
-  /**
-   * 1-based sidebar position, absent when the app is not pinned. Joined from
-   * the pin store rather than stored on the app, so a pin whose app is gone
-   * never reaches a client and a plugin app can be pinned like any other.
-   */
-  pinnedOrder?: number;
-  /** The pin's colour, as an id from the client's colour registry. */
-  pinColor?: string;
-}
+/**
+ * One entry in the app list. Declared as the schema the route publishes, so the
+ * wire contract and the type the handlers build against cannot drift apart.
+ */
+const appListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  version: z.string(),
+  contentId: z.string(),
+  origin: z
+    .string()
+    .describe('"workspace" or "plugin:<name>": where the app comes from'),
+  pinSortPosition: z
+    .number()
+    .optional()
+    .describe("Sidebar order, ascending. Absent when the app is not pinned"),
+  pinColor: z
+    .string()
+    .optional()
+    .describe("Pin colour id; absent when no colour is set"),
+});
+
+type AppListItem = z.infer<typeof appListItemSchema>;
 
 /** Merge an app's pin, if it has one, onto its list entry. */
 function withPin(item: AppListItem, pin: AppPin | undefined): AppListItem {
@@ -114,7 +121,7 @@ function withPin(item: AppListItem, pin: AppPin | undefined): AppListItem {
   }
   return {
     ...item,
-    pinnedOrder: pin.pinnedOrder,
+    pinSortPosition: pin.sortPosition,
     ...(pin.color !== undefined ? { pinColor: pin.color } : {}),
   };
 }
@@ -876,7 +883,7 @@ function handlePinApp({ pathParams, body, headers }: RouteHandlerArgs) {
   return {
     success: true,
     appId,
-    pinnedOrder: pin?.pinnedOrder ?? null,
+    pinSortPosition: pin?.sortPosition ?? null,
     pinColor: pin?.color ?? null,
   };
 }
@@ -946,29 +953,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Filter apps by conversation ID",
       },
     ],
-    responseBody: z.object({
-      apps: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().optional(),
-          icon: z.string().optional(),
-          createdAt: z.number(),
-          updatedAt: z.number(),
-          version: z.string(),
-          contentId: z.string(),
-          origin: z.string(),
-          pinnedOrder: z
-            .number()
-            .optional()
-            .describe("1-based sidebar position; absent when not pinned"),
-          pinColor: z
-            .string()
-            .optional()
-            .describe("Pin colour id; absent when no colour is set"),
-        }),
-      ),
-    }),
+    responseBody: z.object({ apps: z.array(appListItemSchema) }),
   },
   {
     operationId: "apps_open_bundle",
@@ -1242,7 +1227,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       success: z.boolean(),
       appId: z.string(),
-      pinnedOrder: z.number().nullable(),
+      pinSortPosition: z.number().nullable(),
       pinColor: z.string().nullable(),
     }),
   },

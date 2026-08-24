@@ -119,7 +119,7 @@ const PINNED_APPS: AppSummary[] = [
     version: "1",
     contentId: "content-ops",
     origin: "workspace",
-    pinnedOrder: 1,
+    pinSortPosition: 1,
     pinColor: "teal",
   },
   {
@@ -130,7 +130,7 @@ const PINNED_APPS: AppSummary[] = [
     version: "1",
     contentId: "content-inbox",
     origin: "workspace",
-    pinnedOrder: 2,
+    pinSortPosition: 2,
   },
 ];
 

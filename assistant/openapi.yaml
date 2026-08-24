@@ -790,8 +790,9 @@ paths:
                           type: string
                         origin:
                           type: string
-                        pinnedOrder:
-                          description: 1-based sidebar position; absent when not pinned
+                          description: '"workspace" or "plugin:<name>": where the app comes from'
+                        pinSortPosition:
+                          description: Sidebar order, ascending. Absent when the app is not pinned
                           type: number
                         pinColor:
                           description: Pin colour id; absent when no colour is set
@@ -1073,7 +1074,7 @@ paths:
                     type: boolean
                   appId:
                     type: string
-                  pinnedOrder:
+                  pinSortPosition:
                     anyOf:
                       - type: number
                       - type: "null"
@@ -1084,7 +1085,7 @@ paths:
                 required:
                   - success
                   - appId
-                  - pinnedOrder
+                  - pinSortPosition
                   - pinColor
                 additionalProperties: false
   /v1/apps/{id}/preview:

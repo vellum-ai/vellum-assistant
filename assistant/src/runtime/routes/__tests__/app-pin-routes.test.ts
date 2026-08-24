@@ -6,10 +6,7 @@
  * its own, and that deleting an app takes its pin with it.
  */
 
-import { existsSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const publishCalls: unknown[] = [];
 
@@ -26,6 +23,9 @@ import {
   deleteApp,
   isPluginAppId,
 } from "../../../apps/app-store.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { appPins } from "../../../persistence/schema/index.js";
 import { ROUTES as APP_ROUTES } from "../app-management-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -41,14 +41,14 @@ const listHandler = findHandler("apps_list");
 const pinHandler = findHandler("apps_pin");
 const deleteHandler = findHandler("apps_delete");
 
+await initializeDb();
+
 interface ListedApp {
   id: string;
   name: string;
-  pinnedOrder?: number;
+  pinSortPosition?: number;
   pinColor?: string;
 }
-
-let testDataDir: string;
 
 function makeApp(name: string): string {
   const app = createApp({
@@ -76,7 +76,7 @@ async function pin(
   } as unknown as RouteHandlerArgs)) as {
     success: boolean;
     appId: string;
-    pinnedOrder: number | null;
+    pinSortPosition: number | null;
     pinColor: string | null;
   };
 }
@@ -87,17 +87,7 @@ async function findListed(appId: string): Promise<ListedApp | undefined> {
 
 beforeEach(() => {
   publishCalls.length = 0;
-  testDataDir = join(
-    tmpdir(),
-    `vellum-app-pin-routes-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  process.env.VELLUM_WORKSPACE_DIR = testDataDir;
-});
-
-afterEach(() => {
-  if (existsSync(testDataDir)) {
-    rmSync(testDataDir, { recursive: true, force: true });
-  }
+  getDb().delete(appPins).run();
 });
 
 describe("apps_list", () => {
@@ -108,7 +98,7 @@ describe("apps_list", () => {
 
     const listed = await findListed(appId);
 
-    expect(listed?.pinnedOrder).toBeUndefined();
+    expect(listed?.pinSortPosition).toBeUndefined();
     expect(listed?.pinColor).toBeUndefined();
   });
 
@@ -119,20 +109,24 @@ describe("apps_list", () => {
 
     const listed = await findListed(appId);
 
-    expect(listed?.pinnedOrder).toBe(1);
+    expect(listed?.pinSortPosition).toBeGreaterThan(0);
     expect(listed?.pinColor).toBe("teal");
   });
 
-  test("gives each pinned app its own position", async () => {
+  test("orders pinned apps by when they were pinned", async () => {
     const first = makeApp("First");
     const second = makeApp("Second");
     await pin(first, { pinned: true });
     await pin(second, { pinned: true });
 
     const apps = await listApps();
+    const firstPosition = apps.find((app) => app.id === first)?.pinSortPosition;
+    const secondPosition = apps.find(
+      (app) => app.id === second,
+    )?.pinSortPosition;
 
-    expect(apps.find((app) => app.id === first)?.pinnedOrder).toBe(1);
-    expect(apps.find((app) => app.id === second)?.pinnedOrder).toBe(2);
+    expect(firstPosition).toBeDefined();
+    expect(secondPosition).toBeGreaterThan(firstPosition!);
   });
 
   /* The store can hold a pin for an id no app has, but such a pin has nothing
@@ -146,7 +140,7 @@ describe("apps_list", () => {
     const apps = await listApps();
 
     expect(apps.some((app) => app.id === appId)).toBe(false);
-    expect(apps.some((app) => app.pinnedOrder !== undefined)).toBe(false);
+    expect(apps.some((app) => app.pinSortPosition !== undefined)).toBe(false);
   });
 });
 
@@ -157,11 +151,10 @@ describe("apps_pin", () => {
     expect(await pin(appId, { pinned: true })).toMatchObject({
       success: true,
       appId,
-      pinnedOrder: 1,
       pinColor: null,
     });
     expect(await pin(appId, { pinned: false })).toMatchObject({
-      pinnedOrder: null,
+      pinSortPosition: null,
       pinColor: null,
     });
   });
@@ -178,7 +171,7 @@ describe("apps_pin", () => {
 
     const result = await pin(pluginAppId, { pinned: true });
 
-    expect(result.pinnedOrder).toBe(1);
+    expect(result.pinSortPosition).not.toBeNull();
     expect(listAppPins()[0]?.appId).toBe(pluginAppId);
   });
 
@@ -211,18 +204,20 @@ describe("apps_delete", () => {
     expect(listAppPins()).toEqual([]);
   });
 
-  /* The survivors' positions have to close up, or the next pin collides with
-     one of them once the count catches up. */
-  test("leaves the surviving pins contiguous", async () => {
+  test("leaves the other pins alone", async () => {
     const first = makeApp("First");
     const second = makeApp("Second");
     await pin(first, { pinned: true });
     await pin(second, { pinned: true });
+    const survivorPosition = listAppPins().find(
+      (entry) => entry.appId === second,
+    )?.sortPosition;
 
     await deleteHandler({
       pathParams: { id: first },
     } as unknown as RouteHandlerArgs);
 
-    expect(listAppPins()).toEqual([{ appId: second, pinnedOrder: 1 }]);
+    expect(listAppPins().map((entry) => entry.appId)).toEqual([second]);
+    expect(listAppPins()[0]?.sortPosition).toBe(survivorPosition!);
   });
 });

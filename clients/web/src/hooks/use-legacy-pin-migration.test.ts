@@ -9,8 +9,8 @@ import {
 
 const LEGACY_KEY = "vellum:pinnedApps";
 
-function app(id: string, pinnedOrder?: number) {
-  return pinnedOrder === undefined ? { id } : { id, pinnedOrder };
+function app(id: string, pinSortPosition?: number) {
+  return pinSortPosition === undefined ? { id } : { id, pinSortPosition };
 }
 
 function legacyPin(appId: string, pinnedOrder: number, color?: string) {
