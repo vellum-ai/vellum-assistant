@@ -25,6 +25,7 @@ import { publicAsset } from "@/utils/public-asset";
 const BUNDLED_LOGO_URLS: Record<string, string> = {
   airtable: publicAsset("/images/integrations/airtable.svg"),
   asana: publicAsset("/images/integrations/asana.svg"),
+  calendly: publicAsset("/images/integrations/calendly.svg"),
   discord: publicAsset("/images/integrations/discord.svg"),
   discord_channel: publicAsset("/images/integrations/discord.svg"),
   dropbox: publicAsset("/images/integrations/dropbox.svg"),

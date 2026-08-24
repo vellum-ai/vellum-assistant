@@ -136,6 +136,10 @@ const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+const CalendlyOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -183,6 +187,9 @@ export const ServicesSchema = z.object({
   ),
   "hubspot-oauth": HubspotOAuthServiceSchema.default(
     HubspotOAuthServiceSchema.parse({}),
+  ),
+  "calendly-oauth": CalendlyOAuthServiceSchema.default(
+    CalendlyOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

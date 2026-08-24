@@ -179,6 +179,7 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
       "todoist-oauth": managed,
       "discord-oauth": managed,
       "hubspot-oauth": managed,
+      "calendly-oauth": managed,
     },
   };
 }
