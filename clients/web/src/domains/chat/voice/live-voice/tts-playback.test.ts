@@ -928,6 +928,46 @@ describe("LiveVoiceAudioPlayer", () => {
       expect(player.getPlaybackProgress()).toBeNull();
     });
 
+    test("a non-speech chunk plays but reports no progress", () => {
+      player.enqueue({ ...chunk(new Array(24000).fill(1)), nonSpeech: true });
+
+      // It is scheduled and audible, and it holds the queue open.
+      expect(ctx.sources).toHaveLength(1);
+      expect(ctx.sources[0]!.startedAt).toBe(0);
+      expect(player.isPlaying).toBe(true);
+      // It carries no words, so there is nothing for a cursor to follow.
+      expect(player.getPlaybackProgress()).toBeNull();
+    });
+
+    test("a cue ahead of speech never inflates total or played", () => {
+      // 1.0s cue at t=0, then the report's first second of speech behind it.
+      player.enqueue({ ...chunk(new Array(24000).fill(1)), nonSpeech: true });
+      player.enqueue(chunk(new Array(24000).fill(1)));
+
+      // Only the speech counts, and none of it has sounded while the cue plays.
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 0,
+        totalSeconds: 1,
+      });
+
+      ctx.currentTime = 1;
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 0,
+        totalSeconds: 1,
+      });
+
+      ctx.currentTime = 1.5;
+      expect(player.getPlaybackProgress()!.playedSeconds).toBeCloseTo(0.5, 6);
+    });
+
+    test("container path: a non-speech decode contributes nothing to total", async () => {
+      player.enqueue({ ...frame("audio/wav"), nonSpeech: true });
+      await flushMicrotasks();
+
+      expect(ctx.sources).toHaveLength(1);
+      expect(player.getPlaybackProgress()).toBeNull();
+    });
+
     test("container path: a resolved async decode contributes its duration to total", async () => {
       player.enqueue(frame("audio/wav"));
       // Not scheduled yet: no progress until the decode resolves.

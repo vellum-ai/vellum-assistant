@@ -354,6 +354,121 @@ describe("assistant-audio activity", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Working cue: a `tts_audio` frame marked `nonSpeech`
+// ---------------------------------------------------------------------------
+
+describe("working cue (non-speech tts_audio)", () => {
+  function emitCue(h: ReturnType<typeof renderController>, seq: number) {
+    h.client.emit("ttsAudio", {
+      type: "tts_audio",
+      seq,
+      mimeType: "audio/pcm",
+      sampleRate: 24000,
+      dataBase64: "AAAA",
+      nonSpeech: true,
+    });
+  }
+
+  function emitSpeech(h: ReturnType<typeof renderController>, seq: number) {
+    h.client.emit("ttsAudio", {
+      type: "tts_audio",
+      seq,
+      mimeType: "audio/pcm",
+      sampleRate: 24000,
+      dataBase64: "AAAA",
+    });
+  }
+
+  test("plays without flipping the room to `speaking`", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitCue(h, 3);
+      emitCue(h, 4);
+    });
+
+    // Audible: both cues reach the player, marked so the player leaves them
+    // out of the progress the word cursor reads.
+    expect(h.player.enqueued).toHaveLength(2);
+    expect(h.player.enqueued[0]).toMatchObject({ nonSpeech: true });
+    // Inert: the working turn stays quiet rather than blinking through
+    // `speaking` once per cue.
+    expect(h.view.result.current.state).toBe("thinking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(false);
+
+    // The report that follows is speech and does flip the room.
+    act(() => {
+      emitSpeech(h, 5);
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+    expect(h.player.enqueued[2]).toMatchObject({ nonSpeech: undefined });
+  });
+
+  test("does not open hands-free barge-in during the silent working stretch", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitCue(h, 3);
+    });
+
+    // "Stop response" while the turn is still working: there is no response to
+    // stop, so the turn is left running rather than cancelled by the tone.
+    act(() => {
+      useLiveVoiceStore.getState().controls?.interrupt();
+    });
+    expect(h.client.interruptCount).toBe(0);
+    expect(h.player.stopCount).toBe(0);
+    expect(h.view.result.current.state).toBe("thinking");
+
+    // Once the answer is actually being spoken, the same control cancels it.
+    act(() => {
+      emitSpeech(h, 4);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().controls?.interrupt();
+    });
+    expect(h.client.interruptCount).toBe(1);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("does not latch the client-heard latency", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+    });
+    await act(async () => {
+      await sleep(10);
+    });
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t1" });
+      emitCue(h, 4);
+    });
+
+    // The tone is not the answer starting to be spoken, so the end-of-speech
+    // stamp is still unspent.
+    expect(useLiveVoiceStore.getState().lastTurnLatency).toBeNull();
+
+    act(() => {
+      emitSpeech(h, 5);
+    });
+    const latency = useLiveVoiceStore.getState().lastTurnLatency;
+    expect(latency).not.toBeNull();
+    expect(latency!.clientHeardLatencyMs).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Barge-in
 // ---------------------------------------------------------------------------
 

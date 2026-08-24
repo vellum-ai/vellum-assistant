@@ -1049,18 +1049,33 @@ export function useLiveVoice(
           if (session.interruptSent) {
             return;
           }
-          beginAssistantAudioIfNeeded(session);
+          // The working cue is audio, not speech. It plays, which is the whole
+          // reason the daemon sends it on this frame at all, but a wordless
+          // tone holding a silent turn's floor is not the assistant talking.
+          // So everything downstream that means "talking" stays where it was:
+          // the phase (a cue every ~12s would otherwise blink the room in and
+          // out of `speaking` for the whole working stretch), the hands-free
+          // barge-in gate that reads that phase, the client-heard latency
+          // (which measures when the answer starts being spoken), and the
+          // spoken-word cursor's played/total accounting.
+          const isSpeech = frame.nonSpeech !== true;
+          if (isSpeech) {
+            beginAssistantAudioIfNeeded(session);
+          }
           const chunk: TtsAudioChunk = {
             dataBase64: frame.dataBase64,
             sampleRate: frame.sampleRate,
             mimeType: frame.mimeType,
+            nonSpeech: frame.nonSpeech,
           };
           session.player.enqueue(chunk);
-          // Mark audio flowing before the phase flip so no render observes
-          // `speaking` without `assistantAudioActive` (which would blink the
-          // avatar to `thinking` at the top of every response — JARVIS-1279).
-          markAssistantAudioActive(session);
-          useLiveVoiceStore.getState().setState("speaking");
+          if (isSpeech) {
+            // Mark audio flowing before the phase flip so no render observes
+            // `speaking` without `assistantAudioActive` (which would blink the
+            // avatar to `thinking` at the top of every response — JARVIS-1279).
+            markAssistantAudioActive(session);
+            useLiveVoiceStore.getState().setState("speaking");
+          }
         }),
         client.on("ttsDone", () => {
           if (!live()) {
@@ -1681,6 +1696,10 @@ function interruptIfSpeaking(
  * Unlike the manual barge-in above this does not require `player.isPlaying`:
  * `speaking` can hold between chunks with more audio still inbound, and the
  * cancel must land regardless.
+ *
+ * The `speaking` gate is also what keeps a long working stretch quiet: a
+ * working cue plays without entering `speaking`, so the tone does not make a
+ * turn interruptible during the silence it exists to hold.
  */
 function interruptTurnHandsFree(session: SessionContext): void {
   if (useLiveVoiceStore.getState().state !== "speaking") {
@@ -1736,10 +1755,12 @@ const ASSISTANT_AUDIO_IDLE_MS = 500;
 
 /**
  * Mark assistant TTS audio as flowing and (re)arm the idle check. Called on
- * every `tts_audio` frame: a continuous stream keeps re-arming the timer so the
- * flag stays true for the whole spoken stretch; once frames stop and the queue
- * drains, {@link scheduleAssistantAudioIdleCheck} flips it false. Drives the
- * avatar's `speaking → responding` vs `thinking` split (JARVIS-1279).
+ * every speech `tts_audio` frame: a continuous stream keeps re-arming the timer
+ * so the flag stays true for the whole spoken stretch; once frames stop and the
+ * queue drains, {@link scheduleAssistantAudioIdleCheck} flips it false. Drives
+ * the avatar's `speaking → responding` vs `thinking` split (JARVIS-1279). A
+ * non-speech frame is skipped: the flag says the assistant is talking, and a
+ * working cue is audible without being that.
  */
 function markAssistantAudioActive(session: SessionContext): void {
   useLiveVoiceStore.getState().setAssistantAudioActive(true);
