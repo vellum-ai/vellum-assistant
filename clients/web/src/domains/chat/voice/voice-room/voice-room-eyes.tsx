@@ -23,7 +23,7 @@
  * eyes stay centered throughout and express the state by *size* — a smooth
  * scale tween, no vertical travel. While the user speaks (`listening`) the
  * mic-amplitude band rises from the room's floor (clear of the centered eyes)
- * and the eyes open wide (large — all ears). When the turn passes to the
+ * and the eyes open wide (large, all ears). When the turn passes to the
  * assistant, `thinking` shrinks them small and a quiet dot triad works away
  * just above them, then `responding` settles them to a medium size while the
  * assistant's own band answers from that same floor in the opposite ink (see
@@ -31,7 +31,7 @@
  * caption ("Listening" / "Thinking" / "Speaking") fades in down in the room's
  * lower text zone (see `voice-room-layout.ts`), naming the beat from the same
  * baseline the assistant's own speech would occupy. `reconnecting` fades the
- * eyes back — presence dimmed while away.
+ * eyes back: presence dimmed while away.
  *
  * Geometry and timing mirror onboarding's `IntroductionScreen` +
  * `OnboardingPeekingEyes`. Traits default like `ChatAvatar` does (first
@@ -239,12 +239,8 @@ export interface VoiceRoomLook {
 }
 
 /**
- * The edge both voice bands rise from, for every look.
- *
- * Single-sourced because the two looks drifted apart on exactly this value once
- * already: the custom-avatar room raised its band from the ceiling while the
- * character room raised it from the floor, so the same session read as two
- * different products depending on which avatar the assistant wore.
+ * The edge both voice bands rise from, in every look. One constant so no
+ * surface can put a session's two halves on different edges.
  */
 export const VOICE_ROOM_WAVE_PLACEMENT: VoiceWavePlacement = "bottom";
 
@@ -491,10 +487,10 @@ export function VoiceRoomColorLook({
       />
 
       {/* Thinking is the one beat the bands are silent for, and the dots that
-          fill it are placed against the eyes, so they stay with the eyes rather
-          than moving into the shared bands. Its own AnimatePresence: the fade
-          is per-layer, so the hand-off still reads as the band dissolving out
-          while the dots dissolve in. */}
+          fill it are placed against the eyes, so they belong to the eyes rather
+          than to the shared bands. Their own AnimatePresence: the fade is
+          per-layer, so the hand-off reads as the band dissolving out while the
+          dots dissolve in. */}
       <AnimatePresence>
         {visual === "thinking" && look.art ? (
           <motion.div
@@ -520,9 +516,9 @@ export function VoiceRoomColorLook({
           viewport={{ w, h }}
           entranceOrigin={origin}
           entrance={entrance}
-          // The centered eyes never move — they express the state by size.
+          // The centered eyes never move: they express the state by size.
           sizeScale={sizeScale}
-          // Reconnecting: fade the eyes back — presence dimmed while away.
+          // Reconnecting: fade the eyes back, presence dimmed while away.
           dimmed={visual === "reconnecting"}
           // Audio reaction on top of the size tween: the eyes widen with the
           // user's mic while listening and pulse with the assistant's own voice
@@ -549,15 +545,14 @@ export function VoiceRoomColorLook({
 /**
  * Which ink the bands are drawn in.
  *
- * `voice` is the room's real vocabulary: both voices rise from the same edge
- * and are told apart by ink alone, a pale sheet for the user and a dark one for
- * the assistant ({@link BAND_VOICE}). It needs a mid-tone color field behind it
- * to read, which every resolved avatar now provides.
+ * `voice` is the room's vocabulary: both voices rise from the same edge and are
+ * told apart by ink alone, a pale sheet for the user and a dark one for the
+ * assistant ({@link BAND_VOICE}). It needs the mid-tone color field a resolved
+ * avatar paints to read against.
  *
- * `accent` is the fallback for the one surface that has no field: the room
- * while the avatar is still unresolved, painted near-black, where dark ink
- * would be invisible. Both voices ride the avatar tint there and are told apart
- * by the centerpiece rather than by the band.
+ * `accent` serves the one surface with no field: the room while the avatar is
+ * unresolved, painted near-black, where dark ink is invisible. Both voices ride
+ * the avatar tint there and are told apart by the centerpiece instead.
  */
 export type VoiceBandInk = "voice" | "accent";
 
@@ -566,11 +561,9 @@ export type VoiceBandInk = "voice" | "accent";
  * assistant's TTS while `responding`, cross-fading as the turn passes between
  * them.
  *
- * Shared by every look, which is the entire point of it being a component. The
- * bands are the room's account of whose turn it is, so a room that draws them
- * differently is a different product, and they used to: the character look
- * raised both from the floor while the custom-avatar look raised the user's
- * from the ceiling and answered with concentric rings.
+ * Every look draws these, which is the point of them being one component: the
+ * bands are the room's account of whose turn it is, and a room that drew them
+ * differently would read as a different product.
  */
 export function VoiceRoomVoiceBands({
   visual,
@@ -1008,8 +1001,7 @@ function VoiceRespondingTreatment({
 
   // `rings`: concentric rings expanding outward from the room's center;
   // overall presence scales with the TTS amplitude. A sketch alternative to the
-  // shipped band: the room drew this behind a custom avatar until both looks
-  // settled on the band, and it is kept for comparison in Storybook.
+  // shipped band, reachable only from Storybook.
   return (
     <div
       ref={ampRef}

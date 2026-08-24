@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
 const sampleSpy = mock(async (_src: string): Promise<string | null> => "#3B5C8A");
 mock.module("@/utils/avatar-image-color", () => ({
@@ -78,5 +78,26 @@ describe("useCustomAvatarFieldHex", () => {
     cleanup();
     render(<Probe url="blob:avatar-2" />);
     await waitFor(() => expect(field()).toBe("#7A4C2F"));
+  });
+
+  test("drops the old color the moment the image is replaced", async () => {
+    // Replacing an assistant's avatar swaps the URL under a mounted hook. The
+    // room, the composer bar and the pill would otherwise keep painting the
+    // previous avatar's color for as long as the new decode takes.
+    let resolveSecond: ((hex: string | null) => void) | undefined;
+    const { rerender } = render(<Probe url="blob:avatar-1" />);
+    await waitFor(() => expect(field()).toBe("#3B5C8A"));
+    sampleSpy.mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveSecond = resolve;
+        }),
+    );
+    rerender(<Probe url="blob:avatar-2" />);
+    expect(field()).toBe("none");
+    await act(async () => {
+      resolveSecond?.("#7A4C2F");
+    });
+    expect(field()).toBe("#7A4C2F");
   });
 });

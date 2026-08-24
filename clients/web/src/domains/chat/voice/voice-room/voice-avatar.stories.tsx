@@ -591,7 +591,7 @@ const customArgTypes = {
  * the sample is still decoding.
  */
 export const CustomImagePlayground: RoomStory = {
-  name: "Custom Image — Playground",
+  name: "Custom Image: Playground",
   render: (args) => <RoomScene {...args} />,
   args: customArgs,
   argTypes: customArgTypes,
@@ -602,7 +602,7 @@ export const CustomImagePlayground: RoomStory = {
  * bands and the caption are the same in both, and only the centerpiece differs.
  */
 export const CustomImageStates: RoomStory = {
-  name: "Custom Image — States",
+  name: "Custom Image: States",
   args: customArgs,
   argTypes: customArgTypes,
   render: (args) => (

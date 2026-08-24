@@ -48,6 +48,10 @@ export function useCustomAvatarFieldHex(
       setHex(sampled.get(customImageUrl) ?? null);
       return;
     }
+    // Any color held here belongs to a different image, and the surfaces
+    // reading it would paint that one until this decode lands. Null is what
+    // they already handle as "no color yet".
+    setHex(null);
     let cancelled = false;
     void sampleAvatarFieldHex(customImageUrl).then((next) => {
       sampled.set(customImageUrl, next);

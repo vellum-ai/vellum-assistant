@@ -1,8 +1,8 @@
 /**
  * The color math behind an uploaded avatar's room-fill color. The canvas half
- * (`sampleAvatarFieldHex`) is not exercised here — no test environment decodes
- * an image — so the sampling is split so the part that decides the color can be
- * tested from pixels alone.
+ * (`sampleAvatarFieldHex`) is not exercised here, because no test environment
+ * decodes an image. The sampling is split so the part that decides the color
+ * can be tested from pixels alone.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -75,8 +75,8 @@ describe("normalizeFieldHex", () => {
 
 describe("fieldHexFromImageData", () => {
   test("lets the colored pixels carry a logo on a white ground", () => {
-    // The failure this guards: a flat average of a red mark on white is pale
-    // pink, so every logo upload produced the same washed-out room.
+    // A flat average of a red mark on white is pale pink, which is how every
+    // logo upload ends up with the same washed-out room.
     const hex = fieldHexFromImageData(
       pixels([255, 255, 255, 255, 90], [200, 30, 30, 255, 10]),
     );
@@ -85,7 +85,7 @@ describe("fieldHexFromImageData", () => {
     expect(saturation(hex!)).toBeGreaterThan(0.2);
   });
 
-  test("skips transparent pixels — a cutout's ground is not its color", () => {
+  test("skips transparent pixels: a cutout's ground is not its color", () => {
     const cutout = fieldHexFromImageData(
       pixels([0, 0, 0, 0, 90], [40, 120, 200, 255, 10]),
     );

@@ -2,17 +2,16 @@
  * Deriving a room-fill color from a custom (uploaded) avatar image.
  *
  * A character avatar hands every avatar-tinted surface an explicit palette
- * color to paint with. An uploaded image hands over pixels instead, so the
- * surfaces that fill themselves with "the assistant's color" had nothing to
- * read and fell back to a colorless treatment. This samples one representative
- * color out of the image so an uploaded avatar can drive the same surfaces a
- * character does.
+ * color to paint with. An uploaded image hands over pixels instead, so a
+ * surface that fills itself with "the assistant's color" has to sample one out
+ * of those pixels. That is what this does: one representative color, so an
+ * uploaded avatar drives the same surfaces a character does.
  *
  * The sample is normalized rather than used raw: a photograph's average is
  * usually a washed-out near-white or a muddy near-black, neither of which is a
  * background anything can be drawn on. {@link normalizeFieldHex} keeps the
- * sampled hue and pins the lightness into the same band the character palette
- * occupies, which is the band every avatar-tinted treatment was tuned against.
+ * sampled hue and pins the lightness into the band the character palette
+ * occupies, which is the band avatar-tinted treatments are tuned against.
  */
 
 import { coverCropSquare } from "./avatar-raster";

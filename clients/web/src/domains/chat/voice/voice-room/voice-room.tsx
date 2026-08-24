@@ -18,8 +18,8 @@ import { useTranslation } from "@/i18n";
  * - Custom-image avatars have no palette color and no eyes, so the room samples
  *   a field color out of the uploaded image ({@link useCustomAvatarFieldHex})
  *   and the image itself takes the center. Everything else is the character
- *   room, which is the point: the two used to differ in wave placement and in
- *   how the assistant's turn was drawn, so one product read as two.
+ *   room, which is the point: a session reads the same whichever avatar the
+ *   assistant wears.
  * - Until the avatar query settles there is no color to paint with, so the room
  *   holds the deep-dark ambient void and its bands ride the avatar tint (the
  *   dark voice ink would be invisible on it). That is a loading state, not a

@@ -872,7 +872,7 @@ describe("VoiceRoom: mobile sheet", () => {
   });
 });
 
-describe("VoiceRoom — voice bands (avatar still unresolved)", () => {
+describe("VoiceRoom: voice bands (avatar still unresolved)", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
   test("mounts the listening band while listening (energy coming in)", () => {
@@ -1269,10 +1269,10 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 });
 
-describe("VoiceRoom — the bands read the same for every avatar", () => {
-  // The bug this pins: a custom avatar raised the user's band from the ceiling
-  // and answered with concentric rings, while a character raised both from the
-  // floor. Same session, same product, two different rooms.
+describe("VoiceRoom: the bands read the same for every avatar", () => {
+  // The bands are the room's account of whose turn it is, so an avatar that
+  // changed where they sit, or what answers the user, would make one session
+  // read as two different rooms.
   function renderWith(
     avatar: "character" | "custom",
     state: LiveVoiceSessionState,
@@ -1315,12 +1315,10 @@ describe("VoiceRoom — the bands read the same for every avatar", () => {
   });
 });
 
-describe("VoiceRoom — live transcript (shared across looks)", () => {
-  // The report behind this work was "custom avatars show transcription on
-  // screen, native ones don't". They never diverged: the transcript reads two
-  // persisted prefs and nothing about the avatar. What differed was whose
-  // account had the prefs on. These pin that, so a future look change cannot
-  // quietly make the complaint true.
+describe("VoiceRoom: live transcript (shared across looks)", () => {
+  // The transcript reads two persisted prefs and nothing about the avatar, so
+  // what is on screen is a property of the account, not of the assistant's
+  // look. These pin that, so a look change cannot make it avatar-dependent.
   const userHalf = () => screen.queryByTestId("voice-ambient-user");
   const assistantHalf = () => screen.queryByTestId("voice-ambient-assistant");
 
