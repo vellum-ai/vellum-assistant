@@ -107,18 +107,21 @@ func canonicalCSSHex(_ raw: String) -> String? {
     return "#" + digits
 }
 
-/// Near-black ground that avatar-tinted full-bleed surfaces blend over.
-/// `SURFACE_GROUND` in `avatar-tone.ts`.
-let avatarSurfaceGround = "#151515"
-
 /// Multiply every channel of `hex` by `factor`, clamping to the 0-255 range.
 ///
 /// Mirrors `darkenHex` in `clients/web/src/utils/avatar-tone.ts`, the way
 /// ``UIColor/contrastingForeground`` mirrors that file's `contrastForeground`.
 /// It is how a surface painted with an avatar accent gets its dark-appearance
 /// variant: one hex arrives in the snapshot, and both appearances have to come
-/// out of it. A string this file cannot read comes back unchanged, as it does
-/// on the web, so the caller's own fallback still has something to reject.
+/// out of it.
+///
+/// The grammar is deliberately a superset of the web's. `avatar-tone.ts` reads
+/// `#RRGGBB` only, while this reads every spelling ``canonicalCSSHex(_:)``
+/// accepts and drops the alpha an 8-digit one carries, because what comes out
+/// is a card surface and a translucent card is not one. ``WidgetAvatarPalette``
+/// squares its light side with that by forcing alpha there too. A string
+/// neither side can read comes back unchanged, so the caller's own fallback
+/// still has something to reject.
 func darkenHex(_ hex: String, _ factor: Double) -> String {
     guard let channels = hexChannels(hex) else {
         return hex
@@ -141,14 +144,6 @@ func blendHex(base: String, overlay: String, alpha: Double) -> String {
         return Int((Double(from) * (1 - a) + Double(to) * a).rounded())
     }
     return hexString(r: mix(b.r, o.r), g: mix(b.g, o.g), b: mix(b.b, o.b))
-}
-
-/// Deep full-bleed surface for an avatar accent: the accent washed over
-/// ``avatarSurfaceGround``. Mirrors `avatarSurfaceHex` in `avatar-tone.ts`,
-/// 0.14 and all, so a native surface lands on the same ground the takeover
-/// paints behind the same avatar.
-func avatarSurfaceHex(_ accentHex: String) -> String {
-    return blendHex(base: avatarSurfaceGround, overlay: accentHex, alpha: 0.14)
 }
 
 /// The red, green and blue channels of a CSS hex color as 0-255 integers, or

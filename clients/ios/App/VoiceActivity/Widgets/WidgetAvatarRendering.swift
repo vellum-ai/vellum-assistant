@@ -55,18 +55,11 @@ struct WidgetAvatarPalette {
     /// palette and the static one agree wherever they overlap.
     private static let darkSurfaceFactor = 0.79
 
-    /// Opacity a control's fill sits at on the card, matching
-    /// ``WidgetTheme/onBrandFill``.
-    private static let controlFillOpacity = 0.22
-
     /// The card behind everything.
     let surface: Color
 
     /// Glyphs and text drawn on ``surface``.
     let onSurface: Color
-
-    /// A control's fill on ``surface``: ``onSurface`` at low opacity.
-    let controlFill: Color
 
     /// ``onSurface`` resolved for each appearance, so a card mixing its own
     /// fill can ask how bright the color it would be washing with is.
@@ -82,7 +75,6 @@ struct WidgetAvatarPalette {
         else {
             surface = WidgetTheme.brandCardSurface
             onSurface = WidgetTheme.onBrand
-            controlFill = WidgetTheme.onBrandFill
             // The brand card is a deep green in both appearances, so what sits
             // on it is white in both.
             resolvedOnSurface = (.white, .white)
@@ -96,15 +88,12 @@ struct WidgetAvatarPalette {
         let darkOn = dark.contrastingForeground
         surface = WidgetTheme.appearanceDynamic(light: light, dark: dark)
         onSurface = WidgetTheme.appearanceDynamic(light: lightOn, dark: darkOn)
-        controlFill = WidgetTheme.appearanceDynamic(
-            light: lightOn.withAlphaComponent(Self.controlFillOpacity),
-            dark: darkOn.withAlphaComponent(Self.controlFillOpacity)
-        )
         resolvedOnSurface = (lightOn, darkOn)
     }
 
-    /// ``controlFill`` at a weight the caller picks, for a card whose controls
-    /// read lighter than the default.
+    /// A control's fill on ``surface``: ``onSurface`` at the weight the caller
+    /// picks, so the action circles and the chip read as cut out of the card
+    /// rather than as a second color placed on top of it.
     ///
     /// Two weights rather than one because ``onSurface`` comes out white over
     /// some accents and near-black over others, and one opacity does not read
@@ -148,7 +137,15 @@ struct WidgetAvatarEyes: View {
     private static let pupilRatio: CGFloat = 0.41
     private static let pupilInsetRatio: CGFloat = 0.18
 
-    var eyeHeight: CGFloat = 33
+    /// The height the pair is drawn at where the card has room for it.
+    static let defaultEyeHeight: CGFloat = 33
+
+    /// The pair's width as a share of its height: two eyes and the gap between
+    /// them. Published because a card fitting the pair beside something else
+    /// picks a height and has to know how wide that comes out.
+    static let pairAspect: CGFloat = widthRatio * 2 + gapRatio
+
+    var eyeHeight: CGFloat = WidgetAvatarEyes.defaultEyeHeight
 
     var body: some View {
         HStack(spacing: eyeHeight * Self.gapRatio) {
@@ -216,15 +213,16 @@ struct BlurredAvatarBackground: View {
     /// clip trims the excess; otherwise the perimeter fades into the ground.
     private static let overscan: CGFloat = blurRadius * 2
 
+    /// The near-black under the photo, and the whole card when there is no
+    /// photo to blur. Hue-neutral, which is all an uploaded photo can offer: it
+    /// carries no accent by design. `SURFACE_GROUND` in
+    /// `clients/web/src/utils/avatar-tone.ts`.
+    private static let groundHex = "#151515"
+
     /// The photo, absent when the snapshot carries none and when its bytes do
     /// not form an image. Both fall through to the ground below, which is what
     /// makes this safe to hand a card's whole background to.
     let image: UIImage?
-
-    /// Tints the ground for the case where there is no photo to blur, the way
-    /// the takeover tints its own. Nil leaves the ground hue-neutral, which is
-    /// all an uploaded photo can offer: it carries no accent by design.
-    var accentHex: String? = nil
 
     var body: some View {
         ground
@@ -252,8 +250,7 @@ struct BlurredAvatarBackground: View {
     }
 
     private var ground: Color {
-        let hex = accentHex.map(avatarSurfaceHex) ?? avatarSurfaceGround
-        return Color(cssHex: hex) ?? .black
+        Color(cssHex: Self.groundHex) ?? .black
     }
 }
 
@@ -280,15 +277,32 @@ extension SnapshotEntry {
         snapshot?.avatar?.imageData.flatMap(UIImage.init(data:))
     }
 
-    /// The colors to theme this rendering with, already fallen back to the
-    /// static brand card when there is no accent. Only a character avatar
-    /// themes the card: any other kind keeps the static palette even if a
-    /// malformed or newer-schema snapshot carries an accent alongside it.
-    var avatarPalette: WidgetAvatarPalette {
+    /// The accent this rendering themes itself with, or `nil` to keep the
+    /// static tokens.
+    ///
+    /// The one owner of the rule that only a character avatar carries an
+    /// accent: an uploaded photo has none by design, an account with nothing
+    /// synced has none to read, and any other kind keeps the static palette
+    /// even if a malformed or newer-schema snapshot carries an accent
+    /// alongside it. Both palettes below read the gate from here so a card and
+    /// the controls on it cannot disagree about which accounts are themed.
+    var themeAccentHex: String? {
         guard avatarKind == .character else {
-            return WidgetAvatarPalette(accentHex: nil)
+            return nil
         }
-        return WidgetAvatarPalette(accentHex: snapshot?.avatar?.accentHex)
+        return snapshot?.avatar?.accentHex
+    }
+
+    /// The colors to paint a full-bleed card with, already fallen back to the
+    /// static brand card when there is no accent.
+    var avatarPalette: WidgetAvatarPalette {
+        WidgetAvatarPalette(accentHex: themeAccentHex)
+    }
+
+    /// The wash theming a New Chat surface on a light card, already fallen back
+    /// to the static tokens when there is no accent.
+    var softAccent: WidgetSoftAccent {
+        WidgetSoftAccent(accentHex: themeAccentHex)
     }
 }
 
@@ -301,19 +315,20 @@ private struct WidgetAvatarKitPreviewCard: View {
     let palette: WidgetAvatarPalette
 
     var body: some View {
-        VStack(spacing: 10) {
-            WidgetAvatarEyes(eyeHeight: 26)
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(palette.onSurface)
-            HStack(spacing: 8) {
-                controlCircle("camera.fill")
-                controlCircle("waveform")
+        previewWidgetCard(width: 150, height: 150) {
+            VStack(spacing: 10) {
+                WidgetAvatarEyes(eyeHeight: 26)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.onSurface)
+                HStack(spacing: 8) {
+                    controlCircle("camera.fill")
+                    controlCircle("waveform")
+                }
             }
+        } background: {
+            palette.surface
         }
-        .frame(width: 150, height: 150)
-        .background(palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private func controlCircle(_ symbol: String) -> some View {
@@ -321,7 +336,7 @@ private struct WidgetAvatarKitPreviewCard: View {
             .font(.system(size: 15))
             .foregroundStyle(palette.onSurface)
             .frame(width: 38, height: 38)
-            .background(palette.controlFill, in: Circle())
+            .background(palette.controlFill(onWhite: 0.14, onDark: 0.10), in: Circle())
     }
 }
 
@@ -355,6 +370,46 @@ func previewAvatarPhoto() -> UIImage {
     }
 }
 
+/// A card at the size a widget is drawn at, clipped the way the system clips
+/// one, so a preview shows a layout landing on its own margins rather than a
+/// view floating in a canvas.
+///
+/// The background is the caller's: one widget paints the flat surface token and
+/// the next paints the avatar over the widget's whole bounds.
+func previewWidgetCard<Content: View, Background: View>(
+    width: CGFloat = 161,
+    height: CGFloat = 161,
+    @ViewBuilder content: () -> Content,
+    @ViewBuilder background: () -> Background
+) -> some View {
+    content()
+        .frame(width: width, height: height)
+        .background { background() }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+}
+
+/// A snapshot carrying exactly what a preview needs to say: the two counts and
+/// the avatar. Shared with the widgets built out of the kit, none of which
+/// previews a conversation list.
+func previewEntry(
+    unread: Int = 0,
+    inProgress: Int = 0,
+    avatar: WidgetSnapshotAvatar? = nil
+) -> SnapshotEntry {
+    SnapshotEntry(
+        date: Date(),
+        snapshot: WidgetSnapshot(
+            schemaVersion: WidgetSnapshot.currentSchemaVersion,
+            generatedAt: Date(),
+            unreadCount: unread,
+            inProgressCount: inProgress,
+            conversations: [],
+            avatar: avatar
+        ),
+        isStale: false
+    )
+}
+
 #Preview("Character accents") {
     previewAppearances {
         HStack(spacing: 12) {
@@ -375,12 +430,11 @@ func previewAvatarPhoto() -> UIImage {
 #Preview("Custom image") {
     let photo = previewAvatarPhoto()
     previewAppearances {
-        ZStack {
-            BlurredAvatarBackground(image: photo)
+        previewWidgetCard(width: 150, height: 150) {
             WidgetAvatarImageView(image: photo, size: 44, cornerRadius: 14)
+        } background: {
+            BlurredAvatarBackground(image: photo)
         }
-        .frame(width: 150, height: 150)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 

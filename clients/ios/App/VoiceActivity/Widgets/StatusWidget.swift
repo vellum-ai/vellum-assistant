@@ -99,18 +99,6 @@ struct StatusWidgetView: View {
         return snapshot.unreadCount > 0 || snapshot.inProgressCount > 0
     }
 
-    /// The accent theming the New Chat surfaces.
-    ///
-    /// Only a character avatar carries one: an uploaded photo has no accent by
-    /// design, and an account with nothing synced has none to read. Both fall
-    /// through to the static tokens inside ``WidgetSoftAccent``.
-    private var softAccent: WidgetSoftAccent {
-        guard entry.avatarKind == .character else {
-            return WidgetSoftAccent(accentHex: nil)
-        }
-        return WidgetSoftAccent(accentHex: entry.snapshot?.avatar?.accentHex)
-    }
-
     /// The height of one control, capped at the size the card is laid out for
     /// and otherwise cut to whichever dimension runs out first.
     ///
@@ -154,8 +142,8 @@ struct StatusWidgetView: View {
             intent: OpenNewChatIntent(),
             icon: Image("VellumV"),
             title: "Chat",
-            fill: softAccent.fill,
-            tint: softAccent.onFill,
+            fill: entry.softAccent.fill,
+            tint: entry.softAccent.onFill,
             height: height,
             avatarImage: entry.avatarImage
         )
@@ -165,7 +153,7 @@ struct StatusWidgetView: View {
     /// two read as a primary action and a secondary one.
     private func actionTiles(height: CGFloat) -> some View {
         HStack(spacing: Self.tileGap) {
-            WidgetActionTile.newChat(accent: softAccent, avatarImage: entry.avatarImage)
+            WidgetActionTile.newChat(accent: entry.softAccent, avatarImage: entry.avatarImage)
             WidgetActionTile.voice
         }
         .frame(height: height)
@@ -204,18 +192,11 @@ struct StatusWidgetView: View {
         }
     }
 
-    /// A bubble wearing the same unseen dot the Catch Up rows mark a
-    /// conversation with, so the two widgets say "unread" the same way.
+    /// The outline bubble, since this card is the white one, in the primary
+    /// text color the line beside it is drawn in.
     private var unreadGlyph: some View {
-        Image(systemName: "bubble.left")
-            .font(.system(size: 16))
+        WidgetUnreadMark(isFilled: false, size: 16)
             .foregroundStyle(WidgetTheme.textPrimary)
-            .overlay(alignment: .topTrailing) {
-                Circle()
-                    .fill(WidgetTheme.unseenIndicator)
-                    .frame(width: 6, height: 6)
-                    .offset(x: 2, y: -1)
-            }
     }
 
     /// The dots a Catch Up row marks a turn in flight with, at the size this
@@ -229,78 +210,44 @@ struct StatusWidgetView: View {
 
 #if DEBUG
 
-/// The widget's own card at the size the layout is specified at, so a preview
-/// shows the controls landing on their margins rather than a view floating in
-/// a canvas.
-private struct StatusWidgetPreviewCard: View {
-    let entry: SnapshotEntry
-
-    var body: some View {
+/// This widget's card: the shared wrapper over the flat surface token, which is
+/// what the widget itself paints its container with.
+private func statusPreviewCard(_ entry: SnapshotEntry) -> some View {
+    previewWidgetCard {
         StatusWidgetView(entry: entry)
-            .frame(width: 161, height: 161)
-            .background(WidgetTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-}
-
-/// A snapshot carrying exactly what a preview needs to say and nothing else:
-/// this widget renders no conversations.
-private func previewEntry(
-    unread: Int = 0,
-    inProgress: Int = 0,
-    avatar: WidgetSnapshotAvatar? = nil
-) -> SnapshotEntry {
-    SnapshotEntry(
-        date: Date(),
-        snapshot: WidgetSnapshot(
-            schemaVersion: WidgetSnapshot.currentSchemaVersion,
-            generatedAt: Date(),
-            unreadCount: unread,
-            inProgressCount: inProgress,
-            conversations: [],
-            avatar: avatar
-        ),
-        isStale: false
-    )
-}
-
-/// A stand-in avatar, drawn rather than shipped so the previews cost the
-/// extension no asset.
-private func previewAvatarData() -> Data {
-    let size = CGSize(width: 96, height: 96)
-    return UIGraphicsImageRenderer(size: size).pngData { context in
-        (UIColor(cssHex: "#3B6EA5") ?? .systemBlue).setFill()
-        context.fill(CGRect(origin: .zero, size: size))
-        (UIColor(cssHex: "#F2F2F2") ?? .white).setFill()
-        context.cgContext.fillEllipse(in: CGRect(x: 20, y: 30, width: 22, height: 28))
-        context.cgContext.fillEllipse(in: CGRect(x: 54, y: 30, width: 22, height: 28))
+    } background: {
+        WidgetTheme.surface
     }
 }
 
 #Preview("Idle") {
     previewAppearances {
-        StatusWidgetPreviewCard(entry: previewEntry())
+        statusPreviewCard(previewEntry())
     }
 }
 
 #Preview("Active") {
     previewAppearances {
-        StatusWidgetPreviewCard(entry: previewEntry(unread: 3, inProgress: 2))
+        statusPreviewCard(previewEntry(unread: 3, inProgress: 2))
     }
 }
 
 #Preview("Active, unread only") {
     previewAppearances {
-        StatusWidgetPreviewCard(entry: previewEntry(unread: 1))
+        statusPreviewCard(previewEntry(unread: 1))
     }
 }
 
 #Preview("Custom avatar") {
-    let avatar = WidgetSnapshotAvatar(kind: "image", accentHex: nil, imageData: previewAvatarData())
+    let avatar = WidgetSnapshotAvatar(
+        kind: "image",
+        accentHex: nil,
+        imageData: previewAvatarPhoto().pngData()
+    )
     previewAppearances {
         HStack(spacing: 12) {
-            StatusWidgetPreviewCard(entry: previewEntry(avatar: avatar))
-            StatusWidgetPreviewCard(entry: previewEntry(unread: 3, inProgress: 2, avatar: avatar))
+            statusPreviewCard(previewEntry(avatar: avatar))
+            statusPreviewCard(previewEntry(unread: 3, inProgress: 2, avatar: avatar))
         }
     }
 }
@@ -311,12 +258,12 @@ private func previewAvatarData() -> Data {
     let avatar = WidgetSnapshotAvatar(
         kind: "character",
         accentHex: "#F2C94C",
-        imageData: previewAvatarData()
+        imageData: previewAvatarPhoto().pngData()
     )
     previewAppearances {
         HStack(spacing: 12) {
-            StatusWidgetPreviewCard(entry: previewEntry(avatar: avatar))
-            StatusWidgetPreviewCard(entry: previewEntry(unread: 3, inProgress: 2, avatar: avatar))
+            statusPreviewCard(previewEntry(avatar: avatar))
+            statusPreviewCard(previewEntry(unread: 3, inProgress: 2, avatar: avatar))
         }
     }
 }
