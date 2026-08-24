@@ -242,6 +242,60 @@ function isClientErrorStatus(error: unknown): boolean {
 }
 
 /**
+ * True when a parsed tool result contains a local JSON Schema reference.
+ *
+ * Gemini reserves `$ref` fields inside structured function responses for
+ * multimodal part references. OpenAI-compatible gateways can JSON-decode tool
+ * message content before translating it to Gemini, which makes a JSON Schema
+ * result look like one of those references and causes an INVALID_ARGUMENT.
+ */
+function containsLocalJsonSchemaReference(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    if (current === null || typeof current !== "object") {
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const ref = record.$ref;
+    if (typeof ref === "string" && (ref === "#" || ref.startsWith("#/"))) {
+      return true;
+    }
+    pending.push(...Object.values(record));
+  }
+  return false;
+}
+
+/**
+ * Keep JSON Schema tool results opaque across OpenAI-compatible gateways.
+ *
+ * The outer object is intentionally valid JSON so gateways that decode tool
+ * content produce `{ output: string }`; the schema's `$ref` remains inside the
+ * string and cannot be interpreted as a Gemini multimodal part reference.
+ */
+function protectJsonSchemaToolResult(payload: string): string {
+  if (!payload.includes('"$ref"')) {
+    return payload;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+
+  return containsLocalJsonSchemaReference(parsed)
+    ? JSON.stringify({ output: payload })
+    : payload;
+}
+
+/**
  * True when the request carried an explicit reasoning opt-out (`"none"` sent
  * as flat `reasoning_effort` or nested `reasoning.effort`) and the provider
  * rejected it with a 4xx that names the reasoning field. Reasoning-only
@@ -1292,7 +1346,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           result.push({
             role: "tool",
             tool_call_id: tr.tool_use_id,
-            content: serialized.payload,
+            content: protectJsonSchemaToolResult(serialized.payload),
           });
         }
 
