@@ -54,10 +54,10 @@ describe("agent_view", () => {
   it("subscribes to both directions of a reaction, since both are handled", () => {
     // The daemon dispatches reactions by `callbackData` prefix and handles
     // `reaction_removed:` as its own case, persisting the removal so a
-    // transcript shows it. Subscribing to only one direction left that path
-    // unreachable: the handler existed and Slack was never asked to send the
-    // event. Asserted as a pair so dropping either is a failure here rather
-    // than a feature that silently stops happening.
+    // transcript shows it. Both directions have to be subscribed for that to
+    // run. Asserted as a pair, because a subscription dropped on one side is
+    // invisible from the handler: the code still reads as working and simply
+    // never receives anything.
     const events = manifest.settings.event_subscriptions.bot_events;
     expect(events).toContain("reaction_added");
     expect(events).toContain("reaction_removed");
