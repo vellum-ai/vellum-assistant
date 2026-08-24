@@ -495,6 +495,9 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps().at(-1)).toEqual({
       action: "append",
       streamId: "stream-ts-1",
+      // No `appended`: the plan moved and the words did not. `text` is still
+      // the whole reply, which is what a channel that rewrites needs.
+      text: "Working on it.",
       plan: {
         steps: [
           { label: "Search docs", status: "completed" },
