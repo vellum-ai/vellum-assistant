@@ -29,6 +29,7 @@ import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useAuthStore } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { AppSummary } from "@/types/app-types";
 import {
   saveViewMode,
@@ -134,7 +135,12 @@ const PINNED_APPS: AppSummary[] = [
   },
 ];
 
-/** Seed the app list the sidebar's pinned block reads. */
+/**
+ * Seed the app list the sidebar's pinned block reads, and the capability that
+ * decides it reads from there at all. Without the capability the sidebar falls
+ * back to the browser-local pin list, so these stories would document a path
+ * they do not mean to show.
+ */
 function seedApps(client: QueryClient, assistantId: string): QueryClient {
   client.setQueryData(
     appsGetQueryKey({ path: { assistant_id: assistantId } }),
@@ -142,6 +148,7 @@ function seedApps(client: QueryClient, assistantId: string): QueryClient {
       apps: PINNED_APPS,
     },
   );
+  client.setQueryData(["assistant-capability", "appPins", assistantId], true);
   return client;
 }
 
@@ -213,6 +220,10 @@ function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
      session of its own, so the sidebar's footer entry only appears in these
      stories once one is seeded. */
   useAuthStore.setState({ sessionStatus: "authenticated" });
+  /* `useAssistantCapability` keys on the active assistant from this store, not
+     on the id the story passes as a prop, so the seeded `appPins` answer is
+     only found once the store agrees which assistant is active. */
+  useResolvedAssistantsStore.setState({ activeAssistantId: assistantId });
 }
 
 /**

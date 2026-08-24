@@ -3,7 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { planLegacyPinClaim } from "@/hooks/use-legacy-pin-migration";
 
 function app(id: string, pinSortPosition?: number) {
-  return pinSortPosition === undefined ? { id } : { id, pinSortPosition };
+  return pinSortPosition === undefined
+    ? { id, origin: "workspace" }
+    : { id, origin: "workspace", pinSortPosition };
+}
+
+/** An app a plugin ships. Its id is shared by every assistant with that plugin. */
+function pluginApp(plugin: string, appDir: string) {
+  return { id: `plugins~${plugin}~${appDir}`, origin: `plugin:${plugin}` };
 }
 
 function legacyPin(appId: string, pinnedOrder: number, color?: string) {
@@ -90,5 +97,34 @@ describe("planLegacyPinClaim", () => {
 
   test("an assistant with no apps claims nothing", () => {
     expect(planLegacyPinClaim([legacyPin("mine", 1)], [])).toEqual([]);
+  });
+
+  /*
+   * A plugin app's id is `plugins~<plugin>~<appDir>`, so every assistant with
+   * that plugin reports it. Presence proves the app is here, never that the pin
+   * was made here, and claiming one would write another assistant's pin to this
+   * daemon: the cross-assistant leak this migration exists to end, made durable.
+   */
+  test("never claims a plugin app, whose id every assistant shares", () => {
+    const pin = legacyPin("plugins~demo~widget", 1);
+
+    expect(planLegacyPinClaim([pin], [pluginApp("demo", "widget")])).toEqual([]);
+  });
+
+  test("claims the workspace apps beside an unclaimable plugin app", () => {
+    const claimed = planLegacyPinClaim(
+      [legacyPin("plugins~demo~widget", 1), legacyPin("mine", 2)],
+      [pluginApp("demo", "widget"), app("mine")],
+    );
+
+    expect(claimed.map((pin) => pin.appId)).toEqual(["mine"]);
+  });
+
+  /* An older cached response carries no origin, so nothing about it is
+     attributable and the conservative answer is to leave it. */
+  test("never claims an app whose origin is unknown", () => {
+    expect(planLegacyPinClaim([legacyPin("mine", 1)], [{ id: "mine" }])).toEqual(
+      [],
+    );
   });
 });

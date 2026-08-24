@@ -50,12 +50,27 @@ function writeRemaining(pins: PinnedAppEntry[]): void {
  */
 export function planLegacyPinClaim(
   legacy: PinnedAppEntry[],
-  apps: { id: string; pinSortPosition?: number }[],
+  apps: { id: string; origin?: string; pinSortPosition?: number }[],
 ): PinnedAppEntry[] {
   if (apps.some((app) => app.pinSortPosition !== undefined)) {
     return [];
   }
-  const ownIds = new Set(apps.map((app) => app.id));
+  /*
+   * Only a workspace app's id proves ownership. It is opaque and belongs to one
+   * assistant, so finding it here means this assistant is where the pin was
+   * made. A plugin app's id is `plugins~<plugin>~<appDir>`, which every
+   * assistant with that plugin installed reports, so it identifies the app and
+   * says nothing about who pinned it. Claiming one would let whichever
+   * assistant loads first adopt a pin made under another and write it to the
+   * daemon, turning the ambiguity this migration exists to resolve into durable
+   * cross-assistant state.
+   *
+   * An absent `origin` is an older cached response and is treated as
+   * unattributable for the same reason.
+   */
+  const ownIds = new Set(
+    apps.filter((app) => app.origin === "workspace").map((app) => app.id),
+  );
   return legacy
     .filter((pin) => ownIds.has(pin.appId))
     .sort((a, b) => a.pinnedOrder - b.pinnedOrder);
