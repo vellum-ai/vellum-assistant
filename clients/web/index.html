@@ -145,6 +145,10 @@
     `RootHydrateFallback` (24px lucide Loader2 arc, content-tertiary) so the
     spinner the WebView shows during the bundle download is the same one the
     router shows once it is running.
+
+    `aria-label` is English because this file is served to every locale.
+    `theme-init.js` replaces it with the resolved locale's own loading label
+    where the catalogs have one.
   -->
   <div id="root">
     <div id="boot-splash" role="status" aria-label="Loading">

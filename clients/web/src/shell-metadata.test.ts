@@ -3,6 +3,9 @@ import path from "path";
 
 import { describe, expect, test } from "bun:test";
 
+import { loadCatalogs, type LocaleCatalogs } from "@/i18n/catalogs";
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "@/i18n/supported-locales";
+
 /**
  * nginx serves `index.html` for every SPA route, so the Open Graph tags in it
  * are the *only* link preview metadata `/account/signup`, `/account/login`,
@@ -12,6 +15,11 @@ import { describe, expect, test } from "bun:test";
  */
 const INDEX_HTML = readFileSync(
   path.join(import.meta.dir, "..", "index.html"),
+  "utf8",
+);
+
+const THEME_INIT = readFileSync(
+  path.join(import.meta.dir, "..", "public", "theme-init.js"),
   "utf8",
 );
 
@@ -84,5 +92,64 @@ describe("SPA shell: Open Graph metadata", () => {
   // marketing site's robots.txt, not by making the app shell indexable.
   test("keeps the app shell out of the search index", () => {
     expect(nameTag("robots")).toBe("noindex, nofollow");
+  });
+});
+
+/**
+ * The boot splash is the only UI a user sees before the bundle exists, so its
+ * accessible label cannot come from i18next. `index.html` carries the English
+ * one and `public/theme-init.js` swaps in a translation for the locales that
+ * have one. These tests hold the two halves to the catalogs, which is the only
+ * thing keeping the pre-bundle label and the post-bundle one in agreement.
+ */
+const CATALOGS: Record<string, LocaleCatalogs> = Object.fromEntries(
+  await Promise.all(
+    SUPPORTED_LOCALES.map(async (locale) => [locale, await loadCatalogs(locale)]),
+  ),
+);
+
+/** A locale's generic loading label, or `undefined` when it does not have one. */
+function loadingLabel(locale: string): string | undefined {
+  const group = CATALOGS[locale]?.common.rootHydrateFallback;
+  if (group === null || typeof group !== "object") {
+    return undefined;
+  }
+  const label = (group as Record<string, unknown>).loadingAria;
+  return typeof label === "string" ? label : undefined;
+}
+
+describe("SPA shell: boot splash", () => {
+  const splash = doc.querySelector("#boot-splash");
+
+  test("announces itself as a live status region", () => {
+    expect(splash?.getAttribute("role")).toBe("status");
+  });
+
+  test("its static label is the same string the app's own spinner uses", () => {
+    expect(splash?.getAttribute("aria-label")).toBe(
+      loadingLabel(DEFAULT_LOCALE),
+    );
+  });
+
+  test("theme-init carries the exact label every other locale translates", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      if (locale === DEFAULT_LOCALE) {
+        continue;
+      }
+      const label = loadingLabel(locale);
+      if (label === undefined) {
+        continue;
+      }
+      expect(THEME_INIT).toContain(`${locale}: ${JSON.stringify(label)}`);
+    }
+  });
+
+  // Negotiation has to know every shipped locale, not just the translated
+  // ones: a preference for a locale with no label of its own must resolve to
+  // English rather than falling through to the next tag the host lists.
+  test("theme-init negotiates over the whole shipped locale set", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      expect(THEME_INIT).toContain(JSON.stringify(locale));
+    }
   });
 });
