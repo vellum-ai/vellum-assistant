@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { sttFluxProviderToModelFamilyMigration } from "../150-stt-flux-provider-to-model-family.js";
+import { WORKSPACE_MIGRATIONS } from "../registry.js";
 
 function workspaceWith(config: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "stt-flux-migration-"));
@@ -16,6 +17,15 @@ function readConfig(dir: string): any {
 }
 
 describe("150-stt-flux-provider-to-model-family", () => {
+  test("is registered as the newest migration", () => {
+    expect(sttFluxProviderToModelFamilyMigration.id).toBe(
+      "150-stt-flux-provider-to-model-family",
+    );
+    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
+      "150-stt-flux-provider-to-model-family",
+    );
+  });
+
   test("rewrites a Flux provider id to its parent plus a model family", () => {
     const dir = workspaceWith({
       services: { stt: { provider: "deepgram-flux", providers: {} } },
