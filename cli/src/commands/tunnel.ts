@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { closeSync, readFileSync } from "node:fs";
 import { join } from "path";
 
 import { TUNNEL_PROVIDERS } from "@vellumai/service-contracts/ingress";
@@ -16,6 +18,7 @@ import {
   parseGatewayPortFromEntryUrls,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
+import { isCompiledCli } from "../lib/local.js";
 import {
   ensureTunnelEdge,
   formatEdgeMode,
@@ -24,6 +27,7 @@ import {
 import { hasWebhookIntegrationsConfigured, runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
+import { getLogDir, openLogFile, resetLogFile } from "../lib/xdg-log.js";
 
 // `vellum` is the managed option this command owns; the local providers come
 // from the shared registry so validation here cannot drift from what the
@@ -41,6 +45,7 @@ interface TunnelArgs {
   providerExplicit: boolean;
   domain: string | null;
   clearDomain: boolean;
+  detach: boolean;
 }
 
 const FLAGS_WITH_VALUES = ["--provider", "--domain"] as const;
@@ -51,6 +56,7 @@ function parseArgs(): TunnelArgs {
   let providerExplicit = false;
   let domain: string | null = null;
   let clearDomain = false;
+  let detach = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -100,6 +106,12 @@ function parseArgs(): TunnelArgs {
       console.log(
         "                                without one. Cannot be combined with --domain.",
       );
+      console.log(
+        "  -d, --detach                  Run the tunnel in the background and return immediately.",
+      );
+      console.log(
+        "                                Logs go to the CLI log directory; stop it with `kill <pid>`.",
+      );
       console.log("");
       console.log("Providers:");
       console.log(
@@ -136,6 +148,7 @@ function parseArgs(): TunnelArgs {
       console.log("  $ vellum tunnel --provider ngrok --clear-domain");
       console.log("  $ vellum tunnel --provider cloudflare");
       console.log("  $ vellum tunnel my-assistant --provider tailscale");
+      console.log("  $ vellum tunnel --provider ngrok --detach");
       process.exit(0);
     } else if (arg === "--provider") {
       const next = args[i + 1];
@@ -169,6 +182,8 @@ function parseArgs(): TunnelArgs {
       i++;
     } else if (arg === "--clear-domain") {
       clearDomain = true;
+    } else if (arg === "-d" || arg === "--detach") {
+      detach = true;
     } else if (arg.startsWith("-")) {
       console.error(`Error: Unknown option '${arg}'.`);
       process.exit(1);
@@ -201,7 +216,14 @@ function parseArgs(): TunnelArgs {
     process.exit(1);
   }
 
-  return { assistantName, provider, providerExplicit, domain, clearDomain };
+  return {
+    assistantName,
+    provider,
+    providerExplicit,
+    domain,
+    clearDomain,
+    detach,
+  };
 }
 
 /** A tunnelable assistant plus the gateway port and workspace the edge fronts. */
@@ -334,9 +356,103 @@ function guardTailnetOnlyWebhookIngress(
   process.exit(1);
 }
 
+const TUNNEL_BACKGROUND_LOG_FILE = "tunnel.log";
+// Generous cap so a slow provider handshake (e.g. cloudflared's own ~30s
+// quick-tunnel timeout) still counts as a successful, if slow, start.
+const TUNNEL_BACKGROUND_START_TIMEOUT_MS = 35_000;
+// Matches both the "just established" line every provider prints and ngrok's
+// "found an already-running agent" adoption line.
+const TUNNEL_READY_RE = /(?:Tunnel established|Found existing ngrok tunnel): (\S+)/;
+
+/**
+ * Re-invoke `vellum tunnel` (without `-d`/`--detach`) as a detached background
+ * process, redirecting its stdout/stderr to a log file — same idiom as
+ * `spawnBackgroundWebInterface` in `client.ts`. This process then waits for
+ * the child to either print its "Tunnel established"/"Found existing ngrok
+ * tunnel" line (readiness) or exit early (failure) before returning, so a
+ * misconfigured provider still fails loudly in the terminal that ran `-d`.
+ */
+async function spawnDetachedTunnel(): Promise<void> {
+  const childArgs: string[] = ["tunnel"];
+  for (const arg of process.argv.slice(3)) {
+    if (arg === "-d" || arg === "--detach") continue;
+    childArgs.push(arg);
+  }
+
+  const spawnArgs = isCompiledCli()
+    ? childArgs
+    : [process.argv[1], ...childArgs];
+
+  resetLogFile(TUNNEL_BACKGROUND_LOG_FILE);
+  const fd = openLogFile(TUNNEL_BACKGROUND_LOG_FILE);
+  const child = spawn(process.execPath, spawnArgs, {
+    detached: true,
+    stdio: ["ignore", fd, fd],
+  });
+  if (typeof fd === "number") {
+    closeSync(fd);
+  }
+  child.unref();
+
+  const logPath = join(getLogDir(), TUNNEL_BACKGROUND_LOG_FILE);
+
+  let exit: { code: number | null } | undefined;
+  child.on("error", () => {
+    exit = { code: null };
+  });
+  child.on("exit", (code) => {
+    exit = { code };
+  });
+
+  const deadline = Date.now() + TUNNEL_BACKGROUND_START_TIMEOUT_MS;
+  let publicUrl: string | undefined;
+  while (Date.now() < deadline && !exit) {
+    let logText = "";
+    try {
+      logText = readFileSync(logPath, "utf-8");
+    } catch {
+      // Log file not written yet — keep polling.
+    }
+    const match = TUNNEL_READY_RE.exec(logText);
+    if (match) {
+      publicUrl = match[1];
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  if (exit) {
+    console.error(
+      `Error: tunnel process exited during startup${exit.code !== null ? ` (exit code ${exit.code})` : ""}. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+
+  if (publicUrl) {
+    console.log(`Tunnel established: ${publicUrl}`);
+  } else {
+    console.log(
+      `Tunnel is still starting up after ${TUNNEL_BACKGROUND_START_TIMEOUT_MS / 1000}s. Check progress: ${logPath}`,
+    );
+  }
+  console.log(`Running in background (pid ${child.pid}). Logs: ${logPath}`);
+  console.log(`Stop with: kill ${child.pid}`);
+}
+
 export async function tunnel(): Promise<void> {
-  const { assistantName, provider, providerExplicit, domain, clearDomain } =
-    parseArgs();
+  const {
+    assistantName,
+    provider,
+    providerExplicit,
+    domain,
+    clearDomain,
+    detach,
+  } = parseArgs();
+
+  if (detach) {
+    await spawnDetachedTunnel();
+    return;
+  }
 
   if (provider === "vellum") {
     throw new Error(
