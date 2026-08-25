@@ -547,10 +547,22 @@ describe("tool audit terminals", () => {
 
     for (const event of lifecycleEvents) {
       expect(event.eventName.length).toBeLessThanOrEqual(64);
-      // The untruncated name still joins the pair.
+      // The full name still joins the pair.
       expect(event.attributes.toolName).toBe(toolName);
     }
     expect(lifecycleEvents[1]!.eventName.endsWith(":abandoned")).toBe(true);
+  });
+
+  test("clamps a tool name past the wire tool_name bound", () => {
+    // A field over its bound fails validation, and a failed event is acked and
+    // discarded rather than retried.
+    const toolName = `mcp__${"a".repeat(300)}__run`;
+
+    recordToolPermissionPrompted({ toolName, riskLevel: "high" });
+
+    expect(lifecycleEvents[0]!.attributes.toolName).toBe(
+      toolName.slice(0, 255),
+    );
   });
 
   test("a failing lifecycle recorder never propagates out of the terminals", () => {

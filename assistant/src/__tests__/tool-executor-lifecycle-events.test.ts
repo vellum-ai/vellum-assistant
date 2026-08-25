@@ -11,6 +11,7 @@ let promptDecision: "allow" | "deny" = "allow";
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 let toolThrow: Error | null = null;
 let grantConsumeOk = false;
+let abortDuringCheck: AbortController | null = null;
 
 // ── audit-terminal captures ───────────────────────────────
 // The executor and its permission/approval collaborators no longer emit
@@ -125,7 +126,12 @@ mock.module("../permissions/checker.js", () => ({
     }
     return { level: checkerRisk };
   },
-  check: async () => ({ decision: checkerDecision, reason: checkerReason }),
+  check: async () => {
+    // Lets a test abort the turn after risk classification (which rethrows an
+    // aborted signal) but before the prompt is surfaced.
+    abortDuringCheck?.abort();
+    return { decision: checkerDecision, reason: checkerReason };
+  },
   generateScopeOptions: () => [{ label: "/tmp", scope: "/tmp" }],
 }));
 
@@ -313,6 +319,7 @@ describe("ToolExecutor audit terminals", () => {
     fakeToolResult = { content: "ok", isError: false };
     toolThrow = null;
     grantConsumeOk = false;
+    abortDuringCheck = null;
     executedCaptures.length = 0;
     errorCaptures.length = 0;
     deniedCaptures.length = 0;
@@ -467,6 +474,34 @@ describe("ToolExecutor audit terminals", () => {
       expect(decidedOutcomes()).toEqual(["abandoned"]);
     },
   );
+
+  test("records nothing when the turn aborts before the prompt is surfaced", async () => {
+    checkerDecision = "prompt";
+    checkerReason = "medium risk: requires approval";
+    checkerRisk = "medium";
+
+    // The real prompter returns immediately on an already-aborted signal
+    // without registering or sending a confirmation request, so the user never
+    // sees a prompt and neither half of the pair may be recorded.
+    const controller = new AbortController();
+    abortDuringCheck = controller;
+    const executor = new ToolExecutor(
+      makePrompter(async () => ({ decision: "deny", wasAbort: true })),
+    );
+
+    const result = await executor.execute(
+      "bash",
+      { command: "ls -la" },
+      makeContext({ forcePromptSideEffects: true, signal: controller.signal }),
+    );
+
+    expect(result.isError).toBe(true);
+    // The invocation did reach the prompt branch and was denied there, so the
+    // empty telemetry below is the guard working, not the branch being skipped.
+    expect(deniedCaptures).toHaveLength(1);
+    expect(promptedCaptures).toHaveLength(0);
+    expect(decidedCaptures).toHaveLength(0);
+  });
 
   test("records an abandoned decision when the prompter is disposed mid-prompt", async () => {
     checkerDecision = "prompt";

@@ -178,7 +178,7 @@ export const lifecycleTelemetryEventSchema = z.object({
   recorded_at: z.number().int(),
   assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
   event_name: z.string().trim().min(1).max(64),
-  tool_name: z.string().trim().min(1).max(128).optional(),
+  tool_name: z.string().trim().min(1).max(255).optional(),
   risk_level: z.string().trim().min(1).max(32).optional(),
   risk_threshold: z.string().trim().min(1).max(32).optional(),
   surface: z.string().trim().min(1).max(64).optional(),

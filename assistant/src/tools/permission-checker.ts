@@ -395,7 +395,15 @@ export class PermissionChecker {
           surface: context.executionChannel,
           conversationId: context.conversationId,
         };
-        recordToolPermissionPrompted(promptTelemetry);
+        // An already-aborted signal makes the prompter return without
+        // registering or sending a confirmation request, so nothing reaches
+        // the user and neither half of the pair is recorded. `prompt()` reads
+        // the same signal synchronously on entry, with no await in between, so
+        // this check and its check always agree.
+        const promptIsSurfaced = context.signal?.aborted !== true;
+        if (promptIsSurfaced) {
+          recordToolPermissionPrompted(promptTelemetry);
+        }
 
         let response: Awaited<ReturnType<PermissionPrompter["prompt"]>>;
         try {
@@ -419,7 +427,9 @@ export class PermissionChecker {
           // The prompter rejected rather than resolved: it was disposed while
           // this prompt was outstanding (client disconnect, conversation
           // teardown). Nobody answered, so the prompt is abandoned.
-          recordToolPermissionDecided(promptTelemetry, "abandoned");
+          if (promptIsSurfaced) {
+            recordToolPermissionDecided(promptTelemetry, "abandoned");
+          }
           throw err;
         }
 
@@ -441,7 +451,9 @@ export class PermissionChecker {
         } else {
           outcome = "allow";
         }
-        recordToolPermissionDecided(promptTelemetry, outcome);
+        if (promptIsSurfaced) {
+          recordToolPermissionDecided(promptTelemetry, outcome);
+        }
 
         if (decision === "deny") {
           const contextualDenial =

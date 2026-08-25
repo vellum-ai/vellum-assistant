@@ -178,13 +178,15 @@ export interface PermissionPromptTelemetry extends LifecycleEventAttributes {
 }
 
 /**
- * Server bound on the lifecycle `event_name`. An overlong name is dropped
- * whole at ingest, so the one variable-length part (the tool name, which can
- * be a long `mcp__server__tool` id) is truncated to fit. The untruncated value
- * rides along in the `tool_name` field, which is where consumers join a prompt
- * to its decision.
+ * Server bounds on the lifecycle `event_name` and `tool_name`. A field over
+ * its bound fails validation, and a failed event is acked and discarded rather
+ * than retried, so both are clamped here. `event_name` has one variable-length
+ * part (the tool name, which can be a long `mcp__server__tool` id) and is much
+ * the tighter of the two, which is why `tool_name` carries the full-length
+ * value consumers join a prompt to its decision on.
  */
 const LIFECYCLE_EVENT_NAME_LIMIT = 64;
+const LIFECYCLE_TOOL_NAME_LIMIT = 255;
 
 function permissionEventName(
   prefix: string,
@@ -201,7 +203,10 @@ function recordPermissionLifecycleEvent(
   failureMessage: string,
 ): void {
   try {
-    recordLifecycleEvent(eventName, entry);
+    recordLifecycleEvent(eventName, {
+      ...entry,
+      toolName: entry.toolName.slice(0, LIFECYCLE_TOOL_NAME_LIMIT),
+    });
   } catch (err) {
     log.warn({ err, eventName, toolName: entry.toolName }, failureMessage);
   }

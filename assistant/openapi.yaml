@@ -31665,7 +31665,7 @@ paths:
                         tool_name:
                           type: string
                           minLength: 1
-                          maxLength: 128
+                          maxLength: 255
                         risk_level:
                           type: string
                           minLength: 1
