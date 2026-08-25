@@ -13,6 +13,7 @@ import {
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
+  resolveLockfileInstanceDir,
   runDevicesList,
   runDevicesRevoke,
   runHatch,
@@ -361,6 +362,19 @@ function readAvatarImage(avatarDir: string): LocalAssistantAvatar | null {
   }
 }
 
+// Mirrors the daemon's `readManifest` validation in
+// `assistant/src/avatar/avatar-manifest.ts` (the packages cannot import each
+// other): a valid `kind` with a missing or malformed per-kind payload is
+// rejected as a whole so the legacy fallback still runs.
+const avatarManifestSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("character"), traits: characterTraitsSchema }),
+  z.object({
+    kind: z.literal("image"),
+    image: z.object({ updatedAt: z.string().min(1), etag: z.string().min(1) }),
+  }),
+  z.object({ kind: z.literal("none") }),
+]);
+
 function toCharacterAvatar(traits: unknown): LocalAssistantAvatar | null {
   const parsed = characterTraitsSchema.safeParse(traits);
   return parsed.success ? { kind: "character", traits: parsed.data } : null;
@@ -373,18 +387,17 @@ function toCharacterAvatar(traits: unknown): LocalAssistantAvatar | null {
  * manifest is treated as absent, as the daemon's `readManifest` does.
  */
 function readWorkspaceAvatar(avatarDir: string): LocalAssistantAvatar | null {
-  const manifest = readJsonFile(path.join(avatarDir, AVATAR_MANIFEST_FILENAME));
-  if (manifest && typeof manifest === "object") {
-    const { kind, traits } = manifest as Record<string, unknown>;
-    const character = kind === "character" ? toCharacterAvatar(traits) : null;
-    if (character) {
-      return character;
-    }
-    if (kind === "image") {
-      return readAvatarImage(avatarDir);
-    }
-    if (kind === "none") {
-      return null;
+  const manifest = avatarManifestSchema.safeParse(
+    readJsonFile(path.join(avatarDir, AVATAR_MANIFEST_FILENAME)),
+  );
+  if (manifest.success) {
+    switch (manifest.data.kind) {
+      case "character":
+        return { kind: "character", traits: manifest.data.traits };
+      case "image":
+        return readAvatarImage(avatarDir);
+      case "none":
+        return null;
     }
   }
   return (
@@ -398,13 +411,7 @@ function readAssistantAvatar(
   lockfilePaths: string[],
   assistantId: string,
 ): LocalReadAssistantAvatarResult {
-  const lockfile = getLockfileData(lockfilePaths);
-  if (!lockfile.ok) {
-    return { ok: true, avatar: null };
-  }
-  const instanceDir = lockfile.data.assistants.find(
-    (entry) => entry.assistantId === assistantId,
-  )?.resources?.instanceDir;
+  const instanceDir = resolveLockfileInstanceDir(lockfilePaths, assistantId);
   if (!instanceDir) {
     return { ok: true, avatar: null };
   }

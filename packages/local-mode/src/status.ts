@@ -261,6 +261,42 @@ function findRawAssistant(
   return null;
 }
 
+// Legacy entries persisted the directory as top-level `baseDataDir`.
+function lockfileInstanceDir(
+  entry: LockfileAssistant | undefined,
+  rawEntry: Record<string, unknown> | null,
+): string | undefined {
+  const rawResources = isRecord(rawEntry?.resources)
+    ? rawEntry.resources
+    : undefined;
+  return firstString(
+    entry?.resources?.instanceDir,
+    rawResources?.instanceDir,
+    rawEntry?.baseDataDir,
+  );
+}
+
+/**
+ * The persisted instance directory for a lockfile entry, honoring legacy
+ * `baseDataDir` entries the parsed contract drops. Undefined when the entry
+ * is missing or records no directory.
+ */
+export function resolveLockfileInstanceDir(
+  lockfilePaths: string[],
+  assistantId: string,
+): string | undefined {
+  const result = getLockfileData(lockfilePaths);
+  const entry = result.ok
+    ? result.data.assistants.find(
+        (assistant) => assistant.assistantId === assistantId,
+      )
+    : undefined;
+  return lockfileInstanceDir(
+    entry,
+    findRawAssistant(lockfilePaths, assistantId),
+  );
+}
+
 function resolveStatusResources(
   entry: LockfileAssistant,
   rawEntry: Record<string, unknown> | null,
@@ -271,11 +307,8 @@ function resolveStatusResources(
     : undefined;
   const ports = defaultPorts(env);
   const instanceDir =
-    firstString(
-      entry.resources?.instanceDir,
-      rawResources?.instanceDir,
-      rawEntry?.baseDataDir,
-    ) ?? defaultInstanceDir(env, entry.assistantId);
+    lockfileInstanceDir(entry, rawEntry) ??
+    defaultInstanceDir(env, entry.assistantId);
   return {
     instanceDir,
     daemonPort:
