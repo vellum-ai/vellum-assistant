@@ -183,11 +183,13 @@ describe("ResourcePressureBannerSlot", () => {
         <ResourcePressureBannerSlot
           resourcePressure={monitorResult(elevatedStatus)}
           assistantId="assistant-1"
+          assistantName={null}
           assistantStateKind="active"
         />
         <ResourcePressureBannerSlot
           resourcePressure={monitorResult(elevatedStatus)}
           assistantId="assistant-1"
+          assistantName={null}
           assistantStateKind="active"
         />
       </MemoryRouter>,
