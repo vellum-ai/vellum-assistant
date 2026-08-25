@@ -21,8 +21,7 @@ mock.module("./client.js", () => ({
 }));
 
 mock.module("../avatar/avatar-manifest.js", () => ({
-  readManifest: () => mockState,
-  deriveStateFromLegacyFiles: () => mockState,
+  readAvatarState: () => mockState,
   computeImageMeta: (path: string) => {
     const stats = statSync(path);
     return { updatedAt: "", etag: `${stats.size}:${stats.mtimeMs}` };
@@ -70,7 +69,12 @@ function imageState(etag: string): AvatarState {
   };
 }
 
-const NONE: AvatarState = { kind: "none", traits: null, source: null, image: null };
+const NONE: AvatarState = {
+  kind: "none",
+  traits: null,
+  source: null,
+  image: null,
+};
 
 interface Patch {
   path: string;
@@ -204,6 +208,32 @@ describe("syncAvatarToPlatform", () => {
     await settle();
 
     expect(patches[1].body).toEqual({ avatar_base64: null });
+  });
+
+  test("an image avatar with a missing PNG is skipped, not cleared", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    mockRasterPath = null;
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+  });
+
+  test("a character whose re-render failed is skipped, not cleared", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    mockState = {
+      kind: "character",
+      traits: { bodyShape: "blob", eyeStyle: "curious", color: "green" },
+      source: null,
+      image: null,
+    };
+    mockRasterPath = null;
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
   });
 
   test("skips oversized rasters when resvg is unavailable", async () => {

@@ -146,3 +146,10 @@ export function deriveStateFromLegacyFiles(
       return { kind: "none", traits: null, source: null, image: null };
   }
 }
+
+/** Manifest first, legacy sidecars as fallback. Never persists. */
+export function readAvatarState(
+  avatarDir: string = getAvatarDir(),
+): AvatarState {
+  return readManifest(avatarDir) ?? deriveStateFromLegacyFiles(avatarDir);
+}

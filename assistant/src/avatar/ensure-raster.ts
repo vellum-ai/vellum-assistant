@@ -2,19 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { getLogger } from "../util/logger.js";
 import { getAvatarImagePath } from "../util/platform.js";
-import {
-  type AvatarState,
-  deriveStateFromLegacyFiles,
-  readManifest,
-} from "./avatar-manifest.js";
+import { type AvatarState, readAvatarState } from "./avatar-manifest.js";
 import { writeTraitsAndRenderAvatar } from "./traits-png-sync.js";
 
 const log = getLogger("ensure-raster");
-
-/** Manifest first, legacy sidecars as fallback. Never persists. */
-function readAvatarState(): AvatarState {
-  return readManifest() ?? deriveStateFromLegacyFiles();
-}
 
 function readPng(path: string): Buffer | null {
   try {

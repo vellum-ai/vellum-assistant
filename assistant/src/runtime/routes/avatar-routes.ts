@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { AVATAR_TRAITS_FILENAME } from "@vellumai/avatar-manifest";
 import { z } from "zod";
 
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
@@ -21,10 +22,7 @@ import {
   ensureAvatarRasterPath,
 } from "../../avatar/ensure-raster.js";
 import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
-import {
-  type CharacterTraits,
-  TRAITS_FILENAME,
-} from "../../avatar/traits-png-sync.js";
+import type { CharacterTraits } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
@@ -311,7 +309,7 @@ function handleCharacterAscii({ queryParams, body }: RouteHandlerArgs) {
     );
   }
 
-  const traitsPath = join(getAvatarDir(), TRAITS_FILENAME);
+  const traitsPath = join(getAvatarDir(), AVATAR_TRAITS_FILENAME);
   if (!existsSync(traitsPath)) {
     throw new BadRequestError(
       "No native character set. Use 'assistant avatar character update' first.",
