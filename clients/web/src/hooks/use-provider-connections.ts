@@ -29,9 +29,7 @@ interface UseProviderConnectionsOptions {
   staleTime?: number;
 }
 
-function refetchUnlessTimedOut(query: {
-  state: { error: unknown };
-}): boolean {
+function refetchUnlessTimedOut(query: { state: { error: unknown } }): boolean {
   return !(query.state.error instanceof RequestTimeoutError);
 }
 
