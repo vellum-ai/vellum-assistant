@@ -98,8 +98,8 @@ function AdjustPlanModalContent({
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
   // "Keep your Plan" posts the reactivate endpoint and the cancellation posts
-  // the cancel endpoint; the portal is the cancel fallback for subscriptions
-  // the cancel endpoint rejects.
+  // the cancel endpoint; the portal is the fallback for subscriptions those
+  // endpoints reject (non-entitlement status).
   const portalMutation = useBillingPortalSession(portalSnapshot);
   const { reactivateSubscription, isPending: reactivatePending } =
     useReactivateSubscription();
@@ -714,7 +714,15 @@ function AdjustPlanModalContent({
                             onDowngradeClick={() =>
                               setView("downgrade-confirm")
                             }
-                            onKeepPlan={() => void reactivateSubscription()}
+                            onKeepPlan={() => {
+                              if (
+                                !isDirectCancelEligible(subscriptionQuery.data)
+                              ) {
+                                portalMutation.mutate({});
+                                return;
+                              }
+                              void reactivateSubscription();
+                            }}
                           />
                         );
                       })}
