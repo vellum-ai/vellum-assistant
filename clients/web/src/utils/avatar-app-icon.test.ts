@@ -16,6 +16,8 @@ import type { AvatarState } from "@/types/avatar";
  *   2. The name format itself, which is shared with the icon bundle generator:
  *      the bundles are emitted under exactly these names, so changing the
  *      literal below without regenerating them silently breaks every install.
+ *      `clients/ios/scripts/__tests__/generate-avatar-icons.test.ts` pins the
+ *      same literal from the generator's side.
  */
 
 /** A character avatar by default; `overrides` swaps in the other kinds. */
@@ -41,7 +43,17 @@ describe("appIconNameForAvatar", () => {
         color: "green",
       }),
     );
-    expect(name).toBe("avatar-blob-grumpy-green");
+    expect(name).toBe("avatar-eyes-grumpy-green");
+  });
+
+  test("body shape does not reach the name", () => {
+    const blob = appIconNameForAvatar(
+      avatarState({ bodyShape: "blob", eyeStyle: "grumpy", color: "green" }),
+    );
+    const nebula = appIconNameForAvatar(
+      avatarState({ bodyShape: "nebula", eyeStyle: "grumpy", color: "green" }),
+    );
+    expect(nebula).toBe(blob);
   });
 
   test("an uploaded image avatar has no icon, even with stale traits", () => {
@@ -76,13 +88,21 @@ describe("appIconNameForAvatar", () => {
     const state = avatarState(malformed as AvatarState["traits"]);
     expect(appIconNameForAvatar(state)).toBeNull();
   });
+
+  // A character always carries all three traits, so traits missing the one the
+  // name leaves out are as malformed as any other.
+  test("traits without a body shape have no icon", () => {
+    const malformed = { eyeStyle: "grumpy", color: "green" } as unknown;
+    const state = avatarState(malformed as AvatarState["traits"]);
+    expect(appIconNameForAvatar(state)).toBeNull();
+  });
 });
 
 describe("resolveAppIconTarget", () => {
   const supportedShell = {
     supported: true,
     current: null,
-    available: ["avatar-blob-grumpy-green"],
+    available: ["avatar-eyes-grumpy-green"],
   };
 
   test("a bundled icon resolves to an available match", () => {
@@ -95,7 +115,7 @@ describe("resolveAppIconTarget", () => {
       supportedShell,
     );
     expect(result).toEqual({
-      target: "avatar-blob-grumpy-green",
+      target: "avatar-eyes-grumpy-green",
       availableMatch: true,
     });
   });
@@ -110,7 +130,7 @@ describe("resolveAppIconTarget", () => {
       supportedShell,
     );
     expect(result).toEqual({
-      target: "avatar-nebula-smitten-chartreuse",
+      target: "avatar-eyes-smitten-chartreuse",
       availableMatch: false,
     });
   });
@@ -125,7 +145,7 @@ describe("resolveAppIconTarget", () => {
       { ...supportedShell, supported: false },
     );
     expect(result).toEqual({
-      target: "avatar-blob-grumpy-green",
+      target: "avatar-eyes-grumpy-green",
       availableMatch: false,
     });
   });

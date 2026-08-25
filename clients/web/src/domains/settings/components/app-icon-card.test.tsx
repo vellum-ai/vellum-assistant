@@ -16,9 +16,9 @@ const TRAITS = {
   eyeStyle: "curious",
   color: "cosmic-purple",
 };
-const ICON = "avatar-blob-curious-cosmic-purple";
+const ICON = "avatar-eyes-curious-cosmic-purple";
 /** One of ours, applied for an avatar the assistant no longer wears. */
-const STALE_ICON = "avatar-blob-curious-moss";
+const STALE_ICON = "avatar-eyes-curious-moss";
 
 const CHARACTER: AvatarState = {
   kind: "character",

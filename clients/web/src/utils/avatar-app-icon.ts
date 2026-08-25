@@ -5,10 +5,12 @@ import type { AvatarState } from "@/types/avatar";
 /**
  * Maps an assistant avatar onto the name of a bundled iOS alternate app icon.
  *
- * The iOS shell ships one alternate icon per character combination, named
- * `avatar-<bodyShape>-<eyeStyle>-<color>` by the icon bundle generator. That
- * name is the wire contract between the generated bundles and the runtime, so
- * it is produced in exactly one place: `appIconNameForAvatar`.
+ * The iOS shell ships one alternate icon per eyes-on-color combination, named
+ * `avatar-eyes-<eyeStyle>-<color>` by the icon bundle generator. Body shape is
+ * not part of an icon, so it is not part of the name, and every avatar that
+ * shares an eye style and a color maps to the same icon. That name is the wire
+ * contract between the generated bundles and the runtime, so it is produced in
+ * exactly one place: `appIconNameForAvatar`.
  */
 
 /** A resolved icon target plus whether the installed shell can apply it. */
@@ -20,14 +22,15 @@ export interface AppIconTarget {
 }
 
 /** The namespace every icon this feature applies is emitted under. */
-const AVATAR_ICON_PREFIX = "avatar-";
+const AVATAR_ICON_PREFIX = "avatar-eyes-";
 
 /**
  * The single chokepoint for the invariant that only character avatars have an
  * app icon. Uploaded images, AI-generated avatars, and "no avatar" all return
  * null here, so nothing downstream can offer or apply an icon for them, and a
  * character state with malformed traits returns null rather than a name built
- * from `undefined`.
+ * from `undefined`. A character's traits always carry all three, so the guard
+ * stays whole even though the name is built from two of them.
  */
 export function appIconNameForAvatar(state: AvatarState | null): string | null {
   if (state === null || state.kind !== "character") {
@@ -37,7 +40,7 @@ export function appIconNameForAvatar(state: AvatarState | null): string | null {
   if (!isCharacterTraits(traits)) {
     return null;
   }
-  return `${AVATAR_ICON_PREFIX}${traits.bodyShape}-${traits.eyeStyle}-${traits.color}`;
+  return `${AVATAR_ICON_PREFIX}${traits.eyeStyle}-${traits.color}`;
 }
 
 /**

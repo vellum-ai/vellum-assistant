@@ -19,7 +19,7 @@ const TRAITS = {
   eyeStyle: "curious",
   color: "cosmic-purple",
 };
-const ICON = "avatar-blob-curious-cosmic-purple";
+const ICON = "avatar-eyes-curious-cosmic-purple";
 
 const CHARACTER: AvatarState = {
   kind: "character",
