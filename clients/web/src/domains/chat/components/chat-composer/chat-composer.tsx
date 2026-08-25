@@ -55,6 +55,8 @@ import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
+import { endLiveVoiceSessionOnAssistant } from "@/domains/chat/voice/live-voice/live-voice-session-end-api";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
@@ -400,6 +402,7 @@ export function ChatComposer({
   const supportsLiveVoice = useSupportsLiveVoice(assistantId);
   const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoiceError = useLiveVoiceStore.use.error();
+  const liveVoiceErrorRecovery = useLiveVoiceStore.use.errorRecovery();
   // Whether any session is live anywhere (this thread or another). `failed`
   // is a retryable/inactive state, so it must count as inactive — otherwise
   // dictation would stay unavailable after a failed start.
@@ -546,6 +549,36 @@ export function ChatComposer({
     setLiveVoiceEntryOrigin(origin);
     starter?.start(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
+  /**
+   * Take the live-voice slot from the session that refused this one, and start
+   * here. The whole point of the failure notice: the blocking session is
+   * usually the same person on a surface they cannot get back to, and before
+   * this the only way out was to go find it (LUM-3421).
+   */
+  const handleReclaimLiveVoice = useCallback(async () => {
+    if (!assistantId) {
+      return;
+    }
+    // Prewarm from inside the click, before any await: WebKit's playback
+    // permission belongs to the gesture, and `startLiveVoiceSession` below
+    // runs after a network round trip, by which time the gesture is spent.
+    useLiveVoiceStore.getState().starter?.prewarm();
+    // The result is not branched on: whether the slot was already free or the
+    // call failed, the next move is to try to start, and the start handshake
+    // reports anything still wrong. A second error in front of someone
+    // escaping the first one helps nobody.
+    await endLiveVoiceSessionOnAssistant(assistantId);
+    dismissLiveVoiceFailure();
+    void startLiveVoiceSession();
+  }, [assistantId, startLiveVoiceSession]);
+  const handleGoToVoiceSession = useCallback(() => {
+    const holderConversationId = liveVoiceErrorRecovery?.holderConversationId;
+    if (!holderConversationId) {
+      return;
+    }
+    dismissLiveVoiceFailure();
+    navigateToConversation(navigate, holderConversationId);
+  }, [liveVoiceErrorRecovery, navigate]);
   const handleLiveVoiceStart = useCallback(
     (origin?: { x: number; y: number }) => {
       if (!assistantId) {
@@ -1125,7 +1158,11 @@ export function ChatComposer({
     // this inline waveform because the overlay bridge no-ops there.
     <div
       className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-      aria-label={voicePhase === "processing" ? t("chatComposer.transcribing") : t("chatComposer.recording")}
+      aria-label={
+        voicePhase === "processing"
+          ? t("chatComposer.transcribing")
+          : t("chatComposer.recording")
+      }
       aria-live="polite"
     >
       <StreamingWaveform
@@ -1422,7 +1459,37 @@ export function ChatComposer({
             eligibility drop must still surface its error. */}
         {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
           <div className="mb-2">
-            <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
+            <Notice
+              tone="error"
+              onDismiss={dismissLiveVoiceFailure}
+              actions={
+                liveVoiceErrorRecovery?.kind === "reclaim" ? (
+                  <>
+                    <Button
+                      variant="outlined"
+                      size="compact"
+                      onClick={() => {
+                        void handleReclaimLiveVoice();
+                      }}
+                    >
+                      {t("chatComposer.endOtherVoiceSession")}
+                    </Button>
+                    {/* Only when it is somewhere else: navigating to the
+                        conversation already on screen would visibly do
+                        nothing. */}
+                    {liveVoiceErrorRecovery.holderConversationId && (
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        onClick={handleGoToVoiceSession}
+                      >
+                        {t("chatComposer.goToVoiceSession")}
+                      </Button>
+                    )}
+                  </>
+                ) : undefined
+              }
+            >
               {liveVoiceError}
             </Notice>
           </div>

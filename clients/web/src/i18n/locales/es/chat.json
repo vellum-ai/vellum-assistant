@@ -273,6 +273,8 @@
     "addToChat": "Añadir al chat",
     "askAssistantPlaceholder": "Pregunta a {assistantName}",
     "configureVoice": "Configurar la voz",
+    "endOtherVoiceSession": "Finalizar y empezar aquí",
+    "goToVoiceSession": "Ir a la sesión",
     "recording": "Grabando",
     "sendMessage": "Enviar mensaje",
     "stopGenerating": "Detener la generación",

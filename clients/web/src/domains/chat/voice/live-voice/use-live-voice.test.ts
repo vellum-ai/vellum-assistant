@@ -1953,7 +1953,31 @@ describe("failure", () => {
     expect(h.getCapture().shutdownCount).toBe(1);
   });
 
-  test("busy frame fails the session", async () => {
+  test("busy frame fails the session, naming where the holder is", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("busy", {
+        type: "busy",
+        seq: 2,
+        activeSessionId: "other",
+        holder: { client: "macos", conversationId: "conversation-elsewhere" },
+      });
+    });
+
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe(
+      "Voice is already active in the Mac app.",
+    );
+    // The recovery is what turns the failure from a dead end into an action.
+    expect(useLiveVoiceStore.getState().errorRecovery).toEqual({
+      kind: "reclaim",
+      holderConversationId: "conversation-elsewhere",
+    });
+  });
+
+  test("busy frame from a daemon that names no holder still fails cleanly", async () => {
     const h = renderController();
     await startListening(h);
 
@@ -1967,8 +1991,13 @@ describe("failure", () => {
 
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe(
-      "Another live-voice session is active.",
+      "Voice is already active somewhere else.",
     );
+    // Nowhere to send the user, but the slot can still be taken.
+    expect(useLiveVoiceStore.getState().errorRecovery).toEqual({
+      kind: "reclaim",
+      holderConversationId: null,
+    });
   });
 
   test("mic denial before ready fails the session and closes the socket", async () => {

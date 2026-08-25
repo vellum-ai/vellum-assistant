@@ -191,9 +191,26 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
+/**
+ * Where the session holding the daemon's single live-voice slot is running,
+ * as much of it as the daemon knows. Display only: it is what lets a refused
+ * client say where the blocking session is instead of leaving the user to
+ * hunt for it (LUM-3421).
+ *
+ * Every field is optional, and the whole object is absent from daemons that
+ * predate it, so a client must have copy for knowing nothing.
+ */
+export interface LiveVoiceSessionHolder {
+  /** OS surface the holder runs on. Unknown values are ignored, not trusted. */
+  readonly client?: string;
+  /** Conversation the holder is talking in. */
+  readonly conversationId?: string;
+}
+
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "busy";
   readonly activeSessionId: string;
+  readonly holder?: LiveVoiceSessionHolder;
 }
 
 /**

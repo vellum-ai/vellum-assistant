@@ -211,9 +211,38 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
+/**
+ * Where the session holding the daemon's single live-voice slot is running,
+ * as much of it as the daemon knows.
+ *
+ * Display only. It exists so a client refused a session can say where the one
+ * that blocked it is, instead of the dead end a bare "another session is
+ * active" leaves the user in (LUM-3421). Nothing routes, authorizes, or
+ * decides capability on it, and every field is optional: a holder that
+ * predates the fields, or that never named a conversation, is simply less
+ * specific.
+ */
+export interface LiveVoiceSessionHolder {
+  /**
+   * The OS surface the holder is running on, from its `start` frame. A
+   * {@link ClientOs} carries no transport meaning by contract (see
+   * `channels/types.ts`), which is exactly right for a label: it says which
+   * device the user should go looking on, and answers nothing else.
+   */
+  readonly client?: ClientOs;
+  /** The conversation the holder is talking in, once it has one. */
+  readonly conversationId?: string;
+}
+
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "busy";
   readonly activeSessionId: string;
+  /**
+   * Absent from daemons that predate it, and from a holder that revealed
+   * neither field, so a client must degrade to the unspecific copy rather
+   * than assume.
+   */
+  readonly holder?: LiveVoiceSessionHolder;
 }
 
 /**

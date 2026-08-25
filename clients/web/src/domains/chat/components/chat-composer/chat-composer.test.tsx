@@ -206,6 +206,19 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice: preflightSpy,
 }));
 
+// Out-of-band session end, behind the failure notice's reclaim action. Mocked
+// so the action can be driven without a daemon; the wrapper's own shape mirrors
+// `preflightLiveVoice` above.
+const sessionEndSpy = mock((_assistantId: string): Promise<boolean> =>
+  Promise.resolve(true),
+);
+mock.module(
+  "@/domains/chat/voice/live-voice/live-voice-session-end-api",
+  () => ({
+    endLiveVoiceSessionOnAssistant: sessionEndSpy,
+  }),
+);
+
 // Backwards-compat version gate for the voice entry point. Mocked (rather
 // than driving the identity store) so these tests stay about composer
 // behavior; the gate's own semver truth-table lives in
@@ -2775,6 +2788,71 @@ describe("ChatComposer — live-voice integration", () => {
     // THEN the store is reset back to idle (which clears the error)
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(useLiveVoiceStore.getState().error).toBeNull();
+  });
+
+  test("a busy failure offers to end the other session and to go to it", async () => {
+    // GIVEN a session refused because another one holds the slot, in a
+    // different conversation
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+    sessionEndSpy.mockClear();
+    navigateSpy.mockClear();
+    useLiveVoiceStore
+      .getState()
+      .fail("Voice is already active in the Mac app.", {
+        kind: "reclaim",
+        holderConversationId: "conversation-elsewhere",
+      });
+
+    // WHEN the composer renders
+    const { getByText } = renderVoiceComposer();
+
+    // THEN the notice says where the session is, and offers both ways out
+    expect(getByText("Voice is already active in the Mac app.")).toBeTruthy();
+    expect(getByText("Go to it")).toBeTruthy();
+
+    // WHEN the user takes the slot
+    await act(async () => {
+      fireEvent.click(getByText("End it and start here"));
+    });
+
+    // THEN the holding session is ended out of band and the failure clears,
+    // which is what lets the start below happen at all
+    expect(sessionEndSpy).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().error).toBeNull();
+  });
+
+  test("a busy failure in this conversation offers no destination", () => {
+    // GIVEN the blocking session is in the conversation already on screen
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore
+      .getState()
+      .fail("Voice is already active in the iOS app.", {
+        kind: "reclaim",
+        holderConversationId: null,
+      });
+
+    // WHEN the composer renders
+    const { getByText, queryByText } = renderVoiceComposer();
+
+    // THEN it can still be taken over, but there is nowhere to navigate
+    expect(getByText("End it and start here")).toBeTruthy();
+    expect(queryByText("Go to it")).toBeNull();
+  });
+
+  test("a failure with no recovery offers no actions", () => {
+    // GIVEN an ordinary failure
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore.getState().fail("Microphone capture could not start.");
+
+    // WHEN the composer renders
+    const { queryByText } = renderVoiceComposer();
+
+    // THEN the notice is dismiss-only, as it was before reclaim existed
+    expect(queryByText("End it and start here")).toBeNull();
+    expect(queryByText("Go to it")).toBeNull();
   });
 
   test("no live-voice error notice while idle or without an error", () => {
