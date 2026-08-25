@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { normalizePairingBaseUrl } from "@vellumai/service-contracts/remote-web-pairing";
 
 import {
   normalizeOriginUrl,
@@ -13,23 +14,6 @@ import {
 import { useTranslation } from "@/i18n";
 
 const ADD_FAILED_COPY = "Failed to add the assistant. Please try again.";
-
-/**
- * Drop the app-route tail from an address a user is likely to have copied
- * out of their browser, so both `<base>/assistant/pair` (what the pairing
- * page shows) and `<base>/assistant` reduce to the public base the store
- * remembers. A Velay path prefix survives because it is a different
- * segment: `https://host/assistant-123/assistant/pair` yields
- * `https://host/assistant-123`.
- */
-function stripAppRouteSuffix(base: string): string {
-  for (const route of ["/assistant/pair", "/assistant"]) {
-    if (base.endsWith(route)) {
-      return base.slice(0, -route.length);
-    }
-  }
-  return base;
-}
 
 interface AddRemoteOriginDialogProps {
   open: boolean;
@@ -78,10 +62,12 @@ function AddRemoteOriginDialog({
     if (!url.trim() || pending) {
       return;
     }
+    // Reduce an address copied out of a browser to the public base the store
+    // remembers: the app-route tail is dropped, a path prefix survives
+    // (`https://host/assistant-123/assistant/pair` yields
+    // `https://host/assistant-123`).
     const parsed = normalizeOriginUrl(url);
-    // Re-normalize: stripping the route tail can leave a bare origin.
-    const normalized =
-      parsed === null ? null : normalizeOriginUrl(stripAppRouteSuffix(parsed));
+    const normalized = parsed === null ? null : normalizePairingBaseUrl(parsed);
     if (normalized === null) {
       setError(
         "Enter the full https address, like https://example.com/assistant-1.",
