@@ -629,3 +629,93 @@ describe("access-request instruction enforcement", () => {
     expect(decision.renderedCopy.vellum?.body).not.toContain("reject");
   });
 });
+
+/**
+ * A question is the one payload whose copy cannot be composed: the guardian is
+ * choosing between the words it carries. The engine replaces title / body /
+ * deliveryText wholesale with the model's version, which is how a question
+ * reached a channel as a summary of itself with its options missing.
+ */
+describe("ask_question copy is pinned to the question", () => {
+  const askQuestionSignal = (): NotificationSignal => ({
+    signalId: "sig-ask-question-1",
+    createdAt: Date.now(),
+    sourceChannel: "slack",
+    sourceContextId: "conv-1",
+    sourceEventName: "guardian.question",
+    contextPayload: {
+      requestId: "req-ask-1",
+      requestCode: "08B619",
+      requestKind: "pending_question",
+      questionText: "What should I dig into?",
+      options: [
+        { id: "opt-thread", label: "This Slack thread" },
+        { id: "opt-pr", label: "The pull request" },
+      ],
+    },
+    attentionHints: {
+      requiresAction: true,
+      urgency: "high",
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+  });
+
+  beforeEach(() => {
+    configuredProvider = { sendMessage: async () => ({}) };
+    extractedToolUse = {
+      shouldNotify: true,
+      channels: ["slack"],
+      reasoning: "guardian needs to answer",
+      dedupeKey: "ask-question-req-ask-1",
+      renderedCopy: {
+        slack: {
+          title: "Guardian question",
+          body: "Guardian wants to know where to focus",
+          deliveryText: "Guardian wants to know where to focus",
+        },
+      },
+    };
+  });
+
+  test("the composed paraphrase does not replace the question", async () => {
+    const decision = await evaluateSignal(askQuestionSignal(), [
+      "slack",
+    ] as NotificationChannel[]);
+
+    const copy = decision.renderedCopy.slack;
+    // `deliveryText` is what the Slack adapter sends, ahead of body and title.
+    expect(copy?.deliveryText).toContain("What should I dig into?");
+    expect(copy?.deliveryText).not.toContain("wants to know where to focus");
+    expect(copy?.body).toContain("What should I dig into?");
+  });
+
+  test("the options ride along, numbered as the resolver orders them", async () => {
+    const decision = await evaluateSignal(askQuestionSignal(), [
+      "slack",
+    ] as NotificationChannel[]);
+
+    const delivered = decision.renderedCopy.slack?.deliveryText ?? "";
+    expect(delivered).toContain("1. This Slack thread");
+    expect(delivered).toContain("2. The pull request");
+    expect(delivered).toContain("08B619");
+  });
+
+  test("a voice tool approval keeps its composed copy", async () => {
+    const signal = askQuestionSignal();
+    // A `pending_question` carrying a tool name is an approval, not a
+    // question, so composing its copy is correct.
+    signal.contextPayload = {
+      ...signal.contextPayload,
+      toolName: "bash",
+      options: undefined,
+    };
+    const decision = await evaluateSignal(signal, [
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.renderedCopy.slack?.deliveryText).toBe(
+      "Guardian wants to know where to focus",
+    );
+  });
+});

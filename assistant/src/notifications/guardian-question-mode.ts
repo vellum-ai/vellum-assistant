@@ -260,6 +260,38 @@ export function buildQuestionOptionActionId(index: number): string {
  * the index back to the pending interaction, so a divergence answers the
  * wrong option rather than failing.
  */
+/**
+ * The message text for a question that must be answered: the question, its
+ * options numbered as they are ordered, and how to reply by reference code.
+ *
+ * Deterministic on purpose. A notification's channel copy is otherwise
+ * composed by the decision engine, and a question is the one payload that
+ * cannot survive being paraphrased: the guardian is being asked to choose
+ * between these words, so the words have to arrive.
+ */
+export function buildQuestionDeliveryText(p: {
+  questionText: string;
+  requestCode?: string;
+  options?: readonly { label: string }[];
+}): string {
+  const parts = [p.questionText];
+  const options = p.options ?? [];
+  if (options.length > 0) {
+    parts.push(
+      options
+        .map((option, index) => `${index + 1}. ${option.label}`)
+        .join("\n"),
+    );
+  }
+  const requestCode = p.requestCode?.trim();
+  if (requestCode) {
+    parts.push(
+      buildGuardianRequestCodeInstruction(requestCode.toUpperCase(), "answer"),
+    );
+  }
+  return parts.join("\n\n");
+}
+
 export function buildQuestionAnswerActions(
   options: readonly { label: string }[],
 ): Array<{ id: string; label: string }> {

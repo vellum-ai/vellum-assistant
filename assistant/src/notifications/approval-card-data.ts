@@ -29,7 +29,7 @@ import {
 } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
-  buildQuestionAnswerActions,
+  buildQuestionDeliveryText,
   buildToolApprovalSourceView,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
@@ -370,30 +370,16 @@ function extractQuestionCard(
   }
 
   const options = p.options ?? [];
-  const actions: ApprovalCardActionOption[] =
-    buildQuestionAnswerActions(options);
-
-  const optionLines = options.map(
-    (option, index) => `${index + 1}. ${option.label}`,
-  );
   const bodyParts: string[] = [];
-  if (optionLines.length > 0) {
-    bodyParts.push(optionLines.join("\n"));
+  if (options.length > 0) {
+    bodyParts.push(
+      options
+        .map((option, index) => `${index + 1}. ${option.label}`)
+        .join("\n"),
+    );
   }
   if (sourceView?.permalink) {
     bodyParts.push(viewMessageLine(sourceView.permalink));
-  }
-
-  let fallbackText = p.questionText;
-  if (optionLines.length > 0) {
-    fallbackText = `${fallbackText}\n\n${optionLines.join("\n")}`;
-  }
-  const requestCode = nonEmpty(p.requestCode);
-  if (requestCode) {
-    fallbackText = `${fallbackText}\n\n${buildGuardianRequestCodeInstruction(
-      requestCode.trim().toUpperCase(),
-      "answer",
-    )}`;
   }
 
   return {
@@ -405,11 +391,17 @@ function extractQuestionCard(
     cardTitle: "Question",
     primaryLine: p.questionText,
     subtitle: "Waiting on your answer",
-    body: bodyParts.length > 0 ? bodyParts.join("\n\n") : "",
+    body: bodyParts.join("\n\n"),
     metadata,
     requestId: nonEmpty(p.requestId),
-    ...(actions.length > 0 ? { actions } : {}),
-    fallbackText,
+    // Empty rather than absent, and empty rather than the answer options.
+    // Absent means the generic Approve/Reject pair, which is the wrong verb
+    // for a question. The options themselves are not offered here because the
+    // in-app surface route resolves only approval actions, so an `answer_`
+    // button on this card would be inert; channel buttons come from the
+    // broadcaster, whose taps the guardian reply router does resolve.
+    actions: [],
+    fallbackText: buildQuestionDeliveryText(p),
   };
 }
 

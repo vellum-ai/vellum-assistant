@@ -347,19 +347,16 @@ describe("ask_question card", () => {
     expect(surface.data.title).toBe("What should I dig into?");
   });
 
-  test("options become index-based answer actions plus a skip", () => {
+  test("a question card offers no buttons, not even Approve and Reject", () => {
     const surface = surfaceBlock(
       buildToolApprovalSeedContentBlocks(questionPayload)!,
     );
-    // The resolver maps the index back to the pending interaction's option
-    // order, so an action carrying the option's own id would parse as free
-    // text and answer with the literal id.
-    expect(surface.actions).toEqual([
-      { id: "apr:req-ask-321:answer_0", label: "This Slack thread" },
-      { id: "apr:req-ask-321:answer_1", label: "The pull request" },
-      { id: "apr:req-ask-321:answer_2", label: "The Linear ticket" },
-      { id: "apr:req-ask-321:answer_skip", label: "Skip" },
-    ]);
+    // Empty rather than absent: the builder reads an absent action set as a
+    // request for its generic Approve/Reject pair, which is the wrong verb for
+    // a question and would resolve as "Yes" or a skip if tapped. The answer
+    // options are not offered here either, because the in-app surface route
+    // resolves only approval actions, so they would be inert.
+    expect(surface.actions).toEqual([]);
   });
 
   test("a channel without buttons still gets the question and its options", () => {
@@ -372,12 +369,10 @@ describe("ask_question card", () => {
     expect(fallback.text).toContain("08B619");
   });
 
-  test("a question with no options renders without answer actions", () => {
+  test("a question with no options still offers no buttons", () => {
     const payload = { ...questionPayload, options: undefined };
     const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
     expect(surface.data.title).toBe("What should I dig into?");
-    // Falls back to the builder's generic pair rather than inventing an empty
-    // answer set; the guardian replies with the reference code instead.
-    expect(surface.actions?.some((a) => a.id.includes("answer_"))).toBe(false);
+    expect(surface.actions).toEqual([]);
   });
 });
