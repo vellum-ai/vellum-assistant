@@ -456,9 +456,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     (currentPlan.id === "base" ||
       isCleanPin(subscription.package) ||
       isPackageSwitchEligible(subscription));
-  // Shared by both header buttons: "Manage Subscription" is the name a paid
-  // Pro user scans for, but it leads to the same surface as "View All Plans",
-  // which is where a sub is changed or cancelled.
+  // Shared by both header button variants: "Manage Subscription" is the name
+  // a paid Pro user scans for, but it leads to the same surface as the base
+  // plan's "View All Plans", which is where a sub is changed or cancelled.
   const handlePlansClick = canOpenPlansTakeover
     ? () => navigate(routes.plans)
     : onManage;
@@ -577,28 +577,22 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
               </Typography>
             )}
           </div>
-          {/* The buttons never break their labels, so the group must stay
-              free to shrink and wrap them onto a second row at phone widths;
-              a fixed-width group would push the long es/ru labels past the
-              card. */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {!isFreePlan && (
-              <Button
-                variant="outlined"
-                onClick={handlePlansClick}
-                data-testid="plan-card-manage-subscription-button"
-              >
-                {t("planCard.manageSubscription")}
-              </Button>
-            )}
-            <Button
-              variant="outlined"
-              onClick={handlePlansClick}
-              data-testid="plan-card-plans-button"
-            >
-              {t("planCard.viewAllPlans")}
-            </Button>
-          </div>
+          {/* The button never breaks its label, so it must stay free to
+              shrink; a fixed-width slot would push the long es/ru labels past
+              the card. */}
+          <Button
+            variant="outlined"
+            onClick={handlePlansClick}
+            data-testid={
+              isFreePlan
+                ? "plan-card-plans-button"
+                : "plan-card-manage-subscription-button"
+            }
+          >
+            {isFreePlan
+              ? t("planCard.viewAllPlans")
+              : t("planCard.manageSubscription")}
+          </Button>
         </div>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
           <PlanTile
