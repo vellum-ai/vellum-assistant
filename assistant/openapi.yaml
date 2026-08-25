@@ -14761,6 +14761,110 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/inference/chatgpt-subscription/device-auth:
+    post:
+      operationId: inference_chatgptsubscription_deviceauth_post
+      summary: Start ChatGPT subscription device-code sign-in
+      description:
+        Mint a short user code the user types at OpenAI's device page, and start a background poll that stores the
+        tokens and upserts the provider connection once the sign-in is approved. Returns immediately; poll
+        `.../device-auth/status/{state}` for the outcome. The account must have device-code authorization for Codex
+        enabled in its ChatGPT security settings.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                  user_code:
+                    type: string
+                  verification_url:
+                    type: string
+                  expires_at:
+                    type: string
+                  interval_seconds:
+                    type: number
+                required:
+                  - state
+                  - user_code
+                  - verification_url
+                  - expires_at
+                  - interval_seconds
+                additionalProperties: false
+  /v1/inference/chatgpt-subscription/device-auth/{state}:
+    delete:
+      operationId: inference_chatgptsubscription_deviceauth_by_state_delete
+      summary: Cancel a ChatGPT subscription device-code sign-in
+      description:
+        Stop the background poll for a device-code sign-in the user walked away from, and mark the flow `error`
+        with code `aborted`. A flow that already settled is left as it is. 404s an unknown state.
+      tags:
+        - inference
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: boolean
+                required:
+                  - cancelled
+                additionalProperties: false
+        "404":
+          description: No active device sign-in for the given state
+  /v1/inference/chatgpt-subscription/device-auth/status/{state}:
+    get:
+      operationId: inference_chatgptsubscription_deviceauth_status_by_state_get
+      summary: Poll ChatGPT subscription device-code sign-in status
+      description:
+        Returns the current status of an in-flight device-code sign-in (pending/connected/error) so the client
+        knows when the tokens have landed. A failure carries OpenAI's error code in `error_code`.
+      tags:
+        - inference
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - connected
+                      - error
+                  error:
+                    type: string
+                  error_code:
+                    type: string
+                required:
+                  - status
+                additionalProperties: false
+        "404":
+          description: No active device sign-in for the given state
   /v1/inference/models:
     get:
       operationId: inference_models_get

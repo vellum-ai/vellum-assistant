@@ -366,21 +366,39 @@
     "providerLabel": "Provider",
     "unavailableOption": "{name} (unavailable)"
   },
+  "chatgptDeviceAuthFlow": {
+    "authorizationHint": "You or your team administrator may need to enable device code authorization <settingsLink>in ChatGPT settings</settingsLink>.",
+    "connected": "ChatGPT subscription connected successfully.",
+    "copiedButton": "Copied",
+    "copyButton": "Copy code",
+    "copyError": "Could not copy the code. Copy it by hand instead.",
+    "instructions": "Enter this code on the ChatGPT page. It expires in 15 minutes.",
+    "openButton": "Open ChatGPT",
+    "signInButton": "Sign in with ChatGPT",
+    "startOver": "Start over",
+    "starting": "Starting sign-in...",
+    "tryAgain": "Try again",
+    "waiting": "Waiting for you to enter the code..."
+  },
   "chatgptOauthSection": {
+    "hideOtherOptions": "Hide other sign-in options",
+    "intro": "Connect your ChatGPT subscription to use OpenAI models without an API key.",
+    "otherOptions": "Other sign-in options"
+  },
+  "chatgptPasteAuthFlow": {
     "completeFailed": "Failed to complete sign-in. Please try again.",
     "completeSignIn": "Complete Sign In",
     "completingSignIn": "Completing sign-in...",
     "connected": "ChatGPT subscription connected successfully.",
-    "intro": "Connect your ChatGPT subscription to use OpenAI models without an API key.",
     "invalidUrl": "Invalid URL. Please paste the full URL from the address bar.",
     "missingCode": "The URL is missing the authorization code. Make sure you copied the full URL.",
     "missingState": "The URL is missing the state parameter. Make sure you copied the full URL.",
     "pasteUrlError": "Please paste the URL from the error page.",
-    "signInButton": "Sign in with ChatGPT",
+    "signInButton": "Open ChatGPT sign-in",
     "startFailed": "Failed to start ChatGPT sign-in. Please try again.",
     "startingSignIn": "Starting sign-in...",
-    "step1Idle": "1. Click \"Sign in with ChatGPT\" below to open a popup",
-    "step1PasteUrl": "1. Click \"Sign in with ChatGPT\" to open a popup",
+    "step1Idle": "1. Click \"Open ChatGPT sign-in\" below to open a popup",
+    "step1PasteUrl": "1. Click \"Open ChatGPT sign-in\" to open a popup",
     "step2": "2. Sign in, then you'll land on an error page - that's expected",
     "step3": "3. Copy the full URL from that page's address bar and paste it below",
     "tryAgain": "Try Again",
@@ -2094,6 +2112,11 @@
   },
   "useBillingPortalSession": {
     "openError": "Couldn't open the billing portal. Please try again."
+  },
+  "useChatgptDeviceAuth": {
+    "expired": "This code expired. Start again to get a new one.",
+    "rejected": "ChatGPT could not confirm this code.",
+    "startFailed": "Could not start ChatGPT sign-in. Please try again."
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
