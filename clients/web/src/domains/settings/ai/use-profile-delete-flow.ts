@@ -20,7 +20,7 @@ import {
 import type {
   CallSiteOverrideDraft,
   ConfigGetResponse,
-  ConfigPatchRequest,
+  ConfigPatchRequestWritable,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { badRequestMessage } from "@/utils/api-errors";
@@ -306,7 +306,7 @@ export function useProfileDeleteFlow(
       }
     }
 
-    const llmPatch: NonNullable<ConfigPatchRequest["llm"]> = {};
+    const llmPatch: NonNullable<ConfigPatchRequestWritable["llm"]> = {};
     if (blocked.isActive) {
       llmPatch.activeProfile = replacement;
     }

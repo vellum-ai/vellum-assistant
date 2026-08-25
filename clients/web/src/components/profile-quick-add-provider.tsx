@@ -39,7 +39,7 @@ import {
 } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
+import type { ProfilePatchEntryWritable } from "@/generated/daemon/types.gen";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
 import {
@@ -136,7 +136,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // new name, dropping every existing profile's position. Reading the latest
   // config here keeps the append authoritative regardless of stale inputs.
   const handleSave = useCallback(
-    async (name: string, entry: ProfilePatchEntry) => {
+    async (name: string, entry: ProfilePatchEntryWritable) => {
       if (!assistantId) {
         return;
       }
