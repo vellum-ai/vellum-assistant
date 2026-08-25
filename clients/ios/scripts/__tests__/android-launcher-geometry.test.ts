@@ -84,3 +84,66 @@ describe("android themed icon mask", () => {
     }
   });
 });
+
+describe("android launcher icon transforms", () => {
+  const quirky = getCharacterComponents().eyeStyles.find(
+    (style) => style.id === "quirky",
+  );
+  if (!quirky) {
+    throw new Error("quirky eye style missing from the component library");
+  }
+
+  const GROUP_ATTRS = [
+    "pivotX",
+    "pivotY",
+    "scaleX",
+    "scaleY",
+    "translateX",
+    "translateY",
+  ] as const;
+
+  function extractTransform(relativePath: string): Record<string, string> {
+    const xml = readFileSync(join(ANDROID_RES, relativePath), "utf8");
+    const transform: Record<string, string> = {};
+    for (const attr of GROUP_ATTRS) {
+      const value = new RegExp(`android:${attr}="([^"]+)"`).exec(xml)?.[1];
+      if (value === undefined) {
+        throw new Error(`${relativePath} is missing android:${attr}`);
+      }
+      transform[attr] = value;
+    }
+    return transform;
+  }
+
+  const adaptive = extractTransform("drawable/ic_launcher_foreground.xml");
+  const monochrome = extractTransform("drawable/ic_launcher_monochrome.xml");
+  const legacy = extractTransform("mipmap-anydpi/ic_launcher.xml");
+  const legacyRound = extractTransform("mipmap-anydpi/ic_launcher_round.xml");
+
+  test("every launcher group pivots on the library eye center", () => {
+    for (const transform of [adaptive, monochrome, legacy, legacyRound]) {
+      expect(transform.pivotX).toBe(String(quirky.eyeCenter.x));
+      expect(transform.pivotY).toBe(String(quirky.eyeCenter.y));
+    }
+  });
+
+  test("the monochrome mask shares the adaptive foreground transform", () => {
+    expect(monochrome).toEqual(adaptive);
+  });
+
+  test("both legacy fallbacks share one transform", () => {
+    expect(legacyRound).toEqual(legacy);
+  });
+
+  test("scales are uniform and the legacy scale fills the unmasked canvas", () => {
+    expect(adaptive.scaleY).toBe(adaptive.scaleX);
+    expect(legacy.scaleY).toBe(legacy.scaleX);
+    expect(legacy.translateX).toBe(adaptive.translateX);
+    expect(legacy.translateY).toBe(adaptive.translateY);
+    const adaptiveScale = Number(adaptive.scaleX);
+    const legacyScale = Number(legacy.scaleX);
+    // Legacy icons fill the full 108dp canvas while adaptive art targets the
+    // 72dp a launcher mask reveals, so the scales differ by exactly 108/72.
+    expect(legacyScale).toBeCloseTo(adaptiveScale * 1.5, 10);
+  });
+});
