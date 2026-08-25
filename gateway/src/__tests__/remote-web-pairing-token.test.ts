@@ -33,6 +33,8 @@ const {
   contacts,
   contactChannels,
 } = await import("../db/schema.js");
+const { rotateBrowserCredentialsByRefreshToken } =
+  await import("../auth/guardian-refresh.js");
 const { handleGuardianRefresh } =
   await import("../http/routes/guardian-refresh.js");
 const { handleRemoteWebPairingToken } =
@@ -248,6 +250,7 @@ describe("remote web pairing token exchange", () => {
     expect(typeof body.refreshAfter).toBe("string");
     expect(body.guardianId).toBe(GUARDIAN_ID);
     expect(body.refreshToken).toBeUndefined();
+    expect(body.refreshTokenExpiresAt).toBeUndefined();
     expect(body.deviceId).toBeUndefined();
 
     const cookies = setCookies(res);
@@ -717,6 +720,128 @@ describe("remote web pairing token exchange", () => {
       resetGuardianIntegrityReporterForTesting();
       bustGuardianIntegrityCache();
     }
+  });
+
+  test("deviceId exchange returns the refresh token in the body with no cookie", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      `${PUBLIC_BASE_URL}/assistant-123`,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({
+        deviceCode: challenge.deviceCode,
+        deviceId: "importer-device",
+        platform: "cli",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(setCookies(res)).toHaveLength(0);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("approved");
+    expect(typeof body.accessToken).toBe("string");
+    expect(typeof body.refreshToken).toBe("string");
+    expect(typeof body.refreshTokenExpiresAt).toBe("string");
+    expect(typeof body.refreshAfter).toBe("string");
+    expect(body.guardianId).toBe(GUARDIAN_ID);
+
+    const hashedDeviceId = hashToken("importer-device");
+    const tokens = activeTokens();
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].hashedDeviceId).toBe(hashedDeviceId);
+    expect(tokens[0].platform).toBe("cli");
+
+    const refreshTokens = activeRefreshTokens();
+    expect(refreshTokens).toHaveLength(1);
+    expect(refreshTokens[0].tokenHash).toBe(
+      hashToken(body.refreshToken as string),
+    );
+    expect(refreshTokens[0].hashedDeviceId).toBe(hashedDeviceId);
+    expect(refreshTokens[0].platform).toBe("cli");
+    expect(refreshTokens[0].browserRefreshCookiePath).toBeNull();
+  });
+
+  test("only allowlisted platforms are recorded, defaulting to desktop", async () => {
+    const cases: unknown[] = [
+      "android",
+      undefined,
+      "not-a-platform",
+      { evil: true },
+    ];
+    const expected = ["android", "desktop", "desktop", "desktop"];
+
+    for (const [index, platform] of cases.entries()) {
+      const challenge = createRemoteWebPairingChallenge(
+        PUBLIC_BASE_URL,
+        TEST_REQUESTER,
+      );
+      expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+        "approved",
+      );
+      const deviceId = `device-${index}`;
+
+      const res = await handleRemoteWebPairingToken(
+        makeTokenRequest({
+          deviceCode: challenge.deviceCode,
+          deviceId,
+          platform,
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const record = activeRefreshTokens().find(
+        (token) => token.hashedDeviceId === hashToken(deviceId),
+      );
+      expect(record?.platform).toBe(expected[index]);
+    }
+  });
+
+  test("device-bound pairing refreshes by device id, never by cookie", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const exchange = await handleRemoteWebPairingToken(
+      makeTokenRequest({
+        deviceCode: challenge.deviceCode,
+        deviceId: "importer-device",
+      }),
+    );
+    const { refreshToken } = (await exchange.json()) as {
+      refreshToken: string;
+    };
+
+    // No browser cookie path was recorded, so the cookie rotation refuses it.
+    expect(rotateBrowserCredentialsByRefreshToken({ refreshToken })).toEqual({
+      ok: false,
+      error: "refresh_invalid",
+    });
+    expect(activeRefreshTokens()[0].tokenHash).toBe(hashToken(refreshToken));
+
+    const refresh = await handleGuardianRefresh(
+      makeDeviceRefreshRequest({ refreshToken, deviceId: "importer-device" }),
+    );
+
+    expect(refresh.status).toBe(200);
+    expect(setCookies(refresh)).toHaveLength(0);
+    const body = (await refresh.json()) as Record<string, unknown>;
+    expect(typeof body.accessToken).toBe("string");
+    expect(typeof body.refreshToken).toBe("string");
+    expect(body.refreshToken).not.toBe(refreshToken);
+    expect(activeRefreshTokens()).toHaveLength(1);
+    expect(activeRefreshTokens()[0].tokenHash).toBe(
+      hashToken(body.refreshToken as string),
+    );
   });
 
   test("expired device code does not mint credentials", async () => {

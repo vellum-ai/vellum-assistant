@@ -1,12 +1,19 @@
 import type {
+  RemoteWebPairingPlatform,
   RemoteWebPairingTokenApprovedResponse,
   RemoteWebPairingTokenPendingResponse,
 } from "@vellumai/service-contracts/remote-web-pairing";
+import {
+  DEFAULT_REMOTE_WEB_PAIRING_PLATFORM,
+  REMOTE_WEB_PAIRING_PLATFORMS,
+} from "@vellumai/service-contracts/remote-web-pairing";
 
+import type { RefreshableTokenPair } from "../../auth/guardian-bootstrap.js";
 import {
   ensureVellumGuardianBinding,
   getExternalAssistantId,
   mintAndRecordBrowserTokenPair,
+  mintAndRecordDeviceBoundTokenPair,
   VellumGuardianMintRefusedError,
 } from "../../auth/guardian-bootstrap.js";
 import {
@@ -19,10 +26,26 @@ import {
   remoteWebRefreshCookiePathForPublicBaseUrl,
 } from "../browser-auth-cookies.js";
 import { errorResponse } from "../loopback-guard.js";
-import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
+import {
+  jsonStringField,
+  methodNotAllowed,
+  readJsonObjectBody,
+} from "../route-helpers.js";
 
 const MAX_TOKEN_BODY_BYTES = 512;
 const REMOTE_WEB_PLATFORM = "web";
+
+/**
+ * The requested platform, coerced to a known value. Unlike loopback `/v1/pair`,
+ * this route is publicly reachable and its platform renders verbatim in the
+ * host's paired-devices list, so an unrecognized value never reaches the DB.
+ */
+function resolveDevicePlatform(raw: unknown): RemoteWebPairingPlatform {
+  const known = REMOTE_WEB_PAIRING_PLATFORMS.find(
+    (platform) => platform === raw,
+  );
+  return known ?? DEFAULT_REMOTE_WEB_PAIRING_PLATFORM;
+}
 
 /** Token-exchange JSON responses, errors included, are never cacheable. */
 function noStore(res: Response): Response {
@@ -47,14 +70,18 @@ export async function handleRemoteWebPairingToken(
     return methodNotAllowed("POST");
   }
 
-  const deviceCode = await readJsonStringField(
-    req,
-    MAX_TOKEN_BODY_BYTES,
-    "deviceCode",
-  );
-  if (deviceCode instanceof Response) {
-    return noStore(deviceCode);
+  const body = await readJsonObjectBody(req, MAX_TOKEN_BODY_BYTES);
+  if (body instanceof Response) {
+    return noStore(body);
   }
+  const deviceCode = jsonStringField(body, "deviceCode");
+  if (!deviceCode) {
+    return noStore(errorResponse("BAD_REQUEST", "deviceCode is required", 400));
+  }
+  // Sent by a trusted host exchanging for itself, never by a browser. The
+  // device code is the credential either way; the id only selects per-device
+  // revocability and body-delivered refresh.
+  const deviceId = jsonStringField(body, "deviceId");
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
   if (challenge.status === "pending") {
@@ -76,18 +103,29 @@ export async function handleRemoteWebPairingToken(
     return invalidDeviceCodeResponse();
   }
 
-  const refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(
-    challenge.publicBaseUrl,
-  );
   let guardianPrincipalId: string;
-  let pair: ReturnType<typeof mintAndRecordBrowserTokenPair>;
+  let pair: RefreshableTokenPair;
+  // Set on the browser path only: a device-bound pairing carries its refresh
+  // token in the body, so there is no cookie to scope.
+  let refreshCookiePath: string | null = null;
   try {
     guardianPrincipalId = await ensureVellumGuardianBinding();
-    pair = mintAndRecordBrowserTokenPair({
-      guardianPrincipalId,
-      platform: REMOTE_WEB_PLATFORM,
-      browserRefreshCookiePath: refreshCookiePath,
-    });
+    if (deviceId) {
+      pair = mintAndRecordDeviceBoundTokenPair({
+        guardianPrincipalId,
+        deviceId,
+        platform: resolveDevicePlatform(body.platform),
+      });
+    } else {
+      refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(
+        challenge.publicBaseUrl,
+      );
+      pair = mintAndRecordBrowserTokenPair({
+        guardianPrincipalId,
+        platform: REMOTE_WEB_PLATFORM,
+        browserRefreshCookiePath: refreshCookiePath,
+      });
+    }
   } catch (err) {
     // Release so the approved code stays exchangeable after the failure is
     // repaired (mint refusal) or retried (transient DB error).
@@ -112,14 +150,6 @@ export async function handleRemoteWebPairingToken(
   completeRemoteWebPairingChallengeExchange(deviceCode);
 
   const headers = new Headers({ "Cache-Control": "no-store" });
-  for (const cookie of buildRemoteWebBrowserAuthCookies({
-    refreshToken: pair.refreshToken,
-    refreshTokenExpiresAtMs: pair.refreshTokenExpiresAt,
-    refreshCookiePath,
-  })) {
-    headers.append("Set-Cookie", cookie);
-  }
-
   const approved: RemoteWebPairingTokenApprovedResponse = {
     status: "approved",
     accessToken: pair.accessToken,
@@ -128,5 +158,21 @@ export async function handleRemoteWebPairingToken(
     guardianId: guardianPrincipalId,
     assistantId: getExternalAssistantId(),
   };
+
+  if (refreshCookiePath) {
+    for (const cookie of buildRemoteWebBrowserAuthCookies({
+      refreshToken: pair.refreshToken,
+      refreshTokenExpiresAtMs: pair.refreshTokenExpiresAt,
+      refreshCookiePath,
+    })) {
+      headers.append("Set-Cookie", cookie);
+    }
+  } else {
+    approved.refreshToken = pair.refreshToken;
+    approved.refreshTokenExpiresAt = new Date(
+      pair.refreshTokenExpiresAt,
+    ).toISOString();
+  }
+
   return Response.json(approved, { headers });
 }
