@@ -29,7 +29,8 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
-import type { SetupChannelId } from "@/types/channel-types";
+import { CHANNEL_META } from "@/domains/channels/channel-meta";
+import { SETUP_CHANNEL_IDS, type SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -259,15 +260,17 @@ export function sameDocumentTarget(
  * Narrower than {@link SetupChannelId} on purpose: this panel *is* a
  * credential form, and a channel without one has nothing for it to show. It
  * was an alias, so adding a channel to the setup list silently promised a
- * panel that resolves to another channel's connected copy and an empty body.
- * Derived from the same capability the Channels tab reads, so the two cannot
- * disagree about which channels have a form.
+ * panel resolving to another channel's connected copy over an empty body.
+ *
+ * Derived rather than listed. The drawer and the Channels tab render the same
+ * wizards and differ only in where they are mounted, so "has a credential
+ * form" is one fact about the channel. Two hand-kept lists would be free to
+ * disagree about it, and did.
  */
-export const CHANNEL_SETUP_TYPES = [
-  "slack",
-  "telegram",
-  "phone",
-] as const satisfies readonly SetupChannelId[];
+export const CHANNEL_SETUP_TYPES = SETUP_CHANNEL_IDS.filter(
+  (id): id is Exclude<SetupChannelId, "discord"> =>
+    CHANNEL_META[id].credentialForm !== undefined,
+);
 
 export type ChannelSetupType = (typeof CHANNEL_SETUP_TYPES)[number];
 

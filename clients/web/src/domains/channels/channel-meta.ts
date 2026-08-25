@@ -40,17 +40,23 @@ interface ChannelMeta {
    */
   hasTrustFloorControl: boolean;
   /**
-   * The credential form "Connect manually" opens, when the channel has one.
+   * The credential form this channel is set up through, absent when it has
+   * none.
    *
-   * Named rather than inferred. This was a two-way branch that rendered
-   * Telegram's wizard for Telegram and Twilio's credential form for anything
-   * else, so a channel with no manual form at all was offered Twilio's:
-   * Discord asked for an Account SID and saved phone credentials under a
-   * Discord heading. A fallthrough cannot express "no form", so the capability
-   * is data, and a channel added later gets nothing rather than the last
-   * branch of a ternary.
+   * One fact for both surfaces. The Channels tab and the assistant's setup
+   * drawer render the same wizards, and differ only in where they are
+   * mounted, so which form a channel has is a property of the channel rather
+   * than of either surface. Whether the tab reaches it inline or behind
+   * "Connect manually" is presentation and stays in the tab.
+   *
+   * Named rather than inferred. The tab used a two-way branch that rendered
+   * Telegram's wizard for Telegram and Twilio's for anything else, so a
+   * channel with no form at all was offered Twilio's: Discord asked for an
+   * Account SID and saved phone credentials under a Discord heading. A
+   * fallthrough cannot express "no form", so a channel added later inherited
+   * the last arm of a ternary.
    */
-  manualEntry?: "telegram-token" | "twilio-credentials";
+  credentialForm?: "slack-wizard" | "telegram-token" | "twilio-credentials";
   /**
    * Catalog key for the disconnected empty state's pitch, which interpolates
    * `assistant`. Slack has none: its disconnected state is the setup wizard.
@@ -66,12 +72,13 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     labelKey: "channelMeta.slack.label",
     disconnectMessageKey: "channelMeta.slack.disconnectMessage",
     hasTrustFloorControl: false,
+    credentialForm: "slack-wizard",
   },
   telegram: {
     labelKey: "channelMeta.telegram.label",
     disconnectMessageKey: "channelMeta.telegram.disconnectMessage",
     hasTrustFloorControl: true,
-    manualEntry: "telegram-token",
+    credentialForm: "telegram-token",
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
   },
   discord: {
@@ -83,7 +90,7 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     labelKey: "channelMeta.phone.label",
     disconnectMessageKey: "channelMeta.phone.disconnectMessage",
     hasTrustFloorControl: true,
-    manualEntry: "twilio-credentials",
+    credentialForm: "twilio-credentials",
     disconnectedPitchKey: "channelMeta.phone.disconnectedPitch",
   },
 };
