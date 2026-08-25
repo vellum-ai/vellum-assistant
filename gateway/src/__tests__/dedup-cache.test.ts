@@ -339,3 +339,35 @@ describe("DedupCache.reset for a changed bot", () => {
     expect(cache.reserve(5)).toBe("reserved");
   });
 });
+
+describe("DedupCache.unreserve across a bot change", () => {
+  test("an old bot's failure cleanup cannot free the new bot's reservation", () => {
+    const cache = new DedupCache();
+
+    // The departed bot reserves an id and is still working on it.
+    expect(cache.reserve(12)).toBe("reserved");
+    const oldGeneration = cache.currentGeneration;
+
+    cache.reset();
+
+    // The new bot legitimately reserves the same id: its sequence starts low
+    // and nothing about the number belongs to the previous bot.
+    expect(cache.reserve(12)).toBe("reserved");
+
+    // The old handler now fails and cleans up after itself.
+    cache.unreserve(12, oldGeneration);
+
+    // The new bot's reservation must survive, or Telegram's retry would be
+    // processed alongside the request already in flight.
+    expect(cache.reserve(12)).toBe("duplicate");
+  });
+
+  test("failure cleanup in the current generation still frees the id", () => {
+    const cache = new DedupCache();
+    expect(cache.reserve(7)).toBe("reserved");
+    cache.unreserve(7, cache.currentGeneration);
+
+    // Telegram retries and must be allowed to, since nothing was recorded.
+    expect(cache.reserve(7)).toBe("reserved");
+  });
+});

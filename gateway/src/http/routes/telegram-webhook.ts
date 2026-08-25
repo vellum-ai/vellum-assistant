@@ -480,7 +480,8 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "start_command_circuit_open",
           );
-          if (updateId !== undefined) dedupCache.unreserve(updateId);
+          if (updateId !== undefined)
+            dedupCache.unreserve(updateId, reservedGeneration);
           return Response.json(
             { error: SERVICE_UNAVAILABLE_ERROR },
             {
@@ -637,7 +638,8 @@ export function createTelegramWebhookHandler(
           { err },
           "Attachment processing failed with transient error",
         );
-        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        if (updateId !== undefined)
+          dedupCache.unreserve(updateId, reservedGeneration);
         return Response.json(
           { error: "Attachment processing failed" },
           { status: 500 },
@@ -697,7 +699,8 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "forward_not_forwarded",
           );
-        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        if (updateId !== undefined)
+          dedupCache.unreserve(updateId, reservedGeneration);
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
 
@@ -767,7 +770,8 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "circuit_open",
           );
-        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        if (updateId !== undefined)
+          dedupCache.unreserve(updateId, reservedGeneration);
         return Response.json(
           { error: SERVICE_UNAVAILABLE_ERROR },
           {
@@ -785,7 +789,8 @@ export function createTelegramWebhookHandler(
           normalized.message.callbackQueryId,
           "forward_exception",
         );
-      if (updateId !== undefined) dedupCache.unreserve(updateId);
+      if (updateId !== undefined)
+        dedupCache.unreserve(updateId, reservedGeneration);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }
 

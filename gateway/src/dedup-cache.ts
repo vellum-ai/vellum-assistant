@@ -119,8 +119,19 @@ export class DedupCache {
     return "reserved";
   }
 
-  /** Remove a reserved entry so Telegram can retry. */
-  unreserve(updateId: number): void {
+  /**
+   * Remove a reserved entry so Telegram can retry.
+   *
+   * Takes the generation the caller reserved in, for the same reason
+   * {@link set} does and on the other completion path. After a rotation the
+   * new bot can legitimately reserve an id the departed one also held; a
+   * failure cleanup from that old handler would otherwise delete the new
+   * bot's live reservation, letting a retry process it a second time.
+   */
+  unreserve(updateId: number, reservedIn = this.generation): void {
+    if (reservedIn !== this.generation) {
+      return;
+    }
     const entry = this.cache.get(updateId);
     if (entry?.processing) {
       this.cache.delete(updateId);
