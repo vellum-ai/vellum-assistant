@@ -428,7 +428,7 @@ export const PROFILE_IMPLS: Record<
 /**
  * Managed profiles, i.e. the `vellum` column keyed by profile name, plus the
  * managed backup profiles. Backups come after the primaries, which is what
- * places them after the primaries in `profileOrder` presentation: the seeder
+ * places them after the primaries in the seeded `profileOrder`: the seeder
  * inserts missing managed keys in this record's order. Keyed by the
  * user-facing defaults only: an internal profile is code-resolved and never
  * listed or ordered.
@@ -907,12 +907,11 @@ function clampMaxTokensToModelCap(body: ProfileEntry): ProfileEntry {
  *
  * Deliberately provider-agnostic: it lists the managed backups whatever
  * `llm.defaultProvider` says, because it resolves names against the passed
- * catalog alone and never reads config. Any caller that JUDGES AVAILABILITY
- * (is this name selectable? does this reference still resolve?) must use
- * `getEffectiveProfilesForProvider` instead, which hides the backups on the
- * BYOK and ChatGPT columns the same way `resolveDefaultProfileForProvider`
- * does. Duplicating that conditioning here would fork the rule across two
- * functions, and the sibling already owns it.
+ * catalog alone and never reads config. Internal resolution and reference
+ * validation use `getEffectiveProfilesForProvider`; user-facing selectors use
+ * `getUserSelectableProfilesForProvider`, which additionally removes backups
+ * from the managed column. Keeping those views separate lets automatic
+ * fallback resolve an internal route without offering it as a direct choice.
  */
 export function getEffectiveProfiles(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -964,4 +963,23 @@ export function getEffectiveProfilesForProvider(
     delete effective[name];
   }
   return effective;
+}
+
+/**
+ * The effective profile view used by user-facing selectors. Managed backups
+ * remain in the full effective catalog for automatic fallback resolution, but
+ * are internal routes rather than profiles a user can choose directly.
+ */
+export function getUserSelectableProfilesForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  defaultProvider: DefaultProviderConfig | null,
+): Record<string, ProfileEntry> {
+  const selectable = getEffectiveProfilesForProvider(
+    workspaceProfiles,
+    defaultProvider,
+  );
+  for (const name of BACKUP_PROFILE_KEYS) {
+    delete selectable[name];
+  }
+  return selectable;
 }

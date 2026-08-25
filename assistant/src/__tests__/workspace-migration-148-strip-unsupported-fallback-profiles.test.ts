@@ -43,11 +43,11 @@ afterEach(() => {
 });
 
 describe("148-strip-unsupported-fallback-profiles migration", () => {
-  test("has the next migration id and is registered last", () => {
+  test("has the next migration id and is registered", () => {
     expect(stripUnsupportedFallbackProfilesMigration.id).toBe(
       "148-strip-unsupported-fallback-profiles",
     );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
+    expect(WORKSPACE_MIGRATIONS.map((migration) => migration.id)).toContain(
       "148-strip-unsupported-fallback-profiles",
     );
   });

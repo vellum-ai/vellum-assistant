@@ -8,6 +8,7 @@ import {
   getEffectiveProfile,
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
+  getUserSelectableProfilesForProvider,
   PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
@@ -153,6 +154,25 @@ describe("getEffectiveProfiles", () => {
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
     expect(after.balanced.model).toBe("claude-sonnet-4-6");
+  });
+});
+
+describe("user-selectable profile view", () => {
+  test("hides managed backups while retaining them in the fallback catalog", () => {
+    const effective = getEffectiveProfilesForProvider(undefined, {
+      provider: "vellum",
+    });
+    const selectable = getUserSelectableProfilesForProvider(undefined, {
+      provider: "vellum",
+    });
+
+    for (const key of DEFAULT_PROFILE_KEYS) {
+      expect(selectable[key]).toBeDefined();
+    }
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(effective[key]).toBeDefined();
+      expect(selectable[key]).toBeUndefined();
+    }
   });
 });
 

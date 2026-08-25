@@ -20,7 +20,7 @@ import { z } from "zod";
 
 import { validateInferenceProfileConfig } from "../../api/constants/profile-config-validation.js";
 import {
-  getEffectiveProfilesForProvider,
+  getUserSelectableProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   resolveDefaultProfileForProvider,
 } from "../../config/default-profile-catalog.js";
@@ -432,7 +432,7 @@ function assertSaneMaxTokens(
 
 async function handleListProfiles() {
   const config = getConfigReadOnly();
-  const effective = getEffectiveProfilesForProvider(
+  const effective = getUserSelectableProfilesForProvider(
     config.llm.profiles,
     config.llm.defaultProvider ?? null,
   );
@@ -767,7 +767,7 @@ async function handleSetActiveProfile({ body = {} }: RouteHandlerArgs) {
   // is rejected here instead of silently stripped on the next config load —
   // which would reset the user's chat-model selection.
   const config = getConfigReadOnly();
-  const effective = getEffectiveProfilesForProvider(
+  const effective = getUserSelectableProfilesForProvider(
     config.llm.profiles,
     config.llm.defaultProvider ?? null,
   );
