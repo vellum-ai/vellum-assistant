@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
-import { CHANNEL_SETUP_TYPES, isChannelSetupType } from "@/stores/viewer-store";
+import { CHANNEL_SETUP_TYPES } from "@/stores/viewer-store";
 import { SETUP_CHANNEL_IDS } from "@/types/channel-types";
 
 /**
@@ -10,11 +10,12 @@ import { SETUP_CHANNEL_IDS } from "@/types/channel-types";
  * the answer for anything it does not name.
  */
 describe("channel capabilities are declared, not inferred", () => {
-  test("a channel with no credential form declares none", () => {
+  test("each channel declares the form it is set up through", () => {
     // The invariant is that the field is set only where a form exists, so a
-    // channel added later inherits nothing.
-    expect(CHANNEL_META.discord.credentialForm).toBeUndefined();
+    // channel added later inherits nothing rather than the last arm of a
+    // branch.
     expect(CHANNEL_META.slack.credentialForm).toBe("slack-wizard");
+    expect(CHANNEL_META.discord.credentialForm).toBe("discord-token");
     expect(CHANNEL_META.telegram.credentialForm).toBe("telegram-token");
     expect(CHANNEL_META.phone.credentialForm).toBe("twilio-credentials");
   });
@@ -26,9 +27,8 @@ describe("channel capabilities are declared, not inferred", () => {
     expect(twilio).toEqual(["phone"]);
   });
 
-  test("a channel with no disconnect route declares no disconnect copy", () => {
-    expect(CHANNEL_META.discord.disconnectMessageKey).toBeUndefined();
-    for (const id of ["slack", "telegram", "phone"] as const) {
+  test("a channel that can be disconnected declares the copy for it", () => {
+    for (const id of SETUP_CHANNEL_IDS) {
       expect(CHANNEL_META[id].disconnectMessageKey).toBeDefined();
     }
   });
@@ -49,9 +49,15 @@ describe("the setup drawer derives from the same fact as the tab", () => {
     ] as string[]);
   });
 
-  test("a channel with no form cannot reach it", () => {
-    // It would render another channel's connected copy over an empty body.
-    expect(isChannelSetupType("discord")).toBe(false);
-    expect(isChannelSetupType("slack")).toBe(true);
+  test("every channel it accepts has a renderer in the drawer", () => {
+    // The drawer is a credential form, so accepting a channel it cannot draw
+    // would show another channel's connected copy over an empty body.
+    // `CHANNEL_BRAND_LABEL` is an exhaustive record over this set, so a
+    // channel reaching the drawer without a renderer fails to compile rather
+    // than rendering another channel's copy. This pins the set it is over.
+    for (const id of CHANNEL_SETUP_TYPES) {
+      expect(CHANNEL_META[id].credentialForm).toBeDefined();
+    }
+    expect([...CHANNEL_SETUP_TYPES] as string[]).toContain("discord");
   });
 });
