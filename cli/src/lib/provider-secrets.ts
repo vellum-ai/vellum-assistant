@@ -483,6 +483,10 @@ function createLineReader(input: NodeJS.ReadStream): {
   let buffered = "";
   const queuedLines: string[] = [];
   let waitingResolve: ((line: string) => void) | null = null;
+  // Ctrl-D (EOF) fires "end" with no trailing newline, so a pending read
+  // would otherwise wait forever. Treat EOF as a blank line: any read
+  // already waiting, and every read requested afterward, resolves to "".
+  let ended = false;
 
   const onData = (chunk: Buffer | string): void => {
     buffered += chunk.toString();
@@ -505,8 +509,18 @@ function createLineReader(input: NodeJS.ReadStream): {
     }
   };
 
+  const onEnd = (): void => {
+    ended = true;
+    if (waitingResolve) {
+      const resolve = waitingResolve;
+      waitingResolve = null;
+      resolve("");
+    }
+  };
+
   input.resume();
   input.on("data", onData);
+  input.on("end", onEnd);
 
   return {
     readLine(): Promise<string> {
@@ -514,12 +528,16 @@ function createLineReader(input: NodeJS.ReadStream): {
       if (queued !== undefined) {
         return Promise.resolve(queued);
       }
+      if (ended) {
+        return Promise.resolve("");
+      }
       return new Promise((resolve) => {
         waitingResolve = resolve;
       });
     },
     dispose(): void {
       input.removeListener("data", onData);
+      input.removeListener("end", onEnd);
       input.pause();
     },
   };

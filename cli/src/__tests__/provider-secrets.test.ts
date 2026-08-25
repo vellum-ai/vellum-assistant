@@ -365,6 +365,19 @@ describe("promptLine", () => {
     await expect(resultPromise).resolves.toBe("10");
     expect(input.rawModes).toEqual([]);
   });
+
+  test("resolves to an empty string on EOF instead of hanging", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptLine("Pick one: ", {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    });
+    input.emit("end");
+
+    await expect(resultPromise).resolves.toBe("");
+  });
 });
 
 describe("promptProviderChoice", () => {
@@ -431,6 +444,20 @@ describe("promptProviderChoice", () => {
       choices,
     });
     input.emit("data", Buffer.from("\n"));
+
+    await expect(resultPromise).resolves.toBeNull();
+  });
+
+  test("resolves null instead of hanging when input hits EOF (Ctrl-D)", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    input.emit("end");
 
     await expect(resultPromise).resolves.toBeNull();
   });
