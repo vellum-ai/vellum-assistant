@@ -574,9 +574,10 @@ export function useStreamEventHandler(
         case "show_platform_login":
         case "platform_disconnected":
           break;
-        // Notification-created broadcasts are handled outside chat. Recording
-        // lifecycle instructions are forwarded to the desktop recorder.
+        // Notification-created broadcasts are handled outside chat.
         case "notification_conversation_created":
+          break;
+        // Recording lifecycle instructions are forwarded to the desktop recorder.
         case "recording_start":
         case "recording_stop":
         case "recording_pause":
