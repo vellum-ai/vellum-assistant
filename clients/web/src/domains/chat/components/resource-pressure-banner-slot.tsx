@@ -52,6 +52,8 @@ function readSuppressed(suppressedKey: string | null): boolean {
 export interface ResourcePressureBannerSlotProps {
   resourcePressure: UseResourcePressureMonitorResult;
   assistantId: string | null;
+  /** Display name for the banner title; null falls back to generic copy. */
+  assistantName: string | null;
   /** `"active"` for platform-hosted assistants that have an upgrade path. */
   assistantStateKind: string;
   /**
@@ -70,6 +72,7 @@ export interface ResourcePressureBannerSlotProps {
 export function ResourcePressureBannerSlot({
   resourcePressure,
   assistantId,
+  assistantName,
   assistantStateKind,
   hidden = false,
 }: ResourcePressureBannerSlotProps) {
@@ -204,6 +207,7 @@ export function ResourcePressureBannerSlot({
           and permanently suppress the wrong assistant's warning. */}
       <ResourcePressureBanner
         key={assistantId ?? "no-assistant"}
+        assistantName={assistantName}
         onDismiss={dismiss}
         onUpgrade={
           assistantStateKind === "active"

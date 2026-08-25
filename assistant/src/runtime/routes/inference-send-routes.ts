@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
 import type { ResolutionFallbackReason } from "../../config/llm-resolver.js";
 import { selectWinningProfile } from "../../config/llm-resolver.js";
 import { getConfigReadOnly } from "../../config/loader.js";
@@ -42,7 +42,7 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
   // Validate --profile against the configured profile catalog.
   if (profile !== undefined) {
     const { llm } = getConfigReadOnly();
-    const profiles = getEffectiveProfilesForProvider(
+    const profiles = getUserSelectableProfilesForProvider(
       llm?.profiles,
       llm?.defaultProvider ?? null,
     );

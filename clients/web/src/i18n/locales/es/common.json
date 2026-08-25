@@ -316,10 +316,11 @@
     "title": "¿Eliminar de este dispositivo?"
   },
   "resourcePressureBanner": {
-    "body": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado; mejora tu plan para potenciar tu asistente.",
-    "bodyNoUpgrade": "Tu asistente ha estado usando recursos elevados durante un periodo prolongado.",
+    "body": "Tu asistente está trabajando duro y está alcanzando sus límites de recursos actuales. Mejora tu plan para que siga funcionando sin problemas.",
+    "bodyNoUpgrade": "Tu asistente está trabajando duro y está alcanzando sus límites de recursos actuales.",
     "dontShowAgain": "No mostrar de nuevo",
-    "title": "La utilización de recursos es alta",
+    "title": "Tu asistente necesita más potencia",
+    "titleNamed": "{assistantName} necesita más potencia",
     "upgrade": "Mejorar plan"
   },
   "retireConfirmDialog": {

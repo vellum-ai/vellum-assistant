@@ -64,6 +64,7 @@ mock.module("../../sync/resource-sync-events.js", () => ({
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import { loadRawConfig } from "../../../config/loader.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
@@ -625,6 +626,11 @@ describe("collectProfileReferences", () => {
           source: "user",
           mix: [{ profile: "my-fast", weight: 1 }],
         },
+        "my-primary": {
+          source: "user",
+          provider: "anthropic",
+          fallbackProfile: "my-fast",
+        },
       },
     };
     expect(collectProfileReferences(llm, "my-fast").sort()).toEqual(
@@ -633,6 +639,7 @@ describe("collectProfileReferences", () => {
         "llm.advisorProfile",
         "llm.callSites.memoryExtraction",
         "llm.profiles.my-mix.mix",
+        "llm.profiles.my-primary.fallbackProfile",
       ].sort(),
     );
   });
@@ -676,6 +683,22 @@ describe("DELETE inference/profiles/:name reference guard", () => {
     ).rejects.toThrow(/llm\.profiles\.my-mix\.mix/);
   });
 
+  test("rejects deletion referenced by another profile's fallbackProfile", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my-fast": { source: "user", provider: "anthropic" },
+        "my-primary": {
+          source: "user",
+          provider: "anthropic",
+          fallbackProfile: "my-fast",
+        },
+      },
+    });
+    await expect(
+      call("inference_profiles_delete", { pathParams: { name: "my-fast" } }),
+    ).rejects.toThrow(/llm\.profiles\.my-primary\.fallbackProfile/);
+  });
+
   test("rejects deletion referenced by a call site", async () => {
     setConfig("llm", {
       callSites: { memoryExtraction: { profile: "my-fast" } },
@@ -706,6 +729,20 @@ describe("DELETE inference/profiles/:name reference guard", () => {
 // ── provider-aware list/get (Finding 2) ───────────────────────────────────────
 
 describe("GET inference/profiles honors llm.defaultProvider", () => {
+  test("omits managed backup routes from the user-facing catalog", async () => {
+    setConfig("llm", { profiles: {} });
+
+    const listed = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{ name: string }>;
+    };
+    const names = new Set(listed.profiles.map((profile) => profile.name));
+
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(names.has(key)).toBe(false);
+    }
+    expect(names.has("balanced")).toBe(true);
+  });
+
   test("expands balanced through a BYOK default provider, not the vellum column", async () => {
     setConfig("llm", {
       defaultProvider: { provider: "anthropic" },

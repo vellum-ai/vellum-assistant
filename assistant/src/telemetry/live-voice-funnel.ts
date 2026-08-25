@@ -66,11 +66,16 @@ export type LiveVoiceSessionOutcome = "completed" | "failed";
  * microphone from a muted one from someone deliberately backing out. Those have
  * completely different fixes, so the reason is what makes the rate actionable.
  *
- * The four values are ordered by how far the session got, and each one narrows
- * the cause to a different layer:
+ * The values are ordered by how far the session got, and each one narrows the
+ * cause to a different layer:
  *
  * - `no_ready`  never reached `active`: died in the credential preflight or
  *               the transport, before the user could have said anything.
+ * - `text_only` opened without a speech-to-text leg because the client could
+ *               type, and then the user never typed. Ranked ahead of the audio
+ *               signals because they cannot mean anything here: no microphone
+ *               was ever expected, so scoring such a session `no_audio` would
+ *               read as a failure the session does not have.
  * - `no_audio`  reached `active` but not one audio chunk ever arrived, so the
  *               microphone never opened. Permission denial looks like this.
  * - `no_speech` audio arrived but the detector never classified any of it as
@@ -80,6 +85,7 @@ export type LiveVoiceSessionOutcome = "completed" | "failed";
  */
 export type LiveVoiceSilenceReason =
   | "no_ready"
+  | "text_only"
   | "no_audio"
   | "no_speech"
   | "no_turn";
@@ -91,11 +97,15 @@ export type LiveVoiceSilenceReason =
  */
 export function liveVoiceSilenceReason(signals: {
   reachedActive: boolean;
+  audioInput: boolean;
   receivedAudio: boolean;
   detectedSpeech: boolean;
 }): LiveVoiceSilenceReason {
   if (!signals.reachedActive) {
     return "no_ready";
+  }
+  if (!signals.audioInput) {
+    return "text_only";
   }
   if (!signals.receivedAudio) {
     return "no_audio";

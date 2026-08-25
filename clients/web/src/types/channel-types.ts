@@ -55,8 +55,8 @@ export interface AssistantChannelState {
  * Kept apart from {@link AssistantChannelState} rather than widened into it:
  * the built-in adapters carry a readiness snapshot, a credential form, a
  * disconnect path and a trust floor, and a plugin channel has none of those
- * here. Its id is namespaced (`plugin:<name>`), so the two sets cannot
- * collide in a selection key.
+ * here. Its {@link PluginChannelSummary.key} is namespaced, so the two sets
+ * cannot collide in a selection key.
  */
 export interface PluginChannelSummary {
   /** Directory name of the declaring plugin. */
@@ -84,7 +84,3 @@ export function pluginChannelKey(plugin: string): string {
 
 /** Key of whichever row the Channels rail has selected. */
 export type ChannelRowKey = SetupChannelId | string;
-
-export function isPluginChannelKey(key: string): boolean {
-  return key.startsWith("plugin:");
-}

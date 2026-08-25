@@ -5239,6 +5239,39 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/subscription/reactivate/:
+    post:
+      operationId: organizations_billing_subscription_reactivate_create
+      description: 'Reactivate the org''s Pro subscription by removing a pending cancellation
+        before the current billing period ends — the server-side equivalent of clicking
+        "Do not cancel" in the Stripe Customer Portal. The subscription resumes renewing
+        at the period end; nothing is charged now. Idempotent: a subscription with
+        no pending cancellation returns no_op. Requires an active Pro subscription
+        with a provisioned Stripe subscription — once the period has ended and the
+        subscription is fully canceled it can no longer be reactivated (returns HTTP
+        403; subscribe again via upgrade instead).'
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionReactivateResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/subscription/upgrade/:
     post:
       operationId: organizations_billing_subscription_upgrade_create
@@ -9731,6 +9764,18 @@ components:
       - key
       - name
       - version
+    SubscriptionReactivateResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TierChangeStatusEnum'
+        current_period_end:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - current_period_end
+      - status
     SubscriptionResponse:
       type: object
       properties:

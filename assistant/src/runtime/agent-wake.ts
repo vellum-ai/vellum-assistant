@@ -1125,10 +1125,23 @@ export async function wakeAgentForOpportunity(
             // the conversation-id seed resolves the same mix arm the dispatch
             // path chose. Without these, attribution credits the call-site
             // profile/arm instead of the one that ran.
+            //
+            // A rerouted call (`RetryProvider`'s fallback-profile escalation)
+            // outranks both: the wake resolved `overrideProfile` before the
+            // run and cannot know the request was escalated, while
+            // `providerName` and `model` on this same row already follow the
+            // backup off the event. Attributing the profile from the wake's
+            // own resolution would write a row that contradicts itself. One
+            // row is written per `usage` event, each from that event alone,
+            // so this needs no cross-call state: a later non-rerouted call
+            // writes its own row under the wake's resolution.
             {
               callSite,
-              overrideProfile: overrideProfile ?? null,
-              forceOverrideProfile,
+              overrideProfile:
+                event.actualInferenceProfile ?? overrideProfile ?? null,
+              forceOverrideProfile:
+                event.actualInferenceProfile !== undefined ||
+                forceOverrideProfile,
               selectionSeed: conversationId,
             },
             opts.cronRunId ?? null,
