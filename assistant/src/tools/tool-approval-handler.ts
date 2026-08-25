@@ -55,6 +55,7 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "./types.js";
+import { enforceProtectedWorkspaceDeletePolicy } from "./protected-workspace-delete-policy.js";
 import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
 const log = getLogger("tool-approval-handler");
@@ -774,6 +775,35 @@ export class ToolApprovalHandler {
       return {
         allowed: false,
         result: { content: guardianCheck.reason!, isError: true },
+      };
+    }
+
+    const protectedDelete = enforceProtectedWorkspaceDeletePolicy(
+      name,
+      input,
+      context.workingDir,
+    );
+    if (protectedDelete.denied) {
+      log.warn(
+        {
+          toolName: name,
+          conversationId: context.conversationId,
+          target: protectedDelete.target,
+          reason: "protected_workspace_delete",
+        },
+        "Protected workspace file delete blocked",
+      );
+      this.auditGateDenied(
+        context,
+        name,
+        input,
+        riskLevel,
+        startTime,
+        protectedDelete.reason,
+      );
+      return {
+        allowed: false,
+        result: { content: protectedDelete.reason, isError: true },
       };
     }
 

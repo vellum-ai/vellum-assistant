@@ -223,7 +223,7 @@ function executableSinkDirs(): string[] {
  * against this predicate). A write to any of them rewrites the assistant's
  * standing instructions, per-user context, or per-channel context.
  */
-const PROMPT_SURFACE_FILES = [
+export const PROMPT_SURFACE_FILES = [
   "IDENTITY.md",
   "SOUL.md",
   "VOICE.md",
@@ -237,8 +237,8 @@ const PROMPT_SURFACE_FILES = [
   // system section, so the drift guard cannot see it — this entry is the
   // coverage.
   "NOW.md",
-];
-const PROMPT_SURFACE_DIRS = ["users", "channels"];
+] as const;
+export const PROMPT_SURFACE_DIRS = ["users", "channels"] as const;
 
 // `memory/**` is deliberately data-plane, not control-plane: memory pages
 // inject into guardian sessions as past-record rather than standing
