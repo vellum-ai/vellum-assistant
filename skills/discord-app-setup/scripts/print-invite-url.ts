@@ -68,7 +68,18 @@ async function revealCredential(
   return stdout.trim();
 }
 
-async function discoverApplicationId(token: string): Promise<string> {
+interface DiscordApplication {
+  id: string;
+  /**
+   * The app's own Default Install Settings, when the developer has configured
+   * them on the portal's Installation page. Discord's current model: scopes
+   * and permissions belong to the app, and the install link carries only the
+   * client id.
+   */
+  install_params?: { scopes?: string[]; permissions?: string };
+}
+
+async function fetchApplication(token: string): Promise<DiscordApplication> {
   const res = await fetch(`${DISCORD_API}/oauth2/applications/@me`, {
     headers: {
       Authorization: `Bot ${token}`,
@@ -78,11 +89,10 @@ async function discoverApplicationId(token: string): Promise<string> {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
-      `Discord /oauth2/applications/@me → ${res.status} ${res.statusText}: ${body}`,
+      `Discord /oauth2/applications/@me returned ${res.status} ${res.statusText}: ${body}`,
     );
   }
-  const json = (await res.json()) as { id: string };
-  return json.id;
+  return (await res.json()) as DiscordApplication;
 }
 
 async function printVellum(): Promise<void> {
@@ -93,16 +103,32 @@ async function printVellum(): Promise<void> {
     );
   }
 
-  const applicationId = await discoverApplicationId(token);
+  const app = await fetchApplication(token);
 
-  // Canonical modern form. The legacy `/api/oauth2/authorize` path still
-  // resolves, but Discord documents this one.
   const url = new URL("https://discord.com/oauth2/authorize");
-  url.searchParams.set("client_id", applicationId);
-  url.searchParams.set("permissions", computeDefaultPermissions());
-  url.searchParams.set("scope", "bot applications.commands");
+  url.searchParams.set("client_id", app.id);
+
+  // Prefer the app's own install link. Discord's current model puts scopes
+  // and permissions in Default Install Settings on the portal's Installation
+  // page and generates a link carrying only the client id, so a person who
+  // edits those settings sees the change. Spelling them into the URL instead
+  // silently overrides what they configured.
+  const configured = Boolean(app.install_params?.scopes?.length);
+  if (!configured) {
+    // No Default Install Settings, so the link has to say what to grant.
+    // `applications.commands` is deliberately absent: Discord includes it
+    // with the `bot` scope, and nothing here registers a command, so asking
+    // for it separately requests a permission that is never exercised.
+    url.searchParams.set("permissions", computeDefaultPermissions());
+    url.searchParams.set("scope", "bot");
+  }
 
   console.log(url.toString());
+  if (configured) {
+    console.error(
+      "Using this app's Default Install Settings from the Installation page.",
+    );
+  }
 }
 
 async function main(): Promise<void> {
