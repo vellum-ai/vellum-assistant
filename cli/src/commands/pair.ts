@@ -75,7 +75,6 @@ function usableEntryIngressUrl(entry: AssistantEntry): string | null {
  * generic unknown-option error's out-of-date-CLI advice.
  */
 const RETIRED_FLAGS = new Map<string, string>([
-  ["--qr", "the QR code and the pairing link are printed by default."],
   [
     "--web",
     "the device being paired mints its own code. Run " +
@@ -279,7 +278,14 @@ export async function pair(): Promise<void> {
   const jsonOutput = rawArgs.includes("--json");
   const webApproval = rawArgs.includes("--web-approve");
   const appVariant = rawArgs.includes("--app");
-  let args = rawArgs.filter((a) => a !== "--json" && a !== "--app");
+  // `--qr` is accepted and ignored, not retired: QR output is unconditional
+  // now, and already-shipped iOS builds tell users to run `vellum pair --qr`
+  // in their Settings bundle (clients/ios/App/App/Settings.bundle/Root.plist),
+  // copy those installs can never receive an update for. Keep it out of
+  // --help; it is a compatibility shim, not part of the command's surface.
+  let args = rawArgs.filter(
+    (a) => a !== "--json" && a !== "--app" && a !== "--qr",
+  );
 
   const [label, afterLabel] = extractFlag(args, "--label");
   const [webApproveCode, afterWebApprove] = extractFlag(

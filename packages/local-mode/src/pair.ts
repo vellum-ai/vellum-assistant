@@ -87,6 +87,84 @@ export type PairResult =
     }
   | { ok: false; status: number; error: string; assistantId?: string };
 
+/** The refusal half of {@link PairResult}. */
+export type PairRefusal = Extract<PairResult, { ok: false }>;
+
+/**
+ * The local id a pairing registers under: a `--name` slug, or
+ * `paired-<deviceId>` (deviceId is unique per pairing). Never the remote
+ * assistantId, which is typically "self" and would collide across hosts. The
+ * deviceId may be untrusted and is used as a path component by
+ * `saveGuardianToken`, so it MUST be slugified (no `../` traversal); it falls
+ * back to a random id when it sanitizes to empty.
+ */
+function derivePairedAssistantId(name?: string, deviceId?: string): string {
+  return name ? slugify(name) : `paired-${slugify(deviceId ?? "") || nanoid()}`;
+}
+
+/** The raw lockfile entry already holding `localId`, if any. */
+function findRawAssistant(
+  lockfilePaths: string[],
+  localId: string,
+): Record<string, unknown> | undefined {
+  const rawAssistants = readRawLockfile(lockfilePaths).assistants;
+  return (
+    Array.isArray(rawAssistants)
+      ? (rawAssistants as Array<Record<string, unknown>>)
+      : []
+  ).find((a) => a?.assistantId === localId);
+}
+
+/**
+ * Why `localId` may not be registered, or null when it is free. An id that
+ * slugifies to nothing is unusable, and an id already held by a NON-paired
+ * assistant is refused rather than clobbered: overwriting would drop that
+ * assistant's resources/runtime metadata. An existing PAIRED entry is a
+ * re-import and updates in place.
+ */
+function refusePairedAssistantId(
+  localId: string,
+  existing: Record<string, unknown> | undefined,
+): PairRefusal | null {
+  if (!localId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Name must contain at least one alphanumeric character",
+    };
+  }
+  if (existing && existing.paired !== true) {
+    return {
+      ok: false,
+      status: 409,
+      error: `An assistant named '${localId}' already exists`,
+      assistantId: localId,
+    };
+  }
+  return null;
+}
+
+/**
+ * The refusal {@link pairAssistant} would return for a `--name`, or null when
+ * the name is usable. Lets a caller reject a colliding name BEFORE spending a
+ * one-time pairing code, which the gateway records a device for even when the
+ * local write then fails.
+ *
+ * This is a pre-check, not a reservation: another process can claim the id
+ * between here and the import. It closes the common case; the real check
+ * inside `pairAssistant` is still what guarantees the id.
+ */
+export function checkPairedAssistantName(
+  lockfilePaths: string[],
+  name: string,
+): PairRefusal | null {
+  const localId = derivePairedAssistantId(name);
+  return refusePairedAssistantId(
+    localId,
+    findRawAssistant(lockfilePaths, localId),
+  );
+}
+
 /**
  * Register a pairing on this machine: persist the guardian token and upsert a
  * `cloud: "paired"` lockfile entry, the write counterpart of
@@ -128,39 +206,11 @@ export function pairAssistant(
     };
   }
 
-  // Unique local id: a name slug, or paired-<deviceId> (deviceId is unique per
-  // pairing). Never the remote "self" assistantId, which would collide. The
-  // deviceId may be untrusted and is used as a path component by
-  // saveGuardianToken, so it MUST be slugified (no `../` traversal); fall back
-  // to a random id if it sanitizes to empty.
-  const localId = name
-    ? slugify(name)
-    : `paired-${slugify(credentials.deviceId ?? "") || nanoid()}`;
-  if (!localId) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Name must contain at least one alphanumeric character",
-    };
-  }
-
-  // Don't clobber an existing assistant. Only update in place when the prior
-  // entry is itself a paired import (marked `paired: true`); otherwise the id
-  // collides with a real local/remote assistant and overwriting would drop its
-  // resources/runtime metadata. Reject and let the caller pick a fresh name.
-  const rawAssistants = readRawLockfile(lockfilePaths).assistants;
-  const existing = (
-    Array.isArray(rawAssistants)
-      ? (rawAssistants as Array<Record<string, unknown>>)
-      : []
-  ).find((a) => a?.assistantId === localId);
-  if (existing && existing.paired !== true) {
-    return {
-      ok: false,
-      status: 409,
-      error: `An assistant named '${localId}' already exists`,
-      assistantId: localId,
-    };
+  const localId = derivePairedAssistantId(name, credentials.deviceId);
+  const existing = findRawAssistant(lockfilePaths, localId);
+  const refusal = refusePairedAssistantId(localId, existing);
+  if (refusal) {
+    return refusal;
   }
 
   // Write the token BEFORE committing the lockfile entry, the mirror of

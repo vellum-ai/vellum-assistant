@@ -61,6 +61,7 @@ export type { RetireOptions, RetireResult } from "./retire";
 export { unpairAssistant } from "./unpair";
 export {
   pairAssistant,
+  checkPairedAssistantName,
   pairingStart,
   pairingPoll,
   pairingCancel,
@@ -70,6 +71,7 @@ export type {
   PairedAssistantCredentials,
   PairOptions,
   PairResult,
+  PairRefusal,
   PairingFailure,
   PairingFailureReason,
   PairingStarted,

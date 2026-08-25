@@ -189,44 +189,76 @@ describe("pair command", () => {
     expect(logs.join("\n")).not.toContain("token");
   });
 
-  test("--qr is refused as a retired flag, naming the new default", async () => {
-    let fetchCalled = false;
+  test("--qr is a silent no-op, identical to a flagless run", async () => {
+    // Shipped iOS builds tell users to run `vellum pair --qr` (see
+    // clients/ios/App/App/Settings.bundle/Root.plist), copy those installs can
+    // never receive an update for, so the flag stays accepted and ignored.
     const origFetch = globalThis.fetch;
-    globalThis.fetch = (async () => {
-      fetchCalled = true;
-      return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation(
-      (...a: unknown[]) => {
-        errors.push(a.join(" "));
-      },
-    );
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
 
-    process.argv = ["bun", "vellum", "pair", "--qr", "--url", PUBLIC_URL];
-    let exited = false;
+    async function runPair(argv: string[]): Promise<{
+      urls: string[];
+      output: string;
+    }> {
+      const calls: Array<[string, RequestInit | undefined]> = [];
+      stubPairingGateway(calls);
+      const logs: string[] = [];
+      const logSpy = spyOn(console, "log").mockImplementation(
+        (...a: unknown[]) => {
+          logs.push(a.join(" "));
+        },
+      );
+      const errSpy = spyOn(console, "error").mockImplementation(
+        (...a: unknown[]) => {
+          logs.push(`ERROR ${a.join(" ")}`);
+        },
+      );
+      process.argv = argv;
+      try {
+        await pair();
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+      }
+      return { urls: calls.map((c) => c[0]), output: logs.join("\n") };
+    }
+
+    let plain: { urls: string[]; output: string };
+    let withQr: { urls: string[]; output: string };
     try {
-      await pair();
-    } catch (e) {
-      exited = (e as Error).message === "exit:1";
+      plain = await runPair(["bun", "vellum", "pair", "--url", PUBLIC_URL]);
+      withQr = await runPair([
+        "bun",
+        "vellum",
+        "pair",
+        "--qr",
+        "--url",
+        PUBLIC_URL,
+      ]);
     } finally {
-      errSpy.mockRestore();
-      exitSpy.mockRestore();
       globalThis.fetch = origFetch;
     }
 
-    expect(exited).toBe(true);
-    const joined = errors.join("\n");
-    expect(joined).toContain("--qr is no longer an option");
-    expect(joined).toContain("by default");
-    // A removed flag is not an out-of-date CLI, so it never says so.
-    expect(joined).not.toContain("out of date");
-    expect(fetchCalled).toBe(false);
+    expect(withQr.urls).toEqual(plain.urls);
+    expect(withQr.output).toBe(plain.output);
+    // Accepted, not retired: no migration error, and the QR still prints.
+    expect(withQr.output).not.toContain("no longer an option");
+    expect(withQr.output).toContain("\u2588");
+  });
+
+  test("--qr is not advertised in the help output", async () => {
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
+    process.argv = ["bun", "vellum", "pair", "--help"];
+    try {
+      await pair();
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(logs.join("\n")).not.toContain("--qr");
   });
 
   test("--web is refused, pointing at connect import on the other device", async () => {

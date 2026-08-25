@@ -282,18 +282,6 @@ describe("connect import", () => {
     expect(out).toContain("expired or was denied");
   });
 
-  test("surfaces an unreachable assistant", async () => {
-    process.argv = ["bun", "vellum", "connect", "import", PAIRING_LINK];
-    globalThis.fetch = (async () => {
-      throw new Error("connect ECONNREFUSED");
-    }) as unknown as typeof fetch;
-
-    const { exited, out } = await runExpectingExit();
-
-    expect(exited).toBe(true);
-    expect(out).toContain("Could not reach that assistant");
-  });
-
   test("refuses a non-https address before any request", async () => {
     process.argv = [
       "bun",
@@ -336,18 +324,45 @@ describe("connect import", () => {
     expect(fetched).toBe(false);
   });
 
-  test("a base64 pairing bundle is no longer an address", async () => {
-    // The bundle artifact is gone; a pasted one reads as an invalid address
-    // rather than half-importing.
+  test("a legacy base64 bundle still imports, deprecated", async () => {
+    // Rolling upgrade: a host still on the previous CLI mints a bundle. It is
+    // no longer an address, so the import falls back to the deprecated decoder
+    // rather than rejecting a second machine mid-upgrade.
     process.argv = [
       "bun",
       "vellum",
       "connect",
       "import",
-      Buffer.from(JSON.stringify({ gatewayUrl: HOST, token: "t" })).toString(
-        "base64",
-      ),
+      Buffer.from(
+        JSON.stringify({ gatewayUrl: HOST, token: "bundle-tok" }),
+      ).toString("base64"),
+      "--name",
+      "legacy-box",
     ];
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    const { logs, restore } = captureLogs();
+    try {
+      await connectImport();
+    } finally {
+      restore();
+    }
+
+    // A bundle carries its own credentials: nothing is exchanged.
+    expect(fetched).toBe(false);
+    const output = logs.join("\n");
+    expect(output).toContain("deprecated");
+    expect(output).toContain("vellum pair");
+    expect(output).toContain("Imported paired assistant 'legacy-box'");
+    expect(findAssistantByName("legacy-box")!.runtimeUrl).toBe(HOST);
+    expect(loadGuardianToken("legacy-box")?.accessToken).toBe("bundle-tok");
+  });
+
+  test("a string that is neither an address nor a bundle keeps the address error", async () => {
+    process.argv = ["bun", "vellum", "connect", "import", "not-a-url"];
     let fetched = false;
     globalThis.fetch = (async () => {
       fetched = true;
@@ -357,8 +372,91 @@ describe("connect import", () => {
     const { exited, out } = await runExpectingExit();
 
     expect(exited).toBe(true);
+    // The address error, not a bundle-decoding one.
     expect(out).toContain("pairing link");
+    expect(out).not.toContain("Bundle");
     expect(fetched).toBe(false);
+  });
+
+  test("retries a transient failure and still imports", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      HOST,
+      "--name",
+      "flaky-box",
+    ];
+    let attempt = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url === CHALLENGE_URL) {
+        return jsonResponse(challengeBody());
+      }
+      attempt += 1;
+      // The first exchange dies in transport; the session stays alive.
+      if (attempt === 1) {
+        throw new Error("connect ECONNRESET");
+      }
+      return jsonResponse(approvedBody());
+    }) as unknown as typeof fetch;
+    const { logs, restore } = captureLogs();
+    try {
+      await connectImport();
+    } finally {
+      restore();
+    }
+
+    expect(attempt).toBe(2);
+    const output = logs.join("\n");
+    // The stalled terminal says what it is doing, once.
+    expect(output).toContain("Could not reach the assistant");
+    expect(output).toContain("Still trying");
+    expect(output).toContain("Imported paired assistant 'flaky-box'");
+    expect(loadGuardianToken("flaky-box")?.accessToken).toBe("acc-tok");
+  });
+
+  test("reports expiry once transient failures outlast the code", async () => {
+    process.argv = ["bun", "vellum", "connect", "import", HOST];
+    let exchanges = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url === CHALLENGE_URL) {
+        return jsonResponse(
+          challengeBody({
+            // A deadline the retry loop reaches within a few backoffs.
+            expiresAt: new Date(Date.now() + 60).toISOString(),
+          }),
+        );
+      }
+      exchanges += 1;
+      throw new Error("connect ECONNREFUSED");
+    }) as unknown as typeof fetch;
+
+    const { exited, out } = await runExpectingExit();
+
+    expect(exited).toBe(true);
+    expect(out).toContain("expired");
+    // Bounded: it retried, then stopped instead of looping forever.
+    expect(exchanges).toBeGreaterThan(1);
+    expect(exchanges).toBeLessThan(20);
+  });
+
+  test("a pairing link does not wait out an unreachable host", async () => {
+    // Nothing proved this address reachable (a link opens its session without
+    // a request), so the failure is reported instead of retried for the full
+    // ten-minute TTL.
+    process.argv = ["bun", "vellum", "connect", "import", PAIRING_LINK];
+    let attempts = 0;
+    globalThis.fetch = (async () => {
+      attempts += 1;
+      throw new Error("connect ECONNREFUSED");
+    }) as unknown as typeof fetch;
+
+    const { exited, out } = await runExpectingExit();
+
+    expect(exited).toBe(true);
+    expect(out).toContain("Could not reach that assistant");
+    expect(attempts).toBe(1);
   });
 
   test("missing address exits 1 with usage", async () => {
@@ -434,12 +532,15 @@ describe("connect import", () => {
       "--name",
       "desk",
     ];
-    stubFetch(() => jsonResponse(approvedBody()));
+    const calls = stubFetch(() => jsonResponse(approvedBody()));
 
     const { exited, out } = await runExpectingExit();
 
     expect(exited).toBe(true);
     expect(out).toContain("Choose a different --name");
+    // Refused BEFORE the exchange: the one-time code is never spent, so the
+    // host records no orphaned device and the link stays usable.
+    expect(calls).toHaveLength(0);
     const entry = findAssistantByName("desk");
     expect(entry!.runtimeUrl).toBe("http://127.0.0.1:7830");
     expect(entry!.paired).toBeUndefined();
