@@ -84,7 +84,14 @@
   <meta name="twitter:image" content="https://www.vellum.ai/og-cover-v2.jpg" />
   <meta name="twitter:image:alt" content="Vellum: Your Personal Intelligence" />
 
-  <script src="/theme-init.js"></script>
+  <!--
+    Deferred so a cache-miss fetch of this script cannot block the parser
+    ahead of the splash markup below: the splash paints on its
+    prefers-color-scheme styles while the script is in flight, and the
+    deferred list still executes this before the app module, so the stamped
+    theme and the localized label land before anything React paints.
+  -->
+  <script src="/theme-init.js" defer></script>
 
   <!--
     Boot splash styles.
@@ -95,9 +102,10 @@
     `packages/design-library/src/tokens.css`, light block and dark block.
 
     Two dark selectors, because there are two ways to be dark before the app
-    runs. `theme-init.js` (above) stamps `data-theme="dark"` synchronously and
+    runs. `theme-init.js` (above, deferred) stamps `data-theme="dark"` and
     maps velvet onto it, which covers every launch that has a stored theme or a
-    working `matchMedia`. The media query covers the case it cannot: a document
+    working `matchMedia`. The media query covers the window before the stamp
+    and the case it cannot: a document
     that reached paint before the attribute landed, or with the script blocked.
     It is written against `:not([data-theme="light"])` so an explicit light
     choice still wins on a dark OS.

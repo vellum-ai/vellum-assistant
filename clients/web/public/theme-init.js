@@ -104,12 +104,13 @@
       return !!splash;
     };
 
-    // This script runs in <head>, so on a cold load the splash is not parsed
-    // yet. The label has to land while the splash is still what the page
-    // shows, and DOMContentLoaded is too late for that: the module script at
-    // the end of the body defers it until the whole bundle graph has loaded,
-    // which is exactly the interval the splash covers. A parser-driven
-    // MutationObserver applies the label the moment the node exists instead.
+    // The script tag is deferred, so by execution time the splash is normally
+    // parsed and the label lands directly. The label has to land while the
+    // splash is still what the page shows, and DOMContentLoaded is too late
+    // for that: the module script at the end of the body defers it until the
+    // whole bundle graph has loaded, which is exactly the interval the splash
+    // covers. The MutationObserver covers any execution that still precedes
+    // the node, applying the label the moment it exists.
     if (!apply()) {
       var observer = new MutationObserver(function () {
         if (apply()) {

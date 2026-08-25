@@ -125,6 +125,15 @@ describe("SPA shell: boot splash", () => {
     expect(splash?.getAttribute("role")).toBe("status");
   });
 
+  // A synchronous head script blocks the parser ahead of the splash for the
+  // whole script fetch on a cache miss, which is a blank screen in exactly
+  // the window the splash covers. Deferred, the splash parses and paints on
+  // its prefers-color-scheme styles while the script is in flight.
+  test("theme-init is deferred so its fetch cannot block the splash", () => {
+    const script = doc.querySelector('script[src="/theme-init.js"]');
+    expect(script?.hasAttribute("defer")).toBe(true);
+  });
+
   test("its static label is the same string the app's own spinner uses", () => {
     expect(splash?.getAttribute("aria-label")).toBe(
       loadingLabel(DEFAULT_LOCALE),
