@@ -39,6 +39,11 @@ export class DedupCache {
    * into the new bot's cache, silencing the new bot exactly as before.
    */
   private generation = 0;
+
+  /** The generation a caller is reserving in, to hand back to {@link set}. */
+  get currentGeneration(): number {
+    return this.generation;
+  }
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
@@ -123,12 +128,18 @@ export class DedupCache {
   }
 
   /** Store a response for the given update_id and advance the high-water mark. */
-  set(updateId: number, body: string, status: number): void {
-    const reserved = this.cache.get(updateId);
-    if (reserved && reserved.generation !== this.generation) {
-      // Work that began under a previous bot. Drop it rather than record it:
-      // its update_id belongs to a sequence this cache no longer tracks.
-      this.cache.delete(updateId);
+  set(
+    updateId: number,
+    body: string,
+    status: number,
+    reservedIn = this.generation,
+  ): void {
+    // The generation the caller reserved in, carried by the caller rather than
+    // read back off the entry: `reset` clears the map, so by the time stale
+    // work finalizes there is no entry left to carry it and the guard would
+    // never fire. Work from a departed bot is dropped, not recorded, because
+    // its update_id belongs to a sequence this cache no longer tracks.
+    if (reservedIn !== this.generation) {
       return;
     }
 

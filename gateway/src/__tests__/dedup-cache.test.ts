@@ -302,18 +302,30 @@ describe("DedupCache.reset for a changed bot", () => {
   test("work from the departed bot cannot restore its watermark", () => {
     const cache = new DedupCache();
 
-    // The old bot reserves a high id and is still processing it.
+    // The old bot reserves a high id and is still processing it. The caller
+    // carries the generation, because a reset clears the entry that would
+    // otherwise have held it.
     expect(cache.reserve(900_000)).toBe("reserved");
+    const reservedIn = cache.currentGeneration;
 
     // The credential rotates mid-flight.
     cache.reset();
 
     // The old handler finishes and tries to record its result.
-    cache.set(900_000, "{}", 200);
+    cache.set(900_000, "{}", 200, reservedIn);
 
     // The new bot's low ids must still be accepted: finalizing that stale
     // work must not have reinstated the old high-water mark.
     expect(cache.reserve(12)).toBe("reserved");
+  });
+
+  test("a finalize in the current generation still records normally", () => {
+    const cache = new DedupCache();
+    expect(cache.reserve(500)).toBe("reserved");
+    cache.set(500, "{}", 200, cache.currentGeneration);
+
+    // Replay protection is unchanged for a bot that has not moved.
+    expect(cache.reserve(499)).toBe("already_processed");
   });
 
   test("reset clears in-flight entries too, not just the mark", () => {

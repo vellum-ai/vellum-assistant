@@ -119,8 +119,13 @@ export function createTelegramWebhookHandler(
     // are blocked even while the first request is still processing.
     const updateId =
       typeof payload.update_id === "number" ? payload.update_id : undefined;
+    let reservedGeneration = dedupCache.currentGeneration;
     if (updateId !== undefined) {
       const status = dedupCache.reserve(updateId);
+      // Captured with the reservation so finalizing can tell whether the bot
+      // changed while this update was in flight. Read off the entry it would
+      // be lost, since a reset clears the map.
+      reservedGeneration = dedupCache.currentGeneration;
       if (status !== "reserved") {
         if (status === "already_processed") {
           // High-water mark rejection — this update_id was fully processed
@@ -163,7 +168,7 @@ export function createTelegramWebhookHandler(
     const respond = (body: Record<string, unknown>, status = 200): Response => {
       const json = JSON.stringify(body);
       if (updateId !== undefined) {
-        dedupCache.set(updateId, json, status);
+        dedupCache.set(updateId, json, status, reservedGeneration);
       }
       return new Response(json, {
         status,
