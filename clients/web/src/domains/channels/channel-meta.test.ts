@@ -33,12 +33,22 @@ describe("channel capabilities are declared, not inferred", () => {
     }
   });
 
-  test("the setup drawer accepts only channels whose form it renders", () => {
-    for (const id of CHANNEL_SETUP_TYPES) {
-      expect(CHANNEL_META[id].manualEntry).toBeDefined();
-    }
+  test("the setup drawer rejects a channel it has no form for", () => {
     // The drawer is a credential form, so a channel without one must not
-    // reach it: it would render another channel's connected copy.
+    // reach it: it would render another channel's connected copy over an
+    // empty body.
     expect(isChannelSetupType("discord")).toBe(false);
+    for (const id of CHANNEL_SETUP_TYPES) {
+      expect(SETUP_CHANNEL_IDS).toContain(id);
+    }
+  });
+
+  test("the drawer's set is not the tab's manual-entry set", () => {
+    // Slack has a form in the drawer and none behind "Connect manually" on
+    // the tab, because its disconnected state is the wizard itself. Two
+    // different questions, so neither list is derivable from the other, and
+    // asserting they match would be asserting something untrue.
+    expect(isChannelSetupType("slack")).toBe(true);
+    expect(CHANNEL_META.slack.manualEntry).toBeUndefined();
   });
 });
