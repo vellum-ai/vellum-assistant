@@ -627,7 +627,7 @@ describe("useChooserRowAvatar", () => {
         { wrapper: createWrapper() },
       );
       await waitFor(() => {
-        expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
+        expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
       });
       await waitFor(() => {
         expect(result.current.traits).toEqual(traits);

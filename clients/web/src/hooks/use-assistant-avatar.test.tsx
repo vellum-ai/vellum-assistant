@@ -65,7 +65,10 @@ const fetchCharacterComponents = mock(async () => components);
 const fetchAvatarState = mock(async () => noneState as AvatarState | null);
 const ABSENT: AvatarFileResult<never> = { status: "absent" };
 const FAILED: AvatarFileResult<never> = { status: "failed" };
-const found = <T,>(value: T): AvatarFileResult<T> => ({ status: "found", value });
+const found = <T,>(value: T): AvatarFileResult<T> => ({
+  status: "found",
+  value,
+});
 const fetchAvatarImageUrlResult = mock(
   async () => ABSENT as AvatarFileResult<string>,
 );
@@ -375,6 +378,36 @@ describe("useAssistantAvatar", () => {
     expect(result.current.customImageUrl).toBeNull();
   });
 
+  test("pre-manifest image read failure is inconclusive even when traits load", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+    fetchAvatarImageUrlResult.mockResolvedValueOnce(found("blob:avatar-image"));
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const first = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.customImageUrl).toBe("blob:avatar-image");
+    });
+    first.unmount();
+
+    fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+    fetchCharacterTraitsResult.mockResolvedValue(found(traits));
+    await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
+
+    const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchCharacterTraitsResult).not.toHaveBeenCalled();
+    expect(second.result.current.customImageUrl).toBe("blob:avatar-image");
+    expect(second.result.current.traits).toBeNull();
+  });
+
   test("pre-manifest sidecar transport failure preserves the cached avatar", async () => {
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
     fetchCharacterTraitsResult.mockResolvedValueOnce(found(traits));
@@ -398,7 +431,7 @@ describe("useAssistantAvatar", () => {
 
     const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
     await waitFor(() => {
-      expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(2);
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(2);
     });
     expect(second.result.current.traits).toEqual(traits);
   });

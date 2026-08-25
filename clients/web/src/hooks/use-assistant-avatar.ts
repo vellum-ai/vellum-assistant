@@ -135,6 +135,10 @@ export async function readAvatarViaLegacyFiles(
   if (image.status === "found") {
     return { traits: null, imageUrl: image.value, conclusive: true };
   }
+  if (image.status === "failed") {
+    // The image outranks traits, so an unread image leaves the outcome unknown.
+    return { traits: null, imageUrl: null, conclusive: false };
+  }
   const traits = await fetchCharacterTraitsResult(assistantId);
   if (traits.status === "found") {
     return { traits: traits.value, imageUrl: null, conclusive: true };
@@ -142,7 +146,7 @@ export async function readAvatarViaLegacyFiles(
   return {
     traits: null,
     imageUrl: null,
-    conclusive: image.status === "absent" && traits.status === "absent",
+    conclusive: traits.status === "absent",
   };
 }
 
