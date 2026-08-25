@@ -34,6 +34,8 @@ const { channelForCallback } =
 const { deliverDirect, getTransportForCallback, isDirectDelivery } =
   await import("../messaging/providers/index.js");
 
+type ChannelReplyPayload = Parameters<typeof deliverDirect>[1];
+
 const DISCORD_CALLBACK = "https://gateway.example/deliver/discord";
 
 describe("a Discord reply reaches the Discord transport", () => {
@@ -53,10 +55,11 @@ describe("a Discord reply reaches the Discord transport", () => {
 
   test("a reply is delivered to the chat id it was addressed to", async () => {
     sent.length = 0;
-    await deliverDirect(DISCORD_CALLBACK, {
+    const payload: ChannelReplyPayload = {
       chatId: "1409876543210987654",
       text: "hello from the assistant",
-    } as never);
+    };
+    await deliverDirect(DISCORD_CALLBACK, payload);
 
     expect(sent).toHaveLength(1);
     // `POST /channels/{id}/messages` addresses a channel and nothing more, so
@@ -67,10 +70,14 @@ describe("a Discord reply reaches the Discord transport", () => {
 
   test("a threaded reply lands in the thread, which is its own channel", async () => {
     sent.length = 0;
-    await deliverDirect(`${DISCORD_CALLBACK}?threadId=1405555555555555555`, {
+    const payload: ChannelReplyPayload = {
       chatId: "1409876543210987654",
       text: "in the thread",
-    } as never);
+    };
+    await deliverDirect(
+      `${DISCORD_CALLBACK}?threadId=1405555555555555555`,
+      payload,
+    );
 
     expect(sent[0]?.channelId).toBe("1405555555555555555");
   });

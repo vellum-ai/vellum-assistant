@@ -13,6 +13,7 @@ import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
 import { z } from "zod";
 
 import {
+  getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -42,6 +43,19 @@ import { log } from "./shared.js";
  * spelling would be free to disagree with it.
  */
 const DISCORD_PROVIDER = CHANNEL_BOT_PROVIDER.discord;
+
+/**
+ * The fields read back from Discord when a token validates. Parsed rather than
+ * cast: this runs at a network boundary and what it keeps is written into
+ * config, so a shape Discord did not send should fail here rather than persist
+ * as an undefined the reader silently tolerates.
+ */
+const DiscordBotIdentitySchema = z.object({
+  id: z.string().optional(),
+  username: z.string().optional(),
+});
+
+const DiscordApplicationSchema = z.object({ id: z.string().optional() });
 
 export const DiscordChannelConfigResultSchema =
   ChannelConfigResultBaseSchema.extend({
@@ -79,25 +93,15 @@ async function hasStoredBotToken(): Promise<boolean> {
 
 /** Current state, without touching anything. */
 export async function getDiscordChannelConfig(): Promise<DiscordChannelConfigResult> {
-  const raw = loadRawConfig() as {
-    discord?: {
-      botUserId?: string;
-      botUsername?: string;
-      applicationId?: string;
-    };
-  };
+  const { discord } = getConfig();
   const hasToken = await hasStoredBotToken();
   return {
     success: true,
     hasBotToken: hasToken,
     connected: hasToken,
-    ...(raw.discord?.botUserId ? { botUserId: raw.discord.botUserId } : {}),
-    ...(raw.discord?.botUsername
-      ? { botUsername: raw.discord.botUsername }
-      : {}),
-    ...(raw.discord?.applicationId
-      ? { applicationId: raw.discord.applicationId }
-      : {}),
+    ...(discord.botUserId ? { botUserId: discord.botUserId } : {}),
+    ...(discord.botUsername ? { botUsername: discord.botUsername } : {}),
+    ...(discord.applicationId ? { applicationId: discord.applicationId } : {}),
   };
 }
 
@@ -142,13 +146,13 @@ export async function setDiscordChannelConfig(
     if (!res.ok) {
       throw new Error(`Discord returned ${res.status}`);
     }
-    const me = (await res.json()) as { id?: string; username?: string };
+    const me = DiscordBotIdentitySchema.parse(await res.json());
     botUserId = me.id;
     botUsername = me.username;
 
     if (appRes?.ok) {
-      const app = (await appRes.json()) as { id?: string };
-      applicationId = app.id;
+      const app = DiscordApplicationSchema.safeParse(await appRes.json());
+      applicationId = app.success ? app.data.id : undefined;
     }
   } catch (err) {
     // The body is not echoed: this path runs with a secret in hand, and the

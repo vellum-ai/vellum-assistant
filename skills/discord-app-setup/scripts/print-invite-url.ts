@@ -79,6 +79,39 @@ interface DiscordApplication {
   install_params?: { scopes?: string[]; permissions?: string };
 }
 
+/**
+ * Narrow Discord's response rather than assert it. This is one hop from the
+ * network and the id it yields goes into an install link someone clicks, so a
+ * shape Discord did not send should stop here loudly instead of producing a
+ * link to nothing.
+ */
+function readApplication(body: unknown): DiscordApplication {
+  if (typeof body !== "object" || body === null) {
+    throw new Error("Discord returned a non-object application");
+  }
+  const id = "id" in body ? body.id : undefined;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("Discord returned an application without a usable id");
+  }
+
+  const params = "install_params" in body ? body.install_params : undefined;
+  const rawScopes =
+    typeof params === "object" &&
+    params !== null &&
+    "scopes" in params &&
+    Array.isArray(params.scopes)
+      ? params.scopes
+      : [];
+  const scopes = rawScopes.filter(
+    (scope): scope is string => typeof scope === "string",
+  );
+
+  return {
+    id,
+    ...(scopes.length > 0 ? { install_params: { scopes } } : {}),
+  };
+}
+
 async function fetchApplication(token: string): Promise<DiscordApplication> {
   const res = await fetch(`${DISCORD_API}/oauth2/applications/@me`, {
     headers: {
@@ -92,7 +125,7 @@ async function fetchApplication(token: string): Promise<DiscordApplication> {
       `Discord /oauth2/applications/@me returned ${res.status} ${res.statusText}: ${body}`,
     );
   }
-  return (await res.json()) as DiscordApplication;
+  return readApplication(await res.json());
 }
 
 async function printVellum(): Promise<void> {
