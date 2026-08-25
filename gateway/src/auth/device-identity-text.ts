@@ -28,10 +28,12 @@ export function capDeviceIdentityText(
   if (value === null || value === undefined) {
     return null;
   }
-  const trimmed = value.trim();
+  const trimmed = stripControlChars(value).trim();
   if (trimmed === "") {
     return null;
   }
-  const stripped = stripControlChars(trimmed);
-  return stripped.slice(0, maxChars);
+  // Truncate by code point, not UTF-16 code unit, so an astral character
+  // (e.g. an emoji surrogate pair) at the boundary is kept or dropped
+  // whole rather than split into an unpaired surrogate.
+  return Array.from(trimmed).slice(0, maxChars).join("");
 }
