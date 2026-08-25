@@ -23,6 +23,12 @@ const TRAITS: CharacterTraits = {
   color: BUNDLED_COMPONENTS.colors[0]!.id,
 };
 
+const UNKNOWN_TRAITS: CharacterTraits = {
+  bodyShape: "no-such-body",
+  eyeStyle: "no-such-eyes",
+  color: "no-such-color",
+};
+
 const fallback = <span data-testid="fallback">V</span>;
 
 describe("ChooserAvatarChip", () => {
@@ -76,6 +82,33 @@ describe("ChooserAvatarChip", () => {
     expect(img?.getAttribute("alt")).toBe("Assistant avatar");
     expect(img?.className).toContain("rounded-full");
     expect(img?.style.width).toBe("48px");
+  });
+
+  test("unknown trait ids fall through to the image", () => {
+    const { container } = render(
+      <ChooserAvatarChip
+        traits={UNKNOWN_TRAITS}
+        imageUrl="https://example.test/a.png"
+        fallback={fallback}
+      />,
+    );
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "https://example.test/a.png",
+    );
+  });
+
+  test("unknown trait ids with no image render the fallback", () => {
+    const { container, queryByTestId } = render(
+      <ChooserAvatarChip
+        traits={UNKNOWN_TRAITS}
+        imageUrl={null}
+        fallback={fallback}
+      />,
+    );
+    expect(queryByTestId("fallback")).not.toBeNull();
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
   });
 
   test("renders the fallback when there is no avatar", () => {

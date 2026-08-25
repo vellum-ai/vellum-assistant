@@ -2,7 +2,9 @@
  * Avatar for an assistant row in a chooser list: character traits, else the
  * uploaded image, else the caller's `fallback`. Traits outrank the image to
  * match `ChatAvatar`. The fallback also stands in while the lazily loaded
- * character components resolve, so the row never goes blank.
+ * character components resolve, so the row never goes blank. Traits whose ids
+ * are missing from the palette (legacy or hand-written sidecars) fall through
+ * to the image, then the fallback.
  */
 
 import type { ReactNode } from "react";
@@ -10,6 +12,7 @@ import type { ReactNode } from "react";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { useTranslation } from "@/i18n";
 import type { CharacterTraits } from "@/types/avatar";
+import { canResolveDefinitions } from "@/utils/avatar-svg-compositor";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 export interface ChooserAvatarChipProps {
@@ -36,16 +39,24 @@ export function ChooserAvatarChip({
     if (!components) {
       return fallback;
     }
-    return (
-      <AvatarRenderer
-        components={components}
-        bodyShapeId={traits.bodyShape}
-        eyeStyleId={traits.eyeStyle}
-        colorId={traits.color}
-        size={size}
-        className={className}
-      />
+    const renderable = canResolveDefinitions(
+      components,
+      traits.bodyShape,
+      traits.eyeStyle,
+      traits.color,
     );
+    if (renderable) {
+      return (
+        <AvatarRenderer
+          components={components}
+          bodyShapeId={traits.bodyShape}
+          eyeStyleId={traits.eyeStyle}
+          colorId={traits.color}
+          size={size}
+          className={className}
+        />
+      );
+    }
   }
 
   if (imageUrl) {
