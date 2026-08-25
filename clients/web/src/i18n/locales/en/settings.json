@@ -1246,7 +1246,6 @@
   },
   "pairedDevicesSection": {
     "browserOnOs": "{browser} on {os}",
-    "confirmMessage": "The {platform} device {hash} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
     "confirmMessageNamed": "{name} ({hash}) loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
     "confirmTitle": "Revoke this device?",
     "dateUnknown": "unknown",
