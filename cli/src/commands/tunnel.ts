@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { closeSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "path";
 
 import { TUNNEL_PROVIDERS } from "@vellumai/service-contracts/ingress";
@@ -12,13 +11,13 @@ import {
 } from "../lib/assistant-config";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
+import { relaunchDetached } from "../lib/detached-process.js";
 import {
   getDefaultWorkspaceDir,
   isLocalContainerEntry,
   parseGatewayPortFromEntryUrls,
   saveNgrokDomain,
 } from "../lib/ingress-config.js";
-import { isCompiledCli } from "../lib/local.js";
 import {
   ensureTunnelEdge,
   formatEdgeMode,
@@ -27,7 +26,6 @@ import {
 import { hasWebhookIntegrationsConfigured, runNgrokTunnel } from "../lib/ngrok";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
-import { getLogDir, openLogFile, resetLogFile } from "../lib/xdg-log.js";
 
 // `vellum` is the managed option this command owns; the local providers come
 // from the shared registry so validation here cannot drift from what the
@@ -376,11 +374,10 @@ const TUNNEL_ADOPTED_RE = /Found existing ngrok tunnel: (\S+)/;
 
 /**
  * Re-invoke `vellum tunnel` (without `-d`/`--detach`) as a detached background
- * process, redirecting its stdout/stderr to a log file. Same idiom as
- * `spawnBackgroundWebInterface` in `client.ts`. This process then waits for
- * the child to either print its "Tunnel established"/"Found existing ngrok
- * tunnel" line (readiness) or exit early (failure) before returning, so a
- * misconfigured provider still fails loudly in the terminal that ran `-d`.
+ * process via `relaunchDetached`, waiting for the child to either print its
+ * "Tunnel established"/"Found existing ngrok tunnel" line (readiness) or
+ * exit early (failure), so a misconfigured provider still fails loudly in
+ * the terminal that ran `-d`.
  *
  * The log filename is scoped to this (parent) process's pid so concurrent
  * `-d` runs (e.g. tunneling two different local assistants at once) don't
@@ -395,69 +392,48 @@ async function spawnDetachedTunnel(): Promise<void> {
     childArgs.push(arg);
   }
 
-  const spawnArgs = isCompiledCli()
-    ? childArgs
-    : [process.argv[1], ...childArgs];
-
-  const logFile = `tunnel-${process.pid}.log`;
-  resetLogFile(logFile);
-  const fd = openLogFile(logFile);
-  const child = spawn(process.execPath, spawnArgs, {
-    detached: true,
-    stdio: ["ignore", fd, fd],
-  });
-  if (typeof fd === "number") {
-    closeSync(fd);
-  }
-  child.unref();
-
-  const logPath = join(getLogDir(), logFile);
-
-  let exit: { code: number | null } | undefined;
-  child.on("error", () => {
-    exit = { code: null };
-  });
-  child.on("exit", (code) => {
-    exit = { code };
-  });
-
-  const deadline = Date.now() + TUNNEL_BACKGROUND_START_TIMEOUT_MS;
   let publicUrl: string | undefined;
   let adopted = false;
-  while (Date.now() < deadline && !exit) {
-    let logText = "";
-    try {
-      logText = readFileSync(logPath, "utf-8");
-    } catch {
-      // Log file not written yet. Keep polling.
-    }
-    const established = TUNNEL_ESTABLISHED_RE.exec(logText);
-    const adoptedMatch = TUNNEL_ADOPTED_RE.exec(logText);
-    if (established) {
-      publicUrl = established[1];
-      break;
-    }
-    if (adoptedMatch) {
-      publicUrl = adoptedMatch[1];
-      adopted = true;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
 
-  if (exit) {
+  const { child, logPath, ready, exitCode } = await relaunchDetached({
+    args: childArgs,
+    logFile: `tunnel-${process.pid}.log`,
+    timeoutMs: TUNNEL_BACKGROUND_START_TIMEOUT_MS,
+    isReady: (logPath) => {
+      let logText = "";
+      try {
+        logText = readFileSync(logPath, "utf-8");
+      } catch {
+        // Log file not written yet. Keep polling.
+      }
+      const established = TUNNEL_ESTABLISHED_RE.exec(logText);
+      if (established) {
+        publicUrl = established[1];
+        return true;
+      }
+      const adoptedMatch = TUNNEL_ADOPTED_RE.exec(logText);
+      if (adoptedMatch) {
+        publicUrl = adoptedMatch[1];
+        adopted = true;
+        return true;
+      }
+      return false;
+    },
+  });
+
+  if (exitCode !== undefined) {
     console.error(
-      `Error: tunnel process exited during startup${exit.code !== null ? ` (exit code ${exit.code})` : ""}. Logs: ${logPath}`,
+      `Error: tunnel process exited during startup${exitCode !== null ? ` (exit code ${exitCode})` : ""}. Logs: ${logPath}`,
     );
     process.exit(1);
   }
 
-  if (publicUrl) {
-    console.log(`Tunnel established: ${publicUrl}`);
-  } else {
+  if (!ready) {
     console.log(
       `Tunnel is still starting up after ${TUNNEL_BACKGROUND_START_TIMEOUT_MS / 1000}s. Check progress: ${logPath}`,
     );
+  } else if (publicUrl) {
+    console.log(`Tunnel established: ${publicUrl}`);
   }
   console.log(`Running in background (pid ${child.pid}). Logs: ${logPath}`);
   if (adopted) {
