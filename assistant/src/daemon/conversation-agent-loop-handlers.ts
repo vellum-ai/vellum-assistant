@@ -211,6 +211,15 @@ export interface EventHandlerState {
   firstAssistantText: string;
   /** Most recent resolved provider for the current exchange's usage accounting. */
   exchangeProviderName: string | undefined;
+  /**
+   * Inference profile the most recent LLM call actually ran under, set only
+   * when a wrapper rerouted that call (`RetryProvider`'s fallback-profile
+   * escalation). Overwritten by every call, exactly like
+   * `exchangeProviderName` and `model`, so the ledger row's provider, model,
+   * and profile all describe the same call. `undefined` means the last call
+   * was not rerouted and the conversation's own profile resolution stands.
+   */
+  exchangeInferenceProfile: string | undefined;
   exchangeInputTokens: number;
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
@@ -578,6 +587,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
     exchangeProviderName: undefined,
+    exchangeInferenceProfile: undefined,
     exchangeInputTokens: 0,
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
@@ -3071,6 +3081,11 @@ function handleUsage(
 ): void {
   const providerName = event.actualProvider ?? deps.ctx.provider.name;
   state.exchangeProviderName = providerName;
+  // Assigned unconditionally, not merged: a later non-rerouted call clearing
+  // this back to `undefined` is correct, because provider and model are being
+  // overwritten from that same call. Keeping a stale profile from an earlier
+  // fallback would reintroduce the very contradiction this field prevents.
+  state.exchangeInferenceProfile = event.actualInferenceProfile;
   state.exchangeLlmCallCount += 1;
   state.exchangeInputTokens += event.inputTokens;
   state.lastCallInputTokens = event.inputTokens;

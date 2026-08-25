@@ -1,7 +1,7 @@
 /**
- * Icon-only danger "Stop" control for detail-panel headers (subagent,
- * workflow, background task, ACP run). A bordered square button holding a
- * square glyph, the shared right-aligned header control. Keeping every panel
+ * Icon-only danger "Stop" control for panel headers (subagent, workflow,
+ * background task, ACP run, Doctor session). A bordered square button holding
+ * a square glyph, the shared right-aligned header control. Keeping every panel
  * on this one component stops their headers from drifting apart.
  *
  * Corner radius and glyph size are both the design-library defaults (no
@@ -36,7 +36,7 @@ export function DetailPanelStopButton({
   ariaLabel,
   disabled,
 }: DetailPanelStopButtonProps) {
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation();
   return (
     <Button
       variant="dangerOutline"

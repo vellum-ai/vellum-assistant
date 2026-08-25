@@ -194,3 +194,64 @@ describe("compactor records llm_request_logs with call_site=compactionAgent", ()
     expect(recordRequestLogCalls[0]!.callSite).toBe("compactionAgent");
   });
 });
+
+describe("compaction result reports what actually served the summary", () => {
+  beforeEach(() => {
+    recordRequestLogCalls.length = 0;
+  });
+
+  test("rerouted summary carries the backup provider and profile", async () => {
+    // `RetryProvider` escalated the summary call to a backup profile on
+    // another provider and stamped the response, so the result must report
+    // the backup even though the compactor resolved `primaryProfile`.
+    const provider: Provider = {
+      name: "openai",
+      sendMessage: async () => ({
+        content: [{ type: "text", text: compactionResponse }],
+        model: "claude-sonnet-5",
+        actualProvider: "anthropic",
+        actualInferenceProfile: "backupProfile",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: "end_turn",
+        rawRequest: RAW_REQUEST,
+        rawResponse: RAW_RESPONSE,
+      }),
+    };
+
+    const result = await runAssistantDrivenCompaction({
+      ...args(provider),
+      overrideProfile: "primaryProfile",
+    });
+
+    expect(result.summaryModel).toBe("claude-sonnet-5");
+    expect(result.summaryActualProvider).toBe("anthropic");
+    expect(result.summaryActualInferenceProfile).toBe("backupProfile");
+    // The primary's resolution is still reported, just outranked downstream.
+    expect(result.summaryOverrideProfile).toBe("primaryProfile");
+    // Same value the request log recorded: one source of truth, not two.
+    expect(recordRequestLogCalls[0]!.provider).toBe("anthropic");
+  });
+
+  test("non-rerouted summary carries the configured provider and no profile", async () => {
+    const provider: Provider = {
+      name: "openai",
+      sendMessage: async () => ({
+        content: [{ type: "text", text: compactionResponse }],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: "end_turn",
+        rawRequest: RAW_REQUEST,
+        rawResponse: RAW_RESPONSE,
+      }),
+    };
+
+    const result = await runAssistantDrivenCompaction({
+      ...args(provider),
+      overrideProfile: "primaryProfile",
+    });
+
+    expect(result.summaryActualProvider).toBe("openai");
+    expect(result.summaryActualInferenceProfile).toBeUndefined();
+    expect(result.summaryOverrideProfile).toBe("primaryProfile");
+  });
+});
