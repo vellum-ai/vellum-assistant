@@ -91,13 +91,17 @@ describe("discord readiness", () => {
     expect(snapshot.setupStatus).toBe("not_configured");
   });
 
-  test("a live socket without a token is not set up", async () => {
+  test("Discord has one setup step, so it is never half configured", async () => {
+    // A live socket without a token still reads as not configured rather than
+    // incomplete. `incomplete` needs one configuration check passing while
+    // another fails, and the token is now the only one: with the room
+    // allow-list gone there is no second step to be part-way through.
     socketHealth = { channel: "discord", status: "connected" };
 
     const [snapshot] = await runDiscordProbe();
 
     expect(findCheck(snapshot, "bot_token").passed).toBe(false);
-    expect(snapshot.setupStatus).toBe("incomplete");
+    expect(snapshot.setupStatus).toBe("not_configured");
   });
 
   test("a token and a live connection read as ready", async () => {
