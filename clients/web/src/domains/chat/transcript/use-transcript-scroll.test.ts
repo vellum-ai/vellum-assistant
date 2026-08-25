@@ -111,6 +111,7 @@ function makeHandle(): TranscriptHandle & {
   return {
     scrollToLatest,
     scrollToMessage: mock((): boolean => false),
+    keepFocusedFieldVisible: mock((): boolean => false),
     getScrollElement,
     getContentElement,
     getViewportHeight,
