@@ -131,11 +131,14 @@ struct WidgetAvatarEyes: View {
     /// Gap between the two, as a share of eye height.
     private static let gapRatio: CGFloat = 5.0 / 33.0
 
-    /// Pupil diameter and how far it sits off the bottom of the white, both as
-    /// a share of eye height. Pupils sit low, which is the whole trick:
-    /// centered dots read as punctuation, low ones read as a face looking back.
-    private static let pupilRatio: CGFloat = 0.41
-    private static let pupilInsetRatio: CGFloat = 0.18
+    /// The pupil's box and where it sits in the white, as shares of eye
+    /// height. It fills most of the eye and presses against the right edge,
+    /// which is the whole trick: small centered dots read as punctuation, a
+    /// heavy sideways pair reads as a face caught mid-glance.
+    private static let pupilWidthRatio: CGFloat = 18.0 / 33.0
+    private static let pupilHeightRatio: CGFloat = 21.5 / 33.0
+    private static let pupilOffsetXRatio: CGFloat = 9.0 / 33.0
+    private static let pupilOffsetYRatio: CGFloat = 6.5 / 33.0
 
     /// The height the pair is drawn at where the card has room for it.
     static let defaultEyeHeight: CGFloat = 33
@@ -156,15 +159,88 @@ struct WidgetAvatarEyes: View {
     }
 
     private var eye: some View {
-        Ellipse()
+        AvatarEyeScleraShape()
             .fill(WidgetTheme.avatarSclera)
             .frame(width: eyeHeight * Self.widthRatio, height: eyeHeight)
-            .overlay(alignment: .bottom) {
-                Circle()
+            .overlay(alignment: .topLeading) {
+                AvatarEyePupilShape()
                     .fill(WidgetTheme.avatarPupil)
-                    .frame(width: eyeHeight * Self.pupilRatio, height: eyeHeight * Self.pupilRatio)
-                    .padding(.bottom, eyeHeight * Self.pupilInsetRatio)
+                    .frame(
+                        width: eyeHeight * Self.pupilWidthRatio,
+                        height: eyeHeight * Self.pupilHeightRatio
+                    )
+                    .offset(
+                        x: eyeHeight * Self.pupilOffsetXRatio,
+                        y: eyeHeight * Self.pupilOffsetYRatio
+                    )
             }
+    }
+}
+
+/// The white of one eye: a hand-drawn egg rather than a true ellipse, its long
+/// axis tilted a few degrees, traced from the character mark the product draws
+/// so the widget's stand-in is recognizably the same face. Control points are
+/// in the 28x33 box the mark is designed in and scale with the rect.
+private struct AvatarEyeScleraShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width / 28
+        let h = rect.height / 33
+        var path = Path()
+        path.move(to: CGPoint(x: 13.34 * w, y: 0.02 * h))
+        path.addCurve(
+            to: CGPoint(x: 27.98 * w, y: 15.71 * h),
+            control1: CGPoint(x: 21.06 * w, y: -0.41 * h),
+            control2: CGPoint(x: 27.61 * w, y: 6.61 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 14.69 * w, y: 32.98 * h),
+            control1: CGPoint(x: 28.36 * w, y: 24.80 * h),
+            control2: CGPoint(x: 22.41 * w, y: 32.53 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 0.02 * w, y: 17.30 * h),
+            control1: CGPoint(x: 6.96 * w, y: 33.43 * h),
+            control2: CGPoint(x: 0.39 * w, y: 26.40 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 13.34 * w, y: 0.02 * h),
+            control1: CGPoint(x: -0.36 * w, y: 8.19 * h),
+            control2: CGPoint(x: 5.61 * w, y: 0.45 * h)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The pupil, the same egg at a steeper tilt, in its own 18x21 design box.
+private struct AvatarEyePupilShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width / 18
+        let h = rect.height / 21
+        var path = Path()
+        path.move(to: CGPoint(x: 7.77 * w, y: 0.10 * h))
+        path.addCurve(
+            to: CGPoint(x: 17.92 * w, y: 9.09 * h),
+            control1: CGPoint(x: 12.70 * w, y: -0.70 * h),
+            control2: CGPoint(x: 17.25 * w, y: 3.33 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 10.18 * w, y: 20.91 * h),
+            control1: CGPoint(x: 18.59 * w, y: 14.85 * h),
+            control2: CGPoint(x: 15.12 * w, y: 20.14 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 0.08 * w, y: 11.91 * h),
+            control1: CGPoint(x: 5.27 * w, y: 21.67 * h),
+            control2: CGPoint(x: 0.75 * w, y: 17.64 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 7.77 * w, y: 0.10 * h),
+            control1: CGPoint(x: -0.58 * w, y: 6.17 * h),
+            control2: CGPoint(x: 2.85 * w, y: 0.89 * h)
+        )
+        path.closeSubpath()
+        return path
     }
 }
 
