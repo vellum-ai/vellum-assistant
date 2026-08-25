@@ -31,8 +31,6 @@ import {
 import {
   resolveCallSiteConfig,
   resolveCallSiteConfigWithProfile,
-  resolveProfilelessModelKey,
-  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -66,6 +64,7 @@ import {
   isManagedConnectionRoute,
   resolveEntryConnectionName,
 } from "../providers/connection-resolution.js";
+import { resolveTurnModelProfileKey } from "../providers/inference/turn-profile-key.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
@@ -583,31 +582,18 @@ export async function runAgentLoopImpl(
   ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
   /**
-   * The inference profile an override resolves to, through the same winner
-   * selection dispatch the provider calls use. A hand-rolled chain would
-   * credit profiles the resolver never consulted (e.g. `activeProfile` on a
-   * non-`mainAgent` turn), so both the turn-start report and the mid-turn
-   * refresh below go through this one helper.
-   *
-   * `isResolvableProvider` matters as much as the dispatch itself: without it
-   * selection can settle on a profile naming a deleted connection, which
-   * dispatch would have skipped and healed past. The key would then name a
-   * profile the request never ran on. Same reasoning as `turnErrorAttribution`
-   * above.
+   * The profile this turn's provider calls run on, for a given override. Both
+   * the turn-start report and the mid-turn refresh below go through it, so the
+   * key the tool gate reads can never be resolved by a different chain than
+   * the one that named the turn's profile.
    */
   const resolveModelProfileKeyFor = (
     override: string | null | undefined,
   ): string =>
-    selectWinningProfile(turnCallSite, config.llm, {
-      ...(override != null ? { overrideProfile: override } : {}),
+    resolveTurnModelProfileKey(turnCallSite, config.llm, {
+      overrideProfile: override,
+      forceOverrideProfile,
       selectionSeed: ctx.conversationId,
-      isResolvableProvider: dispatchProviderResolvable,
-    }).profileName ??
-    resolveProfilelessModelKey(turnCallSite, config.llm, {
-      ...(override != null ? { overrideProfile: override } : {}),
-      ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-      selectionSeed: ctx.conversationId,
-      isResolvableProvider: dispatchProviderResolvable,
     });
 
   let appliedOverrideProfile = turnOverrideProfile;

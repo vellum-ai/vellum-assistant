@@ -78,10 +78,6 @@ import type {
 } from "../agent/loop.js";
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
-import {
-  resolveProfilelessModelKey,
-  selectWinningProfile,
-} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
@@ -118,6 +114,7 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import { resolveTurnModelProfileKey } from "../providers/inference/turn-profile-key.js";
 import type { Message } from "../providers/types.js";
 import {
   type UntrustedContentSource,
@@ -838,19 +835,13 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
-    // Same winner-selection sourcing as the agent loop's key: a hand-mirrored
-    // chain would disagree with dispatch (a non-forced override wins on every
-    // call site).
-    const modelProfileKey =
-      selectWinningProfile(callSite, config.llm, {
-        ...(overrideProfile != null ? { overrideProfile } : {}),
-        selectionSeed: conversationId,
-      }).profileName ??
-      resolveProfilelessModelKey(callSite, config.llm, {
-        ...(overrideProfile != null ? { overrideProfile } : {}),
-        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-        selectionSeed: conversationId,
-      });
+    // Shared with the agent loop so the wake's key and a normal turn's key
+    // cannot disagree about which profile a call runs on.
+    const modelProfileKey = resolveTurnModelProfileKey(callSite, config.llm, {
+      overrideProfile,
+      forceOverrideProfile,
+      selectionSeed: conversationId,
+    });
 
     // Apply the caller's persona override for the duration of the run. The
     // prompt is built once before `agentLoop.run()` (via
@@ -1453,12 +1444,17 @@ export async function wakeAgentForOpportunity(
       // user turn or a later background read never inherits the wake's stamps.
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
+      const priorTurnModelProfileKey = conversation.currentTurnModelProfileKey;
       const priorTurnCronRunId = conversation.currentTurnCronRunId;
       const priorTurnIsNonInteractive =
         conversation.currentTurnIsNonInteractive;
       const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
+      // The wake resolves its own `modelProfileKey` and hands it to the loop,
+      // so stamp it too. Without this a tool gated on the model reads an empty
+      // key on every wake and decides against a profile the wake is not on.
+      conversation.currentTurnModelProfileKey = modelProfileKey;
       // Same reason as the stamps above: a wake triggered by a schedule firing
       // delegates work to subagents whose usage must attribute to that firing.
       conversation.currentTurnCronRunId = opts.cronRunId ?? null;
@@ -1552,6 +1548,7 @@ export async function wakeAgentForOpportunity(
         // at the start of the next normal turn regardless.)
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
+        conversation.currentTurnModelProfileKey = priorTurnModelProfileKey;
         conversation.currentTurnCronRunId = priorTurnCronRunId;
         conversation.currentTurnIsNonInteractive = priorTurnIsNonInteractive;
         conversation.currentTurnTrustContext = priorTurnTrust;
