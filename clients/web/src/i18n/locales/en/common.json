@@ -63,6 +63,12 @@
   "appViewerContainer": {
     "exitFullscreen": "Exit fullscreen"
   },
+  "assistantConnect": {
+    "failed": "Failed to connect to the assistant."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
+  },
   "avatarManagementModal": {
     "body": "Body",
     "color": "Color",
@@ -188,6 +194,13 @@
     "message": "\"{appName}\" uses backend services that won't work on a static Vercel page. Your assistant can deploy it properly with serverless functions.",
     "messageNamed": "\"{appName}\" uses backend services that won't work on a static Vercel page. {assistantName} can deploy it properly with serverless functions.",
     "title": "This app needs a full deploy"
+  },
+  "deployStore": {
+    "appExported": "App exported",
+    "deployFailed": "Failed to deploy",
+    "deployedToVercel": "Deployed to Vercel",
+    "open": "Open",
+    "shareFailed": "Failed to share app"
   },
   "detailPanelStopButton": {
     "tooltip": "Stop"
@@ -333,6 +346,9 @@
   },
   "rootHydrateFallback": {
     "loadingAria": "Loading"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "the assistant"
   },
   "routeErrorBoundary": {
     "chunkFailBody": "This section couldn't load. Likely a network blip or a stale version. Reload the page to try again.",
