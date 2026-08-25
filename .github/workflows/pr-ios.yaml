@@ -11,6 +11,9 @@ on:
       # Source of the committed avatar app icons, so a catalog change with no
       # regeneration still has to trip the drift check.
       - 'assistant/src/avatar/**'
+      # The Android launcher XMLs embed the quirky eye geometry; the drift
+      # test in scripts/__tests__ pins them to the avatar library.
+      - 'clients/android/app/src/main/res/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
       - '.github/workflows/pr-ios.yaml'
@@ -61,7 +64,7 @@ jobs:
         # Asserts the committed icon sets and xcconfig still match a fresh
         # generation. Runs from `clients/ios` because the repo-root
         # `test-preload.ts` rejects a root `bun test`.
-        run: bun test scripts/__tests__/generate-avatar-icons.test.ts
+        run: bun test scripts/__tests__/
 
       - name: Capacitor sync
         working-directory: clients/web
