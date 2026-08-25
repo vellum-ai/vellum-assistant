@@ -17,8 +17,34 @@ import type { CharacterTraits } from "@/types/avatar";
 
 export const CHOOSER_ROW_AVATAR_QUERY_KEY_PREFIX = "chooserRowAvatar";
 
-export function chooserRowAvatarQueryKey(assistantId: string) {
-  return [CHOOSER_ROW_AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
+export type RowManifestSupport = "supported" | "unsupported" | "unknown";
+
+/**
+ * Tri-state manifest gate for a row's own runtime. Part of the query key so
+ * a version change after an upgrade re-runs the fetch through the other path.
+ */
+export function rowManifestSupport(
+  assistant: ResolvedAssistant,
+): RowManifestSupport {
+  const version =
+    assistant.runtimeVersion ?? assistant.currentReleaseVersion ?? null;
+  if (version === null) {
+    return "unknown";
+  }
+  return versionSupportsAvatarStateManifest(version)
+    ? "supported"
+    : "unsupported";
+}
+
+export function chooserRowAvatarQueryKey(
+  assistantId: string,
+  manifestSupport: RowManifestSupport,
+) {
+  return [
+    CHOOSER_ROW_AVATAR_QUERY_KEY_PREFIX,
+    assistantId,
+    manifestSupport,
+  ] as const;
 }
 
 export interface ChooserRowAvatar {
@@ -63,13 +89,12 @@ export function canFetchRowAvatarViaPlatformProxy(
  */
 async function fetchRowAvatar(
   assistant: ResolvedAssistant,
+  manifestSupport: RowManifestSupport,
 ): Promise<ChooserRowAvatar> {
-  const version =
-    assistant.runtimeVersion ?? assistant.currentReleaseVersion ?? null;
-  if (versionSupportsAvatarStateManifest(version)) {
+  if (manifestSupport === "supported") {
     return fetchAvatarViaManifest(assistant.id);
   }
-  if (version === null) {
+  if (manifestSupport === "unknown") {
     try {
       return await fetchAvatarViaManifest(assistant.id);
     } catch {
@@ -108,10 +133,11 @@ export function useChooserRowAvatar(
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
+  const manifestSupport = rowManifestSupport(assistant);
   const { data } = useQuery<ChooserRowAvatar>({
-    queryKey: chooserRowAvatarQueryKey(assistant.id),
+    queryKey: chooserRowAvatarQueryKey(assistant.id, manifestSupport),
     queryFn: async () => {
-      const avatar = await fetchRowAvatar(assistant);
+      const avatar = await fetchRowAvatar(assistant, manifestSupport);
       trackBlobUrl(assistant.id, avatar.imageUrl);
       return avatar;
     },

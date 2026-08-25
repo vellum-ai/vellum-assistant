@@ -326,6 +326,29 @@ describe("useChooserRowAvatar", () => {
     expect(result.current).toEqual({ traits: null, imageUrl: null });
   });
 
+  test("re-keys on a version change so an upgraded row switches paths", async () => {
+    fetchCharacterTraits.mockResolvedValue(traits);
+    const { result, rerender } = renderHook(
+      (version: string) =>
+        useChooserRowAvatar(platformRow("other", { runtimeVersion: version })),
+      { wrapper: createWrapper(), initialProps: "0.8.6" },
+    );
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+    expect(fetchAvatarState).not.toHaveBeenCalled();
+    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+
+    rerender(MIN_VERSION);
+    await waitFor(() => {
+      expect(fetchAvatarState).toHaveBeenCalledWith("other");
+    });
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+  });
+
   test("keys the fetch per row id", async () => {
     const wrapper = createWrapper();
     const a = renderHook(() => useChooserRowAvatar(platformRow("a")), {
