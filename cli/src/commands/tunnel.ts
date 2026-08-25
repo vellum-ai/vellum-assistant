@@ -107,10 +107,19 @@ function parseArgs(): TunnelArgs {
         "                                without one. Cannot be combined with --domain.",
       );
       console.log(
-        "  -d, --detach                  Run the tunnel in the background and return immediately.",
+        `  -d, --detach                  Run the tunnel in the background. Waits up to ${TUNNEL_BACKGROUND_START_TIMEOUT_MS / 1000}s for the`,
       );
       console.log(
-        "                                Logs go to the CLI log directory; stop it with `kill <pid>`.",
+        "                                initial established/failed status before returning; logs go to",
+      );
+      console.log(
+        "                                the CLI log directory. Stop it with `kill <pid>`, except when it",
+      );
+      console.log(
+        "                                adopted an already-running ngrok tunnel (started outside this",
+      );
+      console.log(
+        "                                command): killing the supervisor then leaves that tunnel running.",
       );
       console.log("");
       console.log("Providers:");
