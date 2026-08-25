@@ -7,11 +7,9 @@
  * credential-gated (`gateway/src/index.ts`, "Discord Gateway lifecycle"): the
  * watcher's next tick starts it when the token appears and tears it down when
  * it goes, so there is no webhook to register and no restart to arrange.
- * Slack needs a second token and Telegram a webhook secret; Discord needs one
- * token, which makes this the smallest of the three rather than a port of the
- * largest.
  */
 
+import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
 import { z } from "zod";
 
 import {
@@ -38,8 +36,12 @@ import {
 import { ChannelConfigResultBaseSchema } from "./channel-config-result.js";
 import { log } from "./shared.js";
 
-/** The provider key the gateway watches and the setup skill already writes. */
-const DISCORD_PROVIDER = "discord_channel";
+/**
+ * From the shared vocabulary rather than a literal: `manual-token-providers`
+ * declares this bot's credential fields under the same constant, and a second
+ * spelling would be free to disagree with it.
+ */
+const DISCORD_PROVIDER = CHANNEL_BOT_PROVIDER.discord;
 
 export const DiscordChannelConfigResultSchema =
   ChannelConfigResultBaseSchema.extend({
@@ -58,6 +60,16 @@ export const DiscordChannelConfigResultSchema =
 export type DiscordChannelConfigResult = z.infer<
   typeof DiscordChannelConfigResultSchema
 >;
+
+/**
+ * A failed operation still reports the current state. For Discord "connected"
+ * and "has a token" are one question, since the gateway's client exists while
+ * the credential does.
+ */
+async function failure(error: string): Promise<DiscordChannelConfigResult> {
+  const hasToken = await hasStoredBotToken();
+  return { success: false, hasBotToken: hasToken, connected: hasToken, error };
+}
 
 async function hasStoredBotToken(): Promise<boolean> {
   return Boolean(
@@ -78,8 +90,6 @@ export async function getDiscordChannelConfig(): Promise<DiscordChannelConfigRes
   return {
     success: true,
     hasBotToken: hasToken,
-    // Credential-gated: the gateway's client exists while the credential
-    // does, so a stored token is the connection.
     connected: hasToken,
     ...(raw.discord?.botUserId ? { botUserId: raw.discord.botUserId } : {}),
     ...(raw.discord?.botUsername
@@ -94,22 +104,15 @@ export async function getDiscordChannelConfig(): Promise<DiscordChannelConfigRes
 /**
  * Validate a bot token with Discord and store it.
  *
- * Validation is `GET /users/@me` under `Bot` auth, which is the same call the
- * setup skill makes at its own validate step, and it answers with the bot's
- * account. Recording that is what lets a connected panel name the bot rather
- * than say "connected": the gateway otherwise learns the bot's identity only
- * at READY, which is after this call and unavailable to it.
+ * Recording the bot's own account is what lets a connected panel name it
+ * rather than say "connected": the gateway learns that identity only at
+ * READY, which no caller here can wait for.
  */
 export async function setDiscordChannelConfig(
   botToken?: string,
 ): Promise<DiscordChannelConfigResult> {
   if (!botToken?.trim()) {
-    return {
-      success: false,
-      hasBotToken: await hasStoredBotToken(),
-      connected: await hasStoredBotToken(),
-      error: "botToken is required",
-    };
+    return failure("botToken is required");
   }
   const token = botToken.trim();
 
@@ -117,15 +120,25 @@ export async function setDiscordChannelConfig(
   let botUsername: string | undefined;
   let applicationId: string | undefined;
   try {
-    // A direct call rather than `callDiscordApi`: that helper resolves the
-    // stored credential, and the token being validated here is not stored
-    // yet. Validating before storing is the point, so an invalid token never
-    // reaches secure storage and never starts a gateway connection that
-    // cannot authenticate.
-    const res = await fetch(`${DISCORD_API_BASE_URL}/users/@me`, {
-      headers: { Authorization: `Bot ${token}` },
-      signal: AbortSignal.timeout(10_000),
-    });
+    // Not `callDiscordApi`: that resolves the stored credential, and this
+    // token is not stored yet. Validating first is what keeps an invalid one
+    // out of secure storage, where it would start a connection that cannot
+    // authenticate.
+    const headers = { Authorization: `Bot ${token}` };
+    const signal = () => AbortSignal.timeout(10_000);
+    // Both answer from the token alone, so they go together. The application
+    // read is optional and swallows its own failure: it enriches the result
+    // and must never be the reason a valid token is rejected.
+    const [res, appRes] = await Promise.all([
+      fetch(`${DISCORD_API_BASE_URL}/users/@me`, {
+        headers,
+        signal: signal(),
+      }),
+      fetch(`${DISCORD_API_BASE_URL}/oauth2/applications/@me`, {
+        headers,
+        signal: signal(),
+      }).catch(() => null),
+    ]);
     if (!res.ok) {
       throw new Error(`Discord returned ${res.status}`);
     }
@@ -133,29 +146,17 @@ export async function setDiscordChannelConfig(
     botUserId = me.id;
     botUsername = me.username;
 
-    const appRes = await fetch(
-      `${DISCORD_API_BASE_URL}/oauth2/applications/@me`,
-      {
-        headers: { Authorization: `Bot ${token}` },
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
-    if (appRes.ok) {
+    if (appRes?.ok) {
       const app = (await appRes.json()) as { id?: string };
       applicationId = app.id;
     }
   } catch (err) {
-    // Deliberately not echoing the error body: a Discord 401 response is
-    // short and safe, but this path is reached with a secret in hand and the
+    // The body is not echoed: this path runs with a secret in hand, and the
     // caller only needs to know the token was rejected.
     log.warn({ err }, "Discord bot token validation failed");
-    return {
-      success: false,
-      hasBotToken: await hasStoredBotToken(),
-      connected: await hasStoredBotToken(),
-      error:
-        "Discord rejected this bot token. Check it was copied from the Bot tab of your application, and reset it there if it was shown before.",
-    };
+    return failure(
+      "Discord rejected this bot token. Check it was copied from the Bot tab of your application, and reset it there if it was shown before.",
+    );
   }
 
   const stored = await setSecureKeyAsync(
@@ -163,12 +164,7 @@ export async function setDiscordChannelConfig(
     token,
   );
   if (!stored) {
-    return {
-      success: false,
-      hasBotToken: await hasStoredBotToken(),
-      connected: await hasStoredBotToken(),
-      error: "Failed to store the bot token in secure storage",
-    };
+    return failure("Failed to store the bot token in secure storage");
   }
   upsertCredentialMetadata(DISCORD_PROVIDER, "bot_token", {});
 
