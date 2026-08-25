@@ -97,9 +97,9 @@ function AdjustPlanModalContent({
     organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
-  // "Keep your Plan" and the cancellation both post their endpoints directly;
-  // the portal remains only as the cancel fallback for subscriptions the
-  // cancel endpoint rejects.
+  // "Keep your Plan" posts the reactivate endpoint and the cancellation posts
+  // the cancel endpoint; the portal is the cancel fallback for subscriptions
+  // the cancel endpoint rejects.
   const portalMutation = useBillingPortalSession(portalSnapshot);
   const { reactivateSubscription, isPending: reactivatePending } =
     useReactivateSubscription();

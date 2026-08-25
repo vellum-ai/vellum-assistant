@@ -94,8 +94,8 @@ describe("GracePeriodBanner Reactivate", () => {
     fireEvent.click(getByTestId("grace-period-reactivate-button"));
 
     await waitFor(() => expect(reactivateCalls).toBe(1));
-    // The hook invalidates the subscription read; the refetched state no
-    // longer has a pending cancellation, so the banner unmounts.
+    // The hook invalidates the subscription read; the refetched state has no
+    // pending cancellation, so the banner unmounts.
     await waitFor(() =>
       expect(queryByTestId("grace-period-banner")).toBeNull(),
     );
