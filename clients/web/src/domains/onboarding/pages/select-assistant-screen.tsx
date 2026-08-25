@@ -18,6 +18,7 @@ import {
   removePairedAssistant,
   switchToResolvedAssistant,
 } from "@/assistant/switch-service";
+import { ChooserAvatarChip } from "@/components/avatar/chooser-avatar-chip";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import {
   clearGatewayToken,
@@ -35,6 +36,7 @@ import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-r
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { formatRelativeDate } from "@/utils/format-date";
+import { useChooserRowAvatar } from "@/hooks/use-chooser-row-avatar";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
 import {
@@ -1156,16 +1158,23 @@ function AssistantCard({
 }) {
   const { t } = useTranslation("onboarding");
   const label = assistantLabel(assistant);
+  const { traits, imageUrl } = useChooserRowAvatar(assistant);
+  const glyph = assistant.isPaired ? (
+    <Link2 className="h-5 w-5" />
+  ) : assistant.isLocal ? (
+    <Laptop className="h-5 w-5" />
+  ) : (
+    <Cloud className="h-5 w-5" />
+  );
   return (
     <ChooserCard
       icon={
-        assistant.isPaired ? (
-          <Link2 className="h-5 w-5" />
-        ) : assistant.isLocal ? (
-          <Laptop className="h-5 w-5" />
-        ) : (
-          <Cloud className="h-5 w-5" />
-        )
+        <ChooserAvatarChip
+          traits={traits}
+          imageUrl={imageUrl}
+          size={48}
+          fallback={glyph}
+        />
       }
       title={label}
       subtitle={assistantSubtitle(assistant, t)}

@@ -20,6 +20,8 @@ import {
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
+import type * as ChooserAvatarChipModule from "@/components/avatar/chooser-avatar-chip";
+import type * as UseChooserRowAvatarModule from "@/hooks/use-chooser-row-avatar";
 import type { RememberedOrigin } from "@/stores/remembered-origins-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 
@@ -87,6 +89,8 @@ let isNativeMobileValue = false;
 const installNativeRememberedOriginsMock = mock(() => {});
 /** What the native shell reports as its baked Vellum Cloud origin, if any. */
 let nativeCloudOriginValue: string | null = null;
+/** Avatar data per assistant id; rows absent here resolve to nulls (glyph). */
+let rowAvatars = new Map<string, UseChooserRowAvatarModule.ChooserRowAvatar>();
 
 // Stands in for the real error class (the screen's `instanceof` check runs
 // against this mocked module's export).
@@ -250,6 +254,20 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
       </div>
     ) : null,
 }));
+
+const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
+  useChooserRowAvatar: (assistant) =>
+    rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null },
+};
+mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
+
+// The real chip lazily loads the character chunk; a marker keeps the suite
+// hermetic while still exercising the fallback branch.
+const chooserAvatarChipMock: Partial<typeof ChooserAvatarChipModule> = {
+  ChooserAvatarChip: ({ traits, imageUrl, fallback }) =>
+    traits || imageUrl ? <span data-testid="chooser-avatar-chip" /> : fallback,
+};
+mock.module("@/components/avatar/chooser-avatar-chip", () => chooserAvatarChipMock);
 
 mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
@@ -493,6 +511,7 @@ beforeEach(() => {
   nativeSwitchToOriginMock.mockImplementation(async () => true);
   isNativeMobileValue = false;
   nativeCloudOriginValue = null;
+  rowAvatars = new Map();
   installNativeRememberedOriginsMock.mockClear();
   removePairedAssistantFromLockfileMock.mockClear();
   removePairedAssistantFromLockfileMock.mockImplementation(async () => ({
@@ -1553,6 +1572,27 @@ describe("SelectAssistantScreen local registrations on the platform hub", () => 
     await waitFor(() =>
       expect(refreshPlatformAssistantsIfStaleMock).toHaveBeenCalledTimes(1),
     );
+  });
+});
+
+describe("SelectAssistantScreen assistant avatars", () => {
+  test("a row with avatar data renders the chip in place of the glyph", () => {
+    assistantsValue = [makePlatformAssistant()];
+    rowAvatars.set(PLATFORM_ID, {
+      traits: { bodyShape: "round", eyeStyle: "dot", color: "blue" },
+      imageUrl: null,
+    });
+    render(<SelectAssistantScreen />);
+    expect(screen.getByTestId("chooser-avatar-chip")).toBeTruthy();
+    expect(document.querySelector("svg.lucide-cloud")).toBeNull();
+  });
+
+  test("a row with no avatar keeps its glyph", () => {
+    assistantsValue = [makePairedAssistant(), makeLocalAssistant()];
+    render(<SelectAssistantScreen />);
+    expect(screen.queryByTestId("chooser-avatar-chip")).toBeNull();
+    expect(document.querySelector("svg.lucide-link-2")).not.toBeNull();
+    expect(document.querySelector("svg.lucide-laptop")).not.toBeNull();
   });
 });
 
