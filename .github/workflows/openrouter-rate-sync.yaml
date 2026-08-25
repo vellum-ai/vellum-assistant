@@ -1,14 +1,11 @@
 name: OpenRouter Rate Sync
 
 # OpenRouter publishes machine-readable prices and moves them on its own
-# schedule. Following that by hand does not work: between 2026-08-24 and
-# 2026-08-25 an upstream reprice broke main or an open PR three times in
-# twelve hours, because the catalog was compared against the live card from
-# inside the unit suite.
+# schedule. This job follows them once a day and opens a PR with whatever
+# moved, so a reprice never lands on whoever pushes next.
 #
-# This job does the comparison instead, once a day, and opens a PR with
-# whatever moved. Nobody is blocked while it is out of date, and the diff
-# says exactly which rates changed.
+# Entries the sync refuses to change on its own get a long-lived issue, since
+# a job summary disappears with the run that wrote it.
 on:
   schedule:
     - cron: '0 8 * * *' # Daily at 08:00 UTC
@@ -91,6 +88,30 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+          # Findings the sync will not apply need somewhere durable to
+          # live. The issue body is rewritten each run, so it always reflects
+          # the current state rather than accumulating daily comments.
+          ISSUE_TITLE="OpenRouter catalog: entries needing a human"
+          EXISTING_ISSUE=$(gh issue list --state open --search "in:title OpenRouter catalog entries needing" \
+            --json number,title --jq ".[] | select(.title==\"$ISSUE_TITLE\") | .number" | head -1)
+
+          if grep -q '^Needs a human:' /tmp/rate-report.txt; then
+            FINDINGS=$(sed -n '/^Needs a human:/,$p' /tmp/rate-report.txt)
+            ISSUE_BODY=$(printf '%s\n\n```\n%s\n```\n\n%s\n' \
+              'The OpenRouter rate sync found catalog entries it will not change on its own, because each one is a judgement call rather than a number swap.' \
+              "$FINDINGS" \
+              'Opened by .github/workflows/openrouter-rate-sync.yaml, and rewritten on each run. Close it once the entries are resolved.')
+            if [ -n "$EXISTING_ISSUE" ]; then
+              gh issue edit "$EXISTING_ISSUE" --body "$ISSUE_BODY"
+              echo "Updated issue #${EXISTING_ISSUE}"
+            else
+              gh issue create --title "$ISSUE_TITLE" --body "$ISSUE_BODY"
+            fi
+          elif [ -n "$EXISTING_ISSUE" ]; then
+            gh issue close "$EXISTING_ISSUE" \
+              --comment "The live card no longer reports anything needing a human here."
+          fi
+
           if git diff --quiet; then
             echo "No rate changes to commit."
             exit 0
@@ -111,7 +132,7 @@ jobs:
           BODY=$(printf '%s\n\n```\n%s\n```\n\n%s\n' \
             'OpenRouter moved the rates below on its published card. These are cost-estimate inputs only: OpenRouter users are billed by OpenRouter on their own key, so the effect here is that a number shown in usage stops being stale.' \
             "$(cat /tmp/rate-report.txt)" \
-            'Opened by .github/workflows/openrouter-rate-sync.yaml. Anything under "Needs a human" was found but deliberately not applied, because removing a model breaks saved profiles that name it, a published cache rate does not always mean the route reports cached tokens, and long-context tier rates are derived rather than published.')
+            'Opened by .github/workflows/openrouter-rate-sync.yaml. Anything under "Needs a human" was found but deliberately not applied, and is tracked in its own issue.')
 
           gh pr create \
             --title "chore(openrouter): follow live OpenRouter rates" \

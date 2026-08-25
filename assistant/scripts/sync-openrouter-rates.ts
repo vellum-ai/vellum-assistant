@@ -7,34 +7,35 @@
  * prices for every id, so its rates are the only ones we can follow
  * mechanically instead of by hand.
  *
- * Those rates move on OpenRouter's schedule, not ours. This script therefore
- * runs from `.github/workflows/openrouter-rate-sync.yaml` on a daily cron and
- * opens a PR with whatever moved. It is deliberately not part of
- * `bun run test`: a unit suite that reaches the network turns an upstream
- * reprice into a red build for whoever happens to push next, which is the
- * failure mode this replaces.
+ * Those rates move on OpenRouter's schedule, not ours, so this runs from
+ * `.github/workflows/openrouter-rate-sync.yaml` on a daily cron and opens a
+ * PR with whatever moved. It stays out of `bun run test` on purpose: a unit
+ * suite that reaches the network fails the build for whoever pushes next
+ * whenever an upstream price changes.
  *
  * Scope, and why it is drawn here:
  *
  *   Applied automatically - base `inputPer1mTokens`, `outputPer1mTokens`,
  *   `cacheReadPer1mTokens` and `cacheWritePer1mTokens`, when the catalog
- *   already carries that field. Pure number swaps, and the only thing that
- *   has ever broken the build.
+ *   already carries that field and the model has no `tiers`. These are pure
+ *   number swaps with nothing to decide.
  *
  *   Reported, never applied - ids the live card no longer serves, live cache
- *   rates for models carrying no cache-read field, and base moves on models
- *   with derived long-context `tiers`. Each of those is a judgement call:
+ *   rates for models carrying no cache-read field, and any base move on a
+ *   model with derived long-context `tiers`. Each is a judgement call:
  *   removing a model breaks saved user profiles that name it, a published
  *   cache rate does not always mean the route reports cached tokens (see
  *   `openrouterRoutesReportCachedTokens`), and tier rates are scaled from the
- *   base rather than published. The scheduled run surfaces these in the PR
- *   body for a human.
+ *   base rather than published, so moving a base alone leaves a model priced
+ *   inconsistently above its threshold.
+ *
+ * The workflow greps the report for the `Needs a human:` heading emitted by
+ * `renderReport` to decide whether findings need a durable home.
  *
  * Usage:
  *   cd assistant && bun run sync:openrouter-rates
  *   cd assistant && bun run sync:openrouter-rates -- --check   # exit 1 if stale
  */
-
 import { readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -53,6 +54,12 @@ const FETCH_TIMEOUT_MS = 30_000;
 
 /** Relative band a rate must move beyond before it counts as drift. */
 export const RATE_TOLERANCE = 0.02;
+
+/**
+ * A numeric literal as TypeScript source spells it, including forms a parsed
+ * number does not round-trip (`2.0`, `1e-6`).
+ */
+const NUMERIC_LITERAL = "-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?";
 
 /** Catalog pricing keys this script is allowed to rewrite in place. */
 const SYNCED_RATE_FIELDS = [
@@ -206,6 +213,8 @@ export function planSync(
       continue;
     }
 
+    const hasTiers = Boolean(model.pricing?.tiers?.length);
+
     for (const [field, liveKey] of SYNCED_RATE_FIELDS) {
       const current = model.pricing?.[field];
       const liveRate = perMillionFromOpenRouterPrice(
@@ -221,6 +230,13 @@ export function planSync(
         });
         continue;
       }
+      if (hasTiers) {
+        findings.push({
+          modelId: model.id,
+          detail: `${field} moves ${current} to ${formatRate(liveRate)}, and this model carries derived long-context tiers. Tier rates are scaled from the base rather than published, so the two move together by hand.`,
+        });
+        continue;
+      }
 
       const span = modelSourceSpan(block, model.id);
       if (!span) {
@@ -228,27 +244,29 @@ export function planSync(
       }
       const [segStart, segEnd] = span;
       const segment = block.slice(segStart, segEnd);
-      const pattern = new RegExp(
-        `(${field}: )${String(current).replace(".", "\\.")}(\\b)`,
-      );
-      const matches = segment.match(new RegExp(pattern, "g"));
-      if (!matches || matches.length !== 1) {
+
+      // Match the literal as the source spells it. A pattern rebuilt from the
+      // parsed number loses that spelling: `2.0` parses to `2`, so the pattern
+      // matches just the leading digit and the replacement strands the `.0`,
+      // emitting something like `2.5.0`.
+      const pattern = new RegExp(`(${field}: )(${NUMERIC_LITERAL})`, "g");
+      const matches = [...segment.matchAll(pattern)];
+      if (matches.length !== 1) {
         throw new Error(
-          `expected exactly one ${field} literal for ${model.id}, found ${matches?.length ?? 0}`,
+          `expected exactly one ${field} literal for ${model.id}, found ${matches.length}`,
+        );
+      }
+      const sourceLiteral = matches[0]![2]!;
+      if (Number(sourceLiteral) !== current) {
+        throw new Error(
+          `${model.id} ${field}: source literal ${sourceLiteral} does not match the catalog value ${current}`,
         );
       }
       block =
         block.slice(0, segStart) +
-        segment.replace(pattern, `$1${formatRate(liveRate)}$2`) +
+        segment.replace(pattern, `$1${formatRate(liveRate)}`) +
         block.slice(segEnd);
       changes.push({ modelId: model.id, field, from: current, to: liveRate });
-
-      if (model.pricing?.tiers?.length) {
-        findings.push({
-          modelId: model.id,
-          detail: `base ${field} moved and this model carries derived long-context tiers. OpenRouter does not publish tier rates, so rescale them by hand.`,
-        });
-      }
     }
 
     const liveCacheRead = perMillionFromOpenRouterPrice(
@@ -325,17 +343,24 @@ async function main() {
     console.log(report);
   }
 
+  // Findings alone never make the catalog stale: nothing in them is this
+  // script's to apply.
+  const settled =
+    plan.findings.length > 0
+      ? `${rel} has no rates this sync can apply.`
+      : `${rel} rates are up to date.`;
+
   if (isCheck) {
     if (plan.changes.length > 0) {
       console.error(`\n${rel} is stale. Run: bun run sync:openrouter-rates`);
       process.exit(1);
     }
-    console.log(`${rel} rates are up to date.`);
+    console.log(settled);
     return;
   }
 
   if (plan.changes.length === 0) {
-    console.log(`${rel} rates are up to date.`);
+    console.log(settled);
     return;
   }
 

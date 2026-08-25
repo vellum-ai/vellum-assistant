@@ -1,15 +1,11 @@
 /**
- * Unit cover for `scripts/sync-openrouter-rates.ts`, the job that follows
- * OpenRouter's published rates into the catalog.
+ * Unit cover for `scripts/sync-openrouter-rates.ts`.
  *
- * These tests are hermetic on purpose. The live comparison they replaced ran
- * inside `bun run test` and failed the build for whoever pushed next whenever
- * OpenRouter repriced, which happened three times in twelve hours. The live
- * fetch now runs on a schedule and opens a PR; what stays here is the part
- * that is genuinely ours to get right, namely the conversion arithmetic and
- * the source rewriting.
+ * These tests are hermetic: nothing here reaches the network. The live
+ * comparison against OpenRouter's card belongs to the scheduled workflow, so
+ * what is covered here is the part that is ours to get right, namely the
+ * conversion arithmetic and the source rewriting.
  */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -23,6 +19,22 @@ import {
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 
 const CATALOG_PATH = join(process.cwd(), "src/providers/model-catalog.ts");
+
+/** Source of the `openrouter` provider entry, bounded by the next provider. */
+function openrouterBlock(source: string): string {
+  const start = source.search(/^\s*id: "openrouter",$/m);
+  const rest = source.slice(start + 1);
+  const next = rest.search(/^\s{4}id: "[^"]+",$/m);
+  return next === -1
+    ? source.slice(start)
+    : source.slice(start, start + 1 + next);
+}
+
+/** Source of one model's object inside the openrouter block. */
+function modelEntry(block: string, modelId: string): string {
+  const at = block.indexOf(`id: "${modelId}",`);
+  return block.slice(at, block.indexOf("\n      },", at));
+}
 
 function openrouterModels() {
   const entry = PROVIDER_CATALOG.find(
@@ -161,6 +173,71 @@ describe("planSync", () => {
     const before = source.split(gatewayLiteral).length - 1;
     const after = plan.source.split(gatewayLiteral).length - 1;
     expect(after).toBe(before);
+  });
+
+  test("a rate spelled with a trailing .0 rewrites to a whole literal", () => {
+    // `2.0` parses to `2`, so a matcher built from the parsed number would
+    // replace only the leading digit and strand the `.0`.
+    const block = openrouterBlock(source);
+    const spelledWithDotZero = openrouterModels().find(
+      (model) =>
+        !model.pricing?.tiers?.length &&
+        model.pricing?.outputPer1mTokens !== undefined &&
+        // Scoped to this model's own entry: the same literal spelled `.0` on
+        // an unrelated model would otherwise satisfy a whole-file search.
+        modelEntry(block, model.id).includes(
+          `outputPer1mTokens: ${model.pricing.outputPer1mTokens}.0,`,
+        ),
+    );
+    expect(
+      spelledWithDotZero,
+      "the openrouter block needs a plain model whose rate is spelled with a trailing .0",
+    ).toBeDefined();
+
+    const live = liveCardMatchingCatalog();
+    const moved = spelledWithDotZero!.pricing!.outputPer1mTokens + 0.5;
+    live.set(spelledWithDotZero!.id, {
+      id: spelledWithDotZero!.id,
+      pricing: {
+        ...live.get(spelledWithDotZero!.id)!.pricing,
+        completion: String(moved / 1_000_000),
+      },
+    });
+
+    const plan = planSync(source, live);
+
+    expect(plan.changes).toHaveLength(1);
+    expect(plan.source).toContain(`outputPer1mTokens: ${formatRate(moved)},`);
+    // The stranded-suffix shape, e.g. `2.5.0`, must not appear anywhere.
+    expect(plan.source).not.toMatch(/Per1mTokens: [0-9]+\.[0-9]+\.[0-9]+/);
+    expect(plan.source.includes(`${formatRate(moved)}.0`)).toBe(false);
+  });
+
+  test("a tiered model reports its base move instead of applying it", () => {
+    // Tier rates are scaled from the base rather than published, so moving a
+    // base alone would price the model inconsistently above its threshold.
+    const tiered = openrouterModels().find(
+      (model) =>
+        model.pricing?.tiers?.length &&
+        model.pricing.inputPer1mTokens !== undefined,
+    );
+    expect(tiered, "the openrouter block needs a tiered model").toBeDefined();
+
+    const live = liveCardMatchingCatalog();
+    const moved = tiered!.pricing!.inputPer1mTokens * 2;
+    live.set(tiered!.id, {
+      id: tiered!.id,
+      pricing: {
+        ...live.get(tiered!.id)!.pricing,
+        prompt: String(moved / 1_000_000),
+      },
+    });
+
+    const plan = planSync(source, live);
+
+    expect(plan.changes).toEqual([]);
+    expect(plan.source).toBe(source);
+    expect(plan.findings.map((f) => f.modelId)).toContain(tiered!.id);
   });
 
   test("an id the live card no longer serves is reported, never deleted", () => {
