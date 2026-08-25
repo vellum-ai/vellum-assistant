@@ -1,12 +1,40 @@
 import AppIntents
 import SwiftUI
 import UIKit
+import WidgetKit
 
 // The pieces every Vellum Home Screen widget builds itself out of: a tile, a
 // circle, a pill, the unread mark, and the secondary line of text that stands
 // in when there is nothing to list. They live here rather than beside whichever
 // widget reached for them first, because a control that lives in one widget's
 // file is a control the next widget copies.
+//
+// Each control that carries a fill also knows what to do when the system
+// flattens the widget: a themed Home Screen, StandBy, or the lock screen. In
+// those modes WidgetKit throws away every color a widget sets and redraws it in
+// two monochrome groups, keeping only each view's alpha, so a fill picked to
+// sit on a white card comes out either as an opaque block that swallows the
+// glyph on it or as a wash too faint to see. The controls answer by swapping to
+// a translucent white, which survives the flattening as the same soft ground it
+// was drawn as.
+
+/// The grounds a control draws on once WidgetKit flattens the widget.
+///
+/// White rather than the control's own color because only alpha survives the
+/// flattening: a translucent white is the one way to ask for the soft ground
+/// the full-color card gets and be given it. The weights differ by shape rather
+/// than by accident, since a small round ground has less area to make the same
+/// wash felt with than a tile does.
+///
+/// Collected here rather than spelled at each use for the reason
+/// ``WidgetTheme`` collects the full-color palette: four controls picking their
+/// own number is four controls drifting apart.
+enum WidgetFlattenedFill {
+    static let tile = Color.white.opacity(0.12)
+    static let circle = Color.white.opacity(0.14)
+    static let pill = Color.white.opacity(0.12)
+    static let chip = Color.white.opacity(0.12)
+}
 
 /// One tile in an action column: a glyph over a word, filling a rounded
 /// square, wired to an App Intent.
@@ -16,12 +44,13 @@ import UIKit
 /// `openAppWhenRun`, so the system performs them in the app process; the appex
 /// only needs the types to exist.
 struct WidgetActionTile<ActionIntent: AppIntent>: View {
-    /// Close to the squircle the system clips the widget itself with, so a tile
-    /// reads as a smaller instance of the card it sits on rather than as a chip
-    /// placed on top of it.
-    private static var cornerRadius: CGFloat { 19 }
+    /// A corner tighter than the widget's own squircle, so the tile reads as a
+    /// control on the card rather than as a second card.
+    private static var cornerRadius: CGFloat { 12 }
 
-    private static var iconSize: CGFloat { 22 }
+    private static var iconSize: CGFloat { 24 }
+
+    private static var labelSize: CGFloat { 8 }
 
     let intent: ActionIntent
     let icon: Image
@@ -29,26 +58,63 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     let fill: Color
     let tint: Color
 
+    /// Whether this tile is the one that wears the user's own tint on a themed
+    /// Home Screen. At most one tile per card claims it, so the pair keeps the
+    /// primary-and-secondary reading it has in full color instead of coming out
+    /// as two identical blocks.
+    var carriesAccent: Bool = false
+
     /// The user's avatar, drawn in place of ``icon`` when the snapshot carries
     /// one. Optional because the tiles standing for an action rather than for
     /// the assistant keep their symbol, and because nothing has synced yet on a
     /// fresh install.
     var avatarImage: UIImage? = nil
 
+    /// The owning card's ratio to the size it was designed at, so the tile
+    /// keeps its share of a card that renders larger or smaller than the
+    /// design. See the design-size note on each widget view.
+    var scale: CGFloat = 1
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of this file.
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
     var body: some View {
         Button(intent: intent) {
-            VStack(spacing: 4) {
+            VStack(spacing: 4 * scale) {
                 glyph
                 Text(title)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: Self.labelSize * scale, weight: .medium))
                     .foregroundStyle(WidgetTheme.textPrimary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+            .background { ground }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// The tile's ground, drawn as its own shape view rather than handed to
+    /// `background(_:in:)`, because that is what lets `widgetAccentable()` be
+    /// scoped to it. The modifier tints everything beneath it, so a tile that
+    /// marked its button would hand the glyph and the word the same tint as the
+    /// ground behind them and leave the reader a blank square.
+    ///
+    /// Marking the shape is harmless in full color, where nothing consults it,
+    /// so the accent-carrying tile claims it in every mode rather than only in
+    /// the one where it matters.
+    @ViewBuilder
+    private var ground: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius * scale)
+            .fill(isFlattened ? WidgetFlattenedFill.tile : fill)
+        if carriesAccent {
+            shape.widgetAccentable()
+        } else {
+            shape
+        }
     }
 
     /// A symbol takes its size from the font and its color from the tile's
@@ -56,10 +122,10 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     @ViewBuilder
     private var glyph: some View {
         if let avatarImage {
-            WidgetAvatarImageView(image: avatarImage, size: Self.iconSize)
+            WidgetAvatarImageView(image: avatarImage, size: Self.iconSize * scale)
         } else {
             icon
-                .font(.system(size: Self.iconSize))
+                .font(.system(size: Self.iconSize * scale))
                 .foregroundStyle(tint)
         }
     }
@@ -72,15 +138,19 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
     ///
     /// The accent themes the tile and the avatar replaces its mark, both from
     /// the snapshot, so the tile that starts a chat with the assistant looks
-    /// like that assistant.
-    static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil) -> Self {
+    /// like that assistant. On a themed Home Screen there is no accent to read,
+    /// so this is also the tile that carries the user's own tint, which is the
+    /// same job by the only means that mode leaves.
+    static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil, scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
             icon: Image("VellumV"),
             title: "New Chat",
             fill: accent.fill,
             tint: accent.onFill,
-            avatarImage: avatarImage
+            carriesAccent: true,
+            avatarImage: avatarImage,
+            scale: scale
         )
     }
 }
@@ -89,13 +159,14 @@ extension WidgetActionTile where ActionIntent == StartNewVoiceConversationIntent
     /// The Voice tile, the secondary half of the pair. Neutral fill against
     /// ``newChat``'s tinted one, so the two read as a primary action and a
     /// secondary one rather than as two peers.
-    static var voice: Self {
+    static func voice(scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: StartNewVoiceConversationIntent(),
             icon: Image(systemName: "waveform"),
             title: "Voice",
             fill: WidgetTheme.voiceFill,
-            tint: WidgetTheme.textPrimary
+            tint: WidgetTheme.textPrimary,
+            scale: scale
         )
     }
 }
@@ -111,13 +182,19 @@ struct CircleActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let diameter: CGFloat
 
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of this file.
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
     var body: some View {
         Button(intent: intent) {
             icon
                 .font(.system(size: diameter * 0.4))
                 .foregroundStyle(tint)
                 .frame(width: diameter, height: diameter)
-                .background(fill, in: Circle())
+                .background(isFlattened ? WidgetFlattenedFill.circle : fill, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -133,23 +210,54 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let height: CGFloat
 
+    /// See ``WidgetActionTile/carriesAccent``. The pill is the idle card's
+    /// primary action the way the New Chat tile is the active card's, so both
+    /// states hand the tint to the control doing that job and the flip between
+    /// them does not move the user's own color onto something else.
+    var carriesAccent: Bool = false
+
     /// See ``WidgetActionTile/avatarImage``.
     var avatarImage: UIImage? = nil
 
+    /// See ``WidgetActionTile/scale``. The glyph already follows the height;
+    /// this scales the word beside it.
+    var scale: CGFloat = 1
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of this file.
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
     var body: some View {
         Button(intent: intent) {
-            HStack(spacing: 6) {
+            HStack(spacing: 6 * scale) {
                 glyph
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15 * scale, weight: .semibold))
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
             .frame(height: height)
-            .background(fill, in: Capsule())
+            .background { ground }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// The pill's ground, its own shape view for the reason the tile's is:
+    /// `widgetAccentable()` tints everything beneath it, so a pill that marked
+    /// its button would sink the glyph and the word into the ground behind
+    /// them. Marking the shape alone leaves them in the default group, legible
+    /// against the tint.
+    @ViewBuilder
+    private var ground: some View {
+        let shape = Capsule().fill(isFlattened ? WidgetFlattenedFill.pill : fill)
+        if carriesAccent {
+            shape.widgetAccentable()
+        } else {
+            shape
+        }
     }
 
     /// The glyph is sized off the pill's height either way, so swapping the
@@ -175,17 +283,25 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
 /// color of whatever it is drawn on, while the dot keeps
 /// ``WidgetTheme/unseenIndicator`` on every surface, which is what makes it
 /// read as an alert rather than as more chrome.
+///
+/// The dot is the mark's one accentable piece, so on a themed Home Screen it
+/// comes out in the user's tint while the bubble around it stays white. Amber
+/// is what the alert reading wants and what the flattening will not grant, but
+/// the dot's real job is to separate from the bubble it rides, and a tint the
+/// bubble does not share does that as well as amber did.
 struct WidgetUnreadMark: View {
     /// Whether the bubble is solid. A card painted in the assistant's own color
     /// wants the filled one; a white card wants the outline its rows draw.
     let isFilled: Bool
 
-    /// Point size of the bubble. The dot rides its corner at a fixed size
-    /// rather than scaling with it, so the alert stays the same alert whichever
-    /// card carries it.
+    /// Point size of the bubble. The dot rides its corner at the design's
+    /// share of it, so the mark scales as one piece: every card draws the
+    /// bubble at the same 16pt design size, and a dot fixed in points would
+    /// drift off the corner on the devices that render a card larger.
     let size: CGFloat
 
-    private static let dotDiameter: CGFloat = 6
+    private var dotDiameter: CGFloat { size * 0.375 }
+    private var dotNudge: CGFloat { size * 0.0625 }
 
     var body: some View {
         Image(systemName: isFilled ? "bubble.left.fill" : "bubble.left")
@@ -193,8 +309,9 @@ struct WidgetUnreadMark: View {
             .overlay(alignment: .topTrailing) {
                 Circle()
                     .fill(WidgetTheme.unseenIndicator)
-                    .frame(width: Self.dotDiameter, height: Self.dotDiameter)
-                    .offset(x: 2, y: -2)
+                    .frame(width: dotDiameter, height: dotDiameter)
+                    .offset(x: dotNudge, y: -dotNudge)
+                    .widgetAccentable()
             }
     }
 }

@@ -50,8 +50,10 @@ mock.module("@/runtime/native-keyboard", () => ({
 // there is a shrink ambiguous, so only there does the reference wait for an
 // announcement before trusting that no keyboard is up.
 let stubIsNativeMobile = false;
+let stubIsNativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
   isNativeMobile: () => stubIsNativeMobile,
+  isNativeAndroid: () => stubIsNativeAndroid,
 }));
 
 const { holdVisibleViewport, readVisibleViewport, useVisibleViewport } =
@@ -110,6 +112,7 @@ function announce(keyboardHeight: number, visible = keyboardHeight > 0): void {
 
 beforeEach(() => {
   stubIsNativeMobile = false;
+  stubIsNativeAndroid = false;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,
@@ -499,6 +502,48 @@ describe("window resizes", () => {
     // THEN the keyboard-free reference survives it, so the shell keeps sizing
     // for the keyboard the user is looking at
     expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
+  test("sizes the Android shell to its frame when the resize precedes the announcement", () => {
+    // GIVEN the Android shell, whose `adjustResize` frame shrink lands before
+    // the plugin announces the keyboard, after an earlier keyboard session
+    stubIsNativeMobile = true;
+    stubIsNativeAndroid = true;
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+    announce(0, false);
+
+    // WHEN the keyboard comes up again: the frame shrinks first, then the
+    // announcement follows
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    announce(KEYBOARD_HEIGHT);
+
+    // THEN the shell is sized to the frame that already fits above the
+    // keyboard, not to that frame minus the keyboard a second time
+    const viewport = readVisibleViewport();
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+
+    // AND a dismissal reads as no keyboard once the frame grows back
+    announce(0, false);
+    resizeWindowTo(REFERENCE_HEIGHT);
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+  });
+
+  test("falls back to the measurement on Android before any announcement", () => {
+    // GIVEN the Android shell with a keyboard raised before the plugin
+    // listeners could announce it
+    stubIsNativeMobile = true;
+    stubIsNativeAndroid = true;
+    renderHook(() => useVisibleViewport());
+
+    // WHEN the frame shrinks with nothing announced
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the reference delta still reports the keyboard
+    const viewport = readVisibleViewport();
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 
   test("rebases with the composer focused when no keyboard was announced", () => {
