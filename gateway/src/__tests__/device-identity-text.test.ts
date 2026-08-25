@@ -94,7 +94,7 @@ describe("capDeviceIdentityText", () => {
   test("truncation at the char cap keeps a boundary surrogate pair whole rather than splitting it", () => {
     const maxChars = MAX_CLIENT_REPORTED_NAME_CHARS;
     const emoji = "\u{1F600}"; // surrogate pair: 2 UTF-16 code units, 1 code point
-    // maxChars - 1 plain ASCII chars, then the emoji, then more filler —
+    // maxChars - 1 plain ASCII chars, then the emoji, then more filler,
     // so the emoji's surrogate pair straddles the UTF-16 code-unit offset
     // `maxChars` (the boundary a naive .slice(0, maxChars) would cut at).
     const value = "a".repeat(maxChars - 1) + emoji + "bbbb";
@@ -103,7 +103,7 @@ describe("capDeviceIdentityText", () => {
     const safeResult = result ?? "";
 
     // The result must be either the emoji included whole, or excluded
-    // entirely — never a lone unpaired surrogate.
+    // entirely: never a lone unpaired surrogate.
     const withEmoji = "a".repeat(maxChars - 1) + emoji;
     const withoutEmoji = "a".repeat(maxChars);
     expect(safeResult === withEmoji || safeResult === withoutEmoji).toBe(
