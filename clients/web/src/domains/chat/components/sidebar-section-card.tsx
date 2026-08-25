@@ -149,7 +149,7 @@ export function SidebarSectionCard({
           : "rounded-[18px]",
         "has-[>[data-state=open]]:w-full",
         /* `width` toggles between the measured `--section-collapsed-width`
-           (a real length - see the `ResizeObserver` above) and a percentage,
+           (a real length - see the layout effect above) and a percentage,
            not a length and a sizing keyword, so an ordinary transition
            interpolates it exactly like it would `border-radius`.
 
