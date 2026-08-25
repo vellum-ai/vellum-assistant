@@ -13,6 +13,7 @@ class FakeSocket {
   binaryType = "arraybuffer";
   readyState = 0;
   readonly sent: string[] = [];
+  readonly binarySent: Buffer[] = [];
   closed = false;
 
   onopen: (() => void) | null = null;
@@ -20,8 +21,12 @@ class FakeSocket {
   onerror: (() => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
 
-  send(data: string): void {
-    this.sent.push(data);
+  send(data: string | Buffer): void {
+    if (typeof data === "string") {
+      this.sent.push(data);
+      return;
+    }
+    this.binarySent.push(data);
   }
 
   close(): void {
@@ -312,5 +317,97 @@ describe("interrupt", () => {
     socket.deliver(READY);
     client.interrupt();
     expect(socket.sentFrames().at(-1)).toEqual({ type: "interrupt" });
+  });
+});
+
+describe("listening sessions", () => {
+  const listening = (): { client: CliLiveVoiceClient; socket: FakeSocket } => {
+    const socket = new FakeSocket();
+    const client = new CliLiveVoiceClient({
+      url: "ws://127.0.0.1:7830/v1/live-voice",
+      token: "guardian-token",
+      turnDetection: "server_vad",
+      webSocketFactory: () => socket as unknown as WebSocket,
+    });
+    client.connect();
+    socket.open();
+    return { client, socket };
+  };
+
+  test("asks for server_vad only when a microphone is open", () => {
+    expect(listening().socket.sentFrames()[0]!.turnDetection).toBe(
+      "server_vad",
+    );
+    // A session with no recorder must not ask: the daemon would wait on
+    // utterance boundaries in a stream that carries no audio.
+    expect(connected().socket.sentFrames()[0]!).not.toHaveProperty(
+      "turnDetection",
+    );
+  });
+
+  test("reports the mode the daemon actually ran, not the one requested", () => {
+    const { client, socket } = listening();
+    // A daemon that ignored the request runs manual, and this client sends no
+    // ptt_release, so a spoken turn there would never close.
+    socket.deliver({ ...READY, turnDetection: undefined });
+    expect(client.turnDetection).toBe("manual");
+
+    const second = listening();
+    second.socket.deliver({ ...READY, turnDetection: "server_vad" });
+    expect(second.client.turnDetection).toBe("server_vad");
+  });
+
+  test("audio goes out as binary, and only once the session is listening", () => {
+    const { client, socket } = listening();
+    const pcm = Buffer.alloc(320);
+
+    client.sendAudio(pcm);
+    expect(socket.binarySent).toHaveLength(0);
+
+    socket.deliver({ ...READY, turnDetection: "server_vad" });
+    client.sendAudio(pcm);
+    expect(socket.binarySent).toHaveLength(1);
+    // Base64 would inflate every chunk by a third on a continuous stream.
+    expect(socket.sent.some((raw) => raw.includes("dataBase64"))).toBe(false);
+  });
+
+  test("audio is dropped when the speech-to-text leg never came up", () => {
+    const { client, socket } = listening();
+    socket.deliver({
+      ...READY,
+      turnDetection: "server_vad",
+      audioInput: false,
+    });
+
+    client.sendAudio(Buffer.alloc(320));
+
+    expect(client.hasAudioInput).toBe(false);
+    expect(socket.binarySent).toHaveLength(0);
+  });
+
+  test("capture frames reach their listeners", () => {
+    const { client, socket } = listening();
+    socket.deliver({ ...READY, turnDetection: "server_vad" });
+
+    const seen: string[] = [];
+    client.on("speechStarted", () => seen.push("start"));
+    client.on("sttPartial", (f) => seen.push(`partial:${f.text}`));
+    client.on("sttFinal", (f) => seen.push(`final:${f.text}`));
+    client.on("utteranceEnd", () => seen.push("end"));
+    client.on("utteranceDiscarded", () => seen.push("discarded"));
+
+    socket.deliver({ type: "speech_started", seq: 2 });
+    socket.deliver({ type: "stt_partial", seq: 3, text: "hel" });
+    socket.deliver({ type: "stt_final", seq: 4, text: "hello" });
+    socket.deliver({ type: "utterance_end", seq: 5 });
+    socket.deliver({ type: "utterance_discarded", seq: 6 });
+
+    expect(seen).toEqual([
+      "start",
+      "partial:hel",
+      "final:hello",
+      "end",
+      "discarded",
+    ]);
   });
 });

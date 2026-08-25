@@ -11,7 +11,12 @@
  * would.
  */
 
-import { createInterface, type Interface } from "node:readline";
+import {
+  clearLine,
+  createInterface,
+  cursorTo,
+  type Interface,
+} from "node:readline";
 
 import chalk from "chalk";
 
@@ -23,6 +28,10 @@ import {
   resolveLiveVoiceConnection,
 } from "../lib/live-voice/connection.js";
 import { PcmPlayer } from "../lib/live-voice/pcm-player.js";
+import {
+  PcmRecorder,
+  recorderInstallHint,
+} from "../lib/live-voice/pcm-recorder.js";
 import { MAX_TEXT_TURN_CHARS } from "../lib/live-voice/protocol.js";
 
 function printUsage(): void {
@@ -37,16 +46,21 @@ ARGUMENTS:
 OPTIONS:
     --conversation <id>  Continue an existing conversation instead of starting one
     --no-audio           Print replies without speaking them
+    --no-mic             Take turns by typing only, even if a recorder is present
     --help               Show this help
 
 DESCRIPTION:
-    Opens a live-voice session with no microphone. Each line you type is
-    taken as a turn and the reply is streamed back as text and spoken aloud.
-    A turn is at most ${MAX_TEXT_TURN_CHARS} characters.
+    Opens a live-voice session. Speak a turn, or type one, and the reply is
+    streamed back as text and spoken aloud. A typed turn is at most
+    ${MAX_TEXT_TURN_CHARS} characters.
 
-    Speech needs a PCM player on PATH. ffplay, play (sox), or aplay stream the
-    audio as it arrives; afplay (macOS) plays each reply once it is complete.
-    With none of them installed the session still runs, printed but silent.
+    Both halves need a PCM tool on PATH, and each degrades on its own:
+
+      Speaking   ffplay, play (sox), or aplay stream audio as it arrives;
+                 afplay (macOS) plays each reply once complete. With none
+                 of them the session runs printed but silent.
+      Listening  arecord (alsa-utils), sox, or ffmpeg. With none of them,
+                 or with --no-mic, turns are typed.
 
     Ctrl+C interrupts the assistant mid-reply. Ctrl+D, or Ctrl+C when nothing
     is being spoken, ends the session.
@@ -58,6 +72,7 @@ EXAMPLES:
     vellum voice
     vellum voice my-assistant
     vellum voice my-assistant --no-audio
+    vellum voice my-assistant --no-mic
     vellum voice --conversation conv_01H8XK3
 `);
 }
@@ -75,6 +90,7 @@ export async function voice(): Promise<void> {
   const conversationId = extractValueFlag(args, "conversation");
   const assistantArg = parseAssistantTargetArg(args);
   const audioEnabled = !args.includes("--no-audio");
+  const micEnabled = !args.includes("--no-mic");
 
   let connection;
   try {
@@ -88,18 +104,33 @@ export async function voice(): Promise<void> {
   }
 
   const player = audioEnabled ? new PcmPlayer() : null;
+  const recorder = micEnabled ? new PcmRecorder() : null;
+  const listening = recorder?.recorderName != null;
   const client = new CliLiveVoiceClient({
     url: connection.url,
     token: connection.token,
+    // Only ask the daemon to find turn boundaries when there is a microphone
+    // to find them in. A `server_vad` session fed no audio waits forever for
+    // an utterance that never starts.
+    ...(listening ? { turnDetection: "server_vad" as const } : {}),
     ...(conversationId ? { conversationId } : {}),
   });
 
-  await runSession({ client, player, reference: connection.reference });
+  await runSession({
+    client,
+    player,
+    recorder: listening ? recorder : null,
+    micRequested: micEnabled,
+    reference: connection.reference,
+  });
 }
 
 interface SessionDeps {
   client: CliLiveVoiceClient;
   player: PcmPlayer | null;
+  recorder: PcmRecorder | null;
+  /** Whether a microphone was wanted, which `--no-mic` is the way to say no to. */
+  micRequested: boolean;
   reference: string;
 }
 
@@ -110,7 +141,13 @@ interface SessionDeps {
  * failure. The exit code is set on the way out rather than thrown, so a failed
  * session prints one line instead of a stack.
  */
-function runSession({ client, player, reference }: SessionDeps): Promise<void> {
+function runSession({
+  client,
+  player,
+  recorder,
+  micRequested,
+  reference,
+}: SessionDeps): Promise<void> {
   return new Promise<void>((resolve) => {
     let rl: Interface | null = null;
     // True from the moment a turn is sent until its reply has been spoken.
@@ -131,12 +168,19 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
     let replyStarted = false;
     let lastActivity = "";
     let finished = false;
+    /** Settled transcript spans for the utterance being spoken. */
+    let spokenFinals: string[] = [];
+    /** The interim tail after those spans. Replaced, never appended. */
+    let spokenPartial = "";
+    /** True while a transcript line is drawn and awaiting its newline. */
+    let transcriptOpen = false;
 
     const finish = (error?: string): void => {
       if (finished) {
         return;
       }
       finished = true;
+      recorder?.stop();
       player?.dispose();
       rl?.close();
       if (error) {
@@ -144,6 +188,46 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
         process.exitCode = 1;
       }
       resolve();
+    };
+
+    /**
+     * Draw the utterance in progress over the prompt line.
+     *
+     * Rewritten in place rather than appended, because a partial is a running
+     * replacement for the tail of the same sentence; printing each one would
+     * scroll a paragraph of near-duplicates past the user as they talk. A
+     * non-TTY has no cursor to move, so there it stays quiet until the
+     * transcript settles.
+     */
+    const drawTranscript = (): void => {
+      if (!process.stdout.isTTY) {
+        return;
+      }
+      const spoken = [...spokenFinals, spokenPartial]
+        .filter((part) => part.length > 0)
+        .join(" ");
+      cursorTo(process.stdout, 0);
+      clearLine(process.stdout, 0);
+      process.stdout.write(chalk.cyan("> ") + chalk.dim(spoken));
+      transcriptOpen = true;
+    };
+
+    /** Settle the transcript line, or erase it if nothing was said. */
+    const closeTranscript = (): void => {
+      const spoken = spokenFinals.join(" ").trim();
+      spokenFinals = [];
+      spokenPartial = "";
+      if (!transcriptOpen) {
+        return;
+      }
+      transcriptOpen = false;
+      if (process.stdout.isTTY) {
+        cursorTo(process.stdout, 0);
+        clearLine(process.stdout, 0);
+      }
+      if (spoken.length > 0) {
+        process.stdout.write(`${chalk.cyan("> ")}${spoken}\n`);
+      }
     };
 
     /** Hand the prompt back and let the user take another turn. */
@@ -158,6 +242,9 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       activeTurnId = null;
       replyStarted = false;
       lastActivity = "";
+      spokenFinals = [];
+      spokenPartial = "";
+      transcriptOpen = false;
       if (note) {
         process.stdout.write(chalk.dim(note));
       }
@@ -190,9 +277,30 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
         return;
       }
 
+      // A daemon that ignored `server_vad` runs a manual session, and a manual
+      // session has no way to close a spoken turn: this client sends no
+      // `ptt_release`, so audio would stream into a turn that never ends.
+      // Better to say so and type than to hold an open microphone that does
+      // nothing.
+      const vadHonoured =
+        recorder === null || client.turnDetection === "server_vad";
+      const micUsable =
+        recorder !== null && client.hasAudioInput && vadHonoured;
+
       console.log(
-        chalk.dim(`Connected to ${reference}. ${describePlayback(player)}.`),
+        chalk.dim(
+          `Connected to ${reference}. ${describePlayback(player)}. ` +
+            `${describeCapture(recorder, micRequested, micUsable)}.`,
+        ),
       );
+      if (recorder !== null && client.hasAudioInput && !vadHonoured) {
+        console.log(
+          chalk.yellow(
+            "This assistant did not accept hands-free turn detection, so the " +
+              "microphone stays closed. Typed turns still work.",
+          ),
+        );
+      }
       if (!client.hasAudioInput) {
         // Expected here rather than alarming: this client declared it can type,
         // which is what let the session open text-only instead of being refused.
@@ -204,7 +312,9 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       }
       console.log(
         chalk.dim(
-          "Type a message and press enter. Ctrl+C interrupts, Ctrl+D exits.",
+          micUsable
+            ? "Just talk, or type a message and press enter. Ctrl+C interrupts, Ctrl+D exits."
+            : "Type a message and press enter. Ctrl+C interrupts, Ctrl+D exits.",
         ),
       );
       console.log(`Conversation: ${chalk.dim(frame.conversationId)}\n`);
@@ -271,6 +381,63 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       });
 
       rl.prompt();
+
+      if (micUsable && recorder) {
+        recorder.start(
+          (pcm) => client.sendAudio(pcm),
+          (reason) => {
+            // A recorder that dies is not a session that dies. Say what
+            // happened once and leave the user typing, which is exactly what
+            // a machine with no recorder does from the start.
+            console.error(
+              chalk.yellow(
+                `\nMicrophone stopped: ${reason}. Typed turns still work.`,
+              ),
+            );
+            recorder.stop();
+            if (!turnInFlight) {
+              rl?.prompt();
+            }
+          },
+        );
+      }
+    });
+
+    client.on("speechStarted", () => {
+      // Whatever is queued belongs to a reply being spoken over.
+      player?.stop();
+      if (!turnInFlight) {
+        turnInFlight = true;
+        activeTurnId = null;
+        rl?.pause();
+      }
+      drawTranscript();
+    });
+
+    client.on("sttPartial", (frame) => {
+      spokenPartial = frame.text;
+      drawTranscript();
+    });
+
+    client.on("sttFinal", (frame) => {
+      if (frame.text.trim().length > 0) {
+        spokenFinals.push(frame.text.trim());
+      }
+      spokenPartial = "";
+      drawTranscript();
+    });
+
+    client.on("utteranceEnd", () => {
+      closeTranscript();
+    });
+
+    client.on("utteranceDiscarded", () => {
+      // A cough, a door, a false trigger. Erase the line it drew and give the
+      // prompt back rather than leaving a turn that will never produce a reply.
+      spokenFinals = [];
+      spokenPartial = "";
+      closeTranscript();
+      endTurn();
     });
 
     client.on("activity", (frame) => {
@@ -367,4 +534,29 @@ function describePlayback(player: PcmPlayer | null): string {
     case "silent":
       return "Silent: install ffplay, sox, or aplay to hear replies";
   }
+}
+
+/**
+ * How this session will (or will not) listen, for the connection banner.
+ *
+ * Three outcomes worth telling apart: a live microphone, one deliberately
+ * switched off, and a machine that has no recorder at all. Only the last is
+ * something the user can fix, so only the last names what to install.
+ */
+function describeCapture(
+  recorder: PcmRecorder | null,
+  requested: boolean,
+  usable: boolean,
+): string {
+  if (!requested) {
+    return "Microphone off (--no-mic)";
+  }
+  if (recorder === null) {
+    // The only one of these the user can act on, so the only one that says how.
+    return `No recorder found, typing only (${recorderInstallHint()})`;
+  }
+  if (!usable) {
+    return "Microphone unavailable";
+  }
+  return `Listening via ${recorder.recorderName}`;
 }

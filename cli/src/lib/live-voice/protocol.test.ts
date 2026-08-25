@@ -32,8 +32,26 @@ describe("parseServerFrame", () => {
 
   test("names an unrecognized frame type rather than dropping it", () => {
     expect(
-      parseServerFrame(JSON.stringify({ type: "stt_partial", seq: 2 })),
-    ).toEqual({ type: "unhandled", frameType: "stt_partial" });
+      parseServerFrame(JSON.stringify({ type: "some_future_frame", seq: 2 })),
+    ).toEqual({ type: "unhandled", frameType: "some_future_frame" });
+  });
+
+  test("parses the capture-side frames a listening session needs", () => {
+    for (const type of [
+      "speech_started",
+      "utterance_end",
+      "utterance_discarded",
+    ] as const) {
+      expect(parseServerFrame(JSON.stringify({ type, seq: 1 }))).toEqual({
+        type,
+        seq: 1,
+      });
+    }
+    expect(
+      parseServerFrame(
+        JSON.stringify({ type: "stt_partial", seq: 2, text: "hel" }),
+      ),
+    ).toEqual({ type: "stt_partial", seq: 2, text: "hel" });
   });
 
   test("never throws on malformed input", () => {

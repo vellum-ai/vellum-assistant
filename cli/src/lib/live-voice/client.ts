@@ -21,7 +21,10 @@ import {
   type LiveVoiceAssistantTextDeltaFrame,
   type LiveVoiceReadyFrame,
   type LiveVoiceStartFrame,
+  type LiveVoiceSttFinalFrame,
+  type LiveVoiceSttPartialFrame,
   type LiveVoiceTtsAudioFrame,
+  type LiveVoiceTurnDetectionMode,
 } from "./protocol.js";
 
 /** Fail the session if no `ready` frame arrives within this window. */
@@ -30,6 +33,16 @@ const CONNECT_TIMEOUT_MS = 10_000;
 export interface LiveVoiceClientEvents {
   /** The session is open. `textInput` says whether typed turns are accepted. */
   ready(frame: LiveVoiceReadyFrame): void;
+  /** The user started speaking. Local playback must stop at once. */
+  speechStarted(): void;
+  /** The user stopped speaking; the turn is being transcribed. */
+  utteranceEnd(): void;
+  /** Interim transcript, replacing whatever was shown for this utterance. */
+  sttPartial(frame: LiveVoiceSttPartialFrame): void;
+  /** A settled span of transcript. */
+  sttFinal(frame: LiveVoiceSttFinalFrame): void;
+  /** The utterance was not worth a turn (a cough, a false trigger). */
+  utteranceDiscarded(): void;
   /** A chunk of the assistant's reply text, as the model produces it. */
   textDelta(frame: LiveVoiceAssistantTextDeltaFrame): void;
   /** A chunk of spoken audio. PCM16 mono at the frame's own sample rate. */
@@ -54,6 +67,11 @@ export interface CliLiveVoiceClientOptions {
   readonly url: string;
   readonly token: string;
   readonly conversationId?: string;
+  /**
+   * Ask the daemon to find turn boundaries in the audio stream. Set only when
+   * a microphone is actually open.
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
   /** Override the socket factory (tests). */
   readonly webSocketFactory?: (url: string, token: string) => WebSocket;
   /** Override the connect timeout (tests). */
@@ -68,6 +86,7 @@ export class CliLiveVoiceClient {
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private textInputSupported = false;
   private audioInputLive = true;
+  private activeTurnDetection: LiveVoiceTurnDetectionMode = "manual";
 
   private readonly options: CliLiveVoiceClientOptions;
   private readonly listeners = new Map<
@@ -102,6 +121,38 @@ export class CliLiveVoiceClient {
   /** Whether the session's speech-to-text leg came up. */
   get hasAudioInput(): boolean {
     return this.audioInputLive;
+  }
+
+  /**
+   * The turn detection the session is actually running.
+   *
+   * Read from the `ready` echo rather than from what was asked for: a daemon
+   * that ignored the request would otherwise leave the client streaming into a
+   * session that never closes a turn, with nothing on screen saying so.
+   */
+  get turnDetection(): LiveVoiceTurnDetectionMode {
+    return this.activeTurnDetection;
+  }
+
+  /**
+   * Stream one chunk of microphone PCM16.
+   *
+   * Sent as a binary frame, the same shape the browser client uses: the daemon
+   * accepts either that or a base64 `audio` frame, and base64 would inflate
+   * every chunk by a third on a transport carrying them continuously.
+   *
+   * Silently dropped unless the session is active and actually listening. A
+   * recorder can outlive the session it feeds by a few chunks, and a session
+   * that opened text-only has no transcriber to route them into.
+   */
+  sendAudio(pcm: Buffer): void {
+    if (this.state !== "active" || !this.audioInputLive) {
+      return;
+    }
+    const ws = this.ws;
+    if (ws && ws.readyState === 1) {
+      ws.send(pcm);
+    }
   }
 
   /**
@@ -194,6 +245,9 @@ export class CliLiveVoiceClient {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
       textInput: true,
+      ...(this.options.turnDetection
+        ? { turnDetection: this.options.turnDetection }
+        : {}),
       ...(this.options.conversationId
         ? { conversationId: this.options.conversationId }
         : {}),
@@ -221,6 +275,7 @@ export class CliLiveVoiceClient {
         // Absent means yes: a daemon predating the field refuses any session it
         // cannot transcribe, so every session it readies can hear.
         this.audioInputLive = frame.audioInput !== false;
+        this.activeTurnDetection = frame.turnDetection ?? "manual";
         this.emit("ready", frame);
         return;
       }
@@ -229,6 +284,21 @@ export class CliLiveVoiceClient {
           "The assistant already has a voice session open " +
             `(${frame.activeSessionId}).`,
         );
+        return;
+      case "speech_started":
+        this.emit("speechStarted");
+        return;
+      case "utterance_end":
+        this.emit("utteranceEnd");
+        return;
+      case "stt_partial":
+        this.emit("sttPartial", frame);
+        return;
+      case "stt_final":
+        this.emit("sttFinal", frame);
+        return;
+      case "utterance_discarded":
+        this.emit("utteranceDiscarded");
         return;
       case "assistant_text_delta":
         this.emit("textDelta", frame);

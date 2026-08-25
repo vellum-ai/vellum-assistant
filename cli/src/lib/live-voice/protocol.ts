@@ -4,10 +4,9 @@
  * Ported from `assistant/src/live-voice/protocol.ts`, the same way
  * `clients/web/src/domains/chat/voice/live-voice/protocol.ts` is: the CLI ships
  * as an npm package and nothing outside `cli/` lands in the tarball, so the
- * daemon's copy cannot be imported. Deliberately a subset rather than a full
- * port. This client never captures audio, so the capture half of the protocol
- * (`audio`, `ptt_release`, `speech_started`, `utterance_end`, the `stt_*`
- * frames) is absent instead of present and unreachable.
+ * daemon's copy cannot be imported. A subset rather than a full port: only the
+ * frames this client sends or acts on appear, so an unused one is never
+ * mistaken for a supported one.
  *
  * The one thing that must not drift is what goes *out*. Frames the daemon
  * validates strictly are spelled out in full below; frames it sends are parsed
@@ -31,10 +30,26 @@ export const LIVE_VOICE_AUDIO_FORMAT = {
 /** Longest typed turn the daemon accepts on a `text` frame. */
 export const MAX_TEXT_TURN_CHARS = 4_000;
 
+/**
+ * How the session decides a user turn has ended.
+ *
+ * `server_vad` also means multi-turn: the daemon finds utterance boundaries in
+ * the audio stream and runs repeated utterance-to-turn cycles. Absent means
+ * `manual`, which for a client with no push-to-talk affordance means the
+ * daemon never closes a spoken turn on its own.
+ */
+export type LiveVoiceTurnDetectionMode = "manual" | "server_vad";
+
 export interface LiveVoiceStartFrame {
   readonly type: "start";
   readonly audio: typeof LIVE_VOICE_AUDIO_FORMAT;
   readonly conversationId?: string;
+  /**
+   * Requested turn detection. Sent only when a microphone is actually open:
+   * asking for `server_vad` on a session that streams no audio would leave the
+   * daemon waiting on utterance boundaries that can never arrive.
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
   /**
    * Always true from this client, and load-bearing rather than informational:
    * it is what lets a session whose speech-to-text leg has no working
@@ -59,6 +74,11 @@ export interface LiveVoiceReadyFrame extends ServerFrameBase {
   readonly type: "ready";
   readonly sessionId: string;
   readonly conversationId: string;
+  /**
+   * The turn-detection mode the session is actually running, which is not
+   * necessarily the one asked for. Absent means `manual`.
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
   /**
    * Whether this daemon takes `text` frames. Absent means no: a daemon
    * predating typed turns answers each one with `unknown_type`, which is
@@ -101,6 +121,38 @@ export interface LiveVoiceTurnCancelledFrame extends ServerFrameBase {
   readonly turnId: string;
 }
 
+/**
+ * The daemon's VAD heard speech start.
+ *
+ * Doubles as the flush signal: local playback must stop immediately, because
+ * whatever is still queued belongs to a reply the user is talking over.
+ */
+export interface LiveVoiceSpeechStartedFrame extends ServerFrameBase {
+  readonly type: "speech_started";
+}
+
+/** The VAD closed the utterance; transcription of the turn begins. */
+export interface LiveVoiceUtteranceEndFrame extends ServerFrameBase {
+  readonly type: "utterance_end";
+}
+
+/** Interim transcript for the utterance in progress. Replaced, not appended. */
+export interface LiveVoiceSttPartialFrame extends ServerFrameBase {
+  readonly type: "stt_partial";
+  readonly text: string;
+}
+
+/** A settled span of transcript. Successive finals accumulate into the turn. */
+export interface LiveVoiceSttFinalFrame extends ServerFrameBase {
+  readonly type: "stt_final";
+  readonly text: string;
+}
+
+/** The utterance produced nothing worth running a turn for. */
+export interface LiveVoiceUtteranceDiscardedFrame extends ServerFrameBase {
+  readonly type: "utterance_discarded";
+}
+
 export interface LiveVoiceThinkingFrame extends ServerFrameBase {
   readonly type: "thinking";
   readonly turnId?: string;
@@ -141,6 +193,11 @@ export interface LiveVoiceMalformedFrame {
 export type LiveVoiceServerFrame =
   | LiveVoiceReadyFrame
   | LiveVoiceBusyFrame
+  | LiveVoiceSpeechStartedFrame
+  | LiveVoiceUtteranceEndFrame
+  | LiveVoiceSttPartialFrame
+  | LiveVoiceSttFinalFrame
+  | LiveVoiceUtteranceDiscardedFrame
   | LiveVoiceAssistantTextDeltaFrame
   | LiveVoiceTtsAudioFrame
   | LiveVoiceTtsDoneFrame
@@ -155,6 +212,11 @@ export type LiveVoiceServerFrame =
 const HANDLED_FRAME_TYPES = new Set([
   "ready",
   "busy",
+  "speech_started",
+  "utterance_end",
+  "stt_partial",
+  "stt_final",
+  "utterance_discarded",
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
