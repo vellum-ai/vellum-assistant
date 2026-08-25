@@ -52,6 +52,7 @@ import { getLogger } from "../../util/logger.js";
 import type { FluxEncoding } from "./deepgram-flux-frames.js";
 import {
   buildFluxQueryParams,
+  fluxModelForLanguage,
   parseFluxFrame,
 } from "./deepgram-flux-frames.js";
 
@@ -735,8 +736,21 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
    * {@link buildFluxQueryParams}.
    */
   private buildWebSocketUrl(): string {
+    // Dialing Deepgram directly means choosing the model here. The relay
+    // derives it from the language instead, which is why the managed path
+    // sends neither.
+    const selection = this.omitModelParam
+      ? null
+      : // An explicit pin is the operator's call and wins; otherwise the
+        // language picks, matching what the relay does server-side.
+        this.flux.model
+        ? { model: this.flux.model }
+        : fluxModelForLanguage(this.language);
     const query = buildFluxQueryParams({
-      ...(this.omitModelParam ? {} : { model: this.flux.model }),
+      ...(selection ? { model: selection.model } : {}),
+      ...(selection?.languageHint !== undefined
+        ? { languageHint: selection.languageHint }
+        : {}),
       encoding: AUDIO_ENCODING,
       sampleRate: this.sampleRate,
       eotThreshold: this.flux.eotThreshold,

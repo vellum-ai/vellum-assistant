@@ -321,6 +321,12 @@ export interface FluxQueryParamOptions {
   eagerEotThreshold?: number;
   /** Silence (ms) after which Flux force-ends a turn. */
   eotTimeoutMs?: number;
+  /**
+   * Language hint for the multilingual model. Meaningless on the English
+   * model, and omitted entirely for code-switching, which is what asks Flux
+   * to detect the language itself.
+   */
+  languageHint?: string;
 }
 
 /**
@@ -341,10 +347,72 @@ export interface FluxQueryParamOptions {
  * misconfigured pair from failing the whole session; the adjustment is logged
  * at debug when it fires.
  */
+/** Flux's English model, and its multilingual sibling. */
+const FLUX_MODEL_ENGLISH = "flux-general-en";
+const FLUX_MODEL_MULTILINGUAL = "flux-general-multi";
+
+/**
+ * Languages the multilingual Flux model serves, as base subtags.
+ *
+ * Deepgram documents this roster for `flux-general-multi`; anything outside it
+ * has no model to run on.
+ */
+const FLUX_MULTILINGUAL_SUBTAGS: ReadonlySet<string> = new Set([
+  "de",
+  "en",
+  "es",
+  "fr",
+  "hi",
+  "it",
+  "ja",
+  "nl",
+  "pt",
+  "ru",
+]);
+
+/** The code that asks Flux to detect and code-switch rather than be told. */
+const FLUX_CODE_SWITCHING = "multi";
+
+/**
+ * The model and optional hint a spoken language selects.
+ *
+ * Deliberately the same mapping the managed relay applies server-side, so a
+ * language means the same thing whether Flux is reached with your own key or
+ * through the platform. Without it a BYOK session pins the English model and
+ * returns English-sounding nonsense for every other language, which is
+ * invisible from the transcript alone.
+ *
+ * Returns null when the language has no Flux model, leaving the caller to
+ * refuse rather than transcribe the wrong thing.
+ */
+export function fluxModelForLanguage(
+  language: string | undefined,
+): { model: string; languageHint?: string } | null {
+  const normalized = language?.trim().toLowerCase();
+  if (!normalized) {
+    return { model: FLUX_MODEL_ENGLISH };
+  }
+  if (normalized === FLUX_CODE_SWITCHING) {
+    return { model: FLUX_MODEL_MULTILINGUAL };
+  }
+  const base = normalized.split("-")[0] ?? normalized;
+  if (!FLUX_MULTILINGUAL_SUBTAGS.has(base)) {
+    return null;
+  }
+  if (base === "en") {
+    return { model: FLUX_MODEL_ENGLISH };
+  }
+  return { model: FLUX_MODEL_MULTILINGUAL, languageHint: base };
+}
+
 export function buildFluxQueryParams(opts: FluxQueryParamOptions): string {
   const params = new URLSearchParams();
   if (opts.model !== undefined) {
     params.set("model", opts.model);
+  }
+
+  if (opts.languageHint !== undefined) {
+    params.set("language_hint", opts.languageHint);
   }
 
   if (opts.encoding !== undefined) {

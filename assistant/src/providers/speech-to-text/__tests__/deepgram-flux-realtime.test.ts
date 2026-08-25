@@ -669,6 +669,35 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       expect(url.searchParams.get("sample_rate")).toBe("16000");
     });
 
+    test("derives the model from the language when none is pinned", async () => {
+      // The relay does this mapping server-side; the direct path has to do it
+      // here, or a non-English session silently runs the English model.
+      await startSession({ language: "es" });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.get("model")).toBe("flux-general-multi");
+      expect(url.searchParams.get("language_hint")).toBe("es");
+    });
+
+    test("code-switching takes the multilingual model and no hint", async () => {
+      await startSession({ language: "multi" });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.get("model")).toBe("flux-general-multi");
+      expect(url.searchParams.has("language_hint")).toBe(false);
+    });
+
+    test("the relay path sends neither model nor hint", async () => {
+      // velay derives both from the language it is sent, and rejects a
+      // client-selected model.
+      await startSession({ ...RELAY_OPTIONS, language: "es" });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.has("model")).toBe(false);
+      expect(url.searchParams.has("language_hint")).toBe(false);
+      expect(url.searchParams.get("language")).toBe("es");
+    });
+
     test("keeps the direct Deepgram dial unchanged", async () => {
       await startSession();
 

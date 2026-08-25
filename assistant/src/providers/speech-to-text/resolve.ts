@@ -679,16 +679,31 @@ async function createStreamingTranscriber(
     }
     case "deepgram-flux": {
       // Flux is streaming-only and dials Deepgram's /v2/listen conversational
-      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which
-      // the adapter reads itself, so only the transport-level sample rate is
-      // passed here. No language is forwarded: the spike pins the
-      // English-only `flux-general-en`, and `language_hint` means nothing to
-      // a monolingual model. Diarization is off in the catalog, so a
-      // `"required"` caller never reaches this case.
+      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which the
+      // adapter reads itself. The language picks the model, so a language Flux
+      // has no model for resolves to nothing rather than being transcribed by
+      // the English one, which returns fluent-looking nonsense the transcript
+      // gives no sign of. Diarization is off in the catalog, so a `"required"`
+      // caller never reaches this case.
+      const { fluxModelForLanguage } =
+        await import("./deepgram-flux-frames.js");
+      // A pinned model is the operator saying which one to run, so the
+      // language check only guards the derived case.
+      if (
+        getConfig().liveVoice.flux.model === undefined &&
+        fluxModelForLanguage(options.language) === null
+      ) {
+        log.warn(
+          { providerId, language: options.language },
+          "Deepgram Flux has no model for the configured language; refusing rather than transcribing it as another",
+        );
+        return null;
+      }
       const { DeepgramFluxRealtimeTranscriber } =
         await import("./deepgram-flux-realtime.js");
       return new DeepgramFluxRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...(options.language ? { language: options.language } : {}),
       });
     }
     default: {

@@ -38,10 +38,10 @@ export type SttModelFamily = (typeof VALID_STT_MODELS)[number];
  * select the family with `services.stt.providers.<id>.model`, and
  * {@link resolveSttCatalogKey} maps that pair onto the row.
  *
- * Keeping the two apart is deliberate. Model variants used to be selectable
- * ids, which meant every new one needed an enum entry, a settings-picker row,
- * and its own place in each managed-vs-BYOK predicate: surface that grew per
- * variant and drifted out of sync in practice.
+ * Keeping the two apart bounds the user-facing surface: adding a model family
+ * costs a catalog row and nothing else, while adding a provider id costs an
+ * enum entry, a settings-picker row, and a place in every predicate that
+ * classifies providers.
  */
 export type SttProviderId =
   | "openai-whisper"

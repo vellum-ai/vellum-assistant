@@ -1,8 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { listProviderModelFamilies } from "../../providers/speech-to-text/provider-catalog.js";
-import type { SttProviderId } from "../../stt/types.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -36,6 +34,20 @@ import type { WorkspaceMigration } from "./types.js";
 const FLUX_PROVIDER_PARENTS: Record<string, string> = {
   "deepgram-flux": "deepgram",
   "vellum-flux": "vellum",
+};
+
+/**
+ * The model families each provider served when this migration was written,
+ * inlined rather than read from the provider catalog.
+ *
+ * A published migration has to behave identically every time it runs, and it
+ * reruns on newly initialized workspaces and after an interrupted checkpoint.
+ * Reading the live catalog would let a later change to it alter what this
+ * migration deletes from configs it has already seen.
+ */
+const KNOWN_MODEL_FAMILIES: Record<string, readonly string[]> = {
+  deepgram: ["nova-3", "flux"],
+  vellum: ["nova-3", "flux"],
 };
 
 export const sttFluxProviderToModelFamilyMigration: WorkspaceMigration = {
@@ -93,9 +105,10 @@ export const sttFluxProviderToModelFamilyMigration: WorkspaceMigration = {
 };
 
 /**
- * Remove `model` values a known provider cannot serve. Entries for providers
- * the catalog does not know are left untouched: that map is deliberately open
- * to ids from future builds, and the schema does not validate them either.
+ * Remove `model` values a provider known at the time of writing cannot serve.
+ * Entries for any other provider are left untouched: that map is deliberately
+ * open to ids from future builds, and the schema does not validate them
+ * either.
  */
 function dropUnservableModels(providers: Record<string, unknown>): boolean {
   let changed = false;
@@ -104,13 +117,13 @@ function dropUnservableModels(providers: Record<string, unknown>): boolean {
     if (!settings || settings.model === undefined) {
       continue;
     }
-    const families = listProviderModelFamilies(providerId as SttProviderId);
-    if (families.length === 0) {
+    const families = KNOWN_MODEL_FAMILIES[providerId];
+    if (families === undefined) {
       continue;
     }
     if (
       typeof settings.model !== "string" ||
-      !families.includes(settings.model as never)
+      !families.includes(settings.model)
     ) {
       delete settings.model;
       changed = true;
