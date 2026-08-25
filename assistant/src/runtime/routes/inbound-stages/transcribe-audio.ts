@@ -53,7 +53,7 @@ export async function tryTranscribeAudioAttachments(
     }
 
     // Resolve STT provider via daemon batch transcriber facade
-    const transcriber = await resolveBatchTranscriber();
+    const transcriber = await resolveBatchTranscriber({ role: "batch" });
     if (!transcriber) {
       return {
         status: "no_provider",

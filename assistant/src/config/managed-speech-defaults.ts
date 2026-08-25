@@ -27,6 +27,7 @@ import {
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
 import { sttProviderKeyResolves } from "../providers/speech-to-text/resolve.js";
+import { sttCatalogKeyForRole, type SttRole } from "../stt/roles.js";
 import type { SttProviderId } from "../stt/types.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
 import type { TtsProviderId } from "../tts/types.js";
@@ -99,13 +100,16 @@ export interface EffectiveSpeechProviders {
  * preflight route does without persisting anything.
  *
  * `config` selects the configuration to read the configured providers from,
- * for callers already holding one (defaults to the loaded config).
+ * for callers already holding one (defaults to the loaded config). `role`
+ * selects which consumer's STT override applies; omitting it reads the global
+ * provider, which is what every caller did before roles existed.
  */
 export async function resolveEffectiveSpeechProviders(
   config?: AssistantConfig,
+  options: { role?: SttRole } = {},
 ): Promise<EffectiveSpeechProviders> {
   const services = (config ?? getConfig()).services;
-  const configuredStt = resolveSttCatalogKey(services.stt);
+  const configuredStt = sttCatalogKeyForRole(services.stt, options.role);
   const configuredTts = services.tts.provider as TtsProviderId;
 
   if (!(await managedSpeechAvailable())) {

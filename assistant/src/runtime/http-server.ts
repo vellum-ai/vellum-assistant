@@ -327,6 +327,7 @@ export class RuntimeHttpServer {
             // transcriber and sends a `ready` event on success.
             void session.start(() =>
               resolveStreamingTranscriber({
+                role: "dictation",
                 sampleRate: sttData.sampleRate,
               }),
             );

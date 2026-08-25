@@ -6791,7 +6791,9 @@ async function defaultResolveStreamingTranscriber(
     await import("../config/managed-speech-defaults.js");
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
-  const { stt } = await resolveEffectiveSpeechProviders();
+  const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+    role: "liveVoice",
+  });
   return resolveStreamingTranscriber({ ...options, providerId: stt });
 }
 
