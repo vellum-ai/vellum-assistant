@@ -28,6 +28,14 @@
   "detailPanelStopButton": {
     "tooltip": "Стоп"
   },
+  "downloadFeedback": {
+    "failed": "Не удалось скачать файл",
+    "revealMac": "Показать в Finder",
+    "revealWindows": "Показать в проводнике",
+    "saved": "Сохранено в папку «Загрузки»",
+    "started": "Скачивание началось",
+    "startedDescription": "Файл {filename} появится в загрузках браузера."
+  },
   "notFound": {
     "badge": "Ошибка 404",
     "title": "Страница не найдена",

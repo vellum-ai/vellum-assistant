@@ -259,6 +259,24 @@ export interface PowerEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Downloads
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal report for one renderer-initiated download, pushed to the
+ * originating window. `id` is an opaque main-process token: the renderer
+ * hands it back to `downloads.reveal` and main resolves it to the saved
+ * path itself, so no filesystem path ever travels renderer-to-main.
+ * `id` is only present when `state` is `"completed"`: an interrupted
+ * download has no file to reveal.
+ */
+export interface DownloadDoneEvent {
+  id?: string;
+  filename: string;
+  state: "completed" | "interrupted";
+}
+
+// ---------------------------------------------------------------------------
 // Deep links
 // ---------------------------------------------------------------------------
 

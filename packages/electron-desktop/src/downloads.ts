@@ -1,10 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { app, session } from "electron";
+import { app, session, shell, type WebContents } from "electron";
+import { z } from "zod";
+
+import {
+  DOWNLOADS_DONE_EVENT,
+  DOWNLOADS_REVEAL,
+  type DownloadDoneEvent,
+} from "@vellumai/ipc-contract";
+
+import type { IpcHandle } from "./ipc";
 
 /**
- * Downloads: files a renderer download into `~/Downloads`.
+ * Downloads: files a renderer download into the host's Downloads folder and
+ * reports the outcome back to the window that started it.
  *
  * The renderer's `saveFile` (clients/web/src/runtime/native-file.ts) downloads
  * the browser way, an `<a download>` click on a blob URL, which Chromium turns
@@ -33,17 +44,27 @@ import { app, session } from "electron";
  *     panel appears. Hence the synchronous `existsSync` collision check rather
  *     than the `node:fs/promises` style used elsewhere in the main process.
  *
- * On completion the Dock's Downloads stack bounces
- * (`app.dock.downloadFinished`, the same NSApplication signal a browser sends),
- * so the download is acknowledged without an in-app toast the renderer would
- * have to own.
+ * Outcome reporting: each terminal `done` state is pushed to the originating
+ * window as a `DownloadDoneEvent` so the renderer can confirm the save (and
+ * offer a file-manager reveal) or surface the failure. A cancelled download is
+ * not pushed: cancellation is the user's own action and needs no announcement.
+ * On macOS the Dock's Downloads stack additionally bounces
+ * (`app.dock.downloadFinished`, the same NSApplication signal a browser
+ * sends); `app.dock` is absent on Windows, where the renderer toast is the
+ * only cue.
  *
- * The share sheet is the other intent and lives in `share.ts`: the renderer
- * calls `shareFile` for it, and it never reaches this path.
+ * Reveal: the completed event carries an opaque `id`, not the saved path. The
+ * renderer hands the id back over `DOWNLOADS_REVEAL` and main resolves it from
+ * `revealable`, so the channel can only ever reveal a file this module saved
+ * in this app session; an unknown id is ignored.
+ *
+ * The share sheet is the other intent and lives in each shell's share module:
+ * the renderer calls `shareFile` for it, and it never reaches this path.
  *
  * Refs:
  * - https://www.electronjs.org/docs/latest/api/download-item#downloaditemsetsavepathpath
  * - https://www.electronjs.org/docs/latest/api/session#event-will-download
+ * - https://www.electronjs.org/docs/latest/api/shell#shellshowiteminfolderfullpath
  */
 
 // Chromium gives up de-duplicating a filename long before this; the bound
@@ -52,10 +73,18 @@ import { app, session } from "electron";
 // honest outcome: better than overwriting or failing silently.
 const MAX_UNIQUE_ATTEMPTS = 1000;
 
+// Completed saves outlive their toast only briefly; the cap just keeps a
+// long-lived session from accumulating paths forever.
+const MAX_REVEALABLE = 50;
+
 // Save paths handed to in-flight downloads, held from `will-download` until
 // `done` so a concurrent download of the same filename can't select the same
 // destination. See the "Reserve the name" note above.
 const reserved = new Set<string>();
+
+// Opaque id -> saved path for completed downloads, the only paths
+// `DOWNLOADS_REVEAL` can reach. Insertion-ordered, evicted oldest-first.
+const revealable = new Map<string, string>();
 
 /**
  * Resolve a non-colliding absolute path for `filename` inside `dir`, following
@@ -87,16 +116,37 @@ export const uniqueDownloadPath = (
   return null;
 };
 
+const RevealArgs = z.tuple([z.string().min(1)]);
+
+const sendDone = (webContents: WebContents, event: DownloadDoneEvent): void => {
+  if (webContents.isDestroyed()) {
+    return;
+  }
+  webContents.send(DOWNLOADS_DONE_EVENT, event);
+};
+
 let installed = false;
 
-/** Wire the download handler. Call once from `whenReady`; idempotent. */
-export const installDownloads = (): void => {
+/**
+ * Wire the download handler and the reveal channel. Call once from
+ * `whenReady`; idempotent. `handle` is the shell's origin-validating IPC
+ * registrar (`createIpcRegistrar`), so reveal requests from anything but the
+ * app renderer are rejected before dispatch.
+ */
+export const installDownloads = ({ handle }: { handle: IpcHandle }): void => {
   if (installed) {
     return;
   }
   installed = true;
 
-  session.defaultSession.on("will-download", (_event, item) => {
+  handle(DOWNLOADS_REVEAL, RevealArgs, ([id]) => {
+    const savedPath = revealable.get(id);
+    if (savedPath) {
+      shell.showItemInFolder(savedPath);
+    }
+  });
+
+  session.defaultSession.on("will-download", (_event, item, webContents) => {
     const dir = app.getPath("downloads");
 
     // Everything here is best-effort: on any failure the handler skips
@@ -120,10 +170,27 @@ export const installDownloads = (): void => {
         // Released on every terminal state: a cancelled or interrupted
         // download leaves the name free for the next one.
         reserved.delete(savePath);
+        // The name on disk is the uniquified one, which is what the user
+        // has to look for, so the report carries it rather than the
+        // originally suggested filename.
+        const filename = path.basename(savePath);
+        if (state === "interrupted") {
+          sendDone(webContents, { filename, state });
+          return;
+        }
         if (state !== "completed") {
           return;
         }
+        const id = randomUUID();
+        revealable.set(id, savePath);
+        for (const oldest of revealable.keys()) {
+          if (revealable.size <= MAX_REVEALABLE) {
+            break;
+          }
+          revealable.delete(oldest);
+        }
         app.dock?.downloadFinished(savePath);
+        sendDone(webContents, { id, filename, state });
       });
     } catch {
       // Fall through to Electron's default save routine.
@@ -131,8 +198,9 @@ export const installDownloads = (): void => {
   });
 };
 
-// Test seam: clears the in-flight reservations so a test starts from a clean
-// slate. Production code never calls this.
+// Test seam: clears the in-flight reservations and the reveal registry so a
+// test starts from a clean slate. Production code never calls this.
 export const __resetForTesting = (): void => {
   reserved.clear();
+  revealable.clear();
 };

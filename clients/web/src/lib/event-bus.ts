@@ -140,6 +140,27 @@ export interface BusEventMap {
   "power.unlock": Record<string, never>;
   "power.active": Record<string, never>;
   /**
+   * A `saveFile` download was handed to the browser's own download UI
+   * (plain-browser host only). The browser owns everything after the
+   * handoff, so this is the one signal that host can give: Electron
+   * reports real outcomes via `download.done` instead, and Capacitor's
+   * share sheet is its own feedback, so neither publishes this.
+   * `use-download-feedback` is the consumer and owns the toast.
+   */
+  "download.started": { filename: string };
+  /**
+   * Terminal report for a download the Electron main process saved (or
+   * failed to save) on this window's behalf. `id` accompanies
+   * `state: "completed"` and keys the file-manager reveal
+   * (`revealDownload`). Off Electron this never fires; the browser host
+   * publishes `download.started` at handoff instead.
+   */
+  "download.done": {
+    id?: string;
+    filename: string;
+    state: "completed" | "interrupted";
+  };
+  /**
    * Inbound deep links — `vellum://` / `vellum-assistant://` URLs
    * the OS routed to us, plus notification taps that resolve to a
    * conversation. Domain consumers (chat composer, conversation

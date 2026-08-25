@@ -55,7 +55,8 @@ it and dispatch through it.
 
 Every event name in `BusEventMap` has a typed payload. Producers:
 
-- `runtime/event-sources/*` for host-environment signals (`app.*`, `power.*`, `deeplink.*`).
+- `runtime/event-sources/*` for host-environment signals (`app.*`, `power.*`, `deeplink.*`, `download.done`).
+- `runtime/native-file.ts`'s `saveFile` for `download.started` (plain-browser hand-off).
 - `assistant/sse-service.ts` for SSE-derived signals (`sse.*`).
 - `use-event-stream.ts`'s burst-limited reachability retry for `reachability.retry-requested`.
 - `hooks/use-notification-tap-navigation.ts` and `runtime/push-registration.ts` for notification-tap `deeplink.openThread`.
@@ -77,6 +78,8 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `power.lock` | `{}` | Electron host: screen locked. No bus-owned action today. Off Electron never fires. |
 | `power.unlock` | `{}` | Electron host: screen unlocked. Bus bounces its SSE (same shape as `power.resume`). Off Electron never fires. |
 | `power.active` | `{}` | Electron host: `user-did-become-active` after idle. No bus-owned action today; future ticket may nudge stale state. Off Electron never fires. |
+| `download.started` | `{ filename }` | Plain browser only: `saveFile` handed a download to the browser's own download UI. Electron reports real outcomes via `download.done` instead, and Capacitor's share sheet is its own feedback, so neither publishes this. `use-download-feedback` consumes and shows the acknowledgment toast. |
+| `download.done` | `{ id?, filename, state }` | Electron host only: the main process finished (or failed) saving a download this window started (`runtime/event-sources/electron-downloads.ts`). `id` accompanies `state: "completed"` and keys the file-manager reveal. `use-download-feedback` consumes and shows the completion or failure toast. |
 | `deeplink.send` | `{ message }` | Electron host only: inbound `vellum://send?message=…` URL routed by Launch Services. Chat domain consumes to pre-fill the composer. |
 | `deeplink.openThread` | `{ threadId }` | Electron host: inbound `vellum://thread/<id>` URL. Also published by the notification-tap handler (`hooks/use-notification-tap-navigation.ts`) on every platform — Capacitor local notifications, Electron notification actions, browser `Notification.onclick` — and by APNs remote-push taps on Capacitor iOS (`runtime/push-registration.ts`). Chat domain consumes to navigate. |
 | `deeplink.sendToThread` | `{ threadId, message, provenance: "intent" \| null }` | Capacitor iOS: inbound `vellum-assistant://thread/<id>?message=…` URL (`runtime/event-sources/capacitor-deep-links.ts`), produced by the "Send Message to Chat" App Intent (LUM-3230). `parseOpenThreadDeepLink` validates the id's shape and bounds/sanitizes the message (2000 chars, typed-text control-character rules, CRLF normalized); a thread link whose message fails sanitization publishes plain `deeplink.openThread` instead, so this event always carries usable text. `provenance` is `"intent"` only when the iOS shell proved an App Intent produced the URL (see the provenance note below the table). `useGlobalDeepLinkConsumer` navigates to the conversation either way; with proven provenance it parks a *send request* that `useDeepLinkThreadSend` (chat domain) fulfils once the target thread is confirmed to exist and demotes to a pre-fill when it is gone or the park has aged out; without it, it parks the message as a composer pre-fill and requests focus, one tap from sent. |
