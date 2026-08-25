@@ -45,3 +45,52 @@ export async function readJsonStringField(
 
   return value ?? errorResponse("BAD_REQUEST", `${field} is required`, 400);
 }
+
+/**
+ * Read a JSON request body under a byte cap and extract one required plus
+ * several optional string fields in a single pass (the body stream can only
+ * be consumed once, so this can't just call {@link readJsonStringField}
+ * repeatedly). Same error shapes as {@link readJsonStringField}: 413 for an
+ * oversized body, 400 for an unreadable body, invalid JSON, or a missing
+ * required field. A missing or non-string optional field resolves to `null`,
+ * never an error.
+ */
+export async function readJsonStringFields<K extends string>(
+  req: Request,
+  maxBytes: number,
+  required: K,
+  optional: readonly string[],
+): Promise<{ [key: string]: string | null } | Response> {
+  const rawBody = await readLimitedBody(req, maxBytes);
+  if (rawBody.status === "too_large") {
+    return errorResponse("PAYLOAD_TOO_LARGE", "request body too large", 413);
+  }
+  if (rawBody.status === "unreadable") {
+    return errorResponse("BAD_REQUEST", "failed to read request body", 400);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(rawBody.text) as Record<string, unknown>;
+  } catch {
+    return errorResponse("BAD_REQUEST", "invalid JSON body", 400);
+  }
+
+  const extract = (field: string): string | null => {
+    const raw = body[field];
+    return typeof raw === "string" && raw.trim() ? raw : null;
+  };
+
+  const requiredValue = extract(required);
+  if (requiredValue === null) {
+    return errorResponse("BAD_REQUEST", `${required} is required`, 400);
+  }
+
+  const fields: { [key: string]: string | null } = {
+    [required]: requiredValue,
+  };
+  for (const field of optional) {
+    fields[field] = extract(field);
+  }
+  return fields;
+}
