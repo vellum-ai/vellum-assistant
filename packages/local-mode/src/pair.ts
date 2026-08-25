@@ -276,6 +276,13 @@ const DEFAULT_PAIRING_POLL_INTERVAL_SECONDS = 5;
 /** Caps how long a single pairing request may occupy the caller. */
 const PAIRING_REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * Caps how many bytes of a pairing reply a host will buffer. Every pairing
+ * response is a small fixed-shape payload, so a body approaching this is not
+ * one and is refused rather than parsed.
+ */
+const MAX_PAIRING_RESPONSE_BYTES = 64 * 1024;
+
 const PAIRING_CHALLENGE_PATH = "/v1/remote-web/pairing-challenge";
 const PAIRING_TOKEN_PATH = "/v1/remote-web/pairing-token";
 
@@ -414,6 +421,15 @@ function unreachableAssistant(): PairingFailure {
   };
 }
 
+function oversizedGatewayReply(): PairingFailure {
+  return {
+    ok: false,
+    reason: "gateway",
+    status: 502,
+    error: "The assistant's pairing reply was too large to be read.",
+  };
+}
+
 function unexpectedGatewayReply(status: number): PairingFailure {
   return {
     ok: false,
@@ -427,9 +443,62 @@ type PairingPost =
   | { ok: true; status: number; body: unknown }
   | { ok: false; failure: PairingFailure };
 
+type PairingBody =
+  | { ok: true; value: unknown }
+  | { ok: false; failure: PairingFailure };
+
 /**
- * One timeout-bounded pairing POST. A network error, a timeout, and a
- * non-JSON body all resolve rather than throw so every caller stays total.
+ * The reply body as JSON, read under {@link MAX_PAIRING_RESPONSE_BYTES}. An
+ * over-cap body is refused mid-stream (the rest is never buffered) and a body
+ * that is absent or not JSON reads as `null`, which every caller already
+ * treats as an unusable reply.
+ */
+async function readPairingBody(response: Response): Promise<PairingBody> {
+  const stream = response.body;
+  if (!stream) {
+    return { ok: true, value: null };
+  }
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      bytes += value.byteLength;
+      if (bytes > MAX_PAIRING_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => {});
+        return { ok: false, failure: oversizedGatewayReply() };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    // A stream that errors or times out mid-body is a transport failure.
+    await reader.cancel().catch(() => {});
+    return { ok: false, failure: unreachableAssistant() };
+  }
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
+    };
+  } catch {
+    return { ok: true, value: null };
+  }
+}
+
+/**
+ * One timeout-bounded pairing POST. A network error, a timeout, an over-cap
+ * body, and a non-JSON body all resolve rather than throw so every caller
+ * stays total.
+ *
+ * `redirect: "error"` is what keeps the address checks meaningful: a followed
+ * 3xx would carry the request to a host `parsePairingAddress` never saw, so a
+ * loopback or plaintext target could be reached through a validated public
+ * URL. A pairing endpoint has no reason to redirect, and fetch rejects the
+ * attempt as a transport failure.
  */
 async function postPairingRequest(
   publicBaseUrl: string,
@@ -442,16 +511,17 @@ async function postPairingRequest(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      redirect: "error",
       signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS),
     });
   } catch {
     return { ok: false, failure: unreachableAssistant() };
   }
-  return {
-    ok: true,
-    status: response.status,
-    body: (await response.json().catch(() => null)) as unknown,
-  };
+  const parsed = await readPairingBody(response);
+  if (!parsed.ok) {
+    return { ok: false, failure: parsed.failure };
+  }
+  return { ok: true, status: response.status, body: parsed.value };
 }
 
 function isChallengeResponse(
@@ -508,7 +578,9 @@ function openPairingSession(
  * whose `userCode` the caller displays for approval on the host.
  *
  * SSRF containment rides on `parsePairingAddress`, which refuses loopback,
- * non-https, and tunnel-vendor websites before any request is made.
+ * non-https, and tunnel-vendor websites before any request is made, and on
+ * {@link postPairingRequest} refusing to follow redirects away from the
+ * address that was checked.
  */
 export async function pairingStart(
   address: unknown,

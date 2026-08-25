@@ -21,6 +21,7 @@ let configDir: string;
 interface FetchCall {
   url: string;
   body: Record<string, unknown>;
+  redirect: string | undefined;
 }
 
 let fetchCalls: FetchCall[];
@@ -35,14 +36,25 @@ beforeEach(() => {
   respond = () => new Response(null, { status: 500 });
   globalThis.fetch = (async (
     input: unknown,
-    init?: { body?: unknown },
+    init?: { body?: unknown; redirect?: string },
   ): Promise<Response> => {
     const call: FetchCall = {
       url: String(input),
       body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      redirect: init?.redirect,
     };
     fetchCalls.push(call);
-    return respond(call);
+    const response = await respond(call);
+    // Mirror the platform: a 3xx under `redirect: "error"` rejects instead of
+    // being followed.
+    if (
+      init?.redirect === "error" &&
+      response.status >= 300 &&
+      response.status < 400
+    ) {
+      throw new TypeError("unexpected redirect");
+    }
+    return response;
   }) as unknown as typeof fetch;
 });
 
@@ -84,6 +96,33 @@ const json = (status: number, body: unknown): Response =>
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+/** A 3xx pointing somewhere `parsePairingAddress` would never have allowed. */
+const redirectTo = (target: string): Response =>
+  new Response(null, { status: 307, headers: { Location: target } });
+
+/**
+ * A body streamed in 8 KiB chunks, pulled on demand, so a reader that stops
+ * early never buffers the rest. `onPull` counts the chunks actually asked for.
+ */
+const streamedBody = (chunkCount: number, onPull: () => void): Response => {
+  const chunk = new Uint8Array(8 * 1024).fill(0x20);
+  let sent = 0;
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        onPull();
+        if (sent >= chunkCount) {
+          controller.close();
+          return;
+        }
+        sent += 1;
+        controller.enqueue(chunk);
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+};
 
 const challengeBody = (
   overrides: Record<string, unknown> = {},
@@ -516,6 +555,7 @@ describe("pairingStart", () => {
       {
         url: "https://gw.example.com/v1/remote-web/pairing-challenge",
         body: { publicBaseUrl: "https://gw.example.com" },
+        redirect: "error",
       },
     ]);
     expect(started.userCode).toBe("ABCD-EFGH");
@@ -562,6 +602,49 @@ describe("pairingStart", () => {
     }
     expect(started.reason).toBe("unreachable");
     expect(started.status).toBe(503);
+  });
+
+  test("refuses to follow a redirect off the address that was checked", async () => {
+    // Without `redirect: "error"` this 307 would carry the POST to a loopback
+    // service, walking straight past the address checks.
+    respond = () =>
+      redirectTo("http://127.0.0.1:7830/v1/remote-web/pairing-challenge");
+
+    const started = await pairingStart("https://gw.example.com");
+
+    expect(started.ok).toBe(false);
+    if (started.ok) {
+      return;
+    }
+    expect(started.reason).toBe("unreachable");
+    expect(started.status).toBe(503);
+    expect(started.error).toContain("Could not reach that assistant");
+    // One request, to the checked address, and it asked not to be redirected.
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]!.url).toBe(
+      "https://gw.example.com/v1/remote-web/pairing-challenge",
+    );
+    expect(fetchCalls[0]!.redirect).toBe("error");
+  });
+
+  test("an over-cap challenge body is refused instead of buffered", async () => {
+    let pulls = 0;
+    respond = () =>
+      streamedBody(1024, () => {
+        pulls += 1;
+      });
+
+    const started = await pairingStart("https://gw.example.com");
+
+    expect(started.ok).toBe(false);
+    if (started.ok) {
+      return;
+    }
+    expect(started.reason).toBe("gateway");
+    expect(started.status).toBe(502);
+    expect(started.error).toContain("too large");
+    // The read stopped just past the 64 KiB cap rather than draining 8 MiB.
+    expect(pulls).toBeLessThan(20);
   });
 
   test("rejects addresses that can never reach a remote assistant", async () => {
@@ -841,6 +924,49 @@ describe("pairingPoll", () => {
     expect(result.reason).toBe("import");
     expect(result.status).toBe(409);
     expect(result.error).toContain("already exists");
+  });
+
+  test("a redirected token exchange is refused and stays pollable", async () => {
+    respond = () => redirectTo("http://169.254.169.254/latest/meta-data/");
+    const handle = await startFromLink();
+
+    const redirected = await pairingPoll([lockfilePath], configDir, { handle });
+
+    expect(redirected.ok).toBe(false);
+    if (redirected.ok) {
+      return;
+    }
+    expect(redirected.reason).toBe("unreachable");
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]!.url).toBe(
+      "https://gw.example.com/v1/remote-web/pairing-token",
+    );
+    expect(fetchCalls[0]!.redirect).toBe("error");
+
+    respond = () => json(200, approvedBody());
+    const retried = await pairingPoll([lockfilePath], configDir, { handle });
+    expect(retried.ok).toBe(true);
+  });
+
+  test("an over-cap approval body is a gateway failure", async () => {
+    let pulls = 0;
+    respond = () =>
+      streamedBody(1024, () => {
+        pulls += 1;
+      });
+    const handle = await startFromLink();
+
+    const result = await pairingPoll([lockfilePath], configDir, { handle });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe("gateway");
+    expect(result.error).toContain("too large");
+    expect(pulls).toBeLessThan(20);
+    // Nothing was imported from a body that was never parsed.
+    expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 
   test("an unknown handle is refused without a request", async () => {
