@@ -2135,6 +2135,10 @@
     "deleteInUseToast": "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
     "setDefaultFailedToast": "Failed to set the default provider. Please try again."
   },
+  "useReactivateSubscription": {
+    "reactivateFailedToast": "Couldn't reactivate your subscription. Please try again.",
+    "reactivatedToast": "Pro plan reactivated."
+  },
   "useSystemTasks": {
     "consolidationAlreadyQueued": "Consolidation already queued or running.",
     "consolidationQueued": "Consolidation queued.",

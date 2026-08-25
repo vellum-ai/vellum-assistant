@@ -1,13 +1,11 @@
 import { Loader2 } from "lucide-react";
-import { useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
+import { useReactivateSubscription } from "@/domains/settings/billing/use-reactivate-subscription";
 import {
-  buildPortalReturnSnapshot,
   formatGraceDate,
   getEffectiveCancelDate,
-  useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
@@ -19,23 +17,21 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 /**
  * In-flow banner shown on the billing settings surface when the org's Pro
- * subscription is mid-grace-period — i.e. cancellation has been scheduled,
+ * subscription is mid-grace-period, i.e. cancellation has been scheduled,
  * either via `cancel_at_period_end=true` or via an explicit `cancel_at`
  * timestamp set by Stripe (the Customer Portal uses the latter). The
- * "Reactivate" CTA fires the Stripe Customer Portal mutation; Stripe handles
- * reactivation natively. We capture a pre-redirect snapshot so the
- * post-portal-return toast can diff old → new state.
+ * "Reactivate" CTA posts the subscription-reactivate endpoint directly (no
+ * Stripe portal round-trip); the shared hook invalidates the subscription
+ * read, so the banner clears itself once the cancellation is removed.
  */
 export function GracePeriodBanner() {
   const { t } = useTranslation("settings");
   // Native Android reactivates on the web app's billing page in the browser
-  // instead of opening a portal session from the app.
+  // instead of managing the subscription from inside the app.
   const isNativeAndroid = useIsNativeAndroid();
   const { data } = useQuery(organizationsBillingSubscriptionRetrieveOptions());
 
-  const snapshot = useMemo(() => buildPortalReturnSnapshot(data), [data]);
-
-  const portalMutation = useBillingPortalSession(snapshot);
+  const { reactivateSubscription, isPending } = useReactivateSubscription();
 
   if (
     !data ||
@@ -64,13 +60,11 @@ export function GracePeriodBanner() {
               openBillingPathInBrowser(routes.settings.usageBilling);
               return;
             }
-            portalMutation.mutate({});
+            void reactivateSubscription();
           }}
-          disabled={portalMutation.isPending}
+          disabled={isPending}
           leftIcon={
-            portalMutation.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : undefined
+            isPending ? <Loader2 className="animate-spin" /> : undefined
           }
           data-testid="grace-period-reactivate-button"
         >

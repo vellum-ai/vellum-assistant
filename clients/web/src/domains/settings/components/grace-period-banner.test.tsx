@@ -24,21 +24,6 @@ mock.module("@/runtime/browser", () => ({
   openUrlFinishedListener: () => () => {},
 }));
 
-const PORTAL_URL = "https://stripe.test/portal/session";
-let portalCalls = 0;
-mock.module("@/generated/api/sdk.gen", () => ({
-  ...sdkGen,
-  organizationsBillingPortalSessionCreate: () => {
-    portalCalls += 1;
-    return Promise.resolve({
-      data: { portal_url: PORTAL_URL },
-      response: { ok: true },
-    });
-  },
-}));
-
-const { GracePeriodBanner } = await import("./grace-period-banner");
-
 function gracePeriodSubscription(): SubscriptionResponse {
   return {
     plan_id: "pro",
@@ -52,6 +37,31 @@ function gracePeriodSubscription(): SubscriptionResponse {
     entitlements: { managed_email: false, phone_number: false },
   };
 }
+
+// The reactivate endpoint clears the pending cancellation server-side; the
+// retrieve mock serves the post-invalidate refetch with whatever state the
+// "server" currently holds.
+let serverSubscription = gracePeriodSubscription();
+let reactivateCalls = 0;
+mock.module("@/generated/api/sdk.gen", () => ({
+  ...sdkGen,
+  organizationsBillingSubscriptionReactivateCreate: () => {
+    reactivateCalls += 1;
+    serverSubscription = {
+      ...serverSubscription,
+      cancel_at_period_end: false,
+      cancel_at: null,
+    };
+    return Promise.resolve({
+      data: { status: "ok", current_period_end: "2026-09-01T00:00:00Z" },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: serverSubscription, response: { ok: true } }),
+}));
+
+const { GracePeriodBanner } = await import("./grace-period-banner");
 
 function renderBanner() {
   const client = new QueryClient({
@@ -71,22 +81,28 @@ function renderBanner() {
 beforeEach(() => {
   nativeAndroid = false;
   openedUrl = null;
-  portalCalls = 0;
+  reactivateCalls = 0;
+  serverSubscription = gracePeriodSubscription();
 });
 
 afterEach(cleanup);
 
 describe("GracePeriodBanner Reactivate", () => {
-  test("opens the Stripe billing portal off Android", async () => {
-    const { getByTestId } = renderBanner();
+  test("posts the reactivate endpoint and clears the banner", async () => {
+    const { getByTestId, queryByTestId } = renderBanner();
 
     fireEvent.click(getByTestId("grace-period-reactivate-button"));
 
-    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
-    expect(portalCalls).toBe(1);
+    await waitFor(() => expect(reactivateCalls).toBe(1));
+    // The hook invalidates the subscription read; the refetched state no
+    // longer has a pending cancellation, so the banner unmounts.
+    await waitFor(() =>
+      expect(queryByTestId("grace-period-banner")).toBeNull(),
+    );
+    expect(openedUrl).toBeNull();
   });
 
-  test("native Android opens the web billing page instead of a portal session", async () => {
+  test("native Android opens the web billing page instead of the endpoint", async () => {
     nativeAndroid = true;
     const { getByTestId } = renderBanner();
 
@@ -97,6 +113,6 @@ describe("GracePeriodBanner Reactivate", () => {
         `${window.location.origin}/assistant/settings/usage?tab=billing`,
       ),
     );
-    expect(portalCalls).toBe(0);
+    expect(reactivateCalls).toBe(0);
   });
 });

@@ -2135,6 +2135,10 @@
     "deleteInUseToast": "Este proveedor está en uso en un perfil o como proveedor predeterminado. Actualiza esas configuraciones antes de eliminarlo.",
     "setDefaultFailedToast": "No se pudo establecer el proveedor predeterminado. Inténtalo de nuevo."
   },
+  "useReactivateSubscription": {
+    "reactivateFailedToast": "No se pudo reactivar tu suscripción. Inténtalo de nuevo.",
+    "reactivatedToast": "Plan Pro reactivado."
+  },
   "useSystemTasks": {
     "consolidationAlreadyQueued": "La consolidación ya está en cola o en ejecución.",
     "consolidationQueued": "Consolidación en cola.",

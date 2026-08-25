@@ -2135,6 +2135,10 @@
     "deleteInUseToast": "Этот провайдер используется в профиле или как провайдер по умолчанию. Сначала обновление этих настроек, потом удаление.",
     "setDefaultFailedToast": "Не удалось назначить провайдера по умолчанию. Повторите попытку."
   },
+  "useReactivateSubscription": {
+    "reactivateFailedToast": "Не удалось возобновить подписку. Повторите попытку.",
+    "reactivatedToast": "План Pro снова активен."
+  },
   "useSystemTasks": {
     "consolidationAlreadyQueued": "Консолидация уже в очереди или выполняется.",
     "consolidationQueued": "Консолидация в очереди.",
