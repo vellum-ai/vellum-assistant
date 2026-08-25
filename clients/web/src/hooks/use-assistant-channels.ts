@@ -20,12 +20,14 @@ import {
   integrationsSlackChannelConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
+  integrationsDiscordConfigDelete,
   integrationsSlackChannelConfigDelete,
   integrationsTelegramConfigDelete,
   integrationsTwilioCredentialsDelete,
 } from "@/generated/daemon/sdk.gen";
 import type { IntegrationsSlackChannelConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSaveDiscordConfig } from "@/hooks/use-save-discord-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
@@ -139,6 +141,8 @@ export function useAssistantChannels({
         await integrationsSlackChannelConfigDelete(opts);
       } else if (channelKey === "telegram") {
         await integrationsTelegramConfigDelete(opts);
+      } else if (channelKey === "discord") {
+        await integrationsDiscordConfigDelete(opts);
       } else if (channelKey === "phone") {
         await integrationsTwilioCredentialsDelete(opts);
       }
@@ -154,6 +158,7 @@ export function useAssistantChannels({
   // Credential saves reuse the app-wide hooks (also used by the chat-side
   // channel-setup panel); they validate, trim, and invalidate readiness.
   const saveTelegramMutation = useSaveTelegramConfig({ assistantId });
+  const saveDiscordMutation = useSaveDiscordConfig({ assistantId });
   const saveSlackMutation = useSaveSlackConfig({ assistantId });
   const saveTwilioMutation = useSaveTwilioCredentials({ assistantId });
 
@@ -169,6 +174,14 @@ export function useAssistantChannels({
   // Mirrors the Slack shape: `mutate` rather than `mutateAsync`, with status
   // and error published alongside, so the setup wizard reads outcome from the
   // mutation instead of owning save state of its own.
+  const saveDiscordMutate = saveDiscordMutation.mutate;
+  const onSaveDiscordToken = useCallback(
+    (botToken: string) => {
+      saveDiscordMutate(botToken);
+    },
+    [saveDiscordMutate],
+  );
+
   const saveTelegramMutate = saveTelegramMutation.mutate;
   const onSaveTelegramToken = useCallback(
     (botToken: string) => {
@@ -243,6 +256,12 @@ export function useAssistantChannels({
     onSaveTelegramToken,
     telegramSaveStatus: saveTelegramMutation.status,
     telegramSaveError: saveTelegramMutation.error?.message ?? null,
+    onSaveDiscordToken,
+    discordSaveStatus: saveDiscordMutation.status,
+    discordSaveError: saveDiscordMutation.error?.message ?? null,
+    // The application the validated token belongs to, which the invite step
+    // builds its link from. Present only after a successful connect.
+    discordApplicationId: saveDiscordMutation.data?.data?.applicationId,
     onSaveSlackConfig,
     slackSaveStatus: saveSlackMutation.status,
     slackSaveError: saveSlackMutation.error?.message ?? null,

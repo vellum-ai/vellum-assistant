@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { useTranslation } from "@/i18n";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
+import { DiscordSetupWizard } from "@/components/discord-setup-wizard";
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
 import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
@@ -39,6 +40,11 @@ interface ChannelPanelProps {
   onDisconnect?: () => void;
   onSaveTelegramToken?: (botToken: string) => void;
   telegramSaveStatus?: MutationStatus;
+  onSaveDiscordToken?: (botToken: string) => void;
+  discordSaveStatus?: MutationStatus;
+  discordSaveError?: string | null;
+  /** Read back when the token validates; the invite link is built from it. */
+  discordApplicationId?: string;
   telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
@@ -76,6 +82,10 @@ export function ChannelPanel({
   onDisconnect,
   onSaveTelegramToken,
   telegramSaveStatus,
+  onSaveDiscordToken,
+  discordSaveStatus,
+  discordSaveError = null,
+  discordApplicationId,
   telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
@@ -179,6 +189,15 @@ export function ChannelPanel({
             saveStatus={telegramSaveStatus}
             saveError={telegramSaveError}
             onSave={onSaveTelegramToken}
+          />
+        ) : meta.credentialForm === "discord-token" ? (
+          <DiscordSetupWizard
+            saveStatus={discordSaveStatus}
+            saveError={discordSaveError}
+            onSave={onSaveDiscordToken}
+            {...(discordApplicationId
+              ? { applicationId: discordApplicationId }
+              : {})}
           />
         ) : (
           <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />

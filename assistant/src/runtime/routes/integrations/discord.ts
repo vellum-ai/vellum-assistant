@@ -19,7 +19,18 @@ import {
 } from "../../../daemon/handlers/config-discord-channel.js";
 import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadRequestError } from "../errors.js";
+import { parseBody } from "../parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
+
+/**
+ * One named schema for the connect body, parsed at the boundary and reused as
+ * the route's declaration. `requestBody` is a codegen signal, not a runtime
+ * check: the router hands the body straight to the handler, so a cast here
+ * would narrow nothing while a bot token flowed to secure storage.
+ */
+const SetDiscordConfigBodySchema = z.object({
+  botToken: z.string().min(1).describe("Discord bot token"),
+});
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -30,7 +41,7 @@ async function handleGetDiscordConfig() {
 }
 
 async function handleSetDiscordConfig({ body = {} }: RouteHandlerArgs) {
-  const { botToken } = body as { botToken?: string };
+  const { botToken } = parseBody(SetDiscordConfigBodySchema, body);
   const result = await setDiscordChannelConfig(botToken);
   if (!result.success) {
     throw new BadRequestError(
@@ -78,9 +89,7 @@ export const ROUTES: RouteDefinition[] = [
       "and starts on the watcher's next tick.",
     tags: ["integrations"],
     handler: handleSetDiscordConfig,
-    requestBody: z.object({
-      botToken: z.string().describe("Discord bot token"),
-    }),
+    requestBody: SetDiscordConfigBodySchema,
     responseBody: DiscordChannelConfigResultSchema,
   },
   {

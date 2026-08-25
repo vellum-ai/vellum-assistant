@@ -49,14 +49,15 @@ interface ChannelMeta {
    * than of either surface. Whether the tab reaches it inline or behind
    * "Connect manually" is presentation and stays in the tab.
    *
-   * Named rather than inferred. The tab used a two-way branch that rendered
-   * Telegram's wizard for Telegram and Twilio's for anything else, so a
-   * channel with no form at all was offered Twilio's: Discord asked for an
-   * Account SID and saved phone credentials under a Discord heading. A
-   * fallthrough cannot express "no form", so a channel added later inherited
-   * the last arm of a ternary.
+   * Declared per channel rather than inferred from a branch, because a
+   * fallthrough cannot express "no form" and would hand such a channel
+   * whichever form the last arm renders.
    */
-  credentialForm?: "slack-wizard" | "telegram-token" | "twilio-credentials";
+  credentialForm?:
+    | "slack-wizard"
+    | "telegram-token"
+    | "discord-token"
+    | "twilio-credentials";
   /**
    * Catalog key for the disconnected empty state's pitch, which interpolates
    * `assistant`. Slack has none: its disconnected state is the setup wizard.
@@ -84,6 +85,7 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
   discord: {
     labelKey: "channelMeta.discord.label",
     hasTrustFloorControl: true,
+    credentialForm: "discord-token",
     disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
   },
   phone: {

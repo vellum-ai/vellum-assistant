@@ -258,14 +258,12 @@ export function sameDocumentTarget(
  * Channels the setup drawer can actually render.
  *
  * Narrower than {@link SetupChannelId} on purpose: this panel *is* a
- * credential form, and a channel without one has nothing for it to show. It
- * was an alias, so adding a channel to the setup list silently promised a
- * panel resolving to another channel's connected copy over an empty body.
+ * credential form, and a channel without one has nothing for it to show.
  *
  * Derived rather than listed. The drawer and the Channels tab render the same
  * wizards and differ only in where they are mounted, so "has a credential
- * form" is one fact about the channel. Two hand-kept lists would be free to
- * disagree about it, and did.
+ * form" is one fact about the channel, and two hand-kept lists would be free
+ * to disagree about it.
  */
 export const CHANNEL_SETUP_TYPES = SETUP_CHANNEL_IDS.filter(
   (id): id is Exclude<SetupChannelId, "discord"> =>

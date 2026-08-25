@@ -5,15 +5,14 @@ import { CHANNEL_SETUP_TYPES, isChannelSetupType } from "@/stores/viewer-store";
 import { SETUP_CHANNEL_IDS } from "@/types/channel-types";
 
 /**
- * Two capabilities on the Channels tab used to be inferred from a branch's
- * last arm rather than declared, so a channel that had neither got another
- * channel's: Discord asked for a Twilio Account SID and saved phone
- * credentials under a Discord heading.
+ * Both capabilities are declared per channel, so a channel that has neither
+ * is offered neither. A branch cannot express that, and its last arm becomes
+ * the answer for anything it does not name.
  */
 describe("channel capabilities are declared, not inferred", () => {
   test("a channel with no credential form declares none", () => {
-    // Not "discord is absent": the invariant is that the field is set only
-    // where a form exists, so a channel added later inherits nothing.
+    // The invariant is that the field is set only where a form exists, so a
+    // channel added later inherits nothing.
     expect(CHANNEL_META.discord.credentialForm).toBeUndefined();
     expect(CHANNEL_META.slack.credentialForm).toBe("slack-wizard");
     expect(CHANNEL_META.telegram.credentialForm).toBe("telegram-token");
@@ -37,8 +36,8 @@ describe("channel capabilities are declared, not inferred", () => {
 
 /**
  * The drawer and the Channels tab render the same wizards and differ only in
- * where they are mounted, so which channels have a form is one fact. It was
- * two hand-kept lists, and they disagreed.
+ * where they are mounted, so which channels have a form is one fact and the
+ * drawer's set derives from it.
  */
 describe("the setup drawer derives from the same fact as the tab", () => {
   test("it accepts exactly the channels that declare a form", () => {
