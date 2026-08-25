@@ -7,10 +7,12 @@ import { Trans, useTranslation } from "@/i18n";
 import { Button, Input, Typography } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { DiscordSetupWizard } from "@/components/discord-setup-wizard";
 import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { DetailShell } from "@/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSaveDiscordConfig } from "@/hooks/use-save-discord-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 import type {
@@ -32,16 +34,19 @@ const CONNECTED_MESSAGE_KEY: Record<
   ChannelSetupType,
   | "channelSetupPanel.slackConnected"
   | "channelSetupPanel.telegramConnected"
+  | "channelSetupPanel.discordConnected"
   | "channelSetupPanel.phoneConnected"
 > = {
   slack: "channelSetupPanel.slackConnected",
   telegram: "channelSetupPanel.telegramConnected",
+  discord: "channelSetupPanel.discordConnected",
   phone: "channelSetupPanel.phoneConnected",
 };
 
 const CHANNEL_BRAND_LABEL: Record<ChannelSetupType, string | null> = {
   slack: "Slack",
   telegram: "Telegram",
+  discord: "Discord",
   phone: null,
 };
 
@@ -63,6 +68,10 @@ export function ChannelSetupPanel({
   // waits on. Slack already does this; leaving Telegram open made its handoff
   // depend on the user knowing to close the panel themselves.
   const saveTelegram = useSaveTelegramConfig({
+    assistantId: payload.assistantId,
+    onSuccess: onClose,
+  });
+  const saveDiscord = useSaveDiscordConfig({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
@@ -144,6 +153,15 @@ export function ChannelSetupPanel({
           saveStatus={saveTelegram.status}
           saveError={saveTelegram.error?.message ?? null}
           onSave={(botToken) => saveTelegram.mutate(botToken)}
+        />
+      ) : payload.channel === "discord" ? (
+        <DiscordSetupWizard
+          saveStatus={saveDiscord.status}
+          saveError={saveDiscord.error?.message ?? null}
+          onSave={(botToken) => saveDiscord.mutate(botToken)}
+          {...(saveDiscord.data?.data?.applicationId
+            ? { applicationId: saveDiscord.data.data.applicationId }
+            : {})}
         />
       ) : payload.channel === "phone" ? (
         <TwilioCredentialForm

@@ -24,6 +24,7 @@ import {
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
+import { ChannelConfigResultBaseSchema } from "./channel-config-result.js";
 import { log as _log } from "./shared.js";
 
 // -- Result type --
@@ -31,21 +32,18 @@ import { log as _log } from "./shared.js";
 export const SlackThreadMode = z.enum(["mention_only", "mention_then_thread"]);
 export type SlackThreadMode = z.infer<typeof SlackThreadMode>;
 
-export const SlackChannelConfigResultSchema = z.object({
-  success: z.boolean(),
-  hasBotToken: z.boolean(),
-  hasAppToken: z.boolean(),
-  hasUserToken: z.boolean(),
-  connected: z.boolean(),
-  teamId: z.string().optional(),
-  teamName: z.string().optional(),
-  teamUrl: z.string().optional(),
-  botUserId: z.string().optional(),
-  botUsername: z.string().optional(),
-  threadMode: SlackThreadMode,
-  error: z.string().optional(),
-  warning: z.string().optional(),
-});
+export const SlackChannelConfigResultSchema =
+  ChannelConfigResultBaseSchema.extend({
+    hasAppToken: z.boolean(),
+    hasUserToken: z.boolean(),
+    teamId: z.string().optional(),
+    teamName: z.string().optional(),
+    teamUrl: z.string().optional(),
+    botUserId: z.string().optional(),
+    botUsername: z.string().optional(),
+    threadMode: SlackThreadMode,
+    warning: z.string().optional(),
+  });
 
 export type SlackChannelConfigResult = z.infer<
   typeof SlackChannelConfigResultSchema

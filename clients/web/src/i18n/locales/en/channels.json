@@ -104,7 +104,8 @@
     },
     "discord": {
       "label": "Discord",
-      "disconnectedPitch": "Connect a Discord bot so {assistant} can read and reply in your server."
+      "disconnectedPitch": "Connect a Discord bot so {assistant} can read and reply in your server.",
+      "disconnectMessage": "This clears the stored Discord bot token for this assistant, and the bot stops receiving messages. Your server keeps the bot until you remove it there."
     },
     "phone": {
       "label": "Phone Calling",

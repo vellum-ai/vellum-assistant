@@ -121,6 +121,32 @@ export const A2AConfigSchema = z
   })
   .describe("Agent-to-Agent protocol channel configuration");
 
+/**
+ * Discord channel settings.
+ *
+ * All three are read back from Discord when a bot token validates and written
+ * here so a connected panel can name the bot and build an install link
+ * without another round trip. The bot user and the application are separate
+ * ids: they coincide today, and a link built on that assumption would break
+ * silently if they stopped.
+ */
+export const DiscordConfigSchema = z
+  .object({
+    botUserId: z
+      .string({ error: "discord.botUserId must be a string" })
+      .default("")
+      .describe("Discord bot user ID"),
+    botUsername: z
+      .string({ error: "discord.botUsername must be a string" })
+      .default("")
+      .describe("Discord bot display name"),
+    applicationId: z
+      .string({ error: "discord.applicationId must be a string" })
+      .default("")
+      .describe("Discord application ID the bot belongs to"),
+  })
+  .describe("Discord channel configuration");
+
 export const SlackConfigSchema = z
   .object({
     deliverAuthBypass: z

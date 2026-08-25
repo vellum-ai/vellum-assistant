@@ -28,6 +28,31 @@
   "detailPanelStopButton": {
     "tooltip": "Стоп"
   },
+  "discordSetupConnectStep": {
+    "instructions": "Вставьте токен бота, скопированный со страницы Bot.",
+    "botTokenLabel": "Токен бота",
+    "save": "Подключить",
+    "saving": "Подключение...",
+    "saved": "Подключено. Теперь добавьте бота на сервер.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Откройте портал разработчиков Discord и создайте приложение. На странице <resetLine>Bot</resetLine> нажмите Reset Token и сразу скопируйте токен: Discord показывает его один раз, и посмотреть его снова нельзя.",
+    "intentsNote": "Оставьте все три Privileged Gateway Intents выключенными. Ассистент читает только личные сообщения и сообщения с упоминанием, которые Discord исключает из интента содержимого.",
+    "openPortal": "Открыть портал Discord",
+    "continue": "Токен у меня есть"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Бот ничего не увидит, пока не войдёт на сервер. Ссылка использует настройки установки вашего приложения.",
+    "openInvite": "Добавить на сервер",
+    "noAppId": "Сначала подключите токен бота, затем вернитесь, чтобы добавить его на сервер."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Создать приложение",
+    "stepConnect": "Подключить",
+    "stepInvite": "Добавить на сервер"
+  },
   "notFound": {
     "badge": "Ошибка 404",
     "title": "Страница не найдена",

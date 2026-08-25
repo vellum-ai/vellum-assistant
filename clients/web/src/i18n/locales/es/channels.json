@@ -104,7 +104,8 @@
     },
     "discord": {
       "label": "Discord",
-      "disconnectedPitch": "Conecta un bot de Discord para que {assistant} pueda leer y responder en tu servidor."
+      "disconnectedPitch": "Conecta un bot de Discord para que {assistant} pueda leer y responder en tu servidor.",
+      "disconnectMessage": "Esto borra el token del bot de Discord de este asistente y el bot deja de recibir mensajes. El bot sigue en tu servidor hasta que lo elimines alli."
     },
     "phone": {
       "label": "Llamadas telefónicas",

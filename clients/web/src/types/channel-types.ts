@@ -46,6 +46,13 @@ export interface AssistantChannelState {
    * not read that domain's metadata directly.
    */
   canDisconnect: boolean;
+  /**
+   * Whether the manual credential form can actually save on this daemon.
+   * A channel's declared form is compile-time, but the routes it saves
+   * through are versioned; a daemon that shows the row while lacking the
+   * routes gets guided setup only, instead of a form that 404s on save.
+   */
+  canManualEntry: boolean;
   /** Absent when the channel measures nothing operational. */
   health?: ChannelReadinessSnapshot["health"];
   address?: string;

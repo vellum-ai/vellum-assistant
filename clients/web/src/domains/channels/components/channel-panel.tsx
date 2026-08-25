@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { useTranslation } from "@/i18n";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
+import { DiscordSetupWizard } from "@/components/discord-setup-wizard";
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
 import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import {
@@ -43,6 +44,11 @@ interface ChannelPanelProps {
   onSaveTelegramToken?: (botToken: string) => void;
   telegramSaveStatus?: MutationStatus;
   telegramSaveError?: string | null;
+  onSaveDiscordToken?: (botToken: string) => void;
+  discordSaveStatus?: MutationStatus;
+  discordSaveError?: string | null;
+  /** Read back when the token validates; the invite link is built from it. */
+  discordApplicationId?: string;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
@@ -80,6 +86,10 @@ export function ChannelPanel({
   onSaveTelegramToken,
   telegramSaveStatus,
   telegramSaveError,
+  onSaveDiscordToken,
+  discordSaveStatus,
+  discordSaveError = null,
+  discordApplicationId,
   onSaveSlackConfig,
   slackSaveStatus,
   slackSaveError,
@@ -172,6 +182,17 @@ export function ChannelPanel({
             onSave={onSaveTelegramToken}
           />
         );
+      case "discord-token":
+        return (
+          <DiscordSetupWizard
+            saveStatus={discordSaveStatus}
+            saveError={discordSaveError}
+            onSave={onSaveDiscordToken}
+            {...(discordApplicationId
+              ? { applicationId: discordApplicationId }
+              : {})}
+          />
+        );
       case "twilio-credentials":
         return <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />;
       default:
@@ -200,7 +221,7 @@ export function ChannelPanel({
             />
           ) : null}
         </>
-      ) : manualEntry && meta.credentialForm ? (
+      ) : manualEntry && channel.canManualEntry && meta.credentialForm ? (
         renderCredentialForm(meta.credentialForm)
       ) : (
         // Two different states share this branch. `not_configured` has never
@@ -247,7 +268,7 @@ export function ChannelPanel({
               {/* Slack returns above with its wizard rendered inline, so a
                   channel reaching here either has a form to open behind the
                   link or has none at all. */}
-              {meta.credentialForm ? (
+              {channel.canManualEntry && meta.credentialForm ? (
                 <Button
                   type="button"
                   variant="link"

@@ -259,7 +259,8 @@
     "setupTitle": "{channel} setup",
     "slackConnected": "Your assistant is ready to receive messages on Slack.",
     "telegramConnected": "Your assistant is ready to receive messages on Telegram.",
-    "twilioIntro": "Enter your Twilio credentials from the <consoleLink>Twilio Console</consoleLink>. After saving, return to the chat. Your assistant will finish configuring your phone number and webhooks."
+    "twilioIntro": "Enter your Twilio credentials from the <consoleLink>Twilio Console</consoleLink>. After saving, return to the chat. Your assistant will finish configuring your phone number and webhooks.",
+    "discordConnected": "Discord is connected. Add the bot to a server and it will start answering there."
   },
   "chatAttachments": {
     "attachFileAria": "Attach file",
