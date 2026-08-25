@@ -29,7 +29,6 @@ import {
 } from "../lib/client-identity";
 import {
   getLockfileData,
-  readLockfileAssistantAvatar,
   renameLockfileAssistantIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
@@ -435,7 +434,6 @@ const DEVICES_REVOKE_PATTERN = /^(?:\/assistant)?\/__local\/devices-revoke$/;
 const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
-const AVATAR_PATTERN = /^(?:\/assistant)?\/__local\/avatar\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
   /^(?:\/assistant)?\/__local\/platform-session$/;
 
@@ -474,22 +472,14 @@ const _lockfilePaths = resolveLockfilePaths(_localEnv);
 const _configDir = resolveConfigDir(_localEnv);
 const _baseDir = getBaseDir();
 
-export interface LocalEndpointPaths {
-  lockfilePaths: string[];
-  configDir: string;
-}
-
-export async function handleLocalEndpoints(
+async function handleLocalEndpoints(
   req: Request,
   url: URL,
   server: { requestIP(req: Request): { address: string } | null },
-  paths: LocalEndpointPaths = {
-    lockfilePaths: _lockfilePaths,
-    configDir: _configDir,
-  },
 ): Promise<Response | null> {
   const { pathname } = url;
-  const { lockfilePaths, configDir } = paths;
+  const lockfilePaths = _lockfilePaths;
+  const configDir = _configDir;
 
   // Check if this is a __local or __gateway route before enforcing loopback.
   const isLocalRoute =
@@ -501,7 +491,6 @@ export async function handleLocalEndpoints(
     DEVICES_REVOKE_PATTERN.test(pathname) ||
     CONNECT_IMPORT_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
-    AVATAR_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
     parseGatewayUrl(pathname).match ||
     parsePairedGatewayUrl(pathname).match;
@@ -812,18 +801,6 @@ export async function handleLocalEndpoints(
   }
 
   // Guardian token
-  // Avatar: read off disk so a sleeping sibling still has one in the chooser.
-  const avatarMatch = pathname.match(AVATAR_PATTERN);
-  if (avatarMatch) {
-    if (req.method !== "GET") return new Response(null, { status: 405 });
-    return Response.json(
-      readLockfileAssistantAvatar(
-        lockfilePaths,
-        decodeURIComponent(avatarMatch[1]!),
-      ),
-    );
-  }
-
   const guardianMatch = pathname.match(GUARDIAN_TOKEN_PATTERN);
   if (guardianMatch) {
     if (req.method !== "GET") return new Response(null, { status: 405 });

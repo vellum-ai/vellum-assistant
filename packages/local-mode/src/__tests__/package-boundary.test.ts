@@ -106,7 +106,7 @@ describe("package boundary", () => {
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
-      "@vellumai/avatar-manifest": "file:../avatar-manifest",
+      "@vellumai/avatar-manifest": "workspace:*",
       "@vellumai/environments": "file:../environments",
       nanoid: "5.1.7",
       zod: "4.3.6",
