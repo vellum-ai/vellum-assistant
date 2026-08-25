@@ -67,18 +67,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Scheduled notification triggered (one-shot or recurring)",
   },
   {
-    id: "schedule.definition_error",
-    description: "Plugin schedule declaration failed to parse or validate",
-  },
-  {
-    id: "schedule.declared",
-    description: "Plugin-declared schedule armed for the first time",
-  },
-  {
-    id: "schedule.definition_changed",
-    description: "Plugin upgrade changed an armed schedule's definition",
-  },
-  {
     id: "guardian.question",
     description: "Guardian approval question requiring response",
   },
@@ -97,10 +85,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Guardian decided on trusted contact request",
   },
   {
-    id: "ingress.trusted_contact.verification_sent",
-    description: "Verification sent to trusted contact",
-  },
-  {
     id: "ingress.trusted_contact.activated",
     description: "Trusted contact activated",
   },
@@ -116,20 +100,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "tool_confirmation.required_action",
     description: "Tool requires user confirmation before executing",
   },
-  { id: "activity.complete", description: "Background activity finished" },
-  {
-    id: "activity.failed",
-    description:
-      "Background job execution failed (model_provider, exception, or timeout)",
-  },
-  {
-    id: "quick_chat.response_ready",
-    description: "Quick chat response ready for review",
-  },
-  {
-    id: "voice.response_ready",
-    description: "Voice response ready for playback",
-  },
   {
     id: "credential.health_alert",
     description:
@@ -141,9 +111,16 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
       "Assistant finished replying to a user-initiated turn the user is no longer watching",
   },
   {
-    id: "telegram.webhook_health_alert",
-    description:
-      "Telegram webhook is not delivering (unregistered, or failing per getWebhookInfo)",
+    id: "run.needs_input",
+    description: "Async work is blocked on a decision or input from the user",
+  },
+  {
+    id: "run.failed",
+    description: "Async work failed for a reason the user can act on",
+  },
+  {
+    id: "run.finished_notable",
+    description: "Async work succeeded and produced something worth seeing",
   },
 ] as const;
 

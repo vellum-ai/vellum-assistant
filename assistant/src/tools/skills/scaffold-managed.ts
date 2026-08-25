@@ -4,10 +4,10 @@ import { join } from "node:path";
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
-import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
+import { startRun } from "../../runs/run-store.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
@@ -89,58 +89,59 @@ function normalizeOptionalStringArray(
  * scheduled jobs, heartbeat), where a user already looks to see what the
  * assistant did on its own.
  *
- * `sourceContextId` is a conversation id so the feed item's "Go to Convo"
- * target resolves (see `home-feed-side-effect.ts`, which looks it up via
- * `getConversation`): the source conversation when lineage resolved, else the
- * run's own conversation. Deduped per skill per day, so a pass that refines
- * the same skill repeatedly cannot flood the feed. Best-effort and
- * non-blocking: the skill is already written, and a notification failure must
- * never turn that into a tool error.
+ * `conversationId` is where the learning happened, so the row links back to
+ * it: the source conversation when lineage resolved, else the retrospective's
+ * own conversation. Deduped per skill per day, so a pass that refines the same
+ * skill repeatedly cannot flood the feed. Best-effort and non-blocking: the
+ * skill is already written, and a notification failure must never turn that
+ * into a tool error.
  */
+/**
+ * UTC day of the last announcement per skill. In-memory: a restart re-arms
+ * the announcement, which costs one extra row at worst.
+ */
+const skillUpdateAnnouncedDay = new Map<string, string>();
+
+/** Test seam: forget which skills have already announced today. */
+export function resetSkillUpdateAnnouncementsForTests(): void {
+  skillUpdateAnnouncedDay.clear();
+}
+
+
 function notifyBackgroundSkillUpdate(args: {
   skillId: string;
   name: string;
   conversationId: string;
 }): void {
   const day = new Date().toISOString().slice(0, 10);
-  void emitNotificationSignal({
-    // This emit is a tool executor's, not the scheduler's. The channel is
-    // provenance the pipeline reads: `home-feed-side-effect` derives
-    // `fromAssistant` from it, so labelling this "scheduler" would drop the
-    // item from the feed's assistant-initiated filter despite being exactly
-    // that.
-    sourceChannel: "assistant_tool",
-    sourceContextId: args.conversationId,
-    sourceEventName: "activity.complete",
-    dedupeKey: `skill-updated:${args.skillId}:${day}`,
-    contextPayload: {
-      // `summary` feeds the copy composer; `title`/`body` are the home feed's
-      // fallback when no channel copy was rendered. Without them a fully
-      // suppressed delivery (the intended shape for this signal: low urgency,
-      // background, no interruption) leaves the feed writer with no summary
-      // and it skips the item entirely, so the quiet case would surface
-      // nothing at all.
-      summary: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
-      // Named, not just "Skill updated": the feed sits several rows deep and
-      // a generic title is unscannable next to entries that name their
-      // subject (`Background job failed: memory.v2.sweep`). The word "Skill"
-      // stays because a bare skill name does not always read as one.
-      title: `Skill updated: ${args.name}`,
-      body: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
-      skillId: args.skillId,
-    },
-    attentionHints: {
-      requiresAction: false,
-      urgency: "low",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-  }).catch((err: unknown) => {
-    log.warn(
-      { err, skillId: args.skillId },
-      "skill update notification failed; the skill write stands",
-    );
+  if (skillUpdateAnnouncedDay.get(args.skillId) === day) {
+    return;
+  }
+  skillUpdateAnnouncedDay.set(args.skillId, day);
+
+  // Modelled as a run rather than a one-shot notification: skill learning is
+  // async work, and a run is what carries the label, the outcome, and the link
+  // back to where it happened as one row. The write has already landed, so the
+  // run opens and settles in the same breath; `notable` is what earns it a
+  // place in Worth knowing rather than the digest.
+  const run = startRun({
+    kind: "skill_learning",
+    label: `Learned skill: ${args.name}`,
+    conversationId: args.conversationId,
+    metadata: { skillId: args.skillId },
   });
+  void run
+    .succeed({
+      notable: true,
+      summary: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
+      conversationId: args.conversationId,
+    })
+    .catch((err: unknown) => {
+      log.warn(
+        { err, skillId: args.skillId },
+        "skill update notification failed; the skill write stands",
+      );
+    });
 }
 
 /**

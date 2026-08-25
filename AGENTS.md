@@ -191,6 +191,22 @@ When adding a synced resource:
 
 See the platform repo's `docs/multi-client-sync.md` for the tag registry and client-routing examples.
 
+## Notifications: no action, no notification
+
+Before adding anything that interrupts the user, answer one question: **could
+they do anything differently because of this?** If not, it is not a
+notification. It is a log line, a status, or nothing.
+
+Anything that fires repeatedly for the same underlying cause collapses into a
+counter rather than sending again. Async work with a lifecycle is a **run**
+(`assistant/src/runs/`), a subsystem that keeps failing is a **System health**
+row (`assistant/src/home/system-health.ts`), and routine finished work is a
+**digest** row. Only the first of those can re-enter the notification pipeline,
+and only on the transitions worth interrupting for.
+
+Full rules, including the three-bucket placement and the copy contract:
+`assistant/src/notifications/AGENTS.md`.
+
 ## Assistant-Driven Judgement
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
@@ -360,4 +376,5 @@ When publishing domain/live events from inside the daemon process, call the `ass
 - **HTTP API patterns & new endpoints**: `assistant/src/runtime/AGENTS.md`
 - **Error handling conventions**: `assistant/docs/error-handling.md`
 - **Notification pipeline**: `assistant/src/notifications/AGENTS.md`
+- **Runs (async work with a lifecycle)**: `assistant/src/runs/AGENTS.md`
 - **Trust & guardian invariants**: `assistant/src/approvals/AGENTS.md`

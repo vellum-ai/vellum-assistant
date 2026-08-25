@@ -10,13 +10,14 @@
  * mirrors the high-signal subset of that traffic into the home feed so
  * the macOS Home page surfaces them alongside other activity.
  */
+import { headlineForEvent } from "../home/feed-headline.js";
 import {
   type FeedItem,
-  type FeedItemCategory,
   type FeedItemDetailPanelKind,
   feedItemSchema,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
+import { publishFeedToast } from "../home/publish-feed-toast.js";
 import {
   addMessage,
   getConversation,
@@ -26,9 +27,9 @@ import {
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
-import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
+import { normalizeTitle } from "../util/short-title.js";
+import { bucketCompat, bucketExpiresAt, deriveBucket } from "./bucket.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
-import { deriveTitle } from "./copy-composer.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -116,19 +117,23 @@ export async function writeHomeFeedItemForSignal(
     return null;
   }
 
-  // Title order: payload, then the rendered copy, then a headline derived
-  // from the summary. `normalizeTitle` returns "" for empty, prose-shaped, and
-  // meta-failure candidates; the derivation always yields something, so every
-  // feed item lands with a title.
+  // Title order: payload, then the rendered copy, then the written headline
+  // for this kind of event. `normalizeTitle` returns "" for empty,
+  // prose-shaped, and meta-failure candidates. Nothing is sliced off the
+  // summary: a header derived from a body is how rows ended up reading as the
+  // truncated middle of a sentence.
   const resolvedTitle =
     normalizeTitle(payloadTitle ?? "") ||
     normalizeTitle(renderedCopy?.title ?? "") ||
-    deriveFallbackTitle(resolvedSummary);
+    headlineForEvent(signal.sourceEventName);
 
   const urgency = signal.attentionHints.urgency;
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
 
-  const category = deriveCategory(signal);
+  const bucket = deriveBucket(signal);
+  const compat = bucketCompat(bucket);
+  const expiresAt = bucketExpiresAt(bucket, nowMs);
   const panelKind = deriveDetailPanelKind(signal);
 
   const baseMetadata =
@@ -150,27 +155,34 @@ export async function writeHomeFeedItemForSignal(
     sourceScheduleJobId ??
     undefined;
 
-  const metadata =
-    scheduleId !== undefined
-      ? { ...(baseMetadata ?? {}), scheduleId }
-      : baseMetadata;
+  // `sourceEventName` rides along so a row that lost its title can still be
+  // named by the headline for its kind, rather than by a slice of its body.
+  const metadata: Record<string, unknown> = {
+    ...(baseMetadata ?? {}),
+    sourceEventName: signal.sourceEventName,
+    ...(scheduleId !== undefined ? { scheduleId } : {}),
+  };
 
   const item: FeedItem = {
     id: `notif:${signal.signalId}`,
     type: "notification",
-    priority: 50,
+    bucket,
     title: resolvedTitle,
     summary: resolvedSummary,
     timestamp: now,
     createdAt: now,
     status: "new",
-    category,
-    noteworthy: deriveNoteworthy(signal),
+    // Projections of the bucket, for clients built against the pre-bucket
+    // contract. Nothing derives them independently any more.
+    priority: compat.priority,
+    category: compat.category,
+    noteworthy: compat.noteworthy,
     fromAssistant: signal.sourceChannel === "assistant_tool",
+    ...(expiresAt ? { expiresAt } : {}),
     ...(urgency ? { urgency } : {}),
     ...(sourceConversationId ? { conversationId: sourceConversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
-    ...(metadata ? { metadata } : {}),
+    metadata,
   };
 
   try {
@@ -205,6 +217,9 @@ export async function writeHomeFeedItemForSignal(
     : item;
 
   await appendFeedItem(card);
+  // After the row lands, so the toast can never point at something that is
+  // not yet there to open.
+  publishFeedToast(card);
   return card;
 }
 
@@ -359,57 +374,7 @@ export function updateFeedItemConversationMessage(
   }
 }
 
-/**
- * Derive the terminal fallback headline from the summary.
- *
- * The summary is preferentially a conversation seed, which carries structured
- * markdown and hard line breaks, so flatten it to plain single-line text
- * before slicing a headline off the front. A non-empty summary always yields a
- * non-empty title.
- */
-function deriveFallbackTitle(summary: string): string {
-  // Block markers are line-anchored, so they have to go before the whitespace
-  // collapse, and before `stripMarkdown` (whose inline-code rule would chew a
-  // fence into a stray backtick). Ordered markers matter most: the seed prompt
-  // asks the model for numbered lists, and a leading `1.` also reads as a
-  // sentence terminator, which would truncate the title to the first digit.
-  //
-  // Deliberately regex-based, unlike the remark-backed
-  // `stripMarkdownForPreview`. The leading-space allowance and rule set mirror
-  // `flattenToPlainText` in workspace migration 138, which must stay
-  // self-contained and so cannot share code with either: a backfilled title and
-  // a freshly written one have to match, which a parser swap would break.
-  const deblocked = summary
-    .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s{0,3}>\s?/gm, "")
-    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "");
-  const plain = flattenWhitespace(stripMarkdown(deblocked));
-  return deriveTitle(plain || flattenWhitespace(summary));
-}
-
-/** Collapse whitespace runs, including hard line breaks, into single spaces. */
-function flattenWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-// ── Category & detail-panel derivation ────────────────────────────────
-
-const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
-  "credential.health_alert": "security",
-  "activity.failed": "background",
-  "activity.complete": "background",
-  "watcher.notification": "system",
-  "schedule.notify": "scheduling",
-  "guardian.question": "security",
-  "guardian.channel_activation": "security",
-  "ingress.access_request": "security",
-  "telegram.webhook_health_alert": "system",
-};
-
-function deriveCategory(signal: NotificationSignal): FeedItemCategory {
-  return EVENT_CATEGORY_MAP[signal.sourceEventName] ?? "system";
-}
+// ── Detail-panel derivation ────────────────────────────
 
 function deriveDetailPanelKind(
   signal: NotificationSignal,
@@ -503,39 +468,4 @@ function firstSelectedRenderedCopy(
     }
   }
   return undefined;
-}
-
-// ── Noteworthy derivation ─────────────────────────────────────────────
-//
-// Clients split the feed into inbox-style (noteworthy) and activity-style
-// (routine) surfaces. Assistant-initiated shares and a small allow-list of
-// high-importance system events land in the inbox; routine background
-// signals stay in activity.
-
-const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
-  "guardian.question",
-  "guardian.channel_activation",
-  "ingress.access_request",
-  "credential.health_alert",
-  // A dark messaging channel is inbox-worthy: the guardian may be waiting on
-  // replies that are silently queueing at Telegram.
-  "telegram.webhook_health_alert",
-]);
-
-function deriveNoteworthy(signal: NotificationSignal): boolean {
-  // Background-job failures emit with `sourceChannel: "assistant_tool"`
-  // (see `runtime/background-job-runner.ts`), so the activity.failed rule
-  // must run BEFORE the assistant_tool short-circuit — otherwise every
-  // routine watcher/heartbeat failure would land in the Inbox instead of
-  // staying in the activity feed.
-  if (signal.sourceEventName === "activity.failed") {
-    return signal.attentionHints.urgency === "critical";
-  }
-  if (signal.sourceChannel === "assistant_tool") {
-    return true;
-  }
-  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) {
-    return true;
-  }
-  return false;
 }

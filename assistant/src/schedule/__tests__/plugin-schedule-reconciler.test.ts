@@ -16,33 +16,26 @@ mock.module("../../background-wake/publisher.js", () => ({
   refreshBackgroundWakeIntent: () => {},
 }));
 
-const emittedSignals: Array<Record<string, unknown>> = [];
-
-/** When set, merged into the next emit results (e.g. a failure reason). */
-let emitResultOverride: Record<string, unknown> | null = null;
-
 /**
- * When set, an emit records its call and then parks on this promise instead
- * of resolving, so a test can hold one attempt open across further passes.
+ * Declaration errors land on the plugin-schedules System health row rather
+ * than in the bell: a plugin author's broken declaration is not something the
+ * user can act on, and the row counts instead of pushing.
  */
-let emitGate: Promise<void> | null = null;
+const healthRecords: Array<{
+  subsystem: string;
+  label: string;
+  errorSummary?: string;
+}> = [];
 
-mock.module("../../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (params: Record<string, unknown>) => {
-    emittedSignals.push(params);
-    if (emitGate) {
-      await emitGate;
-    }
-    return {
-      signalId: "test-signal",
-      deduplicated: false,
-      dispatched: true,
-      reason: "test",
-      deliveryResults: [],
-      pipelineFailed: false,
-      ...(emitResultOverride ?? {}),
-    };
+mock.module("../../home/system-health.js", () => ({
+  recordSubsystemFailure: async (failure: {
+    subsystem: string;
+    label: string;
+    errorSummary?: string;
+  }) => {
+    healthRecords.push(failure);
   },
+  recordSubsystemSuccess: async () => {},
 }));
 
 /**
@@ -74,7 +67,6 @@ import {
   resetDefinitionErrorEmitGuardForTests,
 } from "../plugin-schedule-reconciler.js";
 import {
-  claimDueSchedules,
   createSchedule,
   createScheduleRun,
   listDeclaredSchedules,
@@ -192,9 +184,7 @@ function resetReconcilerFixtures(): void {
   getDb().run("DELETE FROM cron_runs");
   getDb().run("DELETE FROM cron_jobs");
   rmSync(pluginsDir, { recursive: true, force: true });
-  emittedSignals.length = 0;
-  emitResultOverride = null;
-  emitGate = null;
+  healthRecords.length = 0;
   notActivatedDirs.clear();
   activationProbes.length = 0;
   resetDefinitionErrorEmitGuardForTests();
@@ -207,11 +197,6 @@ describe("reconcilePluginSchedules", () => {
     // under rather than inheriting the registry default.
     setOverridesForTesting({ "plugin-schedules": true });
   });
-
-  /** Let a released emit's continuation, `.then`, and `.finally` all run. */
-  async function settleEmits(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
 
   test("converges execute and script declarations into rows the engine claims", async () => {
     writePlugin("news", {
@@ -238,28 +223,9 @@ describe("reconcilePluginSchedules", () => {
     expect(sync.script).toContain("index.sh");
     expect(sync.message).toBe("");
 
-    // Every newly created armed row announces itself, deduped by hash.
-    const declared = emittedSignals.filter(
-      (s) => s.sourceEventName === "schedule.declared",
-    );
-    expect(declared).toHaveLength(2);
-    const digestDeclared = declared.find(
-      (s) => s.sourceContextId === DIGEST_KEY,
-    )!;
-    expect(digestDeclared.dedupeKey).toBe(
-      `schedule-declared:${DIGEST_KEY}:${digestRow.definitionHash}`,
-    );
-    expect(digestDeclared.contextPayload).toEqual({
-      pluginName: "news",
-      scheduleName: "digest",
-      sourceKey: DIGEST_KEY,
-      cadence: "* * * * *",
-    });
-
-    // The untouched engine picks the row up: an every-minute cron is always
-    // due within a two-minute claim horizon.
-    const claimed = await claimDueSchedules(Date.now() + 120_000);
-    expect(claimed.map((j) => j.id)).toContain(digestRow.id);
+    // Arming a declared schedule is bookkeeping for something the user never
+    // asked about, so the pass says nothing.
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("a repeat pass with unchanged declarations is a no-op", async () => {
@@ -267,40 +233,14 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     const row = listDeclaredSchedules()[0]!;
     const before = rawJob(row.id);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     await reconcilePluginSchedules();
 
     expect(rawJob(row.id)).toEqual(before);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
-  test("an upgrade updates by hash and emits definition_changed for the armed row", async () => {
-    writePlugin("news", digest());
-    await reconcilePluginSchedules();
-    const created = listDeclaredSchedules()[0]!;
-    emittedSignals.length = 0;
-
-    writePlugin("news", digest("Summarize the WEEK."));
-    await reconcilePluginSchedules();
-
-    const updated = listDeclaredSchedules()[0]!;
-    expect(updated.id).toBe(created.id);
-    expect(updated.message).toBe("Summarize the WEEK.");
-    expect(updated.definitionHash).not.toBe(created.definitionHash);
-
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.definition_changed");
-    expect(signal.dedupeKey).toBe(
-      `schedule-definition-changed:${DIGEST_KEY}:${updated.definitionHash}`,
-    );
-    expect(signal.contextPayload).toEqual({
-      pluginName: "news",
-      scheduleName: "digest",
-      sourceKey: DIGEST_KEY,
-    });
-  });
 
   test("uninstall disarms without deleting rows or runs; reinstall re-links and re-arms", async () => {
     writePlugin("news", digest());
@@ -320,7 +260,7 @@ describe("reconcilePluginSchedules", () => {
       .get(created.id) as { n: number };
     expect(runs.n).toBe(1);
 
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
     writePlugin("news", digest());
     await reconcilePluginSchedules();
 
@@ -331,7 +271,7 @@ describe("reconcilePluginSchedules", () => {
     expect(relinked[0]!.nextRunAt).toBeGreaterThan(0);
     // Re-linking an existing row is not a first arming: no arrival signal.
     expect(
-      emittedSignals.filter((s) => s.sourceEventName === "schedule.declared"),
+      healthRecords,
     ).toHaveLength(0);
   });
 
@@ -341,7 +281,7 @@ describe("reconcilePluginSchedules", () => {
     const created = listDeclaredSchedules()[0]!;
 
     await setUserEnabled(created.id, false);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // Upgrade: definition columns update, the user override keeps the row
     // disabled, and no definition_changed emits for an unarmed row.
@@ -351,7 +291,7 @@ describe("reconcilePluginSchedules", () => {
     expect(row.message).toBe("Summarize the WEEK.");
     expect(row.enabled).toBe(false);
     expect(row.userEnabled).toBe(false);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
 
     // Disarm (uninstall) then re-arm (reinstall): the override still wins.
     rmSync(join(pluginsDir, "news"), { recursive: true, force: true });
@@ -364,27 +304,6 @@ describe("reconcilePluginSchedules", () => {
     expect(row.userEnabled).toBe(false);
   });
 
-  test("an upgrade that flips a disarmed declaration to enabled arms it and notifies", async () => {
-    writePlugin(
-      "news",
-      digestFiles({ expression: "* * * * *", enabled: false }),
-    );
-    await reconcilePluginSchedules();
-    expect(listDeclaredSchedules()[0]!.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(0);
-
-    writePlugin("news", digest());
-    await reconcilePluginSchedules();
-
-    const armed = listDeclaredSchedules()[0]!;
-    expect(armed.enabled).toBe(true);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.declared");
-    expect(signal.dedupeKey).toBe(
-      `schedule-declared:${DIGEST_KEY}:${armed.definitionHash}`,
-    );
-  });
 
   test("a user override enables a declaration shipped disabled", async () => {
     writePlugin(
@@ -425,7 +344,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     const before = rawJob(created.id);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // Break the declaration: a config.json the parser cannot read.
     writePlugin("news", brokenDigest());
@@ -434,19 +353,14 @@ describe("reconcilePluginSchedules", () => {
     // The row fires the message it was armed with, so nothing unvalidated
     // runs while it stays armed.
     expect(rawJob(created.id)).toEqual(before);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.definition_error");
-    const day = new Date().toISOString().slice(0, 10);
-    expect(signal.dedupeKey).toBe(
-      `schedule-definition-error:${DIGEST_KEY}:${day}`,
-    );
-    const payload = signal.contextPayload as Record<string, unknown>;
-    expect(payload.pluginName).toBe("news");
-    expect(payload.scheduleName).toBe("digest");
-    expect(payload.sourceKey).toBe(DIGEST_KEY);
-    expect(typeof payload.reason).toBe("string");
-    expect(payload.paused).toBe(false);
+    expect(healthRecords).toHaveLength(1);
+    const record = healthRecords[0]!;
+    expect(record.subsystem).toBe("plugin_schedules");
+    expect(record.label).toBe("Plugin schedules");
+    expect(record.errorSummary).toContain("news");
+    expect(record.errorSummary).toContain("digest");
+    // The row stayed armed on its last-good definition, so nothing paused.
+    expect(record.errorSummary).toContain("could not be read");
   });
 
   test("a parse error disarms a script row, which re-arms once the declaration parses", async () => {
@@ -455,7 +369,7 @@ describe("reconcilePluginSchedules", () => {
     const created = listDeclaredSchedules()[0]!;
     expect(created.mode).toBe("script");
     expect(created.enabled).toBe(true);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // A script row runs its entrypoint by path, so an upgrade the parser
     // refuses would otherwise fire the unreviewed index.sh next to it.
@@ -465,12 +379,10 @@ describe("reconcilePluginSchedules", () => {
     const paused = listDeclaredSchedules()[0]!;
     expect(paused.id).toBe(created.id);
     expect(paused.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.definition_error");
-    const payload = signal.contextPayload as Record<string, unknown>;
-    expect(payload.sourceKey).toBe("plugin:news/sync");
-    expect(payload.paused).toBe(true);
+    expect(healthRecords).toHaveLength(1);
+    const record = healthRecords[0]!;
+    expect(record.subsystem).toBe("plugin_schedules");
+    expect(record.errorSummary).toContain("was paused");
 
     // Fixing the declaration re-arms the same row on the next pass.
     writePlugin("news", scriptSync());
@@ -487,7 +399,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     await setUserEnabled(created.id, false);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // The row is already off and stays off, so promising the user it resumes
     // once the declaration loads again would be a lie.
@@ -495,12 +407,10 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()[0]!.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.definition_error");
-    const payload = signal.contextPayload as Record<string, unknown>;
-    expect(payload.sourceKey).toBe("plugin:news/sync");
-    expect(payload.paused).toBe(false);
+    expect(healthRecords).toHaveLength(1);
+    const record = healthRecords[0]!;
+    expect(record.subsystem).toBe("plugin_schedules");
+    expect(record.errorSummary).toContain("could not be read");
   });
 
   test("a user's off choice survives a script row's disarm and re-arm", async () => {
@@ -524,7 +434,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     const before = rawJob(created.id);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // A recurrence running out is not a rewrite of the entrypoint, so the
     // last-good handling every mode shares still applies.
@@ -538,17 +448,15 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(rawJob(created.id)).toEqual(before);
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceEventName).toBe(
-      "schedule.definition_error",
-    );
+    expect(healthRecords).toHaveLength(1);
+    expect(healthRecords[0]!.subsystem).toBe("plugin_schedules");
   });
 
   test("engine-latched rows are left untouched by definition changes", async () => {
     writePlugin("news", digest());
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // Recurrence exhaustion latch: the claim path disables the row, zeroes
     // nextRunAt, and stamps lastRunAt in one write.
@@ -562,7 +470,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(rawJob(created.id)).toEqual(latched);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("imperative rows are byte-identical across passes", async () => {
@@ -597,7 +505,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     expect(created.enabled).toBe(true);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // A package.json the loader's schema rejects (empty name): the runtime
     // refuses to bring such a plugin up, so its schedules must disarm too.
@@ -607,20 +515,18 @@ describe("reconcilePluginSchedules", () => {
     const disarmed = listDeclaredSchedules()[0]!;
     expect(disarmed.id).toBe(created.id);
     expect(disarmed.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.definition_error");
-    const payload = signal.contextPayload as Record<string, unknown>;
-    expect(payload.pluginName).toBe("news");
-    expect(payload.scheduleName).toBe("digest");
-    expect(payload.sourceKey).toBe(DIGEST_KEY);
-    expect(payload.reason).toContain("package.json");
-    // The pass took an armed row off, so the notification says so.
-    expect(payload.paused).toBe(true);
+    expect(healthRecords).toHaveLength(1);
+    const record = healthRecords[0]!;
+    expect(record.subsystem).toBe("plugin_schedules");
+    expect(record.errorSummary).toContain("news");
+    expect(record.errorSummary).toContain("digest");
+    expect(record.errorSummary).toContain("package.json");
+    // The pass took an armed row off, so the record says so.
+    expect(record.errorSummary).toContain("was paused");
 
     // The failure surfaces once per day, not per pass.
     await reconcilePluginSchedules();
-    expect(emittedSignals).toHaveLength(1);
+    expect(healthRecords).toHaveLength(1);
 
     // Restoring a valid manifest re-arms the row on the next pass.
     writeFileSync(
@@ -638,16 +544,10 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()).toHaveLength(0);
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceEventName).toBe(
-      "schedule.definition_error",
-    );
+    expect(healthRecords).toHaveLength(1);
+    expect(healthRecords[0]!.subsystem).toBe("plugin_schedules");
     // Nothing was ever armed, so nothing was paused.
-    const payload = emittedSignals[0]!.contextPayload as Record<
-      string,
-      unknown
-    >;
-    expect(payload.paused).toBe(false);
+    expect(healthRecords[0]!.errorSummary).toContain("could not be read");
   });
 
   test("a broken manifest on a plugin without schedules stays silent", async () => {
@@ -658,37 +558,9 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()).toHaveLength(0);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
-  test("an upgrade that adds a schedule arms it and emits schedule.declared", async () => {
-    writePlugin("news", digest());
-    await reconcilePluginSchedules();
-    emittedSignals.length = 0;
-
-    // The upgraded revision ships an additional declaration alongside the
-    // unchanged digest.
-    writePlugin("news", {
-      "sync/config.json": JSON.stringify({ expression: "0 */2 * * *" }),
-      "sync/index.sh": "#!/bin/sh\necho synced\n",
-    });
-    await reconcilePluginSchedules();
-
-    const sync = listDeclaredSchedules().find(
-      (r) => r.sourceKey === "plugin:news/sync",
-    )!;
-    expect(sync.enabled).toBe(true);
-    expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("schedule.declared");
-    expect(signal.dedupeKey).toBe(
-      `schedule-declared:plugin:news/sync:${sync.definitionHash}`,
-    );
-    const payload = signal.contextPayload as Record<string, unknown>;
-    expect(payload.pluginName).toBe("news");
-    expect(payload.scheduleName).toBe("sync");
-    expect(payload.cadence).toBe("0 */2 * * *");
-  });
 
   test("a declaration shipped disabled creates its row silently", async () => {
     writePlugin(
@@ -699,176 +571,26 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()[0]!.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("a persistently broken declaration emits its error once, not per pass", async () => {
     writePlugin("news", brokenDigest());
 
     await reconcilePluginSchedules();
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceEventName).toBe(
-      "schedule.definition_error",
-    );
+    expect(healthRecords).toHaveLength(1);
+    expect(healthRecords[0]!.subsystem).toBe("plugin_schedules");
 
     await reconcilePluginSchedules();
     await reconcilePluginSchedules();
 
-    expect(emittedSignals).toHaveLength(1);
+    expect(healthRecords).toHaveLength(1);
   });
 
-  test("a pipeline-failed error emit does not latch the day guard; the next pass retries", async () => {
-    writePlugin("news", brokenDigest());
-    emitResultOverride = {
-      dispatched: false,
-      pipelineFailed: true,
-      reason: "Signal pipeline failed: transient outage",
-    };
 
-    await reconcilePluginSchedules();
-    expect(emittedSignals).toHaveLength(1);
 
-    emitResultOverride = null;
-    await reconcilePluginSchedules();
-    expect(emittedSignals).toHaveLength(2);
 
-    // The completed retry latched the guard, so further passes stay quiet.
-    await reconcilePluginSchedules();
-    expect(emittedSignals).toHaveLength(2);
-  });
 
-  test("an error emit still in flight is not duplicated by the next pass", async () => {
-    writePlugin("news", brokenDigest());
-    let releaseGate!: () => void;
-    emitGate = new Promise<void>((resolve) => {
-      releaseGate = resolve;
-    });
-    const errors = () =>
-      emittedSignals.filter(
-        (s) => s.sourceEventName === "schedule.definition_error",
-      );
-
-    // The first pass starts the emit and returns without awaiting it.
-    await reconcilePluginSchedules();
-    expect(errors()).toHaveLength(1);
-
-    // A second attempt while the first is still evaluating would hit
-    // event-store dedupe and latch the day guard on that verdict, silencing
-    // the retry the first attempt still needs if it goes on to fail.
-    await reconcilePluginSchedules();
-    expect(errors()).toHaveLength(1);
-
-    // The held attempt fails, so the day guard stays unlatched.
-    emitResultOverride = {
-      dispatched: false,
-      pipelineFailed: true,
-      reason: "Signal pipeline failed: transient outage",
-    };
-    emitGate = null;
-    releaseGate();
-    await settleEmits();
-    expect(errors()).toHaveLength(1);
-
-    emitResultOverride = null;
-    await reconcilePluginSchedules();
-    expect(errors()).toHaveLength(2);
-
-    // Verdict reached: the day guard latches and further passes stay quiet.
-    await reconcilePluginSchedules();
-    expect(errors()).toHaveLength(2);
-  });
-
-  test("a pipeline-failed declared emit is retried on later passes until a verdict", async () => {
-    writePlugin("news", digest());
-    emitResultOverride = {
-      dispatched: false,
-      pipelineFailed: true,
-      reason: "Signal pipeline failed: transient outage",
-    };
-    const declared = () =>
-      emittedSignals.filter((s) => s.sourceEventName === "schedule.declared");
-
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(1);
-
-    // The row now exists with the current hash, so without the pending
-    // retry this pass would be silent and the consent notification lost.
-    emitResultOverride = null;
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(2);
-
-    // Verdict reached: further passes stay quiet.
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(2);
-  });
-
-  test("a declared emit still in flight is not duplicated by the next pass", async () => {
-    writePlugin("news", digest());
-    let releaseGate!: () => void;
-    emitGate = new Promise<void>((resolve) => {
-      releaseGate = resolve;
-    });
-    const declared = () =>
-      emittedSignals.filter((s) => s.sourceEventName === "schedule.declared");
-
-    // The first pass starts the emit and returns without awaiting it.
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(1);
-
-    // A second attempt while the first is still evaluating would hit
-    // event-store dedupe, resolve as a verdict of its own, and clear the
-    // pending marker the first attempt still owns.
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(1);
-
-    // The held attempt fails, so the marker it owns survives.
-    emitResultOverride = {
-      dispatched: false,
-      pipelineFailed: true,
-      reason: "Signal pipeline failed: transient outage",
-    };
-    emitGate = null;
-    releaseGate();
-    await settleEmits();
-    expect(declared()).toHaveLength(1);
-
-    emitResultOverride = null;
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(2);
-
-    // Verdict reached: further passes stay quiet.
-    await reconcilePluginSchedules();
-    expect(declared()).toHaveLength(2);
-  });
-
-  test("a pipeline-failed definition_changed emit is retried on later passes until a verdict", async () => {
-    writePlugin("news", digest());
-    await reconcilePluginSchedules();
-    emittedSignals.length = 0;
-    const changed = () =>
-      emittedSignals.filter(
-        (s) => s.sourceEventName === "schedule.definition_changed",
-      );
-
-    emitResultOverride = {
-      dispatched: false,
-      pipelineFailed: true,
-      reason: "Signal pipeline failed: transient outage",
-    };
-    writePlugin("news", digest("Summarize the WEEK."));
-    await reconcilePluginSchedules();
-    expect(changed()).toHaveLength(1);
-
-    // The new hash is already stored, so without the pending retry this pass
-    // would be silent and the change notice lost.
-    emitResultOverride = null;
-    await reconcilePluginSchedules();
-    expect(changed()).toHaveLength(2);
-
-    // Verdict reached: further passes stay quiet.
-    await reconcilePluginSchedules();
-    expect(changed()).toHaveLength(2);
-  });
 
   test("a completed bounded recurrence stays silent across passes", async () => {
     writePlugin("news", digest());
@@ -882,7 +604,7 @@ describe("reconcilePluginSchedules", () => {
       [Date.now(), created.id],
     );
     const latched = rawJob(created.id);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // The declaration is unchanged in spirit: its last occurrence simply
     // passed, so the parser now reports it as ended.
@@ -891,24 +613,22 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(rawJob(created.id)).toEqual(latched);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("an ended recurrence on a still-armed row surfaces the error", async () => {
     writePlugin("news", digest());
     await reconcilePluginSchedules();
     expect(listDeclaredSchedules()[0]!.enabled).toBe(true);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // The armed row expects more firings; an upgrade that ends the
     // recurrence stops them, which the user has to hear about.
     writePlugin("news", endedDigest());
     await reconcilePluginSchedules();
 
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceEventName).toBe(
-      "schedule.definition_error",
-    );
+    expect(healthRecords).toHaveLength(1);
+    expect(healthRecords[0]!.subsystem).toBe("plugin_schedules");
   });
 
   test("an ended recurrence on a row this pass disarmed still surfaces", async () => {
@@ -924,7 +644,7 @@ describe("reconcilePluginSchedules", () => {
     expect(disarmed.enabled).toBe(false);
     expect(disarmed.lastRunAt).toBeNull();
     expect(disarmed.userEnabled).toBeNull();
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // The recurrence runs out while the plugin is off. Re-enabling brings back
     // a schedule that can never fire, so the user has to hear about it.
@@ -933,10 +653,8 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()[0]!.id).toBe(created.id);
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceEventName).toBe(
-      "schedule.definition_error",
-    );
+    expect(healthRecords).toHaveLength(1);
+    expect(healthRecords[0]!.subsystem).toBe("plugin_schedules");
   });
 
   test("a user-disabled row keeps an ended recurrence quiet", async () => {
@@ -944,14 +662,14 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     const created = listDeclaredSchedules()[0]!;
     await setUserEnabled(created.id, false);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // The user turned the schedule off, so its recurrence running out costs
     // no firing they expected.
     writePlugin("news", endedDigest());
     await reconcilePluginSchedules();
 
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("a declaration that shipped disabled keeps an ended recurrence quiet", async () => {
@@ -963,7 +681,7 @@ describe("reconcilePluginSchedules", () => {
     expect(created.nextRunAt).toBe(0);
     expect(created.lastRunAt).toBeNull();
     expect(created.userEnabled).toBeNull();
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     // The row was never armed, so the recurrence running out costs no firing
     // the user was going to get. Telling them every day about a schedule they
@@ -972,7 +690,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
     await reconcilePluginSchedules();
 
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("a freshly installed declaration that is already expired errors", async () => {
@@ -981,15 +699,11 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()).toHaveLength(0);
-    expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceEventName).toBe(
-      "schedule.definition_error",
+    expect(healthRecords).toHaveLength(1);
+    expect(healthRecords[0]!.subsystem).toBe("plugin_schedules");
+    expect(healthRecords[0]!.errorSummary).toContain(
+      "no upcoming occurrences",
     );
-    const payload = emittedSignals[0]!.contextPayload as Record<
-      string,
-      unknown
-    >;
-    expect(payload.reason).toContain("no upcoming occurrences");
   });
 
   test("a plugin the daemon never activated arms nothing", async () => {
@@ -1001,7 +715,7 @@ describe("reconcilePluginSchedules", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()).toHaveLength(0);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("a row disarms once its plugin is no longer activated", async () => {
@@ -1031,12 +745,9 @@ describe("reconcilePluginSchedules", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.sourceKey).toBe(DIGEST_KEY);
     expect(rows[0]!.enabled).toBe(true);
-    // The row arms for the first time here, so it announces its arrival.
-    const declared = emittedSignals.filter(
-      (s) => s.sourceEventName === "schedule.declared",
-    );
-    expect(declared).toHaveLength(1);
-    expect(declared[0]!.sourceContextId).toBe(DIGEST_KEY);
+    // Arming a declared schedule is bookkeeping for something the user never
+    // asked about, so it says nothing.
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("the activation probe sees the directory string the walk yields", async () => {
@@ -1051,19 +762,6 @@ describe("reconcilePluginSchedules", () => {
     expect(activationProbes).toEqual([dir]);
   });
 
-  test("a suppressed error emit still latches the day guard", async () => {
-    writePlugin("news", brokenDigest());
-    emitResultOverride = {
-      dispatched: false,
-      pipelineFailed: false,
-      reason: "Signal blocked by deterministic checks: quiet hours",
-    };
-
-    await reconcilePluginSchedules();
-    await reconcilePluginSchedules();
-
-    expect(emittedSignals).toHaveLength(1);
-  });
 });
 
 // ── Feature-flag kill switch ────────────────────────────────────────────
@@ -1080,7 +778,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
     const armed = listDeclaredSchedules();
     expect(armed).toHaveLength(1);
     expect(armed[0]!.enabled).toBe(true);
-    emittedSignals.length = 0;
+    healthRecords.length = 0;
 
     setOverridesForTesting({ "plugin-schedules": false });
     // A second plugin lands while the feature is off, so the pass has both a
@@ -1095,7 +793,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe(armed[0]!.id);
     expect(rows[0]!.enabled).toBe(false);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("a flag-off pass emits nothing for a broken declaration", async () => {
@@ -1105,7 +803,7 @@ describe("reconcilePluginSchedules under the plugin-schedules flag", () => {
     await reconcilePluginSchedules();
 
     expect(listDeclaredSchedules()).toHaveLength(0);
-    expect(emittedSignals).toHaveLength(0);
+    expect(healthRecords).toHaveLength(0);
   });
 
   test("turning the flag back on re-arms the rows it disarmed", async () => {

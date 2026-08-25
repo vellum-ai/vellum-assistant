@@ -7,7 +7,7 @@
  * 1. request_submitted — when a non-member requests access (covered by
  *    ingress.access_request, tested in non-member-access-request.test.ts)
  * 2. guardian_decision — when the guardian approves or denies
- * 3. verification_sent — when the verification code is created and delivered
+ * 3. verification_sent: recorded as a log line, never as a signal
  * 4. activated — when the trusted contact successfully verifies
  * 5. denied — when the guardian denies the request
  */
@@ -235,7 +235,7 @@ describe("trusted contact lifecycle notification signals", () => {
     );
   });
 
-  test("guardian approve emits guardian_decision and verification_sent signals with display names", async () => {
+  test("guardian approve emits no notification at all while verification is pending", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
     createGuardianBinding({
       channel: "telegram",
@@ -303,18 +303,10 @@ describe("trusted contact lifecycle notification signals", () => {
     );
 
     expect(guardianDecisionSignals.length).toBe(0);
-    expect(verificationSentSignals.length).toBe(1);
-
-    // Verify verification_sent payload and that it's suppressed from delivery
-    const vsSignal = verificationSentSignals[0];
-    const vsPayload = vsSignal.contextPayload as Record<string, unknown>;
-    expect(vsPayload.requesterExternalUserId).toBe("requester-user-456");
-    expect(vsPayload.verificationSessionId).toBeDefined();
-    expect(vsPayload.requesterDisplayName).toBe("Alice Requester");
-    expect(vsPayload.decidedByDisplayName).toBe("Guardian Bob");
-    expect(
-      (vsSignal.attentionHints as Record<string, unknown>).visibleInSourceNow,
-    ).toBe(true);
+    // verification_sent is a log line now, not a signal. It was suppressed by
+    // the pipeline every single time it fired, because the guardian already
+    // has the code by the time it would have been delivered.
+    expect(verificationSentSignals.length).toBe(0);
 
     // Should NOT emit denied signal
     const deniedSignals = emitSignalCalls.filter(

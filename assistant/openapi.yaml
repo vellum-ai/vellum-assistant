@@ -13383,8 +13383,19 @@ paths:
                         id:
                           type: string
                         type:
+                          default: notification
                           type: string
-                          const: notification
+                          enum:
+                            - notification
+                            - run
+                            - digest
+                            - system_health
+                        bucket:
+                          type: string
+                          enum:
+                            - needs_you
+                            - worth_knowing
+                            - activity
                         priority:
                           type: integer
                           minimum: 0
@@ -13457,6 +13468,95 @@ paths:
                           type: boolean
                         fromAssistant:
                           type: boolean
+                        run:
+                          type: object
+                          properties:
+                            runId:
+                              type: string
+                            parentRunId:
+                              type: string
+                            kind:
+                              type: string
+                            state:
+                              type: string
+                              enum:
+                                - queued
+                                - running
+                                - needs_input
+                                - succeeded
+                                - failed
+                                - cancelled
+                                - interrupted
+                            startedAt:
+                              type: string
+                            endedAt:
+                              type: string
+                            progressNote:
+                              type: string
+                            failureReason:
+                              type: string
+                            childTotal:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            childDone:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            retryable:
+                              type: boolean
+                          required:
+                            - runId
+                            - kind
+                            - state
+                            - startedAt
+                          additionalProperties: false
+                        systemHealth:
+                          type: object
+                          properties:
+                            subsystem:
+                              type: string
+                            failureCount:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            firstFailureAt:
+                              type: string
+                            lastFailureAt:
+                              type: string
+                            lastErrorSummary:
+                              type: string
+                            remedyPath:
+                              type: string
+                            remedyLabel:
+                              type: string
+                          required:
+                            - subsystem
+                            - failureCount
+                            - firstFailureAt
+                            - lastFailureAt
+                          additionalProperties: false
+                        digest:
+                          type: object
+                          properties:
+                            runCount:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            failedCount:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            windowStart:
+                              type: string
+                            windowEnd:
+                              type: string
+                          required:
+                            - runCount
+                            - failedCount
+                            - windowStart
+                            - windowEnd
+                          additionalProperties: false
                         metadata:
                           type: object
                           propertyNames:
@@ -13576,8 +13676,19 @@ paths:
                   id:
                     type: string
                   type:
+                    default: notification
                     type: string
-                    const: notification
+                    enum:
+                      - notification
+                      - run
+                      - digest
+                      - system_health
+                  bucket:
+                    type: string
+                    enum:
+                      - needs_you
+                      - worth_knowing
+                      - activity
                   priority:
                     type: integer
                     minimum: 0
@@ -13650,6 +13761,95 @@ paths:
                     type: boolean
                   fromAssistant:
                     type: boolean
+                  run:
+                    type: object
+                    properties:
+                      runId:
+                        type: string
+                      parentRunId:
+                        type: string
+                      kind:
+                        type: string
+                      state:
+                        type: string
+                        enum:
+                          - queued
+                          - running
+                          - needs_input
+                          - succeeded
+                          - failed
+                          - cancelled
+                          - interrupted
+                      startedAt:
+                        type: string
+                      endedAt:
+                        type: string
+                      progressNote:
+                        type: string
+                      failureReason:
+                        type: string
+                      childTotal:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      childDone:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      retryable:
+                        type: boolean
+                    required:
+                      - runId
+                      - kind
+                      - state
+                      - startedAt
+                    additionalProperties: false
+                  systemHealth:
+                    type: object
+                    properties:
+                      subsystem:
+                        type: string
+                      failureCount:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                      firstFailureAt:
+                        type: string
+                      lastFailureAt:
+                        type: string
+                      lastErrorSummary:
+                        type: string
+                      remedyPath:
+                        type: string
+                      remedyLabel:
+                        type: string
+                    required:
+                      - subsystem
+                      - failureCount
+                      - firstFailureAt
+                      - lastFailureAt
+                    additionalProperties: false
+                  digest:
+                    type: object
+                    properties:
+                      runCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      failedCount:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      windowStart:
+                        type: string
+                      windowEnd:
+                        type: string
+                    required:
+                      - runCount
+                      - failedCount
+                      - windowStart
+                      - windowEnd
+                    additionalProperties: false
                   metadata:
                     type: object
                     propertyNames:
@@ -13833,6 +14033,23 @@ paths:
                       - background
                       - email
                       - system
+                buckets:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - needs_you
+                      - worth_knowing
+                      - activity
+                types:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - notification
+                      - run
+                      - digest
+                      - system_health
                 conversationId:
                   type: string
                 fromAssistant:
@@ -13863,8 +14080,19 @@ paths:
                         id:
                           type: string
                         type:
+                          default: notification
                           type: string
-                          const: notification
+                          enum:
+                            - notification
+                            - run
+                            - digest
+                            - system_health
+                        bucket:
+                          type: string
+                          enum:
+                            - needs_you
+                            - worth_knowing
+                            - activity
                         priority:
                           type: integer
                           minimum: 0
@@ -13937,6 +14165,95 @@ paths:
                           type: boolean
                         fromAssistant:
                           type: boolean
+                        run:
+                          type: object
+                          properties:
+                            runId:
+                              type: string
+                            parentRunId:
+                              type: string
+                            kind:
+                              type: string
+                            state:
+                              type: string
+                              enum:
+                                - queued
+                                - running
+                                - needs_input
+                                - succeeded
+                                - failed
+                                - cancelled
+                                - interrupted
+                            startedAt:
+                              type: string
+                            endedAt:
+                              type: string
+                            progressNote:
+                              type: string
+                            failureReason:
+                              type: string
+                            childTotal:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            childDone:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            retryable:
+                              type: boolean
+                          required:
+                            - runId
+                            - kind
+                            - state
+                            - startedAt
+                          additionalProperties: false
+                        systemHealth:
+                          type: object
+                          properties:
+                            subsystem:
+                              type: string
+                            failureCount:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            firstFailureAt:
+                              type: string
+                            lastFailureAt:
+                              type: string
+                            lastErrorSummary:
+                              type: string
+                            remedyPath:
+                              type: string
+                            remedyLabel:
+                              type: string
+                          required:
+                            - subsystem
+                            - failureCount
+                            - firstFailureAt
+                            - lastFailureAt
+                          additionalProperties: false
+                        digest:
+                          type: object
+                          properties:
+                            runCount:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            failedCount:
+                              type: integer
+                              minimum: 0
+                              maximum: 9007199254740991
+                            windowStart:
+                              type: string
+                            windowEnd:
+                              type: string
+                          required:
+                            - runCount
+                            - failedCount
+                            - windowStart
+                            - windowEnd
+                          additionalProperties: false
                         metadata:
                           type: object
                           propertyNames:
@@ -22173,8 +22490,19 @@ paths:
                       id:
                         type: string
                       type:
+                        default: notification
                         type: string
-                        const: notification
+                        enum:
+                          - notification
+                          - run
+                          - digest
+                          - system_health
+                      bucket:
+                        type: string
+                        enum:
+                          - needs_you
+                          - worth_knowing
+                          - activity
                       priority:
                         type: integer
                         minimum: 0
@@ -22247,6 +22575,95 @@ paths:
                         type: boolean
                       fromAssistant:
                         type: boolean
+                      run:
+                        type: object
+                        properties:
+                          runId:
+                            type: string
+                          parentRunId:
+                            type: string
+                          kind:
+                            type: string
+                          state:
+                            type: string
+                            enum:
+                              - queued
+                              - running
+                              - needs_input
+                              - succeeded
+                              - failed
+                              - cancelled
+                              - interrupted
+                          startedAt:
+                            type: string
+                          endedAt:
+                            type: string
+                          progressNote:
+                            type: string
+                          failureReason:
+                            type: string
+                          childTotal:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          childDone:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          retryable:
+                            type: boolean
+                        required:
+                          - runId
+                          - kind
+                          - state
+                          - startedAt
+                        additionalProperties: false
+                      systemHealth:
+                        type: object
+                        properties:
+                          subsystem:
+                            type: string
+                          failureCount:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          firstFailureAt:
+                            type: string
+                          lastFailureAt:
+                            type: string
+                          lastErrorSummary:
+                            type: string
+                          remedyPath:
+                            type: string
+                          remedyLabel:
+                            type: string
+                        required:
+                          - subsystem
+                          - failureCount
+                          - firstFailureAt
+                          - lastFailureAt
+                        additionalProperties: false
+                      digest:
+                        type: object
+                        properties:
+                          runCount:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          failedCount:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                          windowStart:
+                            type: string
+                          windowEnd:
+                            type: string
+                        required:
+                          - runCount
+                          - failedCount
+                          - windowStart
+                          - windowEnd
+                        additionalProperties: false
                       metadata:
                         type: object
                         propertyNames:

@@ -244,6 +244,24 @@ const emittedNotificationSignals: Array<{
   conversationMetadata?: Record<string, unknown>;
 }> = [];
 
+/** Failures the heartbeat counted against its System health row. */
+const healthRecords: Array<{
+  subsystem: string;
+  label: string;
+  errorSummary?: string;
+}> = [];
+
+mock.module("../home/system-health.js", () => ({
+  recordSubsystemFailure: async (failure: {
+    subsystem: string;
+    label: string;
+    errorSummary?: string;
+  }) => {
+    healthRecords.push(failure);
+  },
+  recordSubsystemSuccess: async () => {},
+}));
+
 mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (opts: {
     sourceEventName?: string;
@@ -374,6 +392,7 @@ describe("HeartbeatService", () => {
     mockCredentialHealthReport = null;
     mockCheckAllCredentialsFail = false;
     emittedNotificationSignals.length = 0;
+    healthRecords.length = 0;
     loggerWarnCalls.length = 0;
     mockComputeNextRunAtResult = null;
     mockComputeNextRunAtError = null;
@@ -1577,7 +1596,7 @@ describe("HeartbeatService", () => {
     // setTimeout-based timing here — fake timers don't reliably propagate
     // into the runner's module scope across bun versions.
 
-    test("failure emits activity.failed notification with errorKind exception", async () => {
+    test("a failed run counts against System health rather than notifying", async () => {
       const service = createService({
         processMessage: async () => {
           throw new Error("web_search outage");
@@ -1586,50 +1605,39 @@ describe("HeartbeatService", () => {
 
       await service.runOnce();
 
-      const failSignals = emittedNotificationSignals.filter(
-        (s) => s.sourceEventName === "activity.failed",
-      );
-      expect(failSignals).toHaveLength(1);
-      const signal = failSignals[0]!;
-      expect(signal.contextPayload.jobName).toBe("heartbeat");
-      expect(signal.contextPayload.errorKind).toBe("exception");
-      expect(signal.contextPayload.errorMessage).toContain("web_search outage");
-      expect(signal.attentionHints?.urgency).toBe("medium");
-      expect(signal.attentionHints?.isAsyncBackground).toBe(true);
+      // Nothing reaches the notification pipeline: a provider outage on the
+      // heartbeat is not something the user can act on, and repeating it
+      // daily is what made the bell unreadable.
+      expect(
+        emittedNotificationSignals.filter(
+          (s) => s.sourceEventName === "activity.failed",
+        ),
+      ).toHaveLength(0);
     });
 
-    test("start() emits activity.failed notification when stale rows exist", () => {
+    test("start() counts runs missed while offline against System health", () => {
       mockMarkStaleRunsAsMissed.mockImplementation(() => 2);
       mockMarkStaleRunningAsError.mockImplementation(() => 1);
 
       const service = createService();
       service.start();
 
-      const missedSignals = emittedNotificationSignals.filter(
-        (s) => s.sourceEventName === "activity.failed",
-      );
-      expect(missedSignals).toHaveLength(1);
-      const signal = missedSignals[0]!;
-      expect(signal.dedupeKey).toContain("activity-failed:heartbeat-missed:");
-      expect(signal.contextPayload.jobName).toBe("heartbeat");
-      const errorMessage = signal.contextPayload.errorMessage as string;
-      expect(errorMessage).toContain("3");
-      expect(signal.attentionHints?.urgency).toBe("medium");
+      expect(healthRecords).toHaveLength(1);
+      expect(healthRecords[0]!.subsystem).toBe("heartbeat");
+      expect(healthRecords[0]!.label).toBe("Heartbeat");
+      expect(String(healthRecords[0]!.errorSummary)).toContain("3");
 
       service.stop();
     });
 
-    test("start() does not emit notification when counts are 0", () => {
+    test("start() records nothing when counts are 0", () => {
       mockMarkStaleRunsAsMissed.mockImplementation(() => 0);
       mockMarkStaleRunningAsError.mockImplementation(() => 0);
 
       const service = createService();
       service.start();
 
-      const missedSignals = emittedNotificationSignals.filter(
-        (s) => s.sourceEventName === "activity.failed",
-      );
-      expect(missedSignals).toHaveLength(0);
+      expect(healthRecords).toHaveLength(0);
       service.stop();
     });
   });

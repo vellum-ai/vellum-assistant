@@ -470,6 +470,7 @@ export function useStreamEventHandler(
         case "bookmark.deleted":
         case "sync_changed":
         case "home_feed_updated":
+        case "feed_toast":
         case "relationship_state_updated":
         case "identity_changed":
         case "avatar_updated":

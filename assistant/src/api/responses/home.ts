@@ -23,9 +23,124 @@ import { z } from "zod";
 // Feed item
 // ---------------------------------------------------------------------------
 
-/** High-level kind of feed item — drives which client view renders it. */
-export const FeedItemTypeSchema = z.literal("notification");
+/**
+ * High-level kind of feed item: it drives which client view renders it.
+ *
+ * `notification` is a one-shot event. `run` is async work with a lifecycle,
+ * rewritten in place as it progresses. `digest` folds a window of routine
+ * finished work into one row. `system_health` is a durable counter for a
+ * subsystem that keeps failing.
+ *
+ * Defaults to `notification` so rows written before the vocabulary widened
+ * still parse.
+ */
+export const FeedItemTypeSchema = z
+  .enum(["notification", "run", "digest", "system_health"])
+  .default("notification");
 export type FeedItemType = z.infer<typeof FeedItemTypeSchema>;
+
+/**
+ * Which section of the notification surfaces a row lands in, and how loudly
+ * it arrives. Derived by fixed rules rather than chosen by the decision
+ * engine, so placement is predictable: the model keeps channel selection and
+ * wording and has no say in importance.
+ *
+ * - `needs_you`: work is blocked on the user. Toast plus banner, every time.
+ * - `worth_knowing`: a real outcome or observation, nothing blocked. Toast
+ *   in-app, banner when away, once.
+ * - `activity`: routine work, running or finished. Silent.
+ */
+export const FeedItemBucketSchema = z.enum([
+  "needs_you",
+  "worth_knowing",
+  "activity",
+]);
+export type FeedItemBucket = z.infer<typeof FeedItemBucketSchema>;
+
+/**
+ * Lifecycle of a run.
+ *
+ * `queued → running → succeeded | failed | cancelled | interrupted`, with
+ * `needs_input` as a side state `running` can enter and leave.
+ */
+export const FeedItemRunStateSchema = z.enum([
+  "queued",
+  "running",
+  "needs_input",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+export type FeedItemRunState = z.infer<typeof FeedItemRunStateSchema>;
+
+/** Terminal run states: nothing is driving the run any more. */
+export const TERMINAL_RUN_STATES: readonly FeedItemRunState[] = [
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+];
+
+export function isTerminalRunState(state: FeedItemRunState): boolean {
+  return TERMINAL_RUN_STATES.includes(state);
+}
+
+/**
+ * Run payload on a `run` feed item.
+ *
+ * `parentRunId` links a run into a tree, so a chat turn that spawns three
+ * subagents reports as one row with a child count rather than four rows.
+ * `childTotal`/`childDone` are maintained on the root as children settle.
+ */
+export const FeedItemRunSchema = z.object({
+  runId: z.string(),
+  parentRunId: z.string().optional(),
+  /** Producer-scoped kind, e.g. `subagent`, `skill_learning`, `scheduled_run`. */
+  kind: z.string(),
+  state: FeedItemRunStateSchema,
+  /** ISO-8601 start time. Clients render elapsed time against it. */
+  startedAt: z.string(),
+  /** ISO-8601 end time. Present exactly when the state is terminal. */
+  endedAt: z.string().optional(),
+  /** Latest step the work reported, replaced on each update. */
+  progressNote: z.string().optional(),
+  /** Human-readable reason a run failed. Never a raw error constant. */
+  failureReason: z.string().optional(),
+  childTotal: z.number().int().nonnegative().optional(),
+  childDone: z.number().int().nonnegative().optional(),
+  /** Whether the client should offer Retry / Re-run on a terminal row. */
+  retryable: z.boolean().optional(),
+});
+export type FeedItemRun = z.infer<typeof FeedItemRunSchema>;
+
+/**
+ * System-health payload: one durable counter row per failing subsystem,
+ * replacing the per-failure notifications that used to repeat forever
+ * because the dedupe window reset daily.
+ */
+export const FeedItemSystemHealthSchema = z.object({
+  /** Stable subsystem id, e.g. `heartbeat`, `telegram_webhook`. */
+  subsystem: z.string(),
+  failureCount: z.number().int().positive(),
+  firstFailureAt: z.string(),
+  lastFailureAt: z.string(),
+  /** Sanitized one-line description of the latest failure. */
+  lastErrorSummary: z.string().optional(),
+  /** Deep link the client offers as a repair affordance, when one exists. */
+  remedyPath: z.string().optional(),
+  remedyLabel: z.string().optional(),
+});
+export type FeedItemSystemHealth = z.infer<typeof FeedItemSystemHealthSchema>;
+
+/** Digest payload: a window of routine finished runs folded into one row. */
+export const FeedItemDigestSchema = z.object({
+  runCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  windowStart: z.string(),
+  windowEnd: z.string(),
+});
+export type FeedItemDigest = z.infer<typeof FeedItemDigestSchema>;
 
 /** User-facing lifecycle of a feed item. */
 export const FeedItemStatusSchema = z.enum([
@@ -111,6 +226,12 @@ export type FeedItemDetailPanel = z.infer<typeof FeedItemDetailPanelSchema>;
  * A single item rendered in the Home feed.
  *
  * Notes:
+ *   - `bucket` is the placement field: which of the three sections the row
+ *     belongs to, and how loudly it arrives.
+ *   - `priority`, `noteworthy`, and `category` are compat projections of
+ *     `bucket`, written so clients built against the pre-bucket contract
+ *     keep sorting and grouping sensibly. Nothing derives them
+ *     independently any more, and new client code must read `bucket`.
  *   - `priority` must be an integer in [0, 100]; string numerics
  *     (e.g. `"5"`) are rejected — we want deterministic ordering and
  *     silent coercion tends to mask writer bugs.
@@ -121,10 +242,13 @@ export type FeedItemDetailPanel = z.infer<typeof FeedItemDetailPanelSchema>;
  *   - `expiresAt` is an absolute ISO-8601 expiry timestamp.
  *   - `title` is optional — clients fall back to `summary` when a row has
  *     no header.
+ *   - `run` / `systemHealth` / `digest` are present exactly when `type` is
+ *     the matching row kind.
  */
 export const FeedItemSchema = z.object({
   id: z.string(),
   type: FeedItemTypeSchema,
+  bucket: FeedItemBucketSchema.optional(),
   priority: z.number().int().min(0).max(100),
   title: z.string().optional(),
   summary: z.string(),
@@ -138,6 +262,9 @@ export const FeedItemSchema = z.object({
   category: FeedItemCategorySchema.optional(),
   noteworthy: z.boolean().optional(),
   fromAssistant: z.boolean().optional(),
+  run: FeedItemRunSchema.optional(),
+  systemHealth: FeedItemSystemHealthSchema.optional(),
+  digest: FeedItemDigestSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   // Source-conversation classification, enriched at read time. `sourceKey`
   // is the stable filter id — `schedule:<id>` for schedules so each filters

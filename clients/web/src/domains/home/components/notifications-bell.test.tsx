@@ -52,7 +52,14 @@ interface TriggerActionCallbacks {
   onSettled?: () => void;
 }
 
+interface MarkAllVars {
+  from: FeedItemStatus[];
+  to: FeedItemStatus;
+  ids?: string[];
+}
+
 const updateStatusCalls: UpdateStatusVars[] = [];
+const markAllCalls: MarkAllVars[] = [];
 const triggerActionCalls: TriggerActionVars[] = [];
 
 /**
@@ -93,7 +100,12 @@ mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
       },
       isPending: false,
     },
-    markAll: { mutate: () => {}, isPending: false },
+    markAll: {
+      mutate: (vars: MarkAllVars) => {
+        markAllCalls.push(vars);
+      },
+      isPending: false,
+    },
   }),
 }));
 
@@ -189,6 +201,13 @@ const skillsRef: { list: { id: string }[]; isPending: boolean } = {
 
 const entityLinkEnabledCalls: boolean[] = [];
 
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  schedulesByIdRunPost: async (options: { path: { id: string } }) => {
+    retriedScheduleIds.push(options.path.id);
+    return { data: {} };
+  },
+}));
+
 mock.module("@/utils/schedules", () => ({
   schedulesListQueryOptions: (assistantId: string | undefined) => ({
     queryKey: ["schedules", assistantId ?? ""],
@@ -209,7 +228,17 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 // `enabled` flag. Dispatching on the query key keeps the two lists distinct:
 // the resolver reads both on every render, and a stub that answered them
 // identically could not tell a present skill from a present schedule.
+/** Schedule ids a run row's Retry control asked to run again. */
+const retriedScheduleIds: string[] = [];
+
 mock.module("@tanstack/react-query", () => ({
+  useMutation: (options: { mutationFn: (input: never) => unknown }) => ({
+    mutate: (input: never) => {
+      void options.mutationFn(input);
+    },
+    mutateAsync: async (input: never) => options.mutationFn(input),
+    isPending: false,
+  }),
   useQuery: (options: { enabled?: boolean; queryKey: unknown[] }) => {
     entityLinkEnabledCalls.push(options.enabled === true);
     if (options.queryKey[0] === "skills") {
@@ -324,6 +353,8 @@ beforeEach(() => {
   triggerActionCalls.length = 0;
   triggerActionRef.outcome = "pending";
   navigateMock.mockClear();
+  markAllCalls.length = 0;
+  retriedScheduleIds.length = 0;
   navigateToConversationMock.mockClear();
 });
 
@@ -363,15 +394,23 @@ describe("NotificationsBell unread dot", () => {
   });
 
   test("ignores unread items that the popover never shows", () => {
-    // Dismissed and high-urgency items are filtered out of the list, so
-    // they must not light a dot the panel can't explain.
-    feedRef.items = [
-      bellItem({ id: "a", status: "dismissed" }),
-      bellItem({ id: "b", status: "new", urgency: "high" }),
-    ];
+    // Dismissed items are filtered out of the list, so they must not light a
+    // dot the panel can't explain.
+    feedRef.items = [bellItem({ id: "a", status: "dismissed" })];
     const html = renderBell();
     expect(html).not.toContain(UNREAD_DOT);
     expect(html).toContain(READ_LABEL);
+  });
+
+  test("a high-urgency item lights the dot: it is the Needs you section", () => {
+    // High urgency used to be filtered out of the bell entirely, on the
+    // grounds that it surfaced through its own channels. The top section is
+    // exactly those items, so hiding them would leave the bell unable to show
+    // the one thing it most needs to.
+    feedRef.items = [bellItem({ id: "b", status: "new", urgency: "high" })];
+    const html = renderBell();
+    expect(html).toContain(UNREAD_DOT);
+    expect(html).toContain(UNREAD_LABEL);
   });
 
   test("mobile trigger carries the same dot", () => {
@@ -435,7 +474,9 @@ describe("NotificationsBell panel", () => {
     expect(
       screen.getByRole("button", { name: "Mark all as read" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clear all" })).toBeTruthy();
+    // Section-scoped: it clears the Activity section only, so it can no
+    // longer wipe a pending approval.
+    expect(screen.getByRole("button", { name: "Clear activity" })).toBeTruthy();
   });
 
   test("offers no route out to the Activity page", async () => {
@@ -889,10 +930,12 @@ describe("NotificationsBell detail", () => {
     expect(clamp).not.toBeNull();
 
     // The clamp may only engage on a viewport shorter than any ordinary
-    // desktop window, so the frame there is still exactly the budget.
+    // desktop window, so the frame there is still exactly the budget. The
+    // budget carries the section headers now, which is why the crossover sits
+    // higher than it did on a flat list, but still well under a laptop.
     const budget = Number.parseInt(content.style.height, 10);
     const chromeAllowance = Number.parseInt(clamp?.[1] ?? "", 10);
-    expect(budget + chromeAllowance).toBeLessThan(600);
+    expect(budget + chromeAllowance).toBeLessThan(700);
   });
 
   test("a long body and a short body render in the same frame", async () => {
@@ -1155,5 +1198,181 @@ describe("NotificationsBell detail action items", () => {
     await act(async () => {});
 
     expect(triggerActionCalls.length).toBe(2);
+  });
+});
+
+describe("NotificationsBell sections", () => {
+  /** A run row in the given state, live enough to be listed. */
+  function runRow(
+    id: string,
+    state: NonNullable<FeedItem["run"]>["state"],
+    overrides: Partial<FeedItem> = {},
+  ): FeedItem {
+    const startedAt = new Date(Date.now() - 72_000).toISOString();
+    // `timestamp` is when the row was last rewritten, which is what the quiet
+    // rule reads: a live run whose last update is hours old renders as
+    // stalled, not as working.
+    return bellItem({
+      id,
+      type: "run",
+      bucket: "activity",
+      title: id,
+      timestamp: new Date().toISOString(),
+      run: { runId: id, kind: "subagent", state, startedAt },
+      ...overrides,
+    });
+  }
+
+  test("draws the three sections in order, most important first", async () => {
+    feedRef.items = [
+      bellItem({ id: "c", bucket: "activity", title: "Routine" }),
+      bellItem({ id: "a", bucket: "needs_you", title: "Approve this" }),
+      bellItem({ id: "b", bucket: "worth_knowing", title: "Research done" }),
+    ];
+
+    await openBell();
+
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((node) => node.textContent);
+    expect(headings).toEqual(["Needs you", "Worth knowing", "Activity"]);
+  });
+
+  test("shows no header for a section with nothing in it", async () => {
+    feedRef.items = [bellItem({ id: "a", bucket: "activity" })];
+
+    await openBell();
+
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((node) => node.textContent);
+    expect(headings).toEqual(["Activity"]);
+  });
+
+  test("counts the running work in the Activity header", async () => {
+    feedRef.items = [runRow("run:a", "running"), runRow("run:b", "running")];
+
+    await openBell();
+
+    expect(screen.getByText("2 running")).toBeTruthy();
+  });
+
+  test("a live run shows its elapsed time and its latest step", async () => {
+    feedRef.items = [
+      runRow("run:a", "running", {
+        title: "Learning skill: linear-triage",
+        run: {
+          runId: "run:a",
+          kind: "skill_learning",
+          state: "running",
+          startedAt: new Date(Date.now() - 72_000).toISOString(),
+          progressNote: "Reading past conversations",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByText("Learning skill: linear-triage")).toBeTruthy();
+    expect(screen.getByText("Reading past conversations")).toBeTruthy();
+    expect(screen.getByText("1:12")).toBeTruthy();
+  });
+
+  test("a terminal retryable run offers a re-run", async () => {
+    feedRef.items = [
+      runRow("run:a", "interrupted", {
+        run: {
+          runId: "run:a",
+          kind: "scheduled_run",
+          state: "interrupted",
+          startedAt: new Date(Date.now() - 72_000).toISOString(),
+          retryable: true,
+        },
+        metadata: { scheduleId: "sched-1" },
+      }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await act(async () => {});
+
+    expect(retriedScheduleIds).toEqual(["sched-1"]);
+  });
+
+  test("a live run offers no re-run: there is nothing to re-run yet", async () => {
+    feedRef.items = [runRow("run:a", "running")];
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  test("a system-health row shows its count and its repair affordance", async () => {
+    feedRef.items = [
+      bellItem({
+        id: "health:heartbeat",
+        type: "system_health",
+        bucket: "activity",
+        title: "Telegram is failing",
+        summary: "Telegram has failed 17 times since Aug 3.",
+        systemHealth: {
+          subsystem: "telegram_webhook",
+          failureCount: 17,
+          firstFailureAt: new Date().toISOString(),
+          lastFailureAt: new Date().toISOString(),
+          remedyPath: "/settings/channels",
+          remedyLabel: "Reconnect",
+        },
+      }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByText("17×")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy();
+  });
+
+  test("the digest points at the full activity log", async () => {
+    feedRef.items = [
+      bellItem({
+        id: "digest:runs",
+        type: "digest",
+        bucket: "activity",
+        summary: "14 runs in the last day, all succeeded.",
+        digest: {
+          runCount: 14,
+          failedCount: 0,
+          windowStart: new Date().toISOString(),
+          windowEnd: new Date().toISOString(),
+        },
+      }),
+    ];
+
+    await openBell();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open the activity log" }),
+    );
+    await act(async () => {});
+
+    expect(navigateMock).toHaveBeenCalledWith("/activity");
+  });
+
+  test("clearing activity leaves the other sections alone", async () => {
+    feedRef.items = [
+      bellItem({ id: "approval", bucket: "needs_you", status: "seen" }),
+      bellItem({ id: "routine", bucket: "activity", status: "seen" }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("button", { name: "Clear activity" }));
+    await act(async () => {});
+
+    expect(markAllCalls).toEqual([
+      {
+        from: ["new", "seen", "acted_on"],
+        to: "dismissed",
+        ids: ["routine"],
+      },
+    ]);
   });
 });

@@ -92,13 +92,17 @@ export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
 }
 
 /**
- * The items the notification surfaces show: dismissed items are hidden and
- * high-urgency items surface through their own channels. Shared by the
- * Activity page and the notifications bell so the bell's unread dot and
- * bulk actions always agree with the page it links to.
+ * The items the notification surfaces show: everything that has not been
+ * dismissed. Shared by the Activity page and the notifications bell so the
+ * bell's unread dot and bulk actions always agree with the page it links to.
+ *
+ * High-urgency rows are included. They are the Needs you section: work that is
+ * blocked on the reader, which is the first thing the bell has to be able to
+ * show. `excludeHighUrgency` remains for the Activity page's own grouping,
+ * where an approval is pulled out of the chronological list rather than hidden.
  */
 export function getVisibleFeedItems(items: FeedItem[]): FeedItem[] {
-  return excludeHighUrgency(items.filter((i) => i.status !== "dismissed"));
+  return items.filter((i) => i.status !== "dismissed");
 }
 
 /**

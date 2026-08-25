@@ -40,6 +40,7 @@ import { DocumentCommentResolvedEventSchema } from "./events/document-comment-re
 import { DocumentEditorShowEventSchema } from "./events/document-editor-show.js";
 import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update.js";
 import { ErrorEventSchema } from "./events/error.js";
+import { FeedToastEventSchema } from "./events/feed-toast.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HeartbeatAlertEventSchema } from "./events/heartbeat-alert.js";
@@ -361,6 +362,10 @@ export {
   DocumentEditorUpdateEventSchema,
 } from "./events/document-editor-update.js";
 export { type ErrorEvent, ErrorEventSchema } from "./events/error.js";
+export {
+  type FeedToastEvent,
+  FeedToastEventSchema,
+} from "./events/feed-toast.js";
 export {
   type GenerationCancelledEvent,
   GenerationCancelledEventSchema,
@@ -761,23 +766,34 @@ export {
   type FeedAction,
   FeedActionSchema,
   type FeedItem,
+  type FeedItemBucket,
+  FeedItemBucketSchema,
   type FeedItemCategory,
   FeedItemCategorySchema,
   type FeedItemDetailPanel,
   type FeedItemDetailPanelKind,
   FeedItemDetailPanelKindSchema,
   FeedItemDetailPanelSchema,
+  type FeedItemDigest,
+  FeedItemDigestSchema,
+  type FeedItemRun,
+  FeedItemRunSchema,
+  type FeedItemRunState,
+  FeedItemRunStateSchema,
   FeedItemSchema,
   type FeedItemSourceType,
   FeedItemSourceTypeSchema,
   type FeedItemStatus,
   FeedItemStatusSchema,
+  type FeedItemSystemHealth,
+  FeedItemSystemHealthSchema,
   type FeedItemType,
   FeedItemTypeSchema,
   type FeedItemUrgency,
   FeedItemUrgencySchema,
   type HomeFeedResponse,
   HomeFeedResponseSchema,
+  isTerminalRunState,
   type RelationshipState,
   RelationshipStateSchema,
   type RelationshipTier,
@@ -785,6 +801,7 @@ export {
   SuggestedPromptSchema,
   type SuggestedPromptSource,
   SuggestedPromptSourceSchema,
+  TERMINAL_RUN_STATES,
 } from "./responses/home.js";
 export {
   type LlmContextResponse,
@@ -969,6 +986,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   DocumentEditorShowEventSchema,
   DocumentEditorUpdateEventSchema,
   ErrorEventSchema,
+  FeedToastEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HeartbeatAlertEventSchema,

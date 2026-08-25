@@ -26,17 +26,26 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { HomeRecapRow } from "../home-recap-row";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
+import { useRunRetry } from "../hooks/use-run-retry";
+import { useTickingNow } from "../hooks/use-ticking-now";
 import {
-  clearAllArgs,
-  getVisibleFeedItems,
-  markAllReadArgs,
-  resolveFeedItemTitle,
-  sortFeedItems,
-} from "../utils";
+  clearableActivityIds,
+  groupIntoSections,
+  isRunInFlight,
+  unreadIds,
+} from "../notification-buckets";
+import { getVisibleFeedItems, resolveFeedItemTitle } from "../utils";
+import {
+  BellDigestRow,
+  BellRunRow,
+  BellSystemHealthRow,
+} from "./bell-rows";
+import { BellSection } from "./bell-section";
 import {
   NOTIFICATIONS_PANEL_HEADER_CLASS,
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
+import { NotificationsBellSkeleton } from "./notifications-bell-skeleton";
 
 /**
  * Router state read by `HomePageRoute`: arriving at the Activity page with a
@@ -47,13 +56,15 @@ export interface ActivityLocationState {
 }
 
 // The height budget the panel's content region is drawn against: five compact
-// cards plus the four 8px gaps between them. A compact card is 73px tall: 2px
-// borders, 16px padding, a 32px title line (sized by the h-8 hover actions that
-// share it with the timestamp), a 2px gap, and a 21px preview line.
-// 5 * 73 + 4 * 8 = 397. The list takes it as a cap, so a short feed draws a
-// short panel and older notifications stay reachable by scrolling. The detail
-// takes it as a fixed height, so every notification renders in the same frame.
-const PANEL_CONTENT_HEIGHT = "397px";
+// cards plus the four 8px gaps between them, plus the two section headers a
+// list of that length carries (a 16px label over its own 8px gap). A compact
+// card is 73px tall: 2px borders, 16px padding, a 32px title line (sized by the
+// h-8 hover actions that share it with the timestamp), a 2px gap, and a 21px
+// preview line. 5 * 73 + 4 * 8 + 2 * 24 = 445. The list takes it as a cap, so a
+// short feed draws a short panel and older notifications stay reachable by
+// scrolling. The detail takes it as a fixed height, so every notification
+// renders in the same frame.
+const PANEL_CONTENT_HEIGHT = "445px";
 
 // Ceiling on that budget, so a viewport too short to seat it shrinks the
 // content region instead of running the popover off the bottom edge. The
@@ -67,7 +78,7 @@ const PANEL_CONTENT_HEIGHT = "397px";
 // padding, a 40px header row (a 32px control row plus its 8px margin), a 49px
 // footer strip (8px margin, a 1px rule, 8px padding, a 32px button row), and
 // 8px of clearance at the bottom edge. 48 + 8 + 16 + 40 + 49 + 8 = 169,
-// rounded up to 176. The clamp therefore only engages below a 573px viewport,
+// rounded up to 176. The clamp therefore only engages below a 621px viewport,
 // leaving every ordinary desktop window on the budget exactly.
 const PANEL_VIEWPORT_MAX_HEIGHT = "calc(100dvh - 176px)";
 
@@ -85,10 +96,17 @@ const MOBILE_PANEL_CONTENT_HEIGHT = "60dvh";
 
 /**
  * Notification bell for the top nav: a ghost icon button with an unread dot
- * that opens the latest notifications in a popover (desktop) or bottom sheet
- * (mobile) — the same split the sidebar preferences menu uses. Rows reuse
- * `HomeRecapRow`, so mark-read and dismiss work inline; selecting one swaps
- * the panel to that notification's detail, which a back control returns from.
+ * that opens the feed in a popover (desktop) or bottom sheet (mobile), the
+ * same split the sidebar preferences menu uses.
+ *
+ * The panel is three sections, ordered most to least important and matching
+ * the buckets the daemon writes: **Needs you**, where work is blocked on the
+ * reader; **Worth knowing**, a real outcome with nothing blocked; and
+ * **Activity**, routine work with anything still running at the top of it.
+ * Running work is not something to act on, so it does not earn a section of
+ * its own; a run that does need the reader has already moved to the top
+ * section. Selecting a row swaps the panel to that row's detail, which a back
+ * control returns from.
  *
  * Owned by the home domain (it renders the home feed), so the chat layout
  * can't import it directly (cross-domain); `routes.tsx` injects it into
@@ -107,14 +125,26 @@ export function NotificationsBell() {
   const supportsBulkStatus = useSupportsBulkFeedStatus();
 
   // Memoized: the bell lives in the persistent top bar and re-renders with
-  // every layout update, so the filter + sort must only re-run when the feed
-  // data itself changes.
+  // every layout update, so the filter + grouping must only re-run when the
+  // feed data itself changes.
   const items = feedQuery.data?.items;
-  const visibleItems = useMemo(
-    () => sortFeedItems(getVisibleFeedItems(items ?? [])),
+  const sections = useMemo(
+    () => groupIntoSections(getVisibleFeedItems(items ?? [])),
     [items],
   );
+  const visibleItems = useMemo(
+    () => sections.flatMap((section) => section.items),
+    [sections],
+  );
   const hasUnread = visibleItems.some((item) => item.status === "new");
+  const hasRunningWork = visibleItems.some(isRunInFlight);
+
+  // The elapsed-time clock only runs while there is a live run to show it on,
+  // and only while the panel is open: a closed popover renders none of the
+  // rows that read it.
+  const nowMs = useTickingNow(isOpen && hasRunningWork);
+
+  const isFirstLoad = feedQuery.isPending && items === undefined;
 
   // Tracked by id, not by value: the feed is the one owner of an item's
   // status, so the detail follows a mark-read without a second copy to
@@ -243,6 +273,16 @@ export function NotificationsBell() {
     setSelectedItemId(null);
   };
 
+  const { retryRun, isRetrying } = useRunRetry(assistantId);
+
+  const handleRetryRun = (item: FeedItem) => {
+    void retryRun(item, {
+      onFallbackToConversation: (conversationId) => {
+        handleGoToConversation(conversationId);
+      },
+    });
+  };
+
   // Guards the mutation rather than the button: `isPending` reaches the button
   // only on the next render, so a second click landing in the same tick would
   // still get through and open a second conversation.
@@ -271,11 +311,30 @@ export function NotificationsBell() {
   };
 
   const handleMarkAllRead = () => {
-    feedQuery.markAll.mutate(markAllReadArgs(visibleItems));
+    const ids = unreadIds(sections);
+    if (ids.length === 0) {
+      return;
+    }
+    feedQuery.markAll.mutate({ from: ["new"], to: "seen", ids });
   };
 
-  const handleClearAll = () => {
-    feedQuery.markAll.mutate(clearAllArgs(visibleItems));
+  // Section-scoped: it clears the Activity section only, so it can no longer
+  // wipe a pending approval, and it leaves live runs alone.
+  const clearableIds = clearableActivityIds(sections);
+  const handleClearActivity = () => {
+    if (clearableIds.length === 0) {
+      return;
+    }
+    feedQuery.markAll.mutate({
+      from: ["new", "seen", "acted_on"],
+      to: "dismissed",
+      ids: clearableIds,
+    });
+  };
+
+  const handleOpenActivityLog = () => {
+    closePanel();
+    navigate("/activity");
   };
 
   // No `tooltip` prop on the Button: it would wrap the button in a Tooltip
@@ -322,26 +381,37 @@ export function NotificationsBell() {
     ? MOBILE_PANEL_CONTENT_HEIGHT
     : PANEL_LIST_MAX_HEIGHT;
 
-  const list =
-    visibleItems.length === 0 ? (
-      <Typography
-        variant="body-medium-lighter"
-        className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
-      >
-        {feedQuery.isError
-          ? t("notificationsBell.loadFailed")
-          : t("notificationsBell.empty")}
-      </Typography>
-    ) : (
-      <div
-        ref={restoreListScroll}
-        onScroll={(event) => {
-          listScrollTopRef.current = event.currentTarget.scrollTop;
-        }}
-        style={{ maxHeight: listMaxHeight }}
-        className="flex flex-col gap-[var(--app-spacing-sm)] overflow-y-auto"
-      >
-        {visibleItems.map((item) => (
+  const renderRow = (item: FeedItem) => {
+    switch (item.type) {
+      case "run":
+        return (
+          <BellRunRow
+            key={item.id}
+            item={item}
+            nowMs={nowMs}
+            onSelect={handleSelectItem}
+            onRetry={isRetrying ? undefined : handleRetryRun}
+          />
+        );
+      case "system_health":
+        return (
+          <BellSystemHealthRow
+            key={item.id}
+            item={item}
+            onSelect={handleSelectItem}
+            onNavigate={handleNavigate}
+          />
+        );
+      case "digest":
+        return (
+          <BellDigestRow
+            key={item.id}
+            item={item}
+            onOpenActivity={handleOpenActivityLog}
+          />
+        );
+      default:
+        return (
           <HomeRecapRow
             key={item.id}
             item={item}
@@ -354,9 +424,44 @@ export function NotificationsBell() {
               feedQuery.updateStatus.mutate({ itemId, status })
             }
           />
-        ))}
-      </div>
-    );
+        );
+    }
+  };
+
+  const list = isFirstLoad ? (
+    <NotificationsBellSkeleton />
+  ) : sections.length === 0 ? (
+    <Typography
+      variant="body-medium-lighter"
+      className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
+    >
+      {feedQuery.isError
+        ? t("notificationsBell.loadFailed")
+        : t("notificationsBell.empty")}
+    </Typography>
+  ) : (
+    <div
+      ref={restoreListScroll}
+      onScroll={(event) => {
+        listScrollTopRef.current = event.currentTarget.scrollTop;
+      }}
+      style={{ maxHeight: listMaxHeight }}
+      className="flex flex-col gap-[var(--app-spacing-md)] overflow-y-auto"
+    >
+      {sections.map((section) => (
+        <BellSection
+          key={section.bucket}
+          bucket={section.bucket}
+          unreadCount={
+            section.items.filter((item) => item.status === "new").length
+          }
+          runningCount={section.runningCount}
+        >
+          {section.items.map(renderRow)}
+        </BellSection>
+      ))}
+    </div>
+  );
 
   // Keyed so the swap remounts the incoming view and replays its entrance.
   const panel = (
@@ -413,14 +518,16 @@ export function NotificationsBell() {
                   {t("actions.markAllAsRead")}
                 </Button>
               ) : null}
-              <Button
-                variant="ghost"
-                size="compact"
-                onClick={handleClearAll}
-                disabled={feedQuery.markAll.isPending}
-              >
-                {t("actions.clearAll")}
-              </Button>
+              {clearableIds.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={handleClearActivity}
+                  disabled={feedQuery.markAll.isPending}
+                >
+                  {t("actions.clearActivity")}
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </>

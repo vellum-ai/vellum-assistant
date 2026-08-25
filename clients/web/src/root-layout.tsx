@@ -45,6 +45,7 @@ import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
+import { useFeedToastSync } from "@/hooks/use-feed-toast-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useWatchRetroSync } from "@/hooks/use-watch-retro-sync";
 import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navigation";
@@ -177,6 +178,7 @@ export function RootLayout() {
   // one-shot per assistant and must run whichever route the user lands on.
   useLegacyPinMigration(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
+  useFeedToastSync();
   useWebPresenceReport(assistantId);
   usePushRegistration(assistantId);
   useNotificationTapNavigation();

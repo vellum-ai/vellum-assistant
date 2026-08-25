@@ -68,6 +68,12 @@ const listHomeFeedRequestSchema = z.object({
   categories: z
     .array(z.enum(["security", "scheduling", "background", "email", "system"]))
     .optional(),
+  buckets: z
+    .array(z.enum(["needs_you", "worth_knowing", "activity"]))
+    .optional(),
+  types: z
+    .array(z.enum(["notification", "run", "digest", "system_health"]))
+    .optional(),
   conversationId: z.string().optional(),
   fromAssistant: z.boolean().optional(),
   noteworthy: z.boolean().optional(),
@@ -284,6 +290,8 @@ export function handleListHomeFeed({
 
   const urgencySet = params.urgencies ? new Set(params.urgencies) : null;
   const categorySet = params.categories ? new Set(params.categories) : null;
+  const bucketSet = params.buckets ? new Set(params.buckets) : null;
+  const typeSet = params.types ? new Set(params.types) : null;
 
   const feed = readHomeFeed();
 
@@ -300,6 +308,14 @@ export function handleListHomeFeed({
       if (!item.category || !categorySet.has(item.category)) {
         return false;
       }
+    }
+    // Rows written before the bucket field existed carry none, so an explicit
+    // bucket filter excludes them rather than guessing one for them.
+    if (bucketSet && (!item.bucket || !bucketSet.has(item.bucket))) {
+      return false;
+    }
+    if (typeSet && !typeSet.has(item.type)) {
+      return false;
     }
     if (
       params.conversationId !== undefined &&
