@@ -135,6 +135,16 @@ describe("android launcher icon transforms", () => {
     expect(legacyRound).toEqual(legacy);
   });
 
+  test("every launcher group centers the pivot on the 108dp canvas", () => {
+    // A VectorDrawable group maps the pivot to pivot + translate, so this sum
+    // is the on-canvas position of the eye center and must be the canvas
+    // center regardless of where the library puts eyeCenter.
+    for (const transform of [adaptive, monochrome, legacy, legacyRound]) {
+      expect(Number(transform.pivotX) + Number(transform.translateX)).toBe(54);
+      expect(Number(transform.pivotY) + Number(transform.translateY)).toBe(54);
+    }
+  });
+
   test("scales are uniform and the legacy scale fills the unmasked canvas", () => {
     expect(adaptive.scaleY).toBe(adaptive.scaleX);
     expect(legacy.scaleY).toBe(legacy.scaleX);
