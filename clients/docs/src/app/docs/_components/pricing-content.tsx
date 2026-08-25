@@ -29,6 +29,7 @@ const TOC_ITEMS = [
   { id: "purchasing-credits", label: "Purchasing Credits", level: 2 },
   { id: "how-to-add-credits", label: "How to add credits", level: 3 },
   { id: "auto-reload", label: "Auto-Reload", level: 3 },
+  { id: "spending-controls", label: "Spending controls", level: 3 },
   { id: "how-credits-are-spent", label: "How credits are spent", level: 2 },
   { id: "need-help-with-billing", label: "Need help with billing?", level: 2 },
 ];
@@ -284,7 +285,8 @@ export function PricingContent() {
                 <strong>Storage tier</strong>: $5 to $30/mo (10 to 120 GiB)
               </li>
               <li>
-                <strong>Credit bundle</strong> (optional): $10 to $200/mo
+                <strong>Credit bundle</strong> (optional): $25, $45, or
+                $115/mo
               </li>
             </ul>
             <p className="mb-6 text-zinc-600">
@@ -429,8 +431,9 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
               Pro packages include a monthly credit allowance (for example, $25
-              with Mighty, $45 with Super). On the Custom plan, you can add an
-              optional recurring credit bundle to your subscription:
+              with Mighty, $45 with Super). On the Custom plan, you can add one
+              of the same usage bundles to your subscription as an optional
+              recurring line item:
             </p>
             <div className="not-prose mb-6 overflow-x-auto">
               <table className="w-full border-collapse text-sm">
@@ -446,11 +449,9 @@ export function PricingContent() {
                 </thead>
                 <tbody>
                   {[
-                    { credits: "$10", price: "+$10/mo" },
-                    { credits: "$25", price: "+$25/mo" },
-                    { credits: "$50", price: "+$50/mo" },
-                    { credits: "$100", price: "+$100/mo" },
-                    { credits: "$200", price: "+$200/mo" },
+                    { credits: "$25 (Mighty Usage)", price: "+$25/mo" },
+                    { credits: "$45 (Super Usage)", price: "+$45/mo" },
+                    { credits: "$115 (Ultra Usage)", price: "+$115/mo" },
                   ].map(({ credits, price }, i, arr) => (
                     <tr
                       key={credits}
@@ -467,11 +468,22 @@ export function PricingContent() {
                 </tbody>
               </table>
             </div>
+            <p className="mb-3 text-zinc-600">
+              Credit bundles are charged as a recurring subscription line item,
+              and appear on your invoice under the bundle name (for example,
+              &ldquo;Mighty Usage&rdquo;). They are separate from
+              pay-as-you-go credit top-ups: bundles give you a set amount each
+              month, while pay-as-you-go credits let you add more anytime. One
+              Vellum Credit equals one US dollar. Bundles previously offered at
+              other amounts remain in place for subscribers who already have
+              them.
+            </p>
             <p className="mb-10 text-zinc-600">
-              Credit bundles are charged as a recurring subscription line item.
-              They are separate from pay-as-you-go credit top-ups: bundles give
-              you a set amount each month, while pay-as-you-go credits let you
-              add more anytime. One Vellum Credit equals one US dollar.
+              Bundle credits reset each billing cycle: whatever is left when
+              the period ends expires and does not roll over. Purchased
+              pay-as-you-go credits last much longer &mdash; they expire twelve
+              months after purchase. When your assistant spends credits, the
+              ones closest to expiring are used first.
             </p>
 
             {/* Changing your plan */}
@@ -492,13 +504,22 @@ export function PricingContent() {
                 Checkout. Active immediately.
               </li>
               <li>
-                <strong>Change tiers.</strong> Switch machine, storage, or
-                credit tier anytime. Changes are prorated. Modifying any tier on
-                a package converts your plan to Custom.
+                <strong>Upgrade a tier.</strong> Switch to a bigger machine,
+                storage, or credit tier anytime, or to a bigger package.
+                Upgrades take effect immediately: the price difference is
+                charged right away, and a bigger credit bundle grants the extra
+                credits instantly. Modifying any individual tier on a package
+                converts your plan to Custom.
               </li>
               <li>
-                <strong>Cancel.</strong> Takes effect at period end. Pro
-                features stay active until then.
+                <strong>Downgrade a tier.</strong> Downgrades take effect at
+                your next renewal &mdash; you keep what you already paid for
+                until then, and there are no mid-cycle refunds.
+              </li>
+              <li>
+                <strong>Cancel.</strong> Choose Downgrade to Base from the
+                plans page. Takes effect at period end; Pro features stay
+                active until then.
               </li>
             </ul>
           </CollapsibleSection>
@@ -510,25 +531,13 @@ export function PricingContent() {
               the Billing page via Stripe Checkout. Applicable taxes may be
               added during checkout.
             </p>
-            <p className="mb-4 text-zinc-600">
-              In the app, your Billing screen shows a{" "}
-              <strong>Credit Balance</strong> plus a breakdown of settled and
-              pending amounts:
+            <p className="mb-0 text-zinc-600">
+              In the app, your Billing screen shows your current{" "}
+              <strong>Credit Balance</strong>, alongside the controls for
+              adding credits, Auto-Reload, your daily credit limit, and
+              low-balance alerts. The Usage tab breaks down where credits went
+              by day, model, and action.
             </p>
-            <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
-              <li>
-                <strong>Credit Balance</strong>: the current amount available
-                after pending compute is considered.
-              </li>
-              <li>
-                <strong>Settled Balance</strong>: charges that have already
-                settled.
-              </li>
-              <li>
-                <strong>Pending Usage</strong>: estimated in-flight compute that
-                may not be fully settled yet.
-              </li>
-            </ul>
           </CollapsibleSection>
 
           <CollapsibleSection id="vellum-credits" label="Vellum Credits">
@@ -660,6 +669,30 @@ export function PricingContent() {
                 You can disable Auto-Reload anytime; your saved card stays on
                 file so you can re-enable it later without re-entering details.
               </p>
+            </div>
+
+            <div className="mt-8">
+              <SectionHeading
+                id="spending-controls"
+                level={3}
+                className="scroll-mt-24"
+              >
+                Spending controls
+              </SectionHeading>
+              <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
+                <li>
+                  <strong>Daily credit limit.</strong> An optional cap on how
+                  many credits your assistant can spend per day (UTC). When the
+                  limit is reached, paid usage pauses until the next day and
+                  the account owner gets an email. From Billing you can raise
+                  or remove the limit, or skip it just for today.
+                </li>
+                <li>
+                  <strong>Low-balance alert.</strong> An email when your
+                  balance drops below a threshold you set, so you can top up
+                  before your assistant runs dry.
+                </li>
+              </ul>
             </div>
           </CollapsibleSection>
 
