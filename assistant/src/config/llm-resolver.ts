@@ -20,6 +20,7 @@ import {
   type LLMSchema,
   type ProfileEntry,
   routingIdentityModelIssue,
+  unknownLlmProviderIssue,
 } from "./schemas/llm.js";
 
 /**
@@ -424,10 +425,15 @@ function resolveOverrideOrDefault(
     CODE_DEFAULT_BASE.provider;
   // A routing-identity winner serves any model its route can dispatch —
   // identity + model is the complete shape, so no provider implication.
+  // A provider outside the known set is an exact entry reference. Its row is
+  // the route authority, so a model tweak must not silently replace it with a
+  // conventional vendor route just because this pure resolver cannot inspect
+  // the row's model catalog.
   const winnerServesModel = (model: string): boolean =>
     ROUTING_IDENTITY_PROVIDERS.has(applicableProvider)
       ? routingIdentityModelIssue(applicableProvider, model) === null
-      : isModelInCatalog(applicableProvider, model);
+      : unknownLlmProviderIssue(applicableProvider) !== null ||
+        isModelInCatalog(applicableProvider, model);
   if (
     typeof tweak.model === "string" &&
     tweak.provider === undefined &&

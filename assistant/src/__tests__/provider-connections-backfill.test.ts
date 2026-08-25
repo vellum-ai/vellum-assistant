@@ -36,11 +36,11 @@ function seedConfig(profiles: Record<string, unknown>): void {
   );
 }
 
-function backfilledConnection(profileName: string): unknown {
+function backfilledProvider(profileName: string): unknown {
   const llm = loadRawConfig().llm as {
     profiles?: Record<string, Record<string, unknown>>;
   };
-  return llm.profiles?.[profileName]?.provider_connection;
+  return llm.profiles?.[profileName]?.provider;
 }
 
 beforeEach(() => {
@@ -67,7 +67,7 @@ test("managed mode prefers an existing user connection over the vellum default",
 
   runProviderConnectionsBackfill(getDb());
 
-  expect(backfilledConnection("byok")).toBe("anthropic-personal");
+  expect(backfilledProvider("byok")).toBe("anthropic-personal");
 });
 
 test("managed mode still stamps vellum when no user connection exists", () => {
@@ -76,7 +76,7 @@ test("managed mode still stamps vellum when no user connection exists", () => {
 
   runProviderConnectionsBackfill(getDb());
 
-  expect(backfilledConnection("byok")).toBe("vellum");
+  expect(backfilledProvider("byok")).toBe("vellum");
 });
 
 test("managed-owned entries keep the vellum stamp even when a user connection exists", () => {
@@ -111,10 +111,10 @@ test("managed-owned entries keep the vellum stamp even when a user connection ex
 
   runProviderConnectionsBackfill(getDb());
 
-  expect(backfilledConnection("balanced")).toBe("vellum");
-  expect(backfilledConnection("quality-optimized")).toBe("vellum");
-  expect(backfilledConnection("cost-optimized")).toBe("anthropic-personal");
-  expect(backfilledConnection("byok")).toBe("anthropic-personal");
+  expect(backfilledProvider("balanced")).toBe("vellum");
+  expect(backfilledProvider("quality-optimized")).toBe("vellum");
+  expect(backfilledProvider("cost-optimized")).toBe("anthropic-personal");
+  expect(backfilledProvider("byok")).toBe("anthropic-personal");
 });
 
 test("routing-identity providers are never stamped with a connection", () => {
@@ -126,8 +126,8 @@ test("routing-identity providers are never stamped with a connection", () => {
 
   runProviderConnectionsBackfill(getDb());
 
-  expect(backfilledConnection("managedRoute")).toBeUndefined();
-  expect(backfilledConnection("subscription")).toBeUndefined();
+  expect(backfilledProvider("managedRoute")).toBe("vellum");
+  expect(backfilledProvider("subscription")).toBe("chatgpt");
 });
 
 test("your-own mode reuses a custom-named connection instead of creating -personal", () => {
@@ -142,7 +142,7 @@ test("your-own mode reuses a custom-named connection instead of creating -person
 
   runProviderConnectionsBackfill(getDb());
 
-  expect(backfilledConnection("byok")).toBe("my-anthropic");
+  expect(backfilledProvider("byok")).toBe("my-anthropic");
   expect(getConnection(getDb(), "anthropic-personal")).toBeNull();
   // Exactly the user's connection — no parallel row was created.
   expect(

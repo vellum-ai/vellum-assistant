@@ -36,6 +36,8 @@ import {
 import { getDb } from "../../persistence/db-connection.js";
 import {
   catalogProviderForProfile,
+  connectionProviderKind,
+  resolveEntryConnectionName,
   resolveEntryProviderKind,
   writableProfileProviderIssue,
 } from "../../providers/connection-resolution.js";
@@ -54,6 +56,7 @@ import {
   getModelDisplayName,
   isModelInCatalog,
 } from "../../providers/model-catalog.js";
+import { profileProviderForConnection } from "../../providers/profile-provider-reference.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -208,13 +211,14 @@ function modelReachIssue(
       ? { identity: true, catalogProvider: provider, message: issue }
       : null;
   }
+  const entryConnectionName = resolveEntryConnectionName(provider);
   const entryKind = resolveEntryProviderKind(provider, model);
   const catalogProvider = entryKind ?? provider;
   if (isModelInCatalog(catalogProvider, model)) {
     return null;
   }
   const modelListConnection =
-    connectionName ?? (entryKind !== null ? provider : undefined);
+    connectionName ?? entryConnectionName ?? undefined;
   if (modelListConnection) {
     const connection = getConnection(getDb(), modelListConnection);
     if (connection?.models?.some((m) => m.id === model)) {
@@ -342,6 +346,22 @@ function assertConnectionExists(name: string): void {
   }
 }
 
+function providerForExactConnection(
+  name: string,
+  provider: string,
+  model: string,
+): string {
+  assertConnectionExists(name);
+  const expectedKind = catalogProviderForProfile(provider, model) ?? provider;
+  const actualKind = connectionProviderKind(name, model);
+  if (actualKind !== expectedKind) {
+    throw new BadRequestError(
+      `Connection "${name}" serves provider "${actualKind ?? "unknown"}", not "${expectedKind}".`,
+    );
+  }
+  return profileProviderForConnection(name);
+}
+
 function asPlainObject(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -427,9 +447,6 @@ function fragmentFromBody(
   }
   if (typeof body.description === "string") {
     fragment.description = body.description;
-  }
-  if (typeof body.connection === "string") {
-    fragment.provider_connection = body.connection;
   }
   return fragment;
 }
@@ -586,20 +603,20 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   }
 
   assertValidProvider(input.provider);
-  if (input.connection) {
-    assertConnectionExists(input.connection);
-  }
+  const routeProvider = input.connection
+    ? providerForExactConnection(input.connection, input.provider, input.model)
+    : input.provider;
   const warnings = validateModel(
-    input.provider,
+    routeProvider,
     input.model,
     input.allowUnlisted ?? false,
     input.connection,
   );
-  assertSaneMaxTokens(input.provider, input.model, input.maxTokens);
+  assertSaneMaxTokens(routeProvider, input.model, input.maxTokens);
 
   const entry: Record<string, unknown> = {
     ...fragmentFromBody(body as Record<string, unknown>),
-    provider: input.provider,
+    provider: routeProvider,
     model: input.model,
     source: "user",
     // `warnings` here can only be validateModel's unlisted verdict (the
@@ -700,9 +717,9 @@ async function handleUpdateProfile({
     );
   }
 
-  const nextProvider =
-    input.provider ??
-    (typeof existing.provider === "string" ? existing.provider : undefined);
+  const existingProvider =
+    typeof existing.provider === "string" ? existing.provider : undefined;
+  const requestedProvider = input.provider ?? existingProvider;
   const nextModel =
     input.model ??
     (typeof existing.model === "string" ? existing.model : undefined);
@@ -710,13 +727,24 @@ async function handleUpdateProfile({
   if (input.provider) {
     assertValidProvider(input.provider);
   }
-  let warnings: string[] = [];
-  if (input.connection) {
-    assertConnectionExists(input.connection);
+  if (input.connection && (!requestedProvider || !nextModel)) {
+    throw new BadRequestError(
+      "An exact connection selection requires the profile to have both provider and model.",
+    );
   }
+  const nextProvider =
+    input.connection && requestedProvider && nextModel
+      ? providerForExactConnection(
+          input.connection,
+          requestedProvider,
+          nextModel,
+        )
+      : requestedProvider;
+  let warnings: string[] = [];
   const nextConnection =
     input.connection ??
-    (typeof existing.provider_connection === "string"
+    (input.provider === undefined &&
+    typeof existing.provider_connection === "string"
       ? existing.provider_connection
       : undefined);
   if (
@@ -753,11 +781,16 @@ async function handleUpdateProfile({
   const merged: Record<string, unknown> = {
     ...existing,
     ...fragmentFromBody(body as Record<string, unknown>),
-    ...(input.provider !== undefined ? { provider: input.provider } : {}),
+    ...(input.provider !== undefined || input.connection !== undefined
+      ? { provider: nextProvider }
+      : {}),
     ...(input.model !== undefined ? { model: input.model } : {}),
     source:
       existing.source === "managed" ? "user" : (existing.source ?? "user"),
   };
+  if (input.provider !== undefined || input.connection !== undefined) {
+    delete merged.provider_connection;
+  }
   // Keep the allowUnlisted marker faithful to the pair being stored: stamp
   // it on a deliberate unlisted acceptance (warnings can only be the
   // unlisted verdict here), and drop a stale one when the pair is now

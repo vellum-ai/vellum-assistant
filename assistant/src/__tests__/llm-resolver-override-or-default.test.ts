@@ -391,6 +391,33 @@ describe("composition", () => {
     expect(resolved.provider_connection).toBeUndefined();
   });
 
+  test("a model tweak preserves an exact entry route", () => {
+    for (const provider of ["anthropic-work", "connection:anthropic"]) {
+      const llm = LLMSchema.parse({
+        profiles: {
+          mine: {
+            ...completeCustom,
+            provider,
+            model: "claude-opus-4-8",
+            provider_connection: undefined,
+          },
+        },
+        callSites: {
+          conversationSummarization: {
+            profile: "mine",
+            model: "claude-haiku-4-5-20251001",
+          },
+        },
+        ...anthropicDp,
+      });
+
+      const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+      expect(resolved.provider).toBe(provider);
+      expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+      expect(resolved.provider_connection).toBeUndefined();
+    }
+  });
+
   test("a provider-pinning tweak over the vellum default keeps the managed routing", () => {
     const llm = LLMSchema.parse({
       callSites: {

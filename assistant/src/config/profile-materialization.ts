@@ -16,6 +16,7 @@ import {
   type LLMConfigBase,
   type ProfileEntry,
   routingIdentityModelIssue,
+  unknownLlmProviderIssue,
 } from "./schemas/llm.js";
 
 /**
@@ -87,10 +88,14 @@ export function completeCustomProfile(
 
   // A routing-identity fill base serves any model its route can dispatch —
   // identity + model is the complete shape, so no provider implication.
+  // An exact entry reference is likewise authoritative. This pure completion
+  // pass cannot inspect the row, so it preserves the route and leaves model
+  // compatibility to the connection-aware write guard and dispatch preflight.
   const fillBaseServesModel = (model: string): boolean =>
     ROUTING_IDENTITY_PROVIDERS.has(dflt.provider)
       ? routingIdentityModelIssue(dflt.provider, model) === null
-      : isModelInCatalog(dflt.provider, model);
+      : unknownLlmProviderIssue(dflt.provider) !== null ||
+        isModelInCatalog(dflt.provider, model);
   if (
     profile.model !== undefined &&
     profile.provider === undefined &&

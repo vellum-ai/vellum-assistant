@@ -2,16 +2,15 @@
  * Connection-aware provider resolution helpers.
  *
  * These wrap `resolveProviderFromConnection` (in `registry.ts`) with the
- * DB lookup and lifecycle of a `provider_connection` reference. The
+ * DB lookup and lifecycle of a profile route reference. The
  * canonical dispatch path (`provider-send-message.ts`) and each satellite
  * site (subagent manager, daemon conversation/approval/guardian generators,
  * rollup producer) use these helpers so that connection-awareness behaves
  * identically across the codebase.
  *
  * Resolution policy:
- *   1. The profile MUST name a `provider_connection`. The boot-time
- *      backfill ensures every profile has one; a missing connection name
- *      is a configuration bug.
+ *   1. An exact route may come from the profile's provider entry reference
+ *      or the legacy `provider_connection` fallback.
  *   2. Hard config errors (DB lookup throws, row not found, provider
  *      mismatch with the resolving profile) throw so misconfigurations
  *      surface immediately rather than silently rerouting.
@@ -51,6 +50,7 @@ import {
   listConnections,
 } from "./inference/connections.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
+import { connectionNameFromProfileProviderReference } from "./profile-provider-reference.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
@@ -72,19 +72,23 @@ const log = getLogger("providers/connection-resolution");
 
 /**
  * Resolve a provider label that names a connection row (an entry) to that
- * row's name. Returns null for catalog providers and routing identities
- * (those translate through their own rules) and for labels naming no row.
+ * row's name. Explicit namespaced references return their decoded target even
+ * when the row is missing so dispatch reports a hard not_found error. Returns
+ * null for catalog providers, routing identities, and ordinary labels naming
+ * no row.
  *
- * The write surfaces reject entry-name providers until the entries model
- * enables them, so a config carrying one reaches dispatch only through a
- * hand edit today and through the collapse migration later; translating
- * here makes both route explainably instead of failing as an unknown
- * provider.
  */
 export function resolveEntryConnectionName(
   provider: string | undefined,
 ): string | null {
-  if (!provider || VALID_CONNECTION_PROVIDERS.includes(provider)) {
+  if (!provider) {
+    return null;
+  }
+  const explicit = connectionNameFromProfileProviderReference(provider);
+  if (explicit !== null) {
+    return explicit;
+  }
+  if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
     return null;
   }
   try {
@@ -104,6 +108,16 @@ export function resolveEntryConnectionName(
  * the entries demolition, so entries must not leak into them meanwhile.
  */
 export function writableProfileProviderIssue(provider: string): string | null {
+  const explicit = connectionNameFromProfileProviderReference(provider);
+  if (explicit !== null) {
+    try {
+      return getConnection(getDb(), explicit) == null
+        ? `Invalid provider "${provider}". No connection named "${explicit}" exists.`
+        : null;
+    } catch {
+      return `Connection "${explicit}" could not be verified. Try again.`;
+    }
+  }
   const issue = unknownLlmProviderIssue(provider);
   if (issue === null) {
     return null;
@@ -125,6 +139,12 @@ export function writableProfileProviderIssue(provider: string): string | null {
  * never heals away a valid entry profile; dispatch soft-fails on its own.
  */
 export function dispatchProviderResolvable(provider: string): boolean {
+  if (connectionNameFromProfileProviderReference(provider) !== null) {
+    // An exact reference remains the selected route even when the row is
+    // missing, so dispatch can surface the same hard not_found error as a
+    // legacy provider_connection pin instead of silently healing selection.
+    return true;
+  }
   if (VALID_CONNECTION_PROVIDERS.includes(provider)) {
     return true;
   }

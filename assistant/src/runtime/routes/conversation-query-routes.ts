@@ -101,9 +101,16 @@ import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
-import { writableProfileProviderIssue } from "../../providers/connection-resolution.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
-import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
+import {
+  catalogProviderForProfile,
+  connectionProviderKind,
+  writableProfileProviderIssue,
+} from "../../providers/connection-resolution.js";
+import {
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  ROUTING_IDENTITY_PROVIDERS,
+  VALID_CONNECTION_PROVIDERS,
+} from "../../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
@@ -112,6 +119,7 @@ import {
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import { profileProviderForConnection } from "../../providers/profile-provider-reference.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -1810,14 +1818,31 @@ async function handleReplaceInferenceProfile({
     });
   }
 
-  // When the UI sends provider but no provider_connection, derive the connection
-  // now so the config deep-merge doesn't inherit a stale connection from the
-  // default layer. Managed entries are excluded: the managed gate above
+  // Normalize a legacy two-field body only when the row confirms both facts
+  // agree. If the UI sends a bare provider, resolve its route now and store the
+  // connection entry or managed identity in `provider`, so the replacement
+  // cannot inherit a stale legacy connection. Managed entries are excluded: the managed gate above
   // already rejected any provider-carrying fragment, so their only surviving
   // body is a status re-enable, which derives no connection. A user-owned
   // profile sharing a managed name is fully editable, so it takes the
   // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
+  const legacyBinding = fragment.provider_connection;
+  const fragmentProvider = fragment.provider;
+  const fragmentModel = fragment.model;
+  if (
+    typeof legacyBinding === "string" &&
+    typeof fragmentProvider === "string" &&
+    typeof fragmentModel === "string"
+  ) {
+    const expectedKind =
+      catalogProviderForProfile(fragmentProvider, fragmentModel) ??
+      fragmentProvider;
+    if (connectionProviderKind(legacyBinding, fragmentModel) === expectedKind) {
+      fragment.provider = profileProviderForConnection(legacyBinding);
+      delete fragment.provider_connection;
+    }
+  }
   // Routing identities resolve their connection per-request from the
   // provider value; deriving one here would stamp the canonical vellum row
   // ("vellum" is its stored provider) or create a junk "<identity>-personal"
@@ -1826,6 +1851,7 @@ async function handleReplaceInferenceProfile({
     !isManaged &&
     fragment.provider &&
     !fragment.provider_connection &&
+    VALID_CONNECTION_PROVIDERS.includes(fragment.provider as string) &&
     !ROUTING_IDENTITY_PROVIDERS.has(fragment.provider as string)
   ) {
     const provider = fragment.provider as string;
@@ -1838,14 +1864,14 @@ async function handleReplaceInferenceProfile({
       (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
     );
     if (active) {
-      fragment.provider_connection = active.name;
+      fragment.provider = profileProviderForConnection(active.name);
     } else if (
       MANAGED_ROUTABLE_PROVIDERS.has(provider) &&
       getConnection(db, VELLUM_MANAGED_CONNECTION_NAME)
     ) {
       // Managed-routable providers are served by the single Vellum-managed
       // connection; prefer it over lazily creating a personal connection.
-      fragment.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
+      fragment.provider = "vellum";
     } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
       const connectionName = `${provider}-personal`;
       const isKeyless = provider === "ollama";
@@ -1860,7 +1886,7 @@ async function handleReplaceInferenceProfile({
             },
       });
       if (result.ok) {
-        fragment.provider_connection = connectionName;
+        fragment.provider = profileProviderForConnection(connectionName);
       }
     }
   }
