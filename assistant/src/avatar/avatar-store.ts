@@ -18,6 +18,7 @@ import { join } from "node:path";
 import {
   AVATAR_IMAGE_FILENAME,
   AVATAR_MANIFEST_FILENAME,
+  AVATAR_TRAITS_FILENAME,
 } from "@vellumai/avatar-manifest";
 
 import { getLogger } from "../util/logger.js";
@@ -30,7 +31,6 @@ import {
 import {
   ASCII_FILENAME,
   type CharacterTraits,
-  TRAITS_FILENAME,
   type TraitsSyncResult,
   writeTraitsAndRenderAvatar,
 } from "./traits-png-sync.js";
@@ -77,7 +77,7 @@ export function setImage(pngBuffer: Buffer, source: AvatarSource): void {
   writeFileSync(pngTmp, pngBuffer);
   renameSync(pngTmp, pngPath);
 
-  rmSync(join(avatarDir, TRAITS_FILENAME), { force: true });
+  rmSync(join(avatarDir, AVATAR_TRAITS_FILENAME), { force: true });
   rmSync(join(avatarDir, ASCII_FILENAME), { force: true });
 
   writeManifest({
@@ -105,7 +105,7 @@ export function clearAvatar(): void {
   mkdirSync(avatarDir, { recursive: true });
 
   rmSync(join(avatarDir, AVATAR_IMAGE_FILENAME), { force: true });
-  rmSync(join(avatarDir, TRAITS_FILENAME), { force: true });
+  rmSync(join(avatarDir, AVATAR_TRAITS_FILENAME), { force: true });
   rmSync(join(avatarDir, ASCII_FILENAME), { force: true });
   rmSync(join(avatarDir, AVATAR_MANIFEST_FILENAME), { force: true });
 

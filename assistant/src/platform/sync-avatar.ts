@@ -7,16 +7,18 @@
  * comes from the raster file itself, not the manifest, so a raster rewritten
  * in place (fs watcher path) still syncs, and is scoped to the platform
  * destination so re-registering to another assistant or base URL re-sends.
- * Best-effort: failures are logged, never
- * thrown, and leave the dedup key untouched so the next publish retries.
+ * `avatar_base64: null` is sent only when the avatar is actually removed; a
+ * non-none avatar whose raster is missing (image PNG gone, character re-render
+ * unavailable) is skipped so the platform keeps the last synced copy.
+ * Best-effort: failures are logged, never thrown, and leave the dedup key
+ * untouched so the next publish retries.
  */
 
 import { readFile } from "node:fs/promises";
 
 import {
   computeImageMeta,
-  deriveStateFromLegacyFiles,
-  readManifest,
+  readAvatarState,
 } from "../avatar/avatar-manifest.js";
 import { ensureAvatarRasterPath } from "../avatar/ensure-raster.js";
 import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
@@ -50,11 +52,18 @@ export function syncAvatarToPlatform(): void {
   pending = pending.then(() => doSync(mySeq)).catch(() => {});
 }
 
-async function readRaster(): Promise<{ key: string; bytes: Buffer | null }> {
-  const state = readManifest() ?? deriveStateFromLegacyFiles();
+/** Returns undefined when a non-none avatar has no raster to send. */
+async function readRaster(): Promise<
+  { key: string; bytes: Buffer | null } | undefined
+> {
+  const state = readAvatarState();
+  if (state.kind === "none") {
+    return { key: NONE_KEY, bytes: null };
+  }
   const path = await ensureAvatarRasterPath(state);
   if (!path) {
-    return { key: NONE_KEY, bytes: null };
+    log.warn({ kind: state.kind }, "Avatar raster missing; skipping sync");
+    return undefined;
   }
   const { etag } = computeImageMeta(path);
   return { key: `${state.kind}:${etag}`, bytes: await readFile(path) };
@@ -100,7 +109,11 @@ async function doSync(requestSeq: number): Promise<void> {
       return;
     }
 
-    const { key: rasterKey, bytes } = await readRaster();
+    const raster = await readRaster();
+    if (!raster) {
+      return;
+    }
+    const { key: rasterKey, bytes } = raster;
     const key = `${client.baseUrl}|${assistantId}|${rasterKey}`;
     if (key === lastSyncedKey) {
       return;

@@ -8,7 +8,9 @@
  *
  * Requests are serialized so that rapid name changes (A → B) never race:
  * only the most recently requested name is sent, and a stale in-flight
- * response cannot overwrite a newer value.
+ * response cannot overwrite a newer value. The dedup key is scoped to the
+ * platform destination (base URL + assistant id) so re-registering to
+ * another assistant re-sends an unchanged name.
  *
  * The sync is best-effort and fire-and-forget — network failures are
  * logged but never surface to callers.
@@ -23,22 +25,24 @@ import { VellumPlatformClient } from "./client.js";
 
 const log = getLogger("sync-identity");
 
-/** Track the last successfully synced name (used inside doSync to skip redundant PATCHes). */
-let lastSyncedName: string | null = null;
-
-/** Track the last requested name (used for dedup at enqueue time). */
-let lastRequestedName: string | null = null;
+/** `${baseUrl}|${assistantId}|${name}` of the last successful PATCH. */
+let lastSyncedKey: string | null = null;
 
 /**
  * Monotonically increasing sequence number.  Each call to
- * `syncIdentityNameToPlatform` bumps this; after a PATCH completes we
- * only update `lastSyncedName` when `seq` still matches, guaranteeing
- * the newest name always wins.
+ * `syncIdentityNameToPlatform` bumps this; a request whose seq is no longer
+ * current is skipped, guaranteeing the newest name always wins.
  */
 let seq = 0;
 
 /** Chain promise that serializes in-flight PATCH requests. */
 let pending: Promise<void> = Promise.resolve();
+
+export function _resetSyncIdentityStateForTests(): void {
+  lastSyncedKey = null;
+  seq = 0;
+  pending = Promise.resolve();
+}
 
 /**
  * Push the current assistant name to the platform `Assistant` record.
@@ -46,14 +50,12 @@ let pending: Promise<void> = Promise.resolve();
  * No-op when:
  * - The platform client cannot be created (not platform-hosted / missing creds).
  * - No assistant ID is configured.
- * - The name is empty or unchanged since the last request.
+ * - The name is empty or already synced to the same platform destination.
  */
 export function syncIdentityNameToPlatform(name: string): void {
-  if (!name || name === lastRequestedName) {
+  if (!name) {
     return;
   }
-
-  lastRequestedName = name;
 
   const mySeq = ++seq;
 
@@ -91,20 +93,14 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
       return;
     }
 
-    // Re-check after awaiting the previous request in the chain.
-    if (name === lastSyncedName) {
-      return;
-    }
-
     const client = await VellumPlatformClient.create();
-    if (!client) {
-      clearRequestedIfLatest(requestSeq);
+    const assistantId = client?.platformAssistantId;
+    if (!client || !assistantId) {
       return;
     }
 
-    const assistantId = client.platformAssistantId;
-    if (!assistantId) {
-      clearRequestedIfLatest(requestSeq);
+    const key = `${client.baseUrl}|${assistantId}|${name}`;
+    if (key === lastSyncedKey) {
       return;
     }
 
@@ -119,15 +115,9 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
     );
 
     if (resp.ok) {
-      // Only update cache if no newer request has been enqueued since we
-      // started this PATCH — prevents a slow response from overwriting a
-      // fresher value.
-      if (requestSeq === seq) {
-        lastSyncedName = name;
-      }
+      lastSyncedKey = key;
       log.info({ name, assistantId }, "Synced assistant name to platform");
     } else {
-      clearRequestedIfLatest(requestSeq);
       const text = await resp.text();
       log.warn(
         { status: resp.status, body: text, assistantId },
@@ -135,17 +125,6 @@ async function doSync(name: string, requestSeq: number): Promise<void> {
       );
     }
   } catch (err) {
-    clearRequestedIfLatest(requestSeq);
     log.warn({ err }, "Error syncing assistant name to platform");
-  }
-}
-
-/**
- * Reset `lastRequestedName` when the latest request failed, so that the
- * next call with the same name is allowed through instead of being deduped.
- */
-function clearRequestedIfLatest(requestSeq: number): void {
-  if (requestSeq === seq) {
-    lastRequestedName = lastSyncedName;
   }
 }
