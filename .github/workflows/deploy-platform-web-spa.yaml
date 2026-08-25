@@ -155,31 +155,18 @@ jobs:
             exit 1
           fi
 
-          # 1. Upload everything EXCEPT index.html and theme-init.js with a long
-          #    immutable cache, additive (no deletion) so clients that loaded the
-          #    previous shell can still fetch their lazy-loaded hashed chunks
-          #    during the rollout. index.html is excluded here so that a run
-          #    cancelled before step 3 (e.g. superseded by
-          #    concurrency.cancel-in-progress) can never leave the entrypoint
-          #    pinned with a year-long immutable cache. theme-init.js is excluded
-          #    because it lives at a stable unhashed URL: pinned immutable, a
-          #    returning browser would keep running a year-old copy of the shell
-          #    init while the HTML around it moves.
+          # 1. Upload everything EXCEPT index.html with a long immutable cache,
+          #    additive (no deletion) so clients that loaded the previous shell can
+          #    still fetch their lazy-loaded hashed chunks during the rollout.
+          #    index.html is excluded here so that a run cancelled before step 2
+          #    (e.g. superseded by concurrency.cancel-in-progress) can never leave
+          #    the entrypoint pinned with a year-long immutable cache.
           gcloud storage rsync -r \
-            --exclude="^(index\.html|theme-init\.js)$" \
+            --exclude="^index\.html$" \
             --cache-control="public, max-age=31536000, immutable" \
             dist "gs://${BUCKET}"
 
-          # 2. The shell init script is mutable at a stable URL, so it gets a
-          #    bounded cache instead: one hour caps how stale its logic can run
-          #    without putting a revalidation round trip on the render-blocking
-          #    path of every boot. Uploaded before index.html so the entrypoint
-          #    never goes live ahead of the script it references.
-          gcloud storage cp \
-            --cache-control="public, max-age=3600" \
-            dist/theme-init.js "gs://${BUCKET}/theme-init.js"
-
-          # 3. Upload the HTML entrypoint last, with no-cache, so the new release
+          # 2. Upload the HTML entrypoint last, with no-cache, so the new release
           #    only goes live once its assets exist and is always revalidated.
           gcloud storage cp \
             --cache-control="no-cache, max-age=0, must-revalidate" \

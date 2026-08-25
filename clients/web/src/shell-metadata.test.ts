@@ -18,12 +18,23 @@ const INDEX_HTML = readFileSync(
   "utf8",
 );
 
-const THEME_INIT = readFileSync(
-  path.join(import.meta.dir, "..", "public", "theme-init.js"),
-  "utf8",
-);
-
 const doc = new DOMParser().parseFromString(INDEX_HTML, "text/html");
+
+/**
+ * The shell-init script is the inline `<script>` in the head: the only script
+ * without a `src`. Inline is load-bearing (an external file is a fetch that
+ * can block the parser ahead of the splash or go stale in HTTP caches), so
+ * these tests read it out of the document rather than off disk.
+ */
+const SHELL_INIT = (() => {
+  const inline = [...doc.querySelectorAll("script:not([src])")];
+  if (inline.length !== 1) {
+    throw new Error(
+      `expected exactly one inline script in index.html, found ${inline.length}`,
+    );
+  }
+  return inline[0]?.textContent ?? "";
+})();
 
 function ogTag(property: string): string | null {
   return (
@@ -98,7 +109,7 @@ describe("SPA shell: Open Graph metadata", () => {
 /**
  * The boot splash is the only UI a user sees before the bundle exists, so its
  * accessible label cannot come from i18next. `index.html` carries the English
- * one and `public/theme-init.js` swaps in a translation for the locales that
+ * one and the inline shell script swaps in a translation for the locales that
  * have one. These tests hold the two halves to the catalogs, which is the only
  * thing keeping the pre-bundle label and the post-bundle one in agreement.
  */
@@ -125,13 +136,13 @@ describe("SPA shell: boot splash", () => {
     expect(splash?.getAttribute("role")).toBe("status");
   });
 
-  // A synchronous head script blocks the parser ahead of the splash for the
-  // whole script fetch on a cache miss, which is a blank screen in exactly
-  // the window the splash covers. Deferred, the splash parses and paints on
-  // its prefers-color-scheme styles while the script is in flight.
-  test("theme-init is deferred so its fetch cannot block the splash", () => {
-    const script = doc.querySelector('script[src="/theme-init.js"]');
-    expect(script?.hasAttribute("defer")).toBe(true);
+  // An external shell script is a fetch: it can block the parser ahead of
+  // the splash on a cache miss, and a previously cached copy can outlive the
+  // HTML that references it. Inline, it executes before the splash parses
+  // with nothing to fetch and nothing to go stale.
+  test("the shell init is inline, not an external fetch", () => {
+    expect(SHELL_INIT).toContain("data-theme");
+    expect(doc.querySelector('script[src*="theme-init"]')).toBeNull();
   });
 
   test("its static label is the same string the app's own spinner uses", () => {
@@ -140,7 +151,7 @@ describe("SPA shell: boot splash", () => {
     );
   });
 
-  test("theme-init carries the exact label every other locale translates", () => {
+  test("the shell init carries the exact label every other locale translates", () => {
     for (const locale of SUPPORTED_LOCALES) {
       if (locale === DEFAULT_LOCALE) {
         continue;
@@ -149,24 +160,24 @@ describe("SPA shell: boot splash", () => {
       if (label === undefined) {
         continue;
       }
-      expect(THEME_INIT).toContain(`${locale}: ${JSON.stringify(label)}`);
+      expect(SHELL_INIT).toContain(`${locale}: ${JSON.stringify(label)}`);
     }
   });
 
   // Negotiation has to know every shipped locale, not just the translated
   // ones: a preference for a locale with no label of its own must resolve to
   // English rather than falling through to the next tag the host lists.
-  test("theme-init negotiates over the whole shipped locale set", () => {
+  test("the shell init negotiates over the whole shipped locale set", () => {
     for (const locale of SUPPORTED_LOCALES) {
-      expect(THEME_INIT).toContain(JSON.stringify(locale));
+      expect(SHELL_INIT).toContain(JSON.stringify(locale));
     }
   });
 
   // Reading storage throws where it is disabled rather than returning null.
   // Only its own catch keeps that throw from skipping the host's languages,
   // which is the half of negotiation a storage-less browser still has.
-  test("theme-init reads the stored preference behind its own catch", () => {
-    expect(THEME_INIT).toMatch(
+  test("the shell init reads the stored preference behind its own catch", () => {
+    expect(SHELL_INIT).toMatch(
       /try\s*\{\s*stored\s*=\s*window\.localStorage\.getItem\("device:locale"\);\s*\}\s*catch/,
     );
   });
@@ -175,7 +186,7 @@ describe("SPA shell: boot splash", () => {
   // which is the very download the splash covers, so waiting for it would
   // localize the label only after the splash is gone. The observer is what
   // lands the label while the splash is still on screen.
-  test("theme-init applies the label without waiting for DOMContentLoaded", () => {
-    expect(THEME_INIT).toContain("new MutationObserver");
+  test("the shell init applies the label without waiting for DOMContentLoaded", () => {
+    expect(SHELL_INIT).toContain("new MutationObserver");
   });
 });
