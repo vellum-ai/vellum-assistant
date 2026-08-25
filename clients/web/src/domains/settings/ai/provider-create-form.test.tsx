@@ -502,10 +502,26 @@ describe("ProviderCreateForm submit sequence", () => {
     );
 
     // Ollama isn't selectable on platform-hosted assistants, so the picker
-    // falls back to the first selectable provider — a keyed one, so the API
-    // key field renders (adding a provider always means your own key now;
+    // falls back to the first selectable provider: a keyed one, so the API
+    // key field renders (adding a provider always means your own key;
     // platform-managed routing is the Vellum row, not a per-provider choice).
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+
+    // It stays on the menu, disabled and stating why, so the restriction
+    // reads as a restriction rather than missing support.
+    const providerTrigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Provider"]',
+    );
+    if (!providerTrigger) {
+      throw new Error('expected a "Provider" dropdown trigger');
+    }
+    fireEvent.click(providerTrigger);
+    const ollama = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((o) => o.textContent?.includes("Ollama"));
+    expect(ollama).toBeDefined();
+    expect(ollama?.textContent).toContain("Self-hosted only");
+    expect(ollama?.getAttribute("aria-disabled")).toBe("true");
   });
 
   test("selecting ChatGPT shows the sign-in flow instead of Save", () => {

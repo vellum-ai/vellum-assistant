@@ -8,6 +8,7 @@ import {
   LocalFileIcon,
   localFileKindFromFilename,
 } from "@/domains/chat/components/local-file/local-file-icon";
+import { useTranslation } from "@/i18n";
 
 /** Shown for a file no reader covers, whatever its format. */
 const PREVIEW_UNSUPPORTED_MESSAGE = "No preview for this file type";
@@ -31,6 +32,7 @@ export function PreviewUnsupported({
   onOpenInWorkspace,
   onDownload,
 }: PreviewUnsupportedProps): ReactNode {
+  const { t } = useTranslation("chat");
   return (
     <div
       role="status"
@@ -77,7 +79,7 @@ export function PreviewUnsupported({
           leftIcon={<ExternalLink />}
           onClick={onOpenInWorkspace}
         >
-          Go to file
+          {t("previewUnsupported.goToFile")}
         </Button>
         <Button
           variant="outlined"
@@ -85,7 +87,7 @@ export function PreviewUnsupported({
           leftIcon={<Download />}
           onClick={onDownload}
         >
-          Download file
+          {t("previewUnsupported.downloadFile")}
         </Button>
       </span>
     </div>

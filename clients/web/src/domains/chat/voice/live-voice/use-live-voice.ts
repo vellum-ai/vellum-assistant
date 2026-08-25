@@ -711,10 +711,11 @@ export function useLiveVoice(
       // A reconnect built a new player (or reused the standby one) while the
       // store still carries the user's mute; make the graph agree with it.
       player.setOutputMuted(useLiveVoiceStore.getState().outputMuted);
-      // Route the room avatar's `responding` pulse to real TTS output. The mic
-      // amplitude (the only prior source) is near-silent while the assistant
-      // speaks, so the avatar looked inverted — pulsing on the user's voice, not
-      // the assistant's. Cleared by the store reset in teardown()/stop().
+      // The assistant's own voice, for every surface that draws it: the voice
+      // room's responding band, the composer bar and the title-bar pill. It has
+      // to come off the output bus rather than the mic, which is near-silent
+      // while the assistant speaks. Cleared by the store reset in
+      // teardown()/stop().
       store.setOutputAmplitudeProvider(() => player.getOutputAmplitude());
       // Feed the voice-room transcript's spoken-word cursor: it maps the
       // player's played/total seconds onto the caption's words each animation
@@ -754,6 +755,20 @@ export function useLiveVoice(
       });
       session.capture = capture;
       sessionRef.current = session;
+      // Dev-only handle for driving a typed turn from the console while no UI
+      // sends one yet:
+      //
+      //   __vellumVoice.sendText("what is on my calendar")
+      //
+      // Returns false if the session is not active or the assistant predates
+      // typed turns, which is also what a handle left over from an ended
+      // session returns. Stripped from production builds.
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vellumVoice = {
+          sendText: (text: string) => sendTextTurn(session, text),
+          supportsTextInput: () => client.supportsTextInput,
+        };
+      }
       // Mic acquisition overlaps the WS connect below (still inside the
       // mic-button gesture); forwarding stays gated on the `ready` handler.
       beginCaptureStartup(session);
@@ -902,6 +917,13 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
+          // No draft bookkeeping here. `thinking` is sent before the turn is
+          // dispatched and the session can still return early on cancellation,
+          // so the row this frame promises may never be written. The draft mark
+          // is cleared where the row is confirmed instead, by
+          // `useMaterializedDraftReconcile` against the fetched conversation
+          // list.
+          //
           // New response: reset the per-response transcript and barge-in flags.
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
@@ -1533,6 +1555,26 @@ function releasePushToTalk(session: SessionContext): void {
     s.setState("transcribing");
   }
   s.setInputAmplitude(0);
+}
+
+/**
+ * Take a turn by typing it, and stamp the client-side latency anchor the same
+ * way ending speech does.
+ *
+ * `clientHeardLatencyMs` measures from the user finishing their input to the
+ * first audio they hear, and it starts from `speechEndedAtMs`, which only the
+ * `utterance_end` and push-to-talk paths set. A typed turn travels neither, so
+ * sending straight through the client would leave every typed turn without a
+ * client-perceived latency. Stamped only when the frame actually goes out, so
+ * a refused turn does not leave an anchor for the next reply's audio to pair
+ * against.
+ */
+function sendTextTurn(session: SessionContext, text: string): boolean {
+  const sent = session.client.sendText(text);
+  if (sent) {
+    session.speechEndedAtMs = performance.now();
+  }
+  return sent;
 }
 
 /**

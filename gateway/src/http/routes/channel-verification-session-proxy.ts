@@ -346,11 +346,17 @@ export function createChannelVerificationSessionProxyHandler(
           return Response.json({ error: "Invalid JSON body" }, { status: 400 });
         }
 
-        if (platform !== "macos" && platform !== "cli" && platform !== "web") {
+        if (
+          platform !== "macos" &&
+          platform !== "windows" &&
+          platform !== "cli" &&
+          platform !== "web"
+        ) {
           guardianInitInFlight = false;
           return Response.json(
             {
-              error: "Invalid platform. Bootstrap is macOS/CLI/web-only.",
+              error:
+                "Invalid platform. Bootstrap supports macOS, Windows, CLI, and web.",
             },
             { status: 400 },
           );

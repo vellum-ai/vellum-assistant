@@ -20,6 +20,7 @@ import {
   ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
+import { useCameraDeepLink } from "@/domains/chat/components/chat-attachments/use-camera-deep-link";
 import {
   selectPathReferencePaths,
   selectUploadedIds,
@@ -751,10 +752,11 @@ export function ChatComposer({
 
   // Mobile lifts the access and profile triggers out of the action row into a
   // row that floats above the card while the composer is in use, and hangs a
-  // caption under the card while it rests. A variant that passes neither
-  // settings slot is the app-editing panel, which gets neither.
-  const isMobileMainComposer =
-    isMobile && Boolean(thresholdPickerSlot || modelPickerSlot);
+  // caption under the card while it rests. Only `ChatMainPanel` fills the
+  // settings slots, and only once it has an assistant to point them at, so a
+  // variant that passes neither (the onboarding tour's composer) gets neither.
+  const isMainComposer = Boolean(thresholdPickerSlot || modelPickerSlot);
+  const isMobileMainComposer = isMobile && isMainComposer;
 
   // No longer suppressed during a live-voice session: it was suppressed
   // because the streaming speech rendered in the ghost-suffix mirror's own
@@ -840,6 +842,19 @@ export function ChatComposer({
     multiple: true,
   });
 
+  // The camera a Home Screen widget's button asks for. Owned here for the same
+  // reason as the picker above, and gated to the `ChatMainPanel` composer so a
+  // one-shot park is never spent by the onboarding tour's. That gate leaves
+  // exactly one taker: `ChatMainPanel` renders on either the app-editing
+  // branch or the plain chat branch, never both.
+  const {
+    overlayNode: cameraDeepLinkOverlay,
+    captureOpen: cameraDeepLinkCaptureOpen,
+  } = useCameraDeepLink({
+    onFiles: onAddAttachmentFiles,
+    enabled: isMainComposer,
+  });
+
   // A surface opened from the composer takes the focus this would otherwise
   // read, so each one has to hold the row up for as long as it is standing.
   // A sheet moves focus into a portal; the native picker takes the web view's
@@ -851,7 +866,8 @@ export function ChatComposer({
     settingsSheetOpen ||
     addSheetOpen ||
     addSheetPickerOpen ||
-    attachPickerOpen;
+    attachPickerOpen ||
+    cameraDeepLinkCaptureOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
@@ -1057,12 +1073,12 @@ export function ChatComposer({
       disabled={sendBlocked}
       title={
         sendDisabled || !canSendMessageContent
-          ? "Type a message to send"
+          ? t("chatComposer.typeToSend")
           : attachmentsUploadingCount > 0
-            ? "Uploading attachments…"
-            : "Send message"
+            ? t("chatComposer.uploadingAttachments")
+            : t("chatComposer.sendMessage")
       }
-      aria-label="Send message"
+      aria-label={t("chatComposer.sendMessage")}
       className={cn(
         isMobile && MOBILE_CONTROL_CLASS,
         isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
@@ -1081,8 +1097,8 @@ export function ChatComposer({
       expandOnMobile={!isMobile}
       type="submit"
       onMouseDown={rowPressGuard}
-      title="Send message"
-      aria-label="Send message"
+      title={t("chatComposer.sendMessage")}
+      aria-label={t("chatComposer.sendMessage")}
       className={cn(
         // Reachable only when the draft can actually go, so the filled tone
         // never lands on a send nobody can press.
@@ -1098,7 +1114,7 @@ export function ChatComposer({
       expandOnMobile={!isMobile}
       onMouseDown={rowPressGuard}
       onClick={onStopGenerating}
-      aria-label="Stop generating"
+      aria-label={t("chatComposer.stopGenerating")}
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
   );
@@ -1109,7 +1125,7 @@ export function ChatComposer({
     // this inline waveform because the overlay bridge no-ops there.
     <div
       className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-      aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
+      aria-label={voicePhase === "processing" ? t("chatComposer.transcribing") : t("chatComposer.recording")}
       aria-live="polite"
     >
       <StreamingWaveform
@@ -1118,7 +1134,7 @@ export function ChatComposer({
       />
       {voicePhase === "processing" ? (
         <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-          Transcribing…
+          {t("chatComposer.transcribingEllipsis")}
         </p>
       ) : (
         voiceInterim && (
@@ -1429,7 +1445,7 @@ export function ChatComposer({
                     navigate(routes.settings.voice);
                   }}
                 >
-                  Configure voice
+                  {t("chatComposer.configureVoice")}
                 </Button>
               }
             >
@@ -1662,6 +1678,11 @@ export function ChatComposer({
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
           <div className="relative">{attachPickerInput}</div>
+          {/* The camera behind `deeplink.openCamera`. A `fixed inset-0`
+              surface of its own rather than a hidden input, so it needs no box
+              here, and rendered whether or not this composer offers a camera
+              control: the command comes from outside the app. */}
+          {cameraDeepLinkOverlay}
           {(usesAddSheet || addSheetEverPresented) && (
             // The sheet's own three inputs, beside the form for the same
             // reason. The latch keeps a sheet that has ever been presented

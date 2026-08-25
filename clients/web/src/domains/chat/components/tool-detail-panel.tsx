@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
  * web `SubagentDetailPanel` shell (outer container, header with leading icon /
@@ -89,6 +91,7 @@ function ThinkingDetailBody({
   onClose: () => void;
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   const live = useLiveThinkingText(
     detail.messageId,
     detail.thinkingGroupIndex,
@@ -98,7 +101,7 @@ function ThinkingDetailBody({
     <DetailShell
       Glyph={Brain}
       title={detail.title}
-      closeLabel="Close tool details"
+      closeLabel={t("toolDetailPanel.closeAria")}
       closeVariant="outlined"
       onClose={onClose}
     >
@@ -131,6 +134,7 @@ export function ToolDetailBody({
   /** Threaded to any markdown a tool-specific renderer shows. */
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   const liveTc = useLiveToolCall(detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
@@ -162,7 +166,7 @@ export function ToolDetailBody({
           neutral card, which spent three lines saying one thing. */}
       {riskLevel && (
         <div className="mb-5">
-          <SectionLabel>Risk Level</SectionLabel>
+          <SectionLabel>{t("toolDetailPanel.riskLevel")}</SectionLabel>
           <Notice
             tone={getRiskNoticeTone(riskLevel)}
             data-testid="risk-notice"
@@ -219,7 +223,7 @@ export function ToolDetailBody({
           whose renderer already presents the result itself. */}
       {!renderer?.ownsOutput && (hasResult || isRunning) && (
         <div className="mt-5">
-          <SectionLabel>Output</SectionLabel>
+          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
           {hasResult ? (
             <CodeBlock text={result as string} />
           ) : hasStreamedOutput ? (
@@ -230,7 +234,7 @@ export function ToolDetailBody({
               as="p"
               className="text-[var(--content-tertiary)]"
             >
-              Running…
+              {t("toolDetailPanel.running")}
             </Typography>
           )}
         </div>
@@ -253,6 +257,7 @@ export function ToolDetailPanel({
    */
   assistantId?: string | null;
 }) {
+  const { t } = useTranslation("chat");
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {
@@ -274,7 +279,7 @@ export function ToolDetailPanel({
     <DetailShell
       Glyph={Glyph}
       title={title}
-      closeLabel="Close tool details"
+      closeLabel={t("toolDetailPanel.closeAria")}
       // Bordered X, matching the Figma sidepanel header and the sibling
       // background-task / settings drawers.
       closeVariant="outlined"

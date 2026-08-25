@@ -118,6 +118,7 @@ export type ProviderErrorReason =
   | "overloaded"
   | "context_overflow"
   | "vision_unsupported"
+  | "request_shape_unsupported"
   | "bad_request"
   | "server_error"
   | "network_error"

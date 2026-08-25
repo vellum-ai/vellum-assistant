@@ -2,6 +2,7 @@
  * Shared IPC contracts for assistant-to-gateway gateway-owned reads.
  */
 
+import { CHANNEL_IDS } from "@vellumai/service-contracts/channels";
 import { z } from "zod";
 
 export const GATEWAY_LOG_LEVEL_NAMES = [
@@ -505,4 +506,73 @@ export const ClassifyRiskIpcResponseSchema = z.object({
 });
 export type ClassifyRiskIpcResponse = z.infer<
   typeof ClassifyRiskIpcResponseSchema
+>;
+
+// ── Channel socket health ────────────────────────────────────────────────────
+
+/**
+ * Whether a channel that holds a long-lived inbound socket is currently
+ * receiving.
+ *
+ * Only channels whose ingress is a socket the gateway owns can answer this.
+ * Webhook channels answer the same question from the daemon side by checking
+ * their registration instead, so they report `unsupported` here rather than a
+ * misleading `disconnected`.
+ */
+export const CHANNEL_SOCKET_HEALTH_STATUSES = [
+  /** A live connection the liveness watchdog is vouching for. */
+  "connected",
+  /** The channel is configured and running, but holds no live connection. */
+  "disconnected",
+  /** No client exists, because the channel's credentials are not configured. */
+  "not_configured",
+  /** This channel's ingress is not a gateway-owned socket. */
+  "unsupported",
+] as const;
+
+export const ChannelSocketHealthIpcParamsSchema = z.object({
+  channel: z.enum(CHANNEL_IDS),
+});
+
+export type ChannelSocketHealthIpcParams = z.infer<
+  typeof ChannelSocketHealthIpcParamsSchema
+>;
+
+export const ChannelSocketHealthIpcResponseSchema = z.object({
+  channel: z.enum(CHANNEL_IDS),
+  status: z.enum(CHANNEL_SOCKET_HEALTH_STATUSES),
+  /**
+   * Epoch millis when the transport last proved it was alive, by whatever
+   * means that transport proves it: a pong on Slack, an op 11 ACK on Discord.
+   *
+   * Absent means "not proven yet", never "proven dead". A connection's first
+   * proof is one full interval after it opens, so a healthy reconnect reports
+   * `connected` with no timestamp. Corroborating evidence, not a verdict.
+   */
+  lastLivenessAt: z.number().optional(),
+});
+
+export type ChannelSocketHealthIpcResponse = z.infer<
+  typeof ChannelSocketHealthIpcResponseSchema
+>;
+
+/**
+ * Whether Discord admits anything in the guilds it has joined.
+ *
+ * Discord's allow-list is fail-closed and lives in gateway-owned config: an
+ * absent or empty setting admits nothing, because being invited to a guild is
+ * not consent to every channel in it. The daemon owns the readiness surface
+ * that reports this, so the count has to cross the boundary, the same way a
+ * socket's liveness does.
+ *
+ * Discord-shaped rather than channel-keyed, because Discord is the only
+ * channel with an allow-list. A second one generalizes this.
+ */
+export const DiscordAdmissionIpcResponseSchema = z.object({
+  /** How many channel ids the bot may act in. Zero admits no guild message. */
+  admittedChannelCount: z.number().int().nonnegative(),
+});
+
+export type DiscordAdmissionIpcResponse = z.infer<
+  typeof DiscordAdmissionIpcResponseSchema
 >;

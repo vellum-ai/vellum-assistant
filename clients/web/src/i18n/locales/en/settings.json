@@ -34,7 +34,9 @@
     "title": "Advisor"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "Default"
+    "defaultEntryMeta": "Default",
+    "selfHostedOnlyMeta": "Self-hosted only",
+    "selfHostedOnlyTooltip": "{name} runs on your own machine, so it is only available to self-hosted assistants."
   },
   "allConversationsView": {
     "archive": "Archive",
@@ -552,6 +554,7 @@
     "machineSizeDocsAriaLabel": "Learn more about machine sizes",
     "machineSizeLabel": "Select a machine size:",
     "machineSizePlaceholder": "Select a machine size",
+    "noExtraUsage": "No extra usage",
     "recap": "Recap",
     "storageAriaLabel": "Storage",
     "storageDocsAriaLabel": "Learn more about storage",
@@ -560,6 +563,10 @@
     "subtitle": "Just better.",
     "title": "Create a custom plan",
     "totalBilledMonthly": "Total · Billed monthly",
+    "usageBundleAriaLabel": "Usage bundle",
+    "usageBundleDocsAriaLabel": "Learn more about usage bundles",
+    "usageBundleLabel": "Add a usage bundle:",
+    "usageBundlePlaceholder": "Select a usage bundle",
     "yourSelection": "Your selection:"
   },
   "customPlanRow": {
@@ -656,16 +663,10 @@
     "toolLabel": "Tool:"
   },
   "doctorPanel": {
-    "beta": "Beta",
-    "betaTitle": "Doctor is in beta - use the Settings menu to submit feedback",
     "connecting": "Connecting...",
-    "copied": "Copied!",
-    "copiedAria": "Copied",
-    "copiedTooltip": "Copied!",
+    "copiedToast": "Session copied to clipboard.",
     "copyFailed": "Couldn't copy the session.",
     "copySession": "Copy Session",
-    "copySessionAria": "Copy session to clipboard",
-    "copySessionTooltip": "Copy session to clipboard",
     "endSession": "End Session",
     "goToNewest": "Go to Newest",
     "goToNewestAria": "Go to newest message",
@@ -677,6 +678,7 @@
     "placeholderApproval": "Type \"approve\" or \"deny\", or send a message...",
     "placeholderMessage": "Type a message...",
     "sendMessageAria": "Send message",
+    "sessionMenu": "Session options",
     "shareFeedback": "Share Feedback",
     "startSession": "Start Doctor Session",
     "thinking": "Thinking…",
@@ -815,8 +817,10 @@
     "valueAriaLabel": "{label} value"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "You'll be taken to Stripe to cancel your subscription.",
-    "bodyWithFeatures": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
+    "bodyCancelOnly": "Your subscription will be canceled at the end of your current billing period. You'll keep Pro access until then.",
+    "bodyCancelOnlyPortal": "You'll be taken to Stripe to cancel your subscription.",
+    "bodyWithFeatures": "Downgrading removes the following Pro features. Your subscription will be canceled at the end of your current billing period.",
+    "bodyWithFeaturesPortal": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
     "cancel": "Cancel",
     "confirm": "Downgrade to Base",
     "title": "Downgrade to Base?"
@@ -1254,8 +1258,10 @@
     "confirmMessage": "The {platform} device {hash} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
     "confirmTitle": "Revoke this device?",
     "dateUnknown": "unknown",
-    "datesLine": "Paired {paired} · Last used {lastUsed}",
     "hostRevokeDisabledTitle": "This is this machine's own credential; revoking it would lock the host out of the assistant.",
+    "pairedActiveLine": "Paired {paired} · Active now",
+    "pairedAndUsedLine": "Paired {paired} · Last used {lastUsed}",
+    "pairedLine": "Paired {paired}",
     "platformUnknown": "Unknown",
     "revokeButton": "Revoke",
     "thisMachine": "This machine",
@@ -1263,8 +1269,6 @@
   },
   "paymentMethodRow": {
     "endingIn": "Ending in {last4}",
-    "remove": "Remove",
-    "removing": "Removing…",
     "savedCard": "Saved card",
     "updateCard": "Update Card"
   },
@@ -1273,14 +1277,7 @@
     "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
     "loading": "Loading…",
-    "removeConfirmCancel": "Keep card",
-    "removeConfirmConfirm": "Remove",
-    "removeConfirmMessage": "Removing your card will turn off auto-reload.",
-    "removeConfirmPending": "Removing…",
-    "removeConfirmTitle": "Remove payment method?",
-    "removeError": "Failed to remove the payment method. Please try again.",
-    "subtitle": "Payment methods linked to your account.",
-    "title": "Payment Methods"
+    "title": "Payment Method"
   },
   "pendingPairingRequests": {
     "approveButton": "Approve",
@@ -1299,6 +1296,7 @@
     "heading": "Plan",
     "loadError": "Failed to load plan.",
     "loading": "Loading plan...",
+    "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",
     "powerUpFor": "Power Up for +{amount}/month",
@@ -1309,6 +1307,7 @@
     "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly",
+    "usageIncludedChip": "{label} included",
     "viewAllPlans": "View All Plans"
   },
   "planCardContent": {
@@ -1345,6 +1344,8 @@
     "featureComputer": "{machine} Computer",
     "featureCreditsIncluded": "{amount} in credits included",
     "featureStorage": "{gib} GB Storage",
+    "featureUsage": "{name} usage, reset monthly",
+    "featureUsageIncluded": "{label} included",
     "foreverCaption": "Forever",
     "freeFeaturePayAsYouGo": "Pay-as-you-go credits",
     "freeFeatureSmallComputer": "Small Computer",
@@ -1455,6 +1456,13 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosity"
   },
+  "profileCheck": {
+    "profileError": "Saved, but a test request through this profile failed: {detail} Check the profile's model and parameters.",
+    "providerError": "Saved, but a test request through this profile failed: {detail} Check the provider connection \"{connection}\".",
+    "providerErrorUnnamed": "Saved, but a test request through this profile failed: {detail} Check the profile's provider connection.",
+    "transient": "Saved, but a test request through this profile could not complete: {detail} This may be temporary.",
+    "unknown": "Saved, but a test request through this profile failed: {detail}"
+  },
   "profileDetailPanel": {
     "createProfile": "Create Profile",
     "defaultTitle": "Profile",
@@ -1468,6 +1476,8 @@
     "saving": "Saving…"
   },
   "profileEditor": {
+    "maxTokensNoInputRoom": "Max tokens ({maxTokens}) reserves the entire {window}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).",
+    "maxTokensOverCap": "Max tokens ({maxTokens}) exceeds the model's maximum output of {cap} tokens. Reduce it to {cap} or less.",
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
   },
   "profileEditorFields": {
@@ -1530,6 +1540,9 @@
     "makeDefault": "Make Default",
     "managedByVellum": "Managed by Vellum",
     "openProfileAriaLabel": "Open profile {displayName}",
+    "configIssueModelUnknown": "This profile's model is not available from its provider.",
+    "configIssueNoInputRoom": "This profile's max output tokens leave no room for input in the model's context window.",
+    "configIssueOverOutputCap": "This profile's max output tokens exceed what its model supports.",
     "providerUnavailableDefault": "This profile's provider is not available.",
     "providerUnavailableFixable": "{message} Click to fix.",
     "view": "View"
@@ -1645,6 +1658,7 @@
     "dimensionsComplete": "{dimensions} complete",
     "goToBilling": "Go to billing",
     "machineLabel": "Machine",
+    "noExtraUsage": "No extra usage",
     "packageChip": "{name} package",
     "planReadyStatus": "Your plan is ready",
     "retryInBackground": "Retry in the background",
@@ -1655,6 +1669,7 @@
     "storageLabel": "Storage",
     "takingLongerStatus": "This is taking longer than expected",
     "tryAgain": "Try again",
+    "usageLabel": "Usage",
     "waitingCaptionLong": "Still working. This can take a minute or two.",
     "waitingCaptionShort": "This might take a couple seconds."
   },
@@ -2100,6 +2115,11 @@
   "useBillingPortalSession": {
     "openError": "Couldn't open the billing portal. Please try again."
   },
+  "useCancelSubscription": {
+    "cancelFailedToast": "Couldn't cancel your subscription. Please try again.",
+    "canceledToast": "Pro plan canceled. You'll have access until {date}.",
+    "endOfBillingPeriod": "the end of your billing period"
+  },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
     "saveApiKeyFailedToast": "Failed to save {providerName} API key. Please try again."
@@ -2119,6 +2139,10 @@
     "deleteFailedToast": "Failed to delete the provider. Please try again.",
     "deleteInUseToast": "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
     "setDefaultFailedToast": "Failed to set the default provider. Please try again."
+  },
+  "useReactivateSubscription": {
+    "reactivateFailedToast": "Couldn't reactivate your subscription. Please try again.",
+    "reactivatedToast": "Pro plan reactivated."
   },
   "useSystemTasks": {
     "consolidationAlreadyQueued": "Consolidation already queued or running.",
@@ -2153,6 +2177,7 @@
     "microphoneFallbackLabel": "Microphone {index}",
     "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
     "microphoneTitle": "Microphone",
+    "offKeyLabel": "Off",
     "pauseBeforeReplyAriaLabel": "Pause before reply",
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",

@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Mock harness for the research-onboarding results UI.
  *
@@ -86,6 +87,7 @@ function faviconService(domain: string): string {
 type Mode = "loading" | "results" | "empty";
 
 export function ResearchMockPage() {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("results");
   const [removals, setRemovals] = useState<Map<number, RemovalReason | null>>(
@@ -127,16 +129,16 @@ export function ResearchMockPage() {
         mode={mode}
         loadingContent={
           <div className="text-[var(--content-secondary)]">
-            <p className="text-lg">Getting to know you…</p>
+            <p className="text-lg">{t("researchMockPage.heading")}</p>
             <p className="text-body-medium-lighter">
-              (mock — the live flow shows the search activity feed here)
+              {t("researchMockPage.mockNote")}
             </p>
           </div>
         }
         items={items}
         removals={removals}
         suggestions={MOCK_SUGGESTIONS}
-        resultsTitle="Here's what I know about you. You can remove any that aren't true:"
+        resultsTitle={t("researchMockPage.resultsTitle")}
         showSuggestions
         canContinue
         resolveFavicon={faviconService}

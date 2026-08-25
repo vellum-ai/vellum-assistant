@@ -35,6 +35,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const BASE_AVAILABLE_CHANNELS: readonly ChannelId[] = [
   "slack",
   "telegram",
+  "discord",
   "phone",
 ] as const;
 

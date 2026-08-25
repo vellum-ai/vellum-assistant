@@ -132,8 +132,17 @@ mock.module("react-router", () => ({
   },
 }));
 
-mock.module("@/components/share-feedback-modal", () => ({
-  ShareFeedbackModal: () => null,
+// The menu owns when the chunk is warmed and when the dialog is mounted; the
+// dialog's own lazy wiring is covered by `share-feedback-modal-lazy.test.tsx`.
+const feedbackRef = { prefetches: 0 };
+mock.module("@/components/share-feedback-modal-lazy", () => ({
+  ShareFeedbackModalLazy: ({ open }: { open: boolean }) =>
+    open
+      ? createElement("div", { "data-testid": "share-feedback-modal" })
+      : null,
+  prefetchShareFeedbackModal: () => {
+    feedbackRef.prefetches += 1;
+  },
 }));
 
 // The panel owns its own reads (subscription, plan catalog, usage totals),
@@ -157,7 +166,7 @@ mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
       { "data-testid": "preferences-usage" },
       createElement("button", { onClick: onOpenBilling }, "Usage settings"),
       // The real panel drops the strip's button with the handler, so the stub
-      // has to as well or the Android gate reads as covered when it is not.
+      // has to as well.
       onAddCredits
         ? createElement("button", { onClick: onAddCredits }, "Add usage credits")
         : null,
@@ -248,6 +257,7 @@ beforeEach(() => {
   usageRef.value = null;
   usageRef.opts = undefined;
   panelPropsRef.conversationId = undefined;
+  feedbackRef.prefetches = 0;
 });
 
 afterEach(() => {
@@ -424,27 +434,34 @@ describe("PreferencesMenu", () => {
     expect(screen.queryByTestId("preferences-usage")).toBeNull();
   });
 
-  test("native Android leaves the panel with nothing to buy", async () => {
+  test("opening the menu warms the feedback chunk, once", async () => {
+    expect(feedbackRef.prefetches).toBe(0);
+
+    await openMenu();
+    expect(feedbackRef.prefetches).toBe(1);
+
+    // The menu closes here, which re-renders the component. The chunk is
+    // cached after the first fetch, so a second warm buys nothing.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Usage settings" }));
+      await Promise.resolve();
+    });
+    expect(feedbackRef.prefetches).toBe(1);
+  });
+
+  test("native Android keeps the panel's add-credits action, same as iOS", async () => {
     nativeAndroidRef.value = true;
     await openMenu();
 
-    // Consumption-only: the panel is still the reading, but no surface in the
-    // menu may offer a purchase.
+    // The purchase handoff lives in the add-credits modal, so the menu
+    // offers the same actions on every platform.
     expect(screen.getByTestId("preferences-usage")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Add usage credits" }),
-    ).toBeNull();
-  });
-
-  test("off native Android the panel keeps its add-credits action", async () => {
-    await openMenu();
-
     expect(
       screen.getByRole("button", { name: "Add usage credits" }),
     ).toBeTruthy();
   });
 
-  test("native Android shows the balance without an add-credits action", async () => {
+  test("native Android shows the balance with its add-credits action", async () => {
     nativeAndroidRef.value = true;
     isTouchMobileRef.value = true;
     billingRef.data = { effective_balance: "60" };
@@ -456,7 +473,9 @@ describe("PreferencesMenu", () => {
     });
 
     expect(screen.getByTestId("credits-card")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add credits" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Add credits" }),
+    ).toBeTruthy();
   });
 });
 

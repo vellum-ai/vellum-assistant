@@ -30,6 +30,7 @@ import { Select } from "@vellumai/design-library/components/select";
 
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { useVoiceSamplePreview } from "@/components/speech/use-voice-sample-preview";
+import { useTranslation } from "@/i18n";
 import {
   groupVoicesByAccent,
   MANAGED_VOICE_SOURCE_LABELS,
@@ -122,6 +123,7 @@ export function VoiceList({
   filterBySource = false,
   autoScrollToSelected = false,
 }: VoiceListProps) {
+  const { t } = useTranslation();
   const {
     available,
     voices,
@@ -224,13 +226,13 @@ export function VoiceList({
               value: s,
               label: MANAGED_VOICE_SOURCE_LABELS[s] ?? s,
             }))}
-            aria-label="Voice provider"
+            aria-label={t("voiceList.providerAriaLabel")}
           />
         </div>
       )}
       <div
         role="listbox"
-        aria-label="Assistant voice"
+        aria-label={t("voiceList.assistantVoiceAriaLabel")}
         className={cn(
           "flex flex-col overflow-y-auto",
           filterBySource ? "max-h-[60vh]" : "max-h-80",
@@ -272,7 +274,7 @@ export function VoiceList({
                     {isDefault && (
                       <span className="text-[var(--content-tertiary)]">
                         {" "}
-                        (default)
+                        {t("voiceList.defaultSuffix")}
                       </span>
                     )}
                   </span>
@@ -298,8 +300,10 @@ export function VoiceList({
                         iconOnly={isPreviewing ? <Square /> : <Volume2 />}
                         aria-label={
                           isPreviewing
-                            ? "Stop preview"
-                            : `Preview ${voice.description}`
+                            ? t("voiceList.stopPreview")
+                            : t("voiceList.previewVoice", {
+                                description: voice.description,
+                              })
                         }
                         data-reveal=""
                         className="size-full"

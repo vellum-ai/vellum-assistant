@@ -8,11 +8,10 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/ios/**'
-      # Source of the committed avatar app icons, so a catalog change with no
-      # regeneration still has to trip the drift check.
+      # The launcher and app icon assets embed the quirky eye geometry; the
+      # drift tests in clients/ios/scripts/__tests__ pin them to the avatar
+      # component library.
       - 'assistant/src/avatar/**'
-      # The Android launcher XMLs embed the quirky eye geometry; the drift
-      # test in scripts/__tests__ pins them to the avatar library.
       - 'clients/android/app/src/main/res/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
@@ -30,9 +29,9 @@ jobs:
     # Runner and Xcode match `release-ios.yaml` so this check exercises the
     # same toolchain that produces TestFlight builds.
     runs-on: macos-15
-    # The unsigned Xcode build is what needs the room here; the avatar icon
-    # drift check rasterizes 54 icons in seconds. A `macos-15` runner is slow
-    # and variable enough that a tighter budget fails on time alone.
+    # The unsigned Xcode build is what needs the room here; the icon drift
+    # check rasterizes 54 icons in seconds. A `macos-15` runner is slow and
+    # variable enough that a tighter budget fails on time alone.
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -59,10 +58,10 @@ jobs:
             --filter=@vellumai/web \
             --filter=@vellumai/assistant
 
-      - name: Check avatar icon drift
+      - name: Check app icon geometry drift
         working-directory: clients/ios
-        # Asserts the committed icon sets and xcconfig still match a fresh
-        # generation. Runs from `clients/ios` because the repo-root
+        # Asserts the icon assets still embed the avatar library's eye
+        # geometry verbatim. Runs from `clients/ios` because the repo-root
         # `test-preload.ts` rejects a root `bun test`.
         run: bun test scripts/__tests__/
 

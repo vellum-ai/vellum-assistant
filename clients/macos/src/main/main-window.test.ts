@@ -506,6 +506,18 @@ describe("onboarding window sizing", () => {
     expect(win.stub.isResizable()).toBe(true);
     // A saved windowed state stays windowed — never upgraded to fullscreen.
     expect(win.opts.fullscreen).toBeUndefined();
+    expect(win.opts.fullscreenable).toBe(true);
+    expect(win.stub.setFullScreenable).toHaveBeenCalledWith(true);
+  });
+
+  test("does not pass fullscreen: false from a saved windowed session", () => {
+    restoredBounds = { width: 1280, height: 800, fullscreen: false };
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    expect(win.opts.fullscreen).toBeUndefined();
+    expect(win.opts.fullscreenable).toBe(true);
+    expect(win.stub.setFullScreenable).toHaveBeenCalledWith(true);
   });
 
   test("setOnboarding(true) persists the mode without resizing the window", () => {
@@ -648,6 +660,7 @@ describe("maximized default", () => {
     // Maximized means work-area bounds — a normal window, never native
     // fullscreen.
     expect(win.opts.fullscreen).toBeUndefined();
+    expect(win.opts.fullscreenable).toBe(true);
   });
 
   test("constructs at the work-area bounds when onboarding is active too", () => {
@@ -660,6 +673,7 @@ describe("maximized default", () => {
     expect(win.opts.width).toBe(1512);
     expect(win.opts.height).toBe(944);
     expect(win.opts.fullscreen).toBeUndefined();
+    expect(win.opts.fullscreenable).toBe(true);
   });
 });
 
@@ -670,6 +684,8 @@ describe("fullscreen session restore", () => {
     const win = constructed[0];
     if (!win) throw new Error("expected a window");
     expect(win.opts.fullscreen).toBe(true);
+    expect(win.opts.fullscreenable).toBe(true);
+    expect(win.stub.setFullScreenable).toHaveBeenCalledWith(true);
   });
 
   test("restores a saved fullscreen session even when onboarding is active", () => {

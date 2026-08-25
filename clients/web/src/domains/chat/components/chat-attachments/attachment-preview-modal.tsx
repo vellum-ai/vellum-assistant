@@ -21,6 +21,7 @@ import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { useTranslation } from "@/i18n";
 
 // File extensions routed to the inline text preview even when the upstream
 // MIME type is generic (e.g. application/octet-stream).
@@ -107,6 +108,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   const registerBackOwner = useEdgeSwipeArbiterStore.use.registerBackOwner();
   const unregisterBackOwner =
     useEdgeSwipeArbiterStore.use.unregisterBackOwner();
+  const { t } = useTranslation("chat");
   useEffect(() => {
     if (!open) {
       return;
@@ -360,11 +362,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           leftIcon={<Download />}
           onClick={handleDownload}
           disabled={!effectiveUrl}
-          aria-label={`Download ${attachment.filename}`}
+          aria-label={t("attachmentPreviewModal.downloadAria", { filename: attachment.filename })}
           className="mt-4 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent"
           tintColor="currentColor"
         >
-          Download
+          {t("attachmentPreviewModal.downloadLabel")}
         </Button>
       </div>
     );
@@ -375,7 +377,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Preview of ${attachment.filename}`}
+      aria-label={t("attachmentPreviewModal.previewAria", { filename: attachment.filename })}
       // Focusable so the overlay can hold keyboard focus for the arrow-key
       // handler; the ring is suppressed since the dialog is the whole screen.
       tabIndex={-1}
@@ -434,7 +436,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             expandOnMobile={false}
             onClick={handleDownload}
             disabled={!effectiveUrl}
-            aria-label={`Download ${attachment.filename}`}
+            aria-label={t("attachmentPreviewModal.downloadAria", { filename: attachment.filename })}
             className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
@@ -443,7 +445,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             iconOnly={<X />}
             expandOnMobile={false}
             onClick={onClose}
-            aria-label="Close preview"
+            aria-label={t("attachmentPreviewModal.closePreviewAria")}
             className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
@@ -457,7 +459,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             iconOnly={<ChevronLeft />}
             expandOnMobile={false}
             onClick={goToPrev}
-            aria-label="Previous attachment"
+            aria-label={t("attachmentPreviewModal.previousAttachmentAria")}
             className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
@@ -466,7 +468,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             iconOnly={<ChevronRight />}
             expandOnMobile={false}
             onClick={goToNext}
-            aria-label="Next attachment"
+            aria-label={t("attachmentPreviewModal.nextAttachmentAria")}
             className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />

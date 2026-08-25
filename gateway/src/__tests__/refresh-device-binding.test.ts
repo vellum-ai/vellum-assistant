@@ -15,7 +15,8 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorRefreshTokenRecords, contacts } = await import("../db/schema.js");
+const { actorRefreshTokenRecords, actorTokenRecords, contacts } =
+  await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { rotateCredentials } = await import("../auth/guardian-refresh.js");
 const { handleGuardianRefresh } =
@@ -54,6 +55,31 @@ function insertRefreshRecord(
       absoluteExpiresAt: now + 365 * 86_400_000,
       inactivityExpiresAt: now + 90 * 86_400_000,
       lastUsedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function insertActorTokenRecord(
+  rawToken: string,
+  deviceId: string,
+  lastUsedAt: number | null,
+  status: "active" | "revoked" = "active",
+) {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(actorTokenRecords)
+    .values({
+      id: `actor-${rawToken}`,
+      tokenHash: hashToken(rawToken),
+      guardianPrincipalId: PRINCIPAL,
+      hashedDeviceId: hashToken(deviceId),
+      platform: "cli",
+      status,
+      issuedAt: now,
+      expiresAt: now + 86_400_000,
+      lastUsedAt,
       createdAt: now,
       updatedAt: now,
     })
@@ -231,5 +257,69 @@ describe("rotateCredentials guardian integrity gate", () => {
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "guardian_repair_required" });
+  });
+});
+
+describe("rotateCredentials activity history", () => {
+  test("keeps the rotated-out actor row's lastUsedAt stamp", () => {
+    // The device list reads the max stamp across statuses, so rotation must
+    // leave the stamp on the row it revokes. Clearing it here would reset a
+    // device's activity history on every credential refresh.
+    insertRefreshRecord("rt-stamped", DEVICE_A);
+    insertActorTokenRecord("at-stamped", DEVICE_A, 1_700_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-stamped",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result.ok).toBe(true);
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    const rotatedOut = rows.find(
+      (r) => r.tokenHash === hashToken("at-stamped"),
+    );
+    expect(rotatedOut?.status).toBe("revoked");
+    expect(rotatedOut?.lastUsedAt).toBe(1_700_000_000_000);
+  });
+
+  test("clears the stamp when a replayed refresh token revokes the family", () => {
+    // Reuse detection is a security revoke: the replayed family's activity
+    // history must not carry forward onto whatever pairs next.
+    insertRefreshRecord("rt-replayed", DEVICE_A, "rotated");
+    insertActorTokenRecord("at-replayed", DEVICE_A, 1_700_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-replayed",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result).toEqual({ ok: false, error: "refresh_reuse_detected" });
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    const revoked = rows.find((r) => r.tokenHash === hashToken("at-replayed"));
+    expect(revoked?.status).toBe("revoked");
+    expect(revoked?.lastUsedAt).toBeNull();
+  });
+
+  test("clears the stamp on rows an earlier rotation already revoked", () => {
+    // A device that rotated before the replay carries a stamped revoked row,
+    // and the device list reads the max stamp across statuses, so the security
+    // revoke has to reach that row too.
+    insertRefreshRecord("rt-replayed-old", DEVICE_A, "rotated");
+    insertActorTokenRecord(
+      "at-rotated-out",
+      DEVICE_A,
+      1_700_000_000_000,
+      "revoked",
+    );
+    insertActorTokenRecord("at-current", DEVICE_A, 1_800_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-replayed-old",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result).toEqual({ ok: false, error: "refresh_reuse_detected" });
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    expect(rows.map((r) => r.lastUsedAt)).toEqual([null, null]);
   });
 });

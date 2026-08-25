@@ -13,6 +13,11 @@ import Foundation
 /// - `switchTo({url?})` swaps the shell's origin and reloads in place; an
 ///   absent/empty url returns to the baked Vellum Cloud origin
 ///
+/// Every method here that changes the ACTIVE origin also drops the widget
+/// snapshot, inherited from `SelfHostedServer.setActive` rather than called
+/// per method, so the native paths that swap origins without going through
+/// this bridge get the same drop. See that type for the invariant.
+///
 /// Per the skew rule in `clients/web/docs/CAPACITOR.md`, one result shape
 /// encodes every state: empty state resolves with an empty list and nulls
 /// rather than rejecting, so only genuinely invalid caller input (an `add` or
@@ -60,7 +65,8 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// Forgetting a URL that is not (or cannot be) in the list is a no-op, so
     /// this never rejects. Removing the active server clears the active slot,
-    /// so the shell reloads back to the baked origin like `switchTo({})`.
+    /// so the shell reloads back to the baked origin like `switchTo({})`, and
+    /// the clear carries the widget-snapshot drop with it.
     @objc public func remove(_ call: CAPPluginCall) {
         var removedActive = false
         if let url = SelfHostedServer.validate(call.getString("url")) {
@@ -83,6 +89,12 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
     /// main queue via `MyViewController.applyConfiguredOrigin()`; the runtime
     /// navigation allowance (`NavigationDelegateProxy`) checks the
     /// currently-configured host, so the new origin loads in-app.
+    ///
+    /// The widget snapshot goes with the swap, dropped by the active-slot write
+    /// below rather than left to the web layer, which makes it atomic with the
+    /// swap: if the origin changed, the snapshot went with it, with no second
+    /// bridge round trip to fail. A swap whose target is the current origin
+    /// keeps the snapshot, which still describes the origin on screen.
     @objc public func switchTo(_ call: CAPPluginCall) {
         let raw = call.getString("url")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if raw.isEmpty {
@@ -100,6 +112,8 @@ public class SelfHostedServersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// `switchTo` plus a route to land on, so it drops the widget snapshot for
+    /// the same reason and in the same breath as the origin write.
     @objc public func switchToPath(_ call: CAPPluginCall) {
         let path = call.getString("path")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("://"), !path.contains("#") else {

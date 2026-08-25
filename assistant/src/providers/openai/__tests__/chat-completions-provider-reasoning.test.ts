@@ -405,7 +405,7 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(assistantMsg.reasoning_content).toBeUndefined();
   });
 
-  test("backfills placeholder content for a reasoning-only assistant turn when enabled", async () => {
+  test("backfills placeholder content for a reasoning-only assistant turn", async () => {
     const { provider, requests } = stubProvider(
       [
         {
@@ -413,10 +413,7 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
           usage: { prompt_tokens: 2, completion_tokens: 1 },
         },
       ],
-      {
-        assistantReasoningField: "reasoning",
-        backfillEmptyAssistantContent: true,
-      },
+      { assistantReasoningField: "reasoning" },
     );
 
     await provider.sendMessage([
@@ -455,53 +452,38 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(EMPTY_ASSISTANT_TURN_PLACEHOLDER).not.toContain("\x00");
   });
 
-  test("leaves reasoning-only assistant content null when backfill is disabled", async () => {
-    const { provider, requests } = stubProvider(
-      [
-        {
-          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
-          usage: { prompt_tokens: 2, completion_tokens: 1 },
-        },
-      ],
-      { assistantReasoningField: "reasoning_content" },
-    );
+  test("backfills placeholder for a whitespace-only assistant turn", async () => {
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
 
     await provider.sendMessage([
       { role: "user", content: [{ type: "text", text: "question" }] },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "thinking",
-            thinking: "truncated chain of thought",
-            signature: "",
-          },
-        ],
-      },
+      { role: "assistant", content: [{ type: "text", text: "  \n" }] },
     ]);
 
     const params = requests[0] as {
       messages: Array<{ role: string; content: string | null }>;
     };
     const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
-    // Backfill defaults off, so providers that tolerate null assistant content
-    // (e.g. Fireworks, Together) are unaffected unless they opt in.
-    expect(assistantMsg.content).toBeNull();
+    // Validators that trim before checking presence treat whitespace-only
+    // content as absent, so it needs the same placeholder as empty content.
+    expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
   });
 
   test("backfills placeholder when thinking is dropped and no text was emitted", async () => {
     // Custom openai-compatible endpoints do not set assistantReasoningField, so
-    // a Stop during thinking serializes to { role: "assistant", content: null }
+    // a Stop during thinking serializes to blank content with no tool calls
     // unless the backfill guard runs.
-    const { provider, requests } = stubProvider(
-      [
-        {
-          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
-          usage: { prompt_tokens: 2, completion_tokens: 1 },
-        },
-      ],
-      { backfillEmptyAssistantContent: true },
-    );
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
 
     await provider.sendMessage([
       { role: "user", content: [{ type: "text", text: "question" }] },
@@ -534,15 +516,12 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
   });
 
   test("backfills placeholder for an empty aborted assistant turn", async () => {
-    const { provider, requests } = stubProvider(
-      [
-        {
-          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
-          usage: { prompt_tokens: 2, completion_tokens: 1 },
-        },
-      ],
-      { backfillEmptyAssistantContent: true },
-    );
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
 
     await provider.sendMessage([
       { role: "user", content: [{ type: "text", text: "question" }] },
@@ -557,15 +536,12 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
   });
 
   test("does not backfill content when tool calls are present", async () => {
-    const { provider, requests } = stubProvider(
-      [
-        {
-          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
-          usage: { prompt_tokens: 2, completion_tokens: 1 },
-        },
-      ],
-      { backfillEmptyAssistantContent: true },
-    );
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
 
     await provider.sendMessage([
       {
@@ -992,7 +968,9 @@ describe("thinking-mode tool_choice rejection fallback", () => {
 
     expect(requests).toHaveLength(2);
     expect((requests[0] as { tool_choice?: string }).tool_choice).toBe("none");
-    expect((requests[1] as { tool_choice?: string }).tool_choice).toBeUndefined();
+    expect(
+      (requests[1] as { tool_choice?: string }).tool_choice,
+    ).toBeUndefined();
   });
 
   test("does not retry a 4xx that does not name tool_choice", async () => {
@@ -1103,9 +1081,13 @@ describe("missing reasoning_content rejection fallback", () => {
     );
     expect(/reasoning_content/i.test(wrapped.message)).toBe(false);
 
-    const { provider, requests } = stubProviderWithErrors([wrapped], OK_CHUNKS, {
-      assistantReasoningField: "reasoning_content",
-    });
+    const { provider, requests } = stubProviderWithErrors(
+      [wrapped],
+      OK_CHUNKS,
+      {
+        assistantReasoningField: "reasoning_content",
+      },
+    );
 
     await provider.sendMessage(toolCallHistory);
 

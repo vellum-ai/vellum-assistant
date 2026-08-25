@@ -22,8 +22,8 @@ exactly four things:
 | --- | --- |
 | `VoiceAudioSessionPlugin` | Owns `AVAudioSession` for the duration of a session (`.playAndRecord` / `.voiceChat`), and reports interruptions |
 | `VoiceLiveActivityPlugin` | Requests, updates, and ends the one ActivityKit activity mirroring the session |
-| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center controls (the voice one below, and the non-voice "Open Vellum" app launcher) |
-| App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, or a control tap into a `<scheme>://voice` URL |
+| `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the two Control Center / Lock Screen controls (the voice one below, and the non-voice "Open Vellum" app launcher). The same bundle also hosts three non-voice Home Screen widgets, Catch Up, Status, and Quick Actions, which draw the shared App Group snapshot and carry a voice button of their own |
+| App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, a control tap, or a widget button into a `<scheme>://voice` URL |
 
 Everything native is *additive*. Remove all of it and voice still works — that
 property is load-bearing, because the shell ships on App Store review cadence
@@ -63,6 +63,7 @@ Siri phrase / Spotlight / Action Button   →  StartVoiceModeIntent
                                              StartNewVoiceConversationIntent
                                              AskVellumIntent
 Control Center / Lock Screen control      →  StartNewVoiceConversationIntent
+Home Screen widget voice button           →  StartNewVoiceConversationIntent
 Dynamic Island / Lock Screen tap          →  .widgetURL(VoiceModeDeepLink.resume.url())
 Safari, a test link, another app          →  application(_:open:) / launchOptions[.url]
         │                        all of them produce  <scheme>://voice?mode=…
@@ -260,7 +261,7 @@ otherwise arrive as a `prompt` of `Ben ` plus a stray parameter.
 | Producer | Mode | Where |
 | --- | --- | --- |
 | `StartVoiceModeIntent` (Siri: "Talk to Vellum") | `resume` | `App/App/Intents/` |
-| `StartNewVoiceConversationIntent` (Action Button, Control Center) | `new` | `App/App/Shared/` |
+| `StartNewVoiceConversationIntent` (Action Button, Control Center, Home Screen widgets) | `new` | `App/App/Shared/` |
 | `AskVellumIntent` (Siri collects the question) | `new` + `prompt` | `App/App/Intents/` |
 | Live Activity `widgetURL` (island / Lock Screen tap) | `resume` | `App/VoiceActivity/VoiceSessionLiveActivity.swift` |
 | Safari, a note, another app, a test link | either | — |
@@ -583,20 +584,20 @@ The client's 120 is the correct one: a quiet call emits no frames, so nothing
 dispatches, and a 45-second horizon would strip the phase off a perfectly
 healthy session that nobody happens to be talking to.
 
-### 2. No App Group
+### 2. The Live Activity needs no App Group
 
 `ContentState` carries only primitives (`phase`, `label`, `detail`,
 `accentHex`, `muted`, `outputMuted`, `approvalRequestId`), and the attributes
 carry `assistantName`, `startedAt`, and the
-avatar as `Data`. The extension ships **no entitlements file at all**.
+avatar as `Data`. Nothing on this path touches a shared container.
 
 *Why:* an App Group is only needed to share *files*, and nothing here needs
 one. The obvious candidate was the avatar, but `ActivityAttributes` is
 `Codable`, so the bytes travel in the attributes and render via
-`Image(uiImage:)`: no entitlement, and one less Apple Developer portal
-capability to keep in sync across six App IDs (an entitlement enabled in the
-portal but not satisfiable by the build is a provisioning failure waiting to
-happen).
+`Image(uiImage:)`: nothing the island renders reaches a shared container, and
+nothing on this path waits on an Apple Developer portal capability being in
+sync across six App IDs (an entitlement enabled in the portal but not
+satisfiable by the build is a provisioning failure waiting to happen).
 
 What is genuinely impossible is fetching anything at render time: a Live
 Activity draws from a snapshot, so a URL would only ever render `AsyncImage`'s
@@ -604,6 +605,22 @@ placeholder. That is also why the avatar is sized to a measured byte ceiling
 before it is sent. See `ISLAND_AVATAR_MAX_BYTES` in
 `clients/web/src/utils/avatar-island-encode.ts`, where oversize kills the whole
 activity rather than degrading the image.
+
+*The appex does carry one App Group, for a different path:* the group named by
+`APP_GROUP_ID` is the shared container for widget snapshot data, the one place
+the app and its widget extension both reach, since a widget draws from storage
+rather than from an ActivityKit payload. `App/App/Extension.entitlements`
+declares that group and nothing else, `APP_GROUP_ID` names it per environment
+in every app and extension xcconfig, and the `VellumAppGroupId` Info.plist key
+carries the identifier into both bundles, because the entitlement that grants
+access is not readable from Swift. Enabling the capability on the six App IDs
+is portal work; see `clients/ios/README.md`.
+
+Nothing else joins that entitlements file, push included: only a capability the
+build satisfies ships. And the container takes **non-secret display data only**
+(ids, titles, group names, counts, timestamps), because a widget renders
+without the app being unlocked, so no token, credential, or message body
+belongs in it.
 
 ### 3. The island's buttons act in the app process, with no credential
 
@@ -791,6 +808,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/App/Shared/VoiceSessionControlIntent.swift` | The intent behind every island button; in `Shared/` so the appex can name it |
 | `App/App/Intents/` | The other two intents and `VoiceAppShortcuts` |
 | `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center controls |
+| `App/VoiceActivity/Widgets/` | The three Home Screen widgets, their shared snapshot timeline, and the widget palette; snapshot-driven and unrelated to voice apart from a shared voice button |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
 | `App/project.yml` | Six targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |
 

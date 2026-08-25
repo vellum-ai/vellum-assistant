@@ -89,20 +89,20 @@ const CONTAINER_MIME_TYPES: ReadonlySet<string> = new Set([
 const RAW_PCM_MIME_TYPE = "audio/pcm";
 
 /**
- * Output-amplitude metering tuning for the voice-room avatar's speaking pulse
+ * Output-amplitude metering tuning for the assistant's own band
  * (see {@link LiveVoiceAudioPlayer.getOutputAmplitude}). Speech RMS sits around
  * 0.05–0.2, so `GAIN` lifts it into a visible range; `SMOOTHING` is the EMA
- * weight toward each new read (~60 Hz from the avatar's rAF); `DECAY` eases the
- * pulse back to rest between turns. These are the visual-feel knobs.
+ * weight toward each new read (~60 Hz from the band's rAF); `DECAY` eases the
+ * band back to rest between turns. These are the visual-feel knobs.
  */
 /*
  * What must match the capture path (`pcm-capture.ts`) is the *mapped* 0–1
  * range, not the constants: the two meters measure different things. That one
  * is a microphone in a room, this one is the output bus, and their raw RMS
  * ranges are nowhere near each other — so identical gains would be the bug,
- * not the fix. Both feed the same visuals (the room's wave band, the
- * responding rings, the avatar), so what a surface tuned against one signal
- * needs is for the other to arrive on the same scale.
+ * not the fix. Both feed the same visuals (the room's two bands, the composer
+ * bar and the pill), so what a surface tuned against one signal needs is for
+ * the other to arrive on the same scale.
  *
  * The original gain of 4 came from an assumed speech RMS of 0.05–0.2. Measured
  * against the rendered band, this path actually sits an order of magnitude
@@ -170,8 +170,9 @@ export interface AudioContextLike {
   createMediaStreamDestination?(): MediaStreamAudioDestinationNode;
   /**
    * Create an analyser tapping the output bus for amplitude metering (drives
-   * the voice-room avatar's TTS-reactive pulse). Optional so lightweight test
-   * contexts can omit it — the player then degrades to no metering
+   * the voice room's responding band and the composer bar's output meter).
+   * Optional so lightweight test contexts can omit it; the player then
+   * degrades to no metering
    * ({@link LiveVoiceAudioPlayer.getOutputAmplitude} returns 0).
    */
   createAnalyser?(): AnalyserNode;
@@ -340,8 +341,8 @@ export class LiveVoiceAudioPlayer {
    *
    * Deliberately AFTER the analyser: muting is about the user's ears, not
    * about what is true. The assistant is still speaking while muted, so the
-   * room's bands and the avatar's reaction keep showing that it is, and the
-   * user can see the reply land rather than watching a dead screen.
+   * room's bands keep showing that it is, and the user can see the reply land
+   * rather than watching a dead screen.
    */
   private outputGain: GainNode | null = null;
 
@@ -518,8 +519,8 @@ export class LiveVoiceAudioPlayer {
     source.buffer = buffer;
 
     // Route through the metering analyser when present (so output amplitude can
-    // drive the room avatar), then the mute gain, then the destination. Each
-    // stage is optional, so fall through to whichever exists.
+    // drive the room's responding band), then the mute gain, then the
+    // destination. Each stage is optional, so fall through to whichever exists.
     source.connect(
       this.analyser ??
         this.outputGain ??
@@ -851,11 +852,11 @@ export class LiveVoiceAudioPlayer {
   /**
    * Current smoothed output amplitude in [0, 1], read from the output-bus
    * analyser — the RMS of the audio the assistant is speaking right now. Drives
-   * the voice-room avatar's `responding` pulse (the mic amplitude that drives
-   * `listening` is near-silent while the assistant speaks, which is why the
-   * avatar previously looked inverted — see JARVIS-1267).
+   * the voice room's `responding` band, and the output meters on the composer
+   * bar and the title-bar pill. It has to come off the output bus: the mic
+   * amplitude behind `listening` is near-silent while the assistant speaks.
    *
-   * Polled ~60 Hz from the avatar's rAF loop: it EMA-smooths so the avatar
+   * Polled ~60 Hz from the band's rAF loop: it EMA-smooths so the band
    * breathes rather than jitters, and decays toward rest when nothing is
    * playing. Returns 0 with no analyser (test mock).
    */
@@ -867,7 +868,7 @@ export class LiveVoiceAudioPlayer {
     }
 
     if (!this.playingState) {
-      // Nothing scheduled — ease back to rest so the avatar settles between
+      // Nothing scheduled: ease back to rest so the band settles between
       // turns instead of holding the last speaking level.
       this.smoothedOutputAmplitude *= OUTPUT_AMPLITUDE_DECAY;
       return this.smoothedOutputAmplitude;
@@ -887,8 +888,8 @@ export class LiveVoiceAudioPlayer {
    * Separate from {@link getOutputAmplitude} because that one is a stateful EMA
    * tuned for a single ~60 Hz rAF consumer: every call advances its smoothing,
    * so a second caller on a different cadence would both perturb what the
-   * avatar displays and make its own readings depend on whether the avatar
-   * happens to be mounted. A measurement has to be independent of who else is
+   * band displays and make its own readings depend on whether the band happens
+   * to be mounted. A measurement has to be independent of who else is
    * looking.
    */
   readOutputLevel(): number {

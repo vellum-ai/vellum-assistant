@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.4
+  version: 0.11.5
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -790,6 +790,13 @@ paths:
                           type: string
                         origin:
                           type: string
+                          description: '"workspace" or "plugin:<name>": where the app comes from'
+                        pinSortPosition:
+                          description: Sidebar order, ascending. Absent when the app is not pinned
+                          type: number
+                        pinColor:
+                          description: Pin colour id; absent when no colour is set
+                          type: string
                       required:
                         - id
                         - name
@@ -1024,6 +1031,62 @@ paths:
                   - name
                   - html
                   - origin
+                additionalProperties: false
+  /v1/apps/{id}/pin:
+    post:
+      operationId: apps_by_id_pin_post
+      summary: Pin or unpin an app
+      description:
+        Pin an app to the sidebar, unpin it, or set the colour it is tinted with. Pin state is read back from the
+        app list as `pinSortPosition` and `pinColor`.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pinned:
+                  description: Pin (true) or unpin (false). Omit to leave unchanged.
+                  type: boolean
+                color:
+                  description: Colour id, or null to clear. Omit to leave unchanged.
+                  anyOf:
+                    - type: string
+                    - type: "null"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                  pinSortPosition:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  pinColor:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - success
+                  - appId
+                  - pinSortPosition
+                  - pinColor
                 additionalProperties: false
   /v1/apps/{id}/preview:
     get:
@@ -4148,6 +4211,12 @@ paths:
                       type: string
                     chatType:
                       type: string
+                    conversationType:
+                      type: string
+                      enum:
+                        - dm
+                        - private
+                        - public
                     threadId:
                       type: string
                     channelName:
@@ -5133,6 +5202,8 @@ paths:
                 provider_connection:
                   type: string
                   minLength: 1
+                allowUnlisted:
+                  type: boolean
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -12638,9 +12709,12 @@ paths:
                         type: boolean
                       retryLastTurn:
                         type: boolean
+                      appPins:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
+                      - appPins
                     additionalProperties: false
                   profiler:
                     type: object
@@ -12840,9 +12914,12 @@ paths:
                         type: boolean
                       retryLastTurn:
                         type: boolean
+                      appPins:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
+                      - appPins
                     additionalProperties: false
                   profiler:
                     type: object
@@ -14995,6 +15072,38 @@ paths:
           description: Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile
         "404":
           description: Profile not found
+  /v1/inference/profiles/{name}/validate:
+    post:
+      operationId: inference_profiles_by_name_validate_post
+      summary: Probe a saved profile with one minimal request
+      description:
+        "Dispatch one minimal test request through the named profile's resolved model and connection, and classify
+        any failure by which object the user should fix (the profile vs its provider connection). Advisory: the probe
+        never mutates the profile. Returns a null check when there is no verdict to give (missing, disabled, managed, or
+        routing-identity profiles, or a probe timeout). The probe spends one tiny request on the profile's own key."
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  check:
+                    anyOf:
+                      - $ref: "#/components/schemas/InferenceProfileCheck"
+                      - type: "null"
+                required:
+                  - check
+                additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
@@ -17147,6 +17256,34 @@ paths:
                     type: string
                 required:
                   - status
+                additionalProperties: false
+  /v1/live-voice/session/end:
+    post:
+      operationId: livevoice_session_end_post
+      summary: End the active live voice session
+      description:
+        Release the assistant's single live-voice session slot, whichever client holds it. Reports whether a
+        session was actually ended; a slot already tearing down reports false, since that teardown releases it on its
+        own.
+      tags:
+        - live-voice
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ended:
+                    type: boolean
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - ended
+                  - sessionId
                 additionalProperties: false
   /v1/llm-request-logs/{id}/context:
     get:
@@ -21214,8 +21351,9 @@ paths:
       summary: Import a .vbundle archive
       description:
         Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes
-        (application/octet-stream), multipart/form-data, or a JSON body with `{ url }` carrying a signed URL the daemon
-        fetches.
+        (application/octet-stream), multipart/form-data, a JSON body with `{ url }` carrying a signed URL the daemon
+        fetches, or a JSON body with `{ path }` pointing at a file staged under the workspace `.restore-staging`
+        directory.
       tags:
         - migrations
       requestBody:
@@ -21226,11 +21364,13 @@ paths:
               type: object
               properties:
                 url:
+                  description: A signed GCS URL pointing to the .vbundle archive (JSON body path only).
                   type: string
                   format: uri
-                  description: A signed GCS URL pointing to the .vbundle archive (JSON body path only).
-              required:
-                - url
+                path:
+                  description: Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response
@@ -21313,9 +21453,23 @@ paths:
     post:
       operationId: migrations_importpreflight_post
       summary: Dry-run import analysis
-      description: Validate a .vbundle archive and return a report of what would change on import without modifying data.
+      description:
+        Validate a .vbundle archive and return a report of what would change on import without modifying data.
+        Accepts raw bytes, multipart form data, or JSON `{ path }` pointing at a file staged under the workspace
+        `.restore-staging` directory.
       tags:
         - migrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  description: Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response
@@ -34577,6 +34731,10 @@ components:
             - type: string
               minLength: 1
             - type: "null"
+        allowUnlisted:
+          anyOf:
+            - type: boolean
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -35349,6 +35507,8 @@ components:
         provider_connection:
           type: string
           minLength: 1
+        allowUnlisted:
+          type: boolean
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -35625,6 +35785,8 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - label
@@ -35652,6 +35814,21 @@ components:
           type: string
       required:
         - status
+      additionalProperties: false
+    InferenceProfileConfigIssue:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - model_unknown
+            - over_output_cap
+            - no_input_room
+        message:
+          type: string
+      required:
+        - code
+        - message
       additionalProperties: false
     InferenceProfileWriteResult:
       type: object
@@ -35693,10 +35870,35 @@ components:
           anyOf:
             - $ref: "#/components/schemas/ProfileConnectionAvailability"
             - type: "null"
+        config_issue:
+          $ref: "#/components/schemas/InferenceProfileConfigIssue"
       required:
         - name
         - entry
         - availability
+      additionalProperties: false
+    InferenceProfileCheck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        blame:
+          type: string
+          enum:
+            - profile
+            - provider
+            - transient
+            - unknown
+        reason:
+          type: string
+        detail:
+          type: string
+        connection:
+          type: string
+        message:
+          type: string
+      required:
+        - ok
       additionalProperties: false
     ProviderConnection:
       type: object

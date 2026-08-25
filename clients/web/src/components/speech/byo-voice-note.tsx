@@ -11,20 +11,23 @@
 
 import { Link } from "react-router";
 
+import { Trans } from "@/i18n";
 import { routes } from "@/utils/routes";
 
 export function ByoVoiceNote() {
   return (
     <p className="text-body-small-default text-[var(--content-tertiary)]">
-      Your assistant speaks through a provider you configured yourself. Set its
-      voice on{" "}
-      <Link
-        to={`${routes.settings.ai}#text-to-speech`}
-        className="text-[var(--primary-base)] hover:underline"
-      >
-        Models &amp; Services
-      </Link>
-      .
+      <Trans
+        i18nKey="byoVoiceNote.body"
+        components={{
+          settingsLink: (
+            <Link
+              to={`${routes.settings.ai}#text-to-speech`}
+              className="text-[var(--primary-base)] hover:underline"
+            />
+          ),
+        }}
+      />
     </p>
   );
 }

@@ -85,17 +85,20 @@ const originalWindow = globalThis.window;
 function setMockWindow({
   origin = "https://app.vellum.ai",
   open,
+  vellum,
 }: {
   origin?: string;
   open?:
     | ((url?: string, target?: string, features?: string) => Window | null)
     | null;
+  vellum?: unknown;
 } = {}): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
       location: { origin },
       open,
+      vellum,
     },
   });
 }
@@ -264,6 +267,22 @@ describe("handleOpenUrl", () => {
     );
 
     expect(setError).toHaveBeenCalledTimes(1);
+    expect(setNotice).not.toHaveBeenCalled();
+  });
+
+  it("ignores settings URLs for another Electron host OS", () => {
+    setMockWindow({
+      open: null,
+      vellum: { platform: "electron", hostOS: "macos" },
+    });
+    const { ctx, setError, setNotice } = makeOpenUrlCtx();
+
+    handleOpenUrl(
+      makeOpenUrlEvent("ms-settings:privacy-microphone"),
+      ctx,
+    );
+
+    expect(setError).not.toHaveBeenCalled();
     expect(setNotice).not.toHaveBeenCalled();
   });
 });

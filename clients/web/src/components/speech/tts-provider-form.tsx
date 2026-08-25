@@ -12,6 +12,7 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/hooks/use-draft-override";
+import { useTranslation } from "@/i18n";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
@@ -86,6 +87,7 @@ export function TtsProviderForm({
   hideCredentialsGuide = false,
   onSaveStateChange,
 }: TtsProviderFormProps = {}) {
+  const { t } = useTranslation();
   const activeAssistantId = useActiveAssistantId();
   const assistantId = assistantIdProp ?? activeAssistantId;
   const assistantName =
@@ -327,13 +329,13 @@ export function TtsProviderForm({
       void queryClient.invalidateQueries({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
-      toast.success("Text-to-speech settings saved");
+      toast.success(t("ttsProviderForm.saved"));
       return true;
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to save text-to-speech settings",
+          : t("ttsProviderForm.saveFailed"),
       );
       return false;
     } finally {
@@ -350,6 +352,7 @@ export function TtsProviderForm({
     serverProvider,
     daemonHasProvider,
     queryClient,
+    t,
   ]);
 
   // Voices grouped by accent, each row named by its character traits alone —
@@ -375,7 +378,7 @@ export function TtsProviderForm({
       const pendingApiKey = apiKeyText.trim();
       const apiKey = pendingApiKey.length > 0 ? pendingApiKey : storedApiKey;
       if (apiKey.length === 0) {
-        toast.error("Save an API key for this provider before testing.");
+        toast.error(t("ttsProviderForm.apiKeyRequired"));
         return;
       }
       const storedVoiceId = getLocalSetting(
@@ -410,7 +413,7 @@ export function TtsProviderForm({
     } finally {
       setTesting(false);
     }
-  }, [assistantName, apiKeyText, draftProvider, voiceIdText]);
+  }, [assistantName, apiKeyText, draftProvider, voiceIdText, t]);
 
   const apiKeyPlaceholder = providerHasKey
     ? "••••••••  (Enter a new key to replace)"
@@ -448,7 +451,7 @@ export function TtsProviderForm({
       }}
     >
       <List className="h-3.5 w-3.5" aria-hidden />
-      Choose from catalog
+      {t("ttsProviderForm.chooseFromCatalog")}
     </Button>
   );
   // Only the "way back" toggle remains, and only when a saved custom voice put
@@ -462,7 +465,7 @@ export function TtsProviderForm({
     <div className="space-y-4">
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
+          {t("ttsProviderForm.provider")}
         </label>
         <Select
           value={draftProvider}
@@ -471,14 +474,14 @@ export function TtsProviderForm({
             value: p.id,
             label: p.displayName,
           }))}
-          aria-label="TTS provider"
+          aria-label={t("ttsProviderForm.providerAriaLabel")}
         />
       </div>
 
       {!isManaged && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            API Key
+            {t("ttsProviderForm.apiKey")}
           </label>
           <Input
             type="password"
@@ -493,7 +496,7 @@ export function TtsProviderForm({
       {managedVoiceSupported && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Voice
+            {t("ttsProviderForm.voice")}
           </label>
           {customManagedVoice ? (
             /* Free-text entry for a managed voice id outside the catalog
@@ -502,8 +505,8 @@ export function TtsProviderForm({
               type="text"
               value={draftManagedVoice}
               onChange={(e) => setDraftManagedVoice(e.target.value)}
-              placeholder="Enter a voice ID"
-              aria-label="Custom voice ID"
+              placeholder={t("ttsProviderForm.voiceIdPlaceholder")}
+              aria-label={t("ttsProviderForm.customVoiceIdAriaLabel")}
               fullWidth
             />
           ) : selectedManagedVoice ? (
@@ -519,7 +522,7 @@ export function TtsProviderForm({
             // Gated on `fetched` so the note never flashes while loading.
             fetched && (
               <p className="text-body-small-default text-[var(--content-tertiary)]">
-                No managed voices are currently available.
+                {t("ttsProviderForm.noManagedVoices")}
               </p>
             )
           )}
@@ -529,13 +532,13 @@ export function TtsProviderForm({
       {selectedProvider.supportsVoiceSelection && !isManaged && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Voice ID
+            {t("ttsProviderForm.voiceId")}
           </label>
           <Input
             type="text"
             value={voiceIdText}
             onChange={(e) => setVoiceIdText(e.target.value)}
-            placeholder="Enter a voice ID"
+            placeholder={t("ttsProviderForm.voiceIdPlaceholder")}
             fullWidth
           />
         </div>
@@ -552,7 +555,9 @@ export function TtsProviderForm({
       <div className="flex items-center gap-2">
         {!isManaged && (
           <Button variant="outlined" onClick={handleTest} disabled={testing}>
-            {testing ? "Testing…" : "Test"}
+            {testing
+              ? t("ttsProviderForm.testing")
+              : t("ttsProviderForm.test")}
           </Button>
         )}
         <div className="ml-auto flex items-center gap-3">

@@ -15,7 +15,18 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
+/**
+ * Providers whose runtime lives on the user's own machine, so a
+ * platform-hosted assistant has nothing to reach. Pickers keep listing them
+ * and disable the row instead of dropping it: an absent row reads as "not
+ * supported yet" rather than "not applicable to this assistant".
+ */
 const LOCAL_ONLY_PROVIDERS = new Set<string>(["ollama"]);
+
+/** Every provider the model catalog knows, in catalog order. */
+export const CATALOG_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as Array<
+  keyof typeof MODELS_BY_PROVIDER
+>;
 
 /**
  * Whether a connection (identified by its stored `provider`) can serve
@@ -63,16 +74,12 @@ export function selectableConnectionProvidersForAssistant(
   );
 }
 
-export function selectableCatalogProvidersForAssistant(
-  activeAssistantIsSelfHosted: boolean,
-): Array<keyof typeof MODELS_BY_PROVIDER> {
-  return (
-    Object.keys(MODELS_BY_PROVIDER) as Array<keyof typeof MODELS_BY_PROVIDER>
-  ).filter((provider) =>
-    isProviderSelectableForAssistant(provider, activeAssistantIsSelfHosted),
-  );
-}
-
+/**
+ * Inference providers the active assistant can dispatch through. Picker
+ * option lists offer the full catalog (see `useProviderPickerAvailability`);
+ * this narrower set is for choosing a default, which must land on a provider
+ * the assistant can actually use.
+ */
 export function useSelectableInferenceProviders(): Array<
   (typeof INFERENCE_PROVIDERS)[number]
 > {
@@ -80,20 +87,14 @@ export function useSelectableInferenceProviders(): Array<
   return selectableInferenceProvidersForAssistant(activeAssistantIsSelfHosted);
 }
 
+/** Connection providers the active assistant can connect, for defaulting. */
 export function useSelectableConnectionProviders(): ConnectionProvider[] {
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
   return selectableConnectionProvidersForAssistant(activeAssistantIsSelfHosted);
 }
 
-export function useSelectableCatalogProviders(): Array<
-  keyof typeof MODELS_BY_PROVIDER
-> {
-  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
-  return selectableCatalogProvidersForAssistant(activeAssistantIsSelfHosted);
-}
-
 /**
- * Selectable profile providers a set of connections can dispatch through, in
+ * Profile providers a set of connections can dispatch through, in
  * canonical picker order. A connection backs its own `provider`; the
  * Vellum-managed connection surfaces as a single "Vellum" entry (listed
  * first) rather than expanding into the upstreams it routes to — which
@@ -103,29 +104,27 @@ export function useSelectableCatalogProviders(): Array<
  */
 export function providersServedByConnections(
   connections: ProviderConnection[],
-  activeAssistantIsSelfHosted: boolean,
 ): ConnectionProvider[] {
-  const served = new Set<ConnectionProvider>(
-    connections.map((connection) => connection.provider),
-  );
-  const selectable = [...served].filter((provider) =>
-    isProviderSelectableForAssistant(provider, activeAssistantIsSelfHosted),
-  );
+  const served = [
+    ...new Set<ConnectionProvider>(
+      connections.map((connection) => connection.provider),
+    ),
+  ];
   // Vellum first, then canonical picker order; a provider absent from the
   // catalog order (a connection for a provider this app version doesn't
-  // list) is appended so version drift never hides a selectable provider.
+  // list) is appended so version drift never hides a served provider.
   const ordered: ConnectionProvider[] = [];
-  if (selectable.includes(VELLUM_CONNECTION_PROVIDER)) {
+  if (served.includes(VELLUM_CONNECTION_PROVIDER)) {
     ordered.push(VELLUM_CONNECTION_PROVIDER);
   }
   // The subscription identity sits with the other first-class routes rather
   // than in the version-drift bucket at the end.
-  if (selectable.includes(CHATGPT_CONNECTION_PROVIDER)) {
+  if (served.includes(CHATGPT_CONNECTION_PROVIDER)) {
     ordered.push(CHATGPT_CONNECTION_PROVIDER);
   }
   ordered.push(
-    ...CONNECTION_PROVIDERS.filter((provider) => selectable.includes(provider)),
-    ...selectable.filter(
+    ...CONNECTION_PROVIDERS.filter((provider) => served.includes(provider)),
+    ...served.filter(
       (provider) =>
         provider !== VELLUM_CONNECTION_PROVIDER &&
         provider !== CHATGPT_CONNECTION_PROVIDER &&
@@ -136,25 +135,22 @@ export function providersServedByConnections(
 }
 
 /**
- * Selectable providers a set of connections cannot dispatch through yet, in
- * canonical picker order. These are offered as "connect me" entries: picking
- * one leads to the provider-create flow rather than binding a profile to a
- * route the daemon can't serve.
+ * Providers a set of connections cannot dispatch through yet, in canonical
+ * picker order. These are offered as "connect me" entries: picking one leads
+ * to the provider-create flow rather than binding a profile to a route the
+ * daemon can't serve.
  *
- * `openai-compatible` is excluded — a custom endpoint has no identity until
+ * `openai-compatible` is excluded: a custom endpoint has no identity until
  * the user names it and supplies a base URL, so it is reached through the
  * picker's dedicated create entry instead.
  */
-export function unconnectedSelectableProviders(
+export function unconnectedProviders(
   connections: ProviderConnection[],
-  activeAssistantIsSelfHosted: boolean,
 ): ConnectionProvider[] {
   const served = new Set<ConnectionProvider>(
     connections.map((connection) => connection.provider),
   );
-  return selectableConnectionProvidersForAssistant(
-    activeAssistantIsSelfHosted,
-  ).filter(
+  return CONNECTION_PROVIDERS.filter(
     (provider) =>
       provider !== OPENAI_COMPATIBLE_PROVIDER && !served.has(provider),
   );

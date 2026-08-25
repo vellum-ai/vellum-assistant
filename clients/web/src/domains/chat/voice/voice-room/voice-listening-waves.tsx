@@ -1,15 +1,16 @@
 /**
  * Listening-state waves for the voice room: layered sine waves that swell as
- * the user speaks — the visual language of energy coming *in* (the user's
- * voice arriving), the counterpart to the assistant's outward `responding`
- * pulse on the avatar. `placement` anchors the band: `top` sweeps in from the
- * ceiling edge (both looks — above the centerpiece, leaving it clear), `bottom`
- * rises from the floor edge, `center` is a symmetric band around the middle.
+ * the user speaks. Its counterpart is the assistant's own band, the same
+ * geometry fed the TTS output in the opposite ink, so a turn changing hands
+ * changes the ink rather than the visual language. `placement` anchors the
+ * band: the room draws both voices at `bottom`, rising from the floor edge and
+ * leaving the centerpiece clear; `top` sweeps in from the ceiling edge and
+ * `center` is a symmetric band around the middle.
  *
- * The waves always drift horizontally (a slow CSS loop); the user's live mic
- * amplitude drives how high they rise and how bright they are, written
- * imperatively to `--voice-amp` from a requestAnimationFrame loop — never React
- * state, matching `voice-avatar.tsx`. The polled amplitude is near-instant RMS
+ * The waves always drift horizontally (a slow CSS loop); the live amplitude
+ * drives how high they rise and how bright they are, written imperatively to
+ * `--voice-amp` from a requestAnimationFrame loop rather than through React
+ * state. The polled amplitude is near-instant RMS
  * (see `createAmplitudeSmoother`), so the loop runs it through a VU-meter-style
  * attack/release smoother before writing — raw, it jerks the waves' large
  * vertical travel every frame. Purely decorative; the cyan→indigo accent is a

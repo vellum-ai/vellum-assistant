@@ -109,6 +109,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "inline-assistant-intermediates",
+      "scope": "client",
+      "key": "inline-assistant-intermediates",
+      "label": "Inline Assistant Intermediates",
+      "description": "Render a completed response's intermediate activity inline at full size instead of collapsing it behind the Earlier activity disclosure",
+      "defaultEnabled": false
+    },
+    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",

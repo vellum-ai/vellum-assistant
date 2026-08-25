@@ -351,6 +351,7 @@ export async function handleInbound(
           updateId: event.source.updateId,
           messageId: event.source.messageId,
           chatType: event.source.chatType,
+          conversationType: event.source.conversationType,
           ...(event.source.threadId ? { threadId: event.source.threadId } : {}),
           ...(sourceChannelName ? { channelName: sourceChannelName } : {}),
           languageCode: event.actor.languageCode,

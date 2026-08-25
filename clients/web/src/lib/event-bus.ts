@@ -220,6 +220,26 @@ export interface BusEventMap {
     provenance: CommandUrlProvenance;
   };
   /**
+   * A Home Screen widget's camera button was tapped: `<scheme>://camera`.
+   * `useGlobalDeepLinkConsumer` navigates to the assistant and parks the
+   * request, which the composer's attachment layer drains when it mounts
+   * (the composer does not exist yet on a cold launch, and never exists on
+   * settings / logs / account routes).
+   */
+  "deeplink.openCamera": {
+    /** As on `deeplink.startVoice`; no consumer gates on it today. */
+    provenance: CommandUrlProvenance;
+  };
+  /**
+   * A Home Screen widget's New Chat button was tapped:
+   * `<scheme>://new-chat`. `useGlobalDeepLinkConsumer` navigates to a fresh
+   * draft conversation through `navigateToNewConversation`.
+   */
+  "deeplink.newChat": {
+    /** As on `deeplink.startVoice`; no consumer gates on it today. */
+    provenance: CommandUrlProvenance;
+  };
+  /**
    * Electron host only: inbound `<scheme>://connect` URL from the pair
    * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
    * QR code. `bundle` is a pairing bundle that prefills the connect

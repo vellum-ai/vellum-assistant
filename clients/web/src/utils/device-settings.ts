@@ -25,63 +25,36 @@ import {
 /** Prefix for all device-scoped localStorage keys. */
 export const DEVICE_PREFIX = "device:";
 
-/**
- * One device-scoped setting: its `device:`-prefixed key and, when it predates
- * the prefix migration, the legacy non-prefixed key it migrated from.
- */
+/** One device-scoped setting: its `device:`-prefixed localStorage key. */
 interface DeviceSettingEntry {
   key: string;
-  /** Non-prefixed key migrated from. Absent for settings born post-migration. */
-  legacy?: string;
 }
 
 /**
  * Registry of device-scoped settings. Each entry maps a logical name
- * to its localStorage key and the legacy key it was migrated from.
+ * to its localStorage key.
  */
 const DEVICE_SETTINGS = {
-  theme: { key: "device:theme", legacy: "vellum_theme" },
-  shareAnalytics: {
-    key: "device:share_analytics",
-    legacy: "vellum_share_analytics",
-  },
-  shareDiagnostics: {
-    key: "device:share_diagnostics",
-    legacy: "vellum_share_diagnostics",
-  },
+  theme: { key: "device:theme" },
+  shareAnalytics: { key: "device:share_analytics" },
+  shareDiagnostics: { key: "device:share_diagnostics" },
   // Effective Sentry reporting gate: tracks the saved diagnostics preference
-  // with opt-out semantics — closes only for an explicit opt-out; absent reads
+  // with opt-out semantics, closing only for an explicit opt-out; absent reads
   // open once consent has hydrated. Decoupled from `shareDiagnostics` (the
   // saved preference) so consent-resolution paths can write it independently.
-  // No legacy key — introduced after the migration cutover.
   diagnosticsReporting: { key: "device:diagnostics_reporting" },
-  biometricEnabled: {
-    key: "device:biometric_enabled",
-    legacy: "vellum_biometric_enabled",
-  },
-  llmLogRetention: {
-    key: "device:llm_log_retention",
-    legacy: "vellum_llm_log_retention",
-  },
-  timezone: { key: "device:timezone", legacy: "vellum_timezone" },
+  biometricEnabled: { key: "device:biometric_enabled" },
+  llmLogRetention: { key: "device:llm_log_retention" },
+  timezone: { key: "device:timezone" },
   // UI language, as a tag from `SUPPORTED_LOCALES`. Absent means "follow the
   // host's preferred languages"; a value here is an explicit user override and
   // outranks the host. Device-scoped so it survives logout: the login screen
-  // must stay in the language the user picked. No legacy key.
+  // must stay in the language the user picked.
   locale: { key: "device:locale" },
-  mediaEmbedsEnabled: {
-    key: "device:media_embeds_enabled",
-    legacy: "vellum_media_embeds_enabled",
-  },
-  mediaEmbedDomains: {
-    key: "device:media_embed_domains",
-    legacy: "vellum_media_embed_domains",
-  },
-  dockBadgesEnabled: {
-    key: "device:dock_badges_enabled",
-    legacy: "vellum_dock_badges_enabled",
-  },
-  lastUserId: { key: "device:last_user_id", legacy: "onboarding.lastUserId" },
+  mediaEmbedsEnabled: { key: "device:media_embeds_enabled" },
+  mediaEmbedDomains: { key: "device:media_embed_domains" },
+  dockBadgesEnabled: { key: "device:dock_badges_enabled" },
+  lastUserId: { key: "device:last_user_id" },
 } as const satisfies Record<string, DeviceSettingEntry>;
 
 export type DeviceSettingName = keyof typeof DEVICE_SETTINGS;
@@ -89,11 +62,6 @@ export type DeviceSettingName = keyof typeof DEVICE_SETTINGS;
 /** Returns the `device:`-prefixed localStorage key for a setting. */
 export function deviceKey(name: DeviceSettingName): string {
   return DEVICE_SETTINGS[name].key;
-}
-
-/** Read an entry's legacy value, or `null` when it has no legacy key. */
-function readLegacy(entry: DeviceSettingEntry): string | null {
-  return entry.legacy != null ? localStorage.getItem(entry.legacy) : null;
 }
 
 /** Read a device-scoped setting, returning `fallback` when absent or unreadable. */
@@ -104,9 +72,8 @@ export function getDeviceSetting(
   if (typeof window === "undefined") {
     return fallback;
   }
-  const entry = DEVICE_SETTINGS[name];
   try {
-    return localStorage.getItem(entry.key) ?? readLegacy(entry) ?? fallback;
+    return localStorage.getItem(DEVICE_SETTINGS[name].key) ?? fallback;
   } catch {
     return fallback;
   }
@@ -125,9 +92,8 @@ export function getDeviceBool(
   if (typeof window === "undefined") {
     return fallback;
   }
-  const entry = DEVICE_SETTINGS[name];
   try {
-    const raw = localStorage.getItem(entry.key) ?? readLegacy(entry);
+    const raw = localStorage.getItem(DEVICE_SETTINGS[name].key);
     if (raw === "true") {
       return true;
     }
@@ -154,44 +120,4 @@ export function watchDeviceSetting(
   callback: () => void,
 ): () => void {
   return watchSetting(DEVICE_SETTINGS[name].key, callback);
-}
-
-/**
- * One-time migration: reads values from legacy (non-prefixed) keys,
- * writes them to the new `device:`-prefixed keys, and removes the
- * legacy keys. Idempotent — safe to re-run on every app startup.
- *
- * Uses `setLocalSetting` (not raw `localStorage.setItem`) so the
- * `vellum:pref-changed` custom event fires for each migrated key.
- * Same-tab observers (Sentry consent gate, onboarding store) pick
- * up the new values without needing a full page reload.
- */
-export function migrateDeviceSettings(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    for (const entry of Object.values<DeviceSettingEntry>(DEVICE_SETTINGS)) {
-      if (entry.legacy == null) {
-        continue;
-      }
-      const legacyValue = localStorage.getItem(entry.legacy);
-      if (legacyValue !== null) {
-        // Only write if the new key doesn't already exist — avoids
-        // overwriting a value that was set by new code between loads.
-        if (localStorage.getItem(entry.key) === null) {
-          setLocalSetting(entry.key, legacyValue);
-        }
-        // Only remove the legacy key if the new key was persisted.
-        // setLocalSetting swallows QuotaExceededError, so without
-        // this guard a failed write would delete the legacy key and
-        // lose the user's preference.
-        if (localStorage.getItem(entry.key) !== null) {
-          localStorage.removeItem(entry.legacy);
-        }
-      }
-    }
-  } catch {
-    // Storage unavailable — migration will retry on next load.
-  }
 }

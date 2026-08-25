@@ -6,7 +6,7 @@ import {
   type RecentChatSyncEntry,
 } from "@/runtime/recent-chats";
 import type { Conversation } from "@/types/conversation-types";
-import { compareByRecency } from "@/utils/conversation-order";
+import { activeConversationsByRecency } from "@/utils/conversation-order";
 
 /**
  * How many conversations the native cache gets. The Shortcuts picker is a
@@ -50,9 +50,9 @@ export function useNativeRecentChatsSync(
     if (!isRecentChatsSyncAvailable() || !listResolved) {
       return;
     }
-    const chats: RecentChatSyncEntry[] = conversations
-      .filter((conversation) => conversation.archivedAt === undefined)
-      .sort(compareByRecency)
+    const chats: RecentChatSyncEntry[] = activeConversationsByRecency(
+      conversations,
+    )
       .slice(0, MAX_SYNCED_CHATS)
       .map((conversation) => ({
         id: conversation.conversationId,

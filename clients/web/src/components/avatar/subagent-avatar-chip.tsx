@@ -13,6 +13,7 @@
  */
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
+import { useTranslation } from "@/i18n";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { subagentTraits } from "@/utils/avatar-subagent";
 
@@ -28,6 +29,7 @@ export function SubagentAvatarChip({
   size = 16,
   className,
 }: SubagentAvatarChipProps) {
+  const { t } = useTranslation();
   const traits = subagentTraits(subagentId);
   const components = useBundledAvatarComponents();
 
@@ -38,7 +40,7 @@ export function SubagentAvatarChip({
   // composes inline visually but stays a valid block container.
   return (
     <div
-      aria-label={`Subagent ${subagentId}`}
+      aria-label={t("subagentAvatarChip.ariaLabel", { subagentId })}
       className={`inline-flex ${className ?? ""}`.trim()}
     >
       {components ? (

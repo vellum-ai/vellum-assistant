@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
 import { currentPlanFeatures } from "@/domains/settings/billing/plan-spec";
+import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
+import { useReactivateSubscription } from "@/domains/settings/billing/use-reactivate-subscription";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -30,10 +32,12 @@ import type {
   ProPlan,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { useTranslation } from "@/i18n";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -42,6 +46,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   TIER_CHANGE_ELIGIBLE_STATUSES,
   extractMutationError,
+  isDirectCancelEligible,
   resolveCreditTierSelection,
   resolveTierSelection,
 } from "./adjust-plan-utils";
@@ -54,7 +59,21 @@ export interface AdjustPlanModalProps {
   onTierUpgraded?: () => void;
 }
 
-export function AdjustPlanModal({
+export function AdjustPlanModal(props: AdjustPlanModalProps) {
+  // Native Android reopens this configurator on the web app (the
+  // `adjust_plan` param seeds it there) instead of selling tiers in-app.
+  const handsOff = useAndroidBillingHandoff({
+    open: props.open,
+    path: `${routes.settings.usageBilling}&adjust_plan`,
+    onClose: props.onClose,
+  });
+  if (handsOff) {
+    return null;
+  }
+  return <AdjustPlanModalContent {...props} />;
+}
+
+function AdjustPlanModalContent({
   open,
   onClose,
   onTierUpgraded,
@@ -78,7 +97,14 @@ export function AdjustPlanModal({
     organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
+  // "Keep your Plan" posts the reactivate endpoint and the cancellation posts
+  // the cancel endpoint; the portal is the fallback for subscriptions those
+  // endpoints reject (non-entitlement status).
   const portalMutation = useBillingPortalSession(portalSnapshot);
+  const { reactivateSubscription, isPending: reactivatePending } =
+    useReactivateSubscription();
+  const { cancelSubscription, isPending: cancelPending } =
+    useCancelSubscription();
   const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
   const [tierDowngradeOpen, setTierDowngradeOpen] = useState(false);
   const [selectedMachineTier, setSelectedMachineTier] =
@@ -309,12 +335,25 @@ export function AdjustPlanModal({
     );
   };
 
-  const handleConfirmDowngrade = () => {
-    if (portalMutation.isPending) {
+  // Success returns to the plans view, where the invalidated subscription
+  // read now shows "Your plan ends on ..." and the Keep-plan CTA; failure
+  // stays on the confirm step so the user can retry (the hook already
+  // toasted).
+  const handleConfirmDowngrade = async () => {
+    if (cancelPending || portalMutation.isPending) {
       return;
     }
-    setView("plans");
-    portalMutation.mutate({});
+    // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps
+    // the Stripe portal handoff, which can still cancel it.
+    if (!isDirectCancelEligible(subscriptionQuery.data)) {
+      setView("plans");
+      portalMutation.mutate({});
+      return;
+    }
+    const result = await cancelSubscription();
+    if (result) {
+      setView("plans");
+    }
   };
 
   const invalidateBillingQueries = () => {
@@ -568,15 +607,15 @@ export function AdjustPlanModal({
                 <Button
                   variant="ghost"
                   onClick={() => setView("plans")}
-                  disabled={portalMutation.isPending}
+                  disabled={cancelPending || portalMutation.isPending}
                   leftIcon={<ArrowLeft className="h-4 w-4" />}
                 >
                   {t("adjustPlanModal.back")}
                 </Button>
                 <Button
                   variant="danger"
-                  onClick={handleConfirmDowngrade}
-                  disabled={portalMutation.isPending}
+                  onClick={() => void handleConfirmDowngrade()}
+                  disabled={cancelPending || portalMutation.isPending}
                   data-testid="confirm-downgrade-button"
                 >
                   {t("adjustPlanModal.confirmDowngrade")}
@@ -667,13 +706,23 @@ export function AdjustPlanModal({
                             creditChanged={creditChanged}
                             tierChangeError={tierChangeError}
                             upgradePending={upgradeMutation.isPending}
-                            portalPending={portalMutation.isPending}
+                            billingActionPending={
+                              portalMutation.isPending || reactivatePending
+                            }
                             onUpgrade={handleUpgrade}
                             onApplyTierChange={handleApplyTierChange}
                             onDowngradeClick={() =>
                               setView("downgrade-confirm")
                             }
-                            onKeepPlan={() => portalMutation.mutate({})}
+                            onKeepPlan={() => {
+                              if (
+                                !isDirectCancelEligible(subscriptionQuery.data)
+                              ) {
+                                portalMutation.mutate({});
+                                return;
+                              }
+                              void reactivateSubscription();
+                            }}
                           />
                         );
                       })}

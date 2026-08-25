@@ -1,66 +1,41 @@
 /**
  * Tests for the PaymentMethodsCard section:
- *  - Renders the payment-method row (brand, last4, Update/Remove) whenever a
+ *  - Renders the payment-method row (brand, last4, Update Card) whenever a
  *    card is on file (including while auto-reload is off) and a muted empty
  *    state otherwise.
+ *  - The backend enforces a single payment method, so a saved card offers
+ *    Update Card only (no Remove) and the "Add Payment Method" header button
+ *    appears only while no card is on file.
  *  - "Add Payment Method" and "Update Card" open the Stripe setup modal
  *    (stubbed here; the modal has its own tests).
- *  - Removing the saved card opens a destructive confirm warning it turns off
- *    auto-reload; confirming calls the remove endpoint and drives the config
- *    to disabled / no card. A failed removal closes the dialog and surfaces
- *    the error notice.
+ *  - The config query is gated on org readiness: before the org store
+ *    hydrates the card shows the loading state, never the Add button or the
+ *    error notice, so a headerless request can't mislabel the org as having
+ *    no saved card.
  *
  * Strategy: pre-populate the React Query cache so `useQuery` resolves
- * synchronously; mock the SDK boundary so the remove mutation and the
- * follow-up GET are deterministic.
+ * synchronously; mock the SDK boundary so any background refetch is
+ * deterministic.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
-let removeCalls: Array<Record<string, unknown>> = [];
-let removeShouldFail = false;
 let retrieveResponse: AutoTopUpConfigResponse;
+let retrieveShouldFail = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingAutoTopUpRemovePaymentMethodCreate: (
-    opts: Record<string, unknown>,
-  ) => {
-    removeCalls.push(opts);
-    if (removeShouldFail) {
-      return Promise.reject(new Error("remove failed"));
+  organizationsBillingAutoTopUpRetrieve: () => {
+    if (retrieveShouldFail) {
+      return Promise.reject(new Error("org header missing"));
     }
-    // The endpoint clears the PM and disables auto-reload server-side, so the
-    // next GET reflects that.
-    retrieveResponse = {
-      ...retrieveResponse,
-      enabled: false,
-      has_payment_method: false,
-      payment_method_brand: null,
-      payment_method_last4: null,
-    };
-    return Promise.resolve({
-      data: {
-        enabled: false,
-        stubbed: false,
-        message: "Payment method removed",
-      },
-      response: { ok: true },
-    });
+    return Promise.resolve({ data: retrieveResponse, response: { ok: true } });
   },
-  organizationsBillingAutoTopUpRetrieve: () =>
-    Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
 }));
 
 // Stub the Stripe setup modal: these tests only assert it is opened/closed.
@@ -72,22 +47,23 @@ mock.module(
   }),
 );
 
+import * as orgReadyModule from "@/hooks/use-is-org-ready";
+
+// Drives the org-readiness gate. `"ready"` matches the default test
+// environment (no platform session); the gating tests flip it to simulate a
+// platform session whose org store is still hydrating ("resolving") or
+// produced no usable org ("unavailable").
+let orgReadiness: orgReadyModule.OrgHeaderReadiness = "ready";
+mock.module("@/hooks/use-is-org-ready", () => ({
+  ...orgReadyModule,
+  useOrgHeaderReadiness: () => orgReadiness,
+}));
+
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
-const { PaymentMethodsCard, paymentMethodCards, showsRemove } =
+const { PaymentMethodsCard, paymentMethodCards } =
   await import("./payment-methods-card");
 const { DISABLED_CONFIG } = await import("./auto-top-up-card");
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
-
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
 
 const ENABLED_WITH_CARD: AutoTopUpConfigResponse = {
   ...DISABLED_CONFIG,
@@ -107,14 +83,19 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
   payment_method_last4: "4242",
 };
 
-function wrap(config: AutoTopUpConfigResponse) {
+function wrap(config?: AutoTopUpConfigResponse) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   });
-  client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), config);
+  if (config != null) {
+    client.setQueryData(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+      config,
+    );
+  }
   return (
     <QueryClientProvider client={client}>
       <PaymentMethodsCard />
@@ -122,31 +103,16 @@ function wrap(config: AutoTopUpConfigResponse) {
   );
 }
 
-async function openRemoveConfirm(container: HTMLElement) {
-  fireEvent.click(
-    container.querySelector('[data-testid="payment-method-remove"]')!,
-  );
-  return waitFor(() => {
-    const btn = document.querySelector<HTMLButtonElement>(
-      "[data-confirm-dialog-confirm]",
-    );
-    if (!btn) {
-      throw new Error("confirm dialog not open");
-    }
-    return btn;
-  });
-}
-
 beforeEach(() => {
-  removeCalls = [];
-  removeShouldFail = false;
   retrieveResponse = { ...DISABLED_CONFIG };
+  retrieveShouldFail = false;
+  orgReadiness = "ready";
 });
 
 afterEach(cleanup);
 
 describe("PaymentMethodsCard row and empty state", () => {
-  test("renders the saved card row with Update/Remove", () => {
+  test("renders the saved card row with Update Card as the only action", () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
     const { container } = render(wrap(ENABLED_WITH_CARD));
 
@@ -159,7 +125,7 @@ describe("PaymentMethodsCard row and empty state", () => {
     ).not.toBeNull();
     expect(
       container.querySelector('[data-testid="payment-method-remove"]'),
-    ).not.toBeNull();
+    ).toBeNull();
   });
 
   test("keeps the card row reachable while auto-reload is off", () => {
@@ -182,6 +148,53 @@ describe("PaymentMethodsCard row and empty state", () => {
     );
     expect(
       container.querySelector('[data-testid="payment-method-row"]'),
+    ).toBeNull();
+  });
+});
+
+describe("PaymentMethodsCard add button", () => {
+  test("shows Add Payment Method while no card is on file", () => {
+    const { container } = render(wrap(DISABLED_CONFIG));
+
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).not.toBeNull();
+  });
+
+  test("hides Add Payment Method once a card is on file", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { container } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).toBeNull();
+  });
+});
+
+describe("PaymentMethodsCard org readiness", () => {
+  test("shows loading while the org store hydrates, never the Add button or the error notice", () => {
+    orgReadiness = "resolving";
+    const { container } = render(wrap());
+
+    expect(container.textContent).toContain("Loading…");
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("Failed to load");
+  });
+
+  test("surfaces the error state when org resolution concluded without an org", async () => {
+    orgReadiness = "unavailable";
+    retrieveShouldFail = true;
+    const { container } = render(wrap());
+
+    await waitFor(() => {
+      if (!container.textContent?.includes("Failed to load")) {
+        throw new Error("error notice not shown");
+      }
+    });
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();
   });
 });
@@ -213,139 +226,11 @@ describe("PaymentMethodsCard modal wiring", () => {
   });
 });
 
-describe("PaymentMethodsCard remove card", () => {
-  test("confirming Remove calls the endpoint and clears the card", async () => {
-    retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(wrap(ENABLED_WITH_CARD));
-
-    expect(
-      container.querySelector('[data-testid="payment-method-row"]'),
-    ).not.toBeNull();
-
-    // Remove opens a destructive confirm that warns it turns off auto-reload.
-    const confirmButton = await openRemoveConfirm(container);
-    expect(document.body.textContent).toContain("Remove payment method?");
-    expect(document.body.textContent).toContain("turn off auto-reload");
-    expect(removeCalls.length).toBe(0);
-
-    fireEvent.click(confirmButton);
-
-    await waitFor(() => {
-      if (removeCalls.length === 0) {
-        throw new Error("remove endpoint not called");
-      }
-    });
-
-    // The section drops to the empty state; no error notice.
-    await waitFor(() => {
-      if (container.querySelector('[data-testid="payment-method-row"]')) {
-        throw new Error("payment-method row still present");
-      }
-      if (
-        !container.querySelector('[data-testid="payment-methods-empty"]')
-      ) {
-        throw new Error("empty state not shown");
-      }
-    });
-    expect(
-      container.querySelector('[data-testid="auto-top-up-remove-error"]'),
-    ).toBeNull();
-  });
-
-  test("a failed removal closes the confirm dialog and surfaces the error notice", async () => {
-    removeShouldFail = true;
-    retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(wrap(ENABLED_WITH_CARD));
-
-    const confirmButton = await openRemoveConfirm(container);
-    fireEvent.click(confirmButton);
-
-    await waitFor(() => {
-      if (removeCalls.length === 0) {
-        throw new Error("remove endpoint not called");
-      }
-    });
-
-    // On failure the dialog closes (so the notice isn't hidden behind the
-    // overlay) and the card row stays put for a retry.
-    await waitFor(() => {
-      if (document.querySelector("[data-confirm-dialog-confirm]")) {
-        throw new Error("confirm dialog still open");
-      }
-      if (
-        !container.querySelector('[data-testid="auto-top-up-remove-error"]')
-      ) {
-        throw new Error("remove error notice not shown");
-      }
-    });
-    expect(
-      container.querySelector('[data-testid="payment-method-row"]'),
-    ).not.toBeNull();
-  });
-});
-
-describe("PaymentMethodsCard with obscure-credits on", () => {
-  beforeEach(() => {
-    setObscureCredits(true);
-  });
-
-  afterEach(() => {
-    setObscureCredits(false);
-  });
-
-  test("the only card keeps Update but drops Remove", () => {
-    retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(wrap(ENABLED_WITH_CARD));
-
-    const row = container.querySelector('[data-testid="payment-method-row"]');
-    expect(row).not.toBeNull();
-    expect(row?.textContent).toContain("Ending in 4242");
-    expect(
-      container.querySelector('[data-testid="payment-method-update"]'),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('[data-testid="payment-method-remove"]'),
-    ).toBeNull();
-  });
-
-  test("Update Card still opens the setup modal", () => {
-    retrieveResponse = { ...DISABLED_WITH_CARD };
-    const { container, getByTestId } = render(wrap(DISABLED_WITH_CARD));
-
-    fireEvent.click(getByTestId("payment-method-update"));
-
-    expect(
-      container.querySelector('[data-testid="pm-modal-stub"]'),
-    ).not.toBeNull();
-  });
-
-  test("the empty state is unchanged", () => {
-    const { container, getByTestId } = render(wrap(DISABLED_CONFIG));
-
-    expect(getByTestId("payment-methods-empty")).not.toBeNull();
-    expect(
-      container.querySelector('[data-testid="payment-method-row"]'),
-    ).toBeNull();
-  });
-});
-
-describe("PaymentMethodsCard with the flag off", () => {
-  test("the only card still offers Remove", () => {
-    setObscureCredits(false);
-    retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(wrap(ENABLED_WITH_CARD));
-
-    expect(
-      container.querySelector('[data-testid="payment-method-remove"]'),
-    ).not.toBeNull();
-  });
-});
-
 /**
  * The backend stores at most one payment method and has no list endpoint, so
- * the multi-card rule is only reachable through the pure helper.
+ * the multi-card shape is only reachable through the pure helper.
  */
-describe("paymentMethodCards / showsRemove", () => {
+describe("paymentMethodCards", () => {
   test("maps a saved card onto a single stably-keyed entry", () => {
     expect(paymentMethodCards(ENABLED_WITH_CARD)).toEqual([
       { id: "primary", brand: "visa", last4: "4242" },
@@ -355,12 +240,5 @@ describe("paymentMethodCards / showsRemove", () => {
   test("maps no card and a missing config onto an empty list", () => {
     expect(paymentMethodCards(DISABLED_CONFIG)).toEqual([]);
     expect(paymentMethodCards(undefined)).toEqual([]);
-  });
-
-  test("hides Remove only for a lone card under the flag", () => {
-    expect(showsRemove(1, true)).toBe(false);
-    expect(showsRemove(2, true)).toBe(true);
-    expect(showsRemove(1, false)).toBe(true);
-    expect(showsRemove(2, false)).toBe(true);
   });
 });

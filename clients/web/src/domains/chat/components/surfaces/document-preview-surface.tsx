@@ -1,6 +1,8 @@
 import type { Surface } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 import { DocumentCard } from "@/domains/chat/components/document-card";
+import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
 
 interface DocumentPreviewSurfaceData {
   documentName: string;
@@ -33,6 +35,7 @@ export function DocumentPreviewSurface({
   onAction,
   onOpenDocument,
 }: DocumentPreviewSurfaceProps) {
+  const { t } = useTranslation("chat");
   const data: DocumentPreviewSurfaceData = {
     documentName:
       (surface.data.documentName as string) ??
@@ -45,6 +48,7 @@ export function DocumentPreviewSurface({
   const openAction = surface.actions?.[0];
   const openDocument = onOpenDocument;
   const documentSurfaceId = data.documentSurfaceId;
+  const isOpen = useIsDocumentOpen(documentSurfaceId === "" ? null : documentSurfaceId);
 
   const handleOpen = openAction
     ? () => onAction(surface.surfaceId, openAction.id)
@@ -55,10 +59,11 @@ export function DocumentPreviewSurface({
   return (
     <DocumentCard
       documentName={data.documentName}
+      isOpen={isOpen}
       mimeType={data.mimeType}
       content={data.content}
       onOpen={handleOpen}
-      ariaLabel={`Open ${data.documentName}`}
+      ariaLabel={t("documentPreviewSurface.openAria", { name: data.documentName })}
     />
   );
 }

@@ -582,6 +582,23 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("tool_ordering");
     });
+
+    it("classifies user-terminal history rejections separately", () => {
+      /** User-terminal provider rejections receive a dedicated category. */
+
+      // GIVEN a provider error whose history ends with a model turn
+      const error = new Error(
+        "Requests ending with a model turn are not supported.",
+      );
+
+      // WHEN the conversation error is classified
+      const result = classifyConversationError(error, baseCtx);
+
+      // THEN it is a retryable ordering error in the user-terminal category
+      expect(result.code).toBe("PROVIDER_ORDERING");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("history_user_terminal");
+    });
   });
 
   describe("web search ordering errors", () => {
@@ -1119,6 +1136,50 @@ describe("classifyConversationError", () => {
   });
 
   describe("reason-driven classification (ProviderError.reason)", () => {
+    it("classifies reason=request_shape_unsupported as a friendly capability-mismatch message", () => {
+      // GIVEN a chat-template 400 that the provider stamped with the
+      // semantic reason (Together serving MiniMax M3)
+      const err = new ProviderError(
+        "Together AI API error (400): Failed to apply chat template: invalid operation: object is not callable (in chat:22)",
+        "together",
+        400,
+        { reason: "request_shape_unsupported" },
+      );
+
+      // WHEN it is classified
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN the user sees the capability-mismatch copy, not the raw
+      // template error
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("request_shape_unsupported");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain(
+        "couldn't process the request format",
+      );
+      expect(result.userMessage).not.toContain("chat template");
+    });
+
+    it("classifies a reason-less chat-template 400 via the message ladder", () => {
+      // GIVEN a chat-template 400 whose ProviderError carries no semantic
+      // reason (e.g. thrown by a non-OpenAI-compatible wrapper)
+      const err = new ProviderError(
+        "Together AI API error (400): Failed to apply chat template: invalid operation: object is not callable (in chat:22)",
+        "together",
+        400,
+      );
+
+      // WHEN it is classified
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN the regex ladder still lands on the capability-mismatch copy
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("request_shape_unsupported");
+      expect(result.userMessage).toContain(
+        "couldn't process the request format",
+      );
+    });
+
     it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {
       const err = new ProviderError(
         "Vercel AI Gateway API error (403): Model claude-opus-4 is restricted on your plan [type=no_providers_available]",

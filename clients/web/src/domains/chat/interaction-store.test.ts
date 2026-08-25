@@ -7,6 +7,8 @@ import {
   useInteractionStore,
   hasActiveInteraction,
 } from "@/domains/chat/interaction-store";
+import { t } from "@/i18n";
+
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // Reset store between tests to avoid cross-contamination
@@ -475,14 +477,17 @@ describe("prompt slots: the shared invariant", () => {
       });
 
       it("a failure is reported only by the holder, and only for its own prompt", () => {
+        // Which copy lands is not what this covers: every assertion below is
+        // about whether the banner is written at all, so any key serves.
+        const KEY = "surfaceActions.submitFailed" as const;
+        const COPY = t(KEY, { ns: "chat" });
         const banner = () => useChatSessionStore.getState().error?.message;
-        const report = (id: string) =>
-          reportSubmissionFailure(kind, id, `failed ${id}`);
+        const report = (id: string) => reportSubmissionFailure(kind, id, KEY);
 
         RAISE[kind]("r1");
         useInteractionStore.getState().claimSubmission(kind, "r1");
         report("r1");
-        expect(banner()).toBe("failed r1");
+        expect(banner()).toBe(COPY);
 
         // Replaced on screen: the message would explain itself over a prompt
         // the user has not answered.
@@ -495,7 +500,7 @@ describe("prompt slots: the shared invariant", () => {
         // which is the ordinary shape and leaves nothing to be mistaken for.
         RETIRE[kind]("r2");
         report("r1");
-        expect(banner()).toBe("failed r1");
+        expect(banner()).toBe(COPY);
 
         // The slot gone means the interaction was abandoned, and an error about
         // something the user walked away from is noise.

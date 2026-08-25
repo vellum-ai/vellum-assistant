@@ -8,6 +8,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { validateInferenceProfileConfig } from "@vellumai/assistant-api";
+
+import { t } from "@/i18n";
+
 import {
   getManagedUpstreamForModel,
   getModelsForProvider,
@@ -46,6 +50,36 @@ import type {
 import { assistantSupportsEntryProviderBinding } from "@/lib/backwards-compat/entry-provider-binding";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
+
+/**
+ * The settings surface persists through the generic config PATCH, which is
+ * the deliberately unvalidated escape hatch, so an impossible output budget
+ * must be rejected here before the write or it lands stored. The judgment is
+ * the daemon's own `validateInferenceProfileConfig` (shared via
+ * assistant-api) so the two paths cannot drift; only the copy is local.
+ */
+function maxTokensBudgetError(
+  catalogModel: LlmCatalogModel,
+  maxTokens: number,
+): string | null {
+  const issue = validateInferenceProfileConfig({
+    maxTokens,
+    modelMaxOutputTokens: catalogModel.maxOutputTokens,
+    modelContextWindowTokens: catalogModel.contextWindowTokens,
+  });
+  if (!issue) {
+    return null;
+  }
+  return issue.code === "over_output_cap"
+    ? t("settings:profileEditor.maxTokensOverCap", {
+        maxTokens,
+        cap: catalogModel.maxOutputTokens,
+      })
+    : t("settings:profileEditor.maxTokensNoInputRoom", {
+        maxTokens,
+        window: catalogModel.contextWindowTokens,
+      });
+}
 
 export type ProfileEditorMode = "create" | "edit" | "view";
 export type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
@@ -636,6 +670,16 @@ export function useProfileEditor({
         setSaving(false);
       }
       return;
+    }
+    // `selectedModel` already resolves the routed `<provider>/<model>` form
+    // to its native catalog entry, so the judgment sees the same model the
+    // save will dispatch.
+    if (visibility.maxTokens && maxTokens !== null && selectedModel) {
+      const budgetError = maxTokensBudgetError(selectedModel, maxTokens);
+      if (budgetError) {
+        setSaveError(budgetError);
+        return;
+      }
     }
     setSaving(true);
     setSaveError(null);

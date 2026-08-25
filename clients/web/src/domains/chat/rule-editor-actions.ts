@@ -6,6 +6,7 @@
  * and persisting rules via the trust-rules API.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import {
@@ -18,7 +19,10 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
@@ -172,10 +176,11 @@ async function executeSaveRule(
       );
       if (!result.ok) {
         useRuleEditorStore.getState().dismissRuleEditor();
+        captureSubmissionRejection("save_trust_rule", result);
         reportSubmissionFailure(
           "confirmation",
           context.requestId,
-          result.error,
+          "ruleEditorActions.saveFailed",
         );
         return;
       }
@@ -185,7 +190,7 @@ async function executeSaveRule(
       reportSubmissionFailure(
         "confirmation",
         context.requestId,
-        "Failed to save trust rule. Please try again.",
+        "ruleEditorActions.saveFailed",
       );
       return;
     } finally {
@@ -240,7 +245,7 @@ async function executeSaveRule(
     });
     useChatSessionStore
       .getState()
-      .setError({ message: "Failed to save trust rule. Please try again." });
+      .setError({ message: t("chat:ruleEditorActions.saveFailed") });
   } finally {
     useRuleEditorStore.getState().setIsSavingRule(false);
     useRuleEditorStore.getState().dismissRuleEditor();

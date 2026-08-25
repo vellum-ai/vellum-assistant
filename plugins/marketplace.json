@@ -310,7 +310,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/natural",
-        "ref": "3cfc8c97c14df311fc64992ab8b172c1b2d64eb0"
+        "ref": "e71880d144337d1b8b6d3e65ab98006b7d015ef6"
       },
       "description": "Hosted MCP access to Natural payment operations for Vellum assistants.",
       "category": "finance",

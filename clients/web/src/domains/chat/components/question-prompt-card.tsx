@@ -19,6 +19,7 @@ import { useOptionHotkeys } from "@/hooks/use-option-hotkeys";
 import type { QuestionEntry } from "@/types/interaction-ui-types";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Card, Typography } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 export interface QuestionPromptCardProps {
   /** The daemon-supplied request id; needed by the owner for batched POST. */
@@ -78,6 +79,7 @@ export function QuestionPromptBody({
   onSubmitAll,
   onClose,
 }: QuestionPromptCardProps) {
+  const { t } = useTranslation("chat");
   // Defensive: schema requires ≥1 entry, but real-world streams can deliver
   // malformed payloads. Warn so QA notices, but still render something.
   useEffect(() => {
@@ -316,7 +318,7 @@ export function QuestionPromptBody({
               as="span"
               className="px-1 text-[color:var(--content-tertiary)]"
             >
-              {currentIndex + 1} of {entries.length}
+              {t("questionPromptCard.position", { current: currentIndex + 1, total: entries.length })}
             </Typography>
           )}
           <Button
@@ -325,7 +327,7 @@ export function QuestionPromptBody({
             iconOnly={<ChevronLeft />}
             onClick={handlePrev}
             disabled={!canGoPrev || isSubmitting}
-            aria-label="Previous question"
+            aria-label={t("questionPromptCard.previousQuestionAria")}
           />
           <Button
             variant="ghost"
@@ -333,7 +335,7 @@ export function QuestionPromptBody({
             iconOnly={<ChevronRight />}
             onClick={handleNext}
             disabled={!canGoNext || isSubmitting}
-            aria-label="Next question"
+            aria-label={t("questionPromptCard.nextQuestionAria")}
           />
           {onClose && (
             <Button
@@ -342,7 +344,7 @@ export function QuestionPromptBody({
               iconOnly={<X />}
               onClick={onClose}
               disabled={isSubmitting}
-              aria-label="Close question"
+              aria-label={t("questionPromptCard.closeQuestionAria")}
               className="-mr-1"
             />
           )}
@@ -361,7 +363,7 @@ export function QuestionPromptBody({
               disabled={isSubmitting || hasFreeText}
               onClick={() => handleOptionClick(option.id)}
               className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
-              aria-label={`Option ${badgeNumber}: ${option.label}`}
+              aria-label={t("questionPromptCard.optionAria", { number: badgeNumber, label: option.label })}
             >
               <QuestionRowContents
                 badgeNumber={badgeNumber}
@@ -392,10 +394,10 @@ export function QuestionPromptBody({
             onChange={(event) => handleFreeTextChange(event.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder={
-              currentEntry.freeTextPlaceholder ?? "Type something else"
+              currentEntry.freeTextPlaceholder ?? t("questionPromptCard.typeSomethingElsePlaceholder")
             }
             disabled={isSubmitting}
-            aria-label="Type a different answer"
+            aria-label={t("questionPromptCard.typeDifferentAnswerAria")}
             className="text-body-medium-default min-w-0 flex-1 bg-transparent text-[color:var(--content-default)] placeholder:text-[color:var(--content-tertiary)] focus:outline-none disabled:opacity-50"
           />
           {hasFreeText ? (
@@ -405,7 +407,7 @@ export function QuestionPromptBody({
               iconOnly={<ArrowRight />}
               onClick={handleSubmitFreeText}
               disabled={isSubmitting}
-              aria-label="Send response"
+              aria-label={t("questionPromptCard.sendResponseAria")}
               className="shrink-0"
             />
           ) : (
@@ -413,10 +415,10 @@ export function QuestionPromptBody({
               variant="outlined"
               onClick={handleSkip}
               disabled={isSubmitting}
-              aria-label="Skip this question"
+              aria-label={t("questionPromptCard.skipAria")}
               className="shrink-0"
             >
-              {isSkipped ? "Skipped" : "Skip"}
+              {isSkipped ? t("questionPromptCard.skipped") : t("questionPromptCard.skip")}
             </Button>
           )}
         </div>
@@ -427,7 +429,7 @@ export function QuestionPromptBody({
             as="p"
             className="px-3 text-[color:var(--content-tertiary)]"
           >
-            Skipped — pick an option to override
+            {t("questionPromptCard.skippedHint")}
           </Typography>
         )}
       </div>

@@ -54,7 +54,7 @@ const CYCLE_END = "2026-09-01T00:00:00Z";
 const MIGHTY: ProPackage = {
   key: "mighty",
   name: "Mighty",
-  description: "10 GB of storage and $25 in monthly credits.",
+  description: "10 GB of storage and monthly Mighty Usage.",
   version: 1,
   machine_tier: null,
   storage_tier: "xs",
@@ -62,6 +62,7 @@ const MIGHTY: ProPackage = {
   machine_size: null,
   storage_gib: 10,
   credits_usd: 25,
+  usage_label: "Mighty Usage",
   include_platform_fee: false,
   base_price_cents: 0,
   machine_price_cents: 0,

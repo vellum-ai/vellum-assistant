@@ -98,7 +98,7 @@ function getWindowsMachineGuid(): string | null {
   try {
     const output = execSync(
       'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
-      { encoding: "utf-8", timeout: 5000 },
+      { encoding: "utf-8", timeout: 5000, windowsHide: true },
     ).trim();
     const match = output.match(/MachineGuid\s+REG_SZ\s+(.+)/);
     return match?.[1]?.trim() ?? null;

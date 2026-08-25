@@ -116,7 +116,6 @@ describe("restoreBounds", () => {
       y: 200,
       width: 1000,
       height: 700,
-      fullscreen: false,
     });
   });
 
@@ -148,7 +147,6 @@ describe("restoreBounds", () => {
       y: 80,
       width: 1280,
       height: 720,
-      fullscreen: false,
     });
   });
 
@@ -215,6 +213,17 @@ describe("restoreBounds", () => {
     expect(restoreBounds("main", DEFAULTS).fullscreen).toBe(true);
   });
 
+  test("omits fullscreen for a windowed session so BrowserWindow stays fullscreenable", () => {
+    savedWindows.main = {
+      x: 100,
+      y: 200,
+      width: 1000,
+      height: 700,
+      isFullScreen: false,
+    };
+    expect(restoreBounds("main", DEFAULTS)).not.toHaveProperty("fullscreen");
+  });
+
   test("forwards a saved maximized flag", () => {
     savedWindows.main = {
       x: 0,
@@ -250,7 +259,6 @@ describe("restoreBounds", () => {
       y: 200,
       width: 1000,
       height: 700,
-      fullscreen: false,
     });
   });
 

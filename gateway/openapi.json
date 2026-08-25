@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.11.2",
+    "version": "0.11.5",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],

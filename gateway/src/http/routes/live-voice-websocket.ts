@@ -4,7 +4,7 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
-import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
+import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
@@ -126,8 +126,8 @@ async function checkLiveVoiceAuth(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  if (isActorTokenRevoked(rawToken, result.claims)) {
-    log.warn("Live voice WS: rejected — actor token revoked");
+  if (!admitActorToken(rawToken, result.claims)) {
+    log.warn("Live voice WS: rejected, actor token revoked");
     return new Response("Unauthorized", { status: 401 });
   }
 

@@ -55,11 +55,12 @@ const MODIFIER_BY_KEY: Partial<Record<string, PTTModifier>> = {
  * would be dead in the state users are actually in.
  *
  * Fn is desktop-only and orthogonal to both. It never reaches the DOM, so the
- * helper is registered instead and its `down` edge is the tap, since the
- * helper reports a hold (`down`/`up`) and a toggle has no use for the
- * release. A host that accepts no Fn registration simply has no Fn binding;
- * the global Talk shortcut is still there, and unlike Fn it needs no Input
- * Monitoring grant.
+ * helper is registered instead. The helper reports a completed bare-Fn tap as
+ * a `down`/`up` pair (a chorded Fn press, e.g. Fn+Ctrl or Fn+arrow, is
+ * someone else's shortcut and is filtered out there), and the `down` edge is
+ * the tap since a toggle has no use for the release. A host that accepts no
+ * Fn registration simply has no Fn binding; the global Talk shortcut is still
+ * there, and unlike Fn it needs no Input Monitoring grant.
  *
  * Starting is not this hook's to define. A press is handed to
  * `startVoiceFromSurface`, the same entry the companion surface's Talk uses,

@@ -8,6 +8,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "end",
   "update_config",
   "attach_image",
+  "text",
 ] as const;
 
 type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
@@ -102,6 +103,22 @@ export interface LiveVoiceClientStartFrame {
    */
   readonly bargeInMinSpeechMs?: number;
   /**
+   * The client has a text input affordance, so it can take a turn without the
+   * microphone (see {@link LiveVoiceClientTextTurnFrame}).
+   *
+   * Load-bearing at startup, not just a feature announcement: a session whose
+   * speech-to-text leg has no working credential is normally rejected outright
+   * (`credentials_unavailable`), because a session that cannot hear is a
+   * session that cannot be used. A client that can type is the exception: for
+   * it, a missing STT leg is degradation rather than failure, so the session
+   * starts text-only and says so on `ready` via `audioInput: false`.
+   *
+   * Absent means false: a client that predates the field has no way to take a
+   * turn without the microphone, so a broken STT leg must still fail its
+   * session rather than open one it cannot speak into.
+   */
+  readonly textInput?: boolean;
+  /**
    * Which client opened the session. Absent from clients that predate the
    * field, in which case the originating client is simply unknown.
    *
@@ -128,6 +145,15 @@ export const MIN_SILENCE_THRESHOLD_MS = 100;
 export const MAX_SILENCE_THRESHOLD_MS = 5_000;
 export const MIN_BARGE_IN_MIN_SPEECH_MS = 0;
 export const MAX_BARGE_IN_MIN_SPEECH_MS = 3_000;
+
+/**
+ * Longest typed turn accepted on a `text` frame.
+ *
+ * Generous next to anything a person says in one breath, and far below what
+ * would make the reply unspeakable. The cap exists so a socket tuned for 50 ms
+ * audio frames cannot be handed a whole document to synthesize.
+ */
+export const MAX_TEXT_TURN_CHARS = 4_000;
 
 export interface LiveVoiceClientAudioFrame {
   readonly type: "audio";
@@ -180,6 +206,31 @@ export interface LiveVoiceClientAttachImageFrame {
   readonly attachmentId: string;
 }
 
+/**
+ * A user turn the client already has as text, taken without the microphone.
+ *
+ * The session runs it through the same pipeline a spoken turn takes, joining
+ * at the point STT would have handed over a finished transcript: same turn
+ * runner, same streaming TTS, same barge-in and progress narration. Only the
+ * capture half is skipped, so the reply is spoken exactly as it would be for
+ * speech.
+ *
+ * Deliberately not routed through `processMessage` into the conversation the
+ * session owns. That path diverges from the voice one in ways that have
+ * already produced their own bug class (missing user_message_echo, an
+ * unpersisted conversation row, missing trustContext), and a typed turn that
+ * behaved differently from a spoken one would reintroduce all of it.
+ *
+ * Accepted at any point in a session, not only as its first turn. A user
+ * whose microphone stops working mid-session types the rest of the
+ * conversation; a client with no microphone at all (see the start frame's
+ * `textInput`) types every turn.
+ */
+export interface LiveVoiceClientTextTurnFrame {
+  readonly type: "text";
+  readonly text: string;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientAudioFrame
@@ -187,7 +238,8 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame
   | LiveVoiceClientUpdateConfigFrame
-  | LiveVoiceClientAttachImageFrame;
+  | LiveVoiceClientAttachImageFrame
+  | LiveVoiceClientTextTurnFrame;
 
 interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
@@ -209,6 +261,23 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
    * (older daemons) means "manual".
    */
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Whether this daemon will accept `text` frames on the session. Absent
+   * (older daemons) means no, which is what lets a client that asked for
+   * `textInput` fall back rather than type into a socket that would answer
+   * every typed turn with an `unknown_type` error.
+   */
+  readonly textInput?: boolean;
+  /**
+   * Whether the session's speech-to-text leg is live. Absent means yes, which
+   * is the only thing an older daemon can have meant: it rejects a session it
+   * cannot transcribe, so every session it readies can hear.
+   *
+   * False is reachable only for a client that declared `textInput`, and tells
+   * it to present the session as typed rather than draw a microphone that
+   * will never hear anything.
+   */
+  readonly audioInput?: boolean;
 }
 
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
@@ -544,7 +613,57 @@ export function validateLiveVoiceClientFrame(
       return validateUpdateConfigFrame(value);
     case "attach_image":
       return validateAttachImageFrame(value);
+    case "text":
+      return validateTextTurnFrame(value);
   }
+}
+
+function validateTextTurnFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientTextTurnFrame> {
+  if (!("text" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "text frame is missing required field text",
+      "text",
+      "text",
+    );
+  }
+
+  if (typeof value.text !== "string") {
+    return protocolError(
+      "invalid_field",
+      "text frame field text must be a string",
+      "text",
+      "text",
+    );
+  }
+
+  // Trimmed before the emptiness check, so a frame carrying only whitespace is
+  // rejected here rather than reaching the session as a turn with nothing in
+  // it. The trimmed value is what travels, so the turn the session runs is the
+  // one that was validated.
+  const text = value.text.trim();
+
+  if (text.length === 0) {
+    return protocolError(
+      "invalid_field",
+      "text frame field text must not be empty",
+      "text",
+      "text",
+    );
+  }
+
+  if (text.length > MAX_TEXT_TURN_CHARS) {
+    return protocolError(
+      "invalid_field",
+      `text frame field text must be at most ${MAX_TEXT_TURN_CHARS} characters`,
+      "text",
+      "text",
+    );
+  }
+
+  return { ok: true, frame: { type: "text", text } };
 }
 
 function validateAttachImageFrame(
@@ -744,6 +863,15 @@ function validateStartFrame(
     );
   }
 
+  if ("textInput" in value && typeof value.textInput !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "start frame field textInput must be a boolean",
+      "textInput",
+      "start",
+    );
+  }
+
   // An unrecognized client is dropped rather than rejected: the field is an
   // analytics dimension, and failing a session's startup over it would trade a
   // gap in a chart for a user who cannot talk to their assistant.
@@ -767,6 +895,7 @@ function validateStartFrame(
       ...(typeof value.bargeInMinSpeechMs === "number"
         ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
         : {}),
+      ...(value.textInput === true ? { textInput: true } : {}),
     },
   };
 }

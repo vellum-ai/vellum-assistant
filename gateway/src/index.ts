@@ -228,11 +228,15 @@ import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
-import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
+import {
+  admissionPolicyRoutes,
+  createDiscordAdmissionRoutes,
+} from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createChannelSocketHealthRoutes } from "./ipc/channel-socket-health-handlers.js";
 import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -2609,10 +2613,13 @@ async function main() {
   }
 
   // ── Discord Gateway lifecycle ──
-  // Credential-gated and UI-invisible: the client exists only while a
-  // `discord_channel:bot_token` credential does. There is no feature flag —
-  // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
-  // credential tears the connection down on the next watcher tick.
+  // Credential-gated: the client exists only while a
+  // `discord_channel:bot_token` credential does. There is no feature flag, and
+  // removing the credential tears the connection down on the next watcher
+  // tick. Whether Discord is offered for setup is a separate question, decided
+  // by BASE_AVAILABLE_CHANNELS in the daemon, which lists it: a channel can be
+  // offered while no credential is stored, and the connection is what a stored
+  // one buys.
   //
   // Startup is the credential watcher's initial poll: it diffs against an
   // empty baseline, so a token already stored at boot surfaces as
@@ -2885,11 +2892,16 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
+    ...createDiscordAdmissionRoutes(configFileCache),
     ...channelPermissionRoutes,
     ...trustVerdictRoutes,
     ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
+    ...createChannelSocketHealthRoutes({
+      slack: () => slackSocketClient,
+      discord: () => discordGatewayClient,
+    }),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
     ...createCredentialRequestIpcRoutes(

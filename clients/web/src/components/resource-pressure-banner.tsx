@@ -7,6 +7,11 @@ import { useTranslation } from "@/i18n";
 
 export interface ResourcePressureBannerProps {
   /**
+   * The assistant's display name, used in the title. Null or blank falls
+   * back to the generic title copy.
+   */
+  assistantName: string | null;
+  /**
    * Called when the user dismisses the banner. The `permanent` flag is true
    * when the user also checked "Don't show again"; in that case the caller
    * should suppress the banner permanently, not just for the cooldown period.
@@ -20,9 +25,14 @@ export interface ResourcePressureBannerProps {
 }
 
 export function ResourcePressureBanner(props: ResourcePressureBannerProps) {
-  const { onDismiss, onUpgrade } = props;
+  const { assistantName, onDismiss, onUpgrade } = props;
   const { t } = useTranslation();
   const [dontShowAgain, setDontShowAgain] = useState(false);
+
+  const trimmedName = assistantName?.trim();
+  const title = trimmedName
+    ? t("resourcePressureBanner.titleNamed", { assistantName: trimmedName })
+    : t("resourcePressureBanner.title");
 
   // Which signal tripped and how hard is deliberately not surfaced; the
   // banner is a plan-headroom nudge, not a metrics readout.
@@ -33,7 +43,7 @@ export function ResourcePressureBanner(props: ResourcePressureBannerProps) {
   return (
     <Notice
       tone="warning"
-      title={t("resourcePressureBanner.title")}
+      title={title}
       icon={<Activity className="h-4 w-4" aria-hidden="true" />}
       onDismiss={() => onDismiss(dontShowAgain)}
       className="p-4"

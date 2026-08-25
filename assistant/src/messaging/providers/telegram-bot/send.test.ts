@@ -273,7 +273,10 @@ describe("telegramTransport topic targeting", () => {
   });
 
   test("typing indicators target the topic", async () => {
-    await telegramTransport.typing!(topicCtx, "123");
+    await telegramTransport.setActivity!(topicCtx, {
+      chatId: "123",
+      phase: "thinking",
+    });
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
       chat_id: "123",
@@ -282,6 +285,21 @@ describe("telegramTransport topic targeting", () => {
     });
   });
 
+  // Telegram's chat action expires on its own, so a phase that is not running
+  // has nothing to say. Asserting the call count rather than the absence of a
+  // "stop" call is what catches a clearing request being invented later.
+  test.each(["idle", "awaiting_confirmation"] as const)(
+    "says nothing to Telegram for the %s phase",
+    async (phase) => {
+      await telegramTransport.setActivity!(topicCtx, {
+        chatId: "123",
+        phase,
+      });
+
+      expect(callTelegramBotApiMock).not.toHaveBeenCalled();
+    },
+  );
+
   test("a callback URL without threadId keeps sends thread-less", async () => {
     const bareCtx: CallbackContext = {
       callbackUrl: "/deliver/telegram",
@@ -289,7 +307,10 @@ describe("telegramTransport topic targeting", () => {
     };
 
     await telegramTransport.deliver(bareCtx, payload({ renderRichly: false }));
-    await telegramTransport.typing!(bareCtx, "123");
+    await telegramTransport.setActivity!(bareCtx, {
+      chatId: "123",
+      phase: "thinking",
+    });
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",
@@ -322,7 +343,28 @@ describe("editTelegramMessage", () => {
     expect(method).toBe("editMessageText");
     // Telegram wants a numeric message id, where the capability carries the
     // channel's id as a string.
-    expect(body).toEqual({ chat_id: "123", message_id: 456, text: "revised" });
+    expect(body).toEqual({
+      chat_id: "123",
+      message_id: 456,
+      text: "revised",
+      reply_markup: { inline_keyboard: [] },
+    });
+  });
+
+  test("clears the inline keyboard, so a settled message keeps no buttons", async () => {
+    await telegramTransport.edit!(ctx as CallbackContext, {
+      chatId: "123",
+      messageId: "456",
+      text: "\u2713 Approved",
+    });
+
+    const [, body] = callTelegramBotApiMock.mock.calls[0]!;
+    // Omitting reply_markup leaves an existing keyboard in place, which would
+    // leave live Approve and Reject buttons under text saying the request is
+    // already decided. The field has to be sent, and sent empty.
+    expect((body as Record<string, unknown>).reply_markup).toEqual({
+      inline_keyboard: [],
+    });
   });
 
   test("treats an unchanged message as already done", async () => {

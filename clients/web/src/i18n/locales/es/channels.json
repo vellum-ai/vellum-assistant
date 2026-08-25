@@ -10,6 +10,8 @@
   },
   "connectionCard": {
     "connected": "Conectado",
+    "reconnecting": "Reconectando…",
+    "statusUnavailable": "Estado no disponible",
     "disconnecting": "Desconectando…",
     "disconnect": "Desconectar"
   },
@@ -26,7 +28,7 @@
     "connectManually": "o conectar manualmente"
   },
   "pluginChannelPanel": {
-    "openPluginPage": "Abrir la página del plugin",
+    "navigateToPluginPage": "Ir a la página del plugin",
     "ingressLoading": "Comprobando quién puede contactar con {channel}…",
     "ingressUnsupported": "La puerta de enlace de este asistente no informa de las aprobaciones de entrada, así que aquí no hay nada que decidir.",
     "ingressForbidden": "Solo el guardián de este asistente puede ver o cambiar las aprobaciones de entrada.",
@@ -34,12 +36,9 @@
     "ingressNone": "La puerta de enlace no ve ninguna declaración de entrada para {channel}, así que todavía no hay nada que aprobar.",
     "ingressApprovedTag": "Entrada aprobada",
     "ingressPendingTag": "Entrada pendiente de aprobación",
-    "approvedAddresses": "{channel} recibe mensajes en estas direcciones:",
-    "pendingAddresses": "{channel} pide recibir mensajes en estas direcciones. Hasta que lo apruebes, se rechazan las entregas:",
-    "ungovernedAddresses": "Estas direcciones están abiertas decidas lo que decidas, porque solo Vellum puede alcanzarlas:",
-    "deliversInbound": "Lo que llegue aquí se convierte en un mensaje para tu asistente, no solo en una llamada de vuelta que {channel} recibe. Quién consigue pasar lo sigue decidiendo a quién permites escribirle.",
-    "revokeIngress": "Revocar la entrada",
-    "approveIngress": "Aprobar la entrada"
+    "approveChannel": "Aprobar canal",
+    "revokeChannel": "Revocar canal",
+    "approveChannelInfo": "Aprobar este canal significa que abres el acceso a tu asistente a las solicitudes enviadas específicamente por los proveedores de este canal"
   },
   "channelTrustFloor": {
     "heading": "Quién puede escribir a {assistant}",

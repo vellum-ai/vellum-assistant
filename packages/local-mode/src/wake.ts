@@ -43,7 +43,7 @@ export function runWake(
         assistantId,
         ...(options?.repairGuardian ? ["--repair-guardian"] : []),
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     );
 
     let stdout = "";

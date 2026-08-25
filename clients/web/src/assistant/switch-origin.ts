@@ -29,10 +29,17 @@ import { routes } from "@/utils/routes";
  * In Electron the navigation does not land in the app window either: the
  * main process's same-origin guard (`clients/macos/src/main/main-window.ts`)
  * ejects a cross-origin https target to the system browser.
+ *
+ * Everything the swap has to do before the shell leaves the origin, dropping
+ * the iOS widget snapshot included, belongs to `nativeSwitchToOrigin`, so no
+ * caller can leave one of them out.
  */
 export async function switchToOrigin(origin: RememberedOrigin): Promise<void> {
   const navigate = () =>
     window.location.assign(`${origin.url}${routes.assistant}`);
+  // Nothing is awaited ahead of the web navigation: it is issued in the same
+  // tick as the call, and the preparation the native swap needs lives behind
+  // the fork, in `nativeSwitchToOrigin`.
   if (!isNativeMobile()) {
     navigate();
     return;

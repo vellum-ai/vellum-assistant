@@ -43,11 +43,11 @@ const LEGACY_USER_PREFIXES = [
 ];
 
 /**
- * Legacy device-level keys that used the `vellum_` prefix.
- * Must NOT be cleaned on logout — they are device-scoped settings.
- * Normally these have been migrated to `device:*` by
- * `migrateDeviceSettings()`, but if that migration also failed,
- * this set prevents accidental deletion.
+ * Device-level keys that use the `vellum_` prefix. They match the legacy
+ * user-scoped prefixes above but are device-scoped, so this set keeps the
+ * sweep from deleting them. `vellum_theme` is also the shared platform theme
+ * key (see `clients/docs/AGENTS.md`), which the docs app reads on the same
+ * origin.
  */
 const LEGACY_DEVICE_KEYS = new Set([
   "vellum_theme",

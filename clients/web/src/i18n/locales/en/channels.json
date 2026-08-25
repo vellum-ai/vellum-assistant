@@ -10,6 +10,8 @@
   },
   "connectionCard": {
     "connected": "Connected",
+    "reconnecting": "Reconnecting…",
+    "statusUnavailable": "Status unavailable",
     "disconnecting": "Disconnecting…",
     "disconnect": "Disconnect"
   },
@@ -26,7 +28,7 @@
     "connectManually": "or connect manually"
   },
   "pluginChannelPanel": {
-    "openPluginPage": "Open plugin page",
+    "navigateToPluginPage": "Navigate to plugin page",
     "ingressLoading": "Checking who can reach {channel}…",
     "ingressUnsupported": "This assistant's gateway does not report ingress approvals, so there is nothing to decide here.",
     "ingressForbidden": "Only this assistant's guardian can see or change ingress approvals.",
@@ -34,12 +36,9 @@
     "ingressNone": "The gateway sees no ingress declaration for {channel}, so there is nothing to approve yet.",
     "ingressApprovedTag": "Ingress approved",
     "ingressPendingTag": "Ingress awaiting approval",
-    "approvedAddresses": "{channel} receives messages at these addresses:",
-    "pendingAddresses": "{channel} asks to receive messages at these addresses. Until you approve, deliveries to them are refused:",
-    "ungovernedAddresses": "These addresses are open whatever you decide, because only Vellum can reach them:",
-    "deliversInbound": "What arrives here becomes a message to your assistant, not just a callback {channel} receives. Who gets through is still decided by who you allow to message it.",
-    "revokeIngress": "Revoke ingress",
-    "approveIngress": "Approve ingress"
+    "approveChannel": "Approve Channel",
+    "revokeChannel": "Revoke Channel",
+    "approveChannelInfo": "Approving this channel means you are opening up access to your assistant to specifically requests sent by the providers behind this channel"
   },
   "channelTrustFloor": {
     "heading": "Who can message {assistant}",

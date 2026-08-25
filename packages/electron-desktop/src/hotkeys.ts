@@ -24,17 +24,18 @@ export type { HotkeyScope, ResolvedHotkey };
 interface HotkeyCommand {
   /** Key into `settings.hotkeys` and the matching defaults map. */
   key: string;
-  /** User-facing label, matching the native app's Keyboard Shortcuts card. */
+  /** User-facing label for the Keyboard Shortcuts settings row. */
   label: string;
   scope: HotkeyScope;
 }
 
 /**
  * The rebindable commands surfaced in the Keyboard Shortcuts settings, in the
- * same order and with the same labels as the native macOS app's
- * `SettingsAppearanceTab` "Keyboard Shortcuts" card. This is the parity
- * contract: commands the native card does not let the user rebind (voice
- * input, Find, Command Palette, Settings) are intentionally absent.
+ * order their rows render: system-wide shortcuts first, then the menu
+ * commands. This is not the menu's own order and does not track it. Voice
+ * input, Find, Command Palette, and Settings are intentionally absent: they
+ * are bound but not rebindable, and ride along in `RESERVED_COMMANDS` below
+ * so conflict detection still sees their chords.
  */
 const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
   { key: "globalHotkey", label: "Open Vellum", scope: "global" },
@@ -47,6 +48,7 @@ const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
     label: "Mark conversation as unread",
     scope: "menu",
   },
+  { key: "togglePinConversation", label: "Pin conversation", scope: "menu" },
   { key: "sidebarToggle", label: "Toggle sidebar", scope: "menu" },
   { key: "popOut", label: "Pop out conversation", scope: "menu" },
   { key: "home", label: "Home", scope: "menu" },

@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useTranslation } from "@/i18n";
+
 /**
  * Canonical destructive confirmation for retiring an assistant. Every retire
  * entry point (settings, the tray command, the chooser's recovery dialog)
@@ -22,19 +24,18 @@ function RetireConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <ConfirmDialog
       open={open}
-      title="Retire Assistant"
+      title={t("retireConfirmDialog.title")}
       message={
         <>
-          This will permanently retire this assistant and all of its data. You
-          will need to go through the onboarding flow again to create a new one.
-          This action cannot be undone.
+          {t("retireConfirmDialog.message")}
           {extraMessage}
         </>
       }
-      confirmLabel="Retire"
+      confirmLabel={t("retireConfirmDialog.confirmLabel")}
       destructive
       isPending={isPending}
       onConfirm={onConfirm}

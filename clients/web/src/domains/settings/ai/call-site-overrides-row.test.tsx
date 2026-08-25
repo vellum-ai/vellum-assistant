@@ -90,12 +90,20 @@ describe("CallSiteOverrideRow provider picker", () => {
     expect(labels.some((l) => l.includes("Anthropic"))).toBe(false);
   });
 
-  test("the unavailable pin is offered so the user has a way out", () => {
+  test("a provider this assistant cannot reach is offered disabled with the reason", () => {
     renderRow({ provider: "ollama", model: "llama3" });
 
     fireEvent.click(providerTrigger());
 
-    expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(true);
+    const ollama = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).filter((o) => o.textContent?.includes("Ollama"));
+    // One row, stating the restriction rather than hiding the provider or
+    // duplicating it as an unavailable pin.
+    expect(ollama).toHaveLength(1);
+    expect(ollama[0]?.textContent).toContain("Self-hosted only");
+    expect(ollama[0]?.getAttribute("aria-disabled")).toBe("true");
+    expect(optionLabels().some((l) => l.includes("(unavailable)"))).toBe(false);
   });
 
   test("picking a real provider over an unavailable pin saves that provider", () => {

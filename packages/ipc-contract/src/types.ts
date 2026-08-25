@@ -29,6 +29,13 @@ export type VellumCommand =
   | { kind: "newConversation" }
   | { kind: "currentConversation" }
   | { kind: "markCurrentUnread" }
+  /**
+   * Pin the conversation the user is looking at, or unpin it when it is
+   * already pinned. One kind for both edges because the renderer owns the
+   * pinned state; main builds a single static menu item and never learns
+   * which edge a press is.
+   */
+  | { kind: "togglePinConversation" }
   | { kind: "openSettings" }
   | { kind: "shareFeedback" }
   | { kind: "find" }
@@ -189,6 +196,7 @@ export type SystemPermissionKind = (typeof SYSTEM_PERMISSION_KINDS)[number];
 
 export const SYSTEM_PERMISSION_STATUSES = [
   "unknown",
+  "not-applicable",
   "restricted",
   "denied",
   "not-determined",
@@ -305,6 +313,11 @@ export type DictationPartialsResult =
 
 export interface DictationPartialEvent {
   text: string;
+}
+
+export interface DictationTranscribeResult {
+  ok: boolean;
+  reason?: string;
 }
 
 /**

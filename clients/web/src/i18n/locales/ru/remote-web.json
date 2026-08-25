@@ -1,0 +1,9 @@
+{
+  "pairingPage": {
+    "openInApp": "Открыть в приложении Vellum",
+    "continueInBrowser": "Продолжить в этом браузере",
+    "pairingCode": "Код сопряжения",
+    "expiresAt": "Истекает {time}.",
+    "cancel": "Отмена"
+  }
+}

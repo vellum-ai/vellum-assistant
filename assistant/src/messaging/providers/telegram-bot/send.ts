@@ -148,6 +148,12 @@ export interface TelegramSendResult {
  * Unlike a send, this cannot split long text across messages, because an edit
  * addresses exactly one. Telegram rejects text past its limit, and that
  * rejection reaches the caller rather than being papered over.
+ *
+ * The empty `reply_markup` is load-bearing. `editMessageText` leaves an
+ * existing inline keyboard alone when the field is omitted, so a message
+ * revised to read as settled would keep its live buttons beside that text.
+ * Every caller here edits a message into a settled state, and the approval
+ * interception path says so outright, so the keyboard goes with the revision.
  */
 export async function editTelegramMessage(
   chatId: string,
@@ -159,6 +165,7 @@ export async function editTelegramMessage(
       chat_id: chatId,
       message_id: Number(messageId),
       text,
+      reply_markup: { inline_keyboard: [] },
     });
   } catch (err) {
     if (

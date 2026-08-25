@@ -29,13 +29,14 @@ export function useRelativeAgeTick(active: boolean): void {
 }
 
 /**
- * An ISO instant as a relative age in the active locale. Minute granularity is
- * what {@link useRelativeAgeTick}'s tick can keep honest, so anything fresher
- * reads as "now" rather than as a second count that goes stale between ticks.
+ * An instant (epoch milliseconds or an ISO string) as a relative age in the
+ * active locale. Minute granularity is what {@link useRelativeAgeTick}'s tick
+ * can keep honest, so anything fresher reads as "now" rather than as a second
+ * count that goes stale between ticks.
  */
-export function formatRelativeAge(iso: string): string {
-  return formatRelativeTime(new Date(iso).getTime(), {
-    locale: currentLocale(),
-    minimumUnit: "minute",
-  });
+export function formatRelativeAge(instant: number | string): string {
+  return formatRelativeTime(
+    typeof instant === "string" ? new Date(instant).getTime() : instant,
+    { locale: currentLocale(), minimumUnit: "minute" },
+  );
 }

@@ -44,7 +44,6 @@ mock.module("@/utils/device-settings", () => ({
   getDeviceBool: (_name: string, fallback: boolean) => fallback,
   setDeviceBool: () => {},
   watchDeviceSetting: () => () => {},
-  migrateDeviceSettings: () => {},
 }));
 
 mock.module("@/lib/sentry/capture-error", () => ({

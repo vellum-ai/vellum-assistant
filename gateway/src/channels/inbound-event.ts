@@ -1,3 +1,4 @@
+import type { ChannelConversationType } from "@vellumai/gateway-client";
 import type { ChannelId } from "./types.js";
 
 /**
@@ -56,6 +57,20 @@ interface InboundEventBase<C extends InboundChannelId> {
     updateId: string;
     messageId?: string;
     chatType?: string;
+    /**
+     * How visible the conversation is, on the permission matrix's own axis.
+     *
+     * Set by each channel's normalizer, because only the channel knows what its
+     * native surfaces mean: Slack's `channel` is a public room and its `group`
+     * is a private one, while Discord sends one word for every non-DM and can
+     * prove neither. Absent means "not established", never "public", so a
+     * permissive public rule cannot reach a room nobody vouched for.
+     *
+     * Distinct from `chatType`, which answers whether a room is multi-party and
+     * drives group etiquette. A group DM is multi-party and private; a public
+     * channel is multi-party and public. Two questions, two fields.
+     */
+    conversationType?: ChannelConversationType;
     /**
      * Thread/conversation-group identifier, when the source channel carries one
      * (e.g. Slack `thread_ts`). Channel-agnostic name so other channels (email

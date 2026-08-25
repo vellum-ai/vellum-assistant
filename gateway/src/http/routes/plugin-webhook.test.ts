@@ -914,6 +914,125 @@ describe("declared verification", () => {
   });
 });
 
+describe("standard-webhooks verification", () => {
+  const KEY_BYTES = Buffer.from("standard-webhooks-test-key-bytes!!");
+  const WHSEC = `whsec_${KEY_BYTES.toString("base64")}`;
+  const MSG_ID = "msg_01JABC";
+
+  const STANDARD: IngressRoute = {
+    ...ROUTE,
+    verification: {
+      kind: "standard-webhooks",
+      secret: { field: "standard_webhooks_secret" },
+    },
+  };
+
+  const STANDARD_CREDENTIALS = credentialsFor({
+    "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+    "credential/vellum/webhook_secret": VELLUM_SECRET,
+    "credential/meeting-bot/standard_webhooks_secret": WHSEC,
+  });
+
+  function vendorPost(body: string, headers: Record<string, string>): Request {
+    return new Request("http://gateway/webhooks/plugins/meeting-bot/realtime", {
+      method: "POST",
+      body,
+      headers,
+    });
+  }
+
+  function signStandard(
+    body: string,
+    opts: { id?: string; timestamp?: string } = {},
+  ): { id: string; timestamp: string; signature: string } {
+    const id = opts.id ?? MSG_ID;
+    const timestamp =
+      opts.timestamp ?? String(Math.floor(Date.now() / 1000));
+    const digest = createHmac("sha256", KEY_BYTES)
+      .update(`${id}.${timestamp}.${body}`, "utf8")
+      .digest("base64");
+    return { id, timestamp, signature: `v1,${digest}` };
+  }
+
+  it("forwards a delivery signed the spec's way", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: STANDARD_CREDENTIALS,
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const signed = signStandard(body);
+    const res = await handle(
+      vendorPost(body, {
+        "webhook-id": signed.id,
+        "webhook-timestamp": signed.timestamp,
+        "webhook-signature": signed.signature,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toBe(body);
+  });
+
+  it("rejects a bad Standard Webhooks signature", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: STANDARD_CREDENTIALS,
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const signed = signStandard(body);
+    const res = await handle(
+      vendorPost(body, {
+        "webhook-id": signed.id,
+        "webhook-timestamp": signed.timestamp,
+        "webhook-signature": "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("409s when the Standard Webhooks secret field holds nothing", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({
+        "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+      }),
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const signed = signStandard(body);
+    const res = await handle(
+      vendorPost(body, {
+        "webhook-id": signed.id,
+        "webhook-timestamp": signed.timestamp,
+        "webhook-signature": signed.signature,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("payload limits", () => {
   it("rejects a body over the webhook cap without forwarding it", async () => {
     const { calls, fetchImpl } = recordingFetch();

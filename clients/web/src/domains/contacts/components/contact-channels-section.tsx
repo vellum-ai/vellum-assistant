@@ -9,8 +9,8 @@ import {
   Phone,
   Send,
 } from "lucide-react";
+import { createElement, useState } from "react";
 import type { CSSProperties } from "react";
-import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -24,6 +24,7 @@ import type {
   ContactChannelPayload,
 } from "@/domains/contacts/types";
 import { useTranslation } from "@/i18n";
+import { getChannelBrandMark } from "@/utils/channel-presentation";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
   "telegram",
@@ -119,6 +120,12 @@ export function buildVisibleChannels(
 interface ContactChannelsSectionProps {
   contactChannels: ContactChannelPayload[];
   availableChannels?: ChannelInfo[];
+  /**
+   * The channel list could not be fetched, so an empty list means unknown
+   * rather than none. Rendered as a notice, since the two are indistinguishable
+   * otherwise and only one of them is the assistant's fault.
+   */
+  channelsLoadFailed?: boolean;
   a2aEnabled?: boolean;
   setupLabel?: string;
   verifyLoading?: boolean;
@@ -136,14 +143,24 @@ interface ContactChannelsSectionProps {
 }
 
 function ChannelIcon({
+  channelId,
   name,
   className,
   style,
 }: {
+  channelId: string;
   name: string;
   className?: string;
   style?: CSSProperties;
 }) {
+  const brand = getChannelBrandMark(channelId);
+  if (brand) {
+    // Same static-component treatment the plugin glyph uses: chosen from a
+    // module-level map rather than constructed here. Sized explicitly as well
+    // as by class, since a brand svg draws its own dimensions where the lucide
+    // icons below take theirs from the class alone.
+    return createElement(brand, { size: 16, className, style });
+  }
   switch (name) {
     case "bot":
       return <Bot className={className} style={style} />;
@@ -165,6 +182,7 @@ function ChannelIcon({
 export function ContactChannelsSection({
   contactChannels,
   availableChannels,
+  channelsLoadFailed,
   a2aEnabled,
   setupLabel,
   verifyLoading,
@@ -208,6 +226,15 @@ export function ContactChannelsSection({
   return (
     <>
       <div className="flex flex-col">
+        {channelsLoadFailed && (
+          <div
+            className="px-1 py-2 text-sm"
+            style={{ color: "var(--content-secondary)" }}
+            role="status"
+          >
+            {t("contactChannelsSection.loadFailed")}
+          </div>
+        )}
         {visibleChannels.map((info, index) => {
           const existing = channelsByType.get(info.id);
           return (
@@ -324,6 +351,7 @@ function ChannelRow({
   return (
     <div className="flex items-center gap-3 py-4">
       <ChannelIcon
+        channelId={info.id}
         name={info.icon}
         className="h-4 w-4 shrink-0"
         style={{ color: "var(--content-secondary)" }}

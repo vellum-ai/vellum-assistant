@@ -267,9 +267,9 @@ const ROOT_RAIL_RESIZABLE_CLASSES = [
 ].join(" ");
 
 /**
- * The overlay paints no surface of its own. Its host owns one, and that
- * surface is translucent on the chat side, so a second fill here would
- * compose with it and close the gap the design opens onto the page beneath.
+ * The overlay paints no surface of its own. Its host owns the one opaque
+ * fill, so a second fill here would composite over it and shift the drawn
+ * color away from the token the host chose.
  */
 const ROOT_OVERLAY_CLASSES = [
   "w-full",
