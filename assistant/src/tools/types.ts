@@ -470,9 +470,11 @@ export interface ToolContext {
  */
 export interface ToolActivationContext {
   /**
-   * The inference profile the turn resolved to (the key the resolver's
-   * winning profile is named by). Empty string when the turn ran without a
-   * resolved profile key.
+   * The inference profile the provider call being built routes to (the key
+   * the resolver's winning profile is named by). It tracks a mid-turn profile
+   * switch, so a predicate reading it always sees the model the call it is
+   * being gated for will actually use. Empty string outside a turn, or when
+   * the call resolved no profile key.
    */
   modelProfileKey: string;
 }
@@ -555,7 +557,7 @@ export const ToolDefinitionSchema = z.object({
   /**
    * Per-turn activation predicate for a plugin-owned tool. Evaluated on
    * every provider call (the tool list is rebuilt each call), so it must be
-   * cheap and synchronous — no I/O, no awaits. Returning false keeps the
+   * cheap and synchronous: no I/O, no awaits. Returning false keeps the
    * tool off the wire for that call, which is how a plugin tool that only
    * matters for some models avoids charging every conversation for its
    * schema. Throwing counts as inactive; omitting the field means always
@@ -586,7 +588,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
 /**
  * Tool after the loader has derived its name and filled defaults. Every field
- * is required except `exclusive` and `isActive`, which stay optional — most
+ * is required except `exclusive` and `isActive`, which stay optional. Most
  * tools never set either, and both are read defensively (`?.exclusive ===
  * true`, `typeof isActive === "function"`), so forcing every hand-built
  * `Tool` (MCP/meet/test fixtures) to carry them would be noise.

@@ -771,7 +771,7 @@ export function isToolActiveForContext(
   // A plugin tool may declare its own per-turn activation predicate. It is the
   // only tool-declared gate on this surface, and it can only take a tool off
   // the wire: the host checks above have already run and the checks below
-  // still apply. Honored for plugin-owned tools only — core, skill, MCP, and
+  // still apply. Honored for plugin-owned tools only: core, skill, MCP, and
   // workspace tools are gated by the host rules in this function.
   if (getToolOwner(name)?.kind === "plugin") {
     const isActive = getTool(name)?.isActive;

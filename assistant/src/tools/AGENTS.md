@@ -24,7 +24,7 @@ Instead of creating a new tool, consider:
 
 A plugin tool can declare `isActive({ modelProfileKey })` on its `ToolDefinition`. The tool surface is rebuilt on every provider call, so the predicate decides per call whether the tool is advertised: return false and the model never sees its name, description, or schema, so the tool costs nothing on turns it cannot help with. Use it whenever a plugin tool is only useful under a condition the host can name (today: the profile the turn resolved to). It is the difference between a tool that charges every conversation and one that charges only the conversations that need it.
 
-The predicate must be cheap and synchronous — it runs once per tool per provider call. Throwing counts as inactive; omitting the field means always active. It can only subtract from the surface: the host's own gates (subagent allowlist, disabled tools, disk pressure) run alongside it and still apply. Honored for plugin-owned tools only; core, skill, MCP, and workspace tools are gated by the host rules in `isToolActiveForContext` (`daemon/conversation-tool-setup.ts`).
+The predicate must be cheap and synchronous: it runs once per tool per provider call. Throwing counts as inactive; omitting the field means always active. It can only subtract from the surface: the host's own gates (subagent allowlist, disabled tools, disk pressure) run alongside it and still apply. Honored for plugin-owned tools only; core, skill, MCP, and workspace tools are gated by the host rules in `isToolActiveForContext` (`daemon/conversation-tool-setup.ts`).
 
 ## If You Have Approval
 

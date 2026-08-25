@@ -63,7 +63,7 @@
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
- * - {@link ToolActivationContext} — passed to a plugin tool's optional
+ * - {@link ToolActivationContext} - passed to a plugin tool's optional
  *   `isActive` predicate, which keeps the tool off the wire on turns where it
  *   is irrelevant
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`

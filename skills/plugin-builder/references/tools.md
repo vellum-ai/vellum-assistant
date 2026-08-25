@@ -21,7 +21,7 @@ export default {
 };
 ```
 
-The predicate runs once per tool per model call, so keep it cheap and synchronous — no `await`, no file or network reads. Throwing counts as inactive, and omitting the field keeps the tool always on. It can only take a tool off the list, never put one back: the Assistant's own rules (a subagent's allowed-tool list, disabled tools, storage cleanup mode) still apply on top of it.
+The predicate runs once per tool per model call, so keep it cheap and synchronous: no `await`, no file or network reads. Throwing counts as inactive, and omitting the field keeps the tool always on. It can only take a tool off the list, never put one back: the Assistant's own rules (a subagent's allowed-tool list, disabled tools, storage cleanup mode) still apply on top of it.
 
 ## What a tool is
 

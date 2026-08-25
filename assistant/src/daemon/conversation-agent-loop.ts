@@ -582,6 +582,26 @@ export async function runAgentLoopImpl(
   );
   ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
+  /**
+   * The inference profile an override resolves to, through the same winner
+   * selection dispatch the provider calls use. A hand-rolled chain would
+   * credit profiles the resolver never consulted (e.g. `activeProfile` on a
+   * non-`mainAgent` turn), so both the turn-start report and the mid-turn
+   * refresh below go through this one helper.
+   */
+  const resolveModelProfileKeyFor = (
+    override: string | null | undefined,
+  ): string =>
+    selectWinningProfile(turnCallSite, config.llm, {
+      ...(override != null ? { overrideProfile: override } : {}),
+      selectionSeed: ctx.conversationId,
+    }).profileName ??
+    resolveProfilelessModelKey(turnCallSite, config.llm, {
+      ...(override != null ? { overrideProfile: override } : {}),
+      ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+      selectionSeed: ctx.conversationId,
+    });
+
   let appliedOverrideProfile = turnOverrideProfile;
   const refreshCurrentProfileState = (): string | undefined => {
     const currentOverrideProfile = readCurrentOverrideProfile();
@@ -604,6 +624,13 @@ export async function runAgentLoopImpl(
       );
       ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
       appliedOverrideProfile = currentOverrideProfile;
+      // Re-stamp the per-turn tool gate's view of the model. The tool list is
+      // rebuilt before every provider call, so a plugin tool's `isActive`
+      // predicate must see the profile the *next* call routes to, not the one
+      // the turn opened on.
+      ctx.currentTurnModelProfileKey = resolveModelProfileKeyFor(
+        currentOverrideProfile,
+      );
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },
         "Turn inference profile changed mid-loop",
@@ -1153,27 +1180,17 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
-    // The reported key must come from the same winner selection dispatch used —
-    // a hand-rolled chain would credit profiles the resolver never consulted
-    // (e.g. activeProfile on a non-mainAgent turn).
-    const effectiveProfileKey =
-      selectWinningProfile(turnCallSite, config.llm, {
-        ...(turnOverrideProfile != null
-          ? { overrideProfile: turnOverrideProfile }
-          : {}),
-        selectionSeed: ctx.conversationId,
-      }).profileName ??
-      resolveProfilelessModelKey(turnCallSite, config.llm, {
-        ...(turnOverrideProfile != null
-          ? { overrideProfile: turnOverrideProfile }
-          : {}),
-        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-        selectionSeed: ctx.conversationId,
-      });
+    // The reported key must come from the same winner selection dispatch used,
+    // which `resolveModelProfileKeyFor` owns for both this report and the
+    // mid-turn refresh in `refreshCurrentProfileState`.
+    const effectiveProfileKey = resolveModelProfileKeyFor(turnOverrideProfile);
     const lastNotified = ctx.lastNotifiedInferenceProfile;
     const modelProfileKey = effectiveProfileKey;
     // Mirrored onto the live conversation so the per-turn tool gate can hand
     // it to a plugin tool's `isActive` predicate on every provider call.
+    // `refreshCurrentProfileState` re-stamps it if the profile changes
+    // mid-turn, so the gate always sees the profile of the call it is
+    // building the tool list for.
     ctx.currentTurnModelProfileKey = modelProfileKey;
     const modelProfileNoticeKey =
       modelProfileKey !== lastNotified ? modelProfileKey : null;

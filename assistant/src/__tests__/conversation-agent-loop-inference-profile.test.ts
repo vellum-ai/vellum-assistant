@@ -337,6 +337,13 @@ interface CapturedAgentLoopRun {
   forceOverrideProfile: boolean | undefined;
   resolvedOverrideProfile: string | undefined;
   resolvedMaxInputTokens: number | undefined;
+  /**
+   * `Conversation.currentTurnModelProfileKey` sampled either side of the
+   * loop's live override resolution, so a test can see the per-turn tool
+   * gate's view of the model track a mid-turn profile switch.
+   */
+  modelProfileKeyBeforeResolve: string | undefined;
+  modelProfileKeyAfterResolve: string | undefined;
 }
 
 let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
@@ -345,16 +352,25 @@ function makeCtx(
   captured: CapturedAgentLoopRun[],
   overrides?: Partial<Conversation>,
 ): Conversation {
+  // Holder for the conversation this factory is still building, so
+  // `agentLoopRun` can read the live per-turn state off it once the loop runs.
+  const built: { conversation?: Conversation } = {};
   const agentLoopRun = async (
     options: AgentLoopRunOptions,
   ): Promise<Message[]> => {
     mutateBeforeResolveOverrideProfile?.();
+    const modelProfileKeyBeforeResolve =
+      built.conversation?.currentTurnModelProfileKey;
+    const resolvedOverrideProfile = options.resolveOverrideProfile?.();
     captured.push({
       callSite: options.callSite,
       overrideProfile: options.overrideProfile,
       forceOverrideProfile: options.forceOverrideProfile,
-      resolvedOverrideProfile: options.resolveOverrideProfile?.(),
+      resolvedOverrideProfile,
       resolvedMaxInputTokens: options.resolveContextWindow?.().maxInputTokens,
+      modelProfileKeyBeforeResolve,
+      modelProfileKeyAfterResolve:
+        built.conversation?.currentTurnModelProfileKey,
     });
     return [
       ...options.messages,
@@ -365,7 +381,7 @@ function makeCtx(
     ];
   };
 
-  return asConversation({
+  const conversation = asConversation({
     conversationId: "test-conv",
     messages: [
       { role: "user", content: [{ type: "text", text: "Hello" }] },
@@ -491,6 +507,8 @@ function makeCtx(
 
     ...overrides,
   });
+  built.conversation = conversation;
+  return conversation;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -628,6 +646,29 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
     expect(captured[0].resolvedMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
+  });
+
+  test("re-stamps the tool gate's model profile key when the profile changes mid-turn", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, {
+      conversationType: "standard",
+      inferenceProfile: null,
+    });
+    mutateBeforeResolveOverrideProfile = () => {
+      ctx.inferenceProfile = "quality-optimized";
+    };
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    // Turn start resolved the workspace default, not the profile the tool
+    // switched to.
+    expect(captured[0].modelProfileKeyBeforeResolve).not.toBe(
+      "quality-optimized",
+    );
+    // The next provider call routes to the switched profile, so the key the
+    // tool gate hands a plugin's `isActive` predicate follows it.
+    expect(captured[0].modelProfileKeyAfterResolve).toBe("quality-optimized");
   });
 });
 
