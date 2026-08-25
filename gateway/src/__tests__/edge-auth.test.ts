@@ -734,7 +734,7 @@ describe("handleCreateToken: derived actor-token identity carry-forward", () => 
     const sourceToken = mintSourceToken();
     seedSourceActorToken(sourceToken, {
       pairingUserAgent: "Vellum/1.2 (Macintosh; Intel Mac OS X 10_15_7)",
-      clientReportedName: "Noa's MacBook Pro",
+      clientReportedName: "Alice's MacBook Pro",
     });
 
     const res = await handleCreateToken(
@@ -748,7 +748,7 @@ describe("handleCreateToken: derived actor-token identity carry-forward", () => 
     expect(derived?.pairingUserAgent).toBe(
       "Vellum/1.2 (Macintosh; Intel Mac OS X 10_15_7)",
     );
-    expect(derived?.clientReportedName).toBe("Noa's MacBook Pro");
+    expect(derived?.clientReportedName).toBe("Alice's MacBook Pro");
   });
 
   test("a null-identity source row produces a derived row with nulls and does not throw", async () => {

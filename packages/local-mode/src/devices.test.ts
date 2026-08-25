@@ -50,7 +50,7 @@ describe("runDevicesList", () => {
               expiresAt: 2000,
               lastUsedAt: 1500,
               pairingUserAgent: "Vellum/1.0 iOS",
-              clientReportedName: "Noa's iPhone",
+              clientReportedName: "Alice's iPhone",
             },
           ],
         }),
@@ -68,7 +68,7 @@ describe("runDevicesList", () => {
           expiresAt: 2000,
           lastUsedAt: 1500,
           pairingUserAgent: "Vellum/1.0 iOS",
-          clientReportedName: "Noa's iPhone",
+          clientReportedName: "Alice's iPhone",
         },
       ],
     });

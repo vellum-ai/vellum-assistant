@@ -331,11 +331,10 @@ describe("rotateCredentials activity history", () => {
 });
 
 describe("rotateCredentials device identity carry-forward", () => {
-  // Regression for #41228: lastUsedAt lived on one table only and rotation
-  // reset it, costing two remediation rounds. pairingUserAgent and
-  // clientReportedName must survive rotation the same way platform does.
+  // pairingUserAgent and clientReportedName survive rotation the same way
+  // platform does.
   const USER_AGENT = "Vellum-CLI/1.2.3 (Macintosh; Darwin)";
-  const REPORTED_NAME = "Noa's MacBook Pro";
+  const REPORTED_NAME = "Alice's MacBook Pro";
 
   function findActorTokenRow(rawToken: string) {
     return getGatewayDb()
