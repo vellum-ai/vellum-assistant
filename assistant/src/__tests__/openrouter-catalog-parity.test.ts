@@ -4,8 +4,11 @@
  * `model-catalog.ts` aligned with https://openrouter.ai/api/v1/models.
  *
  * Local invariants always run. The live fetch fails the build on missing
- * ids or >2% rate drift when the endpoint is reachable, and skips (does
- * not fail) when it is not, so CI is not hostage to a network blip.
+ * ids or capability mismatches when the endpoint is reachable. Rate drift
+ * is reported as a warning: OpenRouter reprices on its own clock, and
+ * failing the suite on that would red every merge until someone recopies
+ * the card. The fetch skips (does not fail) when the endpoint is not
+ * reachable, so CI is not hostage to a network blip.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -93,7 +96,7 @@ describe("OpenRouter catalog parity helpers", () => {
 
 describe("OpenRouter catalog vs live OpenRouter card", () => {
   test(
-    "catalog ids exist and base rates stay within 2% of OpenRouter",
+    "catalog ids exist and caching flags match the live OpenRouter card",
     async () => {
       let payload: OpenRouterModelsResponse;
       try {
@@ -125,12 +128,13 @@ describe("OpenRouter catalog vs live OpenRouter card", () => {
       const liveById = new Map(
         (liveModels ?? []).map((model) => [model.id, model]),
       );
-      const drifts: string[] = [];
+      const blocking: string[] = [];
+      const rateDrifts: string[] = [];
 
       for (const model of openrouterCatalogModels()) {
         const live = liveById.get(model.id);
         if (!live) {
-          drifts.push(`${model.id}: missing from OpenRouter catalog`);
+          blocking.push(`${model.id}: missing from OpenRouter catalog`);
           continue;
         }
 
@@ -146,17 +150,17 @@ describe("OpenRouter catalog vs live OpenRouter card", () => {
         );
 
         if (rateDiffers(model.pricing?.inputPer1mTokens, liveInput)) {
-          drifts.push(
+          rateDrifts.push(
             `${model.id}: input ${model.pricing?.inputPer1mTokens} vs OpenRouter ${liveInput}`,
           );
         }
         if (rateDiffers(model.pricing?.outputPer1mTokens, liveOutput)) {
-          drifts.push(
+          rateDrifts.push(
             `${model.id}: output ${model.pricing?.outputPer1mTokens} vs OpenRouter ${liveOutput}`,
           );
         }
         if (rateDiffers(model.pricing?.cacheReadPer1mTokens, liveCacheRead)) {
-          drifts.push(
+          rateDrifts.push(
             `${model.id}: cacheRead ${model.pricing?.cacheReadPer1mTokens} vs OpenRouter ${liveCacheRead}`,
           );
         }
@@ -164,20 +168,25 @@ describe("OpenRouter catalog vs live OpenRouter card", () => {
           liveCacheWrite !== undefined &&
           rateDiffers(model.pricing?.cacheWritePer1mTokens, liveCacheWrite)
         ) {
-          drifts.push(
+          rateDrifts.push(
             `${model.id}: cacheWrite ${model.pricing?.cacheWritePer1mTokens} vs OpenRouter ${liveCacheWrite}`,
           );
         }
 
         const isXai = model.id.startsWith("x-ai/");
         if (liveCacheRead !== undefined && !isXai && !model.supportsCaching) {
-          drifts.push(
+          blocking.push(
             `${model.id}: OpenRouter publishes input_cache_read ${liveCacheRead} but supportsCaching is false`,
           );
         }
       }
 
-      expect(drifts, drifts.join("\n")).toEqual([]);
+      if (rateDrifts.length > 0) {
+        console.warn(
+          `OpenRouter rate drift (non-blocking):\n${rateDrifts.join("\n")}`,
+        );
+      }
+      expect(blocking, blocking.join("\n")).toEqual([]);
     },
     LIVE_FETCH_TIMEOUT_MS + 5_000,
   );
