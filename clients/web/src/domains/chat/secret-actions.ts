@@ -61,10 +61,12 @@ export async function handleSecretSubmit(
       delivery,
     );
     if (!result.ok) {
-      captureError(new Error(`secret submit failed: ${result.error}`), {
-        context: "submit_secret_response",
-        extra: { status: result.status },
-      });
+      if (!result.transient) {
+        captureError(new Error(`secret submit failed: ${result.error}`), {
+          context: "submit_secret_response",
+          extra: { status: result.status },
+        });
+      }
       reportSubmissionFailure(
         "secret",
         pendingSecret.requestId,

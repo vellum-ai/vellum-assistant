@@ -20,7 +20,7 @@
  * rendering a link to a tombstone.
  */
 import { useQuery } from "@tanstack/react-query";
-import type { ParseKeys } from "i18next";
+import type { ParseKeys } from "@/i18n";
 import type { LucideIcon } from "lucide-react";
 import { Brain, Calendar } from "lucide-react";
 import { useMemo } from "react";

@@ -229,10 +229,12 @@ export async function handleConfirmationSubmit(
         clearStaleConfirmation(snapshot, mappedToolCallId);
         return;
       }
-      captureError(new Error(`confirmation submit failed: ${result.error}`), {
-        context: "submit_confirmation",
-        extra: { status: result.status },
-      });
+      if (!result.transient) {
+        captureError(new Error(`confirmation submit failed: ${result.error}`), {
+          context: "submit_confirmation",
+          extra: { status: result.status },
+        });
+      }
       reportSubmissionFailure(
         "confirmation",
         snapshot.requestId,
@@ -342,13 +344,15 @@ export async function handleAllowAndCreateRule(
       if (result.status === 404) {
         clearSubmissionFailure("confirmation", snapshot.requestId);
       } else {
-        captureError(
-          new Error(`allow-and-create-rule failed: ${result.error}`),
-          {
-            context: "allow_and_create_rule",
-            extra: { status: result.status },
-          },
-        );
+        if (!result.transient) {
+          captureError(
+            new Error(`allow-and-create-rule failed: ${result.error}`),
+            {
+              context: "allow_and_create_rule",
+              extra: { status: result.status },
+            },
+          );
+        }
         reportSubmissionFailure(
           "confirmation",
           snapshot.requestId,

@@ -20,9 +20,7 @@
  * ownership; the older one stands down when it returns.
  */
 
-import type { ParseKeys } from "i18next";
-
-import { t } from "@/i18n";
+import { type ParseKeys, t } from "@/i18n";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";

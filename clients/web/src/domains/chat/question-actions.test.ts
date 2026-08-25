@@ -149,6 +149,33 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
     expect(useChatSessionStore.getState().error).toBeNull();
   });
 
+  it("tells the user about a connectivity failure without reporting it", async () => {
+    // The transport, not the assistant: `submitQuestionResponse` catches the
+    // browser's `TypeError` and flattens it, so `transient` is the only thing
+    // left that distinguishes a dropped connection from a server fault. Wrapped
+    // in a fresh Error it would clear `isTransientNetworkError`'s instanceof
+    // check and file every offline blip as an application defect.
+    submitQuestionResult = {
+      ok: false,
+      status: 500,
+      error: "Failed to fetch",
+      transient: true,
+    };
+    seedPendingQuestion("q-offline");
+
+    await handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "alice_work" },
+    ]);
+
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Failed to submit response. Please try again.",
+    );
+    expect(capturedErrors).toEqual([]);
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "q-offline",
+    );
+  });
+
   it("still surfaces a non-404 failure", async () => {
     submitQuestionResult = {
       ok: false,

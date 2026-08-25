@@ -104,10 +104,12 @@ export async function handleQuestionResponse(
       // The assistant's own message describes a body this client built, so it
       // goes to Sentry rather than in front of the user, who never chose the
       // payload and cannot correct it.
-      captureError(new Error(`question-response failed: ${result.error}`), {
-        context: "submit_question_response",
-        extra: { status: result.status },
-      });
+      if (!result.transient) {
+        captureError(new Error(`question-response failed: ${result.error}`), {
+          context: "submit_question_response",
+          extra: { status: result.status },
+        });
+      }
       reportSubmissionFailure(
         "question",
         snapshot.requestId,

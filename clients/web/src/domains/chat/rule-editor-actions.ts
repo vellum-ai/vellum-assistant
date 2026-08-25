@@ -173,10 +173,12 @@ async function executeSaveRule(
       );
       if (!result.ok) {
         useRuleEditorStore.getState().dismissRuleEditor();
-        captureError(new Error(`trust rule save failed: ${result.error}`), {
-          context: "save_trust_rule",
-          extra: { status: result.status },
-        });
+        if (!result.transient) {
+          captureError(new Error(`trust rule save failed: ${result.error}`), {
+            context: "save_trust_rule",
+            extra: { status: result.status },
+          });
+        }
         reportSubmissionFailure(
           "confirmation",
           context.requestId,

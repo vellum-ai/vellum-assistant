@@ -60,10 +60,12 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
-      captureError(new Error(`contact prompt failed: ${result.error}`), {
-        context: "submit_contact_prompt",
-        extra: { status: result.status },
-      });
+      if (!result.transient) {
+        captureError(new Error(`contact prompt failed: ${result.error}`), {
+          context: "submit_contact_prompt",
+          extra: { status: result.status },
+        });
+      }
       reportSubmissionFailure(
         "contactRequest",
         pendingContactRequest.requestId,

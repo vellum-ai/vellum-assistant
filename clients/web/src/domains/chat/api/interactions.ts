@@ -20,6 +20,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { resolveSupportsBatchedQuestionSubmit } from "@/lib/backwards-compat/batched-question-submit";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 /**
  * Subset of the pending-interactions response returned for a single
@@ -93,9 +94,17 @@ export async function listConversationIdsWithPendingInteractions(
   return keys;
 }
 
+/**
+ * `transient` marks a failure the transport produced rather than the assistant:
+ * offline, a dropped connection, an interrupted fetch. The helpers below catch
+ * those and flatten them into an ordinary `ok: false`, which loses the original
+ * `TypeError` that `isTransientNetworkError` keys on, so the answer is recorded
+ * here while that object still exists. Callers use it to skip the error report
+ * a connectivity blip does not deserve.
+ */
 export type SubmitSecretResponseResult =
   | { ok: true }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; transient?: boolean };
 
 export async function submitSecretResponse(
   assistantId: string,
@@ -120,6 +129,7 @@ export async function submitSecretResponse(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -150,6 +160,7 @@ export async function submitSecretCancel(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -177,6 +188,7 @@ export async function submitConfirmation(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -206,6 +218,7 @@ export async function submitContactPrompt(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -290,6 +303,7 @@ export async function submitQuestionResponse(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
