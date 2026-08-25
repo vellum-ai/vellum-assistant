@@ -43,9 +43,7 @@ describe("the setup drawer derives from the same fact as the tab", () => {
     const withForm = SETUP_CHANNEL_IDS.filter(
       (id) => CHANNEL_META[id].credentialForm !== undefined,
     );
-    expect([...CHANNEL_SETUP_TYPES] as string[]).toEqual([
-      ...withForm,
-    ] as string[]);
+    expect([...CHANNEL_SETUP_TYPES]).toEqual(withForm);
   });
 
   test("every channel it accepts has a renderer in the drawer", () => {

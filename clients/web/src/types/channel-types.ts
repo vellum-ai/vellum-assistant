@@ -15,7 +15,7 @@ export const SETUP_CHANNEL_IDS = [
 export type SetupChannelId = (typeof SETUP_CHANNEL_IDS)[number];
 
 export function isSetupChannelId(value: string): value is SetupChannelId {
-  return (SETUP_CHANNEL_IDS as readonly string[]).includes(value);
+  return SETUP_CHANNEL_IDS.some((id) => id === value);
 }
 
 // ---------------------------------------------------------------------------

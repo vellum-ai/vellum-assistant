@@ -1,5 +1,11 @@
 import type { SetupChannelId } from "@/types/channel-types";
 
+/** A credential form a channel can declare it is set up through. */
+export type ChannelCredentialForm =
+  | "slack-wizard"
+  | "telegram-token"
+  | "twilio-credentials";
+
 /**
  * Per-adapter presentation metadata for the Channels tab.
  *
@@ -22,16 +28,18 @@ interface ChannelMeta {
   /**
    * Catalog key for the disconnect dialog's body.
    *
-   * Optional, and its absence is what says a channel cannot be disconnected
-   * from here: there is no route that clears Discord's credentials, so an
-   * offered button would open a dialog whose confirm does nothing. Read as a
-   * capability the way the transport reads an absent method, rather than
-   * naming the channel in the component.
+   * Undefined when a channel cannot be disconnected from here: there is no
+   * route that clears Discord's credentials, so an offered button would open
+   * a dialog whose confirm does nothing. Read as a capability the way the
+   * transport reads an absent method, rather than naming the channel in the
+   * component. Required, not optional, so a new channel states the answer
+   * instead of inheriting one by omission.
    */
-  disconnectMessageKey?:
+  disconnectMessageKey:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
-    | "channelMeta.phone.disconnectMessage";
+    | "channelMeta.phone.disconnectMessage"
+    | undefined;
   /**
    * Whether a connected channel surfaces the "Who can message" trust-floor
    * dropdown. Slack has none: its admission floors are managed per
@@ -39,8 +47,8 @@ interface ChannelMeta {
    */
   hasTrustFloorControl: boolean;
   /**
-   * The credential form this channel is set up through, absent when it has
-   * none.
+   * The credential form this channel is set up through, undefined when it
+   * has none.
    *
    * One fact for both surfaces. The Channels tab and the assistant's setup
    * drawer render the same wizards, and differ only in where they are
@@ -52,22 +60,30 @@ interface ChannelMeta {
    * fallthrough cannot express "no form" and would hand such a channel
    * whichever form the last arm renders.
    */
-  credentialForm?: "slack-wizard" | "telegram-token" | "twilio-credentials";
+  credentialForm: ChannelCredentialForm | undefined;
   /**
    * Catalog key for the disconnected empty state's pitch, which interpolates
-   * `assistant`. Slack has none: its disconnected state is the setup wizard.
+   * `assistant`. Undefined for Slack: its disconnected state is the setup
+   * wizard.
    */
-  disconnectedPitchKey?:
+  disconnectedPitchKey:
     | "channelMeta.telegram.disconnectedPitch"
-    | "channelMeta.phone.disconnectedPitch";
+    | "channelMeta.phone.disconnectedPitch"
+    | undefined;
 }
 
-export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
+/*
+ * `satisfies` rather than an annotation so each entry keeps its literal type:
+ * `ChannelSetupType` is derived from which entries declare a form, and an
+ * annotation would erase exactly the facts that derivation reads.
+ */
+export const CHANNEL_META = {
   slack: {
     labelKey: "channelMeta.slack.label",
     disconnectMessageKey: "channelMeta.slack.disconnectMessage",
     hasTrustFloorControl: false,
     credentialForm: "slack-wizard",
+    disconnectedPitchKey: undefined,
   },
   telegram: {
     labelKey: "channelMeta.telegram.label",
@@ -83,4 +99,4 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     credentialForm: "twilio-credentials",
     disconnectedPitchKey: "channelMeta.phone.disconnectedPitch",
   },
-};
+} satisfies Record<SetupChannelId, ChannelMeta>;

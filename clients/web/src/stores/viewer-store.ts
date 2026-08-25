@@ -29,8 +29,11 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
-import { CHANNEL_META } from "@/domains/channels/channel-meta";
-import { SETUP_CHANNEL_IDS } from "@/types/channel-types";
+import {
+  CHANNEL_META,
+  type ChannelCredentialForm,
+} from "@/domains/channels/channel-meta";
+import { SETUP_CHANNEL_IDS, type SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -266,14 +269,26 @@ export function sameDocumentTarget(
  * to disagree about it.
  */
 export const CHANNEL_SETUP_TYPES = SETUP_CHANNEL_IDS.filter(
-  (id) => CHANNEL_META[id].credentialForm !== undefined,
+  (id): id is ChannelSetupType => CHANNEL_META[id].credentialForm !== undefined,
 );
 
-export type ChannelSetupType = (typeof CHANNEL_SETUP_TYPES)[number];
+/**
+ * Derived at the type level from the same declarations the filter above reads
+ * at runtime: the channels whose `CHANNEL_META` entry declares a form. A bare
+ * `.filter` keeps the unnarrowed union, which would let a formless channel
+ * satisfy this type while the drawer has nothing to show it.
+ */
+export type ChannelSetupType = {
+  [K in SetupChannelId]: (typeof CHANNEL_META)[K] extends {
+    credentialForm: ChannelCredentialForm;
+  }
+    ? K
+    : never;
+}[SetupChannelId];
 
 /** Whether the setup drawer has a credential form for this channel. */
 export function isChannelSetupType(value: string): value is ChannelSetupType {
-  return (CHANNEL_SETUP_TYPES as readonly string[]).includes(value);
+  return CHANNEL_SETUP_TYPES.some((id) => id === value);
 }
 
 export interface ChannelSetupPayload {

@@ -7,7 +7,10 @@ import type { MutationStatus } from "@/components/channel-setup-wizard";
 import { EmptyState } from "@/components/empty-state";
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
 import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
-import { CHANNEL_META } from "@/domains/channels/channel-meta";
+import {
+  CHANNEL_META,
+  type ChannelCredentialForm,
+} from "@/domains/channels/channel-meta";
 import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
 import { ConnectedChannelHeader } from "@/domains/channels/components/connected-channel-header";
 import { SlackChannelCard } from "@/domains/channels/components/slack-channel-card";
@@ -151,6 +154,31 @@ export function ChannelPanel({
   // connected — mirroring Slack's setup wizard, so "Connected" never sits next
   // to an empty token field.
   const meta = CHANNEL_META[channel.key];
+
+  // The one place a declared form picks its writer. Exhaustive, so a channel
+  // declaring a form this switch does not name fails to compile instead of
+  // receiving another channel's writer. Slack renders its wizard in the
+  // dedicated branch above, so its arm here draws nothing.
+  const renderCredentialForm = (form: ChannelCredentialForm) => {
+    switch (form) {
+      case "slack-wizard":
+        return null;
+      case "telegram-token":
+        return (
+          <TelegramSetupWizard
+            assistantName={assistantName}
+            saveStatus={telegramSaveStatus}
+            saveError={telegramSaveError}
+            onSave={onSaveTelegramToken}
+          />
+        );
+      case "twilio-credentials":
+        return <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />;
+      default:
+        return form satisfies never;
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {connected ? (
@@ -173,16 +201,7 @@ export function ChannelPanel({
           ) : null}
         </>
       ) : manualEntry && meta.credentialForm ? (
-        meta.credentialForm === "telegram-token" ? (
-          <TelegramSetupWizard
-            assistantName={assistantName}
-            saveStatus={telegramSaveStatus}
-            saveError={telegramSaveError}
-            onSave={onSaveTelegramToken}
-          />
-        ) : (
-          <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
-        )
+        renderCredentialForm(meta.credentialForm)
       ) : (
         // Two different states share this branch. `not_configured` has never
         // been set up and gets the pitch. `incomplete` holds credentials that
