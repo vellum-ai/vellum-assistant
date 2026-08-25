@@ -10,7 +10,7 @@
  *   - `POST /v1/remote-web/pairing-verification`  approve by user code
  *       (`gateway/src/http/routes/remote-web-pairing-verification.ts`)
  *   - `POST /v1/remote-web/pairing-token`         poll + exchange device code
- *       (`gateway/src/http/routes/remote-web-pairing-token.ts`) — a browser
+ *       (`gateway/src/http/routes/remote-web-pairing-token.ts`): a browser
  *        receives its refresh token as an `HttpOnly` cookie; a request that
  *        carries a `deviceId` receives a device-bound one in the body instead
  *   - `GET  /v1/remote-web/pairing-requests`          list pending challenges
