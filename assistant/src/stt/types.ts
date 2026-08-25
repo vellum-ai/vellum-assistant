@@ -40,7 +40,7 @@ export type SttModelFamily = (typeof VALID_STT_MODELS)[number];
  *
  * Keeping the two apart is deliberate. Model variants used to be selectable
  * ids, which meant every new one needed an enum entry, a settings-picker row,
- * and its own place in each managed-vs-BYOK predicate — surface that grew per
+ * and its own place in each managed-vs-BYOK predicate: surface that grew per
  * variant and drifted out of sync in practice.
  */
 export type SttProviderId =

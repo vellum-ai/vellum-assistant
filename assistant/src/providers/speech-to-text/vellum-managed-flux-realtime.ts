@@ -234,9 +234,7 @@ export class VellumManagedFluxRealtimeTranscriber implements StreamingTranscribe
    * error and ends the stream.
    */
   private beginRedial(): void {
-    log.info(
-      "Managed Flux relay session hit velay's duration cap — re-dialing",
-    );
+    log.info("Managed Flux relay session hit velay's duration cap, re-dialing");
     this.inner = null;
     void (async () => {
       try {
@@ -246,7 +244,7 @@ export class VellumManagedFluxRealtimeTranscriber implements StreamingTranscribe
           return;
         }
         this.inner = inner;
-        log.info("Managed Flux relay re-dial complete — session continues");
+        log.info("Managed Flux relay re-dial complete; session continues");
       } catch (err) {
         if (this.stopping) {
           return;

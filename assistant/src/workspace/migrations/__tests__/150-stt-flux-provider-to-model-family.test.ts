@@ -68,6 +68,60 @@ describe("150-stt-flux-provider-to-model-family", () => {
     });
   });
 
+  test("drops a model a known provider cannot serve", () => {
+    // That key was free-form and read by nothing before this change, so an
+    // existing value is meaningless -- but the schema validates it now, and
+    // leaving one behind drops the workspace onto the loader's salvage path,
+    // which resets the whole services section.
+    const dir = workspaceWith({
+      services: {
+        stt: {
+          provider: "deepgram",
+          providers: { deepgram: { model: "nova-2", keepMe: true } },
+        },
+      },
+    });
+
+    sttFluxProviderToModelFamilyMigration.run(dir);
+
+    expect(readConfig(dir).services.stt.providers.deepgram).toEqual({
+      keepMe: true,
+    });
+  });
+
+  test("keeps a model the provider can serve", () => {
+    const dir = workspaceWith({
+      services: {
+        stt: {
+          provider: "deepgram",
+          providers: { deepgram: { model: "flux" } },
+        },
+      },
+    });
+
+    sttFluxProviderToModelFamilyMigration.run(dir);
+
+    expect(readConfig(dir).services.stt.providers.deepgram.model).toBe("flux");
+  });
+
+  test("leaves entries for providers the catalog does not know", () => {
+    // The map is deliberately open to ids from future builds, and the schema
+    // does not validate those either.
+    const before = {
+      services: {
+        stt: {
+          provider: "deepgram",
+          providers: { "future-provider": { model: "next-gen" } },
+        },
+      },
+    };
+    const dir = workspaceWith(before);
+
+    sttFluxProviderToModelFamilyMigration.run(dir);
+
+    expect(readConfig(dir)).toEqual(before);
+  });
+
   test("leaves a non-Flux provider untouched", () => {
     const before = {
       services: { stt: { provider: "deepgram", providers: {} } },

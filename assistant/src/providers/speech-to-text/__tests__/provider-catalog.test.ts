@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  baseModelFamilyFor,
   batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
@@ -316,6 +317,16 @@ describe("model families", () => {
         providers: { vellum: { model: "flux" } },
       }),
     ).toBe("deepgram");
+  });
+
+  test("names the base family so a stale variant model can be overwritten", () => {
+    // Substituting away from a variant has to write something: leaving the
+    // old model behind resolves straight back to the variant on next load.
+    expect(baseModelFamilyFor("vellum")).toBe("nova-3");
+    expect(baseModelFamilyFor("deepgram")).toBe("nova-3");
+    // Nothing to write, and no variant that could have left a stale value.
+    expect(baseModelFamilyFor("openai-whisper")).toBeUndefined();
+    expect(baseModelFamilyFor("vellum-flux")).toBeUndefined();
   });
 
   test("round-trips a resolved key back to the config that selects it", () => {

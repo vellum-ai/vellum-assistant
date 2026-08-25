@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { listProviderModelFamilies } from "../../providers/speech-to-text/provider-catalog.js";
+import type { SttProviderId } from "../../stt/types.js";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
@@ -20,8 +22,16 @@ import type { WorkspaceMigration } from "./types.js";
  * left untouched, and an existing `providers.<parent>` entry keeps every key
  * it already had.
  *
+ * The same pass drops any `providers.<id>.model` a known provider cannot
+ * serve. That key was free-form before this change and read by nothing, so
+ * existing values carry no meaning, but the schema validates it now: leaving
+ * a stale one behind would fail the parse and drop the workspace onto the
+ * loader's salvage path, which resets the entire `services` section and takes
+ * unrelated STT and TTS settings with it.
+ *
  * Idempotent: a config already naming a parent provider has nothing to
- * rewrite, and the model key is only written when the provider was a Flux id.
+ * rewrite, and a model key already naming a family it can serve is left
+ * alone.
  */
 const FLUX_PROVIDER_PARENTS: Record<string, string> = {
   "deepgram-flux": "deepgram",
@@ -56,19 +66,23 @@ export const sttFluxProviderToModelFamilyMigration: WorkspaceMigration = {
       return;
     }
 
+    const providers = asRecord(stt.providers) ?? {};
+    let changed = dropUnservableModels(providers);
+
     const parent = FLUX_PROVIDER_PARENTS[stt.provider];
-    if (parent === undefined) {
+    if (parent !== undefined) {
+      stt.provider = parent;
+      const parentSettings = asRecord(providers[parent]) ?? {};
+      parentSettings.model = "flux";
+      providers[parent] = parentSettings;
+      changed = true;
+    }
+
+    if (!changed) {
       return;
     }
 
-    stt.provider = parent;
-
-    const providers = asRecord(stt.providers) ?? {};
-    const parentSettings = asRecord(providers[parent]) ?? {};
-    parentSettings.model = "flux";
-    providers[parent] = parentSettings;
     stt.providers = providers;
-
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   },
 
@@ -77,6 +91,33 @@ export const sttFluxProviderToModelFamilyMigration: WorkspaceMigration = {
     // restoring one would produce a config the schema rejects.
   },
 };
+
+/**
+ * Remove `model` values a known provider cannot serve. Entries for providers
+ * the catalog does not know are left untouched: that map is deliberately open
+ * to ids from future builds, and the schema does not validate them either.
+ */
+function dropUnservableModels(providers: Record<string, unknown>): boolean {
+  let changed = false;
+  for (const [providerId, value] of Object.entries(providers)) {
+    const settings = asRecord(value);
+    if (!settings || settings.model === undefined) {
+      continue;
+    }
+    const families = listProviderModelFamilies(providerId as SttProviderId);
+    if (families.length === 0) {
+      continue;
+    }
+    if (
+      typeof settings.model !== "string" ||
+      !families.includes(settings.model as never)
+    ) {
+      delete settings.model;
+      changed = true;
+    }
+  }
+  return changed;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)

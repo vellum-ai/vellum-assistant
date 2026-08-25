@@ -129,7 +129,7 @@ interface SttProviderEntry {
    * provider in its own right: the id a user selects, plus the
    * `services.stt.providers.<id>.model` value that reaches this row.
    *
-   * Rows carrying this are not separately selectable — they share the parent's
+   * Rows carrying this are not separately selectable. They share the parent's
    * credential and appear nowhere in a provider picker.
    */
   readonly variantOf?: SttProviderId;
@@ -572,6 +572,18 @@ export function sttConfigForCatalogKey(id: SttProviderId): {
     return { provider: id };
   }
   return { provider: entry.variantOf, model: entry.variantModel };
+}
+
+/**
+ * The family a provider runs when no `model` is set, for callers that must
+ * write an explicit value rather than leave a stale one in place. Providers
+ * with a single family have no name to write and return undefined.
+ */
+export function baseModelFamilyFor(
+  id: SttProviderId,
+): SttModelFamily | undefined {
+  const entry = CATALOG.get(id);
+  return entry?.variantOf === undefined ? entry?.baseModelFamily : undefined;
 }
 
 /**

@@ -19,6 +19,7 @@
 import { ttsSecretResolves } from "../calls/telephony-tts-capability.js";
 import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import {
+  baseModelFamilyFor,
   getProviderEntry,
   isManagedSttProvider,
   resolveSttCatalogKey,
@@ -93,7 +94,7 @@ export interface EffectiveSpeechProviders {
  * A configured service whose BYOK credential does not resolve is reported as
  * its managed stand-in while managed speech is available (see
  * {@link managedStandInFor}, which preserves provider turn detection); every
- * other service keeps its configured provider. Read-only — callers that hold no `settings.write`
+ * other service keeps its configured provider. Read-only: callers that hold no `settings.write`
  * scope (the live-voice WebSocket transport) resolve the same verdict the
  * preflight route does without persisting anything.
  *
@@ -151,10 +152,18 @@ export async function maybeDefaultSpeechToManaged(): Promise<void> {
         path: "services.stt.provider",
         provider: sttConfig.provider,
       });
-      if (sttConfig.model !== undefined) {
+      // Always write the family, including the base one. Substituting away
+      // from a variant leaves its `model` behind otherwise, and the next load
+      // resolves straight back to the variant this substitution just
+      // rejected: the provider would read as plain vellum while running Flux,
+      // with batch and telephony quietly unavailable.
+      // A provider with no families has no name to write, and no variant to
+      // have left a stale value behind either.
+      const family = sttConfig.model ?? baseModelFamilyFor(sttConfig.provider);
+      if (family !== undefined) {
         updates.push({
           path: `services.stt.providers.${sttConfig.provider}.model`,
-          provider: sttConfig.model,
+          provider: family,
         });
       }
     }
