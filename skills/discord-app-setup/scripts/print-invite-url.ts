@@ -71,7 +71,7 @@ async function revealCredential(
 interface DiscordApplication {
   id: string;
   /**
-   * The scopes the app's own install settings grant, empty when it has none.
+   * The app's own install settings, undefined when it has none.
    *
    * Resolved from the two places Discord may put them. The portal's
    * Installation page writes its Default Install Settings to
@@ -79,22 +79,40 @@ interface DiscordApplication {
    * GUILD_INSTALL, the server install this integration performs). Top-level
    * `install_params` is the older in-app authorization link, still served
    * for apps that configured it. Reading only the legacy field would leave
-   * this empty for every app configured through the current portal, and the
-   * preference for the app's own settings would silently never engage.
+   * this undefined for every app configured through the current portal, and
+   * the preference for the app's own settings would silently never engage.
+   *
+   * The permission string rides along because deferring to the app's
+   * settings removes the least-privilege bound the parameterized URL used to
+   * carry, and the caller can only re-check that bound against what the
+   * settings actually grant.
    */
-  installScopes: string[];
+  installSettings: InstallSettings | undefined;
 }
 
-/** The `scopes` array of an install-params-shaped object, if it has one. */
-function readScopes(params: unknown): string[] {
+interface InstallSettings {
+  scopes: string[];
+  /** Decimal permission bitfield as Discord serves it, if present. */
+  permissions: string | undefined;
+}
+
+/** An install-params-shaped object's settings; undefined without scopes. */
+function readInstallSettings(params: unknown): InstallSettings | undefined {
   if (typeof params !== "object" || params === null) {
-    return [];
+    return undefined;
   }
-  const scopes = "scopes" in params ? params.scopes : undefined;
-  if (!Array.isArray(scopes)) {
-    return [];
+  const rawScopes = "scopes" in params ? params.scopes : undefined;
+  const scopes = Array.isArray(rawScopes)
+    ? rawScopes.filter((scope): scope is string => typeof scope === "string")
+    : [];
+  if (scopes.length === 0) {
+    return undefined;
   }
-  return scopes.filter((scope): scope is string => typeof scope === "string");
+  const permissions =
+    "permissions" in params && typeof params.permissions === "string"
+      ? params.permissions
+      : undefined;
+  return { scopes, permissions };
 }
 
 /**
@@ -120,21 +138,18 @@ function readApplication(body: unknown): DiscordApplication {
     typeof typesConfig === "object" && typesConfig !== null && "0" in typesConfig
       ? typesConfig["0"]
       : undefined;
-  const guildInstall = readScopes(
+  const guildInstall = readInstallSettings(
     typeof guildConfig === "object" &&
       guildConfig !== null &&
       "oauth2_install_params" in guildConfig
       ? guildConfig.oauth2_install_params
       : undefined,
   );
-  const legacy = readScopes(
+  const legacy = readInstallSettings(
     "install_params" in body ? body.install_params : undefined,
   );
 
-  return {
-    id,
-    installScopes: guildInstall.length > 0 ? guildInstall : legacy,
-  };
+  return { id, installSettings: guildInstall ?? legacy };
 }
 
 async function fetchApplication(token: string): Promise<DiscordApplication> {
@@ -162,6 +177,20 @@ async function printVellum(): Promise<void> {
   }
 
   const app = await fetchApplication(token);
+  const settings = app.installSettings;
+
+  // A client-id-only link installs whatever the settings say, so settings
+  // that omit the bot scope would produce an install that adds no bot user
+  // at all, and the setup flow dead-ends with a URL that looked right. Stop
+  // instead of printing it: the settings are authoritative, so the fix
+  // belongs where they live.
+  if (settings && !settings.scopes.includes("bot")) {
+    throw new Error(
+      "This app's Default Install Settings do not include the bot scope, " +
+        "so installing it would not add a bot user to the server. Add the " +
+        "bot scope on the portal's Installation page, then rerun.",
+    );
+  }
 
   const url = new URL("https://discord.com/oauth2/authorize");
   url.searchParams.set("client_id", app.id);
@@ -171,8 +200,7 @@ async function printVellum(): Promise<void> {
   // page and generates a link carrying only the client id, so a person who
   // edits those settings sees the change. Spelling them into the URL instead
   // silently overrides what they configured.
-  const configured = app.installScopes.length > 0;
-  if (!configured) {
+  if (!settings) {
     // No Default Install Settings, so the link has to say what to grant.
     // `applications.commands` is deliberately absent: Discord includes it
     // with the `bot` scope, and nothing here registers a command, so asking
@@ -182,7 +210,7 @@ async function printVellum(): Promise<void> {
   }
 
   console.log(url.toString());
-  if (configured) {
+  if (settings) {
     console.error(
       "Using this app's Default Install Settings from the Installation page.",
     );
@@ -192,7 +220,7 @@ async function printVellum(): Promise<void> {
     // group DMs, which arrive guild-less and are admitted by ingress as
     // private DMs. The ingress gate documents that assumption and must learn
     // to tell the two apart before that scope is safe to carry.
-    const surplus = app.installScopes.filter(
+    const surplus = settings.scopes.filter(
       (scope) => scope !== "bot" && scope !== "applications.commands",
     );
     if (surplus.length > 0) {
@@ -203,6 +231,43 @@ async function printVellum(): Promise<void> {
           `bot join group DMs, which inbound handling treats as private DMs.`,
       );
     }
+    warnOnPermissionDrift(settings.permissions);
+  }
+}
+
+/**
+ * Re-check the least-privilege bound the parameterized URL used to carry.
+ *
+ * Administrator grants every permission, which the skill forbids requesting,
+ * and settings missing bits the integration exercises produce a bot that
+ * joins but cannot see or answer. Both are the app owner's settings to fix,
+ * so they warn with the exact edit rather than failing an install that will
+ * technically complete.
+ */
+function warnOnPermissionDrift(permissions: string | undefined): void {
+  if (permissions === undefined || !/^\d+$/.test(permissions)) {
+    return;
+  }
+  const granted = BigInt(permissions);
+  const ADMINISTRATOR = 1n << 3n;
+  if ((granted & ADMINISTRATOR) !== 0n) {
+    console.error(
+      `Warning: the app's Default Install Settings grant Administrator. ` +
+        `This integration needs only ${computeDefaultPermissions()}; set ` +
+        `that on the portal's Installation page instead.`,
+    );
+    return;
+  }
+  const missing = Object.entries(DEFAULT_PERMISSION_BITS)
+    .filter(([, bit]) => (granted & (1n << bit)) === 0n)
+    .map(([name]) => name);
+  if (missing.length > 0) {
+    console.error(
+      `Warning: the app's Default Install Settings omit permissions this ` +
+        `integration uses: ${missing.join(", ")}. The bot may join but fail ` +
+        `to see or answer messages. Grant them on the portal's Installation ` +
+        `page (the full set is ${computeDefaultPermissions()}).`,
+    );
   }
 }
 

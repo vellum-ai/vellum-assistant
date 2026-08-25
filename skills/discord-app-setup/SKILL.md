@@ -121,7 +121,7 @@ bun skills/discord-app-setup/scripts/print-invite-url.ts
 
 This calls `GET /oauth2/applications/@me` with the stored bot token to discover the application and prints the invite URL. Which URL depends on the app:
 
-- **The app has Default Install Settings** (configured on the portal's Installation page): the URL carries only the client ID, so the grant is whatever those settings say. This is Discord's current model, and it means a person who edits those settings sees their edit take effect instead of being silently overridden by parameters in the URL. The script warns on stderr if those settings request scopes this integration never uses; `gdm.join` in particular would let the bot join group DMs, which inbound handling treats as private DMs, so have the user remove surplus scopes rather than proceeding.
+- **The app has Default Install Settings** (configured on the portal's Installation page): the URL carries only the client ID, so the grant is whatever those settings say. This is Discord's current model, and it means a person who edits those settings sees their edit take effect instead of being silently overridden by parameters in the URL. Because those settings now own the grant, the script re-checks them: it refuses to print a URL when they omit the `bot` scope (installing would add no bot user at all), and it warns on stderr when they request scopes this integration never uses, grant Administrator, or omit permissions the integration exercises. `gdm.join` in particular would let the bot join group DMs, which inbound handling treats as private DMs. Have the user make the named edit on the Installation page rather than proceeding past a warning.
 - **No Default Install Settings**: the URL spells out the grant itself:
 
 ```
