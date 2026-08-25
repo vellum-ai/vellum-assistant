@@ -2,7 +2,7 @@
  * Tests for the Doctor header's overflow menu.
  *
  * The presentation is resolved inside the design library from a media query, so
- * these tests drive `window.matchMedia` rather than stubbing a hook: a stubbed
+ * these tests drive the viewport axes rather than stubbing a hook: a stubbed
  * hook would pass while the real primitive read something else. The menu is
  * rendered open, since what is under test is the command set each surface
  * produces, not the trigger.
@@ -11,34 +11,21 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const TOUCH_SURFACE_QUERY = "(width < 48rem) and (pointer: coarse)";
-
-function stubMatchMedia(touchSurface: boolean): void {
-  window.matchMedia = ((query: string) => ({
-    matches: query === TOUCH_SURFACE_QUERY ? touchSurface : !touchSurface,
-    media: query,
-    onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
-
-const { DoctorSessionMenu } = await import(
-  "@/domains/settings/components/panels/doctor-session-menu"
-);
+import { DoctorSessionMenu } from "@/domains/settings/components/panels/doctor-session-menu";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 const MENU_NAME = "Session options";
 
+const viewport = viewportAxesStub();
+
 afterEach(() => {
   cleanup();
+  viewport.restore();
 });
 
 describe("DoctorSessionMenu on a pointer surface", () => {
   beforeEach(() => {
-    stubMatchMedia(false);
+    viewport.set({ narrow: false, coarsePointer: false });
   });
 
   test("shows one labelled trigger and no commands until it is opened", () => {
@@ -103,7 +90,7 @@ describe("DoctorSessionMenu on a pointer surface", () => {
 
 describe("DoctorSessionMenu on a touch surface", () => {
   beforeEach(() => {
-    stubMatchMedia(true);
+    viewport.set({ narrow: true, coarsePointer: true });
   });
 
   // The iOS and Android shells render this header at phone width, which is the
