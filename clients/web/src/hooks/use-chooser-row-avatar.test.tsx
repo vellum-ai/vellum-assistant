@@ -1,9 +1,10 @@
 /**
  * Tests for `useChooserRowAvatar`: the transport gate that decides whether a
  * per-row SDK fetch is addressable, connected-row delegation to
- * `useAssistantAvatar`, per-row manifest-vs-legacy path selection, and the
- * failure-to-nulls contract. The resolved-assistants store is real; the
- * environment probes and the avatar API are mocked at the module boundary.
+ * `useAssistantAvatar`, per-row manifest-vs-legacy path selection, the
+ * last-seen cache as the final fallback, and the failure-to-nulls contract.
+ * The resolved-assistants store is real; the environment probes, the avatar
+ * API, and the IndexedDB cache are mocked at the module boundary.
  */
 
 import type { ReactNode } from "react";
@@ -20,6 +21,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type * as AvatarApi from "@/assistant/avatar-api";
+import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 import type {
   AvatarState,
@@ -79,17 +81,41 @@ const imageState: AvatarState = {
 };
 
 const fetchAvatarState = mock(async () => characterState as AvatarState | null);
-const fetchAvatarImageUrl = mock(async () => null as string | null);
-const fetchCharacterTraits = mock(async () => null as CharacterTraits | null);
+type FileResult<T> = AvatarApi.AvatarFileResult<T>;
+const ABSENT: FileResult<never> = { status: "absent" };
+const FAILED: FileResult<never> = { status: "failed" };
+const found = <T,>(value: T): FileResult<T> => ({ status: "found", value });
+const fetchAvatarImageUrlResult = mock(
+  async () => ABSENT as FileResult<string>,
+);
+const fetchCharacterTraitsResult = mock(
+  async () => ABSENT as FileResult<CharacterTraits>,
+);
 const fetchCharacterComponents = mock(async () => components);
 
 const avatarApiMock: Partial<typeof AvatarApi> = {
   fetchAvatarState,
-  fetchAvatarImageUrl,
-  fetchCharacterTraits,
+  fetchAvatarImageUrlResult,
+  fetchCharacterTraitsResult,
   fetchCharacterComponents,
 };
 mock.module("@/assistant/avatar-api", () => avatarApiMock);
+
+type LastSeenAvatar = AvatarLastSeenCache.LastSeenAvatar;
+const actualLastSeenCache = await import("@/lib/avatar-last-seen-cache");
+const readLastSeenAvatar = mock(async () => null as LastSeenAvatar | null);
+const writeLastSeenAvatar = mock(async (_id: string, _v: LastSeenAvatar) => {});
+const deleteLastSeenAvatar = mock(async (_id: string) => {});
+// The generation helpers stay real so the hook's write guard is exercised.
+mock.module(
+  "@/lib/avatar-last-seen-cache",
+  (): Partial<typeof AvatarLastSeenCache> => ({
+    ...actualLastSeenCache,
+    readLastSeenAvatar,
+    writeLastSeenAvatar,
+    deleteLastSeenAvatar,
+  }),
+);
 
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
@@ -106,6 +132,14 @@ const {
 
 const revokeObjectURL = mock((_url: string) => {});
 URL.revokeObjectURL = revokeObjectURL;
+URL.createObjectURL = () => "blob:cached-image";
+
+const noneState: AvatarState = {
+  kind: "none",
+  traits: null,
+  source: null,
+  image: null,
+};
 
 const platformRow = (
   id: string,
@@ -134,8 +168,8 @@ function createWrapper(
 function sdkCallCount(): number {
   return (
     fetchAvatarState.mock.calls.length +
-    fetchAvatarImageUrl.mock.calls.length +
-    fetchCharacterTraits.mock.calls.length +
+    fetchAvatarImageUrlResult.mock.calls.length +
+    fetchCharacterTraitsResult.mock.calls.length +
     fetchCharacterComponents.mock.calls.length
   );
 }
@@ -162,12 +196,16 @@ afterEach(() => {
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   useAssistantIdentityStore.getState().clearIdentity();
   fetchAvatarState.mockReset();
-  fetchAvatarImageUrl.mockReset();
-  fetchCharacterTraits.mockReset();
+  fetchAvatarImageUrlResult.mockReset();
+  fetchCharacterTraitsResult.mockReset();
   fetchCharacterComponents.mockReset();
+  readLastSeenAvatar.mockReset();
+  writeLastSeenAvatar.mockReset();
+  deleteLastSeenAvatar.mockReset();
+  readLastSeenAvatar.mockResolvedValue(null);
   fetchAvatarState.mockResolvedValue(characterState);
-  fetchAvatarImageUrl.mockResolvedValue(null);
-  fetchCharacterTraits.mockResolvedValue(null);
+  fetchAvatarImageUrlResult.mockResolvedValue(ABSENT);
+  fetchCharacterTraitsResult.mockResolvedValue(ABSENT);
   fetchCharacterComponents.mockResolvedValue(components);
 });
 
@@ -301,12 +339,12 @@ describe("useChooserRowAvatar", () => {
     });
     expect(fetchAvatarState).toHaveBeenCalledWith("other");
     expect(fetchCharacterComponents).not.toHaveBeenCalled();
-    expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
+    expect(fetchAvatarImageUrlResult).not.toHaveBeenCalled();
   });
 
   test("image kind resolves the blob url", async () => {
     fetchAvatarState.mockResolvedValue(imageState);
-    fetchAvatarImageUrl.mockResolvedValue("blob:row-image");
+    fetchAvatarImageUrlResult.mockResolvedValue(found("blob:row-image"));
     const { result } = renderHook(
       () => useChooserRowAvatar(platformRow("other")),
       { wrapper: createWrapper() },
@@ -318,7 +356,7 @@ describe("useChooserRowAvatar", () => {
   });
 
   test("pre-manifest platform row reads the legacy sidecars only", async () => {
-    fetchCharacterTraits.mockResolvedValue(traits);
+    fetchCharacterTraitsResult.mockResolvedValue(found(traits));
     const { result } = renderHook(
       () =>
         useChooserRowAvatar(
@@ -333,12 +371,12 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.traits).toEqual(traits);
     });
     expect(fetchAvatarState).not.toHaveBeenCalled();
-    expect(fetchAvatarImageUrl).toHaveBeenCalledWith("other");
+    expect(fetchAvatarImageUrlResult).toHaveBeenCalledWith("other");
   });
 
   test("unknown version probes the manifest, then falls back to sidecars", async () => {
     fetchAvatarState.mockResolvedValue(null);
-    fetchAvatarImageUrl.mockResolvedValue("blob:legacy");
+    fetchAvatarImageUrlResult.mockResolvedValue(found("blob:legacy"));
     const { result } = renderHook(
       () =>
         useChooserRowAvatar(
@@ -353,7 +391,7 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.imageUrl).toBe("blob:legacy");
     });
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
-    expect(fetchCharacterTraits).not.toHaveBeenCalled();
+    expect(fetchCharacterTraitsResult).not.toHaveBeenCalled();
   });
 
   test("failures resolve to nulls, never an error", async () => {
@@ -370,7 +408,7 @@ describe("useChooserRowAvatar", () => {
   });
 
   test("re-keys on a version change so an upgraded row switches paths", async () => {
-    fetchCharacterTraits.mockResolvedValue(traits);
+    fetchCharacterTraitsResult.mockResolvedValue(found(traits));
     const { result, rerender } = renderHook(
       (version: string) =>
         useChooserRowAvatar(platformRow("other", { runtimeVersion: version })),
@@ -380,7 +418,7 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.traits).toEqual(traits);
     });
     expect(fetchAvatarState).not.toHaveBeenCalled();
-    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
 
     rerender(MIN_VERSION);
     await waitFor(() => {
@@ -389,7 +427,7 @@ describe("useChooserRowAvatar", () => {
     await waitFor(() => {
       expect(result.current.traits).toEqual(traits);
     });
-    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
   });
 
   test("invalidating the row prefix refetches past staleTime: Infinity", async () => {
@@ -421,25 +459,25 @@ describe("useChooserRowAvatar", () => {
     const row = platformRow("other", { runtimeVersion: "0.8.6" });
     const first = renderHook(() => useChooserRowAvatar(row), { wrapper });
     await waitFor(() => {
-      expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+      expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
     });
     await settle();
     expect(first.result.current).toEqual({ traits: null, imageUrl: null });
     first.unmount();
 
     setSystemTime(new Date(Date.now() + EMPTY_AVATAR_STALE_TIME_MS + 1));
-    fetchCharacterTraits.mockResolvedValue(traits);
+    fetchCharacterTraitsResult.mockResolvedValue(found(traits));
     const second = renderHook(() => useChooserRowAvatar(row), { wrapper });
     await waitFor(() => {
       expect(second.result.current.traits).toEqual(traits);
     });
-    expect(fetchCharacterTraits).toHaveBeenCalledTimes(2);
+    expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(2);
   });
 
   test("a populated legacy result stays cached past the empty stale window", async () => {
     const wrapper = createWrapper();
     const row = platformRow("other", { runtimeVersion: "0.8.6" });
-    fetchCharacterTraits.mockResolvedValue(traits);
+    fetchCharacterTraitsResult.mockResolvedValue(found(traits));
     const first = renderHook(() => useChooserRowAvatar(row), { wrapper });
     await waitFor(() => {
       expect(first.result.current.traits).toEqual(traits);
@@ -452,16 +490,16 @@ describe("useChooserRowAvatar", () => {
       expect(second.result.current.traits).toEqual(traits);
     });
     await settle();
-    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
   });
 
   test("a superseded fetch that finishes last drops its own blob, not the current one", async () => {
-    let resolveOld: (url: string) => void = () => {};
-    const oldImage = new Promise<string | null>((resolve) => {
+    let resolveOld: (result: FileResult<string>) => void = () => {};
+    const oldImage = new Promise<FileResult<string>>((resolve) => {
       resolveOld = resolve;
     });
-    fetchAvatarImageUrl.mockImplementationOnce(() => oldImage);
-    fetchAvatarImageUrl.mockResolvedValue("blob:new");
+    fetchAvatarImageUrlResult.mockImplementationOnce(() => oldImage);
+    fetchAvatarImageUrlResult.mockResolvedValue(found("blob:new"));
     fetchAvatarState.mockResolvedValue(imageState);
 
     const { result, rerender } = renderHook(
@@ -470,7 +508,7 @@ describe("useChooserRowAvatar", () => {
       { wrapper: createWrapper(), initialProps: "0.8.6" },
     );
     await waitFor(() => {
-      expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
     });
 
     rerender(MIN_VERSION);
@@ -478,7 +516,7 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.imageUrl).toBe("blob:new");
     });
 
-    resolveOld("blob:old");
+    resolveOld(found("blob:old"));
     await waitFor(() => {
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:old");
     });
@@ -502,5 +540,333 @@ describe("useChooserRowAvatar", () => {
     expect(fetchAvatarState).toHaveBeenCalledWith("a");
     expect(fetchAvatarState).toHaveBeenCalledWith("b");
     expect(fetchAvatarState).toHaveBeenCalledTimes(2);
+  });
+
+  describe("last-seen cache", () => {
+    test("writes a character entry after a live platform-proxy resolution", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("writes an image entry as a Blob read back from the live blob url", async () => {
+      const blob = new Blob(["png"], { type: "image/png" });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(
+        async () => new Response(blob),
+      ) as unknown as typeof fetch;
+      try {
+        fetchAvatarState.mockResolvedValue(imageState);
+        fetchAvatarImageUrlResult.mockResolvedValue(found("blob:row-image"));
+        renderHook(() => useChooserRowAvatar(platformRow("other")), {
+          wrapper: createWrapper(),
+        });
+        await waitFor(() => {
+          expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+        });
+        expect(globalThis.fetch).toHaveBeenCalledWith("blob:row-image");
+        const [id, entry] = writeLastSeenAvatar.mock.calls[0]!;
+        expect(id).toBe("other");
+        expect(entry.kind).toBe("image");
+        expect(entry.kind === "image" && (await entry.blob.text())).toBe("png");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    test("writes the connected row's live avatar", async () => {
+      renderHook(() => useChooserRowAvatar(platformRow("active")), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "active",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+    });
+
+    test("deletes the entry when a live source resolves kind none", async () => {
+      fetchAvatarState.mockResolvedValue(noneState);
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          expect.any(Number),
+        );
+      });
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
+
+    test("an unreachable legacy row keeps its cached avatar and does not evict it", async () => {
+      fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+      fetchCharacterTraitsResult.mockResolvedValue(FAILED);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", { runtimeVersion: "0.8.6" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(result.current.traits).toEqual(traits);
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a legacy row whose sidecars are both absent evicts the cache and shows the glyph", async () => {
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", { runtimeVersion: "0.8.6" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          expect.any(Number),
+        );
+      });
+      expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
+
+    test("a manifest image whose content fails keeps the cached image and does not evict it", async () => {
+      fetchAvatarState.mockResolvedValue(imageState);
+      fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+      readLastSeenAvatar.mockResolvedValue({
+        kind: "image",
+        blob: new Blob(["png"]),
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe("blob:cached-image");
+      });
+      // The hook retries once before settling on the error.
+      await waitFor(() => {
+        expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(2);
+      });
+      await settle();
+      expect(result.current.imageUrl).toBe("blob:cached-image");
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("the connected row keeps its cached image when the manifest image content fails", async () => {
+      fetchAvatarState.mockResolvedValue(imageState);
+      fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+      readLastSeenAvatar.mockResolvedValue({
+        kind: "image",
+        blob: new Blob(["png"]),
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("active")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe("blob:cached-image");
+      });
+      await settle();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("an unreachable version-unknown row keeps its cached avatar", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+      fetchCharacterTraitsResult.mockResolvedValue(FAILED);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", {
+              runtimeVersion: undefined,
+              currentReleaseVersion: null,
+            }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a populated legacy read still writes the cache", async () => {
+      fetchCharacterTraitsResult.mockResolvedValue(found(traits));
+      renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", { runtimeVersion: "0.8.6" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+    });
+
+    test("an image write that resolves after a newer traits write commits nothing", async () => {
+      let resolveBlob: (r: Response) => void = () => {};
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(
+        () => new Promise<Response>((resolve) => (resolveBlob = resolve)),
+      ) as unknown as typeof fetch;
+      try {
+        fetchAvatarState.mockResolvedValue(imageState);
+        fetchAvatarImageUrlResult.mockResolvedValue(found("blob:row-image"));
+        const queryClient = new QueryClient({
+          defaultOptions: { queries: { retry: false } },
+        });
+        const { result } = renderHook(
+          () => useChooserRowAvatar(platformRow("other")),
+          { wrapper: createWrapper(queryClient) },
+        );
+        await waitFor(() => {
+          expect(globalThis.fetch).toHaveBeenCalledWith("blob:row-image");
+        });
+
+        fetchAvatarState.mockResolvedValue(characterState);
+        await queryClient.invalidateQueries({
+          queryKey: chooserRowAvatarQueryKeyPrefix("other"),
+        });
+        await waitFor(() => {
+          expect(result.current.traits).toEqual(traits);
+        });
+        await waitFor(() => {
+          expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+        });
+        expect(writeLastSeenAvatar.mock.calls[0]![1]).toEqual({
+          kind: "character",
+          traits,
+        });
+
+        resolveBlob(new Response(new Blob(["png"])));
+        await settle();
+        expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    test("reads the cache as the final fallback when no live source applies", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(readLastSeenAvatar).toHaveBeenCalledWith("other");
+      expect(sdkCallCount()).toBe(0);
+    });
+
+    test("re-creates an object url from a cached image Blob", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockResolvedValue({
+        kind: "image",
+        blob: new Blob(["png"]),
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe("blob:cached-image");
+      });
+      expect(result.current.traits).toBeNull();
+    });
+
+    test("falls back to the cache when the live fetch fails", async () => {
+      fetchAvatarState.mockRejectedValue(new Error("boom"));
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+    });
+
+    test("falls back to the cache for an unreachable connected row", async () => {
+      fetchAvatarState.mockRejectedValue(new Error("offline"));
+      fetchCharacterComponents.mockRejectedValue(new Error("offline"));
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("active")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(readLastSeenAvatar).toHaveBeenCalledWith("active");
+    });
+
+    test("never writes back data that came from the cache", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a cache read failure resolves to nulls", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockRejectedValue(new Error("idb"));
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(readLastSeenAvatar).toHaveBeenCalledTimes(1);
+      });
+      await settle();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
   });
 });

@@ -28,6 +28,8 @@ mock.module(
       traits: null,
       customImageUrl: null,
       isLoading: false,
+      isSuccess: true,
+      supportsManifest: true,
       invalidate: () => {},
     }),
   }),
