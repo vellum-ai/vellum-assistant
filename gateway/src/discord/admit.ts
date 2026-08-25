@@ -5,16 +5,12 @@
  * can view. This gate decides which of those the gateway acts on, and it is
  * the only thing standing between the assistant and a busy public server, so
  * it is deliberately conservative: a message is dropped unless it is a direct
- * mention of the bot.
- *
- * Which rooms the bot can see at all is Discord's decision, not ours. A bot
- * without `VIEW_CHANNEL` on a channel cannot read its messages, so the server
- * owner scopes the bot with channel and role permissions the same way they
- * would anywhere else, in the UI they already know.
+ * mention of the bot in a channel the operator listed.
  *
  * A DM is the one message that is already addressed to the bot and nobody
- * else, so it is admitted on a separate lane, without a mention: @-ing a bot
- * in its own DM is not how anyone writes. What that lane admits is a *room*, not a
+ * else, so it is admitted on a separate lane: no allow-list entry, because a
+ * DM belongs to no guild channel, and no mention, because @-ing a bot in its
+ * own DM is not how anyone writes. What that lane admits is a *room*, not a
  * person. Who may actually be answered there is the trust-class admission
  * floor's decision downstream, and Discord's floor admits trusted contacts.
  *
@@ -33,6 +29,17 @@ export interface AdmissionCandidate {
    * thread this is the *thread's* id, not the channel the thread hangs off.
    */
   channelId: string;
+  /**
+   * Snowflake of the parent channel when {@link channelId} is a thread.
+   *
+   * Discord delivers thread messages as ordinary `MESSAGE_CREATE` events keyed
+   * on the thread, and the bot is auto-subscribed to every visible active
+   * thread without joining. An allow-list of channels would therefore deny all
+   * thread traffic, which is the same as the assistant going silent the moment
+   * a conversation moves into a thread. Resolving parentage is the caller's
+   * job — it holds the channel cache — and this gate accepts the result.
+   */
+  parentChannelId?: string;
   /** Snowflake of the guild, absent for DMs. */
   guildId?: string;
   /** Snowflake of the message author. */
@@ -52,6 +59,7 @@ export interface AdmissionCandidate {
 export type AdmissionDropReason =
   | "self_authored"
   | "bot_authored"
+  | "channel_not_allowed"
   | "bot_not_mentioned";
 
 export type AdmissionVerdict =
@@ -61,6 +69,8 @@ export type AdmissionVerdict =
 export interface AdmissionPolicy {
   /** The bot's own user snowflake, used for self-filtering and mention matching. */
   botUserId: string;
+  /** Channel snowflakes the bot may act in. Empty admits nothing. */
+  allowedChannelIds: ReadonlySet<string>;
 }
 
 const ADMITTED: AdmissionVerdict = { admitted: true };
@@ -118,6 +128,17 @@ export function admitDiscordMessage(
   // guild is not the same as opting it into every channel in that guild, and
   // the failure that matters is the one where an empty list means "all".
   //
+  // A thread inherits its parent's listing: listing a channel opts in the
+  // conversations that branch off it, which is where a thread comes from. A
+  // thread id may also be listed directly, and matches on the first check.
+  const channelAllowed =
+    policy.allowedChannelIds.has(candidate.channelId) ||
+    (candidate.parentChannelId !== undefined &&
+      policy.allowedChannelIds.has(candidate.parentChannelId));
+  if (!channelAllowed) {
+    return drop("channel_not_allowed");
+  }
+
   // Requiring the bot's own id here is what keeps announcements out: Discord
   // omits `@everyone` / `@here` and role pings from the mentions array, so
   // they cannot satisfy this check.

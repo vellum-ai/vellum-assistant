@@ -118,6 +118,12 @@ export interface GatewaySocketLike {
 
 export interface DiscordGatewayClientOptions {
   botToken: string;
+  /**
+   * Live view of the admitted-channel allow-list, read per message so a
+   * config edit applies without restarting the client (a restart costs an
+   * IDENTIFY).
+   */
+  readAllowedChannelIds: () => ReadonlySet<string>;
   fetchFn?: typeof fetchImpl;
   createSocket?: (url: string) => GatewaySocketLike;
   schedule?: ScheduleFn;
@@ -127,6 +133,7 @@ export interface DiscordGatewayClientOptions {
 
 export class DiscordGatewayClient {
   private readonly botToken: string;
+  private readonly readAllowedChannelIds: () => ReadonlySet<string>;
   private readonly fetchFn: typeof fetchImpl;
   private readonly createSocket: (url: string) => GatewaySocketLike;
   private readonly schedule: ScheduleFn;
@@ -160,6 +167,7 @@ export class DiscordGatewayClient {
     private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
+    this.readAllowedChannelIds = options.readAllowedChannelIds;
     this.fetchFn = options.fetchFn ?? fetchImpl;
     this.createSocket =
       options.createSocket ??
@@ -671,6 +679,7 @@ export class DiscordGatewayClient {
 
     const verdict = admitDiscordMessage(candidate, {
       botUserId: this.botUserId,
+      allowedChannelIds: this.readAllowedChannelIds(),
     });
     if (!verdict.admitted) {
       const fields = {
@@ -689,7 +698,7 @@ export class DiscordGatewayClient {
         log.warn(
           fields,
           "Discord message dropped: the channel is not on the allow-list. " +
-            "Check the bot's channel permissions in Discord. Further " +
+            "Check `discord.allowedChannelIds` in config.json. Further " +
             "drops for this channel log at debug.",
         );
       } else if (level === "info") {

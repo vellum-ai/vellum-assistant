@@ -12,7 +12,7 @@ const OTHER_CHANNEL = "800000000000000002";
 
 /** Reasons that surface once per channel, and the level they surface at. */
 const PROMOTED: Array<[AdmissionDropReason, AdmissionDropLogLevel]> = [
-  ["bot_not_mentioned", "warn"],
+  ["channel_not_allowed", "warn"],
   ["bot_not_mentioned", "info"],
 ];
 
@@ -25,7 +25,7 @@ describe("AdmissionDropLog", () => {
     // written nowhere and a gate denying every message reads exactly like a
     // gateway receiving none.
     const dropLog = new AdmissionDropLog();
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
   });
 
   test("reasons that mean a person was denied are visible", () => {
@@ -49,22 +49,22 @@ describe("AdmissionDropLog", () => {
     // The gate denies by design, so promoting every drop would flood the
     // stream it exists to keep quiet.
     const dropLog = new AdmissionDropLog();
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("debug");
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("debug");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("debug");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("debug");
   });
 
   test("a different channel is promoted again", () => {
     // Which room is being denied is half the diagnosis.
     const dropLog = new AdmissionDropLog();
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
-    expect(dropLog.levelFor("bot_not_mentioned", OTHER_CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", OTHER_CHANNEL)).toBe("warn");
   });
 
   test("a different reason on the same channel is promoted again", () => {
     // A channel that starts denying for a new reason is new information.
     const dropLog = new AdmissionDropLog();
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
     expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("info");
   });
 
@@ -73,11 +73,13 @@ describe("AdmissionDropLog", () => {
     // the reason falls quiet rather than growing without limit.
     const dropLog = new AdmissionDropLog();
     for (let i = 0; i < 512; i++) {
-      expect(dropLog.levelFor("bot_not_mentioned", `channel-${i}`)).toBe(
+      expect(dropLog.levelFor("channel_not_allowed", `channel-${i}`)).toBe(
         "warn",
       );
     }
-    expect(dropLog.levelFor("bot_not_mentioned", "channel-512")).toBe("debug");
+    expect(dropLog.levelFor("channel_not_allowed", "channel-512")).toBe(
+      "debug",
+    );
   });
 
   test("never-promoted reasons consume no budget", () => {
@@ -87,7 +89,7 @@ describe("AdmissionDropLog", () => {
     for (let i = 0; i < 600; i++) {
       dropLog.levelFor("self_authored", `channel-${i}`);
     }
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
   });
 
   test("an unbounded reason cannot starve the operator-actionable one", () => {
@@ -99,7 +101,7 @@ describe("AdmissionDropLog", () => {
     for (let i = 0; i < 5_000; i++) {
       dropLog.levelFor("bot_not_mentioned", `channel-${i}`);
     }
-    expect(dropLog.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
   });
 
   test("exhausting one reason's budget leaves the others intact", () => {
@@ -108,13 +110,13 @@ describe("AdmissionDropLog", () => {
       dropLog.levelFor("bot_not_mentioned", `channel-${i}`);
     }
     expect(dropLog.levelFor("bot_not_mentioned", "channel-999")).toBe("debug");
-    expect(dropLog.levelFor("bot_not_mentioned", "channel-999")).toBe("warn");
+    expect(dropLog.levelFor("channel_not_allowed", "channel-999")).toBe("warn");
   });
 
   test("instances do not share state", () => {
     const first = new AdmissionDropLog();
     const second = new AdmissionDropLog();
-    expect(first.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
-    expect(second.levelFor("bot_not_mentioned", CHANNEL)).toBe("warn");
+    expect(first.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
+    expect(second.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
   });
 });

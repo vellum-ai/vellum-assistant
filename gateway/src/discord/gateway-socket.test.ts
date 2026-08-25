@@ -115,6 +115,7 @@ function harness(options: { allowed?: string[]; responses?: Response[] } = {}) {
   const client = new DiscordGatewayClient(
     {
       botToken: "token-abc",
+      readAllowedChannelIds: () => new Set(options.allowed ?? ["channel-1"]),
       fetchFn: (async (url: string | URL | Request, init?: RequestInit) => {
         fetchCalls.push({
           url: String(url),

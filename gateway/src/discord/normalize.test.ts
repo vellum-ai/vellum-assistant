@@ -127,7 +127,7 @@ describe("toAdmissionCandidate", () => {
       "channel-1",
     );
     expect(candidate?.channelId).toBe("thread-1");
-    expect(candidate?.channelId).toBe("channel-1");
+    expect(candidate?.parentChannelId).toBe("channel-1");
   });
 
   test("webhook messages read as bot-authored", () => {
@@ -152,6 +152,7 @@ describe("toAdmissionCandidate", () => {
       expect(candidate?.authorIsBot).toBe(true);
       const verdict = admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
+        allowedChannelIds: new Set(["channel-1"]),
       });
       expect(verdict).toEqual({ admitted: false, reason: "bot_authored" });
     }
@@ -290,6 +291,7 @@ describe("normalizeDiscordMessage", () => {
   test("thread messages deliver on the parent with the thread as threadId", () => {
     const raw = messagePayload({ channel_id: "thread-1" });
     const event = normalizeDiscordMessage(parse(raw), {
+      parentChannelId: "channel-1",
       raw,
     });
     expect(event?.message.conversationExternalId).toBe("channel-1");
@@ -348,6 +350,7 @@ describe("normalizeDiscordMessage", () => {
     expect(
       admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
+        allowedChannelIds: new Set(),
       }),
     ).toEqual({ admitted: true });
   });
@@ -369,6 +372,7 @@ describe("normalizeDiscordMessage", () => {
     expect(candidate).not.toBeNull();
     const verdict = admitDiscordMessage(candidate!, {
       botUserId: "bot-1",
+      allowedChannelIds: new Set(["channel-1"]),
     });
     expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });
   });
@@ -384,6 +388,7 @@ describe("normalizeDiscordMessage", () => {
     // guild rather than on the absence of a parent channel.
     const raw = messagePayload({ channel_id: "thread-1" });
     const event = normalizeDiscordMessage(parse(raw), {
+      parentChannelId: "channel-1",
       raw,
     });
     expect(event?.source.chatType).toBe("channel");
