@@ -663,11 +663,16 @@ describe("ask_question copy is pinned to the question", () => {
 
   beforeEach(() => {
     configuredProvider = { sendMessage: async () => ({}) };
+    // Field names must match `validateDecisionOutput`, or the decision falls
+    // back and the test proves nothing about the composed path it exists to
+    // cover: `selectedChannels` and `reasoningSummary`, not `channels` and
+    // `reasoning`.
     extractedToolUse = {
       shouldNotify: true,
-      channels: ["slack"],
-      reasoning: "guardian needs to answer",
+      selectedChannels: ["slack"],
+      reasoningSummary: "guardian needs to answer",
       dedupeKey: "ask-question-req-ask-1",
+      confidence: 0.9,
       renderedCopy: {
         slack: {
           title: "Guardian question",
@@ -683,6 +688,11 @@ describe("ask_question copy is pinned to the question", () => {
       "slack",
     ] as NotificationChannel[]);
 
+    // Guards the fixture itself: a shape the validator rejects would fall
+    // back, and the assertions below would then be testing the fallback copy
+    // rather than the pin that overrides a composed paraphrase.
+    expect(decision.fallbackUsed).toBe(false);
+
     const copy = decision.renderedCopy.slack;
     // `deliveryText` is what the Slack adapter sends, ahead of body and title.
     expect(copy?.deliveryText).toContain("What should I dig into?");
@@ -695,6 +705,7 @@ describe("ask_question copy is pinned to the question", () => {
       "slack",
     ] as NotificationChannel[]);
 
+    expect(decision.fallbackUsed).toBe(false);
     const delivered = decision.renderedCopy.slack?.deliveryText ?? "";
     expect(delivered).toContain("1. This Slack thread");
     expect(delivered).toContain("2. The pull request");
@@ -714,6 +725,7 @@ describe("ask_question copy is pinned to the question", () => {
       "slack",
     ] as NotificationChannel[]);
 
+    expect(decision.fallbackUsed).toBe(false);
     expect(decision.renderedCopy.slack?.deliveryText).toBe(
       "Guardian wants to know where to focus",
     );
