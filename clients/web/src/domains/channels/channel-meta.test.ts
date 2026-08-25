@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
+import { DISCONNECT_ROUTES } from "@/hooks/use-assistant-channels";
 import {
   CHANNEL_SETUP_TYPES,
   type ChannelSetupType,
@@ -32,14 +33,15 @@ describe("channel capabilities are declared, not inferred", () => {
     expect(twilio).toEqual(["phone"]);
   });
 
-  test("disconnect copy exists exactly where a route can clear credentials", () => {
-    // The absence of copy is what keeps the button unoffered, so each value
-    // is pinned: a channel gaining a disconnect route must add its copy here,
-    // and one declaring copy without a route would offer a dead confirm.
-    expect(CHANNEL_META.slack.disconnectMessageKey).toBeDefined();
-    expect(CHANNEL_META.telegram.disconnectMessageKey).toBeDefined();
-    expect(CHANNEL_META.phone.disconnectMessageKey).toBeDefined();
-    expect(CHANNEL_META.discord.disconnectMessageKey).toBeUndefined();
+  test("disconnect copy exists exactly where a delete route exists", () => {
+    // The route record is the capability; the copy is its confirm dialog.
+    // Holding them equal means a channel cannot gain a button without a
+    // route behind it, or a route whose confirm has nothing to say.
+    for (const id of SETUP_CHANNEL_IDS) {
+      expect(CHANNEL_META[id].disconnectMessageKey !== undefined).toBe(
+        DISCONNECT_ROUTES[id] !== undefined,
+      );
+    }
   });
 });
 

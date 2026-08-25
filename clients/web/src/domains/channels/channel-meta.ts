@@ -29,12 +29,11 @@ interface ChannelMeta {
   /**
    * Catalog key for the disconnect dialog's body.
    *
-   * Undefined when a channel cannot be disconnected from here: there is no
-   * route that clears Discord's credentials, so an offered button would open
-   * a dialog whose confirm does nothing. Read as a capability the way the
-   * transport reads an absent method, rather than naming the channel in the
-   * component. Required, not optional, so a new channel states the answer
-   * instead of inheriting one by omission.
+   * Undefined when a channel cannot be disconnected from here. The
+   * capability itself is the delete-route record (`DISCONNECT_ROUTES`); this
+   * key is its confirm dialog's copy, and a test holds the two equal so
+   * neither can drift. Required, not optional, so a new channel states the
+   * answer instead of inheriting one by omission.
    */
   disconnectMessageKey:
     | "channelMeta.slack.disconnectMessage"

@@ -242,10 +242,10 @@ export function AssistantChannelsList({
           : undefined
       }
       onDisconnect={
-        // A channel with no disconnect copy has no route to clear its
-        // credentials either, so it is offered no button rather than one
-        // whose confirm does nothing.
-        onDisconnect && CHANNEL_META[selected!.key].disconnectMessageKey
+        // Offered only where a delete route exists (`canDisconnect` derives
+        // from the route record), so the confirm can never resolve without
+        // clearing anything.
+        onDisconnect && selected!.canDisconnect
           ? () => setPendingDisconnect(selected!.key)
           : undefined
       }

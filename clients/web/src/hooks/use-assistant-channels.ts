@@ -29,6 +29,28 @@ import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
+/**
+ * The delete route that clears each channel's stored credentials, undefined
+ * where none exists yet. This record is the disconnect capability in one
+ * place: the state rows derive `canDisconnect` from it, both disconnect
+ * surfaces gate their button on that, and the disconnect copy in
+ * `CHANNEL_META` is pinned to it by test, so a channel cannot gain a button
+ * without a route or a route without its confirm copy.
+ */
+export const DISCONNECT_ROUTES: Record<
+  SetupChannelId,
+  | ((opts: {
+      path: { assistant_id: string };
+      throwOnError: true;
+    }) => Promise<unknown>)
+  | undefined
+> = {
+  slack: integrationsSlackChannelConfigDelete,
+  telegram: integrationsTelegramConfigDelete,
+  discord: undefined,
+  phone: integrationsTwilioCredentialsDelete,
+};
+
 const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
   slack: "I want to reach you on Slack. Let's set it up.",
   telegram: "I want to reach you on Telegram. Let's set it up.",
@@ -131,17 +153,17 @@ export function useAssistantChannels({
 
   const disconnectMutation = useMutation({
     mutationFn: async (channelKey: SetupChannelId) => {
-      const opts = {
-        path: { assistant_id: assistantId },
-        throwOnError: true as const,
-      };
-      if (channelKey === "slack") {
-        await integrationsSlackChannelConfigDelete(opts);
-      } else if (channelKey === "telegram") {
-        await integrationsTelegramConfigDelete(opts);
-      } else if (channelKey === "phone") {
-        await integrationsTwilioCredentialsDelete(opts);
+      const route = DISCONNECT_ROUTES[channelKey];
+      if (!route) {
+        // Unreachable from the UI: both disconnect surfaces gate their
+        // button on this same record. Loud rather than a resolved promise,
+        // which would read as a successful disconnect that cleared nothing.
+        throw new Error(`No route clears ${channelKey} credentials.`);
       }
+      await route({
+        path: { assistant_id: assistantId },
+        throwOnError: true,
+      });
     },
     onSettled: (_data, _error, channelKey) => {
       invalidateReadiness();
@@ -282,6 +304,7 @@ function deriveChannelStates(
       key,
       status,
       configured: snap?.setupStatus === "ready",
+      canDisconnect: DISCONNECT_ROUTES[key] !== undefined,
       health: snap?.health,
       address: snap?.channelHandle ?? undefined,
     };
