@@ -135,7 +135,9 @@ function readApplication(body: unknown): DiscordApplication {
       ? body.integration_types_config
       : undefined;
   const guildConfig =
-    typeof typesConfig === "object" && typesConfig !== null && "0" in typesConfig
+    typeof typesConfig === "object" &&
+    typesConfig !== null &&
+    "0" in typesConfig
       ? typesConfig["0"]
       : undefined;
   const guildInstall = readInstallSettings(
