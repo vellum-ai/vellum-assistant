@@ -72,7 +72,7 @@ export type {
 } from "./devices";
 export { runUpgrade, isValidReleaseVersion } from "./upgrade";
 export type { UpgradeOptions, UpgradeResult } from "./upgrade";
-export { getLocalAssistantStatus } from "./status";
+export { getLocalAssistantStatus, resolveLockfileInstanceDir } from "./status";
 export type {
   LocalAssistantRuntimeState,
   LocalAssistantStatusResult,

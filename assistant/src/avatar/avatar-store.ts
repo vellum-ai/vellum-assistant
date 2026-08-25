@@ -15,13 +15,13 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
 import {
   AVATAR_IMAGE_FILENAME,
   AVATAR_MANIFEST_FILENAME,
-  getAvatarDir,
-  getAvatarImagePath,
-} from "../util/platform.js";
+} from "@vellumai/avatar-manifest";
+
+import { getLogger } from "../util/logger.js";
+import { getAvatarDir, getAvatarImagePath } from "../util/platform.js";
 import {
   type AvatarSource,
   computeImageMeta,

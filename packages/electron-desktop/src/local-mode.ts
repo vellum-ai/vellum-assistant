@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 
+import { readWorkspaceAvatar } from "@vellumai/avatar-manifest";
 import {
   connectImport,
   getGuardianAccessToken,
@@ -11,6 +14,7 @@ import {
   getLockfileData,
   getLocalAssistantStatus,
   replacePlatformAssistants,
+  resolveLockfileInstanceDir,
   runDevicesList,
   runDevicesRevoke,
   runHatch,
@@ -28,8 +32,10 @@ import {
   type WakeOptions,
 } from "@vellumai/local-mode";
 import type {
+  LocalAssistantAvatar,
   LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
 } from "@vellumai/ipc-contract";
 import { capabilityToken } from "./capability-registry";
@@ -319,6 +325,46 @@ export async function getPairedGuardianAccessToken(
   );
 }
 
+const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+function readAvatarImage(imagePath: string): LocalAssistantAvatar | null {
+  try {
+    const stats = fs.statSync(imagePath);
+    if (!stats.isFile() || stats.size > AVATAR_IMAGE_MAX_BYTES) {
+      return null;
+    }
+    return {
+      kind: "image",
+      imageBase64: fs.readFileSync(imagePath).toString("base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Read directly off disk so a sleeping sibling assistant still has an
+// avatar in the chooser.
+function readAssistantAvatar(
+  lockfilePaths: string[],
+  assistantId: string,
+): LocalReadAssistantAvatarResult {
+  const instanceDir = resolveLockfileInstanceDir(lockfilePaths, assistantId);
+  if (!instanceDir) {
+    return { ok: true, avatar: null };
+  }
+  const avatar = readWorkspaceAvatar(
+    path.join(instanceDir, ".vellum", "workspace"),
+  );
+  switch (avatar.kind) {
+    case "character":
+      return { ok: true, avatar: { kind: "character", traits: avatar.traits } };
+    case "image":
+      return { ok: true, avatar: readAvatarImage(avatar.imagePath) };
+    case "none":
+      return { ok: true, avatar: null };
+  }
+}
+
 // A persisted assistant entry as it crosses the IPC boundary. The
 // package's lockfile parser owns the real field-level contract; here we
 // only assert the renderer sent an object, so unknown/forward-compat
@@ -562,6 +608,17 @@ export const installLocalMode = (): void => {
     }
     return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
+
+  ipc(
+    "vellum:localMode:readAssistantAvatar",
+    assistantIdArgs,
+    ([assistantId]): LocalReadAssistantAvatarResult => {
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
+      return readAssistantAvatar(lockfilePaths, assistantId);
+    },
+  );
 
   ipc(
     "vellum:localMode:guardianToken",

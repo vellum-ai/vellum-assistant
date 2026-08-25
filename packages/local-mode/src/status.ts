@@ -129,7 +129,10 @@ function httpHealthCheck(port: number): Promise<boolean> {
 }
 
 type DaemonReadyzClassification =
-  "ready" | "migrating" | "failed" | "no_answer";
+  | "ready"
+  | "migrating"
+  | "failed"
+  | "no_answer";
 
 /**
  * Classify the daemon's DB migration readiness from the `/readyz` BODY.
@@ -240,25 +243,50 @@ function firstNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+// Raw entry from the same authoritative file the parsed data came from.
 function findRawAssistant(
-  lockfilePaths: string[],
+  raw: Record<string, unknown>,
   assistantId: string,
 ): Record<string, unknown> | null {
-  for (const candidate of lockfilePaths) {
-    let data: unknown;
-    try {
-      data = JSON.parse(readFileSync(candidate, "utf-8"));
-    } catch {
-      continue;
-    }
-    if (!isRecord(data) || !Array.isArray(data.assistants)) return null;
-    const entry = data.assistants.find(
-      (assistant) =>
-        isRecord(assistant) && assistant.assistantId === assistantId,
-    );
-    return isRecord(entry) ? entry : null;
+  if (!Array.isArray(raw.assistants)) return null;
+  const entry = raw.assistants.find(
+    (assistant) => isRecord(assistant) && assistant.assistantId === assistantId,
+  );
+  return isRecord(entry) ? entry : null;
+}
+
+// Legacy entries persisted the directory as top-level `baseDataDir`.
+function lockfileInstanceDir(
+  entry: LockfileAssistant | undefined,
+  rawEntry: Record<string, unknown> | null,
+): string | undefined {
+  const rawResources = isRecord(rawEntry?.resources)
+    ? rawEntry.resources
+    : undefined;
+  return firstString(
+    entry?.resources?.instanceDir,
+    rawResources?.instanceDir,
+    rawEntry?.baseDataDir,
+  );
+}
+
+/**
+ * The persisted instance directory for a lockfile entry, honoring legacy
+ * `baseDataDir` entries the parsed contract drops. Undefined when the entry
+ * is missing or records no directory.
+ */
+export function resolveLockfileInstanceDir(
+  lockfilePaths: string[],
+  assistantId: string,
+): string | undefined {
+  const result = getLockfileData(lockfilePaths);
+  if (!result.ok) {
+    return undefined;
   }
-  return null;
+  const entry = result.data.assistants.find(
+    (assistant) => assistant.assistantId === assistantId,
+  );
+  return lockfileInstanceDir(entry, findRawAssistant(result.raw, assistantId));
 }
 
 function resolveStatusResources(
@@ -271,11 +299,8 @@ function resolveStatusResources(
     : undefined;
   const ports = defaultPorts(env);
   const instanceDir =
-    firstString(
-      entry.resources?.instanceDir,
-      rawResources?.instanceDir,
-      rawEntry?.baseDataDir,
-    ) ?? defaultInstanceDir(env, entry.assistantId);
+    lockfileInstanceDir(entry, rawEntry) ??
+    defaultInstanceDir(env, entry.assistantId);
   return {
     instanceDir,
     daemonPort:
@@ -416,7 +441,7 @@ export async function getLocalAssistantStatus(
 
   return runtimeStatusForEntry(
     entry,
-    findRawAssistant(lockfilePaths, assistantId),
+    findRawAssistant(result.raw, assistantId),
     env,
   );
 }
