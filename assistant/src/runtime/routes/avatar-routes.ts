@@ -16,11 +16,11 @@ import {
   setImage,
 } from "../../avatar/avatar-store.js";
 import { getCharacterComponents } from "../../avatar/character-components.js";
+import { ensureAvatarRaster } from "../../avatar/ensure-raster.js";
 import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
   type CharacterTraits,
   TRAITS_FILENAME,
-  writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -259,7 +259,7 @@ function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
   return { ok: true, hadAvatar };
 }
 
-function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
+async function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
   const format = (queryParams?.format ??
     (body as Record<string, unknown>)?.format ??
     "path") as string;
@@ -281,27 +281,16 @@ function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
     return { exists: false };
   }
 
-  const avatarPath = getAvatarImagePath();
-
-  // For a character, the rendered PNG normally already exists on disk. Keep the
-  // existing safety net: if it's missing, re-render it from the persisted traits
-  // so the accessor still returns a raster.
-  if (state.kind === "character" && !existsSync(avatarPath) && state.traits) {
-    try {
-      writeTraitsAndRenderAvatar(state.traits);
-    } catch {
-      // Best-effort
-    }
-  }
-
-  if (!existsSync(avatarPath)) {
+  // Re-renders a character whose PNG is missing (pre-existing GET side effect).
+  const raster = await ensureAvatarRaster(state);
+  if (!raster) {
     return { exists: false };
   }
 
   if (format === "path") {
-    return { exists: true, path: avatarPath };
+    return { exists: true, path: getAvatarImagePath() };
   }
-  return { exists: true, base64: readFileSync(avatarPath).toString("base64") };
+  return { exists: true, base64: raster.toString("base64") };
 }
 
 function handleCharacterAscii({ queryParams, body }: RouteHandlerArgs) {
