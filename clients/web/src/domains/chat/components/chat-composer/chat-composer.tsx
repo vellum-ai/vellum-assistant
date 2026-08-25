@@ -550,10 +550,25 @@ export function ChatComposer({
     starter?.start(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
   /**
+   * In-flight reclaim, so unmounting cancels it. The start on the far side of
+   * the await reads this composer's chat identity, and a composer that has
+   * unmounted stops updating it: its staleness check would compare the values
+   * captured at unmount against itself, pass, and open a session for the page
+   * the user left.
+   */
+  const liveVoiceReclaimRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      liveVoiceReclaimRef.current?.abort();
+      liveVoiceReclaimRef.current = null;
+    },
+    [],
+  );
+  /**
    * Take the live-voice slot from the session that refused this one, and start
-   * here. The whole point of the failure notice: the blocking session is
-   * usually the same person on a surface they cannot get back to, and before
-   * this the only way out was to go find it (LUM-3421).
+   * here. The blocking session is usually the same person on a surface they
+   * cannot get back to, so the way out is to end it from here rather than to
+   * go find it.
    */
   const handleReclaimLiveVoice = useCallback(async () => {
     if (!assistantId) {
@@ -563,11 +578,20 @@ export function ChatComposer({
     // permission belongs to the gesture, and `startLiveVoiceSession` below
     // runs after a network round trip, by which time the gesture is spent.
     useLiveVoiceStore.getState().starter?.prewarm();
+    const reclaim = new AbortController();
+    liveVoiceReclaimRef.current?.abort();
+    liveVoiceReclaimRef.current = reclaim;
     // The result is not branched on: whether the slot was already free or the
     // call failed, the next move is to try to start, and the start handshake
     // reports anything still wrong. A second error in front of someone
     // escaping the first one helps nobody.
-    await endLiveVoiceSessionOnAssistant(assistantId);
+    await endLiveVoiceSessionOnAssistant(assistantId, reclaim.signal);
+    if (liveVoiceReclaimRef.current === reclaim) {
+      liveVoiceReclaimRef.current = null;
+    }
+    if (reclaim.signal.aborted) {
+      return;
+    }
     dismissLiveVoiceFailure();
     void startLiveVoiceSession();
   }, [assistantId, startLiveVoiceSession]);

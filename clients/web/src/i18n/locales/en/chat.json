@@ -729,6 +729,14 @@
     "scopedToTurn": "Scoped to turn {index} of {count} · ",
     "title": "LLM Context Inspector"
   },
+  "liveVoiceBusy": {
+    "android": "Voice is already active in the Android app.",
+    "ios": "Voice is already active in the iOS app.",
+    "macos": "Voice is already active in the Mac app.",
+    "unknown": "Voice is already active somewhere else.",
+    "web": "Voice is already active in another browser tab.",
+    "windows": "Voice is already active in the Windows app."
+  },
   "liveVoiceButton": {
     "startVoiceMode": "Start voice mode"
   },

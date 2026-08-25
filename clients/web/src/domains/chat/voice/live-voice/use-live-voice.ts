@@ -1080,9 +1080,8 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
-          // Refused because another session holds the daemon's single slot.
-          // Surfaced with where that session is and a way to end it, rather
-          // than as the bare dead end it used to be (LUM-3421).
+          // Refused because another session holds the assistant's single
+          // slot. Surfaced with where that session is and a way to end it.
           const store = useLiveVoiceStore.getState();
           const failure = describeBusyFailure(
             frame.holder,

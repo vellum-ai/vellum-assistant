@@ -127,7 +127,7 @@ describe("LiveVoiceSessionManager", () => {
       seq: 1,
       activeSessionId: "session-1",
       // Names where the blocking session is, so the refused client has
-      // somewhere to point the user (LUM-3421).
+      // somewhere to point the user.
       holder: { conversationId: "conversation-123" },
     } as const satisfies LiveVoiceServerFrame;
     expect(rejected).toEqual({

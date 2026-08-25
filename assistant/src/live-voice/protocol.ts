@@ -215,12 +215,10 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
  * Where the session holding the daemon's single live-voice slot is running,
  * as much of it as the daemon knows.
  *
- * Display only. It exists so a client refused a session can say where the one
- * that blocked it is, instead of the dead end a bare "another session is
- * active" leaves the user in (LUM-3421). Nothing routes, authorizes, or
- * decides capability on it, and every field is optional: a holder that
- * predates the fields, or that never named a conversation, is simply less
- * specific.
+ * Display only: it is what lets a client refused a session say where the one
+ * that blocked it is. Nothing routes, authorizes, or decides capability on
+ * it, and every field is optional, so a holder that names neither its surface
+ * nor a conversation is simply less specific.
  */
 export interface LiveVoiceSessionHolder {
   /**
