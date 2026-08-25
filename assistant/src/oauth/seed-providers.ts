@@ -803,6 +803,9 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     appType: "App",
     identityUrl: "https://api.monday.com/v2",
+    identityMethod: "POST",
+    identityHeaders: { "Content-Type": "application/json" },
+    identityBody: { query: "{ me { id name email } }" },
     identityResponsePaths: ["data.me.name", "data.me.email"],
   },
 
