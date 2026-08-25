@@ -189,6 +189,9 @@
     "messageNamed": "\"{appName}\" usa servicios de backend que no funcionarán en una página estática de Vercel. {assistantName} puede desplegarla correctamente con funciones serverless.",
     "title": "Esta app necesita un despliegue completo"
   },
+  "detailPanelStopButton": {
+    "tooltip": "Detener"
+  },
   "detailPrimitives": {
     "copied": "Copiado",
     "copy": "Copiar"

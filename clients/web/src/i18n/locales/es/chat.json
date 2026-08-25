@@ -553,9 +553,6 @@
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
-  "detailPanelStopButton": {
-    "tooltip": "Detener"
-  },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
   },

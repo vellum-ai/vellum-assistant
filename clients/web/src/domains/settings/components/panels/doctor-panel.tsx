@@ -1,9 +1,10 @@
-import { ArrowUp, ChevronDown, Loader2, Play, Square } from "lucide-react";
+import { ArrowUp, ChevronDown, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
 import type { FeedbackReason } from "@/components/share-feedback-types";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
@@ -685,14 +686,10 @@ export function DoctorPanel() {
             onCopySession={entries.length > 0 ? handleCopySession : undefined}
           />
           {isSessionActive && (
-            <button
-              type="button"
-              onClick={handleEndSession}
-              className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Square className="h-3 w-3" />
-              {t("doctorPanel.endSession")}
-            </button>
+            <DetailPanelStopButton
+              onStop={handleEndSession}
+              ariaLabel={t("doctorPanel.endSession")}
+            />
           )}
         </div>
       </div>

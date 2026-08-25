@@ -25,6 +25,9 @@
     "next": "Далее",
     "done": "Понятно"
   },
+  "detailPanelStopButton": {
+    "tooltip": "Стоп"
+  },
   "notFound": {
     "badge": "Ошибка 404",
     "title": "Страница не найдена",
