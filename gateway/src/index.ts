@@ -2674,6 +2674,13 @@ async function main() {
   // first message evaluates flags against stale values (see JARVIS-1018).
   let remoteFeatureFlagSyncRef: RemoteFeatureFlagSync | null = null;
 
+  /**
+   * Fingerprint of the Telegram bot token the dedup cache's watermark belongs
+   * to. Null while no token is stored, which is itself a bot change: the next
+   * bot to arrive must not meet the departed one's mark.
+   */
+  let lastTelegramTokenFingerprint: string | null = null;
+
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
 
@@ -2705,6 +2712,25 @@ async function main() {
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
+    // `update_id` is a per-bot sequence, so a replacement bot starts below the
+    // previous one's high-water mark and every inbound would be rejected as an
+    // already-processed replay and answered 200. Forgetting the mark is what
+    // keeps delivery working across a bot swap.
+    //
+    // Keyed on the token itself rather than on `changed`. Every `keys.enc`
+    // write polls with `forceChanged`, which reports every configured service
+    // as changed even when its plaintext is identical, so re-saving an
+    // unrelated credential would otherwise clear replay protection for a bot
+    // that never moved and let a delayed retry be processed twice.
+    const telegramTokenFingerprint = telegramCreds?.bot_token
+      ? new Bun.CryptoHasher("sha256")
+          .update(telegramCreds.bot_token)
+          .digest("hex")
+      : null;
+    if (telegramTokenFingerprint !== lastTelegramTokenFingerprint) {
+      lastTelegramTokenFingerprint = telegramTokenFingerprint;
+      telegramDedupCache.reset();
+    }
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
