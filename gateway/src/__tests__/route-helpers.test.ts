@@ -1,7 +1,7 @@
 /**
  * Tests for the pairing-family body-reading helpers in `route-helpers.ts`.
  *
- * Both functions only read the request body — no DB or auth setup needed.
+ * Both functions only read the request body, no DB or auth setup needed.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -138,7 +138,7 @@ describe("readJsonStringFields", () => {
       makeRequest(
         JSON.stringify({
           deviceCode: "abc-123",
-          clientReportedName: "Noa's iPhone",
+          clientReportedName: "Alice's iPhone",
         }),
       ),
       MAX_BYTES,
@@ -149,7 +149,7 @@ describe("readJsonStringFields", () => {
     expect(result).not.toBeInstanceOf(Response);
     expect(result).toEqual({
       deviceCode: "abc-123",
-      clientReportedName: "Noa's iPhone",
+      clientReportedName: "Alice's iPhone",
     });
   });
 
@@ -168,8 +168,8 @@ describe("readJsonStringFields", () => {
   });
 });
 
-describe("readJsonStringField (single-field, unaffected by the fix)", () => {
-  test("a literal null JSON body already returned 400 invalid JSON body", async () => {
+describe("readJsonStringField (single-field)", () => {
+  test("a literal null JSON body returns 400 invalid JSON body", async () => {
     const result = await readJsonStringField(
       makeRequest("null"),
       MAX_BYTES,
@@ -182,6 +182,34 @@ describe("readJsonStringField (single-field, unaffected by the fix)", () => {
     expect(await res.json()).toEqual({
       error: { code: "BAD_REQUEST", message: "invalid JSON body" },
     });
+  });
+
+  test("a JSON array body returns the same 400", async () => {
+    const result = await readJsonStringField(
+      makeRequest('["deviceId"]'),
+      MAX_BYTES,
+      "deviceId",
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    const res = result as Response;
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: "BAD_REQUEST", message: "invalid JSON body" },
+    });
+  });
+
+  test("a non-object JSON body (e.g. a bare string or number) returns the same 400", async () => {
+    for (const rawBody of ['"just a string"', "42", "true"]) {
+      const result = await readJsonStringField(
+        makeRequest(rawBody),
+        MAX_BYTES,
+        "deviceId",
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(400);
+    }
   });
 
   test("a valid object body extracts the field", async () => {
