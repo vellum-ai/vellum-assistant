@@ -69,12 +69,16 @@ export async function readJsonStringFields<K extends string>(
     return errorResponse("BAD_REQUEST", "failed to read request body", 400);
   }
 
-  let body: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    body = JSON.parse(rawBody.text) as Record<string, unknown>;
+    parsed = JSON.parse(rawBody.text);
   } catch {
     return errorResponse("BAD_REQUEST", "invalid JSON body", 400);
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return errorResponse("BAD_REQUEST", "invalid JSON body", 400);
+  }
+  const body = parsed as Record<string, unknown>;
 
   const extract = (field: string): string | null => {
     const raw = body[field];
