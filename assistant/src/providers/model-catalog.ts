@@ -2246,6 +2246,22 @@ export const PROMPT_CACHE_BREAKPOINT_MODEL_IDS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Whether an OpenRouter route reports cached tokens back on a response.
+ *
+ * OpenRouter publishes an `input_cache_read` rate for xAI routes, but those
+ * routes never report cached tokens, so a cache hit there is billed and
+ * displayed at the full input rate. Those models keep `supportsCaching: false`
+ * despite the published rate.
+ *
+ * Consulted by the catalog guard tests and by scripts/sync-openrouter-rates.ts
+ * so the exception is stated once rather than restated at each site that has
+ * to know about it.
+ */
+export function openrouterRoutesReportCachedTokens(modelId: string): boolean {
+  return !modelId.startsWith("x-ai/");
+}
+
+/**
  * Per-model `reasoning_effort` ceilings for a provider, keyed by model ID and
  * derived from each model's `maxEffort`. Providers whose per-model APIs accept
  * a narrower effort range than the provider default (e.g. Fireworks, OpenRouter)

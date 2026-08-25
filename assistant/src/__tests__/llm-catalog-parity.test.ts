@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
+  openrouterRoutesReportCachedTokens,
   PROVIDER_CATALOG,
 } from "../providers/model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
@@ -245,7 +246,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("OpenRouter supportsCaching requires cache-read pricing", () => {
-    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    const openrouter = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "openrouter",
+    );
     expect(openrouter).toBeDefined();
 
     for (const model of openrouter!.models) {
@@ -259,17 +262,19 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("OpenRouter cache-read pricing implies supportsCaching except xAI", () => {
-    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    const openrouter = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "openrouter",
+    );
     expect(openrouter).toBeDefined();
 
     for (const model of openrouter!.models) {
       if (model.pricing?.cacheReadPer1mTokens === undefined) {
         continue;
       }
-      if (model.id.startsWith("x-ai/")) {
+      if (!openrouterRoutesReportCachedTokens(model.id)) {
         expect(
           model.supportsCaching,
-          `openrouter/${model.id} keeps supportsCaching false: OpenRouter xAI routes do not report cached tokens`,
+          `openrouter/${model.id} keeps supportsCaching false: the route does not report cached tokens`,
         ).toBe(false);
         continue;
       }
@@ -281,7 +286,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("OpenRouter catalog drops ids OpenRouter no longer serves", () => {
-    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    const openrouter = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "openrouter",
+    );
     expect(openrouter).toBeDefined();
     const ids = new Set(openrouter!.models.map((model) => model.id));
     expect(ids.has("deepseek/deepseek-v3.2-speciale")).toBe(false);
