@@ -38,6 +38,11 @@ mock.module("@/lib/self-hosted/connection", () => ({
   getSelfHostedIngressUrl: () => selfHostedIngressUrl,
 }));
 
+let orgReady = true;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
+}));
+
 const traits: CharacterTraits = {
   bodyShape: "brontosaurus",
   eyeStyle: "curious",
@@ -132,6 +137,7 @@ beforeEach(() => {
   remoteGatewayMode = false;
   gatewayAuthEnabled = false;
   selfHostedIngressUrl = null;
+  orgReady = true;
   useResolvedAssistantsStore.getState().setActiveAssistantId("active");
   // useAssistantAvatar gates its own path on the identity store's version.
   useAssistantIdentityStore.getState().setIdentity("active", MIN_VERSION);
@@ -217,6 +223,25 @@ describe("useChooserRowAvatar", () => {
       expect(sdkCallCount()).toBe(0);
     },
   );
+
+  test("waits for org readiness before the first platform-proxy fetch", async () => {
+    orgReady = false;
+    const { result, rerender } = renderHook(
+      () => useChooserRowAvatar(platformRow("other")),
+      { wrapper: createWrapper() },
+    );
+    await settle();
+    expect(result.current).toEqual({ traits: null, imageUrl: null });
+    expect(sdkCallCount()).toBe(0);
+
+    orgReady = true;
+    rerender();
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+    expect(fetchAvatarState).toHaveBeenCalledWith("other");
+    expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+  });
 
   test("connected row delegates to useAssistantAvatar even when the gate is closed", async () => {
     localClient = true;

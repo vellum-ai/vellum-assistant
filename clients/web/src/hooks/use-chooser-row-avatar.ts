@@ -5,6 +5,7 @@ import {
   fetchAvatarViaManifest,
   useAssistantAvatar,
 } from "@/hooks/use-assistant-avatar";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import { versionSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
@@ -125,7 +126,8 @@ function trackBlobUrl(assistantId: string, imageUrl: string | null): void {
  * 1. The connected row reuses `useAssistantAvatar`'s cache, correct in every
  *    transport mode and never fetched twice.
  * 2. Other platform rows fetch per id through the platform proxy, only when
- *    {@link canFetchRowAvatarViaPlatformProxy} says the id is honored.
+ *    {@link canFetchRowAvatarViaPlatformProxy} says the id is honored and the
+ *    org store can supply the `Vellum-Organization-Id` header.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
  */
@@ -134,6 +136,7 @@ export function useChooserRowAvatar(
 ): ChooserRowAvatar {
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isConnectedRow = assistant.id === activeAssistantId;
+  const isOrgReady = useIsOrgReady();
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
@@ -145,7 +148,10 @@ export function useChooserRowAvatar(
       trackBlobUrl(assistant.id, avatar.imageUrl);
       return avatar;
     },
-    enabled: !isConnectedRow && canFetchRowAvatarViaPlatformProxy(assistant),
+    enabled:
+      !isConnectedRow &&
+      isOrgReady &&
+      canFetchRowAvatarViaPlatformProxy(assistant),
     staleTime: Infinity,
     structuralSharing: false,
     // A rejected query leaves `data` undefined, which reads as nulls below.
