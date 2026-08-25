@@ -178,7 +178,7 @@ Arguments:
   id   (optional) Credential UUID for lookup by ID
 
 Shows everything known about a credential without revealing the secret value.
-The secret is masked to show only the last 4 characters (e.g. ****c123).
+The secret is masked to show only the first 4 characters (e.g. cfat****).
 
 Displayed fields include: label, creation/update timestamps, allowed tools,
 allowed domains, OAuth2 scopes, account info, and injection template count.
