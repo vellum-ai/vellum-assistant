@@ -35,6 +35,10 @@ const log = getLogger("stt-resolver");
 const MULTILINGUAL_DEFAULT_PROVIDERS: ReadonlySet<SttProviderId> = new Set([
   "deepgram",
   "vellum",
+  // Managed Flux resolves an absent language to `flux-general-en` relay-side,
+  // so unset is an English pin here too. With "multi" the relay selects
+  // `flux-general-multi` and lets Flux detect and code-switch.
+  "vellum-flux",
 ] as SttProviderId[]);
 
 /**
@@ -466,11 +470,14 @@ export async function resolveStreamingTranscriber(
     (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
-  const apiKey =
-    provider === "vellum"
-      ? null
-      : await getProviderKeyAsync(credentialProviderName);
-  if (provider === "vellum") {
+  // Both managed entries authenticate with the platform connection, not a
+  // stored API key: there is no key to fetch, and readiness is whether the
+  // connection resolves.
+  const managed = provider === "vellum" || provider === "vellum-flux";
+  const apiKey = managed
+    ? null
+    : await getProviderKeyAsync(credentialProviderName);
+  if (managed) {
     if (!(await sttProviderKeyResolves("vellum"))) {
       return null;
     }
@@ -639,6 +646,33 @@ async function createStreamingTranscriber(
         ...(options.utteranceBoundaryFinals
           ? { utteranceBoundaryFinals: true }
           : {}),
+      });
+    }
+    case "vellum-flux": {
+      // Managed Flux: same relay as `vellum`, but the STT v2 endpoint with
+      // `contract=flux` so the turn events arrive intact instead of being
+      // translated into the released v1 Deepgram dialect. Gated on the local
+      // platform connection for the same reason as `vellum` above.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
+      const { resolveSpeechRelayConnection } =
+        await import("./vellum-speech-relay-connection.js");
+      const connection = await resolveSpeechRelayConnection();
+      if (!connection) {
+        return null;
+      }
+      const { VellumManagedFluxRealtimeTranscriber } =
+        await import("./vellum-managed-flux-realtime.js");
+      return new VellumManagedFluxRealtimeTranscriber(connection, {
+        sampleRate: options.sampleRate,
+        // The relay picks `flux-general-en` or `flux-general-multi` from
+        // this, so it is the only lever over the Flux model from here.
+        // `utteranceBoundaryFinals` is a nova-3 concept and the catalog
+        // keeps this provider off telephony, so it never arrives.
+        ...(options.language ? { language: options.language } : {}),
       });
     }
     case "deepgram-flux": {

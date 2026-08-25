@@ -9,6 +9,7 @@ import {
   listProviderIds,
   supportsBoundary,
   supportsDiarization,
+  supportsProviderTurnDetection,
 } from "../provider-catalog.js";
 
 // ---------------------------------------------------------------------------
@@ -255,5 +256,35 @@ describe("connection-based providers", () => {
     for (const expected of ["deepgram", "gemini", "openai", "xai"]) {
       expect(names).toContain(expected);
     }
+  });
+});
+
+describe("vellum-flux (managed Flux)", () => {
+  test("shares the vellum connection rather than a second credential", () => {
+    expect(getProviderEntry("vellum-flux")?.credentialProvider).toBe("vellum");
+    expect(listCredentialProviderNames()).not.toContain("vellum-flux");
+  });
+
+  test("is streaming-only, like the BYOK Flux entry", () => {
+    expect(supportsBoundary("vellum-flux", "daemon-streaming")).toBe(true);
+    expect(supportsBoundary("vellum-flux", "daemon-batch")).toBe(false);
+  });
+
+  test("decides end-of-turn itself, unlike plain vellum", () => {
+    // The relay is dialed with contract=flux, so Flux's turn events survive.
+    expect(supportsProviderTurnDetection("vellum-flux")).toBe(true);
+    expect(supportsProviderTurnDetection("vellum")).toBe(false);
+  });
+
+  test("stays off telephony", () => {
+    // The relay maps Finalize onto CloseStream and utterance-boundary finals
+    // are a nova-3 concept, so calls stay on `vellum`.
+    expect(getProviderEntry("vellum-flux")?.telephonyMode).toBe("none");
+  });
+
+  test("exposes a language picker, unlike BYOK Flux", () => {
+    // The relay picks flux-general-en or flux-general-multi from the language
+    // it is sent, so the selection is meaningful here.
+    expect(getProviderEntry("vellum-flux")?.languageSelection).toBe("manual");
   });
 });

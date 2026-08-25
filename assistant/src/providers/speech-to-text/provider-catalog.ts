@@ -198,9 +198,11 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       // them, so a live-voice session may let them commit the turn.
       turnDetection: "provider",
       supportsDiarization: false,
-      // "no picker", not native detection: the Flux model is English-only and
-      // takes no language parameter, so audio in another language transcribes
-      // as English rather than being detected.
+      // "no picker", not native detection: this entry pins the English Flux
+      // model and sends no language parameter, so audio in another language
+      // transcribes as English. Flux itself has a multilingual model; the
+      // managed `vellum-flux` entry reaches it, and a BYOK picker would need
+      // the model to follow the selection.
       languageSelection: "auto",
       credentialsGuide: DEEPGRAM_CREDENTIALS_GUIDE,
     },
@@ -280,6 +282,37 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       supportsDiarization: false,
       // The relay dials Deepgram nova-3 server-side, which takes an explicit
       // language parameter.
+      languageSelection: "manual",
+    },
+  ],
+  [
+    "vellum-flux",
+    {
+      id: "vellum-flux",
+      displayName: "Vellum (Flux)",
+      subtitle:
+        "Conversational speech-to-text with model-native turn detection, through your Vellum account — no separate API key needed.",
+      setupMode: "connection",
+      setupHint: "Connect your Vellum account to enable managed transcription.",
+      // Shared with `vellum`: the platform connection is the credential, and
+      // Flux is a different endpoint on the same relay, not a second account.
+      credentialProvider: "vellum",
+      // Streaming only, same as the BYOK Flux entry: Flux has no batch
+      // endpoint, and the relay exposes none.
+      supportedBoundaries: new Set<SttBoundaryId>(["daemon-streaming"]),
+      // The relay maps `Finalize` onto Flux's `CloseStream`, which ends the
+      // session rather than flushing it, and telephony's utterance-boundary
+      // finals are a nova-3 concept. Calls stay on `vellum`.
+      telephonyMode: "none",
+      conversationStreamingMode: "realtime-ws",
+      // The relay is dialed with `contract=flux`, so Flux's turn lifecycle
+      // events arrive intact and a live-voice session may let them commit
+      // the turn. Without that opt-in the relay translates them away and
+      // this would be false.
+      turnDetection: "provider",
+      supportsDiarization: false,
+      // The relay selects `flux-general-en` or `flux-general-multi` from the
+      // language it is sent, so unlike BYOK Flux the picker is meaningful.
       languageSelection: "manual",
     },
   ],

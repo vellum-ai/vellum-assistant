@@ -294,8 +294,13 @@ const EAGER_EOT_THRESHOLD_RANGE = { min: 0.3, max: 0.9 } as const;
 const EOT_TIMEOUT_MS_RANGE = { min: 500, max: 60_000 } as const;
 
 export interface FluxQueryParamOptions {
-  /** Flux model to run, e.g. `"flux-general-en"`. Required by Deepgram. */
-  model: string;
+  /**
+   * Flux model to run, e.g. `"flux-general-en"`. Required when dialing
+   * Deepgram directly. Omitted on the managed relay, which derives the model
+   * from the spoken language and prices it before dialing, and rejects a
+   * client-sent one.
+   */
+  model?: string;
   /**
    * Encoding of the raw audio being sent. Omit for containerized audio,
    * which carries its own format header.
@@ -338,7 +343,9 @@ export interface FluxQueryParamOptions {
  */
 export function buildFluxQueryParams(opts: FluxQueryParamOptions): string {
   const params = new URLSearchParams();
-  params.set("model", opts.model);
+  if (opts.model !== undefined) {
+    params.set("model", opts.model);
+  }
 
   if (opts.encoding !== undefined) {
     params.set("encoding", opts.encoding);

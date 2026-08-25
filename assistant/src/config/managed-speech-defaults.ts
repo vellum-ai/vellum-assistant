@@ -18,7 +18,10 @@
 
 import { ttsSecretResolves } from "../calls/telephony-tts-capability.js";
 import { managedSpeechAvailable } from "../platform/managed-speech.js";
-import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
+import {
+  getProviderEntry,
+  supportsProviderTurnDetection,
+} from "../providers/speech-to-text/provider-catalog.js";
 import { sttProviderKeyResolves } from "../providers/speech-to-text/resolve.js";
 import type { SttProviderId } from "../stt/types.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
@@ -60,6 +63,26 @@ async function ttsByokCredentialsResolve(provider: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * The managed provider that stands in for a configured one whose credential
+ * did not resolve.
+ *
+ * Managed speech has two STT entries, and they are not interchangeable:
+ * `vellum-flux` decides end-of-turn itself, `vellum` leaves it to the
+ * session's silence timer. Substituting the plain one for a provider that had
+ * provider turn detection would keep live voice working while quietly
+ * changing how it takes turns, which reads as "Flux is no better" rather than
+ * as a missing credential. Match the capability instead.
+ */
+function managedStandInFor(configured: SttProviderId): SttProviderId {
+  return supportsProviderTurnDetection(configured) ? "vellum-flux" : "vellum";
+}
+
+/** Whether a provider id is one of the managed (platform-billed) entries. */
+function isManagedProvider(provider: SttProviderId): boolean {
+  return provider === "vellum" || provider === "vellum-flux";
+}
+
 /** The speech providers a runtime path uses, after managed-speech defaulting. */
 export interface EffectiveSpeechProviders {
   stt: SttProviderId;
@@ -70,8 +93,9 @@ export interface EffectiveSpeechProviders {
  * Resolve the speech providers the runtime actually uses.
  *
  * A configured service whose BYOK credential does not resolve is reported as
- * `"vellum"` while managed speech is available; every other service keeps its
- * configured provider. Read-only — callers that hold no `settings.write`
+ * its managed stand-in while managed speech is available (see
+ * {@link managedStandInFor}, which preserves provider turn detection); every
+ * other service keeps its configured provider. Read-only — callers that hold no `settings.write`
  * scope (the live-voice WebSocket transport) resolve the same verdict the
  * preflight route does without persisting anything.
  *
@@ -90,9 +114,9 @@ export async function resolveEffectiveSpeechProviders(
   }
 
   const stt =
-    configuredStt !== "vellum" &&
+    !isManagedProvider(configuredStt) &&
     !(await sttByokCredentialResolves(configuredStt))
-      ? "vellum"
+      ? managedStandInFor(configuredStt)
       : configuredStt;
 
   const tts =

@@ -11,6 +11,7 @@ export const VALID_STT_PROVIDERS = [
   "openai-whisper",
   "xai",
   "vellum",
+  "vellum-flux",
 ] as const;
 
 /**
