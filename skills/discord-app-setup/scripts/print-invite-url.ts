@@ -71,12 +71,30 @@ async function revealCredential(
 interface DiscordApplication {
   id: string;
   /**
-   * The app's own Default Install Settings, when the developer has configured
-   * them on the portal's Installation page. Discord's current model: scopes
-   * and permissions belong to the app, and the install link carries only the
-   * client id.
+   * The scopes the app's own install settings grant, empty when it has none.
+   *
+   * Resolved from the two places Discord may put them. The portal's
+   * Installation page writes its Default Install Settings to
+   * `integration_types_config["0"].oauth2_install_params` (`0` is
+   * GUILD_INSTALL, the server install this integration performs). Top-level
+   * `install_params` is the older in-app authorization link, still served
+   * for apps that configured it. Reading only the legacy field would leave
+   * this empty for every app configured through the current portal, and the
+   * preference for the app's own settings would silently never engage.
    */
-  install_params?: { scopes?: string[]; permissions?: string };
+  installScopes: string[];
+}
+
+/** The `scopes` array of an install-params-shaped object, if it has one. */
+function readScopes(params: unknown): string[] {
+  if (typeof params !== "object" || params === null) {
+    return [];
+  }
+  const scopes = "scopes" in params ? params.scopes : undefined;
+  if (!Array.isArray(scopes)) {
+    return [];
+  }
+  return scopes.filter((scope): scope is string => typeof scope === "string");
 }
 
 /**
@@ -94,21 +112,28 @@ function readApplication(body: unknown): DiscordApplication {
     throw new Error("Discord returned an application without a usable id");
   }
 
-  const params = "install_params" in body ? body.install_params : undefined;
-  const rawScopes =
-    typeof params === "object" &&
-    params !== null &&
-    "scopes" in params &&
-    Array.isArray(params.scopes)
-      ? params.scopes
-      : [];
-  const scopes = rawScopes.filter(
-    (scope): scope is string => typeof scope === "string",
+  const typesConfig =
+    "integration_types_config" in body
+      ? body.integration_types_config
+      : undefined;
+  const guildConfig =
+    typeof typesConfig === "object" && typesConfig !== null && "0" in typesConfig
+      ? typesConfig["0"]
+      : undefined;
+  const guildInstall = readScopes(
+    typeof guildConfig === "object" &&
+      guildConfig !== null &&
+      "oauth2_install_params" in guildConfig
+      ? guildConfig.oauth2_install_params
+      : undefined,
+  );
+  const legacy = readScopes(
+    "install_params" in body ? body.install_params : undefined,
   );
 
   return {
     id,
-    ...(scopes.length > 0 ? { install_params: { scopes } } : {}),
+    installScopes: guildInstall.length > 0 ? guildInstall : legacy,
   };
 }
 
@@ -146,7 +171,7 @@ async function printVellum(): Promise<void> {
   // page and generates a link carrying only the client id, so a person who
   // edits those settings sees the change. Spelling them into the URL instead
   // silently overrides what they configured.
-  const configured = Boolean(app.install_params?.scopes?.length);
+  const configured = app.installScopes.length > 0;
   if (!configured) {
     // No Default Install Settings, so the link has to say what to grant.
     // `applications.commands` is deliberately absent: Discord includes it
@@ -167,7 +192,7 @@ async function printVellum(): Promise<void> {
     // group DMs, which arrive guild-less and are admitted by ingress as
     // private DMs. The ingress gate documents that assumption and must learn
     // to tell the two apart before that scope is safe to carry.
-    const surplus = (app.install_params?.scopes ?? []).filter(
+    const surplus = app.installScopes.filter(
       (scope) => scope !== "bot" && scope !== "applications.commands",
     );
     if (surplus.length > 0) {
