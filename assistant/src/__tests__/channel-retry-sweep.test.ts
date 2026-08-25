@@ -352,6 +352,95 @@ describe("channel-retry-sweep", () => {
     expect(eventRow?.processingStatus).toBe("processed");
   });
 
+  test("restores the contact risk ceiling on replay, including an explicit none", async () => {
+    const eventId = seedFailedEventWithTrustClass("trusted_contact", {
+      autoApproveThreshold: "none",
+    });
+
+    let capturedTrust: Record<string, unknown> | undefined;
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedTrust = (options as { trustContext?: Record<string, unknown> })
+        .trustContext;
+      const messageId = "message-ceiling";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // A stored Strict ceiling must survive replay. Dropping it would let
+    // the retry inherit a looser room or global threshold.
+    expect(capturedTrust?.autoApproveThreshold).toBe("none");
+
+    const eventRow = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    expect(eventRow?.processingStatus).toBe("processed");
+  });
+
+  test("restores a null contact ceiling as null, not a missing field", async () => {
+    const eventId = seedFailedEventWithTrustClass("trusted_contact", {
+      autoApproveThreshold: null,
+    });
+
+    let capturedTrust: Record<string, unknown> | undefined;
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedTrust = (options as { trustContext?: Record<string, unknown> })
+        .trustContext;
+      const messageId = "message-ceiling-null";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    expect(capturedTrust?.autoApproveThreshold).toBeNull();
+    expect(eventId).toBeDefined();
+  });
+
+  test("drops an unrecognized stored contact ceiling rather than replaying it", async () => {
+    const eventId = seedFailedEventWithTrustClass("trusted_contact", {
+      autoApproveThreshold: "full",
+    });
+
+    let capturedTrust: Record<string, unknown> | undefined;
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedTrust = (options as { trustContext?: Record<string, unknown> })
+        .trustContext;
+      const messageId = "message-ceiling-invalid";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    expect(capturedTrust?.autoApproveThreshold).toBeUndefined();
+    expect(eventId).toBeDefined();
+  });
+
   test("fences a non-guardian Slack replay in external_content and carries the ingress idempotency key", async () => {
     seedFailedSlackEvent({
       trustClass: "unverified_contact",

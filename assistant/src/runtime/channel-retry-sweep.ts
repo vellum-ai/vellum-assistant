@@ -2,6 +2,8 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
+import { isRiskThreshold } from "@vellumai/gateway-client";
+
 import type { AssistantEvent } from "../api/index.js";
 import { audienceForReader } from "../channels/message-audience.js";
 import {
@@ -127,6 +129,12 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
       typeof raw.requesterTimezoneOffsetSeconds === "number"
         ? raw.requesterTimezoneOffsetSeconds
         : undefined,
+    autoApproveThreshold:
+      raw.autoApproveThreshold === null
+        ? null
+        : isRiskThreshold(raw.autoApproveThreshold)
+          ? raw.autoApproveThreshold
+          : undefined,
   };
 }
 

@@ -82,17 +82,19 @@ export interface TrustContext {
  * privilege, for callers that may only run work under one of them (batched
  * turns being the case that matters).
  *
- * Compares the privilege (`trustClass`), the channel a grant is scoped to
- * (`sourceChannel`), and every field that can carry who the actor is. The
- * identity fields are covered exhaustively rather than by picking the usual
- * ones: an ingress that populates only `requesterIdentifier` or
- * `requesterContactId` would otherwise leave two distinct senders comparing
- * equal on a pair of undefineds, which is the exact case this guards.
+ * Compares the privilege (`trustClass` and the contact risk ceiling), the
+ * channel a grant is scoped to (`sourceChannel`), and every field that can
+ * carry who the actor is. The identity fields are covered exhaustively
+ * rather than by picking the usual ones: an ingress that populates only
+ * `requesterIdentifier` or `requesterContactId` would otherwise leave two
+ * distinct senders comparing equal on a pair of undefineds, which is the
+ * exact case this guards.
  *
  * Deliberately conservative: an absent field never matches a present one, so
  * unknown identities are treated as distinct. Answering "different" when they
  * match only costs a batching opportunity; answering "same" when they differ
- * runs one actor's work under another's privileges.
+ * runs one actor's work under another's privileges, including a later
+ * `none` ceiling executing under an earlier `high` ceiling.
  */
 export function sameTrustIdentity(
   a: TrustContext | undefined,
@@ -112,7 +114,8 @@ export function sameTrustIdentity(
     a.requesterIdentifier === b.requesterIdentifier &&
     a.requesterContactId === b.requesterContactId &&
     a.guardianExternalUserId === b.guardianExternalUserId &&
-    a.guardianPrincipalId === b.guardianPrincipalId
+    a.guardianPrincipalId === b.guardianPrincipalId &&
+    a.autoApproveThreshold === b.autoApproveThreshold
   );
 }
 
