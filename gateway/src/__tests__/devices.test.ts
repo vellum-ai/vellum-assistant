@@ -46,6 +46,8 @@ function seedActor(opts: {
   principal?: string;
   status?: "active" | "revoked";
   platform?: string;
+  pairingUserAgent?: string;
+  clientReportedName?: string;
   lastUsedAt?: number;
   updatedAt?: number;
 }): void {
@@ -60,6 +62,8 @@ function seedActor(opts: {
       guardianPrincipalId: principal,
       hashedDeviceId: hashToken(opts.device),
       platform: opts.platform ?? "cli",
+      pairingUserAgent: opts.pairingUserAgent,
+      clientReportedName: opts.clientReportedName,
       status: opts.status ?? "active",
       issuedAt: now,
       expiresAt: now + 86_400_000,
@@ -183,6 +187,48 @@ afterEach(() => {
   } catch {
     /* best effort */
   }
+});
+
+describe("actorTokenRecords device identity columns", () => {
+  test("round-trips pairingUserAgent and clientReportedName", () => {
+    seedActor({
+      device: "device-identity-populated",
+      pairingUserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      clientReportedName: "Noa's MacBook Pro",
+    });
+
+    const row = getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(
+        eq(
+          actorTokenRecords.hashedDeviceId,
+          hashToken("device-identity-populated"),
+        ),
+      )
+      .get();
+    expect(row?.pairingUserAgent).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    expect(row?.clientReportedName).toBe("Noa's MacBook Pro");
+  });
+
+  test("leaves pairingUserAgent and clientReportedName null when omitted", () => {
+    seedActor({ device: "device-identity-omitted" });
+
+    const row = getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(
+        eq(
+          actorTokenRecords.hashedDeviceId,
+          hashToken("device-identity-omitted"),
+        ),
+      )
+      .get();
+    expect(row?.pairingUserAgent).toBeNull();
+    expect(row?.clientReportedName).toBeNull();
+  });
 });
 
 describe("GET /v1/devices", () => {
