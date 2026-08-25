@@ -1312,6 +1312,9 @@ describe("vellum:localMode:guardianToken handler", () => {
 });
 
 describe("vellum:localMode:readAssistantAvatar handler", () => {
+  // Disk-read semantics (manifest precedence, legacy fallbacks, size cap)
+  // live with `readLockfileAssistantAvatar` in @vellumai/local-mode; this
+  // covers only the IPC wiring around it.
   type AvatarResult =
     | { ok: true; avatar: Record<string, unknown> | null }
     | { ok: false; error: string };
@@ -1322,15 +1325,10 @@ describe("vellum:localMode:readAssistantAvatar handler", () => {
     ) as AvatarResult;
 
   const traits = { bodyShape: "round", eyeStyle: "dot", color: "#abc" };
-  const imageMeta = { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" };
-  const png = Buffer.from("89504e470d0a1a0a", "hex");
   let instanceDir: string;
-  let avatarDir: string;
 
-  const writeLockfileEntry = (
-    resources?: Record<string, unknown>,
-    extra: Record<string, unknown> = {},
-  ): void => {
+  beforeEach(() => {
+    instanceDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-instance-"));
     fs.writeFileSync(
       lockfilePath,
       JSON.stringify({
@@ -1339,29 +1337,12 @@ describe("vellum:localMode:readAssistantAvatar handler", () => {
             assistantId: "asst-1",
             cloud: "local",
             runtimeUrl: "http://127.0.0.1:1",
-            resources,
-            ...extra,
+            resources: { instanceDir, gatewayPort: 1, daemonPort: 2 },
           },
         ],
         activeAssistant: "asst-1",
       }),
     );
-  };
-  const writeAvatarFile = (name: string, contents: string | Buffer): void => {
-    fs.mkdirSync(avatarDir, { recursive: true });
-    fs.writeFileSync(path.join(avatarDir, name), contents);
-  };
-
-  beforeEach(() => {
-    instanceDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-instance-"));
-    avatarDir = path.join(
-      instanceDir,
-      ".vellum",
-      "workspace",
-      "data",
-      "avatar",
-    );
-    writeLockfileEntry({ instanceDir, gatewayPort: 1, daemonPort: 2 });
   });
 
   afterEach(() => {
@@ -1369,144 +1350,30 @@ describe("vellum:localMode:readAssistantAvatar handler", () => {
     fs.rmSync(lockfilePath, { force: true });
   });
 
-  test("manifest character returns its traits even when a raster exists", () => {
-    writeAvatarFile(
-      "avatar.json",
+  test("reads the avatar off the lockfile entry's instance dir", () => {
+    const avatarDir = path.join(
+      instanceDir,
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(avatarDir, "avatar.json"),
       JSON.stringify({ kind: "character", traits }),
     );
-    writeAvatarFile("avatar-image.png", png);
 
     expect(readAssistantAvatar("asst-1")).toEqual({
       ok: true,
       avatar: { kind: "character", traits },
     });
-  });
-
-  test("manifest image returns the PNG base64", () => {
-    writeAvatarFile(
-      "avatar.json",
-      JSON.stringify({ kind: "image", image: imageMeta }),
-    );
-    writeAvatarFile("avatar-image.png", png);
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "image", imageBase64: png.toString("base64") },
-    });
-  });
-
-  test("manifest none yields null despite sidecar files", () => {
-    writeAvatarFile("avatar.json", JSON.stringify({ kind: "none" }));
-    writeAvatarFile("character-traits.json", JSON.stringify(traits));
-    writeAvatarFile("avatar-image.png", png);
-
-    expect(readAssistantAvatar("asst-1")).toEqual({ ok: true, avatar: null });
-  });
-
-  test("legacy: traits file wins over the raster", () => {
-    writeAvatarFile("character-traits.json", JSON.stringify(traits));
-    writeAvatarFile("avatar-image.png", png);
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "character", traits },
-    });
-  });
-
-  test("legacy: PNG alone yields image", () => {
-    writeAvatarFile("avatar-image.png", png);
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "image", imageBase64: png.toString("base64") },
-    });
-  });
-
-  test("empty avatar dir yields null", () => {
-    fs.mkdirSync(avatarDir, { recursive: true });
-
-    expect(readAssistantAvatar("asst-1")).toEqual({ ok: true, avatar: null });
   });
 
   test("missing lockfile entry yields null", () => {
     expect(readAssistantAvatar("asst-gone")).toEqual({
       ok: true,
       avatar: null,
-    });
-  });
-
-  test("entry without an instanceDir yields null", () => {
-    writeLockfileEntry({ gatewayPort: 1, daemonPort: 2 });
-
-    expect(readAssistantAvatar("asst-1")).toEqual({ ok: true, avatar: null });
-  });
-
-  test("legacy lockfile entry with only baseDataDir resolves", () => {
-    writeLockfileEntry(undefined, { baseDataDir: instanceDir });
-    writeAvatarFile("character-traits.json", JSON.stringify(traits));
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "character", traits },
-    });
-  });
-
-  test("oversized image yields null", () => {
-    writeAvatarFile(
-      "avatar.json",
-      JSON.stringify({ kind: "image", image: imageMeta }),
-    );
-    writeAvatarFile("avatar-image.png", Buffer.alloc(5 * 1024 * 1024 + 1));
-
-    expect(readAssistantAvatar("asst-1")).toEqual({ ok: true, avatar: null });
-  });
-
-  test("malformed manifest falls back to legacy inference", () => {
-    writeAvatarFile("avatar.json", "{ not json");
-    writeAvatarFile("character-traits.json", JSON.stringify(traits));
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "character", traits },
-    });
-  });
-
-  test("manifest image without image metadata falls back to legacy inference", () => {
-    writeAvatarFile("avatar.json", JSON.stringify({ kind: "image" }));
-    writeAvatarFile("character-traits.json", JSON.stringify(traits));
-    writeAvatarFile("avatar-image.png", png);
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "character", traits },
-    });
-  });
-
-  test("manifest image with malformed image metadata falls back to legacy inference", () => {
-    writeAvatarFile(
-      "avatar.json",
-      JSON.stringify({ kind: "image", image: { updatedAt: "" } }),
-    );
-    writeAvatarFile("character-traits.json", JSON.stringify(traits));
-
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "character", traits },
-    });
-  });
-
-  test("manifest character with malformed traits is treated as absent", () => {
-    writeAvatarFile(
-      "avatar.json",
-      JSON.stringify({ kind: "character", traits: { bodyShape: "round" } }),
-    );
-
-    expect(readAssistantAvatar("asst-1")).toEqual({ ok: true, avatar: null });
-
-    writeAvatarFile("avatar-image.png", png);
-    expect(readAssistantAvatar("asst-1")).toEqual({
-      ok: true,
-      avatar: { kind: "image", imageBase64: png.toString("base64") },
     });
   });
 

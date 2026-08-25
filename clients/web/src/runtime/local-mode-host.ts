@@ -3,6 +3,7 @@ import type {
   LocalConnectImportResult,
   LocalListDevicesResult,
   LocalPairedDeviceRecord,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
@@ -180,16 +181,28 @@ async function postLocalCommand<T extends { ok: boolean }>(
   body: unknown,
   unavailableError: string,
 ): Promise<T | { ok: false; error: string }> {
+  return requestLocalCommand<T>(
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    unavailableError,
+  );
+}
+
+async function requestLocalCommand<T extends { ok: boolean }>(
+  path: string,
+  init: RequestInit,
+  unavailableError: string,
+): Promise<T | { ok: false; error: string }> {
   if (!isLocalModeHostAvailable()) {
     return { ok: false, error: unavailableError };
   }
   let res: Response;
   try {
-    res = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    res = await fetch(path, init);
   } catch {
     return { ok: false, error: unavailableError };
   }
@@ -582,6 +595,35 @@ export async function getLocalAssistantStatusHost(
       status: res.status,
       error: LOCAL_HOST_UNAVAILABLE_ERROR,
     }
+  );
+}
+
+/**
+ * Read a local assistant's avatar straight off its workspace on disk, so a
+ * sleeping sibling still has an avatar in the chooser. The Electron main
+ * process serves it behind `window.vellum.localMode.readAssistantAvatar`, the
+ * Vite dev server behind `/assistant/__local/avatar/{id}`; both return the
+ * ipc-contract shape. Never throws: an older Electron shell without the
+ * channel and an unavailable dev host both resolve `{ ok: false }`.
+ */
+export async function readAssistantAvatarHost(
+  assistantId: string,
+): Promise<LocalReadAssistantAvatarResult> {
+  if (isElectron()) {
+    const readAssistantAvatar = window.vellum!.localMode.readAssistantAvatar;
+    if (!readAssistantAvatar) {
+      return {
+        ok: false,
+        error: "Assistant avatars are not supported by this app version",
+      };
+    }
+    return readAssistantAvatar(assistantId);
+  }
+
+  return requestLocalCommand<LocalReadAssistantAvatarResult>(
+    `/assistant/__local/avatar/${encodeURIComponent(assistantId)}`,
+    { method: "GET" },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
   );
 }
 

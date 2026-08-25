@@ -227,6 +227,7 @@
         "@tiptap/react": "3.23.5",
         "@tiptap/starter-kit": "3.23.5",
         "@vellumai/assistant-api": "workspace:*",
+        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/design-library": "workspace:*",
         "@vellumai/environments": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
@@ -593,6 +594,7 @@
       "name": "@vellumai/local-mode",
       "version": "0.0.1",
       "dependencies": {
+        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/environments": "file:../environments",
         "nanoid": "5.1.7",
         "zod": "4.3.6",
