@@ -6,7 +6,7 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 
@@ -30,7 +30,7 @@ const {
   contacts,
   contactChannels,
 } = await import("../db/schema.js");
-const { hashToken, mintAndRecordDeviceBoundTokenPair } =
+const { hashToken, mintAndRecordDeviceBoundTokenPair, bootstrapGuardian } =
   await import("../auth/guardian-bootstrap.js");
 const { MAX_PAIRING_USER_AGENT_CHARS } =
   await import("../auth/device-identity-text.js");
@@ -312,6 +312,59 @@ describe("mintAndRecordDeviceBoundTokenPair identity persistence", () => {
     expect(refresh?.pairingUserAgent?.length).toBe(
       MAX_PAIRING_USER_AGENT_CHARS,
     );
+  });
+});
+
+describe("bootstrapGuardian host identity", () => {
+  function actorRow(device: string) {
+    return getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.hashedDeviceId, hashToken(device)))
+      .get();
+  }
+
+  test("names the host credential after the machine hostname", async () => {
+    await bootstrapGuardian({ platform: "cli", deviceId: "host-device" });
+
+    const row = actorRow("host-device");
+    expect(row?.clientReportedName).toBe(hostname());
+    expect(row?.pairingUserAgent).toBeNull();
+
+    // isCurrentHost (cli/src/commands/devices.ts) keys off hashedDeviceId; the
+    // name must not disturb it.
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: { hashedDeviceId: string; clientReportedName: string | null }[];
+    };
+    const listed = body.devices.find(
+      (d) => d.hashedDeviceId === hashToken("host-device"),
+    );
+    expect(listed?.hashedDeviceId).toBe(hashToken("host-device"));
+    expect(listed?.clientReportedName).toBe(hostname());
+  });
+
+  test("leaves clientReportedName null and still completes bootstrap when hostname() throws", async () => {
+    const realOs = await import("node:os");
+    mock.module("node:os", () => ({
+      ...realOs,
+      hostname: () => {
+        throw new Error("no hostname available");
+      },
+    }));
+
+    try {
+      const result = await bootstrapGuardian({
+        platform: "cli",
+        deviceId: "host-device-throws",
+      });
+      expect(result.accessToken).toBeTruthy();
+    } finally {
+      mock.module("node:os", () => realOs);
+    }
+
+    const row = actorRow("host-device-throws");
+    expect(row?.clientReportedName).toBeNull();
   });
 });
 
