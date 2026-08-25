@@ -46,8 +46,11 @@ import type { IpcHandle } from "./ipc";
  *
  * Outcome reporting: each terminal `done` state is pushed to the originating
  * window as a `DownloadDoneEvent` so the renderer can confirm the save (and
- * offer a file-manager reveal) or surface the failure. A cancelled download is
- * not pushed: cancellation is the user's own action and needs no announcement.
+ * offer a file-manager reveal) or surface the failure. This holds on the
+ * Save-panel fallback too (the listener is registered before path selection,
+ * and reads the item's final path at `done` time). A cancelled download is
+ * not pushed: cancellation, including dismissing the Save panel, is the
+ * user's own action and needs no announcement.
  * On macOS the Dock's Downloads stack additionally bounces
  * (`app.dock.downloadFinished`, the same NSApplication signal a browser
  * sends); `app.dock` is absent on Windows, where the renderer toast is the
@@ -149,10 +152,47 @@ export const installDownloads = ({ handle }: { handle: IpcHandle }): void => {
   session.defaultSession.on("will-download", (_event, item, webContents) => {
     const dir = app.getPath("downloads");
 
-    // Everything here is best-effort: on any failure the handler skips
-    // `setSavePath` and Electron's default routine (the Save panel) takes over.
-    // A download that asks the user where to put it beats a download that
-    // throws out of an event listener.
+    // Outcome reporting is registered before path selection so it covers the
+    // Save-panel fallback too: a download whose destination Electron's default
+    // routine asked for still reports. `item.getSavePath()` is read at `done`
+    // time because only then is it final on the fallback path.
+    let reservedPath: string | null = null;
+    item.once("done", (_doneEvent, state) => {
+      // Released on every terminal state: a cancelled or interrupted
+      // download leaves the name free for the next one.
+      if (reservedPath !== null) {
+        reserved.delete(reservedPath);
+      }
+      const savePath = item.getSavePath();
+      // Cancelled covers dismissing the Save panel, where no destination was
+      // ever chosen; either way cancellation is the user's own action and
+      // needs no announcement.
+      if (state === "cancelled" || !savePath) {
+        return;
+      }
+      // The name on disk is the uniquified (or panel-chosen) one, which is
+      // what the user has to look for, so the report carries it rather than
+      // the originally suggested filename.
+      const filename = path.basename(savePath);
+      if (state !== "completed") {
+        sendDone(webContents, { filename, state: "interrupted" });
+        return;
+      }
+      const id = randomUUID();
+      revealable.set(id, savePath);
+      // One insert per completion, so one oldest-first eviction holds the cap.
+      const oldest = revealable.keys().next().value;
+      if (revealable.size > MAX_REVEALABLE && oldest !== undefined) {
+        revealable.delete(oldest);
+      }
+      app.dock?.downloadFinished(savePath);
+      sendDone(webContents, { id, filename, state });
+    });
+
+    // Path selection is best-effort: on any failure it skips `setSavePath`
+    // and Electron's default routine (the Save panel) takes over. A download
+    // that asks the user where to put it beats a download that throws out of
+    // an event listener.
     try {
       mkdirSync(dir, { recursive: true });
       const savePath = uniqueDownloadPath(
@@ -165,32 +205,7 @@ export const installDownloads = ({ handle }: { handle: IpcHandle }): void => {
       }
       item.setSavePath(savePath);
       reserved.add(savePath);
-
-      item.once("done", (_doneEvent, state) => {
-        // Released on every terminal state: a cancelled or interrupted
-        // download leaves the name free for the next one.
-        reserved.delete(savePath);
-        // The name on disk is the uniquified one, which is what the user
-        // has to look for, so the report carries it rather than the
-        // originally suggested filename.
-        const filename = path.basename(savePath);
-        if (state === "interrupted") {
-          sendDone(webContents, { filename, state });
-          return;
-        }
-        if (state !== "completed") {
-          return;
-        }
-        const id = randomUUID();
-        revealable.set(id, savePath);
-        // One insert per completion, so one oldest-first eviction holds the cap.
-        const oldest = revealable.keys().next().value;
-        if (revealable.size > MAX_REVEALABLE && oldest !== undefined) {
-          revealable.delete(oldest);
-        }
-        app.dock?.downloadFinished(savePath);
-        sendDone(webContents, { id, filename, state });
-      });
+      reservedPath = savePath;
     } catch {
       // Fall through to Electron's default save routine.
     }

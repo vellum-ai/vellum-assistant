@@ -77,7 +77,7 @@ export const createDownloadsBridge = (
   ipc: RendererIpc,
 ): VellumBridge["downloads"] => ({
   onDone: subscribe<DownloadDoneEvent>(ipc, DOWNLOADS_DONE_EVENT),
-  reveal: (id) => ipc.invoke(DOWNLOADS_REVEAL, id) as Promise<void>,
+  reveal: (id) => ipc.invoke(DOWNLOADS_REVEAL, id),
 });
 
 /** Renderer side of `installAutoUpdate`. */

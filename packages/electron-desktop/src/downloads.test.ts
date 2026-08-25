@@ -48,9 +48,11 @@ mock.module("electron", () => ({
 }));
 
 // Stand-in for Electron's `DownloadItem`: records the save path and replays
-// the `done` event on demand.
+// the `done` event on demand. `panelPath` simulates the destination the user
+// picks in Electron's default Save panel when `setSavePath` was never called.
 class FakeItem {
   savePaths: string[] = [];
+  panelPath = "";
   private doneHandlers: Array<(event: unknown, state: string) => void> = [];
   constructor(private filename: string) {}
   getFilename(): string {
@@ -58,6 +60,9 @@ class FakeItem {
   }
   setSavePath(p: string): void {
     this.savePaths.push(p);
+  }
+  getSavePath(): string {
+    return this.savePaths[0] ?? this.panelPath;
   }
   once(event: string, handler: (event: unknown, state: string) => void): void {
     if (event === "done") {
@@ -260,6 +265,57 @@ describe("done reporting to the originating window", () => {
 
     expect(webContents.doneEvents()).toEqual([]);
     expect(downloadFinishedMock).not.toHaveBeenCalled();
+  });
+
+  test("reports a Save-panel fallback completion under the panel-chosen name", () => {
+    mkdirSyncMock.mockImplementationOnce(() => {
+      throw new Error("EACCES");
+    });
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+    expect(item.savePaths).toEqual([]);
+
+    item.panelPath = "/Users/tester/Desktop/renamed.pdf";
+    item.finish("completed");
+
+    const events = webContents.doneEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.state).toBe("completed");
+    expect(events[0]!.filename).toBe("renamed.pdf");
+    reveal(events[0]!.id!);
+    expect(showItemInFolderMock).toHaveBeenCalledWith(
+      "/Users/tester/Desktop/renamed.pdf",
+    );
+  });
+
+  test("reports a Save-panel fallback interruption as a failure", () => {
+    mkdirSyncMock.mockImplementationOnce(() => {
+      throw new Error("EACCES");
+    });
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.panelPath = "/Users/tester/Desktop/report.pdf";
+    item.finish("interrupted");
+
+    expect(webContents.doneEvents()).toEqual([
+      { filename: "report.pdf", state: "interrupted" },
+    ]);
+  });
+
+  test("stays quiet when the Save panel is dismissed before a destination exists", () => {
+    mkdirSyncMock.mockImplementationOnce(() => {
+      throw new Error("EACCES");
+    });
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.finish("cancelled");
+
+    expect(webContents.doneEvents()).toEqual([]);
   });
 
   test("drops the report when the originating window is gone", () => {
