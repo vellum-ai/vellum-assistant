@@ -90,9 +90,11 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     });
   });
 
-  test("returns null for pending_question without toolName", () => {
+  test("pending_question without toolName renders as a question, not an approval", () => {
     const payload = { ...voiceToolApprovalPayload, toolName: undefined };
-    expect(buildToolApprovalSeedContentBlocks(payload)).toBeNull();
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.title).toBe("Question");
+    expect(surface.data.subtitle).toBe("Waiting on your answer");
   });
 
   test("produces a ui_surface block and a text fallback block for tool_approval", () => {
@@ -315,5 +317,67 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       buildToolApprovalSeedContentBlocks(payload)!,
     );
     expect(fallback.text).toContain("Approve tool: bash (requested by Bob)");
+  });
+});
+
+/**
+ * An `ask_question` prompt promoted to a guardian request. Before it had a
+ * card kind the dispatcher resolved it to `null` and the channel fell back to
+ * generic guardian copy, so the guardian saw a reference code and no question.
+ */
+describe("ask_question card", () => {
+  const questionPayload: Record<string, unknown> = {
+    requestId: "req-ask-321",
+    requestCode: "08B619",
+    requestKind: "pending_question",
+    questionText: "What should I dig into?",
+    sourceChannel: "slack",
+    options: [
+      { id: "opt-thread", label: "This Slack thread" },
+      { id: "opt-pr", label: "The pull request" },
+      { id: "opt-ticket", label: "The Linear ticket" },
+    ],
+  };
+
+  test("the question leads the card rather than generic guardian copy", () => {
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(questionPayload)!,
+    );
+    expect(surface.title).toBe("Question");
+    expect(surface.data.title).toBe("What should I dig into?");
+  });
+
+  test("options become index-based answer actions plus a skip", () => {
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(questionPayload)!,
+    );
+    // The resolver maps the index back to the pending interaction's option
+    // order, so an action carrying the option's own id would parse as free
+    // text and answer with the literal id.
+    expect(surface.actions).toEqual([
+      { id: "apr:req-ask-321:answer_0", label: "This Slack thread" },
+      { id: "apr:req-ask-321:answer_1", label: "The pull request" },
+      { id: "apr:req-ask-321:answer_2", label: "The Linear ticket" },
+      { id: "apr:req-ask-321:answer_skip", label: "Skip" },
+    ]);
+  });
+
+  test("a channel without buttons still gets the question and its options", () => {
+    const fallback = fallbackBlock(
+      buildToolApprovalSeedContentBlocks(questionPayload)!,
+    );
+    expect(fallback.text).toContain("What should I dig into?");
+    expect(fallback.text).toContain("1. This Slack thread");
+    expect(fallback.text).toContain("3. The Linear ticket");
+    expect(fallback.text).toContain("08B619");
+  });
+
+  test("a question with no options renders without answer actions", () => {
+    const payload = { ...questionPayload, options: undefined };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.title).toBe("What should I dig into?");
+    // Falls back to the builder's generic pair rather than inventing an empty
+    // answer set; the guardian replies with the reference code instead.
+    expect(surface.actions?.some((a) => a.id.includes("answer_"))).toBe(false);
   });
 });

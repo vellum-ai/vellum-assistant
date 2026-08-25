@@ -250,6 +250,31 @@ export function buildQuestionOptionActionId(index: number): string {
   return `answer_${index}`;
 }
 
+/**
+ * The full answer action set for a question's options: one action per option
+ * in the interaction's own order, then an explicit skip.
+ *
+ * Shared because a question is rendered twice from the same options, once as
+ * an approval-metadata action set for a channel transport and once as card
+ * actions on the in-app surface, and the two must agree: the resolver maps
+ * the index back to the pending interaction, so a divergence answers the
+ * wrong option rather than failing.
+ */
+export function buildQuestionAnswerActions(
+  options: readonly { label: string }[],
+): Array<{ id: string; label: string }> {
+  if (options.length === 0) {
+    return [];
+  }
+  return [
+    ...options.map((option, index) => ({
+      id: buildQuestionOptionActionId(index),
+      label: option.label,
+    })),
+    { id: QUESTION_SKIP_ACTION_ID, label: "Skip" },
+  ];
+}
+
 export type QuestionAnswerSelection =
   | { kind: "option"; index: number }
   | { kind: "skip" };

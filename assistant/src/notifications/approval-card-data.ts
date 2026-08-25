@@ -29,11 +29,13 @@ import {
 } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
+  buildQuestionAnswerActions,
   buildToolApprovalSourceView,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
   LenientToolApprovalPayloadSchema,
   parseGuardianQuestionPayload,
+  type PendingQuestionGuardianPayload,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianInstructionModeFromPayload,
 } from "./guardian-question-mode.js";
@@ -122,12 +124,21 @@ export interface ToolApprovalCardData {
   card: ApprovalCardParams;
 }
 
+/** Resolved card data for an `ask_question` prompt awaiting an answer. */
+export interface QuestionCardData {
+  kind: "question";
+  card: ApprovalCardParams;
+}
+
 /**
  * Channel-agnostic approval card content, resolved once from `contextPayload`.
  * The discriminant `kind` lets consumers branch on the approval type without
  * re-parsing the payload.
  */
-export type ApprovalCardData = AccessRequestCardData | ToolApprovalCardData;
+export type ApprovalCardData =
+  | AccessRequestCardData
+  | ToolApprovalCardData
+  | QuestionCardData;
 
 // ── Shared source rendering ──────────────────────────────────────────────────
 
@@ -336,6 +347,73 @@ function extractToolApprovalCard(
 }
 
 /**
+ * Shape a parked `ask_question` prompt into card params.
+ *
+ * The question itself is the subject, so it leads; the options become the
+ * card's actions under the index-based token scheme the resolver maps back to
+ * the pending interaction, plus an explicit skip. Channels without buttons get
+ * the same options enumerated in `fallbackText`, so the answer is reachable by
+ * a request-code reply on a channel that can only carry text.
+ */
+function extractQuestionCard(
+  p: PendingQuestionGuardianPayload,
+): ApprovalCardParams {
+  const metadata: Array<{ label: string; value: string }> = [];
+  const sourceView = buildToolApprovalSourceView(p);
+  const sourceRow = sourceMetadataRow(
+    nonEmpty(p.sourceChannel),
+    sourceView?.chatId,
+    sourceView?.isSlackDm ?? false,
+  );
+  if (sourceRow) {
+    metadata.push(sourceRow);
+  }
+
+  const options = p.options ?? [];
+  const actions: ApprovalCardActionOption[] =
+    buildQuestionAnswerActions(options);
+
+  const optionLines = options.map(
+    (option, index) => `${index + 1}. ${option.label}`,
+  );
+  const bodyParts: string[] = [];
+  if (optionLines.length > 0) {
+    bodyParts.push(optionLines.join("\n"));
+  }
+  if (sourceView?.permalink) {
+    bodyParts.push(viewMessageLine(sourceView.permalink));
+  }
+
+  let fallbackText = p.questionText;
+  if (optionLines.length > 0) {
+    fallbackText = `${fallbackText}\n\n${optionLines.join("\n")}`;
+  }
+  const requestCode = nonEmpty(p.requestCode);
+  if (requestCode) {
+    fallbackText = `${fallbackText}\n\n${buildGuardianRequestCodeInstruction(
+      requestCode.trim().toUpperCase(),
+      "answer",
+    )}`;
+  }
+
+  return {
+    // Deliberately the tool-approval prefix rather than one of its own: the
+    // withdrawal path recomputes a card's surface id from the request kind,
+    // and `pending_question` already maps here. A new prefix would orphan
+    // every question card written before it.
+    surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
+    cardTitle: "Question",
+    primaryLine: p.questionText,
+    subtitle: "Waiting on your answer",
+    body: bodyParts.length > 0 ? bodyParts.join("\n\n") : "",
+    metadata,
+    requestId: nonEmpty(p.requestId),
+    ...(actions.length > 0 ? { actions } : {}),
+    fallbackText,
+  };
+}
+
+/**
  * Resolve a guardian.question payload into tool-approval card params, or
  * `null` when it does not represent a tool approval.
  *
@@ -343,6 +421,21 @@ function extractToolApprovalCard(
  * to lenient field extraction so cards still render when optional fields are
  * absent.
  */
+function resolveQuestionCard(
+  payload: Record<string, unknown>,
+): ApprovalCardParams | null {
+  const parsed = parseGuardianQuestionPayload(payload);
+  if (!parsed || parsed.requestKind !== "pending_question") {
+    return null;
+  }
+  // A `pending_question` carrying a tool name is a tool approval wearing the
+  // question kind, and the mode table says so; leave it to the approval card.
+  if (resolveGuardianInstructionModeFromPayload(parsed).mode !== "answer") {
+    return null;
+  }
+  return extractQuestionCard(parsed);
+}
+
 function resolveToolApprovalCard(
   payload: Record<string, unknown>,
 ): ApprovalCardParams | null {
@@ -388,6 +481,15 @@ export function resolveApprovalCardData(
   }
 
   if (sourceEventName === "guardian.question") {
+    // A question is asked, not approved, and until it had a kind here it
+    // resolved to no card at all: the tool-approval resolver requires
+    // instruction mode `approval`, and `pending_question` without a tool name
+    // is mode `answer`. The payload carried the question and its options the
+    // whole time.
+    const question = resolveQuestionCard(contextPayload);
+    if (question) {
+      return { kind: "question", card: question };
+    }
     const card = resolveToolApprovalCard(contextPayload);
     return card ? { kind: "tool_approval", card } : null;
   }
