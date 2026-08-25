@@ -84,8 +84,11 @@ const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const { MIN_VERSION } =
   await import("@/lib/backwards-compat/avatar-state-manifest");
-const { canFetchRowAvatarViaPlatformProxy, useChooserRowAvatar } =
-  await import("@/hooks/use-chooser-row-avatar");
+const {
+  canFetchRowAvatarViaPlatformProxy,
+  chooserRowAvatarQueryKeyPrefix,
+  useChooserRowAvatar,
+} = await import("@/hooks/use-chooser-row-avatar");
 
 const platformRow = (
   id: string,
@@ -99,10 +102,11 @@ const platformRow = (
   ...overrides,
 });
 
-function createWrapper() {
-  const queryClient = new QueryClient({
+function createWrapper(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  }),
+) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -347,6 +351,30 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.traits).toEqual(traits);
     });
     expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+  });
+
+  test("invalidating the row prefix refetches past staleTime: Infinity", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(
+      () => useChooserRowAvatar(platformRow("other")),
+      { wrapper: createWrapper(queryClient) },
+    );
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+    expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+
+    const updated: CharacterTraits = { ...traits, color: "sunset-orange" };
+    fetchAvatarState.mockResolvedValue({ ...characterState, traits: updated });
+    await queryClient.invalidateQueries({
+      queryKey: chooserRowAvatarQueryKeyPrefix("other"),
+    });
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(updated);
+    });
+    expect(fetchAvatarState).toHaveBeenCalledTimes(2);
   });
 
   test("keys the fetch per row id", async () => {

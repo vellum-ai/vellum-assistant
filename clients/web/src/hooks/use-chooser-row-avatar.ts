@@ -36,13 +36,17 @@ export function rowManifestSupport(
     : "unsupported";
 }
 
+/** Prefix matching every support-state variant of one row; use for invalidation. */
+export function chooserRowAvatarQueryKeyPrefix(assistantId: string) {
+  return [CHOOSER_ROW_AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
+}
+
 export function chooserRowAvatarQueryKey(
   assistantId: string,
   manifestSupport: RowManifestSupport,
 ) {
   return [
-    CHOOSER_ROW_AVATAR_QUERY_KEY_PREFIX,
-    assistantId,
+    ...chooserRowAvatarQueryKeyPrefix(assistantId),
     manifestSupport,
   ] as const;
 }
