@@ -234,17 +234,25 @@ export async function handlePair(
   // simply leaves deviceId undefined and preserves the stateless path.
   let deviceId: string | undefined;
   let bodyPlatform: string | undefined;
+  let bodyClientReportedName: string | undefined;
   if ((req.headers.get("content-type") ?? "").includes("json")) {
     try {
       const body = (await req.json()) as {
         deviceId?: unknown;
         platform?: unknown;
+        clientReportedName?: unknown;
       };
       if (typeof body.deviceId === "string" && body.deviceId.trim()) {
         deviceId = body.deviceId.trim();
       }
       if (typeof body.platform === "string" && body.platform.trim()) {
         bodyPlatform = body.platform.trim();
+      }
+      if (
+        typeof body.clientReportedName === "string" &&
+        body.clientReportedName.trim()
+      ) {
+        bodyClientReportedName = body.clientReportedName.trim();
       }
     } catch {
       // Ignore malformed/empty body — fall back to the stateless path.
@@ -285,6 +293,7 @@ export async function handlePair(
         platform: bodyPlatform ?? interfaceId,
         interfaceId,
         clientId,
+        clientReportedName: bodyClientReportedName,
       });
     }
 
@@ -345,6 +354,7 @@ export async function handlePair(
       platform: bodyPlatform ?? "cli",
       interfaceId,
       clientId,
+      clientReportedName: bodyClientReportedName,
     });
   }
 
@@ -377,11 +387,13 @@ function mintDeviceBoundPairResponse(opts: {
   platform: string;
   interfaceId: string;
   clientId: string | null;
+  clientReportedName?: string;
 }): Response {
   const pair = mintAndRecordDeviceBoundTokenPair({
     guardianPrincipalId: opts.guardianPrincipalId,
     deviceId: opts.deviceId,
     platform: opts.platform,
+    identity: { clientReportedName: opts.clientReportedName },
   });
 
   log.info(
