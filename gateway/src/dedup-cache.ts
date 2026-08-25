@@ -143,6 +143,21 @@ export class DedupCache {
   }
 
   /** Start a periodic background sweep of expired entries. */
+  /**
+   * Forget every seen update and drop the high-water mark.
+   *
+   * For when the bot behind this webhook changes. `update_id` is a per-bot
+   * sequence, so a new token starts a new one, typically far below the mark
+   * the previous bot left behind. Without this the route answers every
+   * inbound with an idempotent 200 while delivering nothing, which reads as
+   * success to Telegram and as silence to the user, until the gateway
+   * restarts.
+   */
+  reset(): void {
+    this.cache.clear();
+    this.highWaterMark = -Infinity;
+  }
+
   startCleanup(intervalMs = 60_000): void {
     this.stopCleanup();
     this.cleanupTimer = setInterval(() => this.evictExpired(), intervalMs);
