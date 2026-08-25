@@ -3,13 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT } from "../memory-retrospective-constants.js";
 import {
   buildForkInstruction,
   type ForkInstructionArgs,
   RETROSPECTIVE_INSTRUCTION_TEMPLATE,
 } from "../memory-retrospective-prompt.js";
 import { getWorkspaceDir } from "../paths.js";
+
+/**
+ * The mandate sentence as the prompt module builds it. Spelled out here
+ * rather than imported so a reworded prompt fails these expectations instead
+ * of silently agreeing with itself.
+ */
+const NO_FINDINGS_MANDATE =
+  "If nothing new is worth saving, say so briefly and stop.";
 
 function makeArgs(
   overrides: Partial<ForkInstructionArgs> = {},
@@ -48,7 +55,7 @@ Two dedup sources to skip:
 1. Anything semantically captured in <already_remembered> above (from prior retrospective passes).
 2. Anything you already called \`remember\` on inline within your review window — those appear as \`tool_use\` blocks with \`name: "remember"\` in your history.
 
-For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. When several facts are worth saving, pass them all as an array to a single \`remember\` call rather than calling it once per fact. If nothing new is worth saving, reply with exactly "Nothing new to save." and stop.
+For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. When several facts are worth saving, pass them all as an array to a single \`remember\` call rather than calling it once per fact. If nothing new is worth saving, say so briefly and stop.
 `);
   });
 
@@ -119,11 +126,7 @@ For everything else in your review window, use the \`remember\` tool on facts, p
   test("proc-to-skills inactive: no authoring section, instruction ends at the remember guidance", () => {
     const out = buildForkInstruction(makeArgs());
     expect(out).not.toContain("PROCEDURE");
-    expect(
-      out.endsWith(
-        'If nothing new is worth saving, reply with exactly "Nothing new to save." and stop.\n',
-      ),
-    ).toBe(true);
+    expect(out.endsWith(`${NO_FINDINGS_MANDATE}\n`)).toBe(true);
   });
 
   test("bundled template carries each placeholder exactly once", () => {
@@ -176,17 +179,13 @@ describe("promptOverridePath", () => {
     writeFileSync(overridePath, "Just remember the good parts.\n");
     expect(
       buildForkInstruction(makeArgs({ promptOverridePath: overridePath })),
-    ).toBe(
-      "Just remember the good parts.\n\n\n" +
-        `If nothing new is worth saving, reply with exactly "${MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}" and stop.`,
-    );
+    ).toBe(`Just remember the good parts.\n\n\n${NO_FINDINGS_MANDATE}`);
   });
 
-  test("an override that drops the no-findings mandate still carries the finalizer's exact-reply contract", () => {
-    // The finalizer advances a no-findings window only on a persisted reply
-    // that trims to exactly MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT. An
-    // override author who never read that code would otherwise stall every
-    // no-findings window forever, so the mandate must survive any override.
+  test("an override that tells a no-findings pass to stay silent still carries the reply mandate", () => {
+    // A pass that saves nothing advances only on a committed reply, so an
+    // override telling it to do nothing would stall every no-findings window
+    // forever. The mandate must survive any override.
     const overridePath = join(dir, "mandate-free.md");
     writeFileSync(
       overridePath,
@@ -195,13 +194,7 @@ describe("promptOverridePath", () => {
     const out = buildForkInstruction(
       makeArgs({ promptOverridePath: overridePath }),
     );
-    expect(out).toContain(
-      `reply with exactly "${MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}"`,
-    );
-    // The mandate references the same constant the finalizer compares
-    // against, so the two cannot drift; guard the constant's exact value here
-    // to make an accidental rewording loud.
-    expect(MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT).toBe("Nothing new to save.");
+    expect(out.endsWith(NO_FINDINGS_MANDATE)).toBe(true);
   });
 
   test("missing override file falls back to the bundled rendering", () => {
@@ -227,12 +220,9 @@ describe("promptOverridePath", () => {
   });
 });
 
-// The finalizer's explicit-no-findings gate matches persisted assistant text
-// against MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT by strict equality, and the
-// bundled instruction is what teaches the model to emit it. This guard fails
-// if either side drifts.
-test("bundled template mandates the exact no-findings sentinel the finalizer matches", () => {
-  expect(RETROSPECTIVE_INSTRUCTION_TEMPLATE).toContain(
-    `reply with exactly "${MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}" and stop.`,
-  );
+// A pass that saves nothing advances its window only if it replies at all,
+// and the bundled instruction is what asks for that reply. The wording is
+// free; a template that stopped asking for a reply is not.
+test("bundled template asks a no-findings pass to answer rather than stay silent", () => {
+  expect(RETROSPECTIVE_INSTRUCTION_TEMPLATE).toContain(NO_FINDINGS_MANDATE);
 });

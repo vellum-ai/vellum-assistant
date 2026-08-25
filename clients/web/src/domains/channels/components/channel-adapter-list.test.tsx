@@ -9,9 +9,25 @@ import type {
 } from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
-  { key: "slack", status: "ready", configured: true, address: "@vex" },
-  { key: "telegram", status: "not_configured", configured: false },
-  { key: "phone", status: "not_configured", configured: false },
+  {
+    key: "slack",
+    status: "ready",
+    configured: true,
+    canDisconnect: true,
+    address: "@vex",
+  },
+  {
+    key: "telegram",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+  },
+  {
+    key: "phone",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+  },
 ];
 
 const PLUGIN_CHANNELS: PluginChannelSummary[] = [

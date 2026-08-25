@@ -24,6 +24,21 @@ interface ChannelSetupPanelProps {
   onClose: () => void;
 }
 
+/**
+ * Exhaustive over the channels the drawer accepts, so one it cannot draw
+ * fails to compile rather than falling through to another channel's copy.
+ */
+const CONNECTED_MESSAGE_KEY: Record<
+  ChannelSetupType,
+  | "channelSetupPanel.slackConnected"
+  | "channelSetupPanel.telegramConnected"
+  | "channelSetupPanel.phoneConnected"
+> = {
+  slack: "channelSetupPanel.slackConnected",
+  telegram: "channelSetupPanel.telegramConnected",
+  phone: "channelSetupPanel.phoneConnected",
+};
+
 const CHANNEL_BRAND_LABEL: Record<ChannelSetupType, string | null> = {
   slack: "Slack",
   telegram: "Telegram",
@@ -37,12 +52,7 @@ export function ChannelSetupPanel({
   const { t } = useTranslation("chat");
   const channelLabel =
     CHANNEL_BRAND_LABEL[payload.channel] ?? t("channelSetupPanel.phoneLabel");
-  const connectedMessage =
-    payload.channel === "slack"
-      ? t("channelSetupPanel.slackConnected")
-      : payload.channel === "telegram"
-        ? t("channelSetupPanel.telegramConnected")
-        : t("channelSetupPanel.phoneConnected");
+  const connectedMessage = t(CONNECTED_MESSAGE_KEY[payload.channel]);
 
   const saveSlack = useSaveSlackConfig({
     assistantId: payload.assistantId,
@@ -229,7 +239,9 @@ function TwilioCredentialForm({
             !accountSid.trim() || !authToken.trim() || status === "pending"
           }
         >
-          {status === "pending" ? t("channelSetupPanel.saving") : t("channelSetupPanel.save")}
+          {status === "pending"
+            ? t("channelSetupPanel.saving")
+            : t("channelSetupPanel.save")}
         </Button>
       </div>
     </div>

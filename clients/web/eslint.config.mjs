@@ -192,7 +192,7 @@ const authBoundaryAllowedPaths = [
  */
 const i18nEnforcedPaths = [
   "src/components/**/*.{ts,tsx}",
-  "src/hooks/use-connect-claude.ts",
+  "src/hooks/**/*.{ts,tsx}",
   "src/domains/**/*.{ts,tsx}",
 ];
 

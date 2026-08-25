@@ -189,6 +189,9 @@
     "messageNamed": "\"{appName}\" uses backend services that won't work on a static Vercel page. {assistantName} can deploy it properly with serverless functions.",
     "title": "This app needs a full deploy"
   },
+  "detailPanelStopButton": {
+    "tooltip": "Stop"
+  },
   "detailPrimitives": {
     "copied": "Copied",
     "copy": "Copy"
@@ -630,6 +633,18 @@
     "restartToInstall": "Restart to install",
     "versionFallback": "update"
   },
+  "useAppDelete": {
+    "deleteFailed": "Failed to delete app"
+  },
+  "useAppDeployment": {
+    "copyFailed": "Couldn't copy the link. Open it at {url}",
+    "linkCopied": "Link copied",
+    "open": "Open"
+  },
+  "useBookmarks": {
+    "addFailed": "Failed to bookmark message.",
+    "removeFailed": "Failed to remove bookmark."
+  },
   "useConnectClaude": {
     "exchangeFailed": "Check the pasted key and try again.",
     "failed": "Connecting Claude failed. Please try again.",
@@ -639,8 +654,24 @@
     "startFailed": "Couldn't start Connect Claude. Please try again.",
     "timedOut": "Timed out waiting for Claude to connect. Please try again."
   },
+  "useOauthConnect": {
+    "accountConnected": "{name} account connected.",
+    "authPopupClosed": "{name} connection failed: authorization popup closed.",
+    "authorizationError": "{name} error: {code}",
+    "authorizationFailed": "{name} authorization failed",
+    "popupBlocked": "Popup blocked. Please enable popups and try again.",
+    "popupClosed": "{name} connection failed: popup closed.",
+    "startFailed": "Failed to start {name} authorization."
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "Your browser blocked a page the assistant tried to open.",
+    "openPage": "Open page"
+  },
   "useVoiceSamplePreview": {
     "playFailed": "Could not play the voice sample."
+  },
+  "useWorkspaceTheme": {
+    "updated": "Theme updated"
   },
   "vercelTokenDialog": {
     "body": "Enter your Vercel API token to deploy apps as static pages.",

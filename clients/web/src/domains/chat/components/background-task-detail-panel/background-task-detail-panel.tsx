@@ -14,7 +14,7 @@ import { Typography } from "@vellumai/design-library";
 
 import { BackgroundTaskStatusBadge } from "@/domains/chat/components/background-task-status-badge";
 import { backgroundTaskGlyph } from "@/domains/chat/components/background-task-glyph";
-import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { DetailShell } from "@/components/detail-shell";
 import {
   CodeBlock,

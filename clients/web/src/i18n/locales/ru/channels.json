@@ -102,6 +102,10 @@
       "disconnectMessage": "Это удалит сохранённый токен бота Telegram для этого ассистента. Потом можно подключить снова.",
       "disconnectedPitch": "Подключение бота Telegram, чтобы {assistant} мог отправлять и получать сообщения в Telegram."
     },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "Подключите бота Discord, чтобы {assistant} мог читать и отвечать на вашем сервере."
+    },
     "phone": {
       "label": "Телефонные звонки",
       "disconnectMessage": "Это удалит сохранённые учётные данные Twilio для этого ассистента. Потом можно подключить снова.",

@@ -485,6 +485,7 @@ function winnerConfigFragment(entry: ProfileEntry): Mergeable {
     description: _description,
     status: _status,
     mix: _mix,
+    fallbackProfile: _fallbackProfile,
     ...config
   } = entry;
   return config as Mergeable;

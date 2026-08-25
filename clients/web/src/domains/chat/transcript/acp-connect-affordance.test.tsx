@@ -185,22 +185,25 @@ describe("AcpConnectAffordance", () => {
 
     render(<AcpConnectAffordance assistantId="assistant-123" />);
 
-    await waitFor(() => {
-      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
-    });
+    // alreadyConnected unmounts the card on the same commit the flag flips; the
+    // diagnostic is recorded in a follow-up effect. Wait for both so this does
+    // not race the render path that returns null early.
     // The card vanishing is invisible in a feedback bundle without this
     // breadcrumb, so it must carry who/which-call/why, and it lands in the
     // durable ring that streaming volume cannot evict.
-    expect(recordedLifecycleDiagnostics).toEqual([
-      {
-        kind: "acp_connect_self_heal_dismiss",
-        details: {
-          assistantId: "assistant-123",
-          toolUseId: "toolu-acp-1",
-          reason: "missing",
+    await waitFor(() => {
+      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+      expect(recordedLifecycleDiagnostics).toEqual([
+        {
+          kind: "acp_connect_self_heal_dismiss",
+          details: {
+            assistantId: "assistant-123",
+            toolUseId: "toolu-acp-1",
+            reason: "missing",
+          },
         },
-      },
-    ]);
+      ]);
+    });
   });
 
   test("records nothing for an auth_required prompt, which skips the connected check", async () => {

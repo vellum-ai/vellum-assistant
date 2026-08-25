@@ -17,9 +17,9 @@
  *   - `invoked: true` alone must therefore NOT advance
  *     `memory_retrospective_state`: the handler re-reads the fork's persisted
  *     rows (`collectRetrospectiveRunEvidence` → `loadRetrospectiveRunMessages`
- *     → `getMessages`) and only advances when a durable memory-writing
- *     `tool_use` (`remember` / `scaffold_managed_skill`) was persisted by THIS
- *     run.
+ *     → `getMessages`) and only advances when THIS run persisted a durable
+ *     memory-writing `tool_use` (`remember` / `scaffold_managed_skill`) or
+ *     replied and stopped on its own (a completed no-findings review).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -481,16 +481,20 @@ describe("memoryRetrospectiveJob through the real wake + real agent loop", () =>
     expect(lastRunAtBumps).toHaveLength(0);
   });
 
-  test("clean empty reply through the real loop does not advance", async () => {
-    // Scenario C: the model answers with analysis text and no tool calls.
-    // The wake persists the text tail (visible output), but with zero
-    // durable memory-writing tool calls the gate must refuse to advance.
+  test("a text-only conclusion through the real loop advances as a no-findings pass", async () => {
+    // Scenario C: the model answers in its own words and stops without any
+    // tool call. The real loop exits on `no_tool_calls`, so the committed
+    // reply is a finished empty-handed review and the window is consumed.
     providerImpl = async () => textOnlyResponse("Nothing worth saving.");
 
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
 
-    expect(outcome.kind).toBe("no_usable_output");
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind === "invoked") {
+      expect(outcome.noFindings).toBe(true);
+    }
     expect(providerCalls.length).toBeGreaterThanOrEqual(1);
-    expect(stateUpserts).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.rememberedLog).toEqual([]);
   });
 });

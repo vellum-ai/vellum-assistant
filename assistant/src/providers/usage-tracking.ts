@@ -66,9 +66,20 @@ export class UsageTrackingProvider implements Provider {
     }
 
     try {
+      // A fallback-serving wrapper (`RetryProvider`'s escalation) stamps the
+      // profile that actually governed the response; prefer it over the
+      // original request's resolution so a degraded serve bills under the
+      // backup profile, not the failed primary's. `forceOverrideProfile`
+      // mirrors how the fallback dispatch floated that profile above the
+      // call-site layers.
+      const appliedOverride =
+        response.actualInferenceProfile ?? config.overrideProfile;
       const attribution = resolveUsageAttribution({
         callSite: config.callSite,
-        overrideProfile: config.overrideProfile,
+        overrideProfile: appliedOverride,
+        ...(response.actualInferenceProfile !== undefined
+          ? { forceOverrideProfile: true }
+          : {}),
       });
       const providerName = response.actualProvider ?? this.inner.name;
       const pricingUsage = buildPricingUsageFromResponse(
