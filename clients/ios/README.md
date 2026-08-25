@@ -302,12 +302,19 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 
 ### App icon + launch screen
 
-- `App/App/AppIcon.icon/` is an Icon Composer bundle (green background +
-  white "V"). It uses the same visual design as the macOS app icon
-  source SVG ([`vellum-assistant/clients/macos/build-resources/icons/production/Assets/white-V.svg`](https://github.com/vellum-ai/vellum-assistant/blob/main/clients/macos/build-resources/icons/production/Assets/white-V.svg)),
-  but is its own Icon Composer bundle living in this repo.
-- `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) follow
-  the same structure — only the `fill.solid` colour differs.
+- `App/App/AppIcon.icon/` is an Icon Composer bundle: a solid `#4C9B50`
+  background (the `green` entry in the avatar palette in
+  `assistant/src/avatar/character-components.ts`) with the `quirky` eye
+  pair from that same library centred on top, spanning half the icon
+  width. The six paths in `Assets/eyes.svg` are copied verbatim out of
+  `getCharacterComponents().eyeStyles`, keeping the icon and the in-app
+  avatars in sync.
+- `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) carry the
+  same eyes; only the `fill.solid` colour differs.
+- `fill.solid` is a **Display P3** value, so an sRGB hex has to be
+  converted before it goes in. Pasting the raw sRGB components straight
+  through renders noticeably more saturated than the hex you started
+  from.
 - `App/App/AvatarIcons.xcassets` holds the alternate icons, one
   `.appiconset` per character avatar trait combination, named
   `avatar-<body>-<eye>-<color>`. Every combination ships: 10 body shapes ×
