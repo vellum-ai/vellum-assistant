@@ -1472,6 +1472,12 @@ describe("tunnel --detach", () => {
 
   const spawnMock = mock((..._args: unknown[]) => makeFakeChild(9999));
 
+  // spawnDetachedTunnel() scopes the log filename to its own (parent) pid,
+  // which in-process is this test runner's pid.
+  function detachedLogPath(): string {
+    return join(getLogDir(), `tunnel-${process.pid}.log`);
+  }
+
   beforeAll(() => {
     mock.module("node:child_process", () => ({
       ...realChildProcess,
@@ -1516,7 +1522,7 @@ describe("tunnel --detach", () => {
     // the moment it is spawned.
     spawnMock.mockImplementationOnce(() => {
       appendFileSync(
-        join(getLogDir(), "tunnel.log"),
+        detachedLogPath(),
         "Tunnel established: https://foo.ngrok.app\n",
       );
       return makeFakeChild(9999);
@@ -1541,8 +1547,8 @@ describe("tunnel --detach", () => {
     expect(logs).toContain("Running in background (pid 9999)");
     expect(logs).toContain("Stop with: kill 9999");
 
-    // The parent hands the actual tunnel workflow off to the child — it
-    // never runs the provider or edge setup itself.
+    // The parent hands the actual tunnel workflow off to the child: it never
+    // runs the provider or edge setup itself.
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
   });
@@ -1551,7 +1557,7 @@ describe("tunnel --detach", () => {
     process.argv = ["bun", "vellum", "tunnel", "-d"];
     spawnMock.mockImplementationOnce(() => {
       appendFileSync(
-        join(getLogDir(), "tunnel.log"),
+        detachedLogPath(),
         "Tunnel established: https://tailnet.example.ts.net\n",
       );
       return makeFakeChild(1234);
@@ -1586,5 +1592,33 @@ describe("tunnel --detach", () => {
     expect(exited).toBe(true);
     expect(errors).toContain("exited during startup (exit code 1)");
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an adopted ngrok tunnel gets an accurate stop message, not a false kill claim", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "ngrok",
+      "--detach",
+    ];
+    spawnMock.mockImplementationOnce(() => {
+      appendFileSync(
+        detachedLogPath(),
+        "Found existing ngrok tunnel: https://already-up.ngrok.app\n",
+      );
+      return makeFakeChild(5555);
+    });
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain("Tunnel established: https://already-up.ngrok.app");
+    expect(logs).toContain("Running in background (pid 5555)");
+    // The supervisor did not spawn this ngrok agent, so killing it must not
+    // be advertised as the way to stop the tunnel.
+    expect(logs).not.toContain("Stop with: kill 5555");
+    expect(logs).toContain("only");
+    expect(logs).toContain("stops this supervisor, not the ngrok tunnel");
   });
 });

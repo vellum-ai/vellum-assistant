@@ -356,26 +356,33 @@ function guardTailnetOnlyWebhookIngress(
   process.exit(1);
 }
 
-const TUNNEL_BACKGROUND_LOG_FILE = "tunnel.log";
 // Generous cap so a slow provider handshake (e.g. cloudflared's own ~30s
 // quick-tunnel timeout) still counts as a successful, if slow, start.
 const TUNNEL_BACKGROUND_START_TIMEOUT_MS = 35_000;
-// Matches both the "just established" line every provider prints and ngrok's
-// "found an already-running agent" adoption line.
-const TUNNEL_READY_RE = /(?:Tunnel established|Found existing ngrok tunnel): (\S+)/;
+// Matches the "just established" line every provider prints, or ngrok's
+// "found an already-running agent" adoption line (captured separately since
+// that case does not own the tunnel it adopted).
+const TUNNEL_ESTABLISHED_RE = /Tunnel established: (\S+)/;
+const TUNNEL_ADOPTED_RE = /Found existing ngrok tunnel: (\S+)/;
 
 /**
  * Re-invoke `vellum tunnel` (without `-d`/`--detach`) as a detached background
- * process, redirecting its stdout/stderr to a log file — same idiom as
+ * process, redirecting its stdout/stderr to a log file. Same idiom as
  * `spawnBackgroundWebInterface` in `client.ts`. This process then waits for
  * the child to either print its "Tunnel established"/"Found existing ngrok
  * tunnel" line (readiness) or exit early (failure) before returning, so a
  * misconfigured provider still fails loudly in the terminal that ran `-d`.
+ *
+ * The log filename is scoped to this (parent) process's pid so concurrent
+ * `-d` runs (e.g. tunneling two different local assistants at once) don't
+ * truncate and read each other's readiness output.
  */
 async function spawnDetachedTunnel(): Promise<void> {
   const childArgs: string[] = ["tunnel"];
   for (const arg of process.argv.slice(3)) {
-    if (arg === "-d" || arg === "--detach") continue;
+    if (arg === "-d" || arg === "--detach") {
+      continue;
+    }
     childArgs.push(arg);
   }
 
@@ -383,8 +390,9 @@ async function spawnDetachedTunnel(): Promise<void> {
     ? childArgs
     : [process.argv[1], ...childArgs];
 
-  resetLogFile(TUNNEL_BACKGROUND_LOG_FILE);
-  const fd = openLogFile(TUNNEL_BACKGROUND_LOG_FILE);
+  const logFile = `tunnel-${process.pid}.log`;
+  resetLogFile(logFile);
+  const fd = openLogFile(logFile);
   const child = spawn(process.execPath, spawnArgs, {
     detached: true,
     stdio: ["ignore", fd, fd],
@@ -394,7 +402,7 @@ async function spawnDetachedTunnel(): Promise<void> {
   }
   child.unref();
 
-  const logPath = join(getLogDir(), TUNNEL_BACKGROUND_LOG_FILE);
+  const logPath = join(getLogDir(), logFile);
 
   let exit: { code: number | null } | undefined;
   child.on("error", () => {
@@ -406,16 +414,23 @@ async function spawnDetachedTunnel(): Promise<void> {
 
   const deadline = Date.now() + TUNNEL_BACKGROUND_START_TIMEOUT_MS;
   let publicUrl: string | undefined;
+  let adopted = false;
   while (Date.now() < deadline && !exit) {
     let logText = "";
     try {
       logText = readFileSync(logPath, "utf-8");
     } catch {
-      // Log file not written yet — keep polling.
+      // Log file not written yet. Keep polling.
     }
-    const match = TUNNEL_READY_RE.exec(logText);
-    if (match) {
-      publicUrl = match[1];
+    const established = TUNNEL_ESTABLISHED_RE.exec(logText);
+    const adoptedMatch = TUNNEL_ADOPTED_RE.exec(logText);
+    if (established) {
+      publicUrl = established[1];
+      break;
+    }
+    if (adoptedMatch) {
+      publicUrl = adoptedMatch[1];
+      adopted = true;
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -436,7 +451,15 @@ async function spawnDetachedTunnel(): Promise<void> {
     );
   }
   console.log(`Running in background (pid ${child.pid}). Logs: ${logPath}`);
-  console.log(`Stop with: kill ${child.pid}`);
+  if (adopted) {
+    console.log(
+      `That ngrok agent was already running outside this command, so \`kill ${child.pid}\` only ` +
+        "stops this supervisor, not the ngrok tunnel or its saved ingress URL. Stop the ngrok agent " +
+        "directly to end the tunnel.",
+    );
+  } else {
+    console.log(`Stop with: kill ${child.pid}`);
+  }
 }
 
 export async function tunnel(): Promise<void> {
