@@ -6,6 +6,7 @@
  * submit/cancel lifecycle for the secret-prompt interaction.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -42,7 +43,7 @@ export async function handleSecretSubmit(
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     useInteractionStore
       .getState()
       .releaseSubmission("secret", pendingSecret.requestId);
@@ -60,7 +61,15 @@ export async function handleSecretSubmit(
       delivery,
     );
     if (!result.ok) {
-      reportSubmissionFailure("secret", pendingSecret.requestId, result.error);
+      captureError(new Error(`secret submit failed: ${result.error}`), {
+        context: "submit_secret_response",
+        extra: { status: result.status },
+      });
+      reportSubmissionFailure(
+        "secret",
+        pendingSecret.requestId,
+        "secretActions.submitFailed",
+      );
       // Outside the gate: both describe this request's own outcome, and a
       // superseded prompt still has to let go of the slot it holds.
       useInteractionStore
@@ -92,7 +101,7 @@ export async function handleSecretSubmit(
     reportSubmissionFailure(
       "secret",
       pendingSecret.requestId,
-      "Failed to submit secret. Please try again.",
+      "secretActions.submitFailed",
     );
     useInteractionStore
       .getState()

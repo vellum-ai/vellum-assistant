@@ -20,6 +20,10 @@
  * ownership; the older one stands down when it returns.
  */
 
+import type { ParseKeys } from "i18next";
+
+import { t } from "@/i18n";
+
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 
@@ -86,16 +90,23 @@ export function stillOwnsSubmission(
  *
  * Releasing the slot is deliberately not routed through here. It belongs to the
  * request whatever else has happened.
+ *
+ * The message is a catalog key rather than a string, so what reaches the banner
+ * is copy written for this surface in the reader's language. An assistant's own
+ * rejection text describes a request the client built and cannot be passed
+ * here: it belongs in Sentry, where it names the mismatch.
  */
 export function reportSubmissionFailure(
   kind: PromptKind,
   requestId: string,
-  message: string,
+  messageKey: ParseKeys<"chat">,
 ): void {
   if (!ownsTheBanner(kind, requestId)) {
     return;
   }
-  useChatSessionStore.getState().setError({ message });
+  useChatSessionStore
+    .getState()
+    .setError({ message: t(messageKey, { ns: "chat" }) });
 }
 
 /**

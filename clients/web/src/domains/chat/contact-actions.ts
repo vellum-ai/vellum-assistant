@@ -6,6 +6,7 @@
  * submit/cancel lifecycle for the contact-request interaction.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -43,7 +44,7 @@ export async function handleContactPromptSubmit(
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     useInteractionStore
       .getState()
       .releaseSubmission("contactRequest", pendingContactRequest.requestId);
@@ -59,10 +60,14 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
+      captureError(new Error(`contact prompt failed: ${result.error}`), {
+        context: "submit_contact_prompt",
+        extra: { status: result.status },
+      });
       reportSubmissionFailure(
         "contactRequest",
         pendingContactRequest.requestId,
-        result.error,
+        "contactActions.saveFailed",
       );
       useInteractionStore
         .getState()
@@ -85,7 +90,7 @@ export async function handleContactPromptSubmit(
     reportSubmissionFailure(
       "contactRequest",
       pendingContactRequest.requestId,
-      "Failed to save contact. Please try again.",
+      "contactActions.saveFailed",
     );
     useInteractionStore
       .getState()

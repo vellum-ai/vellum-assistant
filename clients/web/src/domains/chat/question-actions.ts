@@ -83,7 +83,7 @@ export async function handleQuestionResponse(
     // guard above, so no newer prompt can have arrived yet.
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     useInteractionStore
       .getState()
       .releaseSubmission("question", snapshot.requestId);
@@ -111,7 +111,7 @@ export async function handleQuestionResponse(
       reportSubmissionFailure(
         "question",
         snapshot.requestId,
-        t("chat:questionActions.submitFailed"),
+        "questionActions.submitFailed",
       );
       useInteractionStore
         .getState()
@@ -134,7 +134,7 @@ export async function handleQuestionResponse(
     reportSubmissionFailure(
       "question",
       snapshot.requestId,
-      t("chat:questionActions.submitFailed"),
+      "questionActions.submitFailed",
     );
     useInteractionStore
       .getState()

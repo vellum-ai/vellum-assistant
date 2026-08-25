@@ -130,8 +130,9 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
     expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
       "cr-500",
     );
+    // Copy the user can read, not the assistant's rejection text.
     expect(useChatSessionStore.getState().error?.message).toBe(
-      "Internal error",
+      "Failed to submit confirmation. Please try again.",
     );
   });
 });
@@ -442,7 +443,9 @@ describe("handleAllowAndCreateRule: a resume that no longer owns the slot", () =
 
     await handleAllowAndCreateRule();
 
-    expect(useChatSessionStore.getState().error?.message).toBe("boom");
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Failed to submit confirmation, but you can still create a rule.",
+    );
     expect(
       useInteractionStore.getState().submittingByKind.confirmation,
     ).toBeNull();

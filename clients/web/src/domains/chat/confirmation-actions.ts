@@ -6,6 +6,7 @@
  * tool-call confirmation prompts.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -186,7 +187,7 @@ export async function handleConfirmationSubmit(
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     useInteractionStore
       .getState()
       .releaseSubmission("confirmation", snapshot.requestId);
@@ -228,7 +229,15 @@ export async function handleConfirmationSubmit(
         clearStaleConfirmation(snapshot, mappedToolCallId);
         return;
       }
-      reportSubmissionFailure("confirmation", snapshot.requestId, result.error);
+      captureError(new Error(`confirmation submit failed: ${result.error}`), {
+        context: "submit_confirmation",
+        extra: { status: result.status },
+      });
+      reportSubmissionFailure(
+        "confirmation",
+        snapshot.requestId,
+        "confirmationActions.submitFailed",
+      );
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", snapshot.requestId);
@@ -241,7 +250,7 @@ export async function handleConfirmationSubmit(
     reportSubmissionFailure(
       "confirmation",
       snapshot.requestId,
-      "Failed to submit confirmation. Please try again.",
+      "confirmationActions.submitFailed",
     );
     useInteractionStore
       .getState()
@@ -272,7 +281,7 @@ export async function handleAllowAndCreateRule(
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     return;
   }
 
@@ -333,10 +342,17 @@ export async function handleAllowAndCreateRule(
       if (result.status === 404) {
         clearSubmissionFailure("confirmation", snapshot.requestId);
       } else {
+        captureError(
+          new Error(`allow-and-create-rule failed: ${result.error}`),
+          {
+            context: "allow_and_create_rule",
+            extra: { status: result.status },
+          },
+        );
         reportSubmissionFailure(
           "confirmation",
           snapshot.requestId,
-          result.error,
+          "confirmationActions.submitFailedRuleAvailable",
         );
       }
       useInteractionStore
@@ -362,7 +378,7 @@ export async function handleAllowAndCreateRule(
     reportSubmissionFailure(
       "confirmation",
       snapshot.requestId,
-      "Failed to submit confirmation, but you can still create a rule.",
+      "confirmationActions.submitFailedRuleAvailable",
     );
     useInteractionStore
       .getState()
