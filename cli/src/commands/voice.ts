@@ -15,6 +15,7 @@ import { createInterface, type Interface } from "node:readline";
 
 import chalk from "chalk";
 
+import { extractValueFlag } from "../lib/arg-utils.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { CliLiveVoiceClient } from "../lib/live-voice/client.js";
 import {
@@ -23,8 +24,6 @@ import {
 } from "../lib/live-voice/connection.js";
 import { PcmPlayer } from "../lib/live-voice/pcm-player.js";
 import { MAX_TEXT_TURN_CHARS } from "../lib/live-voice/protocol.js";
-
-const VALUE_FLAGS = ["--conversation"] as const;
 
 function printUsage(): void {
   console.log(`vellum voice - Talk to an assistant by typing; hear it answer
@@ -70,14 +69,11 @@ export async function voice(): Promise<void> {
     return;
   }
 
-  const assistantArg = parseAssistantTargetArg(args, VALUE_FLAGS);
-  const conversationIdx = args.indexOf("--conversation");
-  const conversationId =
-    conversationIdx !== -1 ? args[conversationIdx + 1] : undefined;
-  if (conversationIdx !== -1 && !conversationId) {
-    console.error("Error: --conversation requires a conversation id.");
-    process.exit(1);
-  }
+  // Strips `--conversation <id>` from argv, rejecting a `-`-prefixed value:
+  // the daemon accepts any non-empty conversation id, so a swallowed option
+  // would open a conversation named after the flag it ate.
+  const conversationId = extractValueFlag(args, "conversation");
+  const assistantArg = parseAssistantTargetArg(args);
   const audioEnabled = !args.includes("--no-audio");
 
   let connection;
@@ -122,11 +118,12 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
     // is withheld for exactly as long.
     let turnInFlight = false;
     /**
-     * The in-flight turn's server-side id, once anything has named it.
+     * The in-flight turn's server-side id, once a frame has named it.
      *
-     * Lets a completion frame be matched to the turn it belongs to. Null while
-     * the turn is still anonymous, in which case a completion frame is taken
-     * at face value, which is what this did before ids were tracked at all.
+     * Matches a completion frame to the turn it belongs to, so one that
+     * arrives late cannot end a turn it does not describe. Null while the turn
+     * is still anonymous, in which case a completion frame is taken at face
+     * value: there is nothing to contradict it.
      */
     let activeTurnId: string | null = null;
     // Whether anything of this turn's reply has been printed yet, so the
