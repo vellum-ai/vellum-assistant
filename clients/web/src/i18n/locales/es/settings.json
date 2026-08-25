@@ -1246,7 +1246,6 @@
   },
   "pairedDevicesSection": {
     "browserOnOs": "{browser} en {os}",
-    "confirmMessage": "El dispositivo {platform} {hash} pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
     "confirmMessageNamed": "{name} ({hash}) pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
     "confirmTitle": "¿Revocar este dispositivo?",
     "dateUnknown": "desconocido",
