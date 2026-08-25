@@ -150,8 +150,8 @@ export interface ForkInstructionArgs {
  * the shared {@link loadPromptOverride}), else the bundled
  * {@link RETROSPECTIVE_INSTRUCTION_TEMPLATE}; both get the same placeholder
  * substitution. An override additionally gets the no-findings mandate
- * appended after its body: the exact-reply sentinel is the finalizer's
- * advancement contract, so it holds regardless of what the override says.
+ * appended after its body: a no-findings pass advances only by replying,
+ * so the ask-for-a-reply holds regardless of what the override says.
  */
 export function buildForkInstruction({
   windowStartTimestamp,

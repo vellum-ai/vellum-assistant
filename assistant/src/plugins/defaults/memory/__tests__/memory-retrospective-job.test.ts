@@ -853,7 +853,7 @@ describe("memoryRetrospectiveJob", () => {
           outcome: "no_usable_output",
           // The failure reason names what was missing, so an operator reading
           // the job row can tell a lost write from an unfinished review.
-          reason: "run committed neither a memory write nor a reply",
+          reason: "run committed neither a memory write nor a concluding reply",
         },
       },
     ]);
@@ -1105,6 +1105,39 @@ describe("memoryRetrospectiveJob", () => {
       ]);
     },
   );
+
+  test("narration followed by an empty final response has not concluded and does not advance", async () => {
+    // The reply that proves an empty-handed review must be the run's final
+    // word: text that went live mid-run followed by an empty last response
+    // is an unfinished review, not a conclusion.
+    mockWakeResult = { invoked: true, exitReason: "no_tool_calls" };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Let me look through the window carefully." },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([]),
+        createdAt: Date.parse("2026-05-11T10:20:05Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("no_usable_output");
+    if (outcome.kind === "no_usable_output") {
+      expect(outcome.reason).toBe(
+        "run committed neither a memory write nor a concluding reply",
+      );
+    }
+    expect(stateUpserts).toHaveLength(0);
+  });
 
   test("a run whose only text is whitespace has committed nothing and does not advance", async () => {
     mockWakeResult = { invoked: true, exitReason: "no_tool_calls" };

@@ -604,13 +604,14 @@ export async function runForkBasedRetrospective(
     // therefore requires POSITIVE evidence from THIS run, one of:
     //   - a memory-writing tool call on the fork's post-boundary tail whose
     //     execution verifiably succeeded (matching non-error tool_result), or
-    //   - a reviewed-and-nothing-to-save pass: the model answered in its own
-    //     words (a committed assistant text block), attempted no memory
-    //     write at all, and the loop ended because IT stopped asking for
-    //     tools rather than because something cut the run short. A run that
-    //     attempted a save and failed cannot advance by talking instead, and
-    //     a run the provider or the output ceiling ended mid-review has not
-    //     reviewed its window.
+    //   - a reviewed-and-nothing-to-save pass: the model ENDED the run by
+    //     answering in its own words (its final assistant row carries text),
+    //     attempted no memory write at all, and the loop ended because IT
+    //     stopped asking for tools rather than because something cut the run
+    //     short. A run that attempted a save and failed cannot advance by
+    //     talking instead, a run whose narration went live but whose final
+    //     response was empty has not concluded, and a run the provider or
+    //     the output ceiling ended mid-review has not reviewed its window.
     // The proof of an empty-handed review is the shape of the run, never the
     // wording of the reply: a model that reaches its own end with nothing to
     // write has reviewed the window, in whatever words it says so.
@@ -706,7 +707,7 @@ function describeUnusableRun(
     return `run attempted ${evidence.durableToolAttemptCount} memory write(s), none of which persisted a successful result`;
   }
   if (!evidence.committedTextReply) {
-    return "run committed neither a memory write nor a reply";
+    return "run committed neither a memory write nor a concluding reply";
   }
   return `run replied without saving anything, but ended on ${exitReason ?? "no terminal exit"} rather than a completed review`;
 }
@@ -1180,10 +1181,12 @@ async function collectRetrospectiveRunEvidence(
   /** Memory-writing tool calls the run attempted, regardless of outcome. */
   durableToolAttemptCount: number;
   /**
-   * The run answered in its own words: a persisted assistant text block with
-   * non-whitespace content. Any wording qualifies, so a pass that found
-   * nothing durable proves it reviewed the window by replying at all, not by
-   * reproducing a phrase.
+   * The run ENDED by answering in its own words: the last persisted
+   * assistant row carries a text block with non-whitespace content. Any
+   * wording qualifies, so a pass that found nothing durable proves it
+   * reviewed the window by replying, not by reproducing a phrase; but the
+   * reply must be the run's final word, so narration followed by an empty
+   * last response does not qualify.
    */
   committedTextReply: boolean;
 }> {
@@ -1210,42 +1213,29 @@ async function collectRetrospectiveRunEvidence(
 }
 
 /**
- * Whether any persisted assistant row on the run's tail carries a text block
- * with non-whitespace content. Paired with a model-driven stop and zero
- * memory-write attempts, that reply is the persisted artifact of a pass that
- * read its window and had nothing to save: the model spoke and then chose to
- * end the run. It separates such a pass from a response that committed
- * nothing at all (thinking-only output, an empty content array).
+ * Whether the LAST persisted assistant row on the run's tail carries a text
+ * block with non-whitespace content. Paired with a model-driven stop and
+ * zero memory-write attempts, that closing reply is the persisted artifact
+ * of a pass that read its window and had nothing to save: the model spoke
+ * and then chose to end the run. Reading only the final row separates it
+ * from a run whose narration went live but whose actual conclusion was
+ * empty, as well as from a response that committed nothing at all
+ * (thinking-only output, an empty content array).
  */
 function hasCommittedTextReply(messages: MessageLike[]): boolean {
-  for (const msg of messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]!;
     if (msg.role !== "assistant") {
       continue;
     }
-    let blocks: unknown = msg.content;
-    if (typeof blocks === "string") {
-      try {
-        blocks = JSON.parse(blocks);
-      } catch {
-        continue;
-      }
+    const blocks = parseMessageBlocks(msg);
+    if (blocks === null) {
+      return false;
     }
-    if (!Array.isArray(blocks)) {
-      continue;
-    }
-    for (const block of blocks) {
-      if (!block || typeof block !== "object") {
-        continue;
-      }
-      const b = block as Record<string, unknown>;
-      if (
-        b.type === "text" &&
-        typeof b.text === "string" &&
-        b.text.trim() !== ""
-      ) {
-        return true;
-      }
-    }
+    return blocks.some(
+      (b) =>
+        b.type === "text" && typeof b.text === "string" && b.text.trim() !== "",
+    );
   }
   return false;
 }
@@ -1261,22 +1251,7 @@ function collectSuccessfulToolResultIds(messages: MessageLike[]): Set<string> {
     if (msg.role !== "user") {
       continue;
     }
-    let blocks: unknown = msg.content;
-    if (typeof blocks === "string") {
-      try {
-        blocks = JSON.parse(blocks);
-      } catch {
-        continue;
-      }
-    }
-    if (!Array.isArray(blocks)) {
-      continue;
-    }
-    for (const block of blocks) {
-      if (!block || typeof block !== "object") {
-        continue;
-      }
-      const b = block as Record<string, unknown>;
+    for (const b of parseMessageBlocks(msg) ?? []) {
       // guard:allow-tool-result-only: success evidence for locally-executed
       // durable memory tools; server-side web_search_tool_result never
       // corresponds to a durable write and carries no is_error flag.
@@ -1308,22 +1283,7 @@ function countDurableToolUses(
     if (msg.role !== "assistant") {
       continue;
     }
-    let blocks: unknown = msg.content;
-    if (typeof blocks === "string") {
-      try {
-        blocks = JSON.parse(blocks);
-      } catch {
-        continue;
-      }
-    }
-    if (!Array.isArray(blocks)) {
-      continue;
-    }
-    for (const block of blocks) {
-      if (!block || typeof block !== "object") {
-        continue;
-      }
-      const b = block as Record<string, unknown>;
+    for (const b of parseMessageBlocks(msg) ?? []) {
       if (
         b.type === "tool_use" &&
         DURABLE_RETROSPECTIVE_TOOLS.has(String(b.name)) &&
@@ -1343,6 +1303,32 @@ interface MessageLike {
 }
 
 /**
+ * Parse a message row's content into its block objects, or `null` when the
+ * content is malformed (unparseable JSON, not an array). Non-object entries
+ * are dropped. Every evidence reader in this module goes through this so
+ * malformed rows degrade the same way everywhere: skipped, not propagated.
+ */
+function parseMessageBlocks(
+  msg: MessageLike,
+): Record<string, unknown>[] | null {
+  let blocks: unknown = msg.content;
+  if (typeof blocks === "string") {
+    try {
+      blocks = JSON.parse(blocks);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(blocks)) {
+    return null;
+  }
+  return blocks.filter(
+    (block): block is Record<string, unknown> =>
+      typeof block === "object" && block !== null,
+  );
+}
+
+/**
  * Scan an array of message rows for `tool_use` blocks where `name` is
  * `"remember"` and return the `input.content` strings in order. Robust to
  * malformed content JSON — unparseable rows are skipped, not propagated.
@@ -1356,22 +1342,7 @@ function extractRememberContents(
     if (msg.role !== "assistant") {
       continue;
     }
-    let blocks: unknown = msg.content;
-    if (typeof blocks === "string") {
-      try {
-        blocks = JSON.parse(blocks);
-      } catch {
-        continue;
-      }
-    }
-    if (!Array.isArray(blocks)) {
-      continue;
-    }
-    for (const block of blocks) {
-      if (!block || typeof block !== "object") {
-        continue;
-      }
-      const b = block as Record<string, unknown>;
+    for (const b of parseMessageBlocks(msg) ?? []) {
       if (b.type !== "tool_use") {
         continue;
       }
