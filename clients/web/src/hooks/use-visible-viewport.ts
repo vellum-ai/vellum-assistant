@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { subscribeNativeKeyboardHeight } from "@/runtime/native-keyboard";
-import { isNativeMobile } from "@/runtime/platform-detection";
+import { isNativeAndroid, isNativeMobile } from "@/runtime/platform-detection";
 
 /**
  * Threshold (in px) below which an `innerHeight − visualViewport.height` delta
@@ -299,6 +299,23 @@ export function readVisibleViewport(): VisibleViewport | null {
   // so they cannot outlive the orientation they were taken in.
   if (heldViewport) {
     return heldViewport;
+  }
+
+  // The Android shell (`adjustResize`) shrinks the web view before the plugin
+  // announces the keyboard: `keyboardWillShow` fires from the insets animation
+  // `onStart`, after layout. The `window` resize therefore reaches the rebase
+  // above with nothing announced yet and moves the reference onto the shrunk
+  // frame, and the announcement that follows then subtracts the keyboard from
+  // that frame a second time, leaving a strip the height of the header. The
+  // frame already fits above the keyboard there, so the measurement is the
+  // height and the announcement is the only thing that knows a keyboard is up.
+  if (isNativeAndroid()) {
+    return {
+      height: vv.height,
+      keyboardHeight: nativeKeyboardVisible ? anticipatedKeyboardHeight : 0,
+      offsetTop: 0,
+      offsetLeft: 0,
+    };
   }
 
   // Update the reference whenever the viewport grows (keyboard dismissed,
