@@ -512,9 +512,11 @@ export function PricingContent() {
                 converts your plan to Custom.
               </li>
               <li>
-                <strong>Downgrade a tier.</strong> Downgrades take effect at
-                your next renewal &mdash; you keep what you already paid for
-                until then, and there are no mid-cycle refunds.
+                <strong>Downgrade a tier.</strong> A smaller machine applies
+                immediately, and the price difference is credited toward your
+                next invoice. A smaller credit bundle starts at your next
+                renewal &mdash; credits already granted this cycle stay yours.
+                There are no mid-cycle cash refunds.
               </li>
               <li>
                 <strong>Cancel.</strong> Choose Downgrade to Base from the
