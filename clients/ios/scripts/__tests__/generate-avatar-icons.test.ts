@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { inflateSync } from "node:zlib";
 
 import {
   AVATAR_ICONS_DIR,
@@ -36,12 +37,12 @@ import {
 /** Scope of the catalog checked into the repo. Narrowing it is a code change. */
 const COMMITTED_SCOPE: IconSetScope = "full";
 
-/** Every body shape x eye style x color the avatar component library defines. */
-const COMMITTED_ICON_COUNT = 10 * 9 * 6;
+/** Every eye style x color the avatar component library defines. */
+const COMMITTED_ICON_COUNT = 9 * 6;
 
 /**
  * Scope of the determinism check. Byte-for-byte stability is a property of the
- * encoder rather than of the set size, so rerunning a 24-set slice proves it
+ * encoder rather than of the set size, so rerunning a 12-set slice proves it
  * for a fraction of the runtime. The drift guard below still pins every
  * committed icon, and needs only one fresh generation to do it.
  */
@@ -64,15 +65,29 @@ const PNG_COLOR_TYPE_OFFSET = 25;
 const MIN_ICON_BYTES = 4096;
 
 /**
- * Rasterizing all 540 icons takes about 2 minutes on an M-series laptop and
- * about 17 on a `macos-15` runner, so this is a backstop rather than a target.
- * Generation is synchronous, which bun cannot interrupt, so a run past this
- * still finishes and then reports the test failed.
+ * Rasterizing all 54 icons takes about five seconds on an M-series laptop, and
+ * a `macos-15` runner is roughly an order of magnitude slower, so this is a
+ * backstop rather than a target. Generation is synchronous, which bun cannot
+ * interrupt, so a run past this still finishes and then reports the test
+ * failed.
  */
-const GENERATION_TIMEOUT_MS = 2_400_000;
+const GENERATION_TIMEOUT_MS = 600_000;
 
-/** The determinism check reruns a 24-set slice: seconds locally, 90s on CI. */
-const PILOT_GENERATION_TIMEOUT_MS = 600_000;
+/** The determinism check reruns a 12-set slice: a second or two either way. */
+const PILOT_GENERATION_TIMEOUT_MS = 300_000;
+
+/** Width and height of every generated icon, in px. */
+const ICON_PX = 1024;
+
+/** Half the icon width, the span every eye pair is fitted to. */
+const EYE_SPAN_PX = ICON_PX / 2;
+
+/**
+ * Slack allowed on the measured eye span and center, in px. The generator sizes
+ * the artwork from a pixel scan of a probe render, so both land within a pixel
+ * of the target rather than exactly on it.
+ */
+const PLACEMENT_TOLERANCE_PX = 3;
 
 interface GeneratedCatalog {
   iconsDir: string;
@@ -102,7 +117,7 @@ function generateInto(dir: string, scope: IconSetScope): GeneratedCatalog {
 
 let shared: GeneratedCatalog | undefined;
 
-/** One generation shared by every read-only assertion, since each costs minutes. */
+/** One generation shared by every read-only assertion, since each costs seconds. */
 function catalog(): GeneratedCatalog {
   if (!shared) {
     shared = generateInto(makeTempDir(), COMMITTED_SCOPE);
@@ -113,7 +128,8 @@ function catalog(): GeneratedCatalog {
 /**
  * Relative path to content digest, so two trees can be diffed byte for byte
  * whether the file is JSON or a PNG. Digests rather than the bytes themselves
- * because a mismatch across 540 icons has to print a diff someone can read.
+ * because a mismatch across the whole catalog has to print a diff someone can
+ * read.
  */
 function snapshotTree(dir: string): Map<string, string> {
   const files = new Map<string, string>();
@@ -143,15 +159,79 @@ function iconSetNames(iconsDir: string): string[] {
     .sort();
 }
 
+/**
+ * Bounds of everything that is not the flat background field, in px. The field
+ * covers the whole canvas under the artwork, so the top-left pixel is its
+ * color. The generator writes filter-type 0 scanlines of RGB triples into a
+ * single IDAT, so inflating that chunk is the whole decode.
+ */
+function artworkBounds(png: Buffer): {
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+} {
+  const { width, height } = pngDimensions(png);
+  const idatStart = png.indexOf("IDAT", 0, "ascii");
+  expect(idatStart).toBeGreaterThan(0);
+  const idatLength = png.readUInt32BE(idatStart - 4);
+  const raw = inflateSync(
+    png.subarray(idatStart + 4, idatStart + 4 + idatLength),
+  );
+
+  const stride = 1 + width * 3;
+  const background = raw.subarray(1, 4);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = y * stride + 1 + x * 3;
+      if (
+        raw[offset] === background[0] &&
+        raw[offset + 1] === background[1] &&
+        raw[offset + 2] === background[2]
+      ) {
+        continue;
+      }
+      if (x < minX) {
+        minX = x;
+      }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (y < minY) {
+        minY = y;
+      }
+      if (y > maxY) {
+        maxY = y;
+      }
+    }
+  }
+  return {
+    width: maxX + 1 - minX,
+    height: maxY + 1 - minY,
+    centerX: (minX + maxX + 1) / 2,
+    centerY: (minY + maxY + 1) / 2,
+  };
+}
+
 describe("iconNameForTraits", () => {
-  test("builds the avatar-<body>-<eye>-<color> wire name", () => {
+  /**
+   * The literal is the wire contract with the web layer, which pins the same
+   * `avatar-eyes-grumpy-green` string in
+   * `clients/web/src/utils/avatar-app-icon.test.ts`. Both have to change
+   * together, and a rename ships under a new name rather than replacing the
+   * artwork behind this one.
+   */
+  test("builds the avatar-eyes-<eye>-<color> wire name", () => {
     expect(
       iconNameForTraits({
-        bodyShape: "blob",
         eyeStyle: "grumpy",
         color: "green",
       }),
-    ).toBe("avatar-blob-grumpy-green");
+    ).toBe("avatar-eyes-grumpy-green");
   });
 
   test(
@@ -170,7 +250,7 @@ describe("generateAvatarIcons", () => {
   test(
     "writes an icon set for each trait combination",
     () => {
-      // The full scope: 10 body shapes x 9 eye styles x 6 colors.
+      // The full scope: 9 eye styles x 6 colors.
       expect(iconSetNames(catalog().iconsDir)).toHaveLength(
         COMMITTED_ICON_COUNT,
       );
@@ -194,7 +274,7 @@ describe("generateAvatarIcons", () => {
     () => {
       const setDir = join(
         catalog().iconsDir,
-        "avatar-blob-grumpy-green.appiconset",
+        "avatar-eyes-grumpy-green.appiconset",
       );
       const contents = JSON.parse(
         readFileSync(join(setDir, "Contents.json"), "utf8"),
@@ -217,8 +297,35 @@ describe("generateAvatarIcons", () => {
       const { iconsDir } = catalog();
       for (const setName of iconSetNames(iconsDir)) {
         const png = readFileSync(join(iconsDir, setName, "icon.png"));
-        expect(pngDimensions(png)).toEqual({ width: 1024, height: 1024 });
+        expect(pngDimensions(png)).toEqual({
+          width: ICON_PX,
+          height: ICON_PX,
+        });
         expect(png.byteLength).toBeGreaterThan(MIN_ICON_BYTES);
+      }
+    },
+    GENERATION_TIMEOUT_MS,
+  );
+
+  test(
+    "fits every eye pair to half the icon and centers it",
+    () => {
+      const { iconsDir } = catalog();
+      for (const setName of iconSetNames(iconsDir)) {
+        const bounds = artworkBounds(
+          readFileSync(join(iconsDir, setName, "icon.png")),
+        );
+        // The longer edge is the fitted one: width for a pair wider than it is
+        // tall, height for one that is not.
+        expect(
+          Math.abs(Math.max(bounds.width, bounds.height) - EYE_SPAN_PX),
+        ).toBeLessThanOrEqual(PLACEMENT_TOLERANCE_PX);
+        expect(Math.abs(bounds.centerX - ICON_PX / 2)).toBeLessThanOrEqual(
+          PLACEMENT_TOLERANCE_PX,
+        );
+        expect(Math.abs(bounds.centerY - ICON_PX / 2)).toBeLessThanOrEqual(
+          PLACEMENT_TOLERANCE_PX,
+        );
       }
     },
     GENERATION_TIMEOUT_MS,
@@ -271,7 +378,7 @@ describe("generateAvatarIcons", () => {
 describe("committed catalog", () => {
   /**
    * Counts the checked-in tree on its own, so a commit that dropped icon sets
-   * reports the count rather than a 540-entry digest diff.
+   * reports the count rather than a whole-catalog digest diff.
    */
   test("holds every icon set and nothing else", () => {
     const setNames = iconSetNames(AVATAR_ICONS_DIR);
