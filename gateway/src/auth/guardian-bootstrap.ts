@@ -27,6 +27,11 @@ import { getLogger } from "../logger.js";
 import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
 import {
+  capDeviceIdentityText,
+  MAX_CLIENT_REPORTED_NAME_CHARS,
+  MAX_PAIRING_USER_AGENT_CHARS,
+} from "./device-identity-text.js";
+import {
   bustGuardianIntegrityCache,
   guardianIntegrityState,
   hasEvidenceOfPriorGuardian,
@@ -646,6 +651,17 @@ export function revokeRefreshTokensByDevice(
 }
 
 /**
+ * Device identity observed/asserted at mint time, carried as one unit so it
+ * travels through the minting signatures as a pair rather than two loose
+ * parameters. Capping happens at the store boundary (inside the mint
+ * functions below), not here, so no caller can bypass it.
+ */
+export interface DeviceIdentityInput {
+  pairingUserAgent?: string | null;
+  clientReportedName?: string | null;
+}
+
+/**
  * Mint a JWT access token and persist its hash in the gateway DB.
  */
 function mintAccessToken(
@@ -653,6 +669,7 @@ function mintAccessToken(
   hashedDeviceId: string,
   platform: string,
   ttlSeconds: number = ACCESS_TOKEN_TTL_SECONDS,
+  identity?: DeviceIdentityInput,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
@@ -677,6 +694,14 @@ function mintAccessToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
+      pairingUserAgent: capDeviceIdentityText(
+        identity?.pairingUserAgent,
+        MAX_PAIRING_USER_AGENT_CHARS,
+      ),
+      clientReportedName: capDeviceIdentityText(
+        identity?.clientReportedName,
+        MAX_CLIENT_REPORTED_NAME_CHARS,
+      ),
       status: "active",
       issuedAt: now,
       expiresAt,
@@ -696,6 +721,7 @@ function mintRefreshToken(
   hashedDeviceId: string,
   platform: string,
   options: { browserRefreshCookiePath?: string } = {},
+  identity?: DeviceIdentityInput,
 ): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -717,6 +743,14 @@ function mintRefreshToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
+      pairingUserAgent: capDeviceIdentityText(
+        identity?.pairingUserAgent,
+        MAX_PAIRING_USER_AGENT_CHARS,
+      ),
+      clientReportedName: capDeviceIdentityText(
+        identity?.clientReportedName,
+        MAX_CLIENT_REPORTED_NAME_CHARS,
+      ),
       status: "active",
       issuedAt: now,
       absoluteExpiresAt,
@@ -749,6 +783,7 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
   deviceId: string;
   platform: string;
+  identity?: DeviceIdentityInput;
 }): DeviceBoundTokenPair {
   const hashedDeviceId = hashToken(params.deviceId);
 
@@ -759,11 +794,15 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    ACCESS_TOKEN_TTL_SECONDS,
+    params.identity,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    {},
+    params.identity,
   );
 
   return {
@@ -784,6 +823,7 @@ export function mintAndRecordBrowserTokenPair(params: {
   guardianPrincipalId: string;
   platform: string;
   browserRefreshCookiePath: string;
+  identity?: DeviceIdentityInput;
 }): RefreshableTokenPair {
   const internalBinding = randomBytes(32).toString("base64url");
   const hashedDeviceId = hashToken(internalBinding);
@@ -792,12 +832,15 @@ export function mintAndRecordBrowserTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    ACCESS_TOKEN_TTL_SECONDS,
+    params.identity,
   );
   const refresh = mintRefreshToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
     { browserRefreshCookiePath: params.browserRefreshCookiePath },
+    params.identity,
   );
 
   return {
