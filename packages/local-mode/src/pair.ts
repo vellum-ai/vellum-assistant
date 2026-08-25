@@ -1,6 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  parsePairingAddress,
+  REMOTE_WEB_PAIRING_CODE_TTL_MS,
+  resolveRemoteWebPairingPlatform,
+  tunnelProviderWebsiteName,
+  type PublicBaseUrlRejection,
+  type RemoteWebPairingChallengeRequest,
+  type RemoteWebPairingChallengeResponse,
+  type RemoteWebPairingTokenApprovedResponse,
+  type RemoteWebPairingTokenPendingResponse,
+  type RemoteWebPairingTokenRequest,
+} from "@vellumai/service-contracts/remote-web-pairing";
 import { nanoid } from "nanoid";
 
 import { guardianTokenPath } from "./config";
@@ -12,77 +24,21 @@ import {
 import { readRawLockfile, upsertLockfileAssistant } from "./lockfile";
 
 /**
- * A decoded `vellum pair` bundle: base64(JSON.stringify({ gatewayUrl, token,
- * ... })) printed on the host machine and imported on this one.
+ * The session credentials a pairing exchange yields, in the shape
+ * {@link pairAssistant} persists. `refreshToken` is absent when the assistant's
+ * gateway does not issue a device-bound refresh credential, which imports the
+ * pairing access-only.
+ *
+ * `refreshTokenExpiresAt` mirrors GuardianTokenData (ISO string OR epoch-ms
+ * number) so a numeric expiry isn't silently dropped on import.
  */
-export interface PairBundle {
+export interface PairedAssistantCredentials {
   gatewayUrl: string;
   token: string;
-  assistantId?: string;
   deviceId?: string;
-  // Optional refresh credential. Present when the host's gateway issued a
-  // device-bound token pair; absent for older access-only bundles (which remain
-  // importable, just without auto-renewal). `refreshTokenExpiresAt` mirrors
-  // GuardianTokenData (ISO string OR epoch-ms number) so a numeric expiry isn't
-  // silently dropped on import.
   refreshToken?: string;
   refreshTokenExpiresAt?: string | number;
   refreshAfter?: string;
-}
-
-export type DecodePairBundleResult =
-  | { ok: true; bundle: PairBundle }
-  | { ok: false; error: string };
-
-/**
- * Decode and validate a base64 pairing bundle. Total and non-throwing:
- * malformed input yields a typed failure. `gatewayUrl` is persisted as
- * `runtimeUrl` and used to build fetch URLs, so it must be an absolute http(s)
- * URL rather than letting an invalid string through (which would crash
- * `new URL(...)` or break later client calls).
- */
-export function decodePairBundle(encoded: string): DecodePairBundleResult {
-  let json: unknown;
-  try {
-    json = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
-  } catch {
-    return { ok: false, error: "Bundle is not base64-encoded JSON" };
-  }
-  if (typeof json !== "object" || json === null) {
-    return { ok: false, error: "Bundle is not a JSON object" };
-  }
-  const b = json as Record<string, unknown>;
-  if (typeof b.gatewayUrl !== "string" || typeof b.token !== "string") {
-    return { ok: false, error: "Bundle is missing gatewayUrl or token" };
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(b.gatewayUrl);
-  } catch {
-    return { ok: false, error: "Bundle gatewayUrl is not an absolute URL" };
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return { ok: false, error: "Bundle gatewayUrl is not an http(s) URL" };
-  }
-  return {
-    ok: true,
-    bundle: {
-      gatewayUrl: b.gatewayUrl,
-      token: b.token,
-      assistantId:
-        typeof b.assistantId === "string" ? b.assistantId : undefined,
-      deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
-      refreshToken:
-        typeof b.refreshToken === "string" ? b.refreshToken : undefined,
-      refreshTokenExpiresAt:
-        typeof b.refreshTokenExpiresAt === "string" ||
-        typeof b.refreshTokenExpiresAt === "number"
-          ? b.refreshTokenExpiresAt
-          : undefined,
-      refreshAfter:
-        typeof b.refreshAfter === "string" ? b.refreshAfter : undefined,
-    },
-  };
 }
 
 /** Lowercase, collapse non-alphanumerics to single dashes, trim dashes. */
@@ -109,8 +65,8 @@ function jwtExpiryMs(token: string): number | null {
 }
 
 export interface PairOptions {
-  /** A bundle validated by {@link decodePairBundle}. */
-  bundle: PairBundle;
+  /** Credentials from a completed pairing exchange. */
+  credentials: PairedAssistantCredentials;
   /** Optional local name; its slug becomes the entry's assistantId. */
   name?: string;
 }
@@ -118,7 +74,7 @@ export interface PairOptions {
 /**
  * Failure statuses: 400 the name slugifies to nothing, 409 the id names an
  * existing non-paired assistant (`assistantId` carries the refused id),
- * 422 the bundle's gatewayUrl is unparseable, 500 a write failed.
+ * 422 the credentials' gatewayUrl is unusable, 500 a write failed.
  */
 export type PairResult =
   | {
@@ -127,17 +83,17 @@ export type PairResult =
       assistantId: string;
       /** True when an existing paired entry was updated in place. */
       updated: boolean;
-      /** True when the bundle carried no refresh credential. */
+      /** True when the exchange yielded no usable refresh credential. */
       accessOnly: boolean;
     }
   | { ok: false; status: number; error: string; assistantId?: string };
 
 /**
- * Register a pairing bundle on this machine: persist the guardian token and
- * upsert a `cloud: "paired"` lockfile entry, the write counterpart of
+ * Register a pairing on this machine: persist the guardian token and upsert a
+ * `cloud: "paired"` lockfile entry, the write counterpart of
  * `unpairAssistant`.
  *
- * The entry is stored under a UNIQUE LOCAL id (not the bundle's assistantId,
+ * The entry is stored under a UNIQUE LOCAL id (not the remote assistant id,
  * which is typically "self" and would collide across hosts). This is safe
  * because the gateway's runtime proxy strips the `/v1/assistants/<id>/` segment
  * before forwarding, so the local id never has to match the remote one: the
@@ -146,24 +102,24 @@ export type PairResult =
 export function pairAssistant(
   lockfilePaths: string[],
   configDir: string,
-  { bundle, name }: PairOptions,
+  { credentials, name }: PairOptions,
 ): PairResult {
   let gatewayHost: string;
   try {
-    gatewayHost = new URL(bundle.gatewayUrl).host;
+    gatewayHost = new URL(credentials.gatewayUrl).host;
   } catch {
     return {
       ok: false,
       status: 422,
-      error: "Bundle gatewayUrl is not an absolute URL",
+      error: "Pairing gatewayUrl is not an absolute URL",
     };
   }
 
   // A paired entry is remote by definition (`vellum pair` refuses to advertise
   // loopback URLs), and a loopback runtimeUrl in the lockfile would otherwise
   // read as a local gateway to loopback-port consumers. Refuse it outright so
-  // a crafted bundle cannot point a pairing at this machine's own services.
-  if (isLoopbackUrl(bundle.gatewayUrl)) {
+  // a crafted address cannot point a pairing at this machine's own services.
+  if (isLoopbackUrl(credentials.gatewayUrl)) {
     return {
       ok: false,
       status: 422,
@@ -174,13 +130,13 @@ export function pairAssistant(
   }
 
   // Unique local id: a name slug, or paired-<deviceId> (deviceId is unique per
-  // pairing). Never the bundle's "self" assistantId, which would collide. The
-  // deviceId comes from an untrusted bundle and is used as a path component by
+  // pairing). Never the remote "self" assistantId, which would collide. The
+  // deviceId may be untrusted and is used as a path component by
   // saveGuardianToken, so it MUST be slugified (no `../` traversal); fall back
   // to a random id if it sanitizes to empty.
   const localId = name
     ? slugify(name)
-    : `paired-${slugify(bundle.deviceId ?? "") || nanoid()}`;
+    : `paired-${slugify(credentials.deviceId ?? "") || nanoid()}`;
   if (!localId) {
     return {
       ok: false,
@@ -226,16 +182,16 @@ export function pairAssistant(
   try {
     saveGuardianToken(configDir, localId, {
       guardianPrincipalId: "imported",
-      accessToken: bundle.token,
+      accessToken: credentials.token,
       accessTokenExpiresAt:
-        jwtExpiryMs(bundle.token) ?? now + 24 * 60 * 60 * 1000,
-      refreshToken: bundle.refreshToken ?? "",
-      refreshTokenExpiresAt: bundle.refreshTokenExpiresAt ?? 0,
-      refreshAfter: bundle.refreshAfter ?? "",
+        jwtExpiryMs(credentials.token) ?? now + 24 * 60 * 60 * 1000,
+      refreshToken: credentials.refreshToken ?? "",
+      refreshTokenExpiresAt: credentials.refreshTokenExpiresAt ?? 0,
+      refreshAfter: credentials.refreshAfter ?? "",
       isNew: false,
-      deviceId: bundle.deviceId ?? "",
+      deviceId: credentials.deviceId ?? "",
       leasedAt: new Date(now).toISOString(),
-      pairedGatewayUrl: bundle.gatewayUrl,
+      pairedGatewayUrl: credentials.gatewayUrl,
     });
   } catch (err) {
     return {
@@ -252,7 +208,7 @@ export function pairAssistant(
     {
       assistantId: localId,
       name: name ?? `paired (${gatewayHost})`,
-      runtimeUrl: bundle.gatewayUrl,
+      runtimeUrl: credentials.gatewayUrl,
       // Paired entries are reached by bearer token at the remote runtimeUrl
       // (a non-"vellum" cloud selects the bearer-token auth path in client.ts).
       // The "paired" topology lets lifecycle/status commands (ps/wake/sleep)
@@ -291,15 +247,519 @@ export function pairAssistant(
     // loopback refused above, a plaintext http gateway can never renew, so it
     // is reported access-only and gets the expiry warning.
     accessOnly:
-      !bundle.refreshToken || !isConfidentialRefreshUrl(bundle.gatewayUrl),
+      !credentials.refreshToken ||
+      !isConfidentialRefreshUrl(credentials.gatewayUrl),
+  };
+}
+
+// ── Host-side pairing sessions ──────────────────────────────────────────────
+//
+// A pairing address is either a full pairing link (it carries an approved
+// device code) or a bare assistant URL (this machine mints its own challenge
+// and the user approves the printed code on the host). Both end at one
+// `POST /v1/remote-web/pairing-token` exchange whose credentials go straight
+// to `pairAssistant`.
+//
+// The device code, the generated device id, and the minted tokens never leave
+// this process: callers hold an opaque handle and see only the approval code
+// they are meant to display.
+
+/**
+ * Bounds what an untrusted pairing request can make a host buffer and parse.
+ * A pairing link is a URL, so anything approaching this is not one.
+ */
+const MAX_PAIRING_ADDRESS_LENGTH = 2 * 1024;
+
+/** Poll cadence used until the gateway names its own. */
+const DEFAULT_PAIRING_POLL_INTERVAL_SECONDS = 5;
+
+/** Caps how long a single pairing request may occupy the caller. */
+const PAIRING_REQUEST_TIMEOUT_MS = 15_000;
+
+const PAIRING_CHALLENGE_PATH = "/v1/remote-web/pairing-challenge";
+const PAIRING_TOKEN_PATH = "/v1/remote-web/pairing-token";
+
+/** What a pairing attempt failed on, for callers picking recovery copy. */
+export type PairingFailureReason =
+  /** The pasted address is not a usable assistant address. */
+  | "invalid-address"
+  /** No live session for this handle: it was cancelled or never existed. */
+  | "unknown-session"
+  /** The device code expired, was denied, or was already spent. */
+  | "expired"
+  /** The assistant could not be reached. */
+  | "unreachable"
+  /** The assistant answered, but not with a pairing response. */
+  | "gateway"
+  /** The credentials arrived, but registering them locally was refused. */
+  | "import";
+
+export interface PairingFailure {
+  ok: false;
+  reason: PairingFailureReason;
+  /** Ready to display. */
+  error: string;
+  /** HTTP status for the loopback hosts that expose this over a route. */
+  status: number;
+  /** Why the address was refused; set only for `invalid-address`. */
+  rejection?: PublicBaseUrlRejection;
+}
+
+export interface PairingStarted {
+  ok: true;
+  /** Opaque key for {@link pairingPoll} and {@link pairingCancel}. */
+  handle: string;
+  /**
+   * The approval code to display, or null when the address already carried an
+   * approved device code and the first poll imports outright.
+   */
+  userCode: string | null;
+  /** ISO-8601 instant the attempt expires. */
+  expiresAt: string;
+  /** Seconds to wait between {@link pairingPoll} calls. */
+  intervalSeconds: number;
+}
+
+export type PairingStartResult = PairingStarted | PairingFailure;
+
+export type PairingPollResult =
+  | {
+      ok: true;
+      status: "pending";
+      /** ISO-8601 instant the attempt expires. */
+      expiresAt: string;
+      /** Seconds to wait before polling again. */
+      intervalSeconds: number;
+    }
+  | {
+      ok: true;
+      status: "imported";
+      /** The unique local id the pairing was registered under. */
+      assistantId: string;
+      /** True when an existing paired entry was updated in place. */
+      updated: boolean;
+      /** True when the exchange yielded no usable refresh credential. */
+      accessOnly: boolean;
+    }
+  | PairingFailure;
+
+interface PendingPairing {
+  publicBaseUrl: string;
+  deviceCode: string;
+  deviceId: string;
+  expiresAtMs: number;
+  intervalSeconds: number;
+}
+
+const pendingPairings = new Map<string, PendingPairing>();
+
+/** Drop sessions past their challenge's TTL so the map can't grow unbounded. */
+function sweepExpiredPairings(): void {
+  const now = Date.now();
+  for (const [handle, session] of pendingPairings) {
+    if (now >= session.expiresAtMs) {
+      pendingPairings.delete(handle);
+    }
+  }
+}
+
+function addressRejectionMessage(
+  reason: PublicBaseUrlRejection,
+  address: string,
+): string {
+  switch (reason) {
+    case "loopback":
+      return "That address points back at this machine. Use the assistant's public https address.";
+    case "non-https":
+      return "A pairing address must use https.";
+    case "service-website":
+      return `That is ${
+        tunnelProviderWebsiteName(address) ?? "the tunnel provider"
+      }'s own website, not your assistant's address.`;
+    default:
+      return "That is not a valid address. Paste the assistant's https URL or a pairing link.";
+  }
+}
+
+function invalidAddress(
+  error: string,
+  rejection?: PublicBaseUrlRejection,
+): PairingFailure {
+  return {
+    ok: false,
+    reason: "invalid-address",
+    status: 400,
+    error,
+    rejection,
+  };
+}
+
+function expiredCode(): PairingFailure {
+  return {
+    ok: false,
+    reason: "expired",
+    status: 410,
+    error:
+      "The pairing code expired or was denied. Start over to get a new one.",
+  };
+}
+
+function unreachableAssistant(): PairingFailure {
+  return {
+    ok: false,
+    reason: "unreachable",
+    status: 503,
+    error:
+      "Could not reach that assistant. Check the address and that it is online.",
+  };
+}
+
+function unexpectedGatewayReply(status: number): PairingFailure {
+  return {
+    ok: false,
+    reason: "gateway",
+    status: 502,
+    error: `The assistant's pairing reply could not be used (HTTP ${status}).`,
+  };
+}
+
+type PairingPost =
+  | { ok: true; status: number; body: unknown }
+  | { ok: false; failure: PairingFailure };
+
+/**
+ * One timeout-bounded pairing POST. A network error, a timeout, and a
+ * non-JSON body all resolve rather than throw so every caller stays total.
+ */
+async function postPairingRequest(
+  publicBaseUrl: string,
+  routePath: string,
+  body: unknown,
+): Promise<PairingPost> {
+  let response: Response;
+  try {
+    response = await fetch(`${publicBaseUrl}${routePath}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS),
+    });
+  } catch {
+    return { ok: false, failure: unreachableAssistant() };
+  }
+  return {
+    ok: true,
+    status: response.status,
+    body: (await response.json().catch(() => null)) as unknown,
+  };
+}
+
+function isChallengeResponse(
+  value: unknown,
+): value is RemoteWebPairingChallengeResponse {
+  const payload = value as Partial<RemoteWebPairingChallengeResponse> | null;
+  return (
+    typeof payload?.deviceCode === "string" &&
+    typeof payload.userCode === "string" &&
+    typeof payload.expiresAt === "string"
+  );
+}
+
+function isApprovedResponse(
+  value: unknown,
+): value is RemoteWebPairingTokenApprovedResponse {
+  const payload =
+    value as Partial<RemoteWebPairingTokenApprovedResponse> | null;
+  return (
+    payload?.status === "approved" && typeof payload.accessToken === "string"
+  );
+}
+
+/** An ISO instant as epoch ms, or `fallback` when it isn't one. */
+function instantMs(value: unknown, fallback: number): number {
+  if (typeof value !== "string") return fallback;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function positiveSeconds(value: unknown, fallback: number): number {
+  return typeof value === "number" && value > 0 ? value : fallback;
+}
+
+function openPairingSession(
+  session: PendingPairing,
+  userCode: string | null,
+): PairingStarted {
+  const handle = nanoid();
+  pendingPairings.set(handle, session);
+  return {
+    ok: true,
+    handle,
+    userCode,
+    expiresAt: new Date(session.expiresAtMs).toISOString(),
+    intervalSeconds: session.intervalSeconds,
   };
 }
 
 /**
- * Bounds what an untrusted connect-import request can make a host buffer and
- * decode. Enforced by {@link connectImport} for every host.
+ * Begin pairing with an assistant at `address`, either a pairing link or a
+ * bare `https://host` URL. A link carries an approved device code, so the
+ * first {@link pairingPoll} imports outright; a bare URL mints a challenge
+ * whose `userCode` the caller displays for approval on the host.
+ *
+ * SSRF containment rides on `parsePairingAddress`, which refuses loopback,
+ * non-https, and tunnel-vendor websites before any request is made.
  */
-export const MAX_PAIR_BUNDLE_LENGTH = 64 * 1024;
+export async function pairingStart(
+  address: unknown,
+): Promise<PairingStartResult> {
+  if (typeof address !== "string" || !address.trim()) {
+    return invalidAddress("Enter the assistant's address or a pairing link.");
+  }
+  if (address.length > MAX_PAIRING_ADDRESS_LENGTH) {
+    return invalidAddress("That pairing address is too long.");
+  }
+  const trimmed = address.trim();
+  const parsed = parsePairingAddress(trimmed);
+  if (!parsed.ok) {
+    return invalidAddress(
+      addressRejectionMessage(parsed.reason, trimmed),
+      parsed.reason,
+    );
+  }
+
+  sweepExpiredPairings();
+  const deviceId = nanoid();
+
+  if (parsed.deviceCode) {
+    return openPairingSession(
+      {
+        publicBaseUrl: parsed.publicBaseUrl,
+        deviceCode: parsed.deviceCode,
+        deviceId,
+        // A link carries no expiry, so bound the session by the TTL the
+        // gateway would have minted the challenge with.
+        expiresAtMs: Date.now() + REMOTE_WEB_PAIRING_CODE_TTL_MS,
+        intervalSeconds: DEFAULT_PAIRING_POLL_INTERVAL_SECONDS,
+      },
+      null,
+    );
+  }
+
+  const posted = await postPairingRequest(
+    parsed.publicBaseUrl,
+    PAIRING_CHALLENGE_PATH,
+    {
+      publicBaseUrl: parsed.publicBaseUrl,
+    } satisfies RemoteWebPairingChallengeRequest,
+  );
+  if (!posted.ok) {
+    return posted.failure;
+  }
+  if (posted.status !== 200 || !isChallengeResponse(posted.body)) {
+    return unexpectedGatewayReply(posted.status);
+  }
+
+  const challenge = posted.body;
+  return openPairingSession(
+    {
+      publicBaseUrl: parsed.publicBaseUrl,
+      deviceCode: challenge.deviceCode,
+      deviceId,
+      expiresAtMs: instantMs(
+        challenge.expiresAt,
+        Date.now() + REMOTE_WEB_PAIRING_CODE_TTL_MS,
+      ),
+      intervalSeconds: positiveSeconds(
+        challenge.intervalSeconds,
+        DEFAULT_PAIRING_POLL_INTERVAL_SECONDS,
+      ),
+    },
+    challenge.userCode,
+  );
+}
+
+export interface PairingPollOptions {
+  /** The handle {@link pairingStart} returned. */
+  handle: unknown;
+  /** Optional local name; non-string or empty values are ignored. */
+  name?: unknown;
+  /** Platform to record for this device; defaults to `desktop`. */
+  platform?: unknown;
+}
+
+/**
+ * One device-code exchange attempt for a live session. Still-pending
+ * challenges resolve with the cadence to wait before trying again; an approved
+ * one is registered through {@link pairAssistant} in the same call.
+ */
+export async function pairingPoll(
+  lockfilePaths: string[],
+  configDir: string,
+  { handle, name, platform }: PairingPollOptions,
+): Promise<PairingPollResult> {
+  const key = typeof handle === "string" ? handle : "";
+  const session = pendingPairings.get(key);
+  if (!session) {
+    return {
+      ok: false,
+      reason: "unknown-session",
+      status: 404,
+      error: "That pairing attempt is no longer active. Start over.",
+    };
+  }
+  if (Date.now() >= session.expiresAtMs) {
+    pendingPairings.delete(key);
+    return expiredCode();
+  }
+
+  const posted = await postPairingRequest(
+    session.publicBaseUrl,
+    PAIRING_TOKEN_PATH,
+    {
+      deviceCode: session.deviceCode,
+      deviceId: session.deviceId,
+      platform: resolveRemoteWebPairingPlatform(platform),
+    } satisfies RemoteWebPairingTokenRequest,
+  );
+  // The session survives a transport failure so the caller can simply poll
+  // again; the device code is untouched until the gateway answers.
+  if (!posted.ok) {
+    return posted.failure;
+  }
+
+  if (posted.status === 202) {
+    const pending =
+      posted.body as Partial<RemoteWebPairingTokenPendingResponse> | null;
+    session.expiresAtMs = instantMs(pending?.expiresAt, session.expiresAtMs);
+    session.intervalSeconds = positiveSeconds(
+      pending?.intervalSeconds,
+      session.intervalSeconds,
+    );
+    return {
+      ok: true,
+      status: "pending",
+      expiresAt: new Date(session.expiresAtMs).toISOString(),
+      intervalSeconds: session.intervalSeconds,
+    };
+  }
+
+  // The gateway answers an unknown, expired, denied, or already-spent device
+  // code alike: the attempt is over and needs a fresh code.
+  if (posted.status === 401 || posted.status === 404 || posted.status === 410) {
+    pendingPairings.delete(key);
+    return expiredCode();
+  }
+  // Anything else left the code exchangeable (the gateway releases it on a
+  // repairable failure), so the session stays pollable.
+  if (posted.status !== 200) {
+    return unexpectedGatewayReply(posted.status);
+  }
+
+  // Past here the gateway has spent the code, so the session goes whether or
+  // not the reply is usable and whether or not the local write succeeds; a
+  // retry starts from a fresh code.
+  pendingPairings.delete(key);
+  if (!isApprovedResponse(posted.body)) {
+    return unexpectedGatewayReply(posted.status);
+  }
+
+  const approved = posted.body;
+  const result = pairAssistant(lockfilePaths, configDir, {
+    credentials: {
+      gatewayUrl: session.publicBaseUrl,
+      token: approved.accessToken,
+      deviceId: session.deviceId,
+      refreshToken: approved.refreshToken,
+      refreshTokenExpiresAt: approved.refreshTokenExpiresAt,
+      refreshAfter: approved.refreshAfter,
+    },
+    name: typeof name === "string" && name ? name : undefined,
+  });
+  if (!result.ok) {
+    return {
+      ok: false,
+      reason: "import",
+      status: result.status,
+      error: result.error,
+    };
+  }
+  return {
+    ok: true,
+    status: "imported",
+    assistantId: result.assistantId,
+    updated: result.updated,
+    accessOnly: result.accessOnly,
+  };
+}
+
+/** Forget a pending pairing. True when a live session was dropped. */
+export function pairingCancel(handle: unknown): boolean {
+  sweepExpiredPairings();
+  return typeof handle === "string" && pendingPairings.delete(handle);
+}
+
+// ── Legacy base64 bundle import ─────────────────────────────────────────────
+//
+// The pre-pairing-link import path, still reached by the Electron IPC channel,
+// the CLI dev-server route, and the Vite middleware. It shares `pairAssistant`
+// with the pairing-session flow above and adds only base64 decoding.
+
+/** Bounds what an untrusted bundle import can make a host buffer and decode. */
+const MAX_BUNDLE_LENGTH = 64 * 1024;
+
+type DecodedBundle =
+  | { ok: true; credentials: PairedAssistantCredentials }
+  | { ok: false; error: string };
+
+/**
+ * Decode and validate a base64 pairing bundle. Total and non-throwing:
+ * malformed input yields a typed failure. `gatewayUrl` is persisted as
+ * `runtimeUrl` and used to build fetch URLs, so it must be an absolute http(s)
+ * URL rather than letting an invalid string through (which would crash
+ * `new URL(...)` or break later client calls).
+ */
+function decodePairBundle(encoded: string): DecodedBundle {
+  let json: unknown;
+  try {
+    json = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+  } catch {
+    return { ok: false, error: "Bundle is not base64-encoded JSON" };
+  }
+  if (typeof json !== "object" || json === null) {
+    return { ok: false, error: "Bundle is not a JSON object" };
+  }
+  const b = json as Record<string, unknown>;
+  if (typeof b.gatewayUrl !== "string" || typeof b.token !== "string") {
+    return { ok: false, error: "Bundle is missing gatewayUrl or token" };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(b.gatewayUrl);
+  } catch {
+    return { ok: false, error: "Bundle gatewayUrl is not an absolute URL" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, error: "Bundle gatewayUrl is not an http(s) URL" };
+  }
+  return {
+    ok: true,
+    credentials: {
+      gatewayUrl: b.gatewayUrl,
+      token: b.token,
+      deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
+      refreshToken:
+        typeof b.refreshToken === "string" ? b.refreshToken : undefined,
+      refreshTokenExpiresAt:
+        typeof b.refreshTokenExpiresAt === "string" ||
+        typeof b.refreshTokenExpiresAt === "number"
+          ? b.refreshTokenExpiresAt
+          : undefined,
+      refreshAfter:
+        typeof b.refreshAfter === "string" ? b.refreshAfter : undefined,
+    },
+  };
+}
 
 export interface ConnectImportOptions {
   /** The encoded bundle exactly as received from the transport. */
@@ -314,12 +774,12 @@ export interface ConnectImportOptions {
  * respond with (the IPC host ignores it).
  */
 export type ConnectImportResult =
-  | { ok: true; assistantId: string; accessOnly: boolean }
+  | { ok: true; assistantId: string; updated: boolean; accessOnly: boolean }
   | { ok: false; status: number; error: string };
 
 /**
- * The complete connect-import host operation: validate the raw bundle value
- * (present, non-empty, within {@link MAX_PAIR_BUNDLE_LENGTH}), decode it, and
+ * The complete bundle-import host operation: validate the raw bundle value
+ * (present, non-empty, within {@link MAX_BUNDLE_LENGTH}), decode it, and
  * register the pairing via {@link pairAssistant}. Hosts keep only
  * transport-specific parsing and pass the untrusted values straight through,
  * so bundle limits, error strings, and the result shape are defined once.
@@ -332,7 +792,7 @@ export function connectImport(
   if (typeof bundle !== "string" || !bundle) {
     return { ok: false, status: 400, error: "Missing pairing bundle" };
   }
-  if (bundle.length > MAX_PAIR_BUNDLE_LENGTH) {
+  if (bundle.length > MAX_BUNDLE_LENGTH) {
     return { ok: false, status: 400, error: "Pairing bundle is too large" };
   }
   const decoded = decodePairBundle(bundle.trim());
@@ -340,7 +800,7 @@ export function connectImport(
     return { ok: false, status: 400, error: decoded.error };
   }
   const result = pairAssistant(lockfilePaths, configDir, {
-    bundle: decoded.bundle,
+    credentials: decoded.credentials,
     name: typeof name === "string" && name ? name : undefined,
   });
   if (!result.ok) {
@@ -349,6 +809,7 @@ export function connectImport(
   return {
     ok: true,
     assistantId: result.assistantId,
+    updated: result.updated,
     accessOnly: result.accessOnly,
   };
 }

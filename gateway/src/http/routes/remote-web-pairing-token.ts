@@ -1,12 +1,8 @@
 import type {
-  RemoteWebPairingPlatform,
   RemoteWebPairingTokenApprovedResponse,
   RemoteWebPairingTokenPendingResponse,
 } from "@vellumai/service-contracts/remote-web-pairing";
-import {
-  DEFAULT_REMOTE_WEB_PAIRING_PLATFORM,
-  REMOTE_WEB_PAIRING_PLATFORMS,
-} from "@vellumai/service-contracts/remote-web-pairing";
+import { resolveRemoteWebPairingPlatform } from "@vellumai/service-contracts/remote-web-pairing";
 
 import type { RefreshableTokenPair } from "../../auth/guardian-bootstrap.js";
 import {
@@ -34,18 +30,6 @@ import {
 
 const MAX_TOKEN_BODY_BYTES = 512;
 const REMOTE_WEB_PLATFORM = "web";
-
-/**
- * The requested platform, coerced to a known value. Unlike loopback `/v1/pair`,
- * this route is publicly reachable and its platform renders verbatim in the
- * host's paired-devices list, so an unrecognized value never reaches the DB.
- */
-function resolveDevicePlatform(raw: unknown): RemoteWebPairingPlatform {
-  const known = REMOTE_WEB_PAIRING_PLATFORMS.find(
-    (platform) => platform === raw,
-  );
-  return known ?? DEFAULT_REMOTE_WEB_PAIRING_PLATFORM;
-}
 
 /** Token-exchange JSON responses, errors included, are never cacheable. */
 function noStore(res: Response): Response {
@@ -114,7 +98,7 @@ export async function handleRemoteWebPairingToken(
       pair = mintAndRecordDeviceBoundTokenPair({
         guardianPrincipalId,
         deviceId,
-        platform: resolveDevicePlatform(body.platform),
+        platform: resolveRemoteWebPairingPlatform(body.platform),
       });
     } else {
       refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(

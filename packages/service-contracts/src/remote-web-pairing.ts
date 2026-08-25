@@ -148,6 +148,20 @@ export type RemoteWebPairingPlatform =
 export const DEFAULT_REMOTE_WEB_PAIRING_PLATFORM: RemoteWebPairingPlatform =
   "desktop";
 
+/**
+ * A requested platform coerced to a known value. The pairing-token route is
+ * publicly reachable and the platform renders verbatim in the host's
+ * paired-devices list, so an unrecognized value never reaches the DB.
+ */
+export function resolveRemoteWebPairingPlatform(
+  raw: unknown,
+): RemoteWebPairingPlatform {
+  return (
+    REMOTE_WEB_PAIRING_PLATFORMS.find((platform) => platform === raw) ??
+    DEFAULT_REMOTE_WEB_PAIRING_PLATFORM
+  );
+}
+
 /** `POST /v1/remote-web/pairing-token` request body. */
 export interface RemoteWebPairingTokenRequest {
   /** The `deviceCode` from the challenge. */
