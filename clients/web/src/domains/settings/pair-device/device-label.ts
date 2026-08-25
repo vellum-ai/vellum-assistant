@@ -43,10 +43,10 @@ function detectOS(userAgent: string): string | null {
 }
 
 function detectBrowser(userAgent: string): string | null {
-  if (/Edg\//.test(userAgent)) {
+  if (/Edg\/|EdgA\/|EdgiOS\//.test(userAgent)) {
     return "Edge";
   }
-  if (/OPR\//.test(userAgent)) {
+  if (/OPR\/|OPiOS\//.test(userAgent)) {
     return "Opera";
   }
   if (/Firefox\//.test(userAgent)) {

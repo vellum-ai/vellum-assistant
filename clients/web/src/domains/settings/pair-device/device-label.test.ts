@@ -51,6 +51,30 @@ describe("labelFromUserAgent", () => {
     ).toEqual({ browser: "Safari", os: "iPhone" });
   });
 
+  test("Edge on Android is not reported as Chrome", () => {
+    expect(
+      labelFromUserAgent(
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 EdgA/128.0.2739.42",
+      ),
+    ).toEqual({ browser: "Edge", os: "Android" });
+  });
+
+  test("Edge on iOS is not reported as Safari", () => {
+    expect(
+      labelFromUserAgent(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 EdgiOS/128.2739.44 Mobile/15E148 Safari/604.1",
+      ),
+    ).toEqual({ browser: "Edge", os: "iPhone" });
+  });
+
+  test("Opera on iOS is not reported as Safari", () => {
+    expect(
+      labelFromUserAgent(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 OPiOS/8.5.2.93674 Mobile/15E148 Safari/604.1",
+      ),
+    ).toEqual({ browser: "Opera", os: "iPhone" });
+  });
+
   test("Chrome on Android", () => {
     expect(
       labelFromUserAgent(
