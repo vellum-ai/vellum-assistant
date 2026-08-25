@@ -185,10 +185,9 @@ const authBoundaryAllowedPaths = [
 /**
  * Paths where user-facing copy must come from a translation catalog.
  *
- * Append to this list as each area is converted. Entries are globs relative to
- * `clients/web/`. Keep them as narrow as the conversion actually was: a
- * directory glob added before its files are converted turns the ratchet into
- * noise, which is how these rules die.
+ * Covers all of `src/` (generated excluded via `globalIgnores`). Entries are
+ * globs relative to `clients/web/`. Never shrink this list to silence a
+ * violation; fix the copy or add an eslint-disable with a reason.
  */
 const i18nEnforcedPaths = [
   "src/**/*.{ts,tsx}",
