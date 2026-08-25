@@ -9,7 +9,9 @@ import {
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import {
+  claimLastSeenAvatarGeneration,
   deleteLastSeenAvatar,
+  isLastSeenAvatarGenerationCurrent,
   readLastSeenAvatar,
   writeLastSeenAvatar,
 } from "@/lib/avatar-last-seen-cache";
@@ -69,6 +71,16 @@ export interface ChooserRowAvatar {
   imageUrl: string | null;
 }
 
+/**
+ * A live read plus whether it is authoritative. The manifest answers
+ * conclusively (including "none"); the legacy sidecar path swallows failures
+ * into nulls, so only a legacy read that found something is conclusive. An
+ * inconclusive read never bypasses or evicts the last-seen cache.
+ */
+interface RowAvatarResult extends ChooserRowAvatar {
+  conclusive: boolean;
+}
+
 const EMPTY_AVATAR: ChooserRowAvatar = { traits: null, imageUrl: null };
 
 /**
@@ -120,18 +132,25 @@ export function canFetchRowAvatarViaPlatformProxy(
 async function fetchRowAvatar(
   assistant: ResolvedAssistant,
   manifestSupport: RowManifestSupport,
-): Promise<ChooserRowAvatar> {
+): Promise<RowAvatarResult> {
   if (manifestSupport === "supported") {
-    return fetchAvatarViaManifest(assistant.id);
+    return {
+      ...(await fetchAvatarViaManifest(assistant.id)),
+      conclusive: true,
+    };
   }
   if (manifestSupport === "unknown") {
     try {
-      return await fetchAvatarViaManifest(assistant.id);
+      return {
+        ...(await fetchAvatarViaManifest(assistant.id)),
+        conclusive: true,
+      };
     } catch {
       // Probe failed: the runtime is likely pre-manifest.
     }
   }
-  return fetchAvatarViaLegacyFiles(assistant.id);
+  const legacy = await fetchAvatarViaLegacyFiles(assistant.id);
+  return { ...legacy, conclusive: !isEmptyAvatar(legacy) };
 }
 
 function trackBlobUrl(
@@ -159,7 +178,7 @@ function trackBlobUrl(
 async function fetchRowAvatarGeneration(
   assistant: ResolvedAssistant,
   manifestSupport: RowManifestSupport,
-): Promise<ChooserRowAvatar> {
+): Promise<RowAvatarResult> {
   const generation = (fetchGenerations.get(assistant.id) ?? 0) + 1;
   fetchGenerations.set(assistant.id, generation);
   const avatar = await fetchRowAvatar(assistant, manifestSupport);
@@ -167,7 +186,7 @@ async function fetchRowAvatarGeneration(
     if (avatar.imageUrl) {
       URL.revokeObjectURL(avatar.imageUrl);
     }
-    return { traits: avatar.traits, imageUrl: null };
+    return { ...avatar, imageUrl: null };
   }
   trackBlobUrl(activeBlobUrls, assistant.id, avatar.imageUrl);
   return avatar;
@@ -181,20 +200,29 @@ function isEmptyAvatar(avatar: ChooserRowAvatar | undefined): boolean {
 // row's `useAssistantAvatar` and the platform-proxy per-row fetch. Durable
 // sources (host disk, platform URLs) must never be written back here.
 
+/**
+ * Claims a persistence generation up front so a blob read that resolves
+ * after a newer write or delete (including a retire) commits nothing.
+ */
 async function persistLastSeenAvatar(
   assistantId: string,
   avatar: ChooserRowAvatar,
 ): Promise<void> {
+  const generation = claimLastSeenAvatarGeneration(assistantId);
   if (avatar.imageUrl) {
     const blob = await fetch(avatar.imageUrl).then((r) => r.blob());
-    await writeLastSeenAvatar(assistantId, { kind: "image", blob });
+    if (!isLastSeenAvatarGenerationCurrent(assistantId, generation)) {
+      return;
+    }
+    await writeLastSeenAvatar(assistantId, { kind: "image", blob }, generation);
   } else if (avatar.traits) {
-    await writeLastSeenAvatar(assistantId, {
-      kind: "character",
-      traits: avatar.traits,
-    });
+    await writeLastSeenAvatar(
+      assistantId,
+      { kind: "character", traits: avatar.traits },
+      generation,
+    );
   } else {
-    await deleteLastSeenAvatar(assistantId);
+    await deleteLastSeenAvatar(assistantId, generation);
   }
 }
 
@@ -234,7 +262,7 @@ export function useChooserRowAvatar(
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
   const manifestSupport = rowManifestSupport(assistant);
-  const rowQuery = useQuery<ChooserRowAvatar>({
+  const rowQuery = useQuery<RowAvatarResult>({
     queryKey: chooserRowAvatarQueryKey(assistant.id, manifestSupport),
     queryFn: () => fetchRowAvatarGeneration(assistant, manifestSupport),
     enabled:
@@ -248,18 +276,26 @@ export function useChooserRowAvatar(
     retry: 1,
   });
 
-  // A live source is "settled" once its query succeeded; on error React
-  // Query keeps prior data, which is still worth rendering but not caching.
+  // A live source is conclusive once its query succeeded through a path
+  // that cannot mistake a failure for a bare avatar; on error React Query
+  // keeps prior data, which is still worth rendering but not caching.
   const live: ChooserRowAvatar | undefined = isConnectedRow
     ? { traits: connected.traits, imageUrl: connected.customImageUrl }
-    : rowQuery.data;
-  const liveSettled = isConnectedRow ? connected.isSuccess : rowQuery.isSuccess;
-  const showLive = liveSettled || (live !== undefined && !isEmptyAvatar(live));
+    : rowQuery.data && {
+        traits: rowQuery.data.traits,
+        imageUrl: rowQuery.data.imageUrl,
+      };
+  const liveConclusive = isConnectedRow
+    ? connected.isSuccess &&
+      (connected.supportsManifest || !isEmptyAvatar(live))
+    : rowQuery.isSuccess && rowQuery.data.conclusive;
+  const showLive =
+    liveConclusive || (live !== undefined && !isEmptyAvatar(live));
 
   const liveTraits = live?.traits ?? null;
   const liveImageUrl = live?.imageUrl ?? null;
   useEffect(() => {
-    if (!liveSettled) {
+    if (!liveConclusive) {
       return;
     }
     const assistantId = assistant.id;
@@ -273,7 +309,7 @@ export function useChooserRowAvatar(
         }),
       )
       .catch(() => {});
-  }, [assistant.id, liveSettled, liveTraits, liveImageUrl, queryClient]);
+  }, [assistant.id, liveConclusive, liveTraits, liveImageUrl, queryClient]);
 
   const cacheQuery = useQuery<ChooserRowAvatar>({
     queryKey: chooserRowAvatarCacheQueryKey(assistant.id),

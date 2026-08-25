@@ -81,10 +81,35 @@ export async function readLastSeenAvatar(
   return toLastSeenAvatar(record);
 }
 
+/**
+ * Per-assistant persistence generation. Every write or delete claims the
+ * next one; a caller that did async work before committing (e.g. reading a
+ * blob) passes its claimed generation and is dropped if a newer operation
+ * has claimed since, so the last-issued operation always wins.
+ */
+const generations = new Map<string, number>();
+
+export function claimLastSeenAvatarGeneration(assistantId: string): number {
+  const generation = (generations.get(assistantId) ?? 0) + 1;
+  generations.set(assistantId, generation);
+  return generation;
+}
+
+export function isLastSeenAvatarGenerationCurrent(
+  assistantId: string,
+  generation: number,
+): boolean {
+  return generations.get(assistantId) === generation;
+}
+
 export async function writeLastSeenAvatar(
   assistantId: string,
   avatar: LastSeenAvatar,
+  generation = claimLastSeenAvatarGeneration(assistantId),
 ): Promise<void> {
+  if (!isLastSeenAvatarGenerationCurrent(assistantId, generation)) {
+    return;
+  }
   const record: StoredAvatar = {
     ...avatar,
     id: assistantId,
@@ -93,6 +118,12 @@ export async function writeLastSeenAvatar(
   await withStore("readwrite", (store) => store.put(record));
 }
 
-export async function deleteLastSeenAvatar(assistantId: string): Promise<void> {
+export async function deleteLastSeenAvatar(
+  assistantId: string,
+  generation = claimLastSeenAvatarGeneration(assistantId),
+): Promise<void> {
+  if (!isLastSeenAvatarGenerationCurrent(assistantId, generation)) {
+    return;
+  }
   await withStore("readwrite", (store) => store.delete(assistantId));
 }

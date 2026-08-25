@@ -94,12 +94,15 @@ const avatarApiMock: Partial<typeof AvatarApi> = {
 mock.module("@/assistant/avatar-api", () => avatarApiMock);
 
 type LastSeenAvatar = AvatarLastSeenCache.LastSeenAvatar;
+const actualLastSeenCache = await import("@/lib/avatar-last-seen-cache");
 const readLastSeenAvatar = mock(async () => null as LastSeenAvatar | null);
 const writeLastSeenAvatar = mock(async (_id: string, _v: LastSeenAvatar) => {});
 const deleteLastSeenAvatar = mock(async (_id: string) => {});
+// The generation helpers stay real so the hook's write guard is exercised.
 mock.module(
   "@/lib/avatar-last-seen-cache",
   (): Partial<typeof AvatarLastSeenCache> => ({
+    ...actualLastSeenCache,
     readLastSeenAvatar,
     writeLastSeenAvatar,
     deleteLastSeenAvatar,
@@ -541,10 +544,11 @@ describe("useChooserRowAvatar", () => {
         expect(result.current.traits).toEqual(traits);
       });
       await waitFor(() => {
-        expect(writeLastSeenAvatar).toHaveBeenCalledWith("other", {
-          kind: "character",
-          traits,
-        });
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
       });
       expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
     });
@@ -579,10 +583,11 @@ describe("useChooserRowAvatar", () => {
         wrapper: createWrapper(),
       });
       await waitFor(() => {
-        expect(writeLastSeenAvatar).toHaveBeenCalledWith("active", {
-          kind: "character",
-          traits,
-        });
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "active",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
       });
     });
 
@@ -593,10 +598,117 @@ describe("useChooserRowAvatar", () => {
         { wrapper: createWrapper() },
       );
       await waitFor(() => {
-        expect(deleteLastSeenAvatar).toHaveBeenCalledWith("other");
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          expect.any(Number),
+        );
       });
       expect(writeLastSeenAvatar).not.toHaveBeenCalled();
       expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
+
+    test("an unreachable legacy row keeps its cached avatar and does not evict it", async () => {
+      fetchAvatarImageUrl.mockResolvedValue(null);
+      fetchCharacterTraits.mockResolvedValue(null);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", { runtimeVersion: "0.8.6" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(result.current.traits).toEqual(traits);
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("an unreachable version-unknown row keeps its cached avatar", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", {
+              runtimeVersion: undefined,
+              currentReleaseVersion: null,
+            }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a populated legacy read still writes the cache", async () => {
+      fetchCharacterTraits.mockResolvedValue(traits);
+      renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", { runtimeVersion: "0.8.6" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+    });
+
+    test("an image write that resolves after a newer traits write commits nothing", async () => {
+      let resolveBlob: (r: Response) => void = () => {};
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(
+        () => new Promise<Response>((resolve) => (resolveBlob = resolve)),
+      ) as unknown as typeof fetch;
+      try {
+        fetchAvatarState.mockResolvedValue(imageState);
+        fetchAvatarImageUrl.mockResolvedValue("blob:row-image");
+        const queryClient = new QueryClient({
+          defaultOptions: { queries: { retry: false } },
+        });
+        const { result } = renderHook(
+          () => useChooserRowAvatar(platformRow("other")),
+          { wrapper: createWrapper(queryClient) },
+        );
+        await waitFor(() => {
+          expect(globalThis.fetch).toHaveBeenCalledWith("blob:row-image");
+        });
+
+        fetchAvatarState.mockResolvedValue(characterState);
+        await queryClient.invalidateQueries({
+          queryKey: chooserRowAvatarQueryKeyPrefix("other"),
+        });
+        await waitFor(() => {
+          expect(result.current.traits).toEqual(traits);
+        });
+        await waitFor(() => {
+          expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+        });
+        expect(writeLastSeenAvatar.mock.calls[0]![1]).toEqual({
+          kind: "character",
+          traits,
+        });
+
+        resolveBlob(new Response(new Blob(["png"])));
+        await settle();
+        expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
 
     test("reads the cache as the final fallback when no live source applies", async () => {

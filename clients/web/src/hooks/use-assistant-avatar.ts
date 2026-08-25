@@ -175,6 +175,7 @@ export function useAssistantAvatar(
     customImageUrl: data?.customImageUrl ?? null,
     isLoading,
     isSuccess,
+    supportsManifest,
     invalidate,
   };
 }
