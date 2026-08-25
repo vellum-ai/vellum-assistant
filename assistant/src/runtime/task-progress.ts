@@ -2,16 +2,6 @@ import type { StreamPlan, StreamPlanStep } from "@vellumai/gateway-client";
 
 import { coerceSurfaceDataRecord } from "../api/surfaces.js";
 
-/**
- * A `task_progress` surface, read into the plan shape a growing reply carries.
- *
- * Aliases rather than redeclares: the outbound contract already names this
- * shape, every channel that draws a plan receives it, and a second definition
- * here would be the same fields under a second name waiting to drift.
- */
-export type TaskProgressStep = StreamPlanStep;
-export type TaskProgressData = StreamPlan;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -19,7 +9,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Read a `task_progress` surface payload into typed steps, if it is one. */
 export function getTaskProgressDataFromSurfaceData(
   data: unknown,
-): TaskProgressData | undefined {
+): StreamPlan | undefined {
   if (!isRecord(data)) {
     return undefined;
   }
@@ -29,12 +19,12 @@ export function getTaskProgressDataFromSurfaceData(
   return parseTaskProgressData(data.templateData);
 }
 
-function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
+function parseTaskProgressData(value: unknown): StreamPlan | undefined {
   if (!isRecord(value) || !Array.isArray(value.steps)) {
     return undefined;
   }
 
-  const steps = value.steps.flatMap((step): TaskProgressStep[] => {
+  const steps = value.steps.flatMap((step): StreamPlanStep[] => {
     if (!isRecord(step)) {
       return [];
     }
@@ -83,7 +73,7 @@ function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
  */
 export function getTaskProgressDataFromToolInput(
   input: unknown,
-): TaskProgressData | undefined {
+): StreamPlan | undefined {
   const record = coerceSurfaceDataRecord(input);
   return (
     getTaskProgressDataFromSurfaceData(record) ??
@@ -97,9 +87,9 @@ export function getTaskProgressDataFromToolInput(
  * `templateData` update is merged over the existing steps.
  */
 export function mergeTaskProgressData(
-  existing: TaskProgressData | undefined,
+  existing: StreamPlan | undefined,
   data: unknown,
-): TaskProgressData | undefined {
+): StreamPlan | undefined {
   if (!isRecord(data)) {
     return existing;
   }
