@@ -183,10 +183,9 @@ export const installDownloads = ({ handle }: { handle: IpcHandle }): void => {
         }
         const id = randomUUID();
         revealable.set(id, savePath);
-        for (const oldest of revealable.keys()) {
-          if (revealable.size <= MAX_REVEALABLE) {
-            break;
-          }
+        // One insert per completion, so one oldest-first eviction holds the cap.
+        const oldest = revealable.keys().next().value;
+        if (revealable.size > MAX_REVEALABLE && oldest !== undefined) {
           revealable.delete(oldest);
         }
         app.dock?.downloadFinished(savePath);
