@@ -21,6 +21,7 @@ const {
   upgradeLocalAssistantHost,
   wakeLocalAssistantHost,
   getLocalAssistantStatusHost,
+  readAssistantAvatarHost,
   fetchGuardianTokenHost,
   isLocalModeHostAvailable,
   requiresGuardianReprovision,
@@ -758,6 +759,59 @@ describe("getLocalAssistantStatusHost", () => {
   });
 });
 
+describe("readAssistantAvatarHost", () => {
+  test("web/dev host GETs the avatar middleware and returns its JSON", async () => {
+    const avatar = {
+      kind: "character" as const,
+      traits: { bodyShape: "round", eyeStyle: "dot", color: "#123456" },
+    };
+    const fetchMock = mock(async () => ({
+      json: async () => ({ ok: true, avatar }),
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    expect(await readAssistantAvatarHost("a 1")).toEqual({ ok: true, avatar });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/assistant/__local/avatar/a%201");
+    expect(init.method).toBe("GET");
+  });
+
+  test("Electron host reads the avatar through the bridge and never touches fetch", async () => {
+    const readAssistantAvatar = mock(async () => ({
+      ok: true,
+      avatar: { kind: "image", imageBase64: "AAAA" },
+    }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ readAssistantAvatar });
+
+    expect(await readAssistantAvatarHost("a-1")).toEqual({
+      ok: true,
+      avatar: { kind: "image", imageBase64: "AAAA" },
+    });
+    expect(readAssistantAvatar).toHaveBeenCalledWith("a-1");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("older Electron shell without the channel resolves ok:false without throwing", async () => {
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({});
+
+    const result = await readAssistantAvatarHost("a-1");
+
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("fetchGuardianTokenHost", () => {
   test("web/dev host GETs the guardian-token middleware and returns the access token", async () => {
     const fetchMock = mock(async () => ({
@@ -904,6 +958,24 @@ describe("web/dev transport resilience", () => {
     globalThis.fetch = nonJsonResponse();
     const result = await getLocalAssistantStatusHost("a-1");
     expect(result.ok).toBe(false);
+  });
+
+  test("avatar returns a failure result instead of throwing on a non-JSON body", async () => {
+    globalThis.fetch = nonJsonResponse();
+    const result = await readAssistantAvatarHost("a-1");
+    expect(result.ok).toBe(false);
+  });
+
+  test("avatar short-circuits without a request when no local-mode host is available", async () => {
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run when the host is unavailable");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await readAssistantAvatarHost("a-1");
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("status short-circuits without a request when no local-mode host is available", async () => {

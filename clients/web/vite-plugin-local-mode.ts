@@ -4,6 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Plugin, Connect, ViteDevServer } from "vite";
 
+import { readWorkspaceAvatar } from "@vellumai/avatar-manifest";
+import type {
+  LocalAssistantAvatar,
+  LocalReadAssistantAvatarResult,
+} from "@vellumai/ipc-contract";
 import {
   resolveLocalConfigFromEnv,
   resolveDevCliInvocation,
@@ -14,6 +19,7 @@ import {
   connectImport,
   getLockfileData,
   getLocalAssistantStatus,
+  resolveLockfileInstanceDir,
   renameLockfileAssistantIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
@@ -41,6 +47,7 @@ import {
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
+const LOCAL_AVATAR_PATTERN = /^(?:\/assistant)?\/__local\/avatar\/([^/]+)$/;
 const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
 const PLATFORM_SESSION_PATTERN =
   /^(?:\/assistant)?\/__local\/platform-session$/;
@@ -118,6 +125,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(
         statusMiddleware(config.lockfilePaths, upgradingLocalAssistantIds),
       );
+      server.middlewares.use(avatarMiddleware(config.lockfilePaths));
       server.middlewares.use(
         guardianTokenMiddleware(
           config.lockfilePaths,
@@ -935,6 +943,70 @@ function statusMiddleware(
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(result));
     });
+  };
+}
+
+// Mirrors the Electron host's `localMode.readAssistantAvatar`: read off disk
+// so a sleeping assistant still has an avatar, with the same 5 MiB image cap.
+const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+function readAvatarImage(imagePath: string): LocalAssistantAvatar | null {
+  try {
+    const stats = fs.statSync(imagePath);
+    if (!stats.isFile() || stats.size > AVATAR_IMAGE_MAX_BYTES) {
+      return null;
+    }
+    return {
+      kind: "image",
+      imageBase64: fs.readFileSync(imagePath).toString("base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readAssistantAvatar(
+  lockfilePaths: string[],
+  assistantId: string,
+): LocalReadAssistantAvatarResult {
+  const instanceDir = resolveLockfileInstanceDir(lockfilePaths, assistantId);
+  if (!instanceDir) {
+    return { ok: true, avatar: null };
+  }
+  const avatar = readWorkspaceAvatar(
+    path.join(instanceDir, ".vellum", "workspace"),
+  );
+  switch (avatar.kind) {
+    case "character":
+      return { ok: true, avatar: { kind: "character", traits: avatar.traits } };
+    case "image":
+      return { ok: true, avatar: readAvatarImage(avatar.imagePath) };
+    case "none":
+      return { ok: true, avatar: null };
+  }
+}
+
+function avatarMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const match = req.url?.match(LOCAL_AVATAR_PATTERN);
+    if (!match) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "GET") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const assistantId = decodeURIComponent(match[1]!);
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(readAssistantAvatar(lockfilePaths, assistantId)));
   };
 }
 
