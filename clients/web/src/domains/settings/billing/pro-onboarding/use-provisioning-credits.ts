@@ -105,9 +105,10 @@ export function useProvisioningCredits(
     const pkg = proPlan.packages.find((p) => p.key === intent.packageKey);
     const tier = findCreditTier(proPlan, pkg?.credit_tier);
     toUsd = pkg?.credits_usd ?? tier?.credits_usd;
-    // The tier's catalog label is preferred over the package's own usage
-    // label, matching the invoice line; they name the same bundle either way.
-    toLabel = tier?.label ?? pkg?.usage_label ?? undefined;
+    // The package's customer-facing usage_label is preferred: a tier label
+    // can be dollar-denominated ("$50 credits/mo"), which the obscured chip
+    // must never render. The tier label covers a package without one.
+    toLabel = pkg?.usage_label ?? tier?.label ?? undefined;
   } else {
     const tier = findCreditTier(proPlan, intent.creditTier);
     toUsd = tier?.credits_usd;

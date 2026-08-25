@@ -175,7 +175,8 @@ describe("useProvisioningCredits", () => {
       fromUsd: 0,
       toUsd: 50,
       fromLabel: null,
-      toLabel: "$50 credits/mo",
+      // The customer-facing usage_label wins over the dollar-y tier label.
+      toLabel: "Mighty Usage",
     });
   });
 
