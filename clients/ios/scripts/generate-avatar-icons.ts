@@ -19,9 +19,9 @@
  * drift guard that fails when the committed set stops matching a fresh run.
  *
  * Each entry is a classic `.appiconset` holding a single opaque 1024x1024 PNG:
- * a background rect tinted from the trait color, with the composed character
- * centered on top. The PNGs carry no alpha channel at all; `encodeOpaqueRgbPng`
- * below documents why.
+ * a solid field in the trait color with the eye style's paths centered on top,
+ * the same framing the default app icon in `App/App/AppIcon.icon` ships. The
+ * PNGs carry no alpha channel at all; `encodeOpaqueRgbPng` below documents why.
  */
 
 import {
@@ -36,7 +36,6 @@ import { dirname, join, resolve, sep } from "node:path";
 import { deflateSync } from "node:zlib";
 
 import { getCharacterComponents } from "../../../assistant/src/avatar/character-components.js";
-import { renderCharacterPng } from "../../../assistant/src/avatar/png-renderer.js";
 import { getResvg } from "../../../assistant/src/avatar/resvg-lazy.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
@@ -65,11 +64,18 @@ const GENERATOR_COMMAND = "bun clients/ios/scripts/generate-avatar-icons.ts";
 /** Width and height of each rendered icon, in px. */
 const ICON_PX = 1024;
 
-/** Fraction of the canvas the character occupies, leaving a tinted margin. */
-const CHARACTER_CANVAS_FRACTION = 0.7;
+/**
+ * Fraction of the icon an eye pair spans, matching the default app icon, whose
+ * `quirky` eyes span half its width.
+ */
+const EYE_CANVAS_FRACTION = 0.5;
 
-/** How far the background tint is blended from the trait color toward white. */
-const BACKGROUND_WHITE_BLEND = 0.65;
+/**
+ * Canvas the eye bounds below are measured on, in px. The scan reports whole
+ * probe pixels, so each edge carries up to one of them as slack; this size
+ * keeps that under a thousandth of the artwork.
+ */
+const EYE_BOUNDS_PROBE_PX = 2048;
 
 const ICON_IMAGE_NAME = "icon.png";
 
@@ -92,21 +98,37 @@ const PNG_DEFLATE_LEVEL = 9;
 const CATALOG_INFO = { author: "xcode", version: 1 };
 
 /**
- * `--pilot` narrows a local run to a 24-set slice, which rasterizes in seconds
- * instead of minutes. It covers both face-placement paths: `blob` uses its
- * body's own face center, `ghost` is remapped through `faceCenterOverrides`.
+ * `--pilot` narrows a local run to a 12-set slice, which rasterizes in a couple
+ * of seconds. `grumpy` is the widest, flattest eye pair in the library and
+ * `gentle` the closest to square, so between them they cover both ends of what
+ * the placement below has to fit.
  */
-const PILOT_BODY_SHAPES = ["blob", "ghost"];
 const PILOT_EYE_STYLES = ["grumpy", "gentle"];
 
-const CONTACT_SHEET_CELL_PX = 240;
+/**
+ * Contact sheet cell size, in px. 180 is the largest size iOS ever draws an app
+ * icon at, so the preview shows the artwork at the size it is read.
+ */
+const CONTACT_SHEET_CELL_PX = 180;
+
+/** Every color in the palette is a 6-digit sRGB hex, and goes straight to SVG. */
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 export type IconSetScope = "pilot" | "full";
 
 export interface AvatarIconTraits {
-  bodyShape: string;
   eyeStyle: string;
   color: string;
+}
+
+type EyeStyle = ReturnType<typeof getCharacterComponents>["eyeStyles"][number];
+
+/** Tight bounds of an eye style's artwork, in its own source viewBox units. */
+interface EyeBounds {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
 }
 
 export interface GenerateAvatarIconsOptions {
@@ -116,40 +138,34 @@ export interface GenerateAvatarIconsOptions {
 }
 
 /**
- * Icon set name for a character trait triple. The web layer derives the same
- * name when it asks iOS to switch icons, so this format is a wire contract:
- * changing it breaks every already-installed app until both sides ship
- * together.
+ * Icon set name for an eye style and color. The web layer derives the same name
+ * when it asks iOS to switch icons, so this format is a wire contract: changing
+ * it breaks every already-installed app until both sides ship together. Body
+ * shape is deliberately absent, since the icons draw eyes on a color field and
+ * no body.
  *
  * The name is also a cache key: iOS caches an alternate icon's artwork under
  * it, so each name permanently identifies one artwork version. Changed art
  * goes out under a new versioned name, never behind an existing one.
  */
 export function iconNameForTraits(traits: AvatarIconTraits): string {
-  return `avatar-${traits.bodyShape}-${traits.eyeStyle}-${traits.color}`;
+  return `avatar-eyes-${traits.eyeStyle}-${traits.color}`;
 }
 
-/** Trait triples in scope, in a stable body, eye, color order. */
+/** Trait pairs in scope, in a stable eye, color order. */
 export function traitCombinations(scope: IconSetScope): AvatarIconTraits[] {
   const components = getCharacterComponents();
-  const allBodyShapes = components.bodyShapes.map((body) => body.id);
   const allEyeStyles = components.eyeStyles.map((eye) => eye.id);
 
-  const bodyShapes =
-    scope === "full"
-      ? allBodyShapes
-      : assertKnownIds(PILOT_BODY_SHAPES, allBodyShapes, "body shape");
   const eyeStyles =
     scope === "full"
       ? allEyeStyles
       : assertKnownIds(PILOT_EYE_STYLES, allEyeStyles, "eye style");
 
   const combinations: AvatarIconTraits[] = [];
-  for (const bodyShape of bodyShapes) {
-    for (const eyeStyle of eyeStyles) {
-      for (const color of components.colors) {
-        combinations.push({ bodyShape, eyeStyle, color: color.id });
-      }
+  for (const eyeStyle of eyeStyles) {
+    for (const color of components.colors) {
+      combinations.push({ eyeStyle, color: color.id });
     }
   }
   return combinations;
@@ -212,7 +228,25 @@ function requireColorHex(index: Map<string, string>, colorId: string): string {
   if (!hex) {
     throw new Error(`Unknown color id: "${colorId}"`);
   }
+  if (!HEX_COLOR_PATTERN.test(hex)) {
+    throw new Error(
+      `Expected a 6-digit hex color for "${colorId}", got "${hex}"`,
+    );
+  }
   return hex;
+}
+
+function requireEyeStyle(eyeStyleId: string): EyeStyle {
+  const components = getCharacterComponents();
+  const eyeStyle = components.eyeStyles.find((eye) => eye.id === eyeStyleId);
+  if (!eyeStyle) {
+    throw new Error(
+      `Unknown eye style: "${eyeStyleId}". Valid IDs: ${components.eyeStyles
+        .map((eye) => eye.id)
+        .join(", ")}`,
+    );
+  }
+  return eyeStyle;
 }
 
 /** Catalog root marker, matching what Xcode writes for `Assets.xcassets`. */
@@ -256,34 +290,90 @@ function buildXcconfig(): string {
   ].join("\n");
 }
 
-function parseHex(hex: string): [number, number, number] {
-  const digits = hex.startsWith("#") ? hex.slice(1) : hex;
-  if (!/^[0-9a-fA-F]{6}$/.test(digits)) {
-    throw new Error(`Expected a 6-digit hex color, got "${hex}"`);
+/** An eye style's paths, verbatim, under one shared affine transform. */
+function eyePathsSvg(eyeStyle: EyeStyle, transform: string): string {
+  return eyeStyle.paths
+    .map(
+      (path) =>
+        `<path d="${path.svgPath}" fill="${path.color}" transform="${transform}"/>`,
+    )
+    .join("");
+}
+
+const eyeBoundsCache = new Map<string, EyeBounds>();
+
+/**
+ * Tight bounds of an eye style's artwork, measured by rasterizing it on its own
+ * and scanning for covered pixels. Measuring through the same rasterizer that
+ * writes the icons puts the bounds where the artwork is drawn rather than where
+ * its path data nominally reaches, and the result is a pure function of the
+ * path data, so the placement it feeds stays byte-reproducible.
+ */
+function eyeArtworkBounds(eyeStyle: EyeStyle): EyeBounds {
+  const cached = eyeBoundsCache.get(eyeStyle.id);
+  if (cached) {
+    return cached;
   }
-  return [
-    parseInt(digits.slice(0, 2), 16),
-    parseInt(digits.slice(2, 4), 16),
-    parseInt(digits.slice(4, 6), 16),
-  ];
-}
 
-function backgroundTint(hex: string): [number, number, number] {
-  const [red, green, blue] = parseHex(hex);
-  const blend = (channel: number): number => {
-    return Math.round(channel + (255 - channel) * BACKGROUND_WHITE_BLEND);
+  const viewBox = eyeStyle.sourceViewBox;
+  const probeScale =
+    EYE_BOUNDS_PROBE_PX / Math.max(viewBox.width, viewBox.height);
+  const rendered = renderSvg(
+    eyePathsSvg(eyeStyle, `matrix(${probeScale},0,0,${probeScale},0,0)`),
+    Math.round(viewBox.width * probeScale),
+    Math.round(viewBox.height * probeScale),
+  );
+
+  // `pixels` materializes a fresh buffer per read, so it is read exactly once.
+  const pixels = rendered.pixels;
+  const width = rendered.width;
+  const height = rendered.height;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (pixels[(y * width + x) * 4 + 3] === 0) {
+        continue;
+      }
+      if (x < minX) {
+        minX = x;
+      }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (y < minY) {
+        minY = y;
+      }
+      if (y > maxY) {
+        maxY = y;
+      }
+    }
+  }
+  if (maxX < minX || maxY < minY) {
+    throw new Error(`Eye style "${eyeStyle.id}" rasterized to nothing.`);
+  }
+
+  const bounds: EyeBounds = {
+    minX: minX / probeScale,
+    minY: minY / probeScale,
+    width: (maxX + 1 - minX) / probeScale,
+    height: (maxY + 1 - minY) / probeScale,
   };
-  return [blend(red), blend(green), blend(blue)];
-}
-
-function toHex(rgb: [number, number, number]): string {
-  return `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+  eyeBoundsCache.set(eyeStyle.id, bounds);
+  return bounds;
 }
 
 /**
- * One tinted square with the character centered on it, as SVG markup. Shared by
- * the icons themselves and by the contact sheet, so the preview shows the same
- * framing that ships.
+ * One solid trait-color square with the eye pair centered on it, as SVG markup.
+ * Shared by the icons themselves and by the contact sheet, so the preview shows
+ * the same framing that ships.
+ *
+ * The eyes are scaled so their measured bounds span `EYE_CANVAS_FRACTION` of
+ * the cell and centered on it. Taking the smaller of the two ratios is what
+ * caps a pair taller than it is wide at that same fraction of the cell height,
+ * so an unusually tall pair cannot outgrow a wide one.
  */
 function iconCellSvg(
   traits: AvatarIconTraits,
@@ -292,23 +382,24 @@ function iconCellSvg(
   y: number,
   size: number,
 ): string {
-  const characterPx = Math.round(size * CHARACTER_CANVAS_FRACTION);
-  const inset = (size - characterPx) / 2;
-  const character = renderCharacterPng(
-    traits.bodyShape,
-    traits.eyeStyle,
-    traits.color,
-    characterPx,
-  ).toString("base64");
+  const eyeStyle = requireEyeStyle(traits.eyeStyle);
+  const bounds = eyeArtworkBounds(eyeStyle);
+  const span = size * EYE_CANVAS_FRACTION;
+  const scale = Math.min(span / bounds.width, span / bounds.height);
+  const translateX = x + size / 2 - (bounds.minX + bounds.width / 2) * scale;
+  const translateY = y + size / 2 - (bounds.minY + bounds.height / 2) * scale;
   return (
-    `<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="${toHex(backgroundTint(hex))}"/>` +
-    `<image x="${x + inset}" y="${y + inset}" width="${characterPx}" height="${characterPx}" xlink:href="data:image/png;base64,${character}"/>`
+    `<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="${hex}"/>` +
+    eyePathsSvg(
+      eyeStyle,
+      `matrix(${scale},0,0,${scale},${translateX},${translateY})`,
+    )
   );
 }
 
 function renderSvg(body: string, width: number, height: number) {
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" ` +
     `width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`;
   const Resvg = getResvg();
   return new Resvg(svg, { fitTo: { mode: "width", value: width } }).render();

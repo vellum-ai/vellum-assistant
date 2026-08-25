@@ -30,9 +30,9 @@ jobs:
     # Runner and Xcode match `release-ios.yaml` so this check exercises the
     # same toolchain that produces TestFlight builds.
     runs-on: macos-15
-    # The avatar icon drift check rasterizes 540 icons, which takes about 19
-    # minutes here against 2 on an M-series laptop. That plus the build lands
-    # around 23, so 30 left no room.
+    # The unsigned Xcode build is what needs the room here; the avatar icon
+    # drift check rasterizes 54 icons in seconds. A `macos-15` runner is slow
+    # and variable enough that a tighter budget fails on time alone.
     timeout-minutes: 45
     steps:
       - name: Checkout

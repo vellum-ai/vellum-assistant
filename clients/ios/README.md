@@ -316,33 +316,33 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   through renders noticeably more saturated than the hex you started
   from.
 - `App/App/AvatarIcons.xcassets` holds the alternate icons, one
-  `.appiconset` per character avatar trait combination, named
-  `avatar-<body>-<eye>-<color>`. Every combination ships: 10 body shapes ×
-  9 eye styles × 6 colors, so 540 sets. Each set is a single opaque 1024×1024
-  `icon.png` covering every idiom: a background rect tinted from the trait
-  color with the composed character centered on top. App icons may not be
-  transparent, so the background is baked into the pixels and the file is
-  encoded as PNG color type 2 (RGB, no alpha channel at all). App Store
-  validation rejects an app icon that carries an alpha channel (ITMS-90717),
-  and that only surfaces at TestFlight upload, so the generator asserts every
-  pixel is opaque and drops the channel rather than shipping a fully opaque
-  RGBA image.
+  `.appiconset` per eye style and color, named `avatar-eyes-<eye>-<color>`.
+  Every combination ships: 9 eye styles × 6 colors, so 54 sets. Each set is a
+  single opaque 1024×1024 `icon.png` covering every idiom: a solid field in the
+  trait color with that eye pair centered on top, spanning half the icon width,
+  the same framing `AppIcon.icon` uses. Body shape is deliberately not part of
+  the artwork or the name, so an avatar's icon follows its eyes and color
+  alone. App icons may not be transparent, so the background is baked into the
+  pixels and the file is encoded as PNG color type 2 (RGB, no alpha channel at
+  all). App Store validation rejects an app icon that carries an alpha channel
+  (ITMS-90717), and that only surfaces at TestFlight upload, so the generator
+  asserts every pixel is opaque and drops the channel rather than shipping a
+  fully opaque RGBA image.
 - The catalog and `Config/AvatarIcons.xcconfig`
   (`ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES`) are generated
   output produced from the avatar component library (`assistant/src/avatar/`)
   by `clients/ios/scripts/generate-avatar-icons.ts`. Edit the script, not the
   files. Regenerate with `bun clients/ios/scripts/generate-avatar-icons.ts`,
-  which reproduces the committed state in a few minutes (add `--pilot` to
-  rasterize a 24-set slice in seconds while iterating locally), and verify with
+  which reproduces the committed state in about five seconds (add `--pilot` to
+  rasterize a 12-set slice while iterating locally), and verify with
   `cd clients/ios && bun test scripts/__tests__/generate-avatar-icons.test.ts`.
   Both the generator and the test rasterize through the native
   `@resvg/resvg-js` binding, so the assistant package's dependencies have to
   be installed first: `bun install --filter=@vellumai/assistant`.
   `pr-ios.yaml` and `ci-main-ios.yaml` run that same check right after their
   install step, and both watch `assistant/src/avatar/**`, so a catalog edit
-  without a regeneration fails CI. Rasterizing 540 icons costs about 2 minutes
-  locally and about 19 on a `macos-15` runner, which is why both jobs allow 45
-  minutes.
+  without a regeneration fails CI. The unsigned Xcode build, not the drift
+  check, is what those jobs' 45-minute budget is for.
 - All three app targets ship the catalog: it rides along in the
   `AppEnvironment` source sweep the way `Assets.xcassets` does, and each
   target's `Config/App*.xcconfig` includes `AvatarIcons.xcconfig`. Every
@@ -356,38 +356,38 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 
 #### Alternate icon size cost
 
-Measured on unsigned `App Dev` builds (Xcode 26.2):
+Measured by compiling `AvatarIcons.xcassets` on its own through `actool`
+(Xcode 26.2). A standalone compile tracks the catalog's contribution to an
+unsigned `App Dev` build within 0.1 percent, so it is the cheap way to check
+the cost.
 
-| Build | `.app` total | `Assets.car` |
-| ----- | ------------ | ------------ |
-| No avatar catalog | 12,477,009 B (11.90 MiB) | 1,749,608 B (1.67 MiB) |
-| 540 PNG alternates | 31,455,985 B (30.00 MiB) | 20,700,120 B (19.74 MiB) |
-| Delta | +18,978,976 B (+18.10 MiB) | +18,950,512 B (+18.07 MiB) |
+| Catalog | Committed PNGs | `Assets.car` |
+| ------- | -------------- | ------------ |
+| 54 eyes-on-color alternates | 593,575 B (0.57 MiB) | 1,193,784 B (1.14 MiB) |
 
-That is **34.3 KiB per alternate icon** compiled, against 8.82 MiB of PNGs
-checked in. The whole catalog is one `Assets.car` slice, so the cost lands on
-every install whether or not the user ever switches icons.
+That is **21.6 KiB per alternate icon** compiled. The whole catalog is one
+`Assets.car` slice, so the cost lands on every install whether or not the user
+ever switches icons.
 
 **Do not try to shrink this by capping the rendered detail.** Rendering at
 180 px (the largest size iOS ever draws an alternate icon at) and upscaling
 onto the 1024 canvas is a standard icon-shrinking trick, and it backfires
-badly on this artwork. The avatars are flat vector shapes, so a native 1024
+badly on this artwork. The eyes are flat vector shapes, so a native 1024
 render is almost entirely uniform regions separated by hairline antialiased
 edges, which is the best case there is for compression. A bilinear upscale
 replaces every one of those edges with a six-pixel gradient ramp:
 
-| Full catalog, 540 icons | Committed PNGs | `Assets.car` |
-| ----------------------- | -------------- | ------------ |
-| Native 1024 render (current) | 9,142,935 B (8.72 MiB) | 18,963,192 B (18.08 MiB) |
-| 180 px detail, bilinear upscale | 64,211,254 B (61.24 MiB) | 118,320,408 B (112.84 MiB) |
+| Full catalog, 54 icons | Committed PNGs | `Assets.car` |
+| ---------------------- | -------------- | ------------ |
+| Native 1024 render | 593,575 B (0.57 MiB) | 1,193,784 B (1.14 MiB) |
+| 180 px detail, bilinear upscale | 3,764,157 B (3.59 MiB) | 6,817,336 B (6.50 MiB) |
 
-Those `Assets.car` figures come from compiling `AvatarIcons.xcassets` alone
-through `actool`, which lands within 0.1 percent of the in-build delta above.
 Rendering at 360 px instead of 180 only halves the overshoot. Nearest-neighbour
-upscaling does shrink the compiled catalog by 45 percent, but the 5.69x
-non-integer scale leaves visible stair-stepping: max per-channel error against
-the current icons at display size is about 220 of 255, against about 110 for
-bilinear. Display-size fidelity was never the problem, the compressed size was.
+upscaling does shrink the compiled catalog by 38 percent, to 735,128 B
+(0.70 MiB), but the 5.69x non-integer scale leaves visible stair-stepping: max
+per-channel error against the shipped icons at display size is about 87 of 255,
+against about 64 for bilinear. That trades clean edges for under half a MiB on
+a catalog that already costs about one.
 
 ### Bundle ID vs capacitor.config appId
 
