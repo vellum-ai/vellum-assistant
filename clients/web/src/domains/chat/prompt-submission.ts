@@ -21,7 +21,9 @@
  */
 
 import { type ParseKeys, t } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
 
+import type { SubmitSecretResponseResult } from "@/domains/chat/api/interactions";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 
@@ -105,6 +107,28 @@ export function reportSubmissionFailure(
   useChatSessionStore
     .getState()
     .setError({ message: t(messageKey, { ns: "chat" }) });
+}
+
+/**
+ * Record the assistant's rejection of a submission, which is a diagnostic
+ * rather than something to show: it describes a request the client built.
+ *
+ * A transport failure is not recorded at all. Being offline is not an
+ * application defect, and `transient` is what survives of the `TypeError`
+ * that `captureError`'s own filter keys on, since the API helpers catch it
+ * and flatten it into an ordinary failure.
+ */
+export function captureSubmissionRejection(
+  context: string,
+  result: Extract<SubmitSecretResponseResult, { ok: false }>,
+): void {
+  if (result.transient) {
+    return;
+  }
+  captureError(new Error(`${context}: ${result.error}`), {
+    context,
+    extra: { status: result.status },
+  });
 }
 
 /**

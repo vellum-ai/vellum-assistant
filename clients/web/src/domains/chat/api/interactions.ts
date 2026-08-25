@@ -104,7 +104,7 @@ export async function listConversationIdsWithPendingInteractions(
  */
 export type SubmitSecretResponseResult =
   | { ok: true }
-  | { ok: false; status: number; error: string; transient?: boolean };
+  | { ok: false; status: number; error: string; transient: boolean };
 
 export async function submitSecretResponse(
   assistantId: string,
@@ -121,7 +121,12 @@ export async function submitSecretResponse(
     assertHasResponse(response, error, "Failed to submit secret response");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -152,7 +157,12 @@ export async function submitSecretCancel(
     assertHasResponse(response, error, "Failed to cancel secret prompt");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -180,7 +190,12 @@ export async function submitConfirmation(
     assertHasResponse(response, error, "Failed to submit confirmation");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -210,7 +225,12 @@ export async function submitContactPrompt(
     assertHasResponse(response, error, "Failed to submit contact prompt");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -295,7 +315,12 @@ export async function submitQuestionResponse(
     );
     if (!httpResponse.ok) {
       const msg = extractErrorMessage(error, httpResponse);
-      return { ok: false, status: httpResponse.status, error: msg };
+      return {
+        ok: false,
+        status: httpResponse.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {

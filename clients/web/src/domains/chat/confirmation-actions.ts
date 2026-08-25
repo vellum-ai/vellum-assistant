@@ -16,6 +16,7 @@ import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcr
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
   clearSubmissionFailure,
+  captureSubmissionRejection,
   reportSubmissionFailure,
   stillOwnsSubmission,
 } from "@/domains/chat/prompt-submission";
@@ -229,12 +230,7 @@ export async function handleConfirmationSubmit(
         clearStaleConfirmation(snapshot, mappedToolCallId);
         return;
       }
-      if (!result.transient) {
-        captureError(new Error(`confirmation submit failed: ${result.error}`), {
-          context: "submit_confirmation",
-          extra: { status: result.status },
-        });
-      }
+      captureSubmissionRejection("submit_confirmation", result);
       reportSubmissionFailure(
         "confirmation",
         snapshot.requestId,
@@ -344,15 +340,7 @@ export async function handleAllowAndCreateRule(
       if (result.status === 404) {
         clearSubmissionFailure("confirmation", snapshot.requestId);
       } else {
-        if (!result.transient) {
-          captureError(
-            new Error(`allow-and-create-rule failed: ${result.error}`),
-            {
-              context: "allow_and_create_rule",
-              extra: { status: result.status },
-            },
-          );
-        }
+        captureSubmissionRejection("allow_and_create_rule", result);
         reportSubmissionFailure(
           "confirmation",
           snapshot.requestId,

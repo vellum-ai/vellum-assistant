@@ -11,7 +11,10 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -60,12 +63,7 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
-      if (!result.transient) {
-        captureError(new Error(`contact prompt failed: ${result.error}`), {
-          context: "submit_contact_prompt",
-          extra: { status: result.status },
-        });
-      }
+      captureSubmissionRejection("submit_contact_prompt", result);
       reportSubmissionFailure(
         "contactRequest",
         pendingContactRequest.requestId,

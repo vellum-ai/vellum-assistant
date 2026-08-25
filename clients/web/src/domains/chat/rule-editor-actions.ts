@@ -19,7 +19,10 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
@@ -173,12 +176,7 @@ async function executeSaveRule(
       );
       if (!result.ok) {
         useRuleEditorStore.getState().dismissRuleEditor();
-        if (!result.transient) {
-          captureError(new Error(`trust rule save failed: ${result.error}`), {
-            context: "save_trust_rule",
-            extra: { status: result.status },
-          });
-        }
+        captureSubmissionRejection("save_trust_rule", result);
         reportSubmissionFailure(
           "confirmation",
           context.requestId,

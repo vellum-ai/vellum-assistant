@@ -11,7 +11,10 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -61,12 +64,7 @@ export async function handleSecretSubmit(
       delivery,
     );
     if (!result.ok) {
-      if (!result.transient) {
-        captureError(new Error(`secret submit failed: ${result.error}`), {
-          context: "submit_secret_response",
-          extra: { status: result.status },
-        });
-      }
+      captureSubmissionRejection("submit_secret_response", result);
       reportSubmissionFailure(
         "secret",
         pendingSecret.requestId,

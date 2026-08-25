@@ -13,6 +13,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
   clearSubmissionFailure,
+  captureSubmissionRejection,
   reportSubmissionFailure,
   stillOwnsSubmission,
 } from "@/domains/chat/prompt-submission";
@@ -104,12 +105,7 @@ export async function handleQuestionResponse(
       // The assistant's own message describes a body this client built, so it
       // goes to Sentry rather than in front of the user, who never chose the
       // payload and cannot correct it.
-      if (!result.transient) {
-        captureError(new Error(`question-response failed: ${result.error}`), {
-          context: "submit_question_response",
-          extra: { status: result.status },
-        });
-      }
+      captureSubmissionRejection("submit_question_response", result);
       reportSubmissionFailure(
         "question",
         snapshot.requestId,
