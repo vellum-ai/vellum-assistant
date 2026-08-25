@@ -217,7 +217,7 @@ export type RemoteWebPairingTokenResponse =
 
 // ── Shared pairing URL helpers ──────────────────────────────────────────────
 //
-// Every surface that mints a pairing (the `vellum pair --qr` CLI, the web
+// Every surface that mints a pairing (the `vellum pair` CLI, the web
 // settings "Pair a device" card) must accept the same public URLs and build
 // the same scannable links. The helpers are environment-neutral (WHATWG URL
 // only) so both Node and browser callers share one implementation.

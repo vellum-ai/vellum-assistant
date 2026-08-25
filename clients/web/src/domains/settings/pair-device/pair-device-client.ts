@@ -1,5 +1,5 @@
 /**
- * Browser side of the `vellum pair --qr` flow. In desktop/local mode the SPA
+ * Browser side of the `vellum pair` flow. In desktop/local mode the SPA
  * reaches the same-machine gateway over its loopback proxy
  * (`/assistant/__gateway/<port>`) and drives the two loopback-only routes the
  * CLI uses:

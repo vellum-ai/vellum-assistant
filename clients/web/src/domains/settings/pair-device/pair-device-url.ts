@@ -2,7 +2,7 @@
  * Public-URL validation and pair-link construction for the "Pair a device"
  * settings section. The implementations live in
  * `@vellumai/service-contracts/remote-web-pairing` and are shared with the
- * `vellum pair --qr` CLI flow, so both mints accept the same URLs and produce
+ * `vellum pair` CLI flow, so both mints accept the same URLs and produce
  * the same pair links. This module re-exports them and adds the UI copy.
  */
 
