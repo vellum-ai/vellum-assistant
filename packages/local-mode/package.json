@@ -13,6 +13,7 @@
     "test": "bun test src/"
   },
   "dependencies": {
+    "@vellumai/avatar-manifest": "file:../avatar-manifest",
     "@vellumai/environments": "file:../environments",
     "nanoid": "5.1.7",
     "zod": "4.3.6"

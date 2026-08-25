@@ -9,6 +9,7 @@ on:
       - 'patches/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-manifest/**'
       - '.github/workflows/pr-local-mode.yaml'
 
 concurrency:
