@@ -63,22 +63,26 @@ export async function runWithRequestTimeout<T>({
 }: RunWithRequestTimeoutArgs<T>): Promise<T> {
   const controller = new AbortController();
 
+  if (signal?.aborted === true) {
+    throw new RequestAbortedError(signal.reason);
+  }
+
   // A request that stalls before dispatch never observes an abort, so the
   // wrapper rejects on the outer abort itself rather than waiting out the
   // bound and reporting a timeout for a request nobody is waiting for.
   let rejectAborted: ((error: RequestAbortedError) => void) | undefined;
   const forwardAbort = () => {
-    controller.abort(signal?.reason);
-    rejectAborted?.(new RequestAbortedError(signal?.reason));
+    const error = new RequestAbortedError(signal?.reason);
+    // Settle the cancellation race before aborting the transport. A transport
+    // may reject synchronously from its abort listener, but the wrapper's
+    // caller must still receive the lifecycle-specific error.
+    rejectAborted?.(error);
+    controller.abort(error);
   };
   const cancellation = new Promise<never>((_resolve, reject) => {
     rejectAborted = reject;
   });
-  if (signal?.aborted === true) {
-    forwardAbort();
-  } else {
-    signal?.addEventListener("abort", forwardAbort, { once: true });
-  }
+  signal?.addEventListener("abort", forwardAbort, { once: true });
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expiry = new Promise<never>((_resolve, reject) => {

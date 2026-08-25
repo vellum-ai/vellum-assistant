@@ -79,9 +79,11 @@ describe("runWithRequestTimeout", () => {
     // WHEN the outer signal aborts
     outer.abort();
 
-    // THEN the request sees the abort and the call settles
-    await expect(settled).rejects.toThrow("aborted");
+    // THEN the request sees the abort and the wrapper keeps the lifecycle's
+    // distinct error even though the transport rejects from its abort handler
+    await expect(settled).rejects.toBeInstanceOf(RequestAbortedError);
     expect(requestSignal?.aborted).toBe(true);
+    expect(requestSignal?.reason).toBeInstanceOf(RequestAbortedError);
   });
 
   test("settles on a cancelled lifecycle even when the request ignores its signal", async () => {
@@ -104,5 +106,31 @@ describe("runWithRequestTimeout", () => {
 
     // THEN the call settles as an abort, not as a timeout
     await expect(settled).rejects.toBeInstanceOf(RequestAbortedError);
+  });
+
+  test("does not start work when the surrounding lifecycle is already cancelled", async () => {
+    /**
+     * Tests that a query function invoked with an already-aborted signal
+     * settles consistently without dispatching a request that has no caller.
+     */
+
+    // GIVEN an already-cancelled outer lifecycle
+    const outer = new AbortController();
+    outer.abort();
+    let runCalls = 0;
+
+    // WHEN the request runner receives it
+    const settled = runWithRequestTimeout({
+      timeoutMs: 10_000,
+      signal: outer.signal,
+      run: async () => {
+        runCalls += 1;
+        return "connections";
+      },
+    });
+
+    // THEN it settles as an abort without starting the request
+    await expect(settled).rejects.toBeInstanceOf(RequestAbortedError);
+    expect(runCalls).toBe(0);
   });
 });
