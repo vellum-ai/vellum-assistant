@@ -126,6 +126,7 @@ export const oneTimeMigrations = sqliteTable("one_time_migrations", {
 //
 // Gateway-owned (this table + contact_channels): id, role, principalId,
 // displayName (cache only — NOT used for ACL, kept for log readability),
+// autoApproveThreshold (per-contact RiskThreshold override, null = inherit),
 // and every contact_channels column (type, address, status, policy,
 // verifiedAt, verifiedVia, inviteId, lastSeenAt, interactionCount,
 // lastInteraction, revokedReason, blockedReason).
@@ -139,6 +140,13 @@ export const contacts = sqliteTable("contacts", {
   displayName: text("display_name").notNull(),
   role: text("role").notNull().default("contact"),
   principalId: text("principal_id"),
+  /**
+   * Per-contact auto-approve ceiling (`none` | `low` | `medium` | `high`).
+   * Null means unset: later approval resolution inherits the existing
+   * room / trust-class cascade. Same vocabulary as `auto_approve_thresholds`
+   * and the channel-permission matrix (`RiskThreshold`).
+   */
+  autoApproveThreshold: text("auto_approve_threshold"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

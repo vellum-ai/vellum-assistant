@@ -273,6 +273,8 @@
     "addToChat": "Add to chat",
     "askAssistantPlaceholder": "Ask {assistantName}",
     "configureVoice": "Configure voice",
+    "endOtherVoiceSession": "End it and start here",
+    "goToVoiceSession": "Go to it",
     "recording": "Recording",
     "sendMessage": "Send message",
     "stopGenerating": "Stop generating",
@@ -553,9 +555,6 @@
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
-  "detailPanelStopButton": {
-    "tooltip": "Stop"
-  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
   },
@@ -726,6 +725,14 @@
     "scopedToOneMessage": "Scoped to one message · ",
     "scopedToTurn": "Scoped to turn {index} of {count} · ",
     "title": "LLM Context Inspector"
+  },
+  "liveVoiceBusy": {
+    "android": "Voice is already active in the Android app.",
+    "ios": "Voice is already active in the iOS app.",
+    "macos": "Voice is already active in the Mac app.",
+    "unknown": "Voice is already active somewhere else.",
+    "web": "Voice is already active in another browser tab.",
+    "windows": "Voice is already active in the Windows app."
   },
   "liveVoiceButton": {
     "startVoiceMode": "Start voice mode"

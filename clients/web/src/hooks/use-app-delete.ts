@@ -5,6 +5,7 @@ import { toast } from "@vellumai/design-library";
 
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
+import { t } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import { clearAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -42,7 +43,9 @@ export function useAppDelete(assistantId: string) {
       });
       setPendingDelete(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete app");
+      toast.error(
+        err instanceof Error ? err.message : t("useAppDelete.deleteFailed"),
+      );
     } finally {
       setIsDeleting(false);
     }

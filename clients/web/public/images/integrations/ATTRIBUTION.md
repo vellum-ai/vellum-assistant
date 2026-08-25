@@ -13,8 +13,8 @@ exactly (except where noted).
 
 | Assets                                                                                                | Source                                                        | Licence                                                          |
 | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `airtable`, `asana`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons)   | CC0-1.0 (public domain, no attribution required)                  |
-| `salesforce`                                                                                          | [glincker/thesvg](https://github.com/glincker/thesvg)          | MIT (notice below)                                                |
+| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons)   | CC0-1.0 (public domain, no attribution required)                  |
+| `eventbrite`, `salesforce`                                                                            | [glincker/thesvg](https://github.com/glincker/thesvg)          | MIT (notice below)                                                |
 | `monday`                                                                                              | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1)   | Trademark of monday.com; no software licence granted (see Trademark, below) |
 
 `monday`'s path data and fill colours are byte-identical to the source. Only

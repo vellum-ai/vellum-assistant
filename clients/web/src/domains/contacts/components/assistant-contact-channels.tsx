@@ -56,7 +56,9 @@ export function AssistantContactChannels({
               pending={pendingChannelKey === channel.key}
               onConnect={onConnect ? () => onConnect(channel.key) : undefined}
               onDisconnect={
-                onDisconnect
+                // Offered only where a route can clear the credentials, so
+                // the confirm can never resolve without doing anything.
+                onDisconnect && channel.canDisconnect
                   ? () => setPendingDisconnect(channel.key)
                   : undefined
               }

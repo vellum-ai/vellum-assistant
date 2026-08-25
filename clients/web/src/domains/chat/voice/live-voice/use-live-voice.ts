@@ -93,8 +93,10 @@ import {
   LiveVoiceAudioPlayer,
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
+import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
 import {
   isLiveVoiceSessionActive,
+  type LiveVoiceErrorRecovery,
   minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
@@ -1088,15 +1090,18 @@ export function useLiveVoice(
           // room retract the thumbnail it has already shown as sent.
           useLiveVoiceStore.getState().notePhotoRejected(rejected.reason);
         }),
-        client.on("busy", () => {
+        client.on("busy", (frame) => {
           if (!live()) {
             return;
           }
-          finishWithError(
-            session,
-            teardown,
-            "Another live-voice session is active.",
+          // Refused because another session holds the assistant's single
+          // slot. Surfaced with where that session is and a way to end it.
+          const store = useLiveVoiceStore.getState();
+          const failure = describeBusyFailure(
+            frame.holder,
+            store.conversationId ?? store.startedConversationId ?? null,
           );
+          finishWithError(session, teardown, failure.message, failure.recovery);
         }),
         client.on("error", (err: LiveVoiceClientError) => {
           if (!live()) {
@@ -1781,7 +1786,8 @@ function finishWithError(
   session: SessionContext,
   teardown: () => void,
   message: string,
+  recovery: LiveVoiceErrorRecovery | null = null,
 ): void {
   teardown();
-  useLiveVoiceStore.getState().fail(message);
+  useLiveVoiceStore.getState().fail(message, recovery);
 }

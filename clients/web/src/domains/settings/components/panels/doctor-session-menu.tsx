@@ -47,7 +47,10 @@ export function DoctorSessionMenu({
       <ActionMenu.Trigger asChild>
         <Button
           variant="ghost"
-          size="compact"
+          size="regular"
+          // Without this a ghost icon-only button paints a filled circle on a
+          // touch surface, which is the chrome the header is trying to shed.
+          expandOnMobile={false}
           iconOnly={<EllipsisVertical />}
           aria-label={title}
         />

@@ -791,7 +791,11 @@ export const PROVIDER_SEED_DATA: Record<
       },
     ],
     tokenEndpointAuthMethod: "client_secret_post",
-    loopbackPort: 17338,
+    // 17337/17338 are taken by eventbrite/calendly (all three providers
+    // landed in parallel and independently picked the next free port at the
+    // time); 17339 is the real next-free slot once all three are seeded
+    // together.
+    loopbackPort: 17339,
     managedServiceConfigKey: "monday-oauth",
     injectionTemplates: [
       {
@@ -807,6 +811,142 @@ export const PROVIDER_SEED_DATA: Record<
     identityHeaders: { "Content-Type": "application/json" },
     identityBody: { query: "{ me { id name email } }" },
     identityResponsePaths: ["data.me.name", "data.me.email"],
+  },
+
+  eventbrite: {
+    provider: "eventbrite",
+    authorizeUrl: "https://www.eventbrite.com/oauth/authorize",
+    tokenExchangeUrl: "https://www.eventbrite.com/oauth/token",
+    refreshUrl: "https://www.eventbrite.com/oauth/token",
+    pingUrl: "https://www.eventbriteapi.com/v3/users/me/",
+    baseUrl: "https://www.eventbriteapi.com",
+    displayLabel: "Eventbrite",
+    description: "Events, attendees, and ticket orders",
+    dashboardUrl: "https://www.eventbrite.com/platform/api-keys/",
+    clientIdPlaceholder: null,
+    // Simple Icons does not host an Eventbrite mark (cdn.simpleicons.org
+    // 404s), so use the documented thesvg fallback.
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/eventbrite/default.svg",
+    // Eventbrite has no granular OAuth scope system: an access token carries
+    // the full permissions of the user who authorized it, and the authorize
+    // endpoint ignores a `scope` parameter. Seed an empty set rather than
+    // inventing scope strings the provider would silently drop (same shape
+    // as Notion).
+    defaultScopes: [],
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17337,
+    managedServiceConfigKey: "eventbrite-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "www.eventbriteapi.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    identityUrl: "https://www.eventbriteapi.com/v3/users/me/",
+    identityResponsePaths: ["name", "first_name"],
+  },
+
+  calendly: {
+    provider: "calendly",
+    authorizeUrl: "https://auth.calendly.com/oauth/authorize",
+    tokenExchangeUrl: "https://auth.calendly.com/oauth/token",
+    pingUrl: "https://api.calendly.com/users/me",
+    baseUrl: "https://api.calendly.com",
+    displayLabel: "Calendly",
+    description: "Scheduling links and meetings",
+    dashboardUrl: "https://calendly.com/integrations/api_webhooks",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/calendly",
+    // A :write scope implicitly grants the matching :read in the same domain,
+    // so the baseline stays at the six that map to reading schedule data and
+    // creating bookings/links. Organization-wide visibility is opt-in.
+    defaultScopes: [
+      "users:read",
+      "event_types:read",
+      "scheduled_events:read",
+      "availability:read",
+      "scheduled_events:write",
+      "scheduling_links:write",
+    ],
+    availableScopes: [
+      { scope: "users:read", description: "Read the connected user's profile" },
+      {
+        scope: "event_types:read",
+        description: "Read event types and their available times",
+      },
+      {
+        scope: "event_types:write",
+        description: "Create and update event types",
+      },
+      {
+        scope: "scheduled_events:read",
+        description: "Read scheduled events and invitees",
+      },
+      {
+        scope: "scheduled_events:write",
+        description: "Create invitees, cancel events, mark no-shows",
+      },
+      {
+        scope: "availability:read",
+        description: "Read busy times and availability schedules",
+      },
+      {
+        scope: "availability:write",
+        description: "Update event type availability",
+      },
+      {
+        scope: "scheduling_links:write",
+        description: "Create single-use scheduling links",
+      },
+      {
+        scope: "shares:write",
+        description: "Create customized single-use scheduling links",
+      },
+      {
+        scope: "organizations:read",
+        description: "Read organization data and memberships",
+      },
+      {
+        scope: "groups:read",
+        description: "Read group details and relationships",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read webhook subscriptions",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and delete webhook subscriptions",
+      },
+      { scope: "contacts:read", description: "Read contact details" },
+      {
+        scope: "contacts:write",
+        description: "Create, update, and delete contacts",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_basic",
+    // 17337 is taken by eventbrite (both providers landed in parallel and
+    // independently picked the next free port at the time); 17338 is the
+    // real next-free slot once both are seeded together.
+    loopbackPort: 17338,
+    managedServiceConfigKey: "calendly-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.calendly.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    revokeUrl: "https://auth.calendly.com/oauth/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
+    appType: "App",
+    identityUrl: "https://api.calendly.com/users/me",
+    identityResponsePaths: ["resource.email", "resource.name"],
   },
 
   figma: {
