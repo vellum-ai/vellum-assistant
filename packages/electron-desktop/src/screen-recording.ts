@@ -129,7 +129,8 @@ export const installScreenRecording = ({
     SCREEN_RECORDING_RESOLVE_SOURCE,
     z.tuple([RecordingSourceOptionsSchema]),
     async ([options]) => {
-      const types = options.captureScope === "window" ? ["window"] : ["screen"];
+      const types: Array<"screen" | "window"> =
+        options.captureScope === "window" ? ["window"] : ["screen"];
       const sources = await desktopCapturer.getSources({
         types,
         fetchWindowIcons: false,
