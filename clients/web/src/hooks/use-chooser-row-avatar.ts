@@ -21,6 +21,10 @@ import { versionSupportsAvatarStateManifest } from "@/lib/backwards-compat/avata
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import {
+  isLocalModeHostAvailable,
+  readAssistantAvatarHost,
+} from "@/runtime/local-mode-host";
+import {
   type ResolvedAssistant,
   useResolvedAssistantsStore,
 } from "@/stores/resolved-assistants-store";
@@ -62,6 +66,11 @@ export function chooserRowAvatarQueryKey(
     ...chooserRowAvatarQueryKeyPrefix(assistantId),
     manifestSupport,
   ] as const;
+}
+
+/** Under the row prefix so the avatar-sync invalidation covers it too. */
+export function chooserRowAvatarHostQueryKey(assistantId: string) {
+  return [...chooserRowAvatarQueryKeyPrefix(assistantId), "host"] as const;
 }
 
 export function chooserRowAvatarCacheQueryKey(assistantId: string) {
@@ -125,6 +134,35 @@ export function canFetchRowAvatarViaPlatformProxy(
     getSelfHostedIngressUrl() === null &&
     row.isPlatformHosted
   );
+}
+
+/**
+ * Whether the host bridge can read `row`'s avatar off its workspace on disk.
+ * `cloud` is only ever set from the lockfile, so `"local"` means the
+ * assistant lives on this machine; docker and paired rows have no workspace
+ * the host can read.
+ */
+export function canReadRowAvatarViaHost(row: ResolvedAssistant): boolean {
+  return row.cloud === "local" && isLocalModeHostAvailable();
+}
+
+/**
+ * A data URL sidesteps blob lifecycle management for host-sourced bytes.
+ * Every "nothing to show" answer, including `ok: false`, resolves to nulls.
+ */
+async function readRowAvatarViaHost(
+  assistantId: string,
+): Promise<ChooserRowAvatar> {
+  const result = await readAssistantAvatarHost(assistantId);
+  if (!result.ok || result.avatar === null) {
+    return EMPTY_AVATAR;
+  }
+  return result.avatar.kind === "character"
+    ? { traits: result.avatar.traits, imageUrl: null }
+    : {
+        traits: null,
+        imageUrl: `data:image/png;base64,${result.avatar.imageBase64}`,
+      };
 }
 
 /**
@@ -249,7 +287,9 @@ async function readCachedRowAvatar(
  * 2. Other platform rows fetch per id through the platform proxy, only when
  *    {@link canFetchRowAvatarViaPlatformProxy} says the id is honored and the
  *    org store can supply the `Vellum-Organization-Id` header.
- * 3. The last-seen cache: whatever a live source last resolved for this id,
+ * 3. Local rows (even asleep) read their workspace through the host bridge
+ *    when {@link canReadRowAvatarViaHost} says one is available.
+ * 4. The last-seen cache: whatever a live source last resolved for this id,
  *    so a row keeps its avatar while the assistant is unreachable.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
@@ -314,10 +354,24 @@ export function useChooserRowAvatar(
       .catch(() => {});
   }, [assistant.id, liveConclusive, liveTraits, liveImageUrl, queryClient]);
 
+  // Host-disk reads are durable, so they render directly and never feed the
+  // last-seen cache (the persist effect above is gated on `liveConclusive`).
+  const hostQuery = useQuery<ChooserRowAvatar>({
+    queryKey: chooserRowAvatarHostQueryKey(assistant.id),
+    queryFn: () => readRowAvatarViaHost(assistant.id),
+    enabled: !isConnectedRow && canReadRowAvatarViaHost(assistant),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const host =
+    !showLive && hostQuery.data && !isEmptyAvatar(hostQuery.data)
+      ? hostQuery.data
+      : undefined;
+
   const cacheQuery = useQuery<ChooserRowAvatar>({
     queryKey: chooserRowAvatarCacheQueryKey(assistant.id),
     queryFn: () => readCachedRowAvatar(assistant.id),
-    enabled: !showLive,
+    enabled: !showLive && host === undefined,
     staleTime: Infinity,
     structuralSharing: false,
     retry: false,
@@ -325,6 +379,9 @@ export function useChooserRowAvatar(
 
   if (showLive) {
     return live ?? EMPTY_AVATAR;
+  }
+  if (host) {
+    return host;
   }
   return cacheQuery.data ?? EMPTY_AVATAR;
 }

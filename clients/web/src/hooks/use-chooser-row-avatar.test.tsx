@@ -2,9 +2,10 @@
  * Tests for `useChooserRowAvatar`: the transport gate that decides whether a
  * per-row SDK fetch is addressable, connected-row delegation to
  * `useAssistantAvatar`, per-row manifest-vs-legacy path selection, the
- * last-seen cache as the final fallback, and the failure-to-nulls contract.
- * The resolved-assistants store is real; the environment probes, the avatar
- * API, and the IndexedDB cache are mocked at the module boundary.
+ * host-bridge disk read for local rows, the last-seen cache as the final
+ * fallback, and the failure-to-nulls contract. The resolved-assistants store
+ * is real; the environment probes, the avatar API, the host bridge, and the
+ * IndexedDB cache are mocked at the module boundary.
  */
 
 import type { ReactNode } from "react";
@@ -22,6 +23,8 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type * as AvatarApi from "@/assistant/avatar-api";
 import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
+import type { LocalReadAssistantAvatarResult } from "@vellumai/ipc-contract";
+import type * as LocalModeHost from "@/runtime/local-mode-host";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 import type {
   AvatarState,
@@ -51,6 +54,19 @@ mock.module("@/lib/self-hosted/connection", () => ({
 let orgReady = true;
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
+}));
+
+type HostAvatarResult = LocalReadAssistantAvatarResult;
+let hostAvailable = false;
+const readAssistantAvatarHost = mock(
+  async (_id: string): Promise<HostAvatarResult> => ({
+    ok: true,
+    avatar: null,
+  }),
+);
+mock.module("@/runtime/local-mode-host", (): Partial<typeof LocalModeHost> => ({
+  isLocalModeHostAvailable: () => hostAvailable,
+  readAssistantAvatarHost,
 }));
 
 const traits: CharacterTraits = {
@@ -153,6 +169,17 @@ const platformRow = (
   ...overrides,
 });
 
+const localRow = (
+  id: string,
+  overrides: Partial<ResolvedAssistant> = {},
+): ResolvedAssistant =>
+  platformRow(id, {
+    isLocal: true,
+    isPlatformHosted: false,
+    cloud: "local",
+    ...overrides,
+  });
+
 function createWrapper(
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -184,6 +211,7 @@ beforeEach(() => {
   gatewayAuthEnabled = false;
   selfHostedIngressUrl = null;
   orgReady = true;
+  hostAvailable = false;
   useResolvedAssistantsStore.getState().setActiveAssistantId("active");
   // useAssistantAvatar gates its own path on the identity store's version.
   useAssistantIdentityStore.getState().setIdentity("active", MIN_VERSION);
@@ -202,6 +230,8 @@ afterEach(() => {
   readLastSeenAvatar.mockReset();
   writeLastSeenAvatar.mockReset();
   deleteLastSeenAvatar.mockReset();
+  readAssistantAvatarHost.mockReset();
+  readAssistantAvatarHost.mockResolvedValue({ ok: true, avatar: null });
   readLastSeenAvatar.mockResolvedValue(null);
   fetchAvatarState.mockResolvedValue(characterState);
   fetchAvatarImageUrlResult.mockResolvedValue(ABSENT);
@@ -542,6 +572,156 @@ describe("useChooserRowAvatar", () => {
     expect(fetchAvatarState).toHaveBeenCalledTimes(2);
   });
 
+  describe("host bridge", () => {
+    beforeEach(() => {
+      localClient = true;
+      hostAvailable = true;
+    });
+
+    test("a local row resolves character traits from the host", async () => {
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+      expect(readAssistantAvatarHost).toHaveBeenCalledWith("other");
+      expect(sdkCallCount()).toBe(0);
+    });
+
+    test("a local row resolves an image as a data url", async () => {
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "image", imageBase64: "cG5n" },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe("data:image/png;base64,cG5n");
+      });
+      expect(result.current.traits).toBeNull();
+    });
+
+    test.each([
+      ["a null avatar", { ok: true, avatar: null } as HostAvatarResult],
+      ["a failure", { ok: false, error: "nope" } as HostAvatarResult],
+    ])("%s falls through to the last-seen cache", async (_l, hostResult) => {
+      readAssistantAvatarHost.mockResolvedValue(hostResult);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(readAssistantAvatarHost).toHaveBeenCalledTimes(1);
+      expect(readLastSeenAvatar).toHaveBeenCalledWith("other");
+    });
+
+    test("resolves to nulls when the host and the cache have nothing", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(readAssistantAvatarHost).toHaveBeenCalledTimes(1);
+      });
+      await settle();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
+
+    test("issues no host call when the host is unavailable", async () => {
+      hostAvailable = false;
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await settle();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+      expect(readAssistantAvatarHost).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      ["platform", platformRow("other")],
+      [
+        "paired",
+        platformRow("other", { isPaired: true, isPlatformHosted: false }),
+      ],
+      ["docker", localRow("other", { cloud: "docker" })],
+    ])("issues no host call for a %s row", async (_l, row) => {
+      renderHook(() => useChooserRowAvatar(row), { wrapper: createWrapper() });
+      await settle();
+      expect(readAssistantAvatarHost).not.toHaveBeenCalled();
+    });
+
+    test("the connected local row still prefers the live path", async () => {
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "image", imageBase64: "cG5n" },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("active")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+      expect(readAssistantAvatarHost).not.toHaveBeenCalled();
+    });
+
+    test("invalidating the row prefix re-reads the host", async () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(queryClient),
+        },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+
+      const updated = { ...traits, color: "sunset-orange" };
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits: updated },
+      });
+      await queryClient.invalidateQueries({
+        queryKey: chooserRowAvatarQueryKeyPrefix("other"),
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(updated);
+      });
+      expect(readAssistantAvatarHost).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("last-seen cache", () => {
     test("writes a character entry after a live platform-proxy resolution", async () => {
       const { result } = renderHook(
@@ -795,6 +975,27 @@ describe("useChooserRowAvatar", () => {
       });
       expect(readLastSeenAvatar).toHaveBeenCalledWith("other");
       expect(sdkCallCount()).toBe(0);
+    });
+
+    test("a host-sourced avatar is never written to the cache", async () => {
+      localClient = true;
+      hostAvailable = true;
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
     });
 
     test("re-creates an object url from a cached image Blob", async () => {
