@@ -40,6 +40,10 @@ import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  findContentTypeHeader,
+  parseRequestBodyData,
+} from "../../util/oauth-request-body.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -722,15 +726,12 @@ async function handleToken({ body = {} }: RouteHandlerArgs) {
 // Request handler
 // ---------------------------------------------------------------------------
 
-function tryJsonParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
-
-function readBodyData(data: string): unknown {
+/**
+ * Resolve a raw `data` string into a request body. A non-JSON Content-Type
+ * keeps the payload as the caller's exact string so multipart and other
+ * byte-sensitive payloads survive; files are read as UTF-8 text.
+ */
+function readBodyData(data: string, contentType: string | undefined): unknown {
   if (data === "@-") {
     // This handler runs inside the daemon, whose stdin is a supervisor pipe
     // or /dev/null — never the caller's terminal. Stdin-based body input is
@@ -743,11 +744,10 @@ function readBodyData(data: string): unknown {
 
   if (data.startsWith("@")) {
     const filePath = data.slice(1);
-    const raw = readFileSync(filePath, "utf-8");
-    return tryJsonParse(raw);
+    return parseRequestBodyData(readFileSync(filePath, "utf-8"), contentType);
   }
 
-  return tryJsonParse(data);
+  return parseRequestBodyData(data, contentType);
 }
 
 export async function handleRequest({ body = {} }: RouteHandlerArgs) {
@@ -853,12 +853,14 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   let reqBody: unknown = undefined;
   const query: Record<string, string | string[]> = { ...queryFromUrl };
 
-  // Use pre-parsed data from CLI, or fall back to raw data string for direct API callers
+  // Use pre-parsed data from CLI, or fall back to raw data string for direct
+  // API callers. A string here (a multipart or form-encoded payload) stays a
+  // string all the way to the provider; only objects are serialized as JSON.
   const resolvedData =
     b.parsed_data !== undefined
       ? b.parsed_data
       : b.data !== undefined
-        ? readBodyData(b.data)
+        ? readBodyData(b.data, findContentTypeHeader(b.headers))
         : undefined;
 
   if (resolvedData !== undefined) {

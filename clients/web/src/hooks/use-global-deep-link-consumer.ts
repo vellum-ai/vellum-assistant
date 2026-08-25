@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -22,7 +22,7 @@ import {
   navigateToNewConversation,
   revealConversationView,
 } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import { conversationIdForPath, routes } from "@/utils/routes";
 
 /**
  * Global deep-link consumer — mounted at `RootLayout` so it's alive
@@ -60,9 +60,11 @@ import { routes } from "@/utils/routes";
  *   way. See below.
  * - `deeplink.newChat` → `ensureMainWindowVisible()` +
  *   `navigateToNewConversation()`, the Home Screen widgets' New Chat button.
- * - `deeplink.openCamera` → `ensureMainWindowVisible()` + navigate to
- *   `/assistant` + park the request in `usePendingDeepLinkStore` for the
- *   composer's attachment layer to drain on mount (`useCameraDeepLink`).
+ * - `deeplink.openCamera` → `ensureMainWindowVisible()`, then reveal the chat
+ *   and stay put on a conversation route, or land on a fresh draft from
+ *   anywhere else, and park the request in `usePendingDeepLinkStore` addressed
+ *   to whichever conversation that was, for its composer's attachment layer to
+ *   drain (`useCameraDeepLink`).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -147,6 +149,7 @@ function connectGuidanceMessage(url: string | null): string {
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
+  const { pathname, search, hash } = useLocation();
   const queryClient = useQueryClient();
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
@@ -280,10 +283,11 @@ export function useGlobalDeepLinkConsumer(): void {
       requestComposerFocus();
       return;
     }
-    // The draft composer (no conversation): the session starts without one and
-    // the server assigns it on `ready`.
+    // The chat, so the layout that registers the starter is mounted. The drain
+    // mints the fresh conversation the session binds to and lands on it from
+    // there, reading the ref because it navigates after its own awaits.
     navigateRef.current(routes.assistant);
-    requestVoiceStart();
+    requestVoiceStart((to, options) => navigateRef.current(to, options));
   });
 
   // The Home Screen widgets' New Chat buttons. `navigateToNewConversation` is
@@ -298,12 +302,50 @@ export function useGlobalDeepLinkConsumer(): void {
   // The Quick Actions widget's camera button. The camera input belongs to the
   // composer's attachment layer, which does not exist yet on a cold launch, so
   // the request is parked in the same one-shot inbox the voice start uses and
-  // the composer drains it when it mounts (`useCameraDeepLink`). Landing on
-  // `routes.assistant` is what mounts that composer.
+  // the composer drains it when it mounts (`useCameraDeepLink`).
+  //
+  // The landing has to be a route the composer *stays* mounted on, and a view
+  // that mounts one at all. A composer already on screen keeps the photo in the
+  // conversation the user is looking at, so the tap navigates nowhere and only
+  // reveals the chat, which the full-screen app viewer would otherwise be
+  // holding with `ChatMainPanel` swapped out (`ChatContentLayout`): the park
+  // would sit there with no consumer, the tap would read as doing nothing, and
+  // the camera would open by itself whenever the app was dismissed inside the
+  // TTL. `revealConversationView` is the reveal `navigateToNewConversation`
+  // runs below, so an app open beside the chat is kept either way. From
+  // anywhere else the tap lands on a fresh draft, the same registered-draft
+  // landing the New Chat button gets, silent because the tap was for the camera
+  // and not for a new chat's flourish.
   useBusSubscription("deeplink.openCamera", () => {
     void ensureMainWindowVisible();
-    usePendingDeepLinkStore.getState().setPendingCamera();
-    navigateRef.current(routes.assistant);
+    // A named conversation only. The `/assistant` index mounts a composer too,
+    // but `useConversationLoader` replace-navigates off it to a conversation
+    // key on arrival, so a composer mounted there is remounted a beat later and
+    // anything it holds in local state goes with it.
+    const settledId = conversationIdForPath(pathname);
+    let targetId: string;
+    if (settledId !== null) {
+      revealConversationView(settledId);
+      // Re-navigating to the settled conversation is a no-op when the router
+      // is at rest, and cancels any in-flight transition away from it that
+      // would otherwise unmount the composer this park is addressed to. The
+      // search and hash ride along so pending query-driven effects survive.
+      navigateRef.current(
+        { pathname: routes.conversation(settledId), search, hash },
+        { replace: true },
+      );
+      targetId = settledId;
+    } else {
+      targetId = navigateToNewConversation(navigateRef.current, {
+        silent: true,
+      });
+    }
+    // Addressed to the conversation the tap lands on rather than broadcast to
+    // whichever composer wakes first. The draft branch above has only *started*
+    // its route transition, so a composer on the outgoing route is still
+    // mounted and would otherwise spend this one-shot park on a viewfinder the
+    // navigation takes down with it, leaving the draft's composer nothing.
+    usePendingDeepLinkStore.getState().setPendingCamera(targetId);
   });
 
   useBusSubscription(
@@ -338,11 +380,13 @@ export function useGlobalDeepLinkConsumer(): void {
     void ensureMainWindowVisible();
     // Park before navigating so the chooser mounts with the dialog
     // already open (its auto-skip stands down while it is).
-    useConnectDialogStore.getState().openConnectDialog(
-      bundle !== null
-        ? { initialBundle: bundle }
-        : { guidanceMessage: connectGuidanceMessage(url) },
-    );
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog(
+        bundle !== null
+          ? { initialBundle: bundle }
+          : { guidanceMessage: connectGuidanceMessage(url) },
+      );
     navigateRef.current(routes.selectAssistant);
   });
 

@@ -298,3 +298,52 @@ describe("draft conversation ids", () => {
     expect(getState().draftConversationIds.size).toBe(0);
   });
 });
+
+describe("companion surface conversation", () => {
+  it("has no conversation until the composer sends something", () => {
+    expect(getState().companionConversationId).toBeNull();
+  });
+
+  it("remembers the conversation the composer is talking to", () => {
+    getState().setCompanionConversationId("draft-1");
+    expect(getState().companionConversationId).toBe("draft-1");
+  });
+
+  it("follows its draft to the id the server assigned", () => {
+    getState().setCompanionConversationId("draft-1");
+
+    getState().resolveCompanionDraftConversationId("draft-1", "server-1");
+
+    expect(getState().companionConversationId).toBe("server-1");
+  });
+
+  it("ignores a resolution of some other conversation's draft", () => {
+    getState().setCompanionConversationId("draft-1");
+
+    getState().resolveCompanionDraftConversationId("draft-2", "server-2");
+
+    expect(getState().companionConversationId).toBe("draft-1");
+  });
+
+  it("ignores a resolution while the composer holds no conversation", () => {
+    getState().resolveCompanionDraftConversationId("draft-1", "server-1");
+    expect(getState().companionConversationId).toBeNull();
+  });
+
+  it("takes the new thread when the composer starts one", () => {
+    getState().setCompanionConversationId("draft-1");
+    getState().resolveCompanionDraftConversationId("draft-1", "server-1");
+
+    getState().setCompanionConversationId("draft-2");
+
+    expect(getState().companionConversationId).toBe("draft-2");
+  });
+
+  it("drops the conversation on reset", () => {
+    getState().setCompanionConversationId("server-1");
+
+    getState().reset();
+
+    expect(getState().companionConversationId).toBeNull();
+  });
+});

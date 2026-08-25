@@ -1,22 +1,6 @@
-import type { SlackStreamTask } from "@vellumai/gateway-client";
+import type { StreamPlan, StreamPlanStep } from "@vellumai/gateway-client";
 
 import { coerceSurfaceDataRecord } from "../api/surfaces.js";
-
-/**
- * A single step of a `task_progress` UI surface: an ordered, status-bearing
- * unit of work the assistant reports while a turn runs.
- */
-export type TaskProgressStep = {
-  label: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-  detail?: string;
-};
-
-export type TaskProgressData = {
-  /** Plan title shown above the steps (e.g. "Q2 Launch Plan"). */
-  title?: string;
-  steps: TaskProgressStep[];
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -25,7 +9,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Read a `task_progress` surface payload into typed steps, if it is one. */
 export function getTaskProgressDataFromSurfaceData(
   data: unknown,
-): TaskProgressData | undefined {
+): StreamPlan | undefined {
   if (!isRecord(data)) {
     return undefined;
   }
@@ -35,12 +19,12 @@ export function getTaskProgressDataFromSurfaceData(
   return parseTaskProgressData(data.templateData);
 }
 
-function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
+function parseTaskProgressData(value: unknown): StreamPlan | undefined {
   if (!isRecord(value) || !Array.isArray(value.steps)) {
     return undefined;
   }
 
-  const steps = value.steps.flatMap((step): TaskProgressStep[] => {
+  const steps = value.steps.flatMap((step): StreamPlanStep[] => {
     if (!isRecord(step)) {
       return [];
     }
@@ -89,7 +73,7 @@ function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
  */
 export function getTaskProgressDataFromToolInput(
   input: unknown,
-): TaskProgressData | undefined {
+): StreamPlan | undefined {
   const record = coerceSurfaceDataRecord(input);
   return (
     getTaskProgressDataFromSurfaceData(record) ??
@@ -103,9 +87,9 @@ export function getTaskProgressDataFromToolInput(
  * `templateData` update is merged over the existing steps.
  */
 export function mergeTaskProgressData(
-  existing: TaskProgressData | undefined,
+  existing: StreamPlan | undefined,
   data: unknown,
-): TaskProgressData | undefined {
+): StreamPlan | undefined {
   if (!isRecord(data)) {
     return existing;
   }
@@ -122,34 +106,4 @@ export function mergeTaskProgressData(
     steps: existing.steps,
     ...(isRecord(data.templateData) ? data.templateData : {}),
   });
-}
-
-const TASK_PROGRESS_STATUS_TO_SLACK: Record<
-  TaskProgressStep["status"],
-  SlackStreamTask["status"]
-> = {
-  pending: "pending",
-  in_progress: "in_progress",
-  completed: "complete",
-  failed: "error",
-};
-
-/**
- * Map ordered `task_progress` steps onto Slack streaming task cards. Step
- * position supplies the stable card `id` (a step keeps its index across
- * updates), the label becomes the card title, the step detail becomes the
- * card details, and the surface status maps onto Slack's task-card status
- * vocabulary.
- *
- * @see https://docs.slack.dev/ai/developing-agents
- */
-export function toSlackStreamTasks(
-  progress: TaskProgressData,
-): SlackStreamTask[] {
-  return progress.steps.map((step, index) => ({
-    id: `task-${index}`,
-    title: step.label,
-    status: TASK_PROGRESS_STATUS_TO_SLACK[step.status],
-    ...(step.detail ? { details: step.detail } : {}),
-  }));
 }

@@ -1,7 +1,8 @@
 /**
  * Tests for `assistant/src/runtime/routes/channel-availability-routes.ts`.
  *
- * The handler returns a fixed base list (`slack`, `telegram`, `phone`) and
+ * The handler returns a fixed base list (`slack`, `telegram`, `discord`,
+ * `phone`) and
  * appends `email` when the platform reports at least one registered email
  * address for this assistant. Platform failures fall back to base-only.
  *
@@ -90,6 +91,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -106,6 +108,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
       "email",
     ]);
@@ -135,6 +138,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -147,6 +151,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -159,6 +164,7 @@ describe("channels/available", () => {
     expect(result.channels.map((c) => c.id)).toEqual([
       "slack",
       "telegram",
+      "discord",
       "phone",
     ]);
   });
@@ -215,5 +221,21 @@ describe("channels/available", () => {
       expect(ch!.setupMessages.guardian.length).toBeGreaterThan(0);
       expect(ch!.setupMessages.contact.length).toBeGreaterThan(0);
     }
+  });
+
+  test("offers Discord for verification, like the other text channels", async () => {
+    const result = (await handler({})) as HandlerResult;
+
+    const discord = result.channels.find((c) => c.id === "discord");
+    // Availability is what a client reads to decide whether to offer setup at
+    // all, so a channel absent here can never be verified however complete its
+    // transport is.
+    expect(discord).toBeDefined();
+    expect(discord!.supportsVerification).toBe(true);
+    expect(discord!.source).toBe("default");
+    expect(discord!.setupMessages.guardian).toContain("Discord");
+    // This field carries a Lucide name, which a brand mark is not. A client
+    // with room for one picks it by channel; every client can draw this.
+    expect(discord!.icon).toBe("hash");
   });
 });

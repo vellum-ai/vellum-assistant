@@ -12,6 +12,7 @@ describe("liveVoiceSilenceReason", () => {
     expect(
       liveVoiceSilenceReason({
         reachedActive: false,
+        audioInput: true,
         receivedAudio: false,
         detectedSpeech: false,
       }),
@@ -25,6 +26,7 @@ describe("liveVoiceSilenceReason", () => {
     expect(
       liveVoiceSilenceReason({
         reachedActive: false,
+        audioInput: true,
         receivedAudio: true,
         detectedSpeech: true,
       }),
@@ -35,6 +37,7 @@ describe("liveVoiceSilenceReason", () => {
     expect(
       liveVoiceSilenceReason({
         reachedActive: true,
+        audioInput: true,
         receivedAudio: false,
         detectedSpeech: false,
       }),
@@ -48,16 +51,47 @@ describe("liveVoiceSilenceReason", () => {
     expect(
       liveVoiceSilenceReason({
         reachedActive: true,
+        audioInput: true,
         receivedAudio: true,
         detectedSpeech: false,
       }),
     ).toBe("no_speech");
   });
 
+  it("does not blame the microphone on a session that never had one", () => {
+    // A text-only session opened because speech-to-text was unavailable and
+    // the client could type. Scoring the absent microphone as `no_audio` would
+    // file it under a failure it does not have, and inflate the very rate this
+    // taxonomy exists to explain.
+    expect(
+      liveVoiceSilenceReason({
+        reachedActive: true,
+        audioInput: false,
+        receivedAudio: false,
+        detectedSpeech: false,
+      }),
+    ).toBe("text_only");
+  });
+
+  it("still reports text_only when a text-only session streamed stray audio", () => {
+    // A client that has not caught up with `audioInput: false` may keep
+    // sending chunks. Nothing transcribes them, so they say nothing about why
+    // the session was silent, and the reason must not flip on their account.
+    expect(
+      liveVoiceSilenceReason({
+        reachedActive: true,
+        audioInput: false,
+        receivedAudio: true,
+        detectedSpeech: true,
+      }),
+    ).toBe("text_only");
+  });
+
   it("reports speech that never became a turn", () => {
     expect(
       liveVoiceSilenceReason({
         reachedActive: true,
+        audioInput: true,
         receivedAudio: true,
         detectedSpeech: true,
       }),

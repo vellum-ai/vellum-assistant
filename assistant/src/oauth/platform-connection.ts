@@ -82,6 +82,10 @@ export class PlatformOAuthConnection implements OAuthConnection {
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
     const proxyPath = `/v1/assistants/${this.client.platformAssistantId}/external-provider-proxy/${this.connectionId}/`;
 
+    // The envelope carries the caller's headers and body side by side. A
+    // string body is placed in the envelope as a string, so the proxy forwards
+    // those bytes verbatim under the caller's Content-Type; an object body
+    // travels as JSON and the proxy serializes it.
     const body: Record<string, unknown> = {
       request: {
         method: req.method,

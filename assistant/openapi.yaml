@@ -790,6 +790,13 @@ paths:
                           type: string
                         origin:
                           type: string
+                          description: '"workspace" or "plugin:<name>": where the app comes from'
+                        pinSortPosition:
+                          description: Sidebar order, ascending. Absent when the app is not pinned
+                          type: number
+                        pinColor:
+                          description: Pin colour id; absent when no colour is set
+                          type: string
                       required:
                         - id
                         - name
@@ -1024,6 +1031,62 @@ paths:
                   - name
                   - html
                   - origin
+                additionalProperties: false
+  /v1/apps/{id}/pin:
+    post:
+      operationId: apps_by_id_pin_post
+      summary: Pin or unpin an app
+      description:
+        Pin an app to the sidebar, unpin it, or set the colour it is tinted with. Pin state is read back from the
+        app list as `pinSortPosition` and `pinColor`.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pinned:
+                  description: Pin (true) or unpin (false). Omit to leave unchanged.
+                  type: boolean
+                color:
+                  description: Colour id, or null to clear. Omit to leave unchanged.
+                  anyOf:
+                    - type: string
+                    - type: "null"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  appId:
+                    type: string
+                  pinSortPosition:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  pinColor:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - success
+                  - appId
+                  - pinSortPosition
+                  - pinColor
                 additionalProperties: false
   /v1/apps/{id}/preview:
     get:
@@ -12646,9 +12709,12 @@ paths:
                         type: boolean
                       retryLastTurn:
                         type: boolean
+                      appPins:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
+                      - appPins
                     additionalProperties: false
                   profiler:
                     type: object
@@ -12848,9 +12914,12 @@ paths:
                         type: boolean
                       retryLastTurn:
                         type: boolean
+                      appPins:
+                        type: boolean
                     required:
                       - memoryOptOut
                       - retryLastTurn
+                      - appPins
                     additionalProperties: false
                   profiler:
                     type: object
@@ -17187,6 +17256,34 @@ paths:
                     type: string
                 required:
                   - status
+                additionalProperties: false
+  /v1/live-voice/session/end:
+    post:
+      operationId: livevoice_session_end_post
+      summary: End the active live voice session
+      description:
+        Release the assistant's single live-voice session slot, whichever client holds it. Reports whether a
+        session was actually ended; a slot already tearing down reports false, since that teardown releases it on its
+        own.
+      tags:
+        - live-voice
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ended:
+                    type: boolean
+                  sessionId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - ended
+                  - sessionId
                 additionalProperties: false
   /v1/llm-request-logs/{id}/context:
     get:

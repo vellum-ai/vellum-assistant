@@ -112,7 +112,7 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
       "Platform fee: $20/mo",
       "Large machine (4 vCPU, 8 GiB)",
       "30 GB storage",
-      "$50 of bundled credits",
+      "50 credits",
     ]);
     expect(diff.rows.every((r) => !r.changed)).toBe(true);
     expect(diff.rows.every((r) => r.previousLabel === undefined)).toBe(true);
@@ -229,7 +229,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     const creditRow = diff.rows.find((r) => r.key === "credit");
     expect(creditRow?.changed).toBe(true);
     expect(creditRow?.previousLabel).toBe("No extra credits");
-    expect(creditRow?.label).toBe("$50 of bundled credits");
+    expect(creditRow?.label).toBe("50 credits");
   });
 
   test("a baseline seed machine strikes through the baseline it left", () => {
@@ -322,8 +322,8 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("a held legacy credit bundle is priced into totalCents so the total matches its row", () => {
     // Reopening seeded to a grandfathered bundle with no change: `credits_25`
     // is `legacy: true`, in the catalog only because this sub holds it. It has
-    // to resolve so the header total agrees with the "$25 of bundled credits"
-    // row (the modal's own selectable list drops it).
+    // to resolve so the header total agrees with the "25 credits" row (the
+    // modal's own selectable list drops it).
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
       seed: {
@@ -341,7 +341,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(diff.previousTotalCents).toBe(2000 + 3500 + 500 + 2500);
     expect(diff.deltaCents).toBe(0);
     const creditRow = diff.rows.find((r) => r.key === "credit");
-    expect(creditRow?.label).toBe("$25 of bundled credits");
+    expect(creditRow?.label).toBe("25 credits");
     expect(creditRow?.changed).toBe(false);
   });
 
@@ -385,7 +385,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
 
     const creditRow = diff.rows.find((r) => r.key === "credit");
     expect(creditRow?.changed).toBe(true);
-    expect(creditRow?.label).toBe("$50 of bundled credits");
+    expect(creditRow?.label).toBe("50 credits");
     expect(creditRow?.previousLabel).toBeUndefined();
     // The delisted seed bundle can't be priced → no trustworthy previous total,
     // so both the previous total and the delta are suppressed.

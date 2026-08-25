@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router";
 
 import { CameraCaptureOverlay } from "@/domains/chat/components/chat-attachments/camera-capture-overlay";
 import {
@@ -7,6 +8,7 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
+import { conversationIdForPath } from "@/utils/routes";
 
 /**
  * How long a parked camera request stays live.
@@ -30,7 +32,8 @@ interface UseCameraDeepLinkOptions {
    * and a one-shot park would otherwise be spent by whichever mounted first.
    * One `ChatMainPanel` is on screen at a time (its two layout branches, the
    * app-editing split and the plain chat, are mutually exclusive), so that
-   * gate leaves exactly one taker.
+   * gate leaves exactly one taker. The park's address tells composers on
+   * different routes apart; this tells apart the two that share one.
    */
   enabled: boolean;
 }
@@ -58,25 +61,41 @@ interface UseCameraDeepLinkResult {
  * answered too. The consume is one-shot, so a re-render cannot replay it, and a
  * drain landing during a live-voice call spends the request without raising
  * anything: the call owns the one camera layer.
+ *
+ * A park names the conversation it is for, and this only drains one addressed
+ * to the route it is mounted on. Without that, a composer on the route a tap is
+ * navigating *away* from spends the park on a viewfinder its own unmount takes
+ * down, and the composer the tap was for finds nothing waiting.
  */
 export function useCameraDeepLink({
   onFiles,
   enabled,
 }: UseCameraDeepLinkOptions): UseCameraDeepLinkResult {
   const [captureOpen, setCaptureOpen] = useState(false);
-  const pendingCameraAt = usePendingDeepLinkStore.use.pendingCameraAt();
+  const pendingCamera = usePendingDeepLinkStore.use.pendingCamera();
+  // The conversation this composer is bound to, read off the route rather than
+  // off the active conversation in the store. The store's id is set to the
+  // draft *before* the router leaves the old route, so every mounted composer
+  // would answer to it; the route is the one thing that still tells the
+  // outgoing composer apart from the one being navigated to.
+  const routeConversationId = conversationIdForPath(useLocation().pathname);
 
   useEffect(() => {
-    if (!enabled || pendingCameraAt === null) {
+    if (!enabled || pendingCamera === null) {
       return;
     }
-    // Consumed whatever the age: an expired park is spent, not left to be
-    // drained by a later mount.
-    if (
-      !usePendingDeepLinkStore
-        .getState()
-        .consumePendingCamera(PENDING_CAMERA_TTL_MS)
-    ) {
+    const consume = () =>
+      usePendingDeepLinkStore.getState().consumePendingCamera();
+    // Spent whatever the age: an expired park is not left behind for a later
+    // mount to drain.
+    if (Date.now() - pendingCamera.parkedAt > PENDING_CAMERA_TTL_MS) {
+      consume();
+      return;
+    }
+    // Addressed to some other conversation: left parked, untouched, for the
+    // composer it names. Spending it here would cost the command outright,
+    // since the park is one-shot.
+    if (pendingCamera.targetConversationId !== routeConversationId) {
       return;
     }
     // A running call owns the camera. `useVoiceCamera` is a hook over one
@@ -94,10 +113,15 @@ export function useCameraDeepLink({
     // open": nothing publishes the latter, since it lives in the room's own
     // `useVoiceCamera` instance.
     if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+      consume();
       return;
     }
+    // Consumed last, after the surface is actually raised: everything above is
+    // a reason to spend the request deliberately, and nothing between here and
+    // the park can fail with the command silently gone.
     setCaptureOpen(true);
-  }, [enabled, pendingCameraAt]);
+    consume();
+  }, [enabled, pendingCamera, routeConversationId]);
 
   const closeCapture = useCallback(() => setCaptureOpen(false), []);
 

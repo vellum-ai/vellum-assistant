@@ -19,6 +19,7 @@
  *
  *     const connection = createLiveVoiceConnection({
  *       send: (frame) => socket.send(JSON.stringify(frame)),
+ *       close: () => socket.close(),
  *     });
  *     socket.on("message", (msg) => void connection.handleMessage(msg));
  *     socket.on("close", () => connection.release());
@@ -26,8 +27,11 @@
 
 import { getLogger } from "../util/logger.js";
 import { getLiveVoiceSessionManager } from "./live-voice-manager.js";
-import type { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
-import type { LiveVoiceSessionCloseReason } from "./live-voice-session-manager.js";
+import type {
+  LiveVoiceSessionCloseReason,
+  LiveVoiceSessionManager,
+  LiveVoiceStartSessionResult,
+} from "./live-voice-session-manager.js";
 import {
   type LiveVoiceClientFrame,
   type LiveVoiceProtocolError,
@@ -66,23 +70,39 @@ export interface LiveVoiceConnection {
   release(reason?: LiveVoiceSessionCloseReason): void;
 }
 
-/** Create a live voice connection bound to the caller's `send` transport. */
+/**
+ * Create a live voice connection bound to the caller's `send` transport.
+ *
+ * `close` is how the daemon hangs up. It is optional only because a transport
+ * may not be able to (an in-process pipe), but a real one should always pass
+ * it: without it, a session the daemon reclaims from an absent client leaves
+ * the transport open behind it.
+ */
 export function createLiveVoiceConnection(options: {
   send: LiveVoiceFrameSender;
+  close?: () => void;
 }): LiveVoiceConnection {
   return new LiveVoiceConnectionImpl(
     options.send,
     getLiveVoiceSessionManager(),
+    options.close,
   );
 }
 
 class LiveVoiceConnectionImpl implements LiveVoiceConnection {
   private activeSessionId: string | undefined;
   private lastSeq = 0;
+  /**
+   * A `start` still waiting on the manager. It holds no session id yet, so
+   * without this handle a transport that closes mid-wait has nothing to
+   * release and the start would go on to build a session for a dead socket.
+   */
+  private pendingStart: AbortController | null = null;
 
   constructor(
     private readonly send: LiveVoiceFrameSender,
     private readonly manager: LiveVoiceSessionManager,
+    private readonly closeTransport?: () => void,
   ) {}
 
   get sessionId(): string | undefined {
@@ -136,6 +156,8 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
   }
 
   release(reason: LiveVoiceSessionCloseReason = "transport_closed"): void {
+    this.pendingStart?.abort();
+    this.pendingStart = null;
     const sessionId = this.activeSessionId;
     this.activeSessionId = undefined;
     if (!sessionId) {
@@ -168,11 +190,27 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
         this.activeSessionId = undefined;
       }
 
-      const result = await this.manager.startSession(frame, {
-        sendFrame: (serverFrame) => {
-          this.sendFrame(serverFrame);
-        },
-      });
+      const pending = new AbortController();
+      this.pendingStart = pending;
+      let result: LiveVoiceStartSessionResult;
+      try {
+        result = await this.manager.startSession(
+          frame,
+          {
+            sendFrame: (serverFrame) => {
+              this.sendFrame(serverFrame);
+            },
+            ...(this.closeTransport
+              ? { closeTransport: this.closeTransport }
+              : {}),
+          },
+          { signal: pending.signal },
+        );
+      } finally {
+        if (this.pendingStart === pending) {
+          this.pendingStart = null;
+        }
+      }
       if (result.status === "accepted") {
         this.activeSessionId = result.sessionId;
       }

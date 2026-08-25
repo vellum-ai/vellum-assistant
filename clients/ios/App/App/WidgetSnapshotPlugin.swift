@@ -7,7 +7,7 @@ import WidgetKit
 /// App Group cache the VoiceActivity extension can read.
 ///
 /// Two methods:
-/// - `sync({ generatedAt, unreadCount, inProgressCount, conversations })`
+/// - `sync({ generatedAt, unreadCount, inProgressCount, conversations, avatar })`
 ///   replaces the whole snapshot. Full replacement rather than a diff keeps
 ///   the contract trivial: the web side owns ordering and membership, and a
 ///   sync after archiving or reading a thread needs no tombstones.
@@ -25,10 +25,11 @@ import WidgetKit
 /// This is the write-side half of the check `WidgetSnapshotStore.load()`
 /// already makes on read.
 ///
-/// Malformed conversation entries are dropped rather than rejecting the call:
-/// a partial summary beats none, and the web producer already shapes the
-/// payload. Per the skew rule in `clients/web/docs/CAPACITOR.md`, the one
-/// result shape (`{ok: true}`) covers every state, including an empty payload.
+/// Malformed conversation entries, and an avatar this build cannot read, are
+/// dropped rather than rejecting the call: a partial summary beats none, and
+/// the web producer already shapes the payload. Per the skew rule in
+/// `clients/web/docs/CAPACITOR.md`, the one result shape (`{ok: true}`) covers
+/// every state, including an empty payload.
 @objc(WidgetSnapshotPlugin)
 public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "WidgetSnapshotPlugin"
@@ -42,6 +43,18 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
     /// this many; clamping here keeps a misbehaving caller from growing the
     /// shared container without limit.
     private static let maxConversations = 3
+
+    /// Ceiling on the decoded avatar image. The producer encodes well under it
+    /// (`WIDGET_AVATAR_MAX_BYTES` in `use-native-widget-snapshot-sync.ts`), so
+    /// this is the guard against a caller that does not: the blob is written to
+    /// a container the widget extension has to load on every timeline refresh,
+    /// and a snapshot no widget can afford to read is worse than an unthemed
+    /// one.
+    private static let maxAvatarImageBytes = 96 * 1024
+
+    /// The same ceiling in base64 characters, so an oversized image is rejected
+    /// before anything decodes it.
+    private static let maxAvatarBase64Count = 4 * ((maxAvatarImageBytes + 2) / 3)
 
     @objc public func sync(_ call: CAPPluginCall) {
         // A payload with no version is as unreadable as one carrying a version
@@ -69,7 +82,8 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
             generatedAt: Self.date(from: call.getString("generatedAt")) ?? Date(),
             unreadCount: max(0, call.getInt("unreadCount") ?? 0),
             inProgressCount: max(0, call.getInt("inProgressCount") ?? 0),
-            conversations: Array(conversations)
+            conversations: Array(conversations),
+            avatar: Self.avatar(from: call.getObject("avatar"))
         )
         WidgetSnapshotStore.save(snapshot)
         Self.reloadWidgets()
@@ -128,6 +142,38 @@ public class WidgetSnapshotPlugin: CAPPlugin, CAPBridgedPlugin {
             hasUnseen: dict["hasUnseen"] as? Bool ?? false,
             isProcessing: dict["isProcessing"] as? Bool ?? false
         )
+    }
+
+    /// The avatar the widgets theme themselves from, or nil when the payload
+    /// carries none this build can use. A `kind` is the whole of what makes the
+    /// dict usable: the accent and the image are each independently optional,
+    /// and a `none` avatar carries neither.
+    private static func avatar(from dict: JSObject?) -> WidgetSnapshotAvatar? {
+        guard let dict, let kind = dict["kind"] as? String, !kind.isEmpty else {
+            return nil
+        }
+        return WidgetSnapshotAvatar(
+            kind: kind,
+            accentHex: (dict["accentHex"] as? String).flatMap(canonicalCSSHex),
+            imageData: avatarImage(fromBase64: dict["imageBase64"] as? String)
+        )
+    }
+
+    /// The avatar image's bytes, or nil for a payload that carries none, one
+    /// past ``maxAvatarImageBytes``, and one that is not base64 at all. All
+    /// three read as an avatar with no image, which every widget draws by
+    /// falling back to its accent or brand mark.
+    private static func avatarImage(fromBase64 raw: String?) -> Data? {
+        guard let raw, !raw.isEmpty else {
+            return nil
+        }
+        guard raw.count <= maxAvatarBase64Count,
+              let data = Data(base64Encoded: raw)
+        else {
+            NSLog("[widget] Dropping an unusable avatar image of %d base64 characters", raw.count)
+            return nil
+        }
+        return data
     }
 
     /// JavaScript's `toISOString()` always carries milliseconds, which the

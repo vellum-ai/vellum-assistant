@@ -36,6 +36,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
+  CONNECTION_PROVIDERS,
   connectionAuthTypeForProvider,
   connectionSaveErrorMessage,
   parseCredentialRef,
@@ -44,6 +45,7 @@ import {
   warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
+import { useProviderPickerAvailability } from "@/domains/settings/ai/provider-picker-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
@@ -101,6 +103,9 @@ export function ProviderCreateForm({
 }: ProviderCreateFormProps) {
   const { t } = useTranslation("settings");
   const selectableConnectionProviders = useSelectableConnectionProviders();
+  const providerAvailability = useProviderPickerAvailability();
+  // A provider this assistant cannot reach is offered as a disabled row, so
+  // the seed and the empty-picker fallback both land on one it can.
   const initialProvider: ConnectionProvider =
     defaultProviderType &&
     selectableConnectionProviders.includes(defaultProviderType)
@@ -154,16 +159,16 @@ export function ProviderCreateForm({
     Array<ConnectionProvider | "chatgpt">
   >(() => {
     const base: Array<ConnectionProvider | "chatgpt"> =
-      !isChatgpt && !selectableConnectionProviders.includes(provider)
-        ? [...selectableConnectionProviders, provider]
-        : [...selectableConnectionProviders];
+      !isChatgpt && !CONNECTION_PROVIDERS.includes(provider)
+        ? [...CONNECTION_PROVIDERS, provider]
+        : [...CONNECTION_PROVIDERS];
     // Subscription-auth entry, right after its API-key sibling.
     const openaiIndex = base.indexOf("openai");
     if (openaiIndex >= 0) {
       base.splice(openaiIndex + 1, 0, "chatgpt");
     }
     return base;
-  }, [isChatgpt, provider, selectableConnectionProviders]);
+  }, [isChatgpt, provider]);
 
   const isLabelDirty = useRef(false);
 
@@ -443,6 +448,7 @@ export function ProviderCreateForm({
                 .map((p) => ({
                   value: p,
                   label: PROVIDER_DISPLAY_NAMES[p],
+                  ...providerAvailability(p),
                 })),
               ...(connectionProviderOptions.includes("openai-compatible")
                 ? [

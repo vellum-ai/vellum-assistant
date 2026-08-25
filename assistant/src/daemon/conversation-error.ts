@@ -1,4 +1,5 @@
 import {
+  isUserTerminalHistoryError,
   ORDERING_ERROR_PATTERNS,
   WEB_SEARCH_ORDERING_PATTERNS,
 } from "../agent/history-repair/history-repair.js";
@@ -478,6 +479,14 @@ function classifyCore(
             "Stale web-search results in conversation history. Please try again.",
           retryable: true,
           errorCategory: "stale_web_search_content",
+        };
+      }
+      if (isUserTerminalHistoryError(message)) {
+        return {
+          code: "PROVIDER_ORDERING",
+          userMessage: "An internal error occurred. Please try again.",
+          retryable: true,
+          errorCategory: "history_user_terminal",
         };
       }
       if (isOrderingError(message)) {
@@ -1100,6 +1109,15 @@ function classifyByMessage(
         "Stale web-search results in conversation history. Please try again.",
       retryable: true,
       errorCategory: "stale_web_search_content",
+    };
+  }
+
+  if (isUserTerminalHistoryError(message)) {
+    return {
+      code: "PROVIDER_ORDERING",
+      userMessage: "An internal error occurred. Please try again.",
+      retryable: true,
+      errorCategory: "history_user_terminal",
     };
   }
 

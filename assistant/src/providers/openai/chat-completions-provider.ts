@@ -121,14 +121,15 @@ export function detectVisionNotSupported(
 
 /**
  * Fallback `content` for an assistant turn that has neither visible text nor
- * tool calls (e.g. a reasoning-only turn truncated at the output-token limit).
+ * tool calls (e.g. a reasoning-only turn truncated at the output-token limit,
+ * or a Stop mid-stream before any text).
  *
  * The OpenAI chat-completions schema requires an assistant message to carry
  * `content` or `tool_calls`. OpenAI itself tolerates `content: null`/`""` here,
- * but strict OpenAI-compatible backends do not: DeepSeek via OpenRouter rejects
- * the request with `Invalid assistant message: content or tool_calls must be
- * set`, and vLLM-style validators coerce empty-string content back to null and
- * reject it the same way. The placeholder must therefore be a non-empty string.
+ * but strict OpenAI-compatible backends do not: DeepSeek rejects the request
+ * with `Invalid assistant message: content or tool_calls must be set`, and
+ * vLLM-style validators coerce empty-string content back to null and reject it
+ * the same way. The placeholder must therefore be a non-empty string.
  *
  * We reuse the shared empty-turn sentinel so that
  * `isPlaceholderSentinelText`/`cleanAssistantContent` strip it from persisted
@@ -168,14 +169,6 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  tool-call turns. DeepSeek thinking mode that requires the field even when
    *  empty is handled by a one-shot retry. */
   assistantReasoningField?: "reasoning" | "reasoning_content";
-  /** Backfill a non-empty placeholder for assistant turns that would otherwise
-   *  serialize with neither `content` nor `tool_calls` (e.g. reasoning-only
-   *  turns, or a Stop mid-stream before any text). Off by default; enabled for
-   *  OpenRouter, Vercel AI Gateway, LiteLLM, and custom `openai-compatible`
-   *  endpoints, whose downstream providers (e.g. DeepSeek, vLLM, Portkey)
-   *  reject such messages with `Invalid assistant message: content or
-   *  tool_calls must be set`. See {@link EMPTY_ASSISTANT_TURN_PLACEHOLDER}. */
-  backfillEmptyAssistantContent?: boolean;
   /** Present object-typed tool params to the model as JSON-string params and
    *  decode them back to objects on the response. Works around models whose
    *  function-call serialization collapses nested objects to `{}` (observed
@@ -246,6 +239,60 @@ function openaiCompatErrorHaystack(error: unknown): string {
 function isClientErrorStatus(error: unknown): boolean {
   const status = (error as { status?: unknown }).status;
   return typeof status === "number" && status >= 400 && status < 500;
+}
+
+/**
+ * True when a parsed tool result contains a local JSON Schema reference.
+ *
+ * Gemini reserves `$ref` fields inside structured function responses for
+ * multimodal part references. OpenAI-compatible gateways can JSON-decode tool
+ * message content before translating it to Gemini, which makes a JSON Schema
+ * result look like one of those references and causes an INVALID_ARGUMENT.
+ */
+function containsLocalJsonSchemaReference(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    if (current === null || typeof current !== "object") {
+      continue;
+    }
+
+    const record = current as Record<string, unknown>;
+    const ref = record.$ref;
+    if (typeof ref === "string" && (ref === "#" || ref.startsWith("#/"))) {
+      return true;
+    }
+    pending.push(...Object.values(record));
+  }
+  return false;
+}
+
+/**
+ * Keep JSON Schema tool results opaque across OpenAI-compatible gateways.
+ *
+ * The outer object is intentionally valid JSON so gateways that decode tool
+ * content produce `{ output: string }`; the schema's `$ref` remains inside the
+ * string and cannot be interpreted as a Gemini multimodal part reference.
+ */
+function protectJsonSchemaToolResult(payload: string): string {
+  if (!payload.includes('"$ref"')) {
+    return payload;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+
+  return containsLocalJsonSchemaReference(parsed)
+    ? JSON.stringify({ output: payload })
+    : payload;
 }
 
 /**
@@ -556,7 +603,6 @@ export class OpenAIChatCompletionsProvider implements Provider {
     | "reasoning"
     | "reasoning_content"
     | undefined;
-  private backfillEmptyAssistantContent: boolean;
   private coerceObjectArgsToJsonString: boolean;
   private omitToolChoiceWhenReasoning: boolean;
 
@@ -584,8 +630,6 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.requestHeaders = options.requestHeaders ?? {};
     this.parseThinkTags = options.parseThinkTags ?? false;
     this.assistantReasoningField = options.assistantReasoningField;
-    this.backfillEmptyAssistantContent =
-      options.backfillEmptyAssistantContent ?? false;
     this.coerceObjectArgsToJsonString =
       options.coerceObjectArgsToJsonString ?? false;
     this.omitToolChoiceWhenReasoning =
@@ -1302,7 +1346,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           result.push({
             role: "tool",
             tool_call_id: tr.tool_use_id,
-            content: serialized.payload,
+            content: protectJsonSchemaToolResult(serialized.payload),
           });
         }
 
@@ -1389,16 +1433,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
     }
 
     // An assistant message must carry `content` or `tool_calls`. A turn with
-    // neither (e.g. reasoning-only, or a Stop before any text) would serialize
-    // to null/empty content with no tool calls, which strict OpenAI-compatible
-    // backends reject. Reasoning lives in a separate field and does not
-    // satisfy this constraint. Scoped to providers that need it (OpenRouter,
-    // Vercel AI Gateway, LiteLLM, openai-compatible) via
-    // `backfillEmptyAssistantContent`.
+    // neither (e.g. reasoning-only, a Stop before any text, or a turn whose
+    // text arrived as whitespace) would serialize to blank content with no
+    // tool calls, which strict OpenAI-compatible backends reject. Reasoning
+    // lives in a separate field and does not satisfy the constraint, and
+    // whitespace-only content does not survive a validator that trims before
+    // checking presence, so the placeholder covers both.
     if (
-      this.backfillEmptyAssistantContent &&
       !result.tool_calls &&
-      (result.content === null || result.content === "")
+      (result.content === null ||
+        (typeof result.content === "string" && result.content.trim() === ""))
     ) {
       result.content = EMPTY_ASSISTANT_TURN_PLACEHOLDER;
     }

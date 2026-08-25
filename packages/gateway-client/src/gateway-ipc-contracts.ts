@@ -555,3 +555,24 @@ export const ChannelSocketHealthIpcResponseSchema = z.object({
 export type ChannelSocketHealthIpcResponse = z.infer<
   typeof ChannelSocketHealthIpcResponseSchema
 >;
+
+/**
+ * Whether Discord admits anything in the guilds it has joined.
+ *
+ * Discord's allow-list is fail-closed and lives in gateway-owned config: an
+ * absent or empty setting admits nothing, because being invited to a guild is
+ * not consent to every channel in it. The daemon owns the readiness surface
+ * that reports this, so the count has to cross the boundary, the same way a
+ * socket's liveness does.
+ *
+ * Discord-shaped rather than channel-keyed, because Discord is the only
+ * channel with an allow-list. A second one generalizes this.
+ */
+export const DiscordAdmissionIpcResponseSchema = z.object({
+  /** How many channel ids the bot may act in. Zero admits no guild message. */
+  admittedChannelCount: z.number().int().nonnegative(),
+});
+
+export type DiscordAdmissionIpcResponse = z.infer<
+  typeof DiscordAdmissionIpcResponseSchema
+>;

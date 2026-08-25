@@ -128,6 +128,7 @@ export function ActiveChatView() {
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
   useActiveAppPinSync(
+    assistantId,
     useCallback((appId: string) => {
       const didClose = useViewerStore.getState().handleAppUnpinned(appId);
       if (didClose) {

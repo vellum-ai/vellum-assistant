@@ -1,11 +1,12 @@
 import AppIntents
 import SwiftUI
+import UIKit
 
-// The controls every Vellum Home Screen widget builds its actions out of: a
-// tile, a circle, a pill, and the secondary line of text that stands in when
-// there is nothing to list. They live here rather than beside whichever widget
-// reached for them first, because a control that lives in one widget's file is
-// a control the next widget copies.
+// The pieces every Vellum Home Screen widget builds itself out of: a tile, a
+// circle, a pill, the unread mark, and the secondary line of text that stands
+// in when there is nothing to list. They live here rather than beside whichever
+// widget reached for them first, because a control that lives in one widget's
+// file is a control the next widget copies.
 
 /// One tile in an action column: a glyph over a word, filling a rounded
 /// square, wired to an App Intent.
@@ -15,9 +16,13 @@ import SwiftUI
 /// `openAppWhenRun`, so the system performs them in the app process; the appex
 /// only needs the types to exist.
 struct WidgetActionTile<ActionIntent: AppIntent>: View {
-    /// Matched to the squircle the system clips the widget itself with, so a
-    /// tile reads as a smaller instance of the card it sits on.
-    private static var cornerRadius: CGFloat { 14 }
+    /// A corner tighter than the widget's own squircle, so the tile reads as a
+    /// control on the card rather than as a second card.
+    private static var cornerRadius: CGFloat { 12 }
+
+    private static var iconSize: CGFloat { 24 }
+
+    private static var labelSize: CGFloat { 8 }
 
     let intent: ActionIntent
     let icon: Image
@@ -25,22 +30,44 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     let fill: Color
     let tint: Color
 
+    /// The user's avatar, drawn in place of ``icon`` when the snapshot carries
+    /// one. Optional because the tiles standing for an action rather than for
+    /// the assistant keep their symbol, and because nothing has synced yet on a
+    /// fresh install.
+    var avatarImage: UIImage? = nil
+
+    /// The owning card's ratio to the size it was designed at, so the tile
+    /// keeps its share of a card that renders larger or smaller than the
+    /// design. See the design-size note on each widget view.
+    var scale: CGFloat = 1
+
     var body: some View {
         Button(intent: intent) {
-            VStack(spacing: 4) {
-                icon
-                    .font(.system(size: 22))
-                    .foregroundStyle(tint)
+            VStack(spacing: 4 * scale) {
+                glyph
                 Text(title)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: Self.labelSize * scale, weight: .medium))
                     .foregroundStyle(WidgetTheme.textPrimary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius * scale))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// A symbol takes its size from the font and its color from the tile's
+    /// tint; a bitmap can do neither, so it is sized and clipped instead.
+    @ViewBuilder
+    private var glyph: some View {
+        if let avatarImage {
+            WidgetAvatarImageView(image: avatarImage, size: Self.iconSize * scale)
+        } else {
+            icon
+                .font(.system(size: Self.iconSize * scale))
+                .foregroundStyle(tint)
+        }
     }
 }
 
@@ -48,13 +75,19 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
     /// The New Chat tile, spelled once so the widgets offering it cannot drift
     /// into different wording, glyphs or colors. The frame around it stays with
     /// the caller: the column and the row size their tiles differently.
-    static var newChat: Self {
+    ///
+    /// The accent themes the tile and the avatar replaces its mark, both from
+    /// the snapshot, so the tile that starts a chat with the assistant looks
+    /// like that assistant.
+    static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil, scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
             icon: Image("VellumV"),
             title: "New Chat",
-            fill: WidgetTheme.newChatFill,
-            tint: WidgetTheme.brand
+            fill: accent.fill,
+            tint: accent.onFill,
+            avatarImage: avatarImage,
+            scale: scale
         )
     }
 }
@@ -63,13 +96,14 @@ extension WidgetActionTile where ActionIntent == StartNewVoiceConversationIntent
     /// The Voice tile, the secondary half of the pair. Neutral fill against
     /// ``newChat``'s tinted one, so the two read as a primary action and a
     /// secondary one rather than as two peers.
-    static var voice: Self {
+    static func voice(scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: StartNewVoiceConversationIntent(),
             icon: Image(systemName: "waveform"),
             title: "Voice",
             fill: WidgetTheme.voiceFill,
-            tint: WidgetTheme.textPrimary
+            tint: WidgetTheme.textPrimary,
+            scale: scale
         )
     }
 }
@@ -107,13 +141,19 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let height: CGFloat
 
+    /// See ``WidgetActionTile/avatarImage``.
+    var avatarImage: UIImage? = nil
+
+    /// See ``WidgetActionTile/scale``. The glyph already follows the height;
+    /// this scales the word beside it.
+    var scale: CGFloat = 1
+
     var body: some View {
         Button(intent: intent) {
-            HStack(spacing: 6) {
-                icon
-                    .font(.system(size: height * 0.4))
+            HStack(spacing: 6 * scale) {
+                glyph
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15 * scale, weight: .semibold))
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
@@ -122,6 +162,54 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// The glyph is sized off the pill's height either way, so swapping the
+    /// symbol for the avatar does not move the word beside it.
+    @ViewBuilder
+    private var glyph: some View {
+        if let avatarImage {
+            WidgetAvatarImageView(image: avatarImage, size: iconSize)
+        } else {
+            icon
+                .font(.system(size: iconSize))
+        }
+    }
+
+    private var iconSize: CGFloat { height * 0.4 }
+}
+
+/// The mark a widget says "something is waiting" with: a speech bubble wearing
+/// the unseen dot in its top-right corner.
+///
+/// One view rather than one per card, so the dot lands in the same place on
+/// each of them. It carries no foreground of its own: the bubble takes the
+/// color of whatever it is drawn on, while the dot keeps
+/// ``WidgetTheme/unseenIndicator`` on every surface, which is what makes it
+/// read as an alert rather than as more chrome.
+struct WidgetUnreadMark: View {
+    /// Whether the bubble is solid. A card painted in the assistant's own color
+    /// wants the filled one; a white card wants the outline its rows draw.
+    let isFilled: Bool
+
+    /// Point size of the bubble. The dot rides its corner at the design's
+    /// share of it, so the mark scales as one piece: every card draws the
+    /// bubble at the same 16pt design size, and a dot fixed in points would
+    /// drift off the corner on the devices that render a card larger.
+    let size: CGFloat
+
+    private var dotDiameter: CGFloat { size * 0.375 }
+    private var dotNudge: CGFloat { size * 0.0625 }
+
+    var body: some View {
+        Image(systemName: isFilled ? "bubble.left.fill" : "bubble.left")
+            .font(.system(size: size))
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(WidgetTheme.unseenIndicator)
+                    .frame(width: dotDiameter, height: dotDiameter)
+                    .offset(x: dotNudge, y: -dotNudge)
+            }
     }
 }
 

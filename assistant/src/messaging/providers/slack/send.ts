@@ -10,7 +10,7 @@ import type { Button, KnownBlock } from "@slack/types";
 import type {
   ApprovalUIMetadata,
   MessageAudience,
-  SlackStreamOp,
+  StreamOp,
 } from "@vellumai/gateway-client";
 
 import type { AssistantActivityPhase } from "../../../api/index.js";
@@ -27,6 +27,7 @@ import {
   uploadToSlackUrl,
 } from "./api.js";
 import { renderSlackBlocks } from "./render.js";
+import { toSlackStreamTasks } from "./stream-tasks.js";
 import { SlackApiError } from "./web-api-transport.js";
 
 const log = getLogger("slack-send");
@@ -297,28 +298,47 @@ export async function sendSlackReply(
 }
 
 /**
- * Execute one Slack streaming operation against a channel, returning the
- * stream `ts` so the caller can carry it across `append`/`stop` calls. `start`
+ * Execute one growing-reply operation against a Slack channel, returning the
+ * stream `ts` so the caller can carry it across `append` and `stop`. `start`
  * mints a new `ts`; `append` and `stop` echo the one they were given.
+ *
+ * Slack's stream *is* the reply, so `stop` finalizes the message already on
+ * screen. That is why the appended delta is what goes on the wire here while
+ * the op's complete `text` is used only to hoist any images out of the
+ * finished reply: Slack has been shown every word already.
  *
  * Throwing on failure is intentional: the streaming session decides whether to
  * abandon the stream and let durable delivery post the full reply.
  */
 export async function sendSlackStreamOp(
   channel: string,
-  op: SlackStreamOp,
+  op: StreamOp,
 ): Promise<SlackSendResult> {
+  const tasks = op.plan ? toSlackStreamTasks(op.plan.steps) : undefined;
+  const planTitle = op.plan?.title;
+
   switch (op.action) {
     case "start": {
+      if (!op.anchorMessageId) {
+        // Slack streams into a thread and rejects a start without one. Saying
+        // so is the honest answer: an empty thread id would be refused by the
+        // API anyway, and the caller falls back to sending the reply whole.
+        log.warn({ channel }, "Slack stream start has no thread to open on");
+        return { ok: false };
+      }
       const ts = await startSlackStream({
         channel,
-        threadTs: op.threadTs,
-        markdownText: op.markdownText,
-        taskDisplayMode: op.taskDisplayMode,
-        planTitle: op.planTitle,
-        tasks: op.tasks,
-        recipientUserId: op.recipientUserId,
-        recipientTeamId: op.recipientTeamId,
+        threadTs: op.anchorMessageId,
+        markdownText: op.appended ?? op.text,
+        // Fixed for the stream's lifetime at start, while a plan usually
+        // arrives after the first text flush has opened it. It only affects
+        // how task chunks render, so a stream that never carries a plan still
+        // reads as a plain message.
+        taskDisplayMode: "plan",
+        planTitle,
+        tasks,
+        recipientUserId: op.audience?.userId,
+        recipientTeamId: op.audience?.userOrgId,
       });
       log.info({ channel, ts }, "Slack stream started");
       return { ok: ts !== undefined, ts };
@@ -326,26 +346,38 @@ export async function sendSlackStreamOp(
     case "append": {
       await appendSlackStream({
         channel,
-        streamTs: op.streamTs,
-        markdownText: op.markdownText,
-        planTitle: op.planTitle,
-        tasks: op.tasks,
+        streamTs: op.streamId,
+        markdownText: op.appended,
+        planTitle,
+        tasks,
       });
-      return { ok: true, ts: op.streamTs };
+      return { ok: true, ts: op.streamId };
     }
     case "stop": {
       await stopSlackStream({
         channel,
-        streamTs: op.streamTs,
-        markdownText: op.markdownText,
-        blocks: op.blocks,
-        planTitle: op.planTitle,
-        tasks: op.tasks,
+        streamTs: op.streamId,
+        markdownText: op.appended,
+        // Images referenced in the reply do not render inside the streamed
+        // markdown, so they are hoisted into blocks below it. Derived here
+        // from the whole reply rather than handed down, because which parts of
+        // a message become blocks is Slack's rendering decision.
+        blocks: op.text ? imageBlocksFor(op.text) : undefined,
+        planTitle,
+        tasks,
       });
-      log.info({ channel, ts: op.streamTs }, "Slack stream stopped");
-      return { ok: true, ts: op.streamTs };
+      log.info({ channel, ts: op.streamId }, "Slack stream stopped");
+      return { ok: true, ts: op.streamId };
     }
   }
+}
+
+/** Image blocks for a finished reply, or nothing when it references none. */
+function imageBlocksFor(text: string): KnownBlock[] | undefined {
+  const blocks = renderSlackBlocks(text)?.filter(
+    (block) => block.type === "image",
+  );
+  return blocks && blocks.length > 0 ? blocks : undefined;
 }
 
 /**

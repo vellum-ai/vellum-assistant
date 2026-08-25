@@ -422,6 +422,10 @@
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
     "profileSwitchFallback": "Failed to switch profile. Please try again."
   },
+  "confirmationActions": {
+    "submitFailed": "Failed to submit confirmation. Please try again.",
+    "submitFailedRuleAvailable": "Failed to submit confirmation, but you can still create a rule."
+  },
   "confirmationPromptCard": {
     "allow": "Allow",
     "deny": "Deny",
@@ -429,6 +433,9 @@
     "showDetails": "Show details",
     "titleFallback": "Confirmation required",
     "toolLabel": "Tool:"
+  },
+  "contactActions": {
+    "saveFailed": "Failed to save contact. Please try again."
   },
   "contactPromptCard": {
     "addContact": "Add a contact",
@@ -585,13 +592,18 @@
   },
   "documentViewerContainer": {
     "close": "Close",
-    "closeCommentsAria": "Close comments",
     "closeDocumentAria": "Close document",
     "comments": "Comments",
     "export": "Export",
-    "openCommentsAria": "Open comments",
+    "hideComments": "Hide comments",
+    "menuAria": "Document options",
+    "rename": "Rename",
+    "renameFailed": "Could not rename the document.",
+    "renameSave": "Save",
+    "renameTitle": "Rename document",
     "saved": "Saved",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "wordCount": "{count, plural, one {# word} other {# words}}"
   },
   "documentViewerPage": {
     "notFound": "Document not found."
@@ -1109,6 +1121,9 @@
     "downloadFile": "Download file",
     "goToFile": "Go to file"
   },
+  "promptSubmission": {
+    "noActiveSession": "No active session. Please try again."
+  },
   "promptTab": {
     "availableTools": "Available tools",
     "bannerNoSections": "This call has no normalized prompt sections yet.",
@@ -1131,6 +1146,9 @@
   },
   "pullRefreshSpinner": {
     "refreshing": "Refreshing"
+  },
+  "questionActions": {
+    "submitFailed": "Failed to submit response. Please try again."
   },
   "questionPromptCard": {
     "closeQuestionAria": "Close question",
@@ -1248,9 +1266,15 @@
     "stopReasonChip": "Stop reason: {reason}",
     "toolChip": "Tool: {name}"
   },
+  "ruleEditorActions": {
+    "saveFailed": "Failed to save trust rule. Please try again."
+  },
   "scrollToLatestButton": {
     "aria": "Go to newest message",
     "label": "Go to Newest"
+  },
+  "secretActions": {
+    "submitFailed": "Failed to submit secret. Please try again."
   },
   "secretPromptCard": {
     "cancel": "Cancel",
@@ -1387,6 +1411,9 @@
   },
   "suggestionLibrary": {
     "scrollForMore": "Scroll down to see more"
+  },
+  "surfaceActions": {
+    "submitFailed": "Failed to submit. Please try again."
   },
   "surfaceRouter": {
     "cancelled": "Cancelled",

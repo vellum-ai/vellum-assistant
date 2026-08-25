@@ -34,7 +34,9 @@
     "title": "Советник"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "По умолчанию"
+    "defaultEntryMeta": "По умолчанию",
+    "selfHostedOnlyMeta": "Только свой хостинг",
+    "selfHostedOnlyTooltip": "{name} работает на вашей машине, поэтому доступен только ассистентам на своём хостинге."
   },
   "allConversationsView": {
     "archive": "В архив",
@@ -542,6 +544,7 @@
     "machineSizeDocsAriaLabel": "Подробнее о размерах машин",
     "machineSizeLabel": "Выбор размера машины:",
     "machineSizePlaceholder": "Выбор размера машины",
+    "noExtraUsage": "Без дополнительного использования",
     "recap": "Итого",
     "storageAriaLabel": "Хранилище",
     "storageDocsAriaLabel": "Подробнее о хранилище",
@@ -550,6 +553,10 @@
     "subtitle": "Просто лучше.",
     "title": "Сборка плана",
     "totalBilledMonthly": "Итого · Ежемесячная оплата",
+    "usageBundleAriaLabel": "Пакет использования",
+    "usageBundleDocsAriaLabel": "Подробнее о пакетах использования",
+    "usageBundleLabel": "Добавить пакет использования:",
+    "usageBundlePlaceholder": "Выбор пакета использования",
     "yourSelection": "Выбор:"
   },
   "customPlanRow": {
@@ -805,8 +812,10 @@
     "valueAriaLabel": "Значение {label}"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "Перенаправление в Stripe, чтобы отменить подписку.",
-    "bodyWithFeatures": "При понижении пропадут эти функции Pro. Перенаправление в Stripe, чтобы отменить подписку.",
+    "bodyCancelOnly": "Подписка будет отменена в конце текущего расчётного периода. Доступ Pro сохранится до этого момента.",
+    "bodyCancelOnlyPortal": "Перенаправление в Stripe, чтобы отменить подписку.",
+    "bodyWithFeatures": "При понижении пропадут эти функции Pro. Подписка будет отменена в конце текущего расчётного периода.",
+    "bodyWithFeaturesPortal": "При понижении пропадут эти функции Pro. Перенаправление в Stripe, чтобы отменить подписку.",
     "cancel": "Отмена",
     "confirm": "Перейти на Base",
     "title": "Перейти на Base?"
@@ -1255,8 +1264,6 @@
   },
   "paymentMethodRow": {
     "endingIn": "Оканчивается на {last4}",
-    "remove": "Удалить",
-    "removing": "Удаление…",
     "savedCard": "Сохранённая карта",
     "updateCard": "Обновить карту"
   },
@@ -1265,14 +1272,7 @@
     "empty": "Способа оплаты нет. Добавление для автопополнения.",
     "loadError": "Не удалось загрузить способы оплаты.",
     "loading": "Загрузка…",
-    "removeConfirmCancel": "Оставить карту",
-    "removeConfirmConfirm": "Удалить",
-    "removeConfirmMessage": "Если удалить карту, автопополнение выключится.",
-    "removeConfirmPending": "Удаление…",
-    "removeConfirmTitle": "Удалить способ оплаты?",
-    "removeError": "Не удалось удалить способ оплаты. Повторите попытку.",
-    "subtitle": "Способы оплаты, привязанные к аккаунту.",
-    "title": "Способы оплаты"
+    "title": "Способ оплаты"
   },
   "pendingPairingRequests": {
     "approveButton": "Одобрить",
@@ -1291,6 +1291,7 @@
     "heading": "План",
     "loadError": "Не удалось загрузить план.",
     "loading": "Загрузка плана...",
+    "manageSubscription": "Управление подпиской",
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",
     "powerUpFor": "Усилить за +{amount}/мес",
@@ -1301,6 +1302,7 @@
     "usageBalanceResets": "Сброс {date}",
     "usageBalanceTitle": "Баланс использования",
     "usageChip": "Использование {name}, сброс каждый месяц",
+    "usageIncludedChip": "Входит {label}",
     "viewAllPlans": "Все планы"
   },
   "planCardContent": {
@@ -1337,6 +1339,8 @@
     "featureComputer": "Компьютер {machine}",
     "featureCreditsIncluded": "Входит {amount} кредитами",
     "featureStorage": "{gib} ГБ хранилища",
+    "featureUsage": "Использование {name}, сброс каждый месяц",
+    "featureUsageIncluded": "Входит {label}",
     "foreverCaption": "Навсегда",
     "freeFeaturePayAsYouGo": "Кредиты по мере использования",
     "freeFeatureSmallComputer": "Небольшой компьютер",
@@ -1649,6 +1653,7 @@
     "dimensionsComplete": "{dimensions} готово",
     "goToBilling": "К оплате",
     "machineLabel": "Машина",
+    "noExtraUsage": "Без дополнительного использования",
     "packageChip": "пакет {name}",
     "planReadyStatus": "План готов",
     "retryInBackground": "Повторить в фоне",
@@ -1659,6 +1664,7 @@
     "storageLabel": "Хранилище",
     "takingLongerStatus": "Это занимает больше времени, чем ожидалось",
     "tryAgain": "Попробовать снова",
+    "usageLabel": "Использование",
     "waitingCaptionLong": "Ещё работаем. Это может занять минуту или две.",
     "waitingCaptionShort": "Это может занять пару секунд."
   },
@@ -2103,6 +2109,11 @@
   },
   "useBillingPortalSession": {
     "openError": "Не удалось открыть портал оплаты. Повторите попытку."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "Не удалось отменить подписку. Повторите попытку.",
+    "canceledToast": "План Pro отменён. Доступ сохранится до {date}.",
+    "endOfBillingPeriod": "конца расчётного периода"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Ассистент не готов. Повторите попытку.",

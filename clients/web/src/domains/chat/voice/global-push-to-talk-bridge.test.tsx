@@ -167,6 +167,45 @@ describe("GlobalPushToTalkBridge", () => {
     );
   });
 
+  test("lands a soft-landed transcript in the conversation already selected", async () => {
+    // Dictation is text the user is composing, so it belongs in the chat they
+    // are already in. Reading the selection first is also what keeps a press
+    // made from another app from throwing the main view over to the chat.
+    useConversationStore.getState().setActiveConversationId("conv-existing");
+    useViewerStore.getState().setMainView("app");
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("dictated text");
+    });
+
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-existing",
+    );
+    expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useComposerStore.getState().input).toBe("dictated text");
+  });
+
+  test("mints a draft and reveals the chat when nothing is selected", async () => {
+    // The fallback, and the only case that mints: a press made on a route with
+    // no conversation selected still needs a composer to land the text in.
+    useConversationStore.getState().setActiveConversationId(null);
+    useViewerStore.getState().setMainView("app");
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("dictated text");
+    });
+
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(draftId).not.toBeNull();
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId ?? ""),
+    ).toBe(true);
+    expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
   test("uses stable toast IDs for repeated voice errors", () => {
     const voiceInput = renderBridge();
 

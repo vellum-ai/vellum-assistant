@@ -297,16 +297,17 @@ function RecommendedUpgrade({
             {t("planCard.nextPlan")}
           </Tag>
         }
-        specs={packageSpecs(
-          recommended,
-          obscureCredits
-            ? {
-                obscuredUsageLabel: t("planCard.usageChip", {
-                  name: recommended.name,
-                }),
-              }
+        specs={packageSpecs(recommended, {
+          obscuredUsageLabel: obscureCredits
+            ? t("planCard.usageChip", { name: recommended.name })
             : undefined,
-        )}
+          usageIncludedLabel:
+            recommended.usage_label != null
+              ? t("planCard.usageIncludedChip", {
+                  label: recommended.usage_label,
+                })
+              : undefined,
+        })}
         specsWrap={obscureCredits}
         footer={
           <Button
@@ -455,6 +456,12 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     (currentPlan.id === "base" ||
       isCleanPin(subscription.package) ||
       isPackageSwitchEligible(subscription));
+  // Shared by both header button variants: "Manage Subscription" is the name
+  // a paid Pro user scans for, but it leads to the same surface as the base
+  // plan's "View All Plans", which is where a sub is changed or cancelled.
+  const handlePlansClick = canOpenPlansTakeover
+    ? () => navigate(routes.plans)
+    : onManage;
   // The next tile's one-click switch is offered to any switch-eligible Pro sub
   // (a clean pin, a customized pin, or an unpinned Custom sub), inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
@@ -481,16 +488,17 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const currentSpecs = isFreePlan
     ? freePlanSpecs()
     : currentPackage
-      ? packageSpecs(
-          currentPackage,
-          obscureCredits
-            ? {
-                obscuredUsageLabel: t("planCard.usageChip", {
-                  name: currentPackage.name,
-                }),
-              }
+      ? packageSpecs(currentPackage, {
+          obscuredUsageLabel: obscureCredits
+            ? t("planCard.usageChip", { name: currentPackage.name })
             : undefined,
-        )
+          usageIncludedLabel:
+            currentPackage.usage_label != null
+              ? t("planCard.usageIncludedChip", {
+                  label: currentPackage.usage_label,
+                })
+              : undefined,
+        })
       : null;
   const currentPriceCents = isFreePlan
     ? 0
@@ -569,15 +577,21 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
               </Typography>
             )}
           </div>
+          {/* The button never breaks its label, so it must stay free to
+              shrink; a fixed-width slot would push the long es/ru labels past
+              the card. */}
           <Button
             variant="outlined"
-            onClick={
-              canOpenPlansTakeover ? () => navigate(routes.plans) : onManage
+            onClick={handlePlansClick}
+            data-testid={
+              isFreePlan
+                ? "plan-card-plans-button"
+                : "plan-card-manage-subscription-button"
             }
-            data-testid="plan-card-plans-button"
-            className="shrink-0"
           >
-            {t("planCard.viewAllPlans")}
+            {isFreePlan
+              ? t("planCard.viewAllPlans")
+              : t("planCard.manageSubscription")}
           </Button>
         </div>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">

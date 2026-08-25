@@ -56,6 +56,7 @@ import { CompactionCircuit } from "./compaction-circuit.js";
 import {
   deepRepairHistory,
   isRepairableOrderingError,
+  isUserTerminalHistoryError,
 } from "./history-repair/history-repair.js";
 
 const log = getLogger("agent-loop");
@@ -2538,7 +2539,9 @@ export class AgentLoop {
           ) {
             orderingRepairAttempted = true;
             postModelCallContinues++;
-            history = deepRepairHistory(errorOutcome.messages).messages;
+            history = deepRepairHistory(errorOutcome.messages, {
+              requireUserTerminal: isUserTerminalHistoryError(err.message),
+            }).messages;
             // Deep repair merges and drops messages, so the prior input
             // boundary no longer maps onto the new array; the repaired history
             // is the base the retry's output appends after.

@@ -20,6 +20,12 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import {
+  type AppPin,
+  listAppPins,
+  removeAppPin,
+  updateAppPin,
+} from "../../apps/app-pin-store.js";
+import {
   type AppDefinition,
   type AppOrigin,
   createApp,
@@ -58,6 +64,7 @@ import {
   NotFoundError,
   PayloadTooLargeError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("app-management-routes");
@@ -80,17 +87,66 @@ function getSharedAppsDir(): string {
 // Extracted business logic
 // ---------------------------------------------------------------------------
 
-interface AppListItem {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  createdAt: number;
-  updatedAt: number;
-  version: string;
-  contentId: string;
-  /** "workspace" or "plugin:<name>" — identifies where the app comes from. */
-  origin: string;
+/**
+ * One entry in the app list. Declared as the schema the route publishes, so the
+ * wire contract and the type the handlers build against cannot drift apart.
+ */
+const appListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  version: z.string(),
+  contentId: z.string(),
+  origin: z
+    .string()
+    .describe('"workspace" or "plugin:<name>": where the app comes from'),
+  pinSortPosition: z
+    .number()
+    .optional()
+    .describe("Sidebar order, ascending. Absent when the app is not pinned"),
+  pinColor: z
+    .string()
+    .optional()
+    .describe("Pin colour id; absent when no colour is set"),
+});
+
+type AppListItem = z.infer<typeof appListItemSchema>;
+
+/**
+ * The pin route's body. `RouteDefinition.requestBody` is a codegen signal and
+ * does not validate, so the handler parses against this too; declaring it once
+ * keeps what is advertised and what is enforced from drifting apart.
+ */
+const appPinBodySchema = z
+  .object({
+    pinned: z
+      .boolean()
+      .optional()
+      .describe("Pin (true) or unpin (false). Omit to leave unchanged."),
+    color: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Colour id, or null to clear. Omit to leave unchanged."),
+  })
+  .refine(
+    (value) => value.pinned !== undefined || value.color !== undefined,
+    "pinned or color is required",
+  );
+
+/** Merge an app's pin, if it has one, onto its list entry. */
+function withPin(item: AppListItem, pin: AppPin | undefined): AppListItem {
+  if (!pin) {
+    return item;
+  }
+  return {
+    ...item,
+    pinSortPosition: pin.sortPosition,
+    ...(pin.color !== undefined ? { pinColor: pin.color } : {}),
+  };
 }
 
 function workspaceAppItem(a: AppDefinition): AppListItem {
@@ -578,17 +634,23 @@ async function importBundle(
 // ---------------------------------------------------------------------------
 
 function handleListApps({ queryParams }: RouteHandlerArgs) {
+  const pinsById = new Map(listAppPins().map((pin) => [pin.appId, pin]));
+  const pinned = (item: AppListItem): AppListItem =>
+    withPin(item, pinsById.get(item.id));
+
   const conversationId = queryParams?.conversationId;
   if (conversationId) {
     // Conversation scoping is a workspace-app concept; plugin apps are not
     // associated with conversations, so they are omitted from this view.
     return {
-      apps: listAppsByConversation(conversationId).map(workspaceAppItem),
+      apps: listAppsByConversation(conversationId).map((app) =>
+        pinned(workspaceAppItem(app)),
+      ),
     };
   }
   const apps: AppListItem[] = [
-    ...listApps().map(workspaceAppItem),
-    ...listPluginApps().map(pluginAppItem),
+    ...listApps().map((app) => pinned(workspaceAppItem(app))),
+    ...listPluginApps().map((app) => pinned(pluginAppItem(app))),
   ];
   return { apps };
 }
@@ -818,8 +880,48 @@ function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   assertNotPluginApp(appId, "delete a plugin app");
   deleteApp(appId);
+  /* `deleteApp` cannot do this itself: it is filesystem-level and runs where no
+     migrated database exists. Deletions that skip this, and plugin apps that
+     leave with their plugin, are converged by `apps/app-pin-reconciler.ts`. */
+  removeAppPin(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
+}
+
+/**
+ * Pin, unpin, or recolour an app. Plugin apps are pinnable: a pin says nothing
+ * about the app's content, so `assertNotPluginApp` does not apply here.
+ */
+/** Every app id this workspace has, plugin apps included. */
+function existingAppIds(): string[] {
+  return [
+    ...listApps().map((app) => app.id),
+    ...listPluginApps().map((app) => app.id),
+  ];
+}
+
+function handlePinApp({ pathParams, body = {}, headers }: RouteHandlerArgs) {
+  const appId = pathParams?.id as string;
+  const { pinned, color } = parseBody(appPinBodySchema, body);
+  const existing = existingAppIds();
+  /* A pin only means anything against an app that exists: the list starts from
+     the real apps, so a pin for anything else could never be read back.
+     Unpinning is exempt, since that is how a client clears state left over from
+     an app that has since gone. */
+  if (pinned === true && !existing.includes(appId)) {
+    throw new NotFoundError(`App not found: ${appId}`);
+  }
+  const pin = updateAppPin(appId, {
+    ...(pinned === undefined ? {} : { pinned }),
+    ...(color === undefined ? {} : { color }),
+  });
+  publishAppsChanged(getOriginClientId(headers));
+  return {
+    success: true,
+    appId,
+    pinSortPosition: pin?.sortPosition ?? null,
+    pinColor: pin?.color ?? null,
+  };
 }
 
 function handleGetPreview({ pathParams }: RouteHandlerArgs) {
@@ -887,21 +989,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Filter apps by conversation ID",
       },
     ],
-    responseBody: z.object({
-      apps: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().optional(),
-          icon: z.string().optional(),
-          createdAt: z.number(),
-          updatedAt: z.number(),
-          version: z.string(),
-          contentId: z.string(),
-          origin: z.string(),
-        }),
-      ),
-    }),
+    responseBody: z.object({ apps: z.array(appListItemSchema) }),
   },
   {
     operationId: "apps_open_bundle",
@@ -1145,6 +1233,29 @@ export const ROUTES: RouteDefinition[] = [
     description: "Permanently remove an app and its data.",
     tags: ["apps"],
     responseBody: z.object({ success: z.boolean() }),
+  },
+  {
+    operationId: "apps_pin",
+    endpoint: "apps/:id/pin",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handlePinApp,
+    summary: "Pin or unpin an app",
+    description:
+      "Pin an app to the sidebar, unpin it, or set the colour it is tinted " +
+      "with. Pin state is read back from the app list as `pinSortPosition` " +
+      "and `pinColor`.",
+    tags: ["apps"],
+    requestBody: appPinBodySchema,
+    responseBody: z.object({
+      success: z.boolean(),
+      appId: z.string(),
+      pinSortPosition: z.number().nullable(),
+      pinColor: z.string().nullable(),
+    }),
   },
   {
     operationId: "apps_preview_get",

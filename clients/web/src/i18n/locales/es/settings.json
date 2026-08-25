@@ -34,7 +34,9 @@
     "title": "Asesor"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "Predeterminado"
+    "defaultEntryMeta": "Predeterminado",
+    "selfHostedOnlyMeta": "Solo autoalojado",
+    "selfHostedOnlyTooltip": "{name} se ejecuta en tu propia máquina, por lo que solo está disponible para asistentes autoalojados."
   },
   "allConversationsView": {
     "archive": "Archivar",
@@ -542,6 +544,7 @@
     "machineSizeDocsAriaLabel": "Más información sobre tamaños de máquina",
     "machineSizeLabel": "Selecciona un tamaño de máquina:",
     "machineSizePlaceholder": "Selecciona un tamaño de máquina",
+    "noExtraUsage": "Sin uso adicional",
     "recap": "Resumen",
     "storageAriaLabel": "Almacenamiento",
     "storageDocsAriaLabel": "Más información sobre almacenamiento",
@@ -550,6 +553,10 @@
     "subtitle": "Simplemente mejor.",
     "title": "Crear un plan personalizado",
     "totalBilledMonthly": "Total · Facturación mensual",
+    "usageBundleAriaLabel": "Paquete de uso",
+    "usageBundleDocsAriaLabel": "Más información sobre paquetes de uso",
+    "usageBundleLabel": "Añade un paquete de uso:",
+    "usageBundlePlaceholder": "Selecciona un paquete de uso",
     "yourSelection": "Tu selección:"
   },
   "customPlanRow": {
@@ -805,8 +812,10 @@
     "valueAriaLabel": "Valor de {label}"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "Se te llevará a Stripe para cancelar tu suscripción.",
-    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
+    "bodyCancelOnly": "Tu suscripción se cancelará al final de tu período de facturación actual. Mantendrás el acceso Pro hasta entonces.",
+    "bodyCancelOnlyPortal": "Se te llevará a Stripe para cancelar tu suscripción.",
+    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Tu suscripción se cancelará al final de tu período de facturación actual.",
+    "bodyWithFeaturesPortal": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
     "cancel": "Cancelar",
     "confirm": "Bajar a Base",
     "title": "¿Bajar a Base?"
@@ -1255,8 +1264,6 @@
   },
   "paymentMethodRow": {
     "endingIn": "Termina en {last4}",
-    "remove": "Eliminar",
-    "removing": "Eliminando…",
     "savedCard": "Tarjeta guardada",
     "updateCard": "Actualizar tarjeta"
   },
@@ -1265,14 +1272,7 @@
     "empty": "No hay ningún método de pago guardado. Añade uno para usar la recarga automática.",
     "loadError": "No se pudieron cargar los métodos de pago.",
     "loading": "Cargando…",
-    "removeConfirmCancel": "Conservar tarjeta",
-    "removeConfirmConfirm": "Eliminar",
-    "removeConfirmMessage": "Al eliminar tu tarjeta se desactivará la recarga automática.",
-    "removeConfirmPending": "Eliminando…",
-    "removeConfirmTitle": "¿Eliminar el método de pago?",
-    "removeError": "No se pudo eliminar el método de pago. Inténtalo de nuevo.",
-    "subtitle": "Métodos de pago vinculados a tu cuenta.",
-    "title": "Métodos de pago"
+    "title": "Método de pago"
   },
   "pendingPairingRequests": {
     "approveButton": "Aprobar",
@@ -1291,6 +1291,7 @@
     "heading": "Plan",
     "loadError": "No se pudo cargar el plan.",
     "loading": "Cargando plan...",
+    "manageSubscription": "Gestionar suscripción",
     "nextPlan": "Siguiente plan",
     "powerUp": "Potenciar",
     "powerUpFor": "Potenciar por +{amount}/mes",
@@ -1301,6 +1302,7 @@
     "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes",
+    "usageIncludedChip": "{label} incluido",
     "viewAllPlans": "Ver todos los planes"
   },
   "planCardContent": {
@@ -1337,6 +1339,8 @@
     "featureComputer": "Ordenador {machine}",
     "featureCreditsIncluded": "{amount} en créditos incluidos",
     "featureStorage": "{gib} GB de almacenamiento",
+    "featureUsage": "Uso de {name}, se restablece cada mes",
+    "featureUsageIncluded": "{label} incluido",
     "foreverCaption": "Para siempre",
     "freeFeaturePayAsYouGo": "Créditos de pago por uso",
     "freeFeatureSmallComputer": "Ordenador pequeño",
@@ -1649,6 +1653,7 @@
     "dimensionsComplete": "{dimensions} completado",
     "goToBilling": "Ir a facturación",
     "machineLabel": "Máquina",
+    "noExtraUsage": "Sin uso adicional",
     "packageChip": "paquete {name}",
     "planReadyStatus": "Tu plan está listo",
     "retryInBackground": "Reintentar en segundo plano",
@@ -1659,6 +1664,7 @@
     "storageLabel": "Almacenamiento",
     "takingLongerStatus": "Esto está tardando más de lo esperado",
     "tryAgain": "Intentar de nuevo",
+    "usageLabel": "Uso",
     "waitingCaptionLong": "Seguimos trabajando. Esto puede tardar uno o dos minutos.",
     "waitingCaptionShort": "Esto puede tardar unos segundos."
   },
@@ -2103,6 +2109,11 @@
   },
   "useBillingPortalSession": {
     "openError": "No se pudo abrir el portal de facturación. Inténtalo de nuevo."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "No se pudo cancelar tu suscripción. Inténtalo de nuevo.",
+    "canceledToast": "Plan Pro cancelado. Tendrás acceso hasta {date}.",
+    "endOfBillingPeriod": "el final de tu período de facturación"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",

@@ -14,7 +14,7 @@ import { ActionMenu, Button, toast } from "@vellumai/design-library";
 
 import { documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
 import { t } from "@/i18n";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { shareApp } from "@/utils/share-app";
@@ -81,8 +81,7 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
   app,
   onRequestDelete,
 }) => {
-  const togglePin = usePinnedAppsStore.use.togglePin();
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isPinned = pinnedAppIds.has(app.id);
 
   const [isSharing, setIsSharing] = useState(false);
@@ -110,7 +109,7 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
       <ActionMenu.Item
         icon={isPinned ? PinOff : Pin}
         label={isPinned ? t("chat:conversationAssetActions.unpin") : t("chat:conversationAssetActions.pin")}
-        onSelect={() => togglePin(app)}
+        onSelect={() => togglePin(app.id)}
       />
       <ActionMenu.Item
         icon={ArrowUp}

@@ -14,7 +14,8 @@ export const metadata: Metadata = {
 };
 
 /* Pre-hydration theme bootstrap. Mirrors the key precedence of the assistant
- * SPA's clients/web/public/theme-init.js (`device:theme` first, then the
+ * SPA's inline shell-init script in clients/web/index.html (`device:theme`
+ * first, then the
  * shared `vellum_theme` key, then system preference; platform-only "velvet"
  * counts as dark) since both apps share the www.vellum.ai origin. Stamps
  * BOTH `.dark` (docs-theme.css) and `data-theme` (design-library tokens) to

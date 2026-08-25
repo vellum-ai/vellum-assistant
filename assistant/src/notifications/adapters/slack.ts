@@ -355,7 +355,12 @@ function buildToolApprovalCardBlocks(
     type: "card",
     title: {
       type: "mrkdwn",
-      text: details ? "Tool Approval" : "Approval Request",
+      text:
+        approval.intent === "question"
+          ? "Question"
+          : details
+            ? "Tool Approval"
+            : "Approval Request",
     },
     body: { type: "mrkdwn", text: head },
     actions: buildCardActions(approval),

@@ -393,6 +393,14 @@
     "timeRangePastHour": "Última hora",
     "title": "Compartir comentarios"
   },
+  "shareFeedbackModalFallback": {
+    "loadingAria": "Cargando el formulario de comentarios"
+  },
+  "shareFeedbackModalLoadError": {
+    "close": "Cerrar",
+    "message": "No se pudo cargar el formulario de comentarios.",
+    "retry": "Reintentar"
+  },
   "sideListDrawer": {
     "closeAria": "Cerrar",
     "closeSidebarAria": "Cerrar barra lateral",

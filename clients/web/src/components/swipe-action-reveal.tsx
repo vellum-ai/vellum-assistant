@@ -83,8 +83,15 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
  * with no swipe affordance.
  *
  * The content layer sits in a `transform: translateX()` above two absolutely
- * positioned action layers. `overflow: hidden` on the container clips the
+ * positioned action layers. `overflow: hidden` on the layer box clips the
  * action layers so they're invisible until the content slides away.
+ *
+ * That clip lives one level inside the root rather than on it, because the
+ * root is what a list lays out: a flex or grid item whose overflow is not
+ * `visible` has its automatic minimum size resolved to zero instead of to its
+ * content, so a clipping root can be squashed to nothing by a container that
+ * is out of room. Keeping the clip off the root leaves a swipe row sizing
+ * exactly like a row without one, in either axis and whatever the container.
  *
  * Modeled on the swipe patterns in {@link use-gallery-swipe} and
  * {@link use-edge-swipe}. Action button styling follows the iOS Mail
@@ -150,7 +157,7 @@ export const SwipeActionReveal = forwardRef<
       // to leave a row's own swipe actions alone. Only the armed branch carries
       // it: with no actions there is nothing to yield to.
       data-slot="swipe-action-row"
-      className={cn("relative overflow-hidden", className)}
+      className={className}
       // Spread injected props first so our swipe-specific touch handlers
       // take precedence if there is ever a key collision.
       {...rest}
@@ -163,64 +170,68 @@ export const SwipeActionReveal = forwardRef<
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
     >
-      {/* Trailing actions (right side, revealed on swipe-left) */}
-      {trailingActions && trailingActions.length > 0 ? (
-        <div
-          className="absolute inset-y-0 right-0 flex"
-          aria-hidden={offset >= 0}
-          // Remove hidden actions from tab order — they're only reachable
-          // after a swipe reveals them. Without this, tab navigation
-          // lands on invisible buttons behind the content layer.
-          style={offset >= 0 ? { pointerEvents: "none" } : undefined}
-        >
-          {trailingActions.map((action) => (
-            <SwipeActionButton
-              key={action.id}
-              action={action}
-              onAfterSelect={close}
-              hidden={offset >= 0}
-            />
-          ))}
-        </div>
-      ) : null}
+      {/* The layer box. `rounded-[inherit]` takes whatever radius the caller
+          put on the root, so a revealed action is cut to the row's corners. */}
+      <div className="relative overflow-hidden rounded-[inherit]">
+        {/* Trailing actions (right side, revealed on swipe-left) */}
+        {trailingActions && trailingActions.length > 0 ? (
+          <div
+            className="absolute inset-y-0 right-0 flex"
+            aria-hidden={offset >= 0}
+            // Remove hidden actions from tab order: they're only reachable
+            // after a swipe reveals them. Without this, tab navigation
+            // lands on invisible buttons behind the content layer.
+            style={offset >= 0 ? { pointerEvents: "none" } : undefined}
+          >
+            {trailingActions.map((action) => (
+              <SwipeActionButton
+                key={action.id}
+                action={action}
+                onAfterSelect={close}
+                hidden={offset >= 0}
+              />
+            ))}
+          </div>
+        ) : null}
 
-      {/* Leading actions (left side, revealed on swipe-right) */}
-      {leadingActions && leadingActions.length > 0 ? (
-        <div
-          className="absolute inset-y-0 left-0 flex"
-          aria-hidden={offset <= 0}
-          style={offset <= 0 ? { pointerEvents: "none" } : undefined}
-        >
-          {leadingActions.map((action) => (
-            <SwipeActionButton
-              key={action.id}
-              action={action}
-              onAfterSelect={close}
-              hidden={offset <= 0}
-            />
-          ))}
-        </div>
-      ) : null}
+        {/* Leading actions (left side, revealed on swipe-right) */}
+        {leadingActions && leadingActions.length > 0 ? (
+          <div
+            className="absolute inset-y-0 left-0 flex"
+            aria-hidden={offset <= 0}
+            style={offset <= 0 ? { pointerEvents: "none" } : undefined}
+          >
+            {leadingActions.map((action) => (
+              <SwipeActionButton
+                key={action.id}
+                action={action}
+                onAfterSelect={close}
+                hidden={offset <= 0}
+              />
+            ))}
+          </div>
+        ) : null}
 
-      {/* Content layer, sliding over the action layers. Its fill has to be
-          opaque so the actions stay hidden until a swipe reveals them, and it
-          has to match whatever surface the row sits on or the row reads as a
-          differently-coloured band. `--swipe-reveal-bg` lets that surface name
-          itself (the sidebar's section card publishes its own), falling back
-          to the panel surface a row rests on elsewhere. */}
-      <div
-        className={cn(
-          "relative bg-[var(--swipe-reveal-bg,var(--surface-overlay))] transition-transform",
-          isDragging && "transition-none",
-        )}
-        style={{
-          transform: `translateX(${offset}px)`,
-          // Ensure the content layer paints above the action layers so they're
-          // hidden until swiped. z-10 is enough since actions are auto-positioned.
-          zIndex: 1,
-        }}
-      >
-        {children}
+        {/* Content layer, sliding over the action layers. Its fill has to be
+            opaque so the actions stay hidden until a swipe reveals them, and it
+            has to match whatever surface the row sits on or the row reads as a
+            differently-coloured band. `--swipe-reveal-bg` lets that surface name
+            itself (the sidebar's section card publishes its own), falling back
+            to the panel surface a row rests on elsewhere. */}
+        <div
+          className={cn(
+            "relative bg-[var(--swipe-reveal-bg,var(--surface-overlay))] transition-transform",
+            isDragging && "transition-none",
+          )}
+          style={{
+            transform: `translateX(${offset}px)`,
+            // Ensure the content layer paints above the action layers so they're
+            // hidden until swiped. z-10 is enough since actions are auto-positioned.
+            zIndex: 1,
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

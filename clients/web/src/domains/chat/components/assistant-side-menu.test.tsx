@@ -123,6 +123,25 @@ mock.module(
   }),
 );
 
+/* Pinned apps come from the daemon's app list. The pin list is a plain
+   variable rather than seeded query data because `SideMenuUnderTest` builds its
+   own QueryClient per render, so a test has nothing to seed. */
+let pinnedAppsFixture: AppSummary[] = [];
+
+mock.module(
+  "@/hooks/use-pinned-apps",
+  (): Partial<typeof UsePinnedApps> => ({
+    usePinnedApps: () => ({
+      pinnedApps: pinnedAppsFixture,
+      pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
+      source: "daemon" as const,
+      togglePin: () => {},
+      unpin: () => {},
+      setColor: () => {},
+    }),
+  }),
+);
+
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
 mock.module("@/hooks/use-assistant-avatar", () => ({
@@ -145,8 +164,9 @@ import type { ConversationListFilter } from "@/utils/conversation-list-keys";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import type { PinnedAppEntry } from "@/utils/app-pin-storage";
+import type * as UsePinnedApps from "@/hooks/use-pinned-apps";
+import { makeAppSummary } from "@/types/app-summary.test-helper";
+import type { AppSummary } from "@/types/app-types";
 
 // Most of what follows describes the Grouped view's composition: the Chats
 // section, the per-channel sections, and the peer treatment they share with
@@ -1544,13 +1564,10 @@ describe("AssistantSideMenu · equal section treatment", () => {
   // used to be conditional on them.
   test("the collapsed rail's header carries no separator, pinned apps or not", () => {
     for (const pinnedApps of [
-      [] as PinnedAppEntry[],
-      [{ appId: "app-1", pinnedOrder: 0, name: "Vex Ops" }],
+      [],
+      [makeAppSummary({ id: "app-1", name: "Vex Ops", pinSortPosition: 1 })],
     ]) {
-      usePinnedAppsStore.setState({
-        pinnedApps,
-        pinnedAppIds: new Set(pinnedApps.map((a) => a.appId)),
-      });
+      pinnedAppsFixture = pinnedApps;
 
       const container = parse(
         renderMenu({
@@ -1572,7 +1589,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
       ).toHaveLength(0);
     }
 
-    usePinnedAppsStore.setState({ pinnedApps: [], pinnedAppIds: new Set() });
+    pinnedAppsFixture = [];
   });
 
   // Pinned is the one section that doesn't cap: it grows to fit its own

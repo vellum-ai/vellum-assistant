@@ -776,6 +776,11 @@ the same provider will resolve against the wrong host or path and fail (often
 with an opaque HTML 404). When in doubt, pass an absolute URL: it is the safe
 form for any service other than the provider's default.
 
+The body (-d) is JSON by default. Give a non-JSON Content-Type and the body
+travels to the provider exactly as written, which is what multipart, XML, and
+form-encoded payloads need. Body files (-d @<path>) are read as UTF-8 text, so
+a payload that is not valid UTF-8 cannot be sent this way.
+
 Note: The Authorization header is set automatically. User-supplied
 -H "Authorization: ..." will be overridden by the OAuth bearer token.
 
@@ -784,7 +789,8 @@ Examples:
   $ assistant oauth request --provider google /gmail/v1/users/me/messages -G
   $ assistant oauth request --provider twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
   $ assistant oauth request --provider google https://www.googleapis.com/calendar/v3/calendars/primary/events
-  $ assistant oauth request --provider slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json`,
+  $ assistant oauth request --provider slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json
+  $ assistant oauth request --provider google -X POST -H "Content-Type: multipart/related; boundary=b" -d @upload.txt "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"`,
     },
     {
       name: "disconnect",

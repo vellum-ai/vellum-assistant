@@ -61,6 +61,7 @@ import { useChatLayoutDrawerGestures } from "@/domains/chat/hooks/use-chat-layou
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { useMaterializedDraftReconcile } from "@/domains/chat/hooks/use-materialized-draft-reconcile";
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
@@ -234,6 +235,12 @@ export function ChatLayout({
     isPending: isGroupsPending,
     isError: groupsFailed,
   } = useConversationGroupsQuery(assistantId, isAssistantActive);
+
+  // A client-minted conversation key stops being a draft once the server's own
+  // list carries a row for it. Mounted against the list this layout already
+  // subscribes to, so it costs no request. See
+  // `./hooks/use-materialized-draft-reconcile.ts`.
+  useMaterializedDraftReconcile(conversations);
 
   // Whether the transcript is on screen, resolved here because this is where
   // the route, the viewer and the viewport are all in hand. One owner, so

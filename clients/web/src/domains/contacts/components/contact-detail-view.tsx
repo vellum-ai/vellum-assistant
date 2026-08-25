@@ -19,6 +19,7 @@ interface ContactDetailViewProps {
   mergePending?: boolean;
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
+  channelsLoadFailed?: boolean;
   a2aEnabled?: boolean;
   onSave: (patch: { displayName: string; notes: string }) => void;
   onDelete: () => void;
@@ -42,6 +43,7 @@ function ContactDetailViewInner({
   mergePending = false,
   canMerge = false,
   availableChannels,
+  channelsLoadFailed,
   a2aEnabled,
   onSave,
   onDelete,
@@ -73,7 +75,8 @@ function ContactDetailViewInner({
     contact.interactionCount === 0;
 
   const headerName =
-    trimmedName || (isNewContactDraft ? t("contact.draftName") : contact.displayName);
+    trimmedName ||
+    (isNewContactDraft ? t("contact.draftName") : contact.displayName);
   // ICU `plural` picks the category through `Intl.PluralRules`, so the count
   // agrees in languages with more than the two forms English has.
   const interactionLabel = t("contact.interactions", {
@@ -180,6 +183,7 @@ function ContactDetailViewInner({
         <ContactChannelsSection
           contactChannels={contact.channels}
           availableChannels={availableChannels}
+          channelsLoadFailed={channelsLoadFailed}
           a2aEnabled={a2aEnabled}
           verifyLoading={verifyPending}
           verifySubject="contact"

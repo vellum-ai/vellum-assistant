@@ -7,6 +7,7 @@
   "exports": {
     "./about": "./src/about.ts",
     "./accelerator": "./src/accelerator.ts",
+    "./app-logger": "./src/app-logger.ts",
     "./app-origin": "./src/app-origin.ts",
     "./auto-update": "./src/auto-update.ts",
     "./avatar": "./src/avatar.ts",
@@ -94,6 +95,7 @@
   },
   "peerDependencies": {
     "@sentry/electron": ">=7.13.0",
+    "electron-log": ">=5.4.4",
     "electron-store": ">=11.0.2",
     "electron": ">=42.2.0",
     "zod": ">=4.0.0"
@@ -103,6 +105,7 @@
     "@types/bun": "1.3.14",
     "@types/node": "22.10.5",
     "electron": "42.2.0",
+    "electron-log": "5.4.4",
     "electron-store": "11.0.2",
     "typescript": "5.9.3",
     "zod": "4.3.6"

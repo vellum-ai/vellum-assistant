@@ -28,6 +28,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { DocumentCard } from "@/domains/chat/components/document-card";
+import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
 import { documentsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { DocumentsGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
@@ -134,6 +135,7 @@ export function DocumentReopenLink({
     assistantId,
     conversationId,
   );
+  const isOpen = useIsDocumentOpen(surfaceId);
 
   if (displayName == null) {
     return null;
@@ -142,6 +144,7 @@ export function DocumentReopenLink({
   return (
     <DocumentCard
       documentName={displayName}
+      isOpen={isOpen}
       onOpen={() => onOpenDocument(surfaceId)}
       ariaLabel={t("documentReopenLink.openAria", { name: displayName })}
       testId="document-reopen-link"

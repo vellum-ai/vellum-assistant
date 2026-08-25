@@ -201,15 +201,31 @@ function optionLabels(): string[] {
 /** Meta chip on supported-but-unconnected, key-based provider rows. */
 const ADD_KEY_META = "Add API key";
 
+/** Meta chip on a provider only a self-hosted assistant can reach. */
+const SELF_HOSTED_ONLY_META = "Self-hosted only";
+
+/** The open listbox's Ollama row. */
+function ollamaOption(): HTMLElement {
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => optionLabel(o) === "Ollama");
+  if (!option) {
+    throw new Error("expected an Ollama option row");
+  }
+  return option;
+}
+
 /**
- * Every supported provider a platform-hosted assistant can connect by API key,
- * in picker order. Ollama is absent (self-hosted only) and custom endpoints are
- * reached through "+ Create new provider", so neither appears here.
+ * Every supported provider offered as an unconnected row, in picker order.
+ * Custom endpoints are reached through "+ Create new provider", so they do not
+ * appear here. Ollama is listed for every assistant; a platform-hosted one
+ * sees it disabled with the self-hosted-only reason.
  */
 const UNCONNECTED_PROVIDER_LABELS = [
   "Anthropic",
   "OpenAI",
   "Google Gemini",
+  "Ollama",
   "Fireworks",
   "Together AI",
   "OpenRouter",
@@ -507,12 +523,20 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       "+ Create new provider",
     ]);
     expect(optionLabels()).toContain("Google Gemini");
-    // Each carries the chip naming what it still needs.
+    // Each connectable one carries the chip naming what it still needs, while
+    // Ollama names why this assistant cannot reach it at all.
     expect(
       optionRows()
-        .filter((row) => row.label !== "+ Create new provider")
+        .filter(
+          (row) =>
+            row.label !== "+ Create new provider" && row.label !== "Ollama",
+        )
         .every((row) => row.meta === ADD_KEY_META),
     ).toBe(true);
+    expect(optionRows()).toContainEqual({
+      label: "Ollama",
+      meta: SELF_HOSTED_ONLY_META,
+    });
   });
 
   test("the Vellum-managed connection leads, with the unconnected providers behind it", () => {
@@ -1017,7 +1041,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("mistral");
   });
 
-  test("platform-hosted assistants do not offer Ollama as a new profile provider", () => {
+  test("platform-hosted assistants offer Ollama disabled with the reason", () => {
+    // Hiding it entirely reads as missing support; the row states the
+    // restriction instead and refuses selection.
     useAssistantLifecycleStore.setState({
       assistantState: { kind: "active", isLocal: false },
     });
@@ -1025,13 +1051,18 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     fireEvent.click(providerTrigger());
 
-    // Neither as a connected entry (the connection exists but can't be reached
-    // from a platform-hosted assistant) nor as a connect-me entry.
-    expect(optionLabels()).not.toContain("Ollama");
-    expect(optionLabels()).toEqual([
-      ...UNCONNECTED_PROVIDER_LABELS,
-      "+ Create new provider",
-    ]);
+    expect(optionRows()).toContainEqual({
+      label: "Ollama",
+      meta: SELF_HOSTED_ONLY_META,
+    });
+    const ollama = ollamaOption();
+    expect(ollama.getAttribute("aria-disabled")).toBe("true");
+    expect(ollama.getAttribute("data-disabled")).not.toBeNull();
+
+    // Clicking it leaves the picker on its original selection.
+    const before = providerTrigger().textContent;
+    fireEvent.click(ollama);
+    expect(providerTrigger().textContent).toBe(before);
   });
 
   test("a self-hosted assistant offers unconnected Ollama as a keyless set-up entry", () => {

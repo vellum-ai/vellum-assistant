@@ -1461,9 +1461,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.522174,
-          outputPer1mTokens: 1.044348,
-          cacheReadPer1mTokens: 0.0435145,
+          inputPer1mTokens: 0.579072,
+          outputPer1mTokens: 1.158144,
+          cacheReadPer1mTokens: 0.048256,
         },
       },
       {
@@ -1475,10 +1475,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        // Reseller list rate, matching the `vercel-ai-gateway` entry for this
+        // model. DeepSeek serves no OpenRouter endpoint of its own, so the
+        // card carries whichever reseller holds the default route rather than
+        // a first-party rate. An estimate, not a quote.
         pricing: {
-          inputPer1mTokens: 0.056,
-          outputPer1mTokens: 0.112,
-          cacheReadPer1mTokens: 0.0112,
+          inputPer1mTokens: 0.14,
+          outputPer1mTokens: 0.28,
+          cacheReadPer1mTokens: 0.028,
         },
       },
       // Qwen
@@ -1609,9 +1613,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.24,
-          outputPer1mTokens: 0.96,
-          cacheReadPer1mTokens: 0.048,
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
         },
       },
       {
@@ -1703,9 +1707,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.966,
-          outputPer1mTokens: 3.036,
-          cacheReadPer1mTokens: 0.1932,
+          inputPer1mTokens: 1.19,
+          outputPer1mTokens: 3.74,
+          cacheReadPer1mTokens: 0.221,
         },
       },
       // Mistral
