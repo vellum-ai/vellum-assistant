@@ -15,9 +15,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
 
 import type {
   DefaultProviderStatus,
@@ -164,16 +168,15 @@ function connection(
   } as ProviderConnection;
 }
 
-function Wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
+function createQueryClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
   });
-  return createElement(QueryClientProvider, { client }, children);
 }
 
-function renderSection() {
+function renderSection(client = createQueryClient()) {
   return render(
-    <Wrapper>
+    <QueryClientProvider client={client}>
       <ProvidersSection
         assistantId="asst-1"
         selectedConnectionName={null}
@@ -181,7 +184,7 @@ function renderSection() {
         onAddProvider={() => {}}
         onConnectionDeleted={() => {}}
       />
-    </Wrapper>,
+    </QueryClientProvider>,
   );
 }
 
@@ -298,6 +301,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  focusManager.setFocused(undefined);
+  onlineManager.setOnline(true);
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -412,6 +417,42 @@ describe("ProvidersSection - bounded request lifecycle", () => {
     expect(rows()[1]?.textContent).toContain("OpenRouter");
     expect(document.body.textContent).not.toContain("Failed to load providers");
     expect(connectionsRequestCount).toBe(2);
+  });
+
+  test("a timeout stays actionable through mount, focus, and reconnect events", async () => {
+    /**
+     * Tests that automatic TanStack lifecycle refetches do not replace the
+     * timeout error with another bounded loading state. Explicit Retry remains
+     * the recovery path.
+     */
+
+    // GIVEN a provider-connections request that reaches the timeout state
+    connectionsResponder = () => new Promise(() => {});
+    const client = createQueryClient();
+    renderSection(client);
+    await waitFor(() => {
+      expect(retryButton()).toBeDefined();
+    });
+    expect(connectionsRequestCount).toBe(1);
+
+    // AND the route would succeed if another request were dispatched
+    connectionsResponder = async () => ({
+      data: { connections: connectionsState },
+    });
+
+    // WHEN another observer mounts and browser lifecycle events fire
+    renderSection(client);
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+
+    // THEN the timeout remains actionable without a hidden refetch
+    expect(connectionsRequestCount).toBe(1);
+    expect(skeletons().length).toBe(0);
+    expect(retryButton()).toBeDefined();
   });
 
   test("a stalled request records the client timeout as its terminal stage", async () => {

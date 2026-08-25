@@ -1,4 +1,8 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { InferenceProviderconnectionsGetResponse } from "@/generated/daemon/types.gen";
@@ -25,6 +29,12 @@ interface UseProviderConnectionsOptions {
   staleTime?: number;
 }
 
+function refetchUnlessTimedOut(query: {
+  state: { error: unknown };
+}): boolean {
+  return !(query.state.error instanceof RequestTimeoutError);
+}
+
 /**
  * Provider connections for an assistant, wrapping the generated
  * `inferenceProviderconnectionsGetOptions()` factory so every consumer shares
@@ -44,6 +54,10 @@ export function useProviderConnections(
   const baseOptions = inferenceProviderconnectionsGetOptions({
     path: { assistant_id: assistantId ?? "" },
   });
+  const queryClient = useQueryClient();
+  const cachedRequestTimedOut =
+    queryClient.getQueryState(baseOptions.queryKey)?.error instanceof
+    RequestTimeoutError;
 
   return useQuery({
     ...baseOptions,
@@ -117,6 +131,13 @@ export function useProviderConnections(
       error instanceof RequestAbortedError
         ? false
         : shouldRetryQuery(failureCount, error),
+    // Keep a terminal timeout visible until the user retries or canonical
+    // provider state invalidates the query. Mount, focus, and reconnect events
+    // must not replace the actionable error with another 15s loading state.
+    retryOnMount: !cachedRequestTimedOut,
+    refetchOnMount: refetchUnlessTimedOut,
+    refetchOnWindowFocus: refetchUnlessTimedOut,
+    refetchOnReconnect: refetchUnlessTimedOut,
     enabled: (options.enabled ?? true) && !!assistantId,
     ...(options.staleTime !== undefined
       ? { staleTime: options.staleTime }
