@@ -41,6 +41,7 @@ import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { safeTimeoutMs } from "./execution-timeout.js";
 import { channelCoordinatesFromToolContext } from "./policy-context.js";
+import { enforceProtectedWorkspaceDeletePolicy } from "./protected-workspace-delete-policy.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { parseToolInput } from "./tool-input-schemas.js";
@@ -55,7 +56,6 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "./types.js";
-import { enforceProtectedWorkspaceDeletePolicy } from "./protected-workspace-delete-policy.js";
 import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
 const log = getLogger("tool-approval-handler");
