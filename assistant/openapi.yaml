@@ -15675,6 +15675,7 @@ paths:
               properties:
                 botToken:
                   type: string
+                  minLength: 1
                   description: Discord bot token
               required:
                 - botToken
