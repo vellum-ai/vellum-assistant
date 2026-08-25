@@ -247,10 +247,15 @@ struct CatchUpRow: View {
         } else if conversation.hasUnseen {
             bubble
                 .overlay(alignment: .topTrailing) {
+                    // Accentable for the reason ``WidgetUnreadMark``'s dot is:
+                    // this row draws the same mark at row scale, and a dot left
+                    // out of the tint would flatten into the white bubble it
+                    // rides and stop marking anything.
                     Circle()
                         .fill(WidgetTheme.unseenIndicator)
                         .frame(width: 4 * scale, height: 4 * scale)
                         .offset(x: 1 * scale, y: -1 * scale)
+                        .widgetAccentable()
                 }
                 .accessibilityLabel("Unread")
         } else {

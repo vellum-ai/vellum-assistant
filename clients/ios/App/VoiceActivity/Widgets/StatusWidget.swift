@@ -253,6 +253,26 @@ private func statusPreviewCard(_ entry: SnapshotEntry) -> some View {
     }
 }
 
+#Preview("Flattened") {
+    // The only card that draws all four controls, so it is where the flattened
+    // fills are worth looking at: both states, since the tiles and the pill are
+    // on opposite sides of the flip.
+    previewFlattened {
+        HStack(spacing: 12) {
+            previewWidgetCard {
+                StatusWidgetView(entry: previewEntry())
+            } background: {
+                previewFlattenedGround
+            }
+            previewWidgetCard {
+                StatusWidgetView(entry: previewEntry(unread: 3, inProgress: 2))
+            } background: {
+                previewFlattenedGround
+            }
+        }
+    }
+}
+
 #Preview("Character accent") {
     // The light accent is the one worth looking at: its wash has to stay a pale
     // card with the word still legible on it.
