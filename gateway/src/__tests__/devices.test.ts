@@ -36,6 +36,8 @@ const { MAX_PAIRING_USER_AGENT_CHARS } =
   await import("../auth/device-identity-text.js");
 const { handleListDevices, handleRevokeDevice } =
   await import("../http/routes/devices.js");
+const { handlePair, resetPairRateLimiterForTests } =
+  await import("../http/routes/pair.js");
 
 const LOOPBACK_IP = "127.0.0.1";
 const GUARDIAN_ID = "guardian-001";
@@ -144,7 +146,24 @@ function activeRefreshCount(device: string): number {
     .all().length;
 }
 
+function actorRow(device: string) {
+  return getGatewayDb()
+    .select()
+    .from(actorTokenRecords)
+    .where(eq(actorTokenRecords.hashedDeviceId, hashToken(device)))
+    .get();
+}
+
+function refreshRow(device: string) {
+  return getGatewayDb()
+    .select()
+    .from(actorRefreshTokenRecords)
+    .where(eq(actorRefreshTokenRecords.hashedDeviceId, hashToken(device)))
+    .get();
+}
+
 beforeEach(async () => {
+  resetPairRateLimiterForTests();
   testRoot = mkdtempSync(join(tmpdir(), "devices-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
@@ -235,22 +254,6 @@ describe("actorTokenRecords device identity columns", () => {
 });
 
 describe("mintAndRecordDeviceBoundTokenPair identity persistence", () => {
-  function actorRow(device: string) {
-    return getGatewayDb()
-      .select()
-      .from(actorTokenRecords)
-      .where(eq(actorTokenRecords.hashedDeviceId, hashToken(device)))
-      .get();
-  }
-
-  function refreshRow(device: string) {
-    return getGatewayDb()
-      .select()
-      .from(actorRefreshTokenRecords)
-      .where(eq(actorRefreshTokenRecords.hashedDeviceId, hashToken(device)))
-      .get();
-  }
-
   test("writes identity to both the actor-token row and the refresh-token row", () => {
     mintAndRecordDeviceBoundTokenPair({
       guardianPrincipalId: GUARDIAN_ID,
@@ -312,6 +315,115 @@ describe("mintAndRecordDeviceBoundTokenPair identity persistence", () => {
     expect(refresh?.pairingUserAgent?.length).toBe(
       MAX_PAIRING_USER_AGENT_CHARS,
     );
+  });
+});
+
+describe("/v1/pair clientReportedName", () => {
+  const PROD_ORIGIN = "chrome-extension://hphbdmpffeigpcdjkckleobjmhhokpne";
+
+  function makeExtensionPairRequest(body?: Record<string, unknown>): Request {
+    return new Request("http://localhost:7830/v1/pair", {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        origin: PROD_ORIGIN,
+        "x-vellum-interface-id": "chrome-extension",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  function makeCliPairRequest(body?: Record<string, unknown>): Request {
+    return new Request("http://localhost:7830/v1/pair", {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        "x-vellum-interface-id": "cli",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  test("persists a client-reported name on both minted rows (chrome-extension)", async () => {
+    const res = await handlePair(
+      makeExtensionPairRequest({
+        deviceId: "device-ext-name",
+        clientReportedName: "Noa's Chromebook",
+      }),
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+
+    expect(actorRow("device-ext-name")?.clientReportedName).toBe(
+      "Noa's Chromebook",
+    );
+    expect(refreshRow("device-ext-name")?.clientReportedName).toBe(
+      "Noa's Chromebook",
+    );
+  });
+
+  test("persists a client-reported name on both minted rows (cli)", async () => {
+    const res = await handlePair(
+      makeCliPairRequest({
+        deviceId: "device-cli-name",
+        clientReportedName: "Noa's MacBook Pro",
+      }),
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+
+    expect(actorRow("device-cli-name")?.clientReportedName).toBe(
+      "Noa's MacBook Pro",
+    );
+    expect(refreshRow("device-cli-name")?.clientReportedName).toBe(
+      "Noa's MacBook Pro",
+    );
+  });
+
+  test("records null when clientReportedName is omitted, and still pairs", async () => {
+    const res = await handlePair(
+      makeCliPairRequest({ deviceId: "device-no-name" }),
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+
+    expect(actorRow("device-no-name")?.clientReportedName).toBeNull();
+    expect(refreshRow("device-no-name")?.clientReportedName).toBeNull();
+  });
+
+  test("records null and still pairs when clientReportedName is not a string", async () => {
+    const res = await handlePair(
+      makeCliPairRequest({
+        deviceId: "device-bad-name",
+        clientReportedName: 12345,
+      }),
+      LOOPBACK_IP,
+    );
+    expect(res.status).toBe(200);
+
+    expect(actorRow("device-bad-name")?.clientReportedName).toBeNull();
+    expect(refreshRow("device-bad-name")?.clientReportedName).toBeNull();
+  });
+
+  test("a body that is not JSON at all still takes the stateless path unchanged", async () => {
+    const req = new Request("http://localhost:7830/v1/pair", {
+      method: "POST",
+      headers: {
+        host: "localhost:7830",
+        "content-type": "application/json",
+        origin: PROD_ORIGIN,
+        "x-vellum-interface-id": "chrome-extension",
+      },
+      body: "not json",
+    });
+    const res = await handlePair(req, LOOPBACK_IP);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body.token).toBe("string");
+    // Stateless path: no device-bound row, so no refreshToken either.
+    expect(body.refreshToken).toBeUndefined();
   });
 });
 
