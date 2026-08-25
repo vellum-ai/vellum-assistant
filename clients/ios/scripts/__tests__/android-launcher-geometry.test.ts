@@ -62,3 +62,25 @@ describe("android launcher icon geometry", () => {
     });
   }
 });
+
+describe("android themed icon mask", () => {
+  const quirky = getCharacterComponents().eyeStyles.find(
+    (style) => style.id === "quirky",
+  );
+  if (!quirky) {
+    throw new Error("quirky eye style missing from the component library");
+  }
+
+  test("ic_launcher_monochrome.xml embeds the two outer sclera paths verbatim", () => {
+    const xml = readFileSync(
+      join(ANDROID_RES, "drawable/ic_launcher_monochrome.xml"),
+      "utf8",
+    );
+    const embedded = extractEyePaths(xml);
+    const expected = [quirky.paths[0].svgPath, quirky.paths[3].svgPath];
+    expect(embedded.length).toBe(expected.length);
+    for (const [index, d] of expected.entries()) {
+      expect(embedded[index]?.d).toBe(d);
+    }
+  });
+});
