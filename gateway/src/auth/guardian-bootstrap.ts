@@ -662,6 +662,23 @@ export interface DeviceIdentityInput {
   clientReportedName?: string | null;
 }
 
+/** Cap a device identity's free-text fields to their stored max lengths. */
+function capIdentity(identity?: DeviceIdentityInput): {
+  pairingUserAgent: string | null;
+  clientReportedName: string | null;
+} {
+  return {
+    pairingUserAgent: capDeviceIdentityText(
+      identity?.pairingUserAgent,
+      MAX_PAIRING_USER_AGENT_CHARS,
+    ),
+    clientReportedName: capDeviceIdentityText(
+      identity?.clientReportedName,
+      MAX_CLIENT_REPORTED_NAME_CHARS,
+    ),
+  };
+}
+
 /**
  * Mint a JWT access token and persist its hash in the gateway DB.
  */
@@ -695,14 +712,7 @@ function mintAccessToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      pairingUserAgent: capDeviceIdentityText(
-        identity?.pairingUserAgent,
-        MAX_PAIRING_USER_AGENT_CHARS,
-      ),
-      clientReportedName: capDeviceIdentityText(
-        identity?.clientReportedName,
-        MAX_CLIENT_REPORTED_NAME_CHARS,
-      ),
+      ...capIdentity(identity),
       status: "active",
       issuedAt: now,
       expiresAt,
@@ -744,14 +754,7 @@ function mintRefreshToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      pairingUserAgent: capDeviceIdentityText(
-        identity?.pairingUserAgent,
-        MAX_PAIRING_USER_AGENT_CHARS,
-      ),
-      clientReportedName: capDeviceIdentityText(
-        identity?.clientReportedName,
-        MAX_CLIENT_REPORTED_NAME_CHARS,
-      ),
+      ...capIdentity(identity),
       status: "active",
       issuedAt: now,
       absoluteExpiresAt,
