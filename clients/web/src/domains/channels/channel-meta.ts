@@ -18,8 +18,18 @@ interface ChannelMeta {
   labelKey:
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
+    | "channelMeta.discord.label"
     | "channelMeta.phone.label";
-  disconnectMessageKey:
+  /**
+   * Catalog key for the disconnect dialog's body.
+   *
+   * Optional, and its absence is what says a channel cannot be disconnected
+   * from here: there is no route that clears Discord's credentials, so an
+   * offered button would open a dialog whose confirm does nothing. Read as a
+   * capability the way the transport reads an absent method, rather than
+   * naming the channel in the component.
+   */
+  disconnectMessageKey?:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
     | "channelMeta.phone.disconnectMessage";
@@ -35,6 +45,7 @@ interface ChannelMeta {
    */
   disconnectedPitchKey?:
     | "channelMeta.telegram.disconnectedPitch"
+    | "channelMeta.discord.disconnectedPitch"
     | "channelMeta.phone.disconnectedPitch";
 }
 
@@ -49,6 +60,11 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     disconnectMessageKey: "channelMeta.telegram.disconnectMessage",
     hasTrustFloorControl: true,
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
+  },
+  discord: {
+    labelKey: "channelMeta.discord.label",
+    hasTrustFloorControl: true,
+    disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
   },
   phone: {
     labelKey: "channelMeta.phone.label",

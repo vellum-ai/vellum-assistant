@@ -27,6 +27,7 @@ interface ChannelSetupPanelProps {
 const CHANNEL_BRAND_LABEL: Record<ChannelSetupType, string | null> = {
   slack: "Slack",
   telegram: "Telegram",
+  discord: "Discord",
   phone: null,
 };
 

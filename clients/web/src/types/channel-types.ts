@@ -6,10 +6,25 @@ export type ChannelReadinessSnapshot =
 /**
  * Channels that have user-facing setup flows in the UI. Constrained against
  * the generated readiness snapshot type so drift is caught at compile time.
+ *
+ * Transitional, and the direction of travel is to delete it. The daemon
+ * already answers which channels exist on `/v1/channels/available`, and
+ * plugin-brought channels reach this page by reading that route
+ * (`use-plugin-channels.ts`); built-ins arrive on the same route marked
+ * `default` and are discarded in favour of this list. So the page has two
+ * implementations of one question, and only the one written for plugins asks
+ * the daemon.
+ *
+ * A literal union cannot hold a plugin channel, whose id is workspace state,
+ * so every entry added here widens that split. Entries are added anyway while
+ * the convergence is blocked: `hasTrustFloorControl` is decided in this client
+ * and is a fact the daemon owns, so built-ins cannot read their rows from the
+ * route until it is served there.
  */
 export const SETUP_CHANNEL_IDS = [
   "slack",
   "telegram",
+  "discord",
   "phone",
 ] as const satisfies readonly ChannelReadinessSnapshot["channel"][];
 export type SetupChannelId = (typeof SETUP_CHANNEL_IDS)[number];
