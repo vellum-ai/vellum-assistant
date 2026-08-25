@@ -565,6 +565,12 @@ interface ApprovedCredentials {
  * mints no device-bound refresh credential, and it imports access-only. A
  * field that is PRESENT with the wrong type is malformed rather than dropped,
  * so a broken reply is reported instead of silently degrading the pairing.
+ *
+ * The refresh CREDENTIAL is all-or-none. `refreshToken` and its expiry are the
+ * device-bound pair, and half of it persists a zero expiry while reporting the
+ * pairing as renewable, so the connection claims it can renew and then cannot.
+ * `refreshAfter` is not part of that pair: every approved reply carries it,
+ * including the browser and older-gateway ones that mint no refresh token.
  */
 function approvedCredentials(value: unknown): ApprovedCredentials | null {
   if (typeof value !== "object" || value === null) {
@@ -583,22 +589,41 @@ function approvedCredentials(value: unknown): ApprovedCredentials | null {
   if (typeof accessToken !== "string" || !accessToken) {
     return null;
   }
-  if (refreshToken !== undefined && typeof refreshToken !== "string") {
-    return null;
-  }
   if (refreshAfter !== undefined && typeof refreshAfter !== "string") {
     return null;
   }
-  // ISO string on the wire; an epoch-ms number is accepted too because
-  // PairedAssistantCredentials persists either rather than dropping one.
-  if (
-    refreshTokenExpiresAt !== undefined &&
-    typeof refreshTokenExpiresAt !== "string" &&
-    typeof refreshTokenExpiresAt !== "number"
-  ) {
+  if (refreshToken === undefined || refreshToken === "") {
+    // No refresh credential: the older-gateway path, imported access-only. A
+    // stray expiry without a token would persist as a renewable-looking
+    // credential, so it is malformed rather than dropped.
+    if (refreshTokenExpiresAt !== undefined) {
+      return null;
+    }
+    return { accessToken, refreshAfter };
+  }
+  if (typeof refreshToken !== "string") {
+    return null;
+  }
+  if (!usableRefreshExpiry(refreshTokenExpiresAt)) {
     return null;
   }
   return { accessToken, refreshToken, refreshTokenExpiresAt, refreshAfter };
+}
+
+/**
+ * A refresh expiry this device can act on: an ISO instant on the wire, or an
+ * epoch-ms number, which PairedAssistantCredentials persists either of rather
+ * than dropping one. Zero and negative values are already-expired sentinels.
+ */
+function usableRefreshExpiry(value: unknown): value is string | number {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0;
+  }
+  if (typeof value !== "string") {
+    return false;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && parsed > 0;
 }
 
 /** An ISO instant as epoch ms, or `fallback` when it isn't one. */

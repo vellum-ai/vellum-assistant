@@ -910,6 +910,14 @@ describe("pairingPoll", () => {
     ["a non-string refreshToken", { refreshToken: 7 }],
     ["an object refreshTokenExpiresAt", { refreshTokenExpiresAt: {} }],
     ["a non-string refreshAfter", { refreshAfter: 900 }],
+    // Refresh fields are all-or-none: a partial set would persist a zero
+    // expiry while reporting the pairing as renewable.
+    ["a refresh token but no expiry", { refreshTokenExpiresAt: undefined }],
+    ["an expiry but no refresh token", { refreshToken: undefined }],
+    ["an expiry but an empty refresh token", { refreshToken: "" }],
+    ["a zero refreshTokenExpiresAt", { refreshTokenExpiresAt: 0 }],
+    ["a negative refreshTokenExpiresAt", { refreshTokenExpiresAt: -1 }],
+    ["an unparseable refreshTokenExpiresAt", { refreshTokenExpiresAt: "soon" }],
   ])(
     "a reply with %s is a gateway failure, not a half-written credential",
     async (_label, overrides) => {
