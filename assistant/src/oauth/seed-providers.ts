@@ -684,6 +684,43 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["email", "preferred_username"],
   },
 
+  eventbrite: {
+    provider: "eventbrite",
+    authorizeUrl: "https://www.eventbrite.com/oauth/authorize",
+    tokenExchangeUrl: "https://www.eventbrite.com/oauth/token",
+    refreshUrl: "https://www.eventbrite.com/oauth/token",
+    pingUrl: "https://www.eventbriteapi.com/v3/users/me/",
+    baseUrl: "https://www.eventbriteapi.com",
+    displayLabel: "Eventbrite",
+    description: "Events, attendees, and ticket orders",
+    dashboardUrl: "https://www.eventbrite.com/platform/api-keys/",
+    clientIdPlaceholder: null,
+    // Simple Icons does not host an Eventbrite mark (cdn.simpleicons.org
+    // 404s), so use the documented thesvg fallback.
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/eventbrite/default.svg",
+    // Eventbrite has no granular OAuth scope system: an access token carries
+    // the full permissions of the user who authorized it, and the authorize
+    // endpoint ignores a `scope` parameter. Seed an empty set rather than
+    // inventing scope strings the provider would silently drop (same shape
+    // as Notion).
+    defaultScopes: [],
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17337,
+    managedServiceConfigKey: "eventbrite-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "www.eventbriteapi.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    identityUrl: "https://www.eventbriteapi.com/v3/users/me/",
+    identityResponsePaths: ["name", "first_name"],
+  },
+
   figma: {
     provider: "figma",
     authorizeUrl: "https://www.figma.com/oauth",

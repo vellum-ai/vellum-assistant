@@ -28,6 +28,7 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   discord: publicAsset("/images/integrations/discord.svg"),
   discord_channel: publicAsset("/images/integrations/discord.svg"),
   dropbox: publicAsset("/images/integrations/dropbox.svg"),
+  eventbrite: publicAsset("/images/integrations/eventbrite.svg"),
   figma: publicAsset("/images/integrations/figma.svg"),
   github: publicAsset("/images/integrations/github.svg"),
   hubspot: publicAsset("/images/integrations/hubspot.svg"),
