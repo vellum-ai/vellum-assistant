@@ -60,7 +60,28 @@ $worksheet = $workbook.Worksheets.Item(1)
 $worksheet.Cells.Item(1, 1).Value2 = "Example"
 ```
 
-Do not save, send, delete, or overwrite content without the user's explicit confirmation. Close temporary documents and call `[System.Runtime.InteropServices.Marshal]::ReleaseComObject(...)` for COM objects that are no longer needed.
+Close temporary documents and call `[System.Runtime.InteropServices.Marshal]::ReleaseComObject(...)` for COM objects that are no longer needed.
+
+## Gate consequential actions
+
+Every PowerShell command sequence that saves, sends, deletes, or overwrites content must call `assistant ui confirm` and check its exit code before performing the action. Keep the confirmation and the action in the same `host_bash` invocation. Describe the exact action and target in the confirmation message.
+
+```powershell
+assistant ui confirm `
+  --title "Save workbook" `
+  --message "Save the new workbook to C:\Users\Public\Documents\example.xlsx?" `
+  --confirm-label "Save" `
+  --deny-label "Cancel"
+
+if ($LASTEXITCODE -ne 0) {
+  Write-Output "Save cancelled."
+  exit 0
+}
+
+$workbook.SaveAs("C:\Users\Public\Documents\example.xlsx")
+```
+
+Use the same blocking pattern immediately before sending messages, deleting data, or overwriting existing content. A prose-only confirmation is not sufficient.
 
 ## Inspect native UI
 
