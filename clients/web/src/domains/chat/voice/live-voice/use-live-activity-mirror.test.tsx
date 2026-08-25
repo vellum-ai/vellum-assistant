@@ -79,14 +79,29 @@ const unregisterLiveActivityPushToken = mock(
 // the module here in order to wrap it deadlocks module init.
 let encodeGate: Promise<void> | null = null;
 
+const gatedEncode = async (): Promise<string | null> => {
+  if (encodeGate) {
+    await encodeGate;
+  }
+  return null;
+};
+
 mock.module("@/utils/avatar-island-encode", () => ({
   ISLAND_AVATAR_MAX_BYTES: 2000,
-  encodeAvatarForIsland: async () => {
-    if (encodeGate) {
-      await encodeGate;
-    }
-    return null;
-  },
+  encodeAvatarForIsland: gatedEncode,
+  // The mirror reads its avatar through the shared memo. Its caching is the
+  // encoder module's to pin; what these tests need from it is the gate, and one
+  // uncached encode per read is what the real memo does here anyway, since the
+  // source stub below hands back a fresh object every call.
+  memoizedAvatarEncode: () => ({
+    revision: 1,
+    base64: null,
+    pending: gatedEncode(),
+  }),
+  // Nothing is cached above, but the surface has to stay complete:
+  // `mock.module` is process-global in bun, so a missing export would fail to
+  // resolve for any later test file in the run that imports it.
+  __resetAvatarEncodeMemoForTesting: () => {},
 }));
 
 mock.module("@/hooks/use-island-avatar-source", () => ({

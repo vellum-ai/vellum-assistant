@@ -76,6 +76,10 @@ export function buildMenuProps(
     onUnarchive: ctx.onUnarchive
       ? () => ctx.onUnarchive?.(conversation)
       : undefined,
+    onDelete:
+      ctx.onDelete && hasId && !conversation.draft
+        ? () => ctx.onDelete?.(conversation)
+        : undefined,
     onMarkRead:
       ctx.onMarkRead && canMarkRead(conversation)
         ? () => ctx.onMarkRead?.(conversation)
@@ -228,7 +232,7 @@ export function ConversationRow({
       trailingActions={trailingActions}
     >
       <PanelItem
-        label={conversation.title ?? "Untitled"}
+        label={conversation.title ?? t("conversationRow.untitled")}
         marqueeOnHover={marquee}
         active={conversationId === ctx.activeConversationId}
         onSelect={() => select(conversationId)}

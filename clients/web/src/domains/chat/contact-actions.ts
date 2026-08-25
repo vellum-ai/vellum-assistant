@@ -6,11 +6,15 @@
  * submit/cancel lifecycle for the contact-request interaction.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -43,7 +47,7 @@ export async function handleContactPromptSubmit(
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     useInteractionStore
       .getState()
       .releaseSubmission("contactRequest", pendingContactRequest.requestId);
@@ -59,10 +63,11 @@ export async function handleContactPromptSubmit(
       pendingContactRequest.role,
     );
     if (!result.ok) {
+      captureSubmissionRejection("submit_contact_prompt", result);
       reportSubmissionFailure(
         "contactRequest",
         pendingContactRequest.requestId,
-        result.error,
+        "contactActions.saveFailed",
       );
       useInteractionStore
         .getState()
@@ -85,7 +90,7 @@ export async function handleContactPromptSubmit(
     reportSubmissionFailure(
       "contactRequest",
       pendingContactRequest.requestId,
-      "Failed to save contact. Please try again.",
+      "contactActions.saveFailed",
     );
     useInteractionStore
       .getState()

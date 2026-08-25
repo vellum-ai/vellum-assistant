@@ -11,6 +11,7 @@ type TemplateItem = {
   role?: string;
   type?: string;
   enabled?: boolean;
+  accelerator?: string;
   click?: () => void | Promise<void>;
   submenu?: TemplateItem[];
 };
@@ -359,6 +360,22 @@ describe("CLI path menu items in unpackaged builds", () => {
     expect(getCliPathInstallStateMock).not.toHaveBeenCalled();
     expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
     expect(appMenuLabels()).not.toContain(UNINSTALL_LABEL);
+  });
+});
+
+describe("View menu native fullscreen", () => {
+  const viewSubmenu = (): TemplateItem[] =>
+    lastTemplate().find((item) => item.label === "View")?.submenu ?? [];
+
+  test("registers Toggle Full Screen with the macOS Control+Command+F equivalent", async () => {
+    await refreshCliPathMenuState();
+    const toggleFullscreen = viewSubmenu().find(
+      (item) => item.role === "togglefullscreen",
+    );
+    expect(toggleFullscreen).toEqual({
+      role: "togglefullscreen",
+      accelerator: "Control+Command+F",
+    });
   });
 });
 

@@ -169,6 +169,47 @@ export const LongList: Story = {
   },
 };
 
+/**
+ * A row that leaves the list rather than continuing it, kept on screen while
+ * the catalog above it scrolls.
+ */
+export const StickyLastOption: Story = {
+  args: {
+    options: [
+      ...manyOptions,
+      { value: "create", label: "+ Create new", sticky: true },
+    ],
+    value: "option-1",
+    menuMaxHeight: 200,
+    "aria-label": "Option",
+  },
+  play: async ({ canvasElement, step }) => {
+    const trigger = within(canvasElement).getByRole("combobox", {
+      name: "Option",
+    });
+
+    await step("pinned row stays opaque while highlighted", async () => {
+      // GIVEN an open menu long enough to scroll under the pinned row
+      await userEvent.click(trigger);
+      const pinned = document.querySelector<HTMLElement>(
+        '[data-slot="select-pinned-option"]',
+      );
+      await expect(pinned).not.toBeNull();
+
+      // WHEN the pinned row is highlighted
+      await userEvent.hover(
+        pinned!.querySelector<HTMLElement>('[data-slot="select-option"]')!,
+      );
+
+      // THEN the fill behind it stays opaque, so the rows it floats over
+      // cannot read through the row's translucent highlight tint
+      const fill = getComputedStyle(pinned!).backgroundColor;
+      await expect(fill).not.toContain("rgba");
+      await expect(fill).not.toBe("transparent");
+    });
+  },
+};
+
 export const EndAligned: Story = {
   args: { menuAlign: "end" },
   render: function EndAlignedSelect(args) {

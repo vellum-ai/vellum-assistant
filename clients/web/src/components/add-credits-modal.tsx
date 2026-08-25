@@ -10,10 +10,9 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useTranslation } from "@/i18n";
-import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
@@ -151,9 +150,9 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Add Credits</Modal.Title>
+          <Modal.Title>{t("addCreditsModal.title")}</Modal.Title>
           <Modal.Description>
-            You&apos;ll be redirected to Stripe to complete the payment.
+            {t("addCreditsModal.description")}
           </Modal.Description>
         </Modal.Header>
 
@@ -164,7 +163,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
                 htmlFor="add-credits-amount"
                 className="block text-body-small-default text-[var(--content-tertiary)]"
               >
-                Amount
+                {t("addCreditsModal.amount")}
               </label>
               <Select
                 id="add-credits-amount"
@@ -205,7 +204,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
 
         <Modal.Footer>
           <Modal.Close asChild>
-            <Button variant="outlined">Cancel</Button>
+            <Button variant="outlined">{t("addCreditsModal.cancel")}</Button>
           </Modal.Close>
           <Button
             variant="primary"
@@ -217,7 +216,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
             onClick={handleAddFunds}
             disabled={checkoutMutation.isPending || isLoading || !summary}
           >
-            Continue
+            {t("addCreditsModal.continue")}
           </Button>
         </Modal.Footer>
       </Modal.Content>
@@ -226,25 +225,15 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
 }
 
 export function AddCreditsModal(props: AddCreditsModalProps) {
-  const isNativeAndroid = useIsNativeAndroid();
-
-  if (!isNativeAndroid) {
-    return <AddCreditsModalContent {...props} />;
+  // Native Android buys credits on the web app's billing page in the
+  // browser instead of running Stripe checkout from the app.
+  const handsOff = useAndroidBillingHandoff({
+    open: props.open,
+    path: routes.settings.usageBilling,
+    onClose: () => props.onOpenChange(false),
+  });
+  if (handsOff) {
+    return null;
   }
-
-  return (
-    <Modal.Root open={props.open} onOpenChange={props.onOpenChange}>
-      <Modal.Content size="sm">
-        <Modal.Header>
-          <Modal.Title>Billing</Modal.Title>
-          <Modal.Description>{ANDROID_BILLING_MESSAGE}</Modal.Description>
-        </Modal.Header>
-        <Modal.Footer>
-          <Modal.Close asChild>
-            <Button variant="outlined">Close</Button>
-          </Modal.Close>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
-  );
+  return <AddCreditsModalContent {...props} />;
 }

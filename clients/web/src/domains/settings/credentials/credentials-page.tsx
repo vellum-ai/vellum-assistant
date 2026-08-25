@@ -3,6 +3,7 @@ import { Copy, KeyRound, Link2, Loader2, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useTranslation } from "@/i18n";
 import {
   AddCredentialModal,
   credentialsListQueryKey,
@@ -12,7 +13,6 @@ import { NotFound } from "@/components/not-found";
 import { useCredentialsDeletePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { useTranslation } from "@/i18n";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -96,10 +96,10 @@ export function CredentialsPage() {
 }
 
 function CredentialsPageInner() {
+  const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
-  const { t } = useTranslation("settings");
 
   const listQueryKey = credentialsListQueryKey(assistantId);
   const listQuery = useQuery({
@@ -133,6 +133,23 @@ function CredentialsPageInner() {
     [isDeveloperMode, listQuery.data],
   );
 
+  // --- Ephemeral UI state ---
+
+  const [isShowingAddForm, setIsShowingAddForm] = useState(false);
+  const [credentialView, setCredentialView] = useState<CredentialView>("own");
+  const [searchText, setSearchText] = useState("");
+  const [pendingDeletion, setPendingDeletion] =
+    useState<StoredCredential | null>(null);
+  const [inUseDeletion, setInUseDeletion] = useState<InUseDeletion | null>(
+    null,
+  );
+  const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(
+    null,
+  );
+  const [generatingLinkName, setGeneratingLinkName] = useState<string | null>(
+    null,
+  );
+
   // A credential an LLM connection resolves its auth through is refused on the
   // first attempt; the retry carries `force` once the user has seen which
   // connections the delete takes offline.
@@ -160,23 +177,6 @@ function CredentialsPageInner() {
       toast.error(err.message || t("credentialsPage.deleteErrorToast"));
     },
   });
-
-  // --- Ephemeral UI state ---
-
-  const [isShowingAddForm, setIsShowingAddForm] = useState(false);
-  const [credentialView, setCredentialView] = useState<CredentialView>("own");
-  const [searchText, setSearchText] = useState("");
-  const [pendingDeletion, setPendingDeletion] =
-    useState<StoredCredential | null>(null);
-  const [inUseDeletion, setInUseDeletion] = useState<InUseDeletion | null>(
-    null,
-  );
-  const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(
-    null,
-  );
-  const [generatingLinkName, setGeneratingLinkName] = useState<string | null>(
-    null,
-  );
 
   const deletingName = deleteMutation.isPending
     ? `${deleteMutation.variables?.body?.service}:${deleteMutation.variables?.body?.field}`
@@ -266,13 +266,15 @@ function CredentialsPageInner() {
           expiresAt: result.expiresAt ?? null,
         });
       } else {
-        toast.error(result.error || "Failed to generate a one-time link");
+        toast.error(
+          result.error || t("credentialsPage.generateLinkFailedToast"),
+        );
       }
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to generate a one-time link",
+          : t("credentialsPage.generateLinkFailedToast"),
       );
     } finally {
       setGeneratingLinkName(null);
@@ -285,8 +287,8 @@ function CredentialsPageInner() {
       return;
     }
     copyToClipboard(url, {
-      successMessage: "Link copied to clipboard.",
-      errorMessage: "Couldn't copy the link. Select it and copy manually.",
+      successMessage: t("credentialsPage.linkCopiedToast"),
+      errorMessage: t("credentialsPage.linkCopyFailedToast"),
     });
   };
 
@@ -310,18 +312,18 @@ function CredentialsPageInner() {
   const showManaged = credentialView === "managed" && hasManaged;
   const showOwn = !showManaged;
   const segmentItems: SegmentControlItem<CredentialView>[] = [
-    { value: "own", label: "Your own" },
-    { value: "managed", label: "Managed" },
+    { value: "own", label: t("credentialsPage.segmentYourOwn") },
+    { value: "managed", label: t("credentialsPage.segmentManaged") },
   ];
 
   return (
     <div className="space-y-4">
       <DetailCard
-        title="Credentials"
+        title={t("credentialsPage.title")}
         subtitle={
           showManaged
-            ? "Provided through your Vellum-managed integrations. These are read-only here."
-            : "Stored encrypted in your assistant's credential vault. Reveal a value on demand, or replace or delete it at any time."
+            ? t("credentialsPage.subtitleManaged")
+            : t("credentialsPage.subtitleOwn")
         }
         accessory={
           <div className="flex items-center gap-2">
@@ -330,7 +332,7 @@ function CredentialsPageInner() {
                 items={segmentItems}
                 value={credentialView}
                 onChange={setCredentialView}
-                ariaLabel="Credential source"
+                ariaLabel={t("credentialsPage.credentialSourceAriaLabel")}
               />
             ) : null}
             {showOwn && hasCredentials ? (
@@ -341,7 +343,7 @@ function CredentialsPageInner() {
                 onClick={() => setIsShowingAddForm(true)}
                 leftIcon={<Plus aria-hidden />}
               >
-                Add
+                {t("credentialsPage.addButton")}
               </Button>
             ) : null}
           </div>
@@ -367,7 +369,7 @@ function CredentialsPageInner() {
                       {managed.accountInfo ?? managed.handle} · {managed.status}
                     </p>
                   </div>
-                  <Tag tone="neutral">Managed</Tag>
+                  <Tag tone="neutral">{t("credentialsPage.managedTag")}</Tag>
                 </Card.Body>
               </Card.Root>
             ))}
@@ -381,15 +383,15 @@ function CredentialsPageInner() {
                     type="text"
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
-                    placeholder="Search credentials"
-                    aria-label="Search credentials"
+                    placeholder={t("credentialsPage.searchPlaceholder")}
+                    aria-label={t("credentialsPage.searchAriaLabel")}
                     leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
                     fullWidth
                   />
                 ) : null}
                 {filteredCredentials.length === 0 ? (
                   <p className="px-1 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-                    No credentials matched &ldquo;{searchText.trim()}&rdquo;.
+                    {t("credentialsPage.noMatch", { query: searchText.trim() })}
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -421,10 +423,10 @@ function CredentialsPageInner() {
                   />
                 </div>
                 <h3 className="mt-4 text-title-small text-[var(--content-default)]">
-                  No credentials yet
+                  {t("credentialsPage.emptyTitle")}
                 </h3>
                 <p className="mt-1 text-body-medium-lighter text-[var(--content-tertiary)]">
-                  Add an API key or token to let tools and integrations use it.
+                  {t("credentialsPage.emptySubtitle")}
                 </p>
               </div>
             )}
@@ -438,7 +440,7 @@ function CredentialsPageInner() {
                 className="w-full border-dashed"
                 leftIcon={<Plus aria-hidden />}
               >
-                Add Credential
+                {t("credentialsPage.addCredentialButton")}
               </Button>
             )}
           </div>
@@ -494,24 +496,28 @@ function CredentialsPageInner() {
       >
         <Modal.Content size="sm">
           <Modal.Header icon={Link2}>
-            <Modal.Title>One-time credential link</Modal.Title>
+            <Modal.Title>{t("credentialsPage.oneTimeLinkModalTitle")}</Modal.Title>
             <Modal.Description>
               {generatedLink
-                ? `Send this link to whoever should provide ${generatedLink.name}. It works exactly once${
-                    generatedLink.expiresAt !== null
-                      ? ` and expires ${new Date(
-                          credentialRequestExpiryToEpochMs(
-                            generatedLink.expiresAt,
-                          ),
-                        ).toLocaleString()}`
-                      : ""
-                  }. Anyone with the link can set this credential, so share it over a trusted channel.`
+                ? t("credentialsPage.oneTimeLinkModalDescription", {
+                    name: generatedLink.name,
+                    expiresClause:
+                      generatedLink.expiresAt !== null
+                        ? t("credentialsPage.oneTimeLinkModalExpiresClause", {
+                            expiresAt: new Date(
+                              credentialRequestExpiryToEpochMs(
+                                generatedLink.expiresAt,
+                              ),
+                            ).toLocaleString(),
+                          })
+                        : "",
+                  })
                 : ""}
             </Modal.Description>
           </Modal.Header>
           <Modal.Body>
             <Input
-              label="Link"
+              label={t("credentialsPage.linkLabel")}
               type="text"
               readOnly
               value={generatedLink?.url ?? ""}
@@ -526,7 +532,7 @@ function CredentialsPageInner() {
               onClick={handleCopyGeneratedLink}
               leftIcon={<Copy aria-hidden />}
             >
-              Copy link
+              {t("credentialsPage.copyLinkButton")}
             </Button>
           </Modal.Footer>
         </Modal.Content>

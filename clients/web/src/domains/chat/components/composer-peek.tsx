@@ -470,7 +470,13 @@ export function ComposerPeek({
       )
     : INTRO_HIDDEN_FRAC_FALLBACK;
   const introBelowPx = peekSize * (1 - introHiddenFrac);
-  const introClipHeight = Math.min(introBelowPx, PEEK_EXPOSED_MAX_PX);
+  // Plus the same headroom the focus peek reserves, on the far side from the
+  // rim. `AnimatedAvatar` fills its viewBox edge to edge and lets the breathe
+  // and the idle twitch draw past it, so a column ending exactly at the
+  // avatar's far edge slices that overshoot flat. Mirrored here, so the edge
+  // that gets cut is the crown of the head.
+  const introClipHeight =
+    Math.min(introBelowPx, PEEK_EXPOSED_MAX_PX) + CLIP_HEADROOM;
   const introHidePx = -(introBelowPx + 8);
   const introX = Math.min(
     rect.width - peekSize / 2 - 16,

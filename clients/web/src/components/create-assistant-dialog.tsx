@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { createPlatformAssistant } from "@/assistant/create-platform-assistant";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -23,6 +24,7 @@ export function CreateAssistantDialog({
   open,
   onClose,
 }: CreateAssistantDialogProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -31,7 +33,7 @@ export function CreateAssistantDialog({
     const result = await createPlatformAssistant(name.trim() || undefined);
     setPending(false);
     if (result.ok) {
-      toast.success("New assistant created.");
+      toast.success(t("createAssistantDialog.toastSuccess"));
       setName("");
       onClose();
       return;
@@ -50,16 +52,16 @@ export function CreateAssistantDialog({
     >
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>New Assistant</Modal.Title>
+          <Modal.Title>{t("createAssistantDialog.title")}</Modal.Title>
           <Modal.Description>
-            Provision a new assistant. It will start up in the background.
+            {t("createAssistantDialog.description")}
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Assistant name (optional)"
+            placeholder={t("createAssistantDialog.namePlaceholder")}
             autoFocus
             disabled={pending}
             onKeyDown={(e) => {
@@ -71,7 +73,7 @@ export function CreateAssistantDialog({
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={onClose} disabled={pending}>
-            Cancel
+            {t("createAssistantDialog.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -81,7 +83,7 @@ export function CreateAssistantDialog({
               pending ? <Loader2 className="animate-spin" /> : undefined
             }
           >
-            Create
+            {t("createAssistantDialog.create")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

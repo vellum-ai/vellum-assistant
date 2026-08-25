@@ -1,3 +1,4 @@
+import { useTranslation } from "@/i18n";
 /**
  * Devin-style chat view for an ACP run. Assembles the projected chat blocks
  * into a streaming conversation, with the usage meter in the header, a nested
@@ -51,7 +52,7 @@ import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/c
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
-import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -109,6 +110,7 @@ export function AcpRunChatView({
   onClose,
   assistantId,
 }: AcpRunChatViewProps) {
+  const { t } = useTranslation("chat");
   const isRunning = isActiveAcpStatus(entry.status);
 
   const events = useAcpRunStore(
@@ -271,7 +273,7 @@ export function AcpRunChatView({
                   }
                   target={entry.inputTokens ?? 0}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Input"
+                  label={t("acpRunChatView.inputLabel")}
                 />
                 <AnimatedMetricCard
                   icon={
@@ -282,7 +284,7 @@ export function AcpRunChatView({
                   }
                   target={entry.outputTokens ?? 0}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Output"
+                  label={t("acpRunChatView.outputLabel")}
                 />
               </div>
             )}
@@ -336,8 +338,8 @@ export function AcpRunChatView({
               size="compact"
               iconOnly={<ArrowDown />}
               onClick={scrollToLatest}
-              aria-label="Go to newest"
-              tooltip="Go to newest"
+              aria-label={t("acpRunChatView.goToNewest")}
+              tooltip={t("acpRunChatView.goToNewest")}
               data-testid="acp-chat-scroll-to-latest"
               className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md"
             />
@@ -372,6 +374,7 @@ function ChatViewHeader({
   showBack?: boolean;
   onBack?: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const [stopping, setStopping] = useState(false);
 
   // Stop-reason-aware so a run cancelled mid-flight (completed + cancelled)
@@ -395,8 +398,8 @@ function ChatViewHeader({
               variant="outlined"
               iconOnly={<ChevronLeft />}
               onClick={onBack}
-              aria-label="Back to conversation"
-              tooltip="Back"
+              aria-label={t("acpRunChatView.backToConversationAria")}
+              tooltip={t("acpRunChatView.backTooltip")}
               data-testid="acp-chat-diff-back"
               className="shrink-0"
             />
@@ -412,12 +415,12 @@ function ChatViewHeader({
         isRunning ? (
           <DetailPanelStopButton
             onStop={handleStop}
-            ariaLabel="Stop run"
+            ariaLabel={t("acpRunChatView.stopRunAria")}
             disabled={stopping}
           />
         ) : undefined
       }
-      closeLabel="Close run detail"
+      closeLabel={t("acpRunChatView.closeRunDetail")}
       onClose={onClose}
     />
   );
@@ -428,6 +431,7 @@ function ChatViewHeader({
 // ---------------------------------------------------------------------------
 
 function ObjectiveSection({ task }: { task: string | undefined }) {
+  const { t } = useTranslation("chat");
   if (!task) {
     return null;
   }
@@ -438,7 +442,7 @@ function ObjectiveSection({ task }: { task: string | undefined }) {
         as="h3"
         className="mb-1 text-[var(--content-emphasised)]"
       >
-        Objective
+        {t("acpRunChatView.objective")}
       </Typography>
       <Typography
         variant="body-medium-lighter"
@@ -509,6 +513,7 @@ function ChatBlock({
 // ---------------------------------------------------------------------------
 
 function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
+  const { t } = useTranslation("chat");
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -561,9 +566,9 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Steer the run…"
+          placeholder={t("acpRunChatView.steerPlaceholder")}
           disabled={pending}
-          aria-label="Steering instruction"
+          aria-label={t("acpRunChatView.steerAria")}
           className="text-body-medium-default min-w-0 flex-1 bg-transparent text-[color:var(--content-default)] placeholder:text-[color:var(--content-tertiary)] focus:outline-none disabled:opacity-50"
         />
         <Button
@@ -572,7 +577,7 @@ function SteerComposer({ acpSessionId }: { acpSessionId: string }) {
           size="compact"
           iconOnly={<Send />}
           disabled={pending || input.trim() === ""}
-          aria-label="Send steering instruction"
+          aria-label={t("acpRunChatView.sendSteerAria")}
           className="shrink-0"
         />
       </div>

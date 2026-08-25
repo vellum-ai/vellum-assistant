@@ -27,7 +27,9 @@ import {
   Lock,
   MessageSquare,
   Package,
+  Plug,
   Puzzle,
+  Radio,
   Rocket,
   Scale,
   Scroll,
@@ -35,6 +37,7 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Store,
   Wand2,
@@ -402,6 +405,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         icon: icon(Wrench),
       },
       {
+        label: "MCP",
+        href: "/docs/extensibility/mcp",
+        icon: icon(Plug),
+      },
+      {
         label: "Skills",
         href: "/docs/extensibility/skills",
         icon: icon(Sparkles),
@@ -410,6 +418,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         label: "Routes",
         href: "/docs/extensibility/routes",
         icon: icon(Webhook),
+      },
+      {
+        label: "Channels",
+        href: "/docs/extensibility/channels",
+        icon: icon(Radio),
       },
       {
         label: "Apps",
@@ -447,6 +460,11 @@ const NAV_ITEMS: DocsNavItem[] = [
         label: "Advanced options",
         href: "/docs/hosting-options/advanced-options",
         icon: icon(Settings),
+      },
+      {
+        label: "Pair a device",
+        href: "/docs/hosting-options/pair-a-device",
+        icon: icon(Smartphone),
       },
     ],
   },

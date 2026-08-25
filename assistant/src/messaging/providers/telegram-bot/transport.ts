@@ -5,8 +5,10 @@ import type {
   CallbackContext,
   ChannelTransport,
 } from "../channel-transport.js";
+import { isBusyActivityPhase } from "../channel-transport.js";
 import type { TelegramSendOptions } from "./send.js";
 import {
+  editTelegramMessage,
   sendTelegramAttachments,
   sendTelegramReply,
   sendTelegramRichReply,
@@ -27,16 +29,18 @@ function threadOptions(ctx: CallbackContext): TelegramSendOptions | undefined {
 export const telegramTransport: ChannelTransport = {
   channel: "telegram",
 
+  // Telegram clears a chat action after about five seconds.
+  activityRefreshMs: 4_000,
+
   async deliver(ctx, payload) {
     const { chatId, text, attachments, approval } = payload;
     const opts = threadOptions(ctx);
 
     if (text) {
-      // `useBlocks` is the channel-neutral "render richly" intent set by the
-      // delivery layer; the Telegram adapter honors it by forwarding markdown
-      // to `sendRichMessage`, degrading to plain text otherwise (and on any
-      // rich-send rejection).
-      if (payload.useBlocks) {
+      // Telegram answers a rich render by forwarding markdown to
+      // `sendRichMessage`, degrading to plain text otherwise and on any
+      // rich-send rejection.
+      if (payload.renderRichly) {
         await sendTelegramRichReply(chatId, text, approval, opts);
       } else {
         await sendTelegramReply(chatId, text, approval, opts);
@@ -67,9 +71,22 @@ export const telegramTransport: ChannelTransport = {
     return { ok: true };
   },
 
-  async typing(ctx, chatId) {
-    await sendTelegramTypingIndicator(chatId, threadOptions(ctx));
-    log.debug({ chatId }, "Telegram typing indicator delivered (direct)");
+  async edit(_ctx, target) {
+    await editTelegramMessage(target.chatId, target.messageId, target.text);
+    return { ok: true };
+  },
+
+  async setActivity(ctx, target) {
+    // Telegram's chat action expires by itself after a few seconds, so a phase
+    // that is not running needs no clearing call.
+    if (!isBusyActivityPhase(target.phase)) {
+      return { ok: true };
+    }
+    await sendTelegramTypingIndicator(target.chatId, threadOptions(ctx));
+    log.debug(
+      { chatId: target.chatId, phase: target.phase },
+      "Telegram typing indicator delivered (direct)",
+    );
     return { ok: true };
   },
 };

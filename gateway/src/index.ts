@@ -50,6 +50,11 @@ import {
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
 import {
+  createWatchStreamWebsocketHandler,
+  getWatchStreamWebsocketHandlers,
+  type WatchStreamSocketData,
+} from "./http/routes/watch-stream-websocket.js";
+import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
   type SpeechRelaySocketData,
@@ -109,6 +114,7 @@ import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createPsHandler } from "./http/routes/ps.js";
+import { createVelayStatusHandler } from "./http/routes/velay-status.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
@@ -222,11 +228,15 @@ import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
-import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
+import {
+  admissionPolicyRoutes,
+  createDiscordAdmissionRoutes,
+} from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createChannelSocketHealthRoutes } from "./ipc/channel-socket-health-handlers.js";
 import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -305,6 +315,14 @@ function isSttStreamSocketData(data: unknown): data is SttStreamSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "stt-stream"
+  );
+}
+
+function isWatchStreamSocketData(data: unknown): data is WatchStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "watch-stream"
   );
 }
 
@@ -537,6 +555,7 @@ async function main() {
     credentials: credentialCache,
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
+  const handleWatchStreamWs = createWatchStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
     config,
@@ -551,6 +570,7 @@ async function main() {
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
+  const watchStreamWebsocketHandlers = getWatchStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -593,6 +613,7 @@ async function main() {
   const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const psHandler = createPsHandler(config);
+  const velayStatusHandler = createVelayStatusHandler(velayTunnelClient);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
@@ -798,6 +819,23 @@ async function main() {
       method: "GET",
       auth: "edge",
       handler: () => psHandler.handlePs(),
+    },
+
+    // ── Velay tunnel status ──
+    {
+      path: "/v1/velay/status",
+      method: "GET",
+      auth: "edge",
+      handler: () => velayStatusHandler.handleVelayStatus(),
+    },
+    // Assistant-scoped mirror: self-hosted clients emit /v1/assistants/<id>/velay/status
+    // and rewriteForSelfHostedIngress preserves that path, so a flat-only route
+    // would fall through to the runtime proxy and 404. The assistant id is discarded.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/velay\/status\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      handler: () => velayStatusHandler.handleVelayStatus(),
     },
 
     // ── Brain graph ──
@@ -1859,6 +1897,10 @@ async function main() {
           sttStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
@@ -1882,6 +1924,10 @@ async function main() {
           sttStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
@@ -1903,6 +1949,10 @@ async function main() {
         }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isWatchStreamSocketData(ws.data)) {
+          watchStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isLiveVoiceSocketData(ws.data)) {
@@ -2124,6 +2174,19 @@ async function main() {
     if (url.pathname === "/v1/stt/stream") {
       const upgradeResult = handleSttStreamWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    // Reachable both ways: directly on a self-hosted ingress with an actor
+    // edge JWT, and through the velay tunnel on a managed assistant, which is
+    // why it is in `VELAY_ALLOWED_PATHS`. The handler authorizes each shape on
+    // its own terms and admits only the guardian either way. A paired
+    // assistant has no transport at all and never reaches here.
+    if (url.pathname === "/v1/watch/stream") {
+      const upgradeResult = await handleWatchStreamWs(req, server);
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
       return undefined as unknown as Response;
     }
 
@@ -2550,10 +2613,13 @@ async function main() {
   }
 
   // ── Discord Gateway lifecycle ──
-  // Credential-gated and UI-invisible: the client exists only while a
-  // `discord_channel:bot_token` credential does. There is no feature flag —
-  // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
-  // credential tears the connection down on the next watcher tick.
+  // Credential-gated: the client exists only while a
+  // `discord_channel:bot_token` credential does. There is no feature flag, and
+  // removing the credential tears the connection down on the next watcher
+  // tick. Whether Discord is offered for setup is a separate question, decided
+  // by BASE_AVAILABLE_CHANNELS in the daemon, which lists it: a channel can be
+  // offered while no credential is stored, and the connection is what a stored
+  // one buys.
   //
   // Startup is the credential watcher's initial poll: it diffs against an
   // empty baseline, so a token already stored at boot surfaces as
@@ -2608,6 +2674,13 @@ async function main() {
   // first message evaluates flags against stale values (see JARVIS-1018).
   let remoteFeatureFlagSyncRef: RemoteFeatureFlagSync | null = null;
 
+  /**
+   * Fingerprint of the Telegram bot token the dedup cache's watermark belongs
+   * to. Null while no token is stored, which is itself a bot change: the next
+   * bot to arrive must not meet the departed one's mark.
+   */
+  let lastTelegramTokenFingerprint: string | null = null;
+
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
 
@@ -2639,6 +2712,25 @@ async function main() {
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
+    // `update_id` is a per-bot sequence, so a replacement bot starts below the
+    // previous one's high-water mark and every inbound would be rejected as an
+    // already-processed replay and answered 200. Forgetting the mark is what
+    // keeps delivery working across a bot swap.
+    //
+    // Keyed on the token itself rather than on `changed`. Every `keys.enc`
+    // write polls with `forceChanged`, which reports every configured service
+    // as changed even when its plaintext is identical, so re-saving an
+    // unrelated credential would otherwise clear replay protection for a bot
+    // that never moved and let a delayed retry be processed twice.
+    const telegramTokenFingerprint = telegramCreds?.bot_token
+      ? new Bun.CryptoHasher("sha256")
+          .update(telegramCreds.bot_token)
+          .digest("hex")
+      : null;
+    if (telegramTokenFingerprint !== lastTelegramTokenFingerprint) {
+      lastTelegramTokenFingerprint = telegramTokenFingerprint;
+      telegramDedupCache.reset();
+    }
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -2826,11 +2918,16 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
+    ...createDiscordAdmissionRoutes(configFileCache),
     ...channelPermissionRoutes,
     ...trustVerdictRoutes,
     ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
+    ...createChannelSocketHealthRoutes({
+      slack: () => slackSocketClient,
+      discord: () => discordGatewayClient,
+    }),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
     ...createCredentialRequestIpcRoutes(

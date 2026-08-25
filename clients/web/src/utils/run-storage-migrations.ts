@@ -10,8 +10,6 @@
  * before any store's module-level initializer reads them.
  */
 
-import { migrateDeviceSettings } from "./device-settings";
 import { runStorageMigrations } from "./storage-migration";
 
-migrateDeviceSettings();
 runStorageMigrations();

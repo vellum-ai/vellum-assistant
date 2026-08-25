@@ -26,7 +26,9 @@ import {
   applySurfacedConversation,
   markConversationSeenLocal,
   prependConversation,
+  recordConversationPlacements,
   removeConversation,
+  restoreRemovedConversation,
   shouldSurfaceConversation,
   surfaceConversationInCaches,
   resolveDraftKey,
@@ -324,6 +326,42 @@ describe("removeConversation", () => {
     removeConversation(qc, ASSISTANT_ID, "nonexistent");
 
     expect(getForeground(qc)).toBe(original);
+  });
+});
+
+describe("restoreRemovedConversation", () => {
+  test("reinserts only the deleted row at its recorded index", () => {
+    const a = makeConversation({ conversationId: "a" });
+    const b = makeConversation({ conversationId: "b" });
+    const c = makeConversation({ conversationId: "c" });
+    seedForeground(qc, [a, b, c]);
+
+    const placements = recordConversationPlacements(qc, ASSISTANT_ID, "b");
+    removeConversation(qc, ASSISTANT_ID, "b");
+    expect(getForeground(qc).map((row) => row.conversationId)).toEqual([
+      "a",
+      "c",
+    ]);
+
+    restoreRemovedConversation(qc, b, placements);
+    expect(getForeground(qc).map((row) => row.conversationId)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  test("leaves concurrent mutations of other rows in place", () => {
+    const a = makeConversation({ conversationId: "a" });
+    const b = makeConversation({ conversationId: "b" });
+    seedForeground(qc, [a, b]);
+
+    const placements = recordConversationPlacements(qc, ASSISTANT_ID, "a");
+    removeConversation(qc, ASSISTANT_ID, "a");
+    removeConversation(qc, ASSISTANT_ID, "b");
+
+    restoreRemovedConversation(qc, a, placements);
+    expect(getForeground(qc).map((row) => row.conversationId)).toEqual(["a"]);
   });
 });
 

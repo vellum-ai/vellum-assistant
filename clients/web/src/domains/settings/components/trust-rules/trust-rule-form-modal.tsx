@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { useTranslation } from "@/i18n";
 import { updateTrustRule } from "@/lib/trust-rules-api";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
 import { Select } from "@vellumai/design-library/components/select";
@@ -24,20 +25,6 @@ const TOOL_OPTIONS = [
   "skill_load",
 ];
 
-const RISK_OPTIONS: {
-  value: TrustRuleRisk;
-  label: string;
-  description: string;
-}[] = [
-  { value: "low", label: "Low", description: "Auto-approve without prompting" },
-  { value: "medium", label: "Medium", description: "Prompt before executing" },
-  {
-    value: "high",
-    label: "High",
-    description: "Always require explicit approval",
-  },
-];
-
 export interface TrustRuleFormModalProps {
   assistantId: string;
   existingRule: TrustRuleItem;
@@ -51,6 +38,7 @@ export function TrustRuleFormModal({
   onClose,
   onSaved,
 }: TrustRuleFormModalProps) {
+  const { t } = useTranslation("settings");
   const dialogRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState(existingRule.tool);
   const [pattern, setPattern] = useState(existingRule.pattern);
@@ -61,8 +49,34 @@ export function TrustRuleFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const riskOptions: {
+    value: TrustRuleRisk;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      value: "low",
+      label: t("trustRuleFormModal.riskLow"),
+      description: t("trustRuleFormModal.riskLowDescription"),
+    },
+    {
+      value: "medium",
+      label: t("trustRuleFormModal.riskMedium"),
+      description: t("trustRuleFormModal.riskMediumDescription"),
+    },
+    {
+      value: "high",
+      label: t("trustRuleFormModal.riskHigh"),
+      description: t("trustRuleFormModal.riskHighDescription"),
+    },
+  ];
+
   const trimmedPattern = pattern.trim();
   const canSave = trimmedPattern.length > 0 && !submitting;
+  const defaultDescription = t("trustRuleFormModal.defaultDescription", {
+    tool,
+    pattern: trimmedPattern || t("trustRuleFormModal.patternFallback"),
+  });
 
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
@@ -70,8 +84,7 @@ export function TrustRuleFormModal({
       if (!canSave) {
         return;
       }
-      const resolvedDescription =
-        description.trim() || `${tool} — ${trimmedPattern}`;
+      const resolvedDescription = description.trim() || defaultDescription;
       setSubmitting(true);
       setErrorMessage(null);
       try {
@@ -82,7 +95,9 @@ export function TrustRuleFormModal({
         onSaved();
       } catch (err) {
         setErrorMessage(
-          err instanceof Error ? err.message : "Failed to save trust rule.",
+          err instanceof Error
+            ? err.message
+            : t("trustRuleFormModal.saveFailed"),
         );
       } finally {
         setSubmitting(false);
@@ -91,12 +106,12 @@ export function TrustRuleFormModal({
     [
       assistantId,
       canSave,
+      defaultDescription,
       description,
       existingRule,
       onSaved,
       risk,
-      tool,
-      trimmedPattern,
+      t,
     ],
   );
 
@@ -135,12 +150,12 @@ export function TrustRuleFormModal({
             id="trust-rule-form-title"
             className="text-title-medium text-[var(--content-default)]"
           >
-            Edit Trust Rule
+            {t("trustRuleFormModal.title")}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("trustRuleFormModal.closeAriaLabel")}
             className="rounded-lg p-1.5 text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-base)] hover:text-[var(--content-default)]"
           >
             <X className="h-4 w-4" />
@@ -158,7 +173,7 @@ export function TrustRuleFormModal({
               htmlFor="trust-rule-tool"
               className="block text-body-medium-default text-[var(--content-default)]"
             >
-              Tool
+              {t("trustRuleFormModal.toolLabel")}
             </label>
             <div className="mt-1">
               <Select
@@ -174,20 +189,20 @@ export function TrustRuleFormModal({
           </div>
 
           <Input
-            label="Pattern"
+            label={t("trustRuleFormModal.patternLabel")}
             type="text"
             value={pattern}
             onChange={(e) => setPattern(e.target.value)}
-            placeholder="e.g., git *"
+            placeholder={t("trustRuleFormModal.patternPlaceholder")}
             disabled
           />
 
           <div>
             <span className="block text-body-medium-default text-[var(--content-default)]">
-              Risk Level
+              {t("trustRuleFormModal.riskLevelLabel")}
             </span>
             <div className="mt-2 flex gap-2">
-              {RISK_OPTIONS.map((option) => (
+              {riskOptions.map((option) => (
                 <button
                   key={option.value}
                   type="button"
@@ -212,11 +227,11 @@ export function TrustRuleFormModal({
           </div>
 
           <Input
-            label="Description (optional)"
+            label={t("trustRuleFormModal.descriptionLabel")}
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={`${tool} — ${trimmedPattern || "pattern"}`}
+            placeholder={defaultDescription}
           />
 
           <div className="flex justify-end gap-2 pt-2">
@@ -225,14 +240,16 @@ export function TrustRuleFormModal({
               onClick={onClose}
               className="rounded-lg border border-[var(--border-element)] bg-white px-4 py-2 text-body-medium-default text-[var(--content-default)] transition-colors hover:bg-[var(--surface-base)] dark:border-[var(--border-base)] dark:bg-[var(--surface-lift)] dark:hover:bg-[var(--ghost-hover)]"
             >
-              Cancel
+              {t("trustRuleFormModal.cancel")}
             </button>
             <button
               type="submit"
               disabled={!canSave}
               className="rounded-lg bg-[var(--system-positive-strong)] px-4 py-2 text-body-medium-default text-white transition-colors hover:bg-[var(--system-positive-strong)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? "Saving…" : "Save"}
+              {submitting
+                ? t("trustRuleFormModal.saving")
+                : t("trustRuleFormModal.save")}
             </button>
           </div>
         </form>

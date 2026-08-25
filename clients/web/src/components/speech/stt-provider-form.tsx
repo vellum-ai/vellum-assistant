@@ -11,8 +11,10 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
 import { useDraftOverride } from "@/hooks/use-draft-override";
+import { useTranslation } from "@/i18n";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
@@ -30,7 +32,7 @@ import {
 } from "@/utils/local-settings-keys";
 import {
   MACOS_NATIVE_STT_PROVIDER_ID,
-  STT_PROVIDERS,
+  sttProvidersForHostOS,
 } from "@/lib/provider-catalogs";
 import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
 import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
@@ -116,13 +118,18 @@ export function SttProviderForm({
   const assistantId = assistantIdProp ?? activeAssistantId;
   const isOrgReady = useIsOrgReady();
   const queryClient = useQueryClient();
-  // Capability is fixed for the renderer's lifetime, so compute the offered
-  // list once: the native provider only exists inside the macOS Electron
-  // shell, where the helper's SFSpeechRecognizer bridge is wired.
-  const [providers] = useState(() =>
-    STT_PROVIDERS.filter(
-      (p) => !p.requiresNativeDictation || isNativeDictationSupported(),
-    ),
+  const { t } = useTranslation();
+  const providers = useMemo(
+    () =>
+      sttProvidersForHostOS(detectElectronHostOS(), {
+        displayName: t("sttProviderForm.windowsNativeDisplayName"),
+        subtitle: t("sttProviderForm.windowsNativeSubtitle"),
+        setupWarning: t("sttProviderForm.windowsNativeSetupWarning"),
+      }).filter(
+        (provider) =>
+          !provider.requiresNativeDictation || isNativeDictationSupported(),
+      ),
+    [t],
   );
   const defaultProviderId = DEFAULT_PROVIDER_ID;
 
@@ -327,13 +334,13 @@ export function SttProviderForm({
       void queryClient.invalidateQueries({
         queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
       });
-      toast.success("Speech-to-text settings saved");
+      toast.success(t("sttProviderForm.saveSuccess"));
       return true;
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to save speech-to-text settings",
+          : t("sttProviderForm.saveFailed"),
       );
       return false;
     } finally {
@@ -348,6 +355,7 @@ export function SttProviderForm({
     daemonHasProvider,
     daemonSttProvider,
     queryClient,
+    t,
   ]);
 
   // Publish save state so a parent rendering its own Save (see
@@ -363,14 +371,14 @@ export function SttProviderForm({
   }, [draftProvider]);
 
   const apiKeyPlaceholder = providerHasKey
-    ? "••••••••  (Enter a new key to replace)"
+    ? t("sttProviderForm.apiKeyPlaceholderReplace")
     : selectedProvider.apiKeyPlaceholder;
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
+          {t("sttProviderForm.providerLabel")}
         </label>
         <Select
           value={draftProvider}
@@ -379,31 +387,31 @@ export function SttProviderForm({
             value: p.id,
             label: p.displayName,
           }))}
-          aria-label="STT provider"
+          aria-label={t("sttProviderForm.providerAriaLabel")}
         />
       </div>
 
       {languagePickerVisible && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Spoken language
+            {t("sttProviderForm.spokenLanguage")}
           </label>
           {/* A trigger row (current value + chevron) opening the shared
               search-first picker: mirrors the Select trigger's field
               styling so the form reads uniformly, but opens a dialog. */}
           <SelectTriggerRow
-            aria-label="Spoken language"
+            aria-label={t("sttProviderForm.spokenLanguage")}
             aria-haspopup="dialog"
             onClick={() => setLanguagePickerOpen(true)}
             value={sttLanguageLabelForCode(languageCode, languageProviderId)}
           />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Applies from your next spoken turn.
+            {t("sttProviderForm.spokenLanguageApplies")}
           </p>
           <SttLanguagePickerModal
             open={languagePickerOpen}
             onOpenChange={setLanguagePickerOpen}
-            title="Spoken language"
+            title={t("sttProviderForm.spokenLanguage")}
             currentCode={languageCode}
             configuredProviderId={languageProviderId}
             selectLanguage={selectLanguage}
@@ -415,7 +423,7 @@ export function SttProviderForm({
       {requiresApiKey && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            API Key
+            {t("sttProviderForm.apiKeyLabel")}
           </label>
           <Input
             type="password"
@@ -440,7 +448,7 @@ export function SttProviderForm({
 
       {draftProvider === "vellum" && (
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Transcription runs through your Vellum account.
+          {t("sttProviderForm.vellumTranscription")}
         </p>
       )}
 

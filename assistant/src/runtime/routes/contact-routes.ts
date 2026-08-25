@@ -12,6 +12,7 @@ import {
   INVITES_IPC_METHODS,
   RedeemInviteByTokenRequestSchema,
   RedeemVoiceInviteRequestSchema,
+  RiskThresholdSchema,
 } from "@vellumai/gateway-client";
 import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import {
@@ -173,11 +174,12 @@ function isContactType(value: string): value is ContactType {
 // `role` is gateway-sourced: relayed reads trust the role on the `ContactRead`,
 // while daemon-native reads derive it from the gateway guardian id set at the
 // serve layer (see prepareContactResponse). Interaction telemetry
-// (lastSeenAt/interactionCount/lastInteraction) is gateway-owned: relayed reads
-// carry it directly, and daemon-native reads batch-hydrate it from the gateway
-// (see hydrateTelemetryFromGateway). On a gateway fail-soft the count
-// `interactionCount` defaults to 0 (never served as null, so callers render a
-// real number); the `lastSeenAt`/`lastInteraction` timestamps degrade to null.
+// (lastSeenAt/interactionCount/lastInteraction) and `autoApproveThreshold`
+// are gateway-owned: relayed reads carry them directly, and daemon-native
+// reads batch-hydrate them from the gateway (see hydrateTelemetryFromGateway).
+// On a gateway fail-soft the count `interactionCount` defaults to 0 (never
+// served as null, so callers render a real number); the
+// `lastSeenAt`/`lastInteraction` timestamps and the ceiling degrade to null.
 // The timestamp fields stay `.nullable()`; `interactionCount` is kept nullable
 // defensively for the relay path, but is never emitted null.
 const contactChannelSchema = z.object({
@@ -207,6 +209,7 @@ const contactSchema = z.object({
   contactType: z.enum(["human", "assistant"]),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number().nullable(),
+  autoApproveThreshold: RiskThresholdSchema.nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   channels: z.array(contactChannelSchema),
@@ -252,6 +255,7 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
 type ContactWithGatewayTelemetry = Omit<ContactWithChannels, "channels"> & {
   interactionCount: number;
   lastInteraction: number | null;
+  autoApproveThreshold: ContactRead["autoApproveThreshold"];
   channels: Array<
     ContactChannel & {
       lastSeenAt: number | null;
@@ -271,16 +275,16 @@ function channelKey(type: string, address: string): string {
 }
 
 /**
- * Overlay gateway-owned interaction telemetry onto daemon-native contact reads
- * (search / contactType-filtered), which bypass the gateway list relay. The
- * daemon still owns the FILTERING (gateway-native search/contactType is
- * design-blocked), but telemetry (contact + channel
- * interactionCount/lastInteraction, channel lastSeenAt) is gateway-owned — so
- * batch-fetch it via `contacts_list_rich` keyed by the filtered id set and
- * overlay it, keeping the local assistant-DB aggregation out of the served
- * payload. Fail-soft: if the gateway read fails or omits a contact, its
- * interaction counts degrade to 0 and its timestamps to null rather than
- * falling back to the local assistant-DB aggregation.
+ * Overlay gateway-owned interaction telemetry and the contact auto-approve
+ * ceiling onto daemon-native contact reads (search / contactType-filtered),
+ * which bypass the gateway list relay. The daemon still owns the FILTERING
+ * (gateway-native search/contactType is design-blocked), but telemetry
+ * (contact + channel interactionCount/lastInteraction, channel lastSeenAt)
+ * and `autoApproveThreshold` are gateway-owned, so batch-fetch them via
+ * `contacts_list_rich` keyed by the filtered id set and overlay them. Fail-soft:
+ * if the gateway read fails or omits a contact, counts degrade to 0,
+ * timestamps to null, and the ceiling to null rather than falling back to
+ * the local assistant-DB aggregation.
  */
 async function hydrateTelemetryFromGateway(
   contacts: ContactWithChannels[],
@@ -321,6 +325,7 @@ async function hydrateTelemetryFromGateway(
       ...c,
       interactionCount: gw?.interactionCount ?? 0,
       lastInteraction: gw?.lastInteraction ?? null,
+      autoApproveThreshold: gw?.autoApproveThreshold ?? null,
       channels: c.channels.map((ch) => {
         const gwCh =
           gwChannelById.get(ch.id) ??

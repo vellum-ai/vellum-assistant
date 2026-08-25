@@ -169,23 +169,21 @@ export function BillingPanel() {
       return (
         <div className="mt-4 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading billing summary...
+          {t("billingPanel.loading")}
         </div>
       );
     }
     if (isError) {
       return (
         <div className="mt-4">
-          <Notice tone="error">
-            Failed to load billing summary. Please try again later.
-          </Notice>
+          <Notice tone="error">{t("billingPanel.loadError")}</Notice>
         </div>
       );
     }
     if (!summary) {
       return (
         <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
-          No billing information available.
+          {t("billingPanel.noInfo")}
         </p>
       );
     }
@@ -194,10 +192,7 @@ export function BillingPanel() {
         {renderBalanceBox()}
         {summary.is_degraded && (
           <div className="mt-4">
-            <Notice tone="warning">
-              Pending charges could not be calculated. The balance shown may be
-              incomplete.
-            </Notice>
+            <Notice tone="warning">{t("billingPanel.degradedNotice")}</Notice>
           </div>
         )}
       </>

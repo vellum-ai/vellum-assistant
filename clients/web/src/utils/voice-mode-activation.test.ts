@@ -45,7 +45,15 @@ describe("readVoiceModeActivator", () => {
     expect(readVoiceModeActivator(false)).toEqual(keyboardDefaultActivator());
   });
 
-  test("defaults to Fn where the host can see it", () => {
+  test("binds nothing on a Fn-capable host until the user picks a key", () => {
+    // The release blocker this answers: Fn used to be the out-of-the-box
+    // binding, so a fresh install claimed the Globe key from whatever the OS
+    // had it doing (Start Dictation, on a lot of machines) without ever asking.
+    expect(readVoiceModeActivator(true)).toEqual({ kind: "off" });
+  });
+
+  test("honours Fn once the user has chosen it", () => {
+    writeVoiceModeActivator(FN_PTT_ACTIVATOR);
     expect(readVoiceModeActivator(true)).toEqual(FN_PTT_ACTIVATOR);
   });
 
@@ -64,7 +72,7 @@ describe("readVoiceModeActivator", () => {
     expect(readVoiceModeActivator(false)).toEqual({ kind: "off" });
   });
 
-  test("falls back to the default rather than off for an unusable stored value", () => {
+  test("falls back to the host default for an unusable stored value", () => {
     // A bare modifier can reach storage from the push-to-talk era or a hand
     // edit. Falling back to "off" would leave voice unreachable by keyboard
     // with the settings toggle still reading as on.
@@ -90,7 +98,7 @@ describe("defaultVoiceModeActivator", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("prefers Fn when the host offers it", () => {
-    expect(defaultVoiceModeActivator(true)).toEqual(FN_PTT_ACTIVATOR);
+  test("never hands out Fn, which is the user's key to give", () => {
+    expect(defaultVoiceModeActivator(true)).toEqual({ kind: "off" });
   });
 });

@@ -27,16 +27,15 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
-import {
-  UNREACHABLE_STATUS_CODES,
-  notifyAssistantUnreachable,
-} from "@/assistant/unreachable-bus";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import {
+  clearGatewayToken,
+  isRepairableGatewayTokenError,
+} from "@/lib/auth/gateway-session";
 import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
@@ -47,6 +46,7 @@ import {
   primeLocalGatewayConnectionWithRepair,
 } from "@/lib/local-mode";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   getSelfHostedActorToken,
@@ -471,7 +471,13 @@ export const daemonRequestInterceptor = createInterceptor({
 });
 
 /**
- * Daemon-only response interceptor — fires the unreachable bus on
+ * Statuses that mean the request reached the platform but could not reach the
+ * assistant's runtime: the pod is restarting or not yet ready.
+ */
+const UNREACHABLE_STATUS_CODES = new Set<number>([502, 503, 504]);
+
+/**
+ * Daemon-only response interceptor. Publishes `assistant.unreachable` on
  * gateway-class errors. No URL filtering needed because every daemon
  * SDK request targets the assistant runtime by definition. Not
  * installed on platform/auth clients (a 502 from Django is a
@@ -479,7 +485,7 @@ export const daemonRequestInterceptor = createInterceptor({
  */
 export function daemonUnreachableInterceptor(response: Response): Response {
   if (UNREACHABLE_STATUS_CODES.has(response.status)) {
-    notifyAssistantUnreachable();
+    publish("assistant.unreachable", {});
   }
   return response;
 }
@@ -491,11 +497,11 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * token), re-establishes the session **in place**. Local and paired
  * assistants re-run {@link primeLocalGatewayConnectionWithRepair} with
  * `forceMint`, which mints a fresh renderer token over the rejected one,
- * wakes and re-seeds a stopped or mis-seeded local assistant when the
- * mint is repairably rejected, and re-primes the self-hosted connection
- * slot the request interceptor reads. Remote-gateway (paired browser)
- * sessions run {@link refreshRemoteGatewaySession} with `force`, which
- * exchanges the refresh cookie for a new access token. Neither path
+ * wakes a stopped local assistant when the mint is repairably rejected,
+ * and re-primes the self-hosted connection slot the request interceptor
+ * reads. Remote-gateway (paired browser) sessions run
+ * {@link refreshRemoteGatewaySession} with `force`, which exchanges the
+ * refresh cookie for a new access token. Neither path
  * clears the rejected token first: it is replaced atomically by its
  * successor, so `getGatewayToken()` never reads null and predicates such
  * as `isGatewayAuthMode()` hold steady across the mint. A session refresh
@@ -518,6 +524,15 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * itself rejected, a session nothing in the renderer can revive; there
  * the page reloads under the same budget and boot lands on the pairing
  * flow.
+ *
+ * A local session has its own dead end: a mint the gateway still answers
+ * with 401 after the wake, which only a guardian re-provision clears and
+ * this path must never run silently. That drops the rejected token and
+ * publishes `gateway.guardian-repair-required`, whose app-root subscriber
+ * routes to the chooser and its repair dialog. Recovery is latched off for
+ * as long as the connection slot holds the bearer it gave up on, so the
+ * health poll stops re-entering a repair that cannot succeed, and the
+ * reconnect that follows a completed repair re-arms it.
  *
  * A sessionStorage cooldown spaces the attempts, and a sessionStorage
  * attempt budget stops them. The cooldown alone only paces a gateway
@@ -551,6 +566,24 @@ const GW_401_MAX_ATTEMPTS = 3;
 // naturally on reload.
 let gw401ReloadFired = false;
 
+// The connection-slot bearer a guardian repair was handed off for. Recovery
+// stays off while the slot still holds it, since re-running against the same
+// rejected credential cannot succeed. Keyed by the token rather than latched
+// outright because the local path never reloads: a completed repair reconnects
+// within the same page lifecycle, and the fresh bearer it seeds re-arms
+// recovery for whatever rejects that one later.
+let gw401AbandonedFor: { token: string | null } | null = null;
+
+function isGw401RecoveryAbandoned(): boolean {
+  if (gw401ReloadFired) {
+    return true;
+  }
+  return (
+    gw401AbandonedFor !== null &&
+    gw401AbandonedFor.token === getSelfHostedActorToken()
+  );
+}
+
 // Single-flight slot: a burst of concurrent 401s (a resume refetch, say)
 // funds one in-place recovery; every caller awaits the same attempt and
 // then makes its own replay decision. Nulled when the attempt settles so
@@ -560,6 +593,7 @@ let gw401RecoveryInFlight: Promise<boolean> | null = null;
 /** @internal Exposed for test teardown only. */
 export function resetGw401RecoveryState(): void {
   gw401ReloadFired = false;
+  gw401AbandonedFor = null;
   gw401RecoveryInFlight = null;
 }
 
@@ -601,15 +635,31 @@ async function recoverLocalGatewaySessionInPlace(): Promise<boolean> {
     recordLifecycleDiagnostic("gw_401_recovery", { outcome: "recovered" });
     return true;
   } catch (err) {
+    const stillRecoveringForSelection =
+      (getSelectedAssistant()?.assistantId ?? null) === recoveringFor;
     if (
       getSelfHostedIngressUrl() === null &&
       previous.url !== null &&
-      (getSelectedAssistant()?.assistantId ?? null) === recoveringFor
+      stillRecoveringForSelection
     ) {
       setSelfHostedConnection(previous);
     }
-    recordLifecycleDiagnostic("gw_401_recovery", { outcome: "failed" });
-    captureError(err, { context: "gw_401_recovery" });
+    // A selection that moved while the wake and its retries ran makes this the
+    // verdict on an assistant nobody is connected to any more, so it says
+    // nothing about the one that is: clearing the shared gateway token or
+    // routing to the chooser would act on a session this never touched.
+    const repairRequired =
+      isRepairableGatewayTokenError(err) && stillRecoveringForSelection;
+    const outcome = repairRequired ? "repair_handoff" : "failed";
+    recordLifecycleDiagnostic("gw_401_recovery", { outcome });
+    captureError(err, { context: "gw_401_recovery", tags: { outcome } });
+    if (repairRequired) {
+      // Drop the rejected token so the reconnect mints one rather than
+      // replaying a token whose local expiry still looks fine.
+      clearGatewayToken();
+      gw401AbandonedFor = { token: getSelfHostedActorToken() };
+      publish("gateway.guardian-repair-required", {});
+    }
     return false;
   }
 }
@@ -698,7 +748,7 @@ export async function localGatewayAuthRecoveryInterceptor(
   if (response.status !== 401) {
     return response;
   }
-  if (gw401ReloadFired) {
+  if (isGw401RecoveryAbandoned()) {
     return response;
   }
 

@@ -115,15 +115,17 @@ export function deriveSafeAncestor(destinationPath: string): string {
 
 /**
  * Resolves the list of offsite backup destinations from an optional config
- * override. When `override` is `null` (the "not configured" sentinel), returns
- * a single-element array pointing at the iCloud default with encryption
- * enabled. When `override` is an array (including the empty array), returns it
- * unchanged so callers never need to null-check.
+ * override. A null override uses encrypted iCloud Drive on macOS and no
+ * implicit destination on other platforms. Explicit arrays are unchanged.
  */
 export function resolveOffsiteDestinations(
   override?: BackupDestination[] | null,
+  platform: NodeJS.Platform = process.platform,
 ): BackupDestination[] {
   if (override == null) {
+    if (platform !== "darwin") {
+      return [];
+    }
     return [{ path: getDefaultOffsiteBackupsDir(), encrypt: true }];
   }
   return override;

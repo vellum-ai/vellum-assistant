@@ -550,7 +550,8 @@ function ensureBunInstalled(): void {
         installEnv[key] = process.env[key]!;
       }
     }
-    execSync("curl -fsSL https://bun.sh/install | bash", {
+    // Pinned. Keep in sync with .tool-versions.
+    execSync('curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"', {
       stdio: "pipe",
       timeout: 60_000,
       env: installEnv,
@@ -837,6 +838,7 @@ async function startDaemonFromSource(
         const c = spawn(bunPath, ["run", daemonMainPath], {
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
           env: spawnEnv,
         });
         pipeToLogFile(c, daemonLogFd, "daemon");
@@ -908,6 +910,7 @@ async function startDaemonWatchFromSource(
   const child = spawn(resolveBunExecutable(), ["--watch", "run", mainPath], {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
     env: envWithBunPath(env),
   });
   pipeToLogFile(child, daemonLogFd, "daemon");
@@ -1098,6 +1101,7 @@ export async function startCes(
     ces = spawn(cesBinary, [], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
       env: cesEnv,
     });
     pipeToLogFile(ces, cesLogFd, "credential-executor");
@@ -1112,6 +1116,7 @@ export async function startCes(
       cwd: cesDir,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
       env: envWithBunPath(cesEnv),
     });
     pipeToLogFile(ces, cesLogFd, "credential-executor");
@@ -1658,6 +1663,7 @@ export async function startLocalDaemon(
               cwd: dirname(daemonBinary),
               detached: true,
               stdio: ["ignore", "pipe", "pipe"],
+              windowsHide: true,
               env: daemonEnv,
             });
             pipeToLogFile(c, daemonLogFd, "daemon");
@@ -1869,6 +1875,7 @@ export async function startGateway(
     gateway = spawn(gatewayBinary, [], {
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
       env: gatewayEnv,
     });
     pipeToLogFile(gateway, gatewayLogFd, "gateway");
@@ -1883,6 +1890,7 @@ export async function startGateway(
       cwd: gatewayDir,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
       env: envWithBunPath(gatewayEnv),
     });
     pipeToLogFile(gateway, gwLogFd, "gateway");

@@ -75,7 +75,7 @@ export function subscribeTerminalEvents(
         },
         signal: abortController.signal,
         // All retry behavior is owned by useTerminalSession's
-        // reconnect state machine — SDK-level retries would be
+        // reconnect state machine. SDK-level retries would be
         // invisible to the consumer's status tracking.
         sseMaxRetryAttempts: 0,
         onSseError: (error) => {

@@ -8,6 +8,7 @@ import {
   userMfaFactorsListQueryKey,
   useUserMfaFactorsDestroyMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { Trans, useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -30,6 +31,7 @@ function formatAddedDate(timestamp: string): string {
 
 /** Factor list with add/remove; rendered only when the gate is `"full"`. */
 export function TwoFactorSection() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<MfaFactor | null>(null);
@@ -42,7 +44,7 @@ export function TwoFactorSection() {
 
   const deleteMutation = useUserMfaFactorsDestroyMutation({
     onSuccess: () => {
-      toast.success("Authenticator app removed.");
+      toast.success(t("twoFactorSection.toastRemoved"));
       void invalidateFactors();
     },
     onError: (error) => {
@@ -51,7 +53,7 @@ export function TwoFactorSection() {
         void invalidateFactors();
         return;
       }
-      toast.error("Failed to remove the authenticator app. Please try again.");
+      toast.error(t("twoFactorSection.toastRemoveFailed"));
     },
   });
 
@@ -61,24 +63,28 @@ export function TwoFactorSection() {
         <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span className="text-body-medium-default">
-            Loading authenticator apps…
+            {t("twoFactorSection.loading")}
           </span>
         </div>
       ) : factorsQuery.isError ? (
         <Notice tone="error">
-          Couldn&apos;t load your authenticator apps.{" "}
-          <button
-            type="button"
-            className="cursor-pointer underline"
-            onClick={() => void factorsQuery.refetch()}
-          >
-            Try again
-          </button>
+          <Trans
+            ns="settings"
+            i18nKey="twoFactorSection.loadError"
+            components={{
+              retryButton: (
+                <button
+                  type="button"
+                  className="cursor-pointer underline"
+                  onClick={() => void factorsQuery.refetch()}
+                />
+              ),
+            }}
+          />
         </Notice>
       ) : factors.length === 0 ? (
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          No authenticator app is set up. Add one to require a one-time code at
-          sign-in.
+          {t("twoFactorSection.emptyDescription")}
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-[var(--border-base)]">
@@ -91,12 +97,14 @@ export function TwoFactorSection() {
                 <Smartphone className="h-5 w-5 shrink-0 text-[var(--content-tertiary)]" />
                 <div className="min-w-0">
                   <div className="text-body-medium-default text-[var(--content-default)]">
-                    Authenticator app
+                    {t("twoFactorSection.authenticatorApp")}
                   </div>
                   <div className="truncate text-body-small-default text-[var(--content-tertiary)]">
                     {factor.user}
                     {factor.created_at
-                      ? ` · Added ${formatAddedDate(factor.created_at)}`
+                      ? t("twoFactorSection.addedOn", {
+                          date: formatAddedDate(factor.created_at),
+                        })
                       : ""}
                   </div>
                 </div>
@@ -106,7 +114,7 @@ export function TwoFactorSection() {
                 onClick={() => setPendingDelete(factor)}
                 disabled={deleteMutation.isPending}
               >
-                Remove
+                {t("twoFactorSection.remove")}
               </Button>
             </li>
           ))}
@@ -117,7 +125,7 @@ export function TwoFactorSection() {
         !factorsQuery.isError &&
         factors.length === 0 && (
           <Button onClick={() => setEnrollOpen(true)} className="self-start">
-            Add authenticator app
+            {t("twoFactorSection.addAuthenticatorApp")}
           </Button>
         )}
 
@@ -125,9 +133,9 @@ export function TwoFactorSection() {
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Remove authenticator app"
-        message="Signing in will no longer ask for a code from this app. You can set up a new authenticator app at any time."
-        confirmLabel="Remove"
+        title={t("twoFactorSection.removeDialogTitle")}
+        message={t("twoFactorSection.removeDialogMessage")}
+        confirmLabel={t("twoFactorSection.removeDialogConfirm")}
         destructive
         onConfirm={() => {
           if (pendingDelete) {

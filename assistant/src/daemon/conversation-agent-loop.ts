@@ -1684,9 +1684,23 @@ export async function runAgentLoopImpl(
         tokens: state.lastCallInputTokens,
         maxTokens: resolveCurrentMaxInputTokens(),
       },
+      // When the turn's last LLM call was rerouted to a backup profile, that
+      // profile is what served the tokens being recorded, so it outranks the
+      // conversation's own resolution, which knows nothing about the
+      // reroute. `provider` and `model` on this same row already follow the
+      // backup (via `state.exchangeProviderName` / `state.model`), so
+      // attributing the profile from the primary would write a row that
+      // contradicts itself. `forceOverrideProfile` floats it above the
+      // call-site profile exactly as the fallback dispatch did.
       {
         callSite: turnCallSite,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        overrideProfile:
+          state.exchangeInferenceProfile ??
+          resolveCurrentOverrideProfile() ??
+          null,
+        ...(state.exchangeInferenceProfile !== undefined
+          ? { forceOverrideProfile: true }
+          : {}),
       },
       turnCronRunId,
     );
@@ -1975,6 +1989,13 @@ function emitUsage(
   attribution?: {
     callSite: LLMCallSite | null;
     overrideProfile?: string | null;
+    /**
+     * Float `overrideProfile` above the call-site profile, matching how the
+     * dispatch path floated it. Set when the profile being attributed is the
+     * one a reroute actually served under rather than the caller's own
+     * resolution.
+     */
+    forceOverrideProfile?: boolean;
   },
   cronRunId: string | null = null,
 ): void {
@@ -2051,6 +2072,8 @@ export async function applyCompactionResult(
     summaryRawResponses?: unknown[];
     summaryCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
+    summaryActualProvider?: string;
+    summaryActualInferenceProfile?: string;
   },
   onEvent: (msg: AssistantEvent) => void,
   reqId: string | null,
@@ -2125,12 +2148,26 @@ export async function applyCompactionResult(
     result.summaryCacheCreationInputTokens ?? 0,
     result.summaryCacheReadInputTokens ?? 0,
     collapseRawResponses(result.summaryRawResponses),
-    undefined /* providerName */,
+    // The provider that actually served the summary, which follows a fallback
+    // reroute the way `summaryModel` already did. Undefined only where no call
+    // was made, and `emitUsage` then falls back to `ctx.provider.name` exactly
+    // as before.
+    result.summaryActualProvider /* providerName */,
     1 /* llmCallCount */,
     undefined /* contextWindow */,
+    // Same rule as the main-agent row above, applied to the compaction row:
+    // a rerouted summary is attributed to the profile that answered, not to
+    // the one the compactor resolved before the call. The two call sites set
+    // this parameter independently off their own state and never share it.
     {
       callSite: result.summaryCallSite ?? null,
-      overrideProfile: result.summaryOverrideProfile ?? null,
+      overrideProfile:
+        result.summaryActualInferenceProfile ??
+        result.summaryOverrideProfile ??
+        null,
+      ...(result.summaryActualInferenceProfile !== undefined
+        ? { forceOverrideProfile: true }
+        : {}),
     },
     options.cronRunId ?? null,
   );

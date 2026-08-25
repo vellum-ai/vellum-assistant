@@ -7,6 +7,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import { useTranslation } from "@/i18n";
 
 /**
  * Store-driven group-name dialog. Reads the pending create/rename request from
@@ -35,6 +36,7 @@ export function GroupNameDialogFromStore({
   renameGroup,
   moveToGroup,
 }: GroupNameDialogFromStoreProps) {
+  const { t } = useTranslation("chat");
   const request = useGroupNameRequestStore.use.groupNameRequest();
   const clear = useGroupNameRequestStore.use.clearGroupNameRequest();
   const supportsGroupIcons = useSupportsGroupIcons();
@@ -66,8 +68,8 @@ export function GroupNameDialogFromStore({
   return (
     <NameInputDialog
       open={request !== null}
-      title={isRename ? "Rename group" : "New group"}
-      submitLabel={isRename ? "Save" : "Create"}
+      title={isRename ? t("groupNameDialogFromStore.renameTitle") : t("groupNameDialogFromStore.newTitle")}
+      submitLabel={isRename ? t("groupNameDialogFromStore.save") : t("groupNameDialogFromStore.create")}
       initialValue={currentName}
       iconPicker={supportsGroupIcons ? { initialIcon: currentIcon } : undefined}
       onSubmit={handleSubmit}

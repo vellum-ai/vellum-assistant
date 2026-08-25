@@ -3,6 +3,14 @@ import { existsSync, readFileSync } from "fs";
 import { findAssistantByName } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
+  bundleFileSizeBytes,
+  formatBundleSizeMb,
+  importStagedBundle,
+  preflightStagedBundle,
+  stageBundleForRestore,
+  stagingTargetFromEntry,
+} from "../lib/bundle-staging.js";
+import {
   loadGuardianToken,
   leaseGuardianToken,
 } from "../lib/guardian-token.js";
@@ -546,9 +554,7 @@ export async function restore(): Promise<void> {
     process.exit(1);
   }
 
-  // Read the .vbundle file
-  const bundleData = readFileSync(fromPath);
-  const sizeMB = (bundleData.byteLength / (1024 * 1024)).toFixed(2);
+  const sizeMB = formatBundleSizeMb(bundleFileSizeBytes(fromPath));
   console.log(`Reading ${fromPath} (${sizeMB} MB)...`);
 
   // Detect topology and route platform assistants through Django import
@@ -563,6 +569,7 @@ export async function restore(): Promise<void> {
   }
 
   if (cloud === "vellum") {
+    const bundleData = readFileSync(fromPath);
     await restorePlatform(entry, name, bundleData, { version, dryRun });
     return;
   }
@@ -576,12 +583,60 @@ export async function restore(): Promise<void> {
 
   // Obtain auth token (acquired before dry-run or before data import;
   // re-acquired after version rollback since containers restart).
-  let accessToken = await getAccessToken(
+  const accessToken = await getAccessToken(
     entry.runtimeUrl,
     entry.assistantId,
     name,
     entry.guardianBootstrapSecret,
   );
+
+  const staging = stagingTargetFromEntry(entry);
+  let stagedRelativePath: string | undefined;
+  let bundleData: Buffer | undefined;
+  let cleanupStaged: (() => Promise<void>) | undefined;
+  if (staging) {
+    const staged = await stageBundleForRestore(staging, fromPath);
+    stagedRelativePath = staged.relativePath;
+    cleanupStaged = staged.cleanup;
+  } else {
+    bundleData = readFileSync(fromPath);
+  }
+
+  try {
+    await runLocalRestore({
+      entry,
+      name,
+      version,
+      dryRun,
+      accessToken,
+      stagedRelativePath,
+      bundleData,
+    });
+  } finally {
+    if (cleanupStaged) {
+      await cleanupStaged();
+    }
+  }
+}
+
+async function runLocalRestore(opts: {
+  entry: AssistantEntry;
+  name: string;
+  version: string | undefined;
+  dryRun: boolean;
+  accessToken: string;
+  stagedRelativePath: string | undefined;
+  bundleData: Buffer | undefined;
+}): Promise<void> {
+  const {
+    entry,
+    name,
+    version,
+    dryRun,
+    stagedRelativePath,
+    bundleData,
+  } = opts;
+  let accessToken = opts.accessToken;
 
   if (dryRun) {
     // Preflight check
@@ -589,18 +644,24 @@ export async function restore(): Promise<void> {
 
     let response: Response;
     try {
-      response = await loopbackSafeFetch(
-        `${entry.runtimeUrl}/v1/migrations/import-preflight`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: bundleData,
-          signal: AbortSignal.timeout(120_000),
-        },
-      );
+      response = stagedRelativePath
+        ? await preflightStagedBundle(
+            entry.runtimeUrl,
+            accessToken,
+            stagedRelativePath,
+          )
+        : await loopbackSafeFetch(
+            `${entry.runtimeUrl}/v1/migrations/import-preflight`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/octet-stream",
+              },
+              body: bundleData ? new Uint8Array(bundleData) : undefined,
+              signal: AbortSignal.timeout(120_000),
+            },
+          );
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Preflight request timed out after 2 minutes.");
@@ -693,20 +754,32 @@ export async function restore(): Promise<void> {
     // Data import
     console.log("Importing backup data...\n");
 
-    let response: Response;
+    let result: ImportResponse;
     try {
-      response = await loopbackSafeFetch(
-        `${entry.runtimeUrl}/v1/migrations/import`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: bundleData,
-          signal: AbortSignal.timeout(120_000),
-        },
-      );
+      const response = stagedRelativePath
+        ? await importStagedBundle(
+            entry.runtimeUrl,
+            accessToken,
+            stagedRelativePath,
+          )
+        : await loopbackSafeFetch(
+            `${entry.runtimeUrl}/v1/migrations/import`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/octet-stream",
+              },
+              body: bundleData ? new Uint8Array(bundleData) : undefined,
+              signal: AbortSignal.timeout(120_000),
+            },
+          );
+      if (!response.ok) {
+        const body = await response.text();
+        console.error(`Error: Import failed (${response.status}): ${body}`);
+        process.exit(1);
+      }
+      result = (await response.json()) as ImportResponse;
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Import request timed out after 2 minutes.");
@@ -722,14 +795,6 @@ export async function restore(): Promise<void> {
       }
       throw err;
     }
-
-    if (!response.ok) {
-      const body = await response.text();
-      console.error(`Error: Import failed (${response.status}): ${body}`);
-      process.exit(1);
-    }
-
-    const result = (await response.json()) as ImportResponse;
 
     if (!result.success) {
       console.error(

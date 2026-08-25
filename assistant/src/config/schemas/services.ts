@@ -76,6 +76,9 @@ const WebSearchServiceSchema = z.object({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
+  // Origin for providers that support a custom API base (e.g. fastCRW).
+  // Empty / omitted uses the provider's cloud default.
+  apiBase: z.string().optional(),
 });
 
 /**
@@ -88,6 +91,9 @@ const WebFetchServiceSchema = z.object({
   // `firecrawl`) scrape via their hosted API and reuse the same stored key as
   // their web-search counterpart.
   provider: z.enum(VALID_WEB_FETCH_PROVIDERS).default("default"),
+  // Origin for providers that support a custom API base (e.g. fastCRW).
+  // Empty / omitted uses the provider's cloud default.
+  apiBase: z.string().optional(),
 });
 
 const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
@@ -127,6 +133,21 @@ const DiscordOAuthServiceSchema = BaseServiceSchema.extend({
 });
 
 const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+const MondayOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
+export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type EventbriteOAuthService = z.infer<
+  typeof EventbriteOAuthServiceSchema
+>;
+
+const CalendlyOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
@@ -177,6 +198,15 @@ export const ServicesSchema = z.object({
   ),
   "hubspot-oauth": HubspotOAuthServiceSchema.default(
     HubspotOAuthServiceSchema.parse({}),
+  ),
+  "monday-oauth": MondayOAuthServiceSchema.default(
+    MondayOAuthServiceSchema.parse({}),
+  ),
+  "eventbrite-oauth": EventbriteOAuthServiceSchema.default(
+    EventbriteOAuthServiceSchema.parse({}),
+  ),
+  "calendly-oauth": CalendlyOAuthServiceSchema.default(
+    CalendlyOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

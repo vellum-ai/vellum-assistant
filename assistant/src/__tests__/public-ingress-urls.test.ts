@@ -12,6 +12,7 @@ import {
   getTwilioMediaStreamUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
+  tryGetPublicBaseUrl,
 } from "../inbound/public-ingress-urls.js";
 
 // ---------------------------------------------------------------------------
@@ -160,6 +161,41 @@ describe("getPublicBaseUrl", () => {
     setIngressPublicBaseUrl("  https://ingress-env.example.com  ");
     const result = getPublicBaseUrl({});
     expect(result).toBe("https://ingress-env.example.com");
+  });
+});
+
+describe("tryGetPublicBaseUrl", () => {
+  beforeEach(() => {
+    setIngressPublicBaseUrl(undefined);
+  });
+
+  afterEach(() => {
+    setIngressPublicBaseUrl(undefined);
+  });
+
+  test("returns the configured public base URL", () => {
+    expect(
+      tryGetPublicBaseUrl({
+        ingress: { publicBaseUrl: "https://ingress.example.com/" },
+      }),
+    ).toBe("https://ingress.example.com");
+  });
+
+  test("returns the detected module-level ingress URL", () => {
+    setIngressPublicBaseUrl("https://detected.example.com/");
+    expect(tryGetPublicBaseUrl({})).toBe("https://detected.example.com");
+  });
+
+  test("returns undefined when no URL is configured", () => {
+    expect(tryGetPublicBaseUrl({})).toBeUndefined();
+  });
+
+  test("returns undefined when ingress is explicitly disabled", () => {
+    expect(
+      tryGetPublicBaseUrl({
+        ingress: { enabled: false, publicBaseUrl: "https://example.com" },
+      }),
+    ).toBeUndefined();
   });
 });
 

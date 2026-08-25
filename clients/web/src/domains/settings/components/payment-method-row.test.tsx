@@ -8,12 +8,7 @@ afterEach(cleanup);
 describe("PaymentMethodRow", () => {
   test("renders the brand and last4", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("Visa");
@@ -22,12 +17,7 @@ describe("PaymentMethodRow", () => {
 
   test("normalizes a lowercase brand to its canonical label", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand="visa" last4="4242" onUpdateCard={() => {}} />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("Visa");
@@ -36,12 +26,7 @@ describe("PaymentMethodRow", () => {
 
   test("falls back to a generic label and omits the ending line when null", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand={null}
-        last4={null}
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand={null} last4={null} onUpdateCard={() => {}} />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("Saved card");
@@ -55,7 +40,6 @@ describe("PaymentMethodRow", () => {
         brand="internationalmaestro"
         last4="0005"
         onUpdateCard={() => {}}
-        onRemove={() => {}}
       />,
     );
     const row = getByTestId("payment-method-row");
@@ -69,60 +53,17 @@ describe("PaymentMethodRow", () => {
         brand="Visa"
         last4="4242"
         onUpdateCard={onUpdateCard}
-        onRemove={() => {}}
       />,
     );
     fireEvent.click(getByTestId("payment-method-update"));
     expect(onUpdateCard).toHaveBeenCalledTimes(1);
   });
 
-  test("fires onRemove when Remove is clicked", () => {
-    const onRemove = mock(() => {});
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={onRemove}
-      />,
+  test("offers Update Card as the only action", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
-    fireEvent.click(getByTestId("payment-method-remove"));
-    expect(onRemove).toHaveBeenCalledTimes(1);
-  });
-
-  test("draws Remove as plain red text", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
-    );
-    const remove = getByTestId("payment-method-remove");
-    // Still the negative foreground, with nothing drawn around it.
-    expect(remove.className).toContain(
-      "[--vbtn-fg:var(--system-negative-strong)]",
-    );
-    expect(remove.className).toContain("border-transparent");
-    expect(remove.className).not.toContain(
-      "border-[var(--system-negative-strong)]",
-    );
-  });
-
-  test("disables Remove and shows a pending label while removing", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-        removing
-      />,
-    );
-    const remove = getByTestId("payment-method-remove") as HTMLButtonElement;
-    expect(remove.disabled).toBe(true);
-    expect(remove.textContent).toContain("Removing…");
-    expect(remove.className).toContain("border-transparent");
+    expect(getByTestId("payment-method-update")).not.toBeNull();
+    expect(queryByTestId("payment-method-remove")).toBeNull();
   });
 });

@@ -11,6 +11,7 @@
 import { isElectron } from "@/runtime/is-electron";
 import type {
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
 } from "@vellumai/ipc-contract";
 
@@ -75,6 +76,33 @@ export function moveCompanionBy(dx: number, dy: number): void {
  */
 export function startCompanionVoice(): void {
   bridge()?.startVoice?.();
+}
+
+/**
+ * Turn the session that reads the screen on or off, which is what Watch does.
+ *
+ * One call for both edges, over the `COMPANION_TOGGLE_WATCH` channel, because
+ * the surface draws one control and the window holding the session is the only
+ * side that knows which edge a press is. Like {@link startCompanionVoice} the
+ * press leaves this renderer immediately and nothing is awaited: what comes
+ * back is `watching` on the pushed state, once the window that owns the session
+ * has one to report.
+ */
+export function toggleCompanionWatch(): void {
+  bridge()?.toggleWatch?.();
+}
+
+/**
+ * Answer the question a finished watch session leaves on the surface: open its
+ * summary now, or not.
+ *
+ * Both answers leave this renderer, including the dismissal. The window that
+ * ran the retrospective is the one holding the question, so an answer kept here
+ * would be a question that goes on being asked: the next state main pushes
+ * would carry `watchRetro` still set and draw the prompt again.
+ */
+export function answerCompanionWatchRetro(open: boolean): void {
+  bridge()?.answerWatchRetro?.(open);
 }
 
 /**
@@ -147,10 +175,10 @@ let lastContext: CompanionContext | null = null;
  * `working: true` describes something that is happening, and a publisher going
  * away does not make it so.
  *
- * It has to be said rather than inferred. The surface is opened by a feature
- * flag and the user's tray preference, not by the window publishing to it, so
- * it stays on screen with nothing left to report the turn ending and the ring
- * would travel indefinitely.
+ * It has to be said rather than inferred. The surface is opened by main, from
+ * the assistant it has and the user's tray preference, not by the window
+ * publishing to it, so it stays on screen with nothing left to report the turn
+ * ending and the ring would travel indefinitely.
  *
  * Lives here rather than with the publisher because this is the module that
  * owns the channel, and the callers that need it at teardown are outside the
@@ -163,4 +191,36 @@ export function clearCompanionWorking(): void {
     return;
   }
   setCompanionContext({ ...lastContext, working: false });
+}
+
+/**
+ * Move the surface's one-time introduction on, or end it.
+ *
+ * Which beat that lands on is main's to work out: it holds the run, so the
+ * press names a direction rather than a destination and a press sent from a
+ * renderer a beat behind cannot walk it backwards.
+ */
+export function advanceCompanionIntro(action: CompanionIntroAction): void {
+  bridge()?.advanceIntro?.(action);
+}
+
+/**
+ * Ask main to open the surface's own menu at the pointer.
+ *
+ * The renderer knows a right-click happened and nothing else: the menu is a
+ * native window, and the size and visibility it acts on are main's.
+ */
+export function showCompanionContextMenu(): void {
+  bridge()?.showContextMenu?.();
+}
+
+/**
+ * Hand a link from the card to the host, which opens it in the browser.
+ *
+ * The surface's window denies every navigation and every `window.open`, so an
+ * anchor cannot follow itself and the shared `openExternalUrl` helper has
+ * nothing to work with here. Main validates the scheme on the far side.
+ */
+export function openCompanionLink(url: string): void {
+  bridge()?.openLink?.(url);
 }

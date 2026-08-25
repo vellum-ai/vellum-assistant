@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 const COPIED_RESET_MS = 1500;
@@ -23,6 +24,7 @@ const COPIED_RESET_MS = 1500;
  * "Copied" confirmation. Positioned by the caller (top-right of a `<pre>`).
  */
 export function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,7 +56,9 @@ export function CopyButton({ text }: { text: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      aria-label={copied ? "Copied" : "Copy"}
+      aria-label={
+        copied ? t("detailPrimitives.copied") : t("detailPrimitives.copy")
+      }
       className="absolute right-2 top-2 flex items-center gap-1 rounded p-1 text-label-small-default text-[var(--content-tertiary)] transition-colors hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
     >
       {copied ? (
@@ -62,7 +66,7 @@ export function CopyButton({ text }: { text: string }) {
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}
-      {copied ? "Copied" : null}
+      {copied ? t("detailPrimitives.copied") : null}
     </button>
   );
 }

@@ -1,0 +1,149 @@
+{
+  "actions": {
+    "save": "Сохранить",
+    "saving": "Сохранение…",
+    "merge": "Объединить…",
+    "merging": "Объединение…",
+    "delete": "Удалить",
+    "deleting": "Удаление…",
+    "connect": "Подключить",
+    "connecting": "Подключение…",
+    "disconnect": "Отключить",
+    "disconnecting": "Отключение…",
+    "cancel": "Отмена",
+    "back": "Назад",
+    "verify": "Подтвердить",
+    "verifying": "Подтверждение…",
+    "revoke": "Отозвать"
+  },
+  "channelType": {
+    "slack": "Slack",
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
+    "a2a": "A2A",
+    "phone": "Телефон",
+    "email": "Почта",
+    "discord": "Discord"
+  },
+  "contact": {
+    "nameLabel": "Имя",
+    "notesLabel": "Заметки",
+    "draftName": "Новый контакт",
+    "interactions": "{count, plural, one {# взаимодействие} few {# взаимодействия} many {# взаимодействий} other {# взаимодействия}}",
+    "mergeBlockedNoCandidates": "Нет других контактов для объединения",
+    "mergeBlockedUnsaved": "Сохранение изменений перед объединением"
+  },
+  "contactsPage": {
+    "title": "Контакты",
+    "mergeSucceeded": "Контакты объединены",
+    "mergeFailed": "Не удалось объединить контакты",
+    "createFailed": "Не удалось создать контакт",
+    "deleteFailed": "Не удалось удалить контакт",
+    "saveFailed": "Не удалось сохранить контакт",
+    "verifyFailed": "Не удалось подтвердить канал",
+    "rosterLoadFailed": "Не удалось загрузить список рабочего пространства. Проверьте подключение Slack и повторите попытку.",
+    "emptyBody": "Выбор контакта"
+  },
+  "contactsList": {
+    "heading": "Записи",
+    "addAriaLabel": "Добавить контакт",
+    "searchPlaceholder": "Поиск контактов",
+    "noMatches": "Нет подходящих контактов",
+    "add": "Добавить контакт",
+    "verified": "Подтверждён",
+    "unverified": "Не подтверждён",
+    "you": "Вы",
+    "youNamed": "{name} (вы)",
+    "assistantFallback": "Ассистент"
+  },
+  "contactDetailView": {
+    "namePlaceholder": "Имя этой персоны",
+    "notesPlaceholder": "Необязательные заметки о человеке, которые ИИ учтёт",
+    "mergeBlockedUnsavedDraft": "Сохранение этого контакта перед объединением",
+    "delete": "Удалить контакт",
+    "linkedAccountsTitle": "Связанные аккаунты",
+    "linkedAccountsSubtitle": "Где ассистент узнаёт этот контакт. Свяжи известные аккаунты и пригласи остальные.",
+    "deleteConfirmTitle": "Удалить {name}?",
+    "deleteConfirmMessage": "Контакт и все его каналы будут удалены навсегда. Это нельзя отменить."
+  },
+  "guardianDetailView": {
+    "namePlaceholder": "Имя",
+    "notesPlaceholder": "Заметки о себе, которые ИИ учтёт",
+    "channelsTitle": "Каналы",
+    "channelsSubtitle": "После подтверждения ассистент узнает отправителя сообщений с этих каналов.",
+    "setupLabel": "Подтвердить меня"
+  },
+  "assistantChannelsDetail": {
+    "title": "{name} (ассистент)",
+    "channelsTitle": "Каналы",
+    "channelsSubtitle": "Где можно достучаться до {name}."
+  },
+  "assistantContactChannels": {
+    "disconnectConfirmTitle": "Отключить {channel}?",
+    "disconnectConfirmMessage": "Это удалит сохранённые учётные данные канала. Потом можно подключить снова."
+  },
+  "accountLink": {
+    "linked": "Связан как @{username}",
+    "linkFailed": "Не удалось связать аккаунт"
+  },
+  "connectPage": {
+    "invalidTitle": "Недействительная ссылка-приглашение",
+    "invalidBody": "В ссылке не хватает обязательных параметров, ею нельзя воспользоваться.",
+    "goToContacts": "Перейти в Контакты",
+    "title": "Связать ассистентов",
+    "body": "Если принять эту ссылку, появится доверенное A2A-соединение между этим ассистентом и ассистентом отправителя.",
+    "alreadyConnected": "Уже подключено",
+    "connected": "Подключено!",
+    "errorExpired": "Эта ссылка-приглашение истекла или уже использована.",
+    "errorAlreadyRedeemed": "Это приглашение уже принял кто-то другой.",
+    "errorSenderNotFound": "Ассистент отправителя не найден.",
+    "errorNotPlatformManaged": "Ссылки-приглашения A2A поддерживаются только для ассистентов на платформе.",
+    "errorGeneric": "Что-то пошло не так. Повторите попытку."
+  },
+  "channelStatus": {
+    "connected": "Подключено",
+    "verified": "Подтверждено"
+  },
+  "contactChannelsSection": {
+    "verifyConfirmTitle": "Подтвердить {channel}",
+    "verifyConfirmMessageContact": "Канал {channel} этого контакта будет отмечен как подтверждённый. Ассистент узнает его, когда тот напишет оттуда.",
+    "verifyConfirmMessageGuardian": "Канал {channel} будет отмечен как подтверждённый. Ассистент узнает отправителя сообщений оттуда.",
+    "revokeConfirmTitle": "Отозвать {channel}",
+    "revokeConfirmMessage": "Подтверждённый канал будет отключён. Контакту нужно будет подтвердить его снова, чтобы пользоваться этим каналом.",
+    "linkAccount": "Связать аккаунт",
+    "setupDefault": "Пригласить",
+    "loadFailed": "Не удалось загрузить каналы. Проверьте подключение и повторите попытку."
+  },
+  "linkAccountDialog": {
+    "title": "Связать аккаунт {channel}",
+    "description": "Найди в рабочем пространстве {channel} аккаунт <contact>{name}</contact>.",
+    "searchPlaceholder": "Поиск по имени или @нику",
+    "searchAriaLabel": "Поиск аккаунтов рабочего пространства {channel}",
+    "loading": "Загрузка участников рабочего пространства…",
+    "noMembers": "Участники рабочего пространства не найдены.",
+    "noMatches": "Нет подходящих участников.",
+    "linking": "Связываем…",
+    "guardianLinkNote": "Выбор помечает аккаунт как <emphasis>связанный опекуном</emphasis>: поручительство за личность без рукопожатия.",
+    "inviteInstead": "Или отправка приглашения"
+  },
+  "contactMergeDialog": {
+    "titlePicked": "Объединить \"{donor}\" с {survivor}?",
+    "titlePicking": "Объединить другой контакт с {survivor}",
+    "descriptionPicked": "Каналы и заметки объединённого контакта перейдут сюда. Сам контакт будет удалён.",
+    "descriptionPicking": "Выбранный контакт будет удалён. Его каналы и заметки добавятся к этому.",
+    "confirm": "Объединить",
+    "searchPlaceholder": "Поиск контактов",
+    "listAriaLabel": "Выбор контакта для объединения",
+    "empty": "Нет других контактов для объединения.",
+    "donorDeleted": "<donor>\"{donor}\"</donor> будет удалён.",
+    "channelsMoved": "{count, plural, =0 {В {survivor} не перейдёт ни один новый канал.} one {# канал перейдёт в {survivor}: {channels}.} few {# канала перейдут в {survivor}: {channels}.} many {# каналов перейдут в {survivor}: {channels}.} other {# канала перейдут в {survivor}: {channels}.}}",
+    "duplicatesSkipped": "{count, plural, one {# повторный канал уже есть у {survivor} (пропущен).} few {# повторных канала уже есть у {survivor} (пропущены).} many {# повторных каналов уже есть у {survivor} (пропущены).} other {# повторных канала уже есть у {survivor} (пропущены).}}",
+    "notesAppended": "Заметки объединённого контакта будут добавлены в конец.",
+    "irreversible": "Это нельзя отменить."
+  },
+  "survivorName": {
+    "you": "вас",
+    "youNamed": "{name} (вы)",
+    "thisContact": "этот контакт"
+  }
+}

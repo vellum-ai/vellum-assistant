@@ -86,10 +86,11 @@ describe("resolveAnswers", () => {
   });
 
   test("reads a blank free-text answer as skipped", () => {
-    // The single-question wire shape has no `skip` kind, so a skip arrives as
-    // `free_text` with empty text. Rendering it as free text would show an
-    // empty answer row, and the raw tool chip is suppressed, so the user would
-    // see the question with no answer at all.
+    // The legacy single-question wire shape has no `skip` kind, so a skip
+    // recorded through it reads as `free_text` with empty text, and those
+    // records outlive the assistant that wrote them. Rendering it as free text
+    // would show an empty answer row, and the raw tool chip is suppressed, so
+    // the user would see the question with no answer at all.
     const resolved = resolveAnswers(
       makeAnswered({
         responses: [{ questionId: "q1", decision: "free_text", text: "" }],

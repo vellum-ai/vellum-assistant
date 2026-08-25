@@ -21,6 +21,7 @@ import {
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
+import { useTranslation } from "@/i18n";
 import { isPointerCoarse } from "@/utils/pointer";
 
 /**
@@ -102,6 +103,7 @@ function LongPressHeaderMenu({
   content: (close: () => void) => ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   const longPress = useLongPressSheet({ shouldSkip: skipTrailingControl });
 
   return (
@@ -113,7 +115,9 @@ function LongPressHeaderMenu({
       >
         <BottomSheet.Content aria-describedby={undefined}>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>{title} actions</BottomSheet.Title>
+            <BottomSheet.Title>
+              {t("collapsibleNavSection.actionsTitle", { title })}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">
             {content(longPress.close)}
@@ -299,11 +303,13 @@ function CollapsibleNavSectionSection({
         // the click target and long labels still truncate. The primitive
         // hardcodes `flex` on it, so the growth comes from here.
         "[&>[data-slot=collapsible-header]]:min-w-0 [&>[data-slot=collapsible-header]]:flex-1",
-        /* A card's header is the height of its label. The controls beside it
-           are touch targets rather than content, so they keep their own size
-           and centre-overflow this row instead of setting it; the card's top
-           padding is deeper than the overflow, so nothing escapes the card. */
-        card && "h-4",
+        /* A card's header row, sized so that with the card's 12px vertical
+           inset the collapsed pill lands on the overlay tile size (44px).
+           The controls beside it are touch targets rather than content, so
+           they keep their own size and centre-overflow this row instead of
+           setting it; the card's top padding is deeper than the overflow,
+           so nothing escapes the card. */
+        card && "h-5",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}

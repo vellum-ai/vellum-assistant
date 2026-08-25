@@ -1,5 +1,5 @@
 {
-  "description": "Docs page routes served by the platform app tree web/src/app/(marketing)/docs as of the 2026-07-31 content re-sync. scripts/verify-parity.ts asserts the local app tree and a running instance match this list.",
+  "description": "Docs page routes served by this app. Seeded from the platform app tree web/src/app/(marketing)/docs as of the 2026-07-31 content re-sync; pages added here since are appended. scripts/verify-parity.ts asserts the local app tree and a running instance match this list.",
   "routes": [
     "/docs",
     "/docs/constitution",
@@ -14,8 +14,10 @@
     "/docs/environments",
     "/docs/extensibility",
     "/docs/extensibility/apps",
+    "/docs/extensibility/channels",
     "/docs/extensibility/distribution",
     "/docs/extensibility/hooks",
+    "/docs/extensibility/mcp",
     "/docs/extensibility/plugins",
     "/docs/extensibility/routes",
     "/docs/extensibility/skills",
@@ -35,6 +37,7 @@
     "/docs/hosting-options/advanced-options",
     "/docs/hosting-options/cloud-hosting",
     "/docs/hosting-options/local-hosting",
+    "/docs/hosting-options/pair-a-device",
     "/docs/key-concepts",
     "/docs/key-concepts/channels",
     "/docs/key-concepts/memory-and-context",

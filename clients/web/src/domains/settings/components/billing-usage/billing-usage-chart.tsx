@@ -18,6 +18,7 @@ import { formatDateLabel } from "@/components/charts/format-date-label";
 import { StackedBarTooltip } from "@/components/charts/stacked-bar-tooltip";
 import type { UsageBucket } from "@/generated/api/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 
 import {
   generateTicks,
@@ -139,6 +140,7 @@ export function BillingUsageChart({
   metric,
   onBarClick,
 }: BillingUsageChartProps) {
+  const { t } = useTranslation("settings");
   const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -320,7 +322,7 @@ export function BillingUsageChart({
       >
         {isEmpty ? (
           <div className="flex h-full items-center justify-center text-body-medium-lighter text-[var(--content-faint)]">
-            No usage data for this period
+            {t("billingUsageChart.empty")}
           </div>
         ) : width > 0 ? (
           <>

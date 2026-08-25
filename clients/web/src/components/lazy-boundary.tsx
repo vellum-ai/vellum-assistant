@@ -1,6 +1,7 @@
 import { Suspense, type ReactElement, type ReactNode } from "react";
 import * as Sentry from "@sentry/react";
 
+import { useTranslation } from "@/i18n";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 
 interface LazyBoundaryProps {
@@ -18,6 +19,10 @@ interface LazyBoundaryProps {
    * weather card showing the markdown body when the rich chart chunk
    * fails to arrive). Must be a `ReactElement` (wrap bare strings in a
    * `<span>`/`<div>`).
+   *
+   * An in-place retry is possible, but only by minting a fresh lazy
+   * component and remounting this boundary with a new `key`; see
+   * `share-feedback-modal-lazy.tsx`.
    */
   errorFallback?: ReactElement;
 }
@@ -43,6 +48,8 @@ export function LazyBoundary({
   fallback = null,
   errorFallback,
 }: LazyBoundaryProps) {
+  const { t } = useTranslation();
+
   return (
     <Sentry.ErrorBoundary
       beforeCapture={(scope, error) => {
@@ -57,7 +64,7 @@ export function LazyBoundary({
             role="alert"
             className="p-3 text-body-small-default text-[var(--content-tertiary)]"
           >
-            This section couldn&apos;t load. Reload the page to try again.
+            {t("lazyBoundary.loadError")}
           </div>
         )
       }

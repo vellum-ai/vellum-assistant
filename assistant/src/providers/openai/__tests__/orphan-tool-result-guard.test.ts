@@ -145,7 +145,7 @@ const ID_SHAPES = [
 ] as const;
 
 /** History whose tool_result is paired with a preceding tool_use. */
-function pairedHistory(id: string): Message[] {
+function pairedHistory(id: string, result = "file contents"): Message[] {
   return [
     { role: "user", content: [{ type: "text", text: "Read the file" }] },
     {
@@ -165,7 +165,7 @@ function pairedHistory(id: string): Message[] {
         {
           type: "tool_result",
           tool_use_id: id,
-          content: "file contents",
+          content: result,
         },
       ],
     },
@@ -382,6 +382,38 @@ describe("OpenAIChatCompletionsProvider orphan tool_result guard", () => {
         content: "real output",
       },
     ]);
+  });
+
+  test("keeps JSON Schema references opaque for Gemini-compatible gateways", async () => {
+    const provider = makeProvider();
+    const stub = stubChatCreate(provider);
+    const schemaResult = JSON.stringify({
+      $defs: { LLMProvider: { type: "string" } },
+      properties: {
+        provider: { $ref: "#/$defs/LLMProvider" },
+      },
+    });
+
+    await provider.sendMessage(pairedHistory("call_schema", schemaResult));
+
+    const sent = stub.messages();
+    const toolMessage = sent.find((message) => message.role === "tool");
+    expect(toolMessage).toBeDefined();
+    expect(JSON.parse(toolMessage!.content as string)).toEqual({
+      output: schemaResult,
+    });
+  });
+
+  test("leaves ordinary JSON tool results unchanged", async () => {
+    const provider = makeProvider();
+    const stub = stubChatCreate(provider);
+    const ordinaryResult = JSON.stringify({ status: "ok", count: 3 });
+
+    await provider.sendMessage(pairedHistory("call_json", ordinaryResult));
+
+    const sent = stub.messages();
+    const toolMessage = sent.find((message) => message.role === "tool");
+    expect(toolMessage?.content).toBe(ordinaryResult);
   });
 });
 

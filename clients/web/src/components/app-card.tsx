@@ -1,6 +1,7 @@
 import { ExternalLink, Pin, PinOff, Puzzle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 import { preparePreviewHtml } from "@/utils/sandbox-bridge";
 import { Button } from "@vellumai/design-library";
@@ -48,6 +49,8 @@ export function AppCard({
   onOpen,
   onPin,
 }: AppCardProps) {
+  const { t } = useTranslation();
+
   return (
     <div
       className={cn(
@@ -86,7 +89,7 @@ export function AppCard({
           onClick={onOpen}
           disabled={isOpenDisabled || onOpen == null}
         >
-          Open App
+          {t("appCard.openApp")}
         </Button>
         <Button
           variant="outlined"
@@ -94,7 +97,7 @@ export function AppCard({
           onClick={onPin}
           disabled={onPin == null}
         >
-          {isPinned ? "Unpin" : "Pin"}
+          {isPinned ? t("appCard.unpin") : t("appCard.pin")}
         </Button>
       </div>
     </div>
@@ -123,6 +126,7 @@ export function AppPreviewThumbnail({
   isPreviewPending = false,
   className,
 }: AppPreviewThumbnailProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -198,7 +202,7 @@ export function AppPreviewThumbnail({
           srcDoc={preparePreviewHtml(html)}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          title={`${name} preview`}
+          title={t("appCard.previewTitle", { name })}
           aria-hidden="true"
           tabIndex={-1}
           loading="lazy"

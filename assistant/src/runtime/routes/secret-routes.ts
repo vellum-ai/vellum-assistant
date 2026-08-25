@@ -21,27 +21,28 @@ import {
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../../config/env.js";
-import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { getConfig } from "../../config/loader.js";
 import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
-import { evictConversationsForReload } from "../../daemon/conversation-store.js";
 import {
   isNonSecretPlatformField,
   scrubStoredCredentialFromTranscripts,
 } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
-import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
+import {
+  refreshProvidersAfterSecretChange,
+  refreshProvidersForRotatedCredential,
+} from "../../providers/inference/credential-rotation.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
 import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
-import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
@@ -169,29 +170,6 @@ export async function notifyCesOfAssistantApiKeyUpdate(
     return;
   }
   void queueApiKeyPropagation(cesClient, value, generation);
-}
-
-// ---------------------------------------------------------------------------
-// Provider refresh after secret changes
-// ---------------------------------------------------------------------------
-
-async function refreshProvidersAfterSecretChange(): Promise<void> {
-  clearEmbeddingBackendCache();
-  invalidateConfigCache();
-  await initializeProviders(getConfig());
-
-  // Provider instances are captured when conversations are created, so a key
-  // change must evict or mark them stale before the next turn. Best-effort:
-  // the credential write has already succeeded, so a disposal failure must not
-  // surface as a 500 that makes clients think the secret change failed.
-  try {
-    evictConversationsForReload();
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Error evicting conversations after credential change (non-fatal)",
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +408,8 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         if (service === "vellum" && field === "assistant_api_key") {
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
         }
+      } else if (!isTrimmedIdentity) {
+        await refreshProvidersForRotatedCredential(service, field);
       }
       if (
         service === "vellum" &&

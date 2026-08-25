@@ -25,6 +25,26 @@ export function isVisionNotSupportedError(message: string): boolean {
   return VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(message));
 }
 
+// Provider prose from server-side chat-template renderers that failed to
+// serialize the request into the model's prompt format. Emitted by
+// vLLM/Jinja-style template engines behind OpenAI-compatible endpoints, e.g.
+// Together serving MiniMax M3: "Failed to apply chat template: invalid
+// operation: object is not callable (in chat:22)".
+export const CHAT_TEMPLATE_FAILURE_PATTERNS = [
+  /appl\w* (?:the )?chat[ _-]?template/i,
+  /chat[ _-]?template (?:error|render)/i,
+];
+
+/**
+ * Whether a provider error message indicates the endpoint's server-side chat
+ * template failed to render the request. These endpoints typically only
+ * handle plain-string message content, so structured shapes (content-parts
+ * arrays, tool payloads) are what trip the renderer.
+ */
+export function isChatTemplateFailureError(message: string): boolean {
+  return CHAT_TEMPLATE_FAILURE_PATTERNS.some((re) => re.test(message));
+}
+
 // Vendor-neutral (OpenRouter/Anthropic-style) credit-exhaustion prose. Also
 // covers per-key spend caps: OpenRouter returns 403 "Key limit exceeded" when a
 // key's configured credit limit is reached — a billing/budget condition that

@@ -61,8 +61,8 @@ describe("getModelProfiles", () => {
 
     const result = listProfiles();
     // The code-catalog defaults are always present; the two workspace
-    // entries shadow their catalog counterparts, and the remaining catalog
-    // default sorts after the explicit order.
+    // entries shadow their catalog counterparts, and managed backups remain
+    // internal fallback routes rather than picker options.
     expect(result.map((p) => p.key)).toEqual([
       "balanced",
       "quality-optimized",

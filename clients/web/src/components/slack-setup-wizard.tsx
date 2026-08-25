@@ -11,6 +11,7 @@ import { SlackSetupOpenStep } from "@/components/slack-setup-open-step";
 import { SlackSetupTokensStep } from "@/components/slack-setup-tokens-step";
 import { useChannelSetupSteps } from "@/hooks/use-channel-setup-steps";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { buildSlackManifest } from "@/utils/slack-manifest";
 
@@ -25,13 +26,6 @@ const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
 const WIZARD_STEP_IDS = ["name", "open", "create", "connect"] as const;
 export type SlackSetupStepId = (typeof WIZARD_STEP_IDS)[number];
-
-const WIZARD_STEPS: StepperStep[] = [
-  { id: "name", label: "Name" },
-  { id: "open", label: "Open" },
-  { id: "create", label: "Create" },
-  { id: "connect", label: "Connect" },
-];
 
 export interface SlackSetupWizardProps {
   assistantName: string;
@@ -56,6 +50,16 @@ export function SlackSetupWizard({
   saveStatus = "idle",
   saveError = null,
 }: SlackSetupWizardProps) {
+  const { t } = useTranslation();
+  const WIZARD_STEPS: StepperStep[] = useMemo(
+    () => [
+      { id: "name", label: t("slackSetupWizard.stepName") },
+      { id: "open", label: t("slackSetupWizard.stepOpen") },
+      { id: "create", label: t("slackSetupWizard.stepCreate") },
+      { id: "connect", label: t("slackSetupWizard.stepConnect") },
+    ],
+    [t],
+  );
   const { stepId, stepIndex, goTo, onStepSelect } =
     useChannelSetupSteps(WIZARD_STEP_IDS);
   const [slackAppName, setSlackAppName] = useState(assistantName);
@@ -91,8 +95,7 @@ export function SlackSetupWizard({
   }, [saveStatus]);
 
   const { copy, copied } = useCopyToClipboard({
-    errorMessage:
-      "Could not copy the manifest. Copy it again before continuing.",
+    errorMessage: t("slackSetupWizard.copyError"),
   });
 
   const manifestJson = useMemo(
@@ -131,7 +134,7 @@ export function SlackSetupWizard({
 
   return (
     <ChannelSetupWizard
-      channelLabel="Slack"
+      channelLabel={t("slackSetupWizard.channelLabel")}
       steps={WIZARD_STEPS}
       stepIndex={stepIndex}
       onStepSelect={onStepSelect}

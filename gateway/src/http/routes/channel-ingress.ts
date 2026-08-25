@@ -20,6 +20,7 @@ import {
   resolvePluginIngress,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
+import type { IngressVerification } from "../../channels/ingress-verification.js";
 import {
   pluginWebhookPath,
   type IngressRoute,
@@ -45,6 +46,29 @@ const ApproveBodySchema = ApproveChannelIngressRequestSchema;
 // ---------------------------------------------------------------------------
 // GET /v1/channel-ingress: what has been declared, and what is being served
 // ---------------------------------------------------------------------------
+
+/**
+ * The parts of a declared scheme a guardian listing can show.
+ *
+ * HMAC names its own algorithm and header. Standard Webhooks always signs
+ * with sha256 and always presents the digest in `webhook-signature`, so
+ * those values are filled in rather than stored on the descriptor.
+ */
+function verificationView(verification: IngressVerification): {
+  algorithm: string;
+  signatureHeader: string;
+} {
+  if (verification.kind === "standard-webhooks") {
+    return {
+      algorithm: "sha256",
+      signatureHeader: "webhook-signature",
+    };
+  }
+  return {
+    algorithm: verification.algorithm,
+    signatureHeader: verification.signature.header,
+  };
+}
 
 /**
  * One route, as the guardian needs to read it.
@@ -91,10 +115,7 @@ function routeView(
           "webhook_secret",
         ),
     verification: route.verification
-      ? {
-          algorithm: route.verification.algorithm,
-          signatureHeader: route.verification.signature.header,
-        }
+      ? verificationView(route.verification)
       : undefined,
   };
 }

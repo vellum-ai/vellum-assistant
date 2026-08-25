@@ -2,6 +2,7 @@ import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
 import { restartAssistant } from "@/assistant/api";
+import { useTranslation } from "@/i18n";
 import { isCliWakeableAssistant } from "@/lib/local-mode";
 import {
   isLocalModeHostAvailable,
@@ -14,19 +15,21 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 async function restartLocalAssistant(
   assistantId: string,
+  failStop: string,
+  failStart: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const sleepResult = await sleepLocalAssistantHost(assistantId);
   if (!sleepResult.ok) {
     return {
       ok: false,
-      error: sleepResult.error ?? "Failed to stop assistant.",
+      error: sleepResult.error ?? failStop,
     };
   }
   const wakeResult = await wakeLocalAssistantHost(assistantId);
   if (!wakeResult.ok) {
     return {
       ok: false,
-      error: wakeResult.error ?? "Failed to start assistant.",
+      error: wakeResult.error ?? failStart,
     };
   }
   return { ok: true };
@@ -39,6 +42,7 @@ export function RestartAssistant({
   assistantId: string;
   isLocal: boolean;
 }) {
+  const { t } = useTranslation("settings");
   const [restarting, setRestarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -57,26 +61,30 @@ export function RestartAssistant({
         isCliWakeableAssistant(assistantId);
 
       if (isCli) {
-        const result = await restartLocalAssistant(assistantId);
+        const result = await restartLocalAssistant(
+          assistantId,
+          t("restartAssistant.failStop"),
+          t("restartAssistant.failStart"),
+        );
         if (result.ok) {
-          toast.success("Assistant is restarting.");
+          toast.success(t("restartAssistant.toastRestarting"));
         } else {
-          toast.error(result.error ?? "Failed to restart assistant.");
+          toast.error(result.error ?? t("restartAssistant.toastFailed"));
         }
       } else {
         const result = await restartAssistant(assistantId);
         if (result.ok) {
-          toast.success("Assistant is restarting.");
+          toast.success(t("restartAssistant.toastRestarting"));
         } else {
           const detail =
             typeof result.error?.detail === "string"
               ? result.error.detail
-              : "Failed to restart assistant.";
+              : t("restartAssistant.toastFailed");
           toast.error(detail);
         }
       }
     } catch {
-      toast.error("Failed to restart assistant.");
+      toast.error(t("restartAssistant.toastFailed"));
     } finally {
       setRestarting(false);
     }
@@ -93,13 +101,13 @@ export function RestartAssistant({
         disabled={restarting}
         className="shrink-0"
       >
-        Restart
+        {t("restartAssistant.button")}
       </Button>
       <ConfirmDialog
         open={confirmOpen}
-        title="Restart Assistant"
-        message="Are you sure you want to restart this assistant? It will be briefly unavailable during the restart."
-        confirmLabel="Restart"
+        title={t("restartAssistant.confirmTitle")}
+        message={t("restartAssistant.confirmMessage")}
+        confirmLabel={t("restartAssistant.confirmLabel")}
         onConfirm={handleRestart}
         onCancel={() => setConfirmOpen(false)}
       />

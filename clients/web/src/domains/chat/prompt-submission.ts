@@ -20,6 +20,10 @@
  * ownership; the older one stands down when it returns.
  */
 
+import { type ParseKeys, t } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
+
+import type { SubmitSecretResponseResult } from "@/domains/chat/api/interactions";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 
@@ -86,16 +90,45 @@ export function stillOwnsSubmission(
  *
  * Releasing the slot is deliberately not routed through here. It belongs to the
  * request whatever else has happened.
+ *
+ * The message is a catalog key rather than a string, so what reaches the banner
+ * is copy written for this surface in the reader's language. An assistant's own
+ * rejection text describes a request the client built and cannot be passed
+ * here: it belongs in Sentry, where it names the mismatch.
  */
 export function reportSubmissionFailure(
   kind: PromptKind,
   requestId: string,
-  message: string,
+  messageKey: ParseKeys<"chat">,
 ): void {
   if (!ownsTheBanner(kind, requestId)) {
     return;
   }
-  useChatSessionStore.getState().setError({ message });
+  useChatSessionStore
+    .getState()
+    .setError({ message: t(messageKey, { ns: "chat" }) });
+}
+
+/**
+ * Record the assistant's rejection of a submission, which is a diagnostic
+ * rather than something to show: it describes a request the client built.
+ *
+ * A transport failure is not recorded at all. Being offline is not an
+ * application defect, and `transient` is what survives of the `TypeError`
+ * that `captureError`'s own filter keys on, since the API helpers catch it
+ * and flatten it into an ordinary failure.
+ */
+export function captureSubmissionRejection(
+  context: string,
+  result: Extract<SubmitSecretResponseResult, { ok: false }>,
+): void {
+  if (result.transient) {
+    return;
+  }
+  captureError(new Error(`${context}: ${result.error}`), {
+    context,
+    extra: { status: result.status },
+  });
 }
 
 /**

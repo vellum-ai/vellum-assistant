@@ -14,13 +14,13 @@
             }
           ],
           "glass": false,
-          "image-name": "white-V.svg",
-          "name": "white-V",
+          "image-name": "eyes.svg",
+          "name": "eyes",
           "position": {
-            "scale": 6,
+            "scale": 2.213,
             "translation-in-points": [
-              0,
-              25
+              61.33,
+              -14.21
             ]
           }
         }

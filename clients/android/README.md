@@ -51,12 +51,20 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-Launcher colors distinguish production, staging, and dev installs. The launch
-screen follows the saved app appearance, falling back to the Android light or
-dark setting until the web app has stored a preference. Android's app night
-mode keeps the OS splash and native overlay on the same theme. Android 11 and
-older skip the OS preview window so the themed native overlay is the first app
-frame.
+The launcher icon is the `quirky` eye pair from the avatar library in
+`assistant/src/avatar/character-components.ts`, the same design the iOS app
+icon uses. The six paths in `res/drawable/ic_launcher_foreground.xml` and in
+the pre-adaptive `res/mipmap-anydpi/ic_launcher*.xml` fallbacks are copied
+verbatim from that table and only repositioned by a VectorDrawable `<group>`,
+so the icon stays in sync with the in-app avatars. Launcher background colors
+distinguish production (`#4C9B50`, the avatar palette green), staging, and dev
+installs.
+
+The launch screen follows the saved app appearance, falling back to the Android
+light or dark setting until the web app has stored a preference. Android's app
+night mode keeps the OS splash and native overlay on the same theme. Android 11
+and older skip the OS preview window so the themed native overlay is the first
+app frame.
 
 ## HTTPS App Links
 

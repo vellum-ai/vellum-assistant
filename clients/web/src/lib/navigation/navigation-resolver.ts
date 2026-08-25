@@ -48,6 +48,11 @@ export interface NavigationState {
   consentHydrationTimedOut?: boolean;
   /** Whether the resolved assistants list reflects at least one authoritative load. */
   assistantsHydrated: boolean;
+  /**
+   * Whether any resolved assistant is already past first-run onboarding.
+   * Hatch age is the stored proxy (see `hasOnboardedAssistant`).
+   */
+  alreadyOnboarded: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +292,12 @@ export function resolveNavigation(
     case "hatch-gate":
       return resolveHatchGate(state);
     case "post-auth":
-      return resolvePostAuth(query.authIntent, query.returnTo, query.fallback);
+      return resolvePostAuth(
+        state,
+        query.authIntent,
+        query.returnTo,
+        query.fallback,
+      );
     case "post-retire":
       return resolvePostRetire(state);
   }
@@ -556,9 +566,7 @@ function enforceModeBoundary(
   // lockfile-driven picker, and the platform build hosts the hub chooser. The
   // non-local case falls through rather than allowing, so `requireConsent`
   // below still binds on this route; `requireAssistant` exempts it on purpose
-  // (see NO_ASSISTANT_EXEMPT_PATHS). The screen owns the assistant-switcher
-  // flag gate for platform-mode access, because the flag hydrates
-  // asynchronously and this resolver has no hydration signal.
+  // (see NO_ASSISTANT_EXEMPT_PATHS).
   if (path === routes.selectAssistant) {
     return state.isLocalClient ? localChooserDecision(state) : null;
   }
@@ -616,6 +624,25 @@ function allowSetupRoutes(
 
   if (!isOnboardingPath(path)) {
     return null;
+  }
+
+  // An already-onboarded assistant should not re-enter first-run privacy.
+  // Research stays reachable on demand (replay); only the automatic privacy
+  // entry is bounced. A paid hatch riding on `returnTo` is resumed so a
+  // purchased resize is not dropped.
+  if (path === routes.onboarding.privacy && state.alreadyOnboarded) {
+    const qIdx = pathnameWithSearch.indexOf("?");
+    const returnTo =
+      qIdx >= 0
+        ? new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).get(
+            "returnTo",
+          )
+        : null;
+    const paidReturn = postCheckoutHatchReturnTo(returnTo);
+    if (paidReturn) {
+      return { action: "redirect", to: paidReturn };
+    }
+    return { action: "redirect", to: routes.assistant };
   }
 
   return enforceFunnelConsent(state, path, pathnameWithSearch);
@@ -803,7 +830,7 @@ function resolveOnboardingIntercept(
   if (state.isLocalClient && state.hasAssistants) {
     return { action: "allow" };
   }
-  if (hasCompletedOnboarding(state)) {
+  if (hasCompletedOnboarding(state) || state.alreadyOnboarded) {
     return { action: "allow" };
   }
 
@@ -864,12 +891,46 @@ function isImportFunnelDestination(destination: string): boolean {
   );
 }
 
+function isOnboardingResearchPath(destination: string): boolean {
+  const path = extractPathname(destination);
+  const qIdx = path.indexOf("?");
+  const pathname = qIdx < 0 ? path : path.slice(0, qIdx);
+  return (
+    pathname === routes.onboarding.privacy ||
+    pathname === routes.onboarding.research
+  );
+}
+
 function resolvePostAuth(
+  state: NavigationState,
   authIntent: "login" | "signup",
   returnTo: string | null,
   fallback: string,
 ): NavigationDecision {
   const destination = sanitizeReturnTo(returnTo, fallback);
+  // The import funnel replaces onboarding: a signup that started on /import
+  // lands back there instead of the consent screen.
+  if (authIntent === "signup" && isImportFunnelDestination(destination)) {
+    return { action: "redirect", to: destination };
+  }
+
+  // An already-onboarded assistant skips first-run privacy and research.
+  // Treat the auth as a login so a pricing-CTA checkout stash is not marked
+  // for the privacy screen to consume. A paid hatch return keeps its
+  // destination so a purchased resize is not dropped.
+  if (state.alreadyOnboarded) {
+    const skipTarget = postCheckoutHatchReturnTo(destination)
+      ? destination
+      : isOnboardingResearchPath(destination)
+        ? fallback
+        : destination;
+    resolveSignupCheckoutDestination({
+      intent: "login",
+      returnTo: skipTarget,
+    });
+    return { action: "redirect", to: skipTarget };
+  }
+
   // The shared resolver stashes a pricing-CTA checkout package across signup,
   // discards a stale stash for any non-checkout auth, and picks the
   // destination (privacy for signup, the sanitized `returnTo` for login).
@@ -877,11 +938,6 @@ function resolvePostAuth(
     intent: authIntent,
     returnTo: destination,
   });
-  // The import funnel replaces onboarding: a signup that started on /import
-  // lands back there instead of the consent screen.
-  if (authIntent === "signup" && isImportFunnelDestination(destination)) {
-    return { action: "redirect", to: destination };
-  }
   return { action: "redirect", to: resolved };
 }
 

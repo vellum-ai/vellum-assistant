@@ -14,6 +14,7 @@
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { SttLanguagePicker } from "@/components/speech/stt-language-picker";
+import { useTranslation } from "@/i18n";
 
 export interface SttLanguagePickerModalProps {
   open: boolean;
@@ -38,6 +39,7 @@ export function SttLanguagePickerModal({
   selectLanguage,
   selecting,
 }: SttLanguagePickerModalProps) {
+  const { t } = useTranslation();
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content
@@ -60,7 +62,7 @@ export function SttLanguagePickerModal({
         <Modal.Header>
           <Modal.Title>{title}</Modal.Title>
           <Modal.Description>
-            Applies from your next spoken turn.
+            {t("sttLanguagePickerModal.description")}
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>

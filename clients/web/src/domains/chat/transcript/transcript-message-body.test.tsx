@@ -332,6 +332,7 @@ import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifa
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
 
@@ -760,6 +761,39 @@ describe("TranscriptMessageBody", () => {
 
     expect(queryByText("I will check that.")).not.toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("renders all activity inline when inline-assistant-intermediates is on", () => {
+    useClientFeatureFlagStore.setState({ inlineAssistantIntermediates: true });
+    try {
+      const { queryByRole, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "inline-response",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("I will check that."),
+              toolUseBlock({
+                id: "tc-check",
+                name: "bash",
+                input: {},
+                completedAt: 1,
+              }),
+              textBlock("Here is the final answer."),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("I will check that.")).not.toBeNull();
+      expect(queryByText("Here is the final answer.")).not.toBeNull();
+    } finally {
+      useClientFeatureFlagStore.setState({
+        inlineAssistantIntermediates: false,
+      });
+    }
   });
 
   test("renders the answered question card for a settled ask_question", () => {

@@ -267,6 +267,32 @@ describe("list", () => {
     });
   });
 
+  it("summarises a Standard Webhooks declaration the same way", async () => {
+    writePlugin("meeting-bot", [
+      {
+        path: "events-linq",
+        kind: "http",
+        description: "inbound",
+        verification: {
+          kind: "standard-webhooks",
+          secret: { field: "linq_webhook_secret" },
+        },
+      },
+    ]);
+
+    const body = (await (await list()).json()) as {
+      sources: { routes: Record<string, unknown>[] }[];
+    };
+
+    expect(body.sources[0]!.routes[0]).toMatchObject({
+      credential: "credential/meeting-bot/linq_webhook_secret",
+      verification: {
+        algorithm: "sha256",
+        signatureHeader: "webhook-signature",
+      },
+    });
+  });
+
   it("reports an approved declaration as approved", async () => {
     writePlugin("meeting-bot");
     approvePluginIngress({

@@ -164,6 +164,62 @@ describe("UsageTrackingProvider", () => {
     });
   });
 
+  test("attributes a fallback-served response to the stamped backup profile", async () => {
+    // RetryProvider's fallback escalation stamps `actualProvider` and
+    // `actualInferenceProfile` on the response it serves from the backup
+    // route. The usage event must follow those stamps, not the original
+    // request options, which still carry the failed primary's resolution.
+    setLlmConfig({
+      profiles: {
+        balanced: {
+          provider: "openai",
+          model: "gpt-5.4-mini",
+        },
+        "backup-profile": {
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+        },
+      },
+      activeProfile: "balanced",
+      callSites: {
+        conversationTitle: { profile: "balanced" },
+      },
+      pricingOverrides: [],
+    });
+
+    const provider = new UsageTrackingProvider(
+      makeProvider({
+        content: [{ type: "text", text: "Title" }],
+        model: "claude-sonnet-4-5",
+        actualProvider: "anthropic",
+        actualInferenceProfile: "backup-profile",
+        usage: {
+          inputTokens: 1_000,
+          outputTokens: 2_000,
+        },
+        stopReason: "end_turn",
+      }),
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
+      {
+        config: {
+          callSite: "conversationTitle",
+        },
+      },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      callSite: "conversationTitle",
+      inferenceProfile: "backup-profile",
+    });
+  });
+
   test("does not record calls without a call site", async () => {
     const provider = new UsageTrackingProvider(
       makeProvider({

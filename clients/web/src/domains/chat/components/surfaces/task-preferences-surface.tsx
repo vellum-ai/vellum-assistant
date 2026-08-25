@@ -1,5 +1,6 @@
 import { Check, MessageSquare } from "lucide-react";
 import { useRef, useState, type CSSProperties } from "react";
+import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
@@ -35,6 +36,7 @@ export function TaskPreferencesSurface({
   surface,
   onAction,
 }: TaskPreferencesSurfaceProps) {
+  const { t } = useTranslation("chat");
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
   const [otherSelected, setOtherSelected] = useState(false);
   const [otherText, setOtherText] = useState("");
@@ -94,10 +96,10 @@ export function TaskPreferencesSurface({
     <div className="flex flex-col gap-3 rounded-lg border border-[var(--border-element)] bg-[var(--surface-overlay)] p-4">
       <div className="flex flex-col gap-1">
         <div className="text-body-medium-default text-[var(--content-default)]">
-          {surface.title ?? "What can I help with?"}
+          {surface.title ?? t("taskPreferencesSurface.defaultTitle")}
         </div>
         <div className="text-label-small-default text-[color:var(--content-tertiary)]">
-          Select all that apply
+          {t("taskPreferencesSurface.selectAll")}
         </div>
       </div>
 
@@ -174,7 +176,7 @@ export function TaskPreferencesSurface({
                 onChange={(e) => setOtherText(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => e.stopPropagation()}
-                placeholder="Describe what you need help with..."
+                placeholder={t("taskPreferencesSurface.otherPlaceholder")}
                 className="w-full resize-none overflow-hidden bg-transparent text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
                 style={{ fieldSizing: "content" } as CSSProperties}
                 rows={1}
@@ -182,10 +184,10 @@ export function TaskPreferencesSurface({
             ) : (
               <div className="flex flex-col">
                 <div className="text-body-medium-default text-[var(--content-default)]">
-                  Other
+                  {t("taskPreferencesSurface.other")}
                 </div>
                 <div className="text-label-small-default text-[var(--content-tertiary)]">
-                  something else entirely
+                  {t("taskPreferencesSurface.somethingElse")}
                 </div>
               </div>
             )}
@@ -205,7 +207,7 @@ export function TaskPreferencesSurface({
         disabled={!canSubmit || isSubmitting}
         onClick={handleSubmit}
       >
-        Continue
+        {t("taskPreferencesSurface.continue")}
       </Button>
     </div>
   );

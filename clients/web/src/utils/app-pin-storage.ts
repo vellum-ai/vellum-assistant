@@ -1,6 +1,21 @@
-// Persist pinned-app state to localStorage so the SideMenu can show pinned
-// apps across page reloads. This mirrors the macOS AppListManager.swift
-// pattern: pin state is local-only, persisted to disk, survives daemon sync.
+/**
+ * LEGACY. The pre-daemon home for pinned apps, kept only for daemons that do
+ * not advertise the `appPins` capability. Nothing new should be built on it.
+ *
+ * One `vellum:pinnedApps` key serves the whole browser profile, with no
+ * assistant in it, which is the defect this module exists to preserve rather
+ * than fix: pins made under one assistant show up under another (LUM-3452).
+ * That is a daemon-side problem and an old daemon cannot be fixed from here, so
+ * this path deliberately behaves exactly as it always did.
+ *
+ * It is not a fallback for part of the feature. `usePinnedApps` chooses this
+ * module or the daemon wholesale, and both handle workspace and plugin apps
+ * alike; the split is which side stores the pin, never which kind of app.
+ *
+ * Delete this file, `lib/backwards-compat/daemon-app-pins.ts`, and
+ * `hooks/use-legacy-pin-migration.ts` together once every supported daemon
+ * advertises the capability. Nothing else may import it.
+ */
 
 import type { AppSummary } from "@/types/app-types";
 import { createStorageAccessor } from "@/utils/typed-storage";
@@ -72,6 +87,8 @@ const storage = createStorageAccessor<PinnedAppEntry[]>({
 export const loadPinnedApps = storage.load;
 export const savePinnedApps = storage.save;
 export const subscribePinnedApps = storage.subscribe;
+/** Drop the key entirely. Used by the migration that drains it. */
+export const removePinnedApps = storage.remove;
 
 export function pinApp(app: PinnableApp): void {
   const entries = storage.load();

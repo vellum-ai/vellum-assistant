@@ -80,6 +80,12 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds duri
 - Verify `services.tts.providers.elevenlabs.voiceId` is set to a valid ElevenLabs voice ID
 - Ask for the desired voice style again and try a different voice selection
 
+## Inbound call asks for a name or says "I don't recognize this number"
+
+This is the Phone channel trust floor, not a Twilio or webhook failure. The call reached the assistant. Phone defaults to **Verified contacts**, so unknown callers hear that greeting and you get an access request instead of a normal conversation.
+
+Load `twilio-setup` and follow its Channel Trust Floors section. Change **Who can message** on **Channels → Phone**, or verify the caller, rather than retuning ingress.
+
 ## Twilio says "application error" right after answer
 
 - This often means the voice webhook failed or returned invalid TwiML, or the media-stream WebSocket could not connect

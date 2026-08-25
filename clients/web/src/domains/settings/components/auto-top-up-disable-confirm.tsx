@@ -26,8 +26,12 @@ export function AutoTopUpDisableConfirm({
       open={open}
       title={t("autoTopUpDisableConfirm.title")}
       message={t("autoTopUpDisableConfirm.message")}
-      confirmLabel={confirming ? "Disabling…" : "Disable"}
-      cancelLabel="Keep enabled"
+      confirmLabel={
+        confirming
+          ? t("autoTopUpDisableConfirm.disabling")
+          : t("autoTopUpDisableConfirm.disable")
+      }
+      cancelLabel={t("autoTopUpDisableConfirm.keepEnabled")}
       destructive
       onConfirm={onConfirm}
       onCancel={onCancel}

@@ -3,6 +3,7 @@
  * Thin wrapper around ConfirmDialog with destructive styling.
  */
 
+import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import { ConfirmDialog } from "@vellumai/design-library";
 
@@ -19,12 +20,21 @@ export function DeleteAppDialog({
   onConfirm,
   onCancel,
 }: DeleteAppDialogProps) {
+  const { t } = useTranslation();
   return (
     <ConfirmDialog
       open={app !== null}
-      title="Delete app"
-      message={app ? `"${app.name}" will be permanently removed.` : ""}
-      confirmLabel={isDeleting ? "Deleting…" : "Delete"}
+      title={t("deleteAppDialog.title")}
+      message={
+        app
+          ? t("deleteAppDialog.message", { name: app.name })
+          : ""
+      }
+      confirmLabel={
+        isDeleting
+          ? t("deleteAppDialog.deleting")
+          : t("deleteAppDialog.delete")
+      }
       destructive
       onConfirm={onConfirm}
       onCancel={onCancel}

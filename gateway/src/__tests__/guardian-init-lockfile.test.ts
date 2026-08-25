@@ -792,6 +792,24 @@ describe("guardian/init bare-metal loopback gating", () => {
 });
 
 describe("guardian/init request validation", () => {
+  test("accepts Windows bootstrap requests", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "windows",
+          deviceId: "windows-device",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.accessToken).toBeTruthy();
+  });
+
   test("rejects missing platform", async () => {
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(

@@ -30,6 +30,10 @@ import {
 } from "@vellumai/electron-desktop/quick-input-window";
 
 import { getRendererBase } from "../app-config";
+import {
+  installEscapeMonitor,
+  setDictationRecording,
+} from "../escape-monitor";
 import { handle, on } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
@@ -73,9 +77,10 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
     });
     configurePopoutWindows({ createWindow, handle, resolveRoute });
 
+    installEscapeMonitor();
     installCommandPaletteWindow();
     installQuickInput();
-    installDictationOverlay();
+    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installPopoutWindows();
 
     if (!globalShortcut.register("Control+Shift+/", toggleQuickInput)) {

@@ -78,6 +78,8 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>VellumAppGroupId</key>
+	<string>$(APP_GROUP_ID)</string>
 	<key>VellumAssociatedDomain</key>
 	<string>$(ASSOCIATED_DOMAIN)</string>
 </dict>

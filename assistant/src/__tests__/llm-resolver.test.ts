@@ -303,6 +303,26 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("high");
   });
 
+  test("a winning profile's fallbackProfile metadata never leaks into the resolved config", () => {
+    const llm = LLMSchema.parse({
+      defaultProvider: { provider: "vellum" },
+      profiles: {
+        "quality-optimized": {
+          source: "managed",
+          fallbackProfile: "quality-optimized-backup",
+        },
+      },
+      callSites: {
+        memoryExtraction: { profile: "quality-optimized" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.model).toBe("gpt-5.6-sol");
+    // `fallbackProfile` is ProfileEntry-only metadata, absent from
+    // `LLMConfigBase`; the resolved config must not carry the key at all.
+    expect(Object.hasOwn(resolved, "fallbackProfile")).toBe(false);
+  });
+
   test("topP defaults to null when no profile or override sets it", () => {
     const llm = LLMSchema.parse({});
     const resolved = resolveCallSiteConfig("mainAgent", llm);

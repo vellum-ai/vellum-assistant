@@ -148,6 +148,28 @@ export interface ConversationListState {
    * removed once applied and on reset.
    */
   pendingDraftPlugins: Map<string, Set<string>>;
+  /**
+   * The conversation the companion surface's composer is talking to, or null
+   * when it has not sent anything.
+   *
+   * Type on the companion surface is one thread for as long as the card is
+   * open: the first message starts a conversation and every follow-up
+   * continues it. The surface itself never learns a conversation id, it says
+   * only whether it is starting one or continuing it, so the id is minted here
+   * (`root-layout`) and held here between the two.
+   *
+   * Its own slot rather than `activeConversationId`, because the two come
+   * apart: pressing the avatar brings the app forward with the card still
+   * open, and picking a different thread there moves the app's selection
+   * somewhere the card's conversation is not.
+   *
+   * Kept in step with the draft resolution by
+   * {@link ConversationListActions.resolveCompanionDraftConversationId}: the
+   * first message goes to a client-minted draft id that the send swaps for the
+   * id the server assigns, and a slot left on the draft points at a
+   * conversation that does not exist.
+   */
+  companionConversationId: string | null;
 }
 
 export interface ConversationListActions {
@@ -210,6 +232,17 @@ export interface ConversationListActions {
   /** Remove the stash for a single conversation id (no-op when absent). */
   clearPendingDraftPlugins: (conversationId: string) => void;
 
+  // --- Companion surface conversation ---
+  setCompanionConversationId: (conversationId: string | null) => void;
+  /**
+   * Follow the companion's conversation through a draft to server-id
+   * resolution (no-op unless the draft being resolved is its own).
+   */
+  resolveCompanionDraftConversationId: (
+    oldConversationId: string,
+    newConversationId: string,
+  ) => void;
+
   // --- Compound ---
   graduateProcessingConversationId: (
     conversationId: string,
@@ -231,6 +264,7 @@ const INITIAL_STATE: ConversationListState = {
   draftConversationIds: new Set(),
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
+  companionConversationId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -431,6 +465,25 @@ export const useConversationStore = createSelectors(
       const next = new Map(current);
       next.delete(conversationId);
       set({ pendingDraftPlugins: next });
+    },
+
+    // --- Companion surface conversation ---
+
+    setCompanionConversationId: (conversationId) => {
+      set({ companionConversationId: conversationId });
+    },
+
+    resolveCompanionDraftConversationId: (
+      oldConversationId,
+      newConversationId,
+    ) => {
+      // Every send in the app resolves its own draft and only one of them is
+      // ever the composer's, so a resolution for any other conversation leaves
+      // this alone.
+      if (get().companionConversationId !== oldConversationId) {
+        return;
+      }
+      set({ companionConversationId: newConversationId });
     },
 
     // --- Compound ---

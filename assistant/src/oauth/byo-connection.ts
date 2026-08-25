@@ -14,6 +14,7 @@ import type {
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "./connection.js";
+import { decodeOAuthResponseBytes } from "./connection.js";
 
 const log = getLogger("byo-oauth-connection");
 
@@ -80,10 +81,17 @@ export class BYOOAuthConnection implements OAuthConnection {
           "Making authenticated request",
         );
 
+        // A string body is already in its wire form (multipart, XML,
+        // form-encoded, or pre-serialized JSON) and travels verbatim under
+        // the caller's own Content-Type. Objects and arrays are serialized
+        // as JSON and get the JSON Content-Type by default.
+        const hasBody = req.body !== undefined && req.body !== null;
+        const rawBody = typeof req.body === "string" ? req.body : undefined;
+
         // Use the Headers API for case-insensitive merging. Set defaults
         // first so caller-supplied headers (in any casing) override them.
         const headers = new Headers();
-        if (req.body) {
+        if (hasBody && rawBody === undefined) {
           headers.set("Content-Type", "application/json");
         }
         if (req.headers) {
@@ -98,7 +106,7 @@ export class BYOOAuthConnection implements OAuthConnection {
         const resp = await fetch(fullUrl, {
           method: req.method,
           headers,
-          body: req.body ? JSON.stringify(req.body) : undefined,
+          body: hasBody ? (rawBody ?? JSON.stringify(req.body)) : undefined,
           signal: req.signal
             ? AbortSignal.any([
                 req.signal,
@@ -150,17 +158,10 @@ async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {
     headers[key] = value;
   });
 
-  let body: unknown;
-  const text = await resp.text().catch(() => "");
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-  } else {
-    body = null;
-  }
-
-  return { status: resp.status, headers, body };
+  const raw = Buffer.from(await resp.arrayBuffer());
+  return {
+    status: resp.status,
+    headers,
+    body: decodeOAuthResponseBytes(raw, headers["content-type"] ?? ""),
+  };
 }

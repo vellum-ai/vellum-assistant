@@ -16,6 +16,15 @@ export function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   );
 }
 
+/** Whether `content` carries nothing a provider can serialize: no blocks, or only blank text. */
+export function isEffectivelyEmptyContent(
+  content: ReadonlyArray<ContentBlock>,
+): boolean {
+  return content.every(
+    (block) => block.type === "text" && block.text.trim().length === 0,
+  );
+}
+
 /** Whether `content` carries at least one tool call. */
 export function hasToolUse(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some((block) => block.type === "tool_use");

@@ -834,8 +834,8 @@ describe("Anthropic models on OpenRouter", () => {
     });
 
     expect(result.pricingStatus).toBe("priced");
-    // 0.05M x $0.1 direct + 0.05M x $0.125 write + 0.05M x $0.01 read
-    expect(result.estimatedCostUsd).toBeCloseTo(0.005 + 0.00625 + 0.0005, 10);
+    // 0.05M x $0.2 direct + 0.05M x $0.25 write + 0.05M x $0.02 read
+    expect(result.estimatedCostUsd).toBeCloseTo(0.01 + 0.0125 + 0.001, 10);
   });
 
   test("returns unpriced for unknown non-Anthropic OpenRouter model", () => {

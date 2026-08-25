@@ -462,6 +462,103 @@ describe("conversation-title-service", () => {
     expect(result).toEqual({ title: "Existing Title", updated: false });
   });
 
+  test.each([
+    ["an image-only prompt", ""],
+    ["a whitespace-only prompt", "   \n  "],
+    ["a thinking-tags-only prompt", "<thinking>untitled</thinking>"],
+  ])(
+    "keeps a background job's deterministic title through %s",
+    async (_label, userMessage) => {
+      // A background conversation carries a deterministic bootstrap title
+      // naming its job. A follow-up with no text to title from must leave it
+      // alone rather than have the model invent an unrelated topic.
+      mockGetConversation.mockImplementation(() => ({
+        title: "Memory consolidation",
+        isAutoTitle: AUTO_TITLE_DETERMINISTIC,
+      }));
+
+      const provider = makeProvider();
+
+      const result = await generateAndPersistConversationTitle({
+        conversationId: "conv-1",
+        provider,
+        userMessage,
+      });
+
+      expect(provider.sendMessage).not.toHaveBeenCalled();
+      expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+      expect(mockPublishConversationTitleChanged).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        title: "Memory consolidation",
+        updated: false,
+      });
+    },
+  );
+
+  test("replaces the loading placeholder when a prompt has no text", async () => {
+    // Same skipped LLM call, but a conversation still on the loading
+    // placeholder has no title worth keeping, so it settles on a
+    // deterministic one the stop hook can still upgrade.
+    const provider = makeProvider();
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "",
+    });
+
+    expect(provider.sendMessage).not.toHaveBeenCalled();
+    expect(result).toEqual({ title: "Untitled Conversation", updated: true });
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      "Untitled Conversation",
+      AUTO_TITLE_DETERMINISTIC,
+    );
+  });
+
+  test("keeps a background job's deterministic title when the model declines", async () => {
+    // The model answered with prose the normalizer rejects, so there is no
+    // generated title. Settling for "Untitled Conversation" would name the
+    // job's work less well than the bootstrap title already does.
+    mockGetConversation.mockImplementation(() => ({
+      title: "Memory consolidation",
+      isAutoTitle: AUTO_TITLE_DETERMINISTIC,
+    }));
+
+    const provider = makeProvider(async () =>
+      textResponse("I need to generate a title for this conversation"),
+    );
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "what did you consolidate?",
+    });
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+    expect(result).toEqual({ title: "Memory consolidation", updated: false });
+  });
+
+  test("still generates when only creation metadata describes the topic", async () => {
+    // Voice call sites pass context hints and no user message. Those carry a
+    // topic, so the skip must not swallow them.
+    const provider = makeProvider(async () => toolResponse("Inbound Call"));
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      context: {
+        origin: "voice_inbound",
+        sourceChannel: "phone",
+        systemHint: "Inbound call",
+      },
+    });
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ title: "Inbound Call", updated: true });
+  });
+
   test("title prompt content does not contain generation instructions", async () => {
     const provider = makeProvider();
 

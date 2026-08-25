@@ -56,6 +56,7 @@ const payloadlessCommandKindSchema = z.enum([
   "newConversation",
   "currentConversation",
   "markCurrentUnread",
+  "togglePinConversation",
   "openSettings",
   "shareFeedback",
   "find",

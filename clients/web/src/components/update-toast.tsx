@@ -2,6 +2,7 @@ import { CircleCheck, Download, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { ProgressBar, toast } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 import {
   getUpdateState,
@@ -20,6 +21,7 @@ function UpdateToastContent({
   state: UpdateState;
   toastId: string | number;
 }) {
+  const { t } = useTranslation();
   const percent = Math.round(state.progress?.percent ?? 0);
   const isDownloaded = state.status === "downloaded";
 
@@ -48,14 +50,16 @@ function UpdateToastContent({
       <div className="min-w-0 flex-1 space-y-2">
         {state.status === "available" && (
           <p className="text-body-medium-default">
-            Update available. Starting download…
+            {t("updateToast.available")}
           </p>
         )}
 
         {state.status === "downloading" && (
           <>
             <div className="flex items-center justify-between">
-              <p className="text-body-medium-default">Downloading update…</p>
+              <p className="text-body-medium-default">
+                {t("updateToast.downloading")}
+              </p>
               <span className="text-body-small-default tabular-nums opacity-70">
                 {percent}%
               </span>
@@ -67,14 +71,16 @@ function UpdateToastContent({
         {state.status === "downloaded" && (
           <>
             <p className="text-body-medium-default">
-              Vellum {state.version ?? "update"} is ready.
+              {t("updateToast.ready", {
+                version: state.version ?? t("updateToast.versionFallback"),
+              })}
             </p>
             <button
               type="button"
               onClick={() => void installUpdate()}
               className="cursor-pointer bg-transparent text-body-small-default underline underline-offset-2 hover:no-underline"
             >
-              Restart to install
+              {t("updateToast.restartToInstall")}
             </button>
           </>
         )}
@@ -83,7 +89,7 @@ function UpdateToastContent({
       <button
         type="button"
         onClick={() => toast.dismiss(toastId)}
-        aria-label="Close"
+        aria-label={t("updateToast.closeAriaLabel")}
         className="shrink-0 cursor-pointer rounded bg-transparent p-0.5 opacity-50 transition-opacity hover:opacity-100"
       >
         <X className="h-3.5 w-3.5" strokeWidth={2} />

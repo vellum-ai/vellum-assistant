@@ -7,6 +7,7 @@ import {
   canonicalVerification,
   IngressVerificationSchema,
   MAX_FRESHNESS_TOLERANCE_SECONDS,
+  STANDARD_WEBHOOKS_TOLERANCE_SECONDS,
   verifyDeclaredSignature,
   type IngressVerification,
 } from "./ingress-verification.js";
@@ -20,6 +21,11 @@ const BODY_ONLY: IngressVerification = {
   secret: { field: "comms_webhook_secret" },
   signature: { header: "X-Osis-Signature", encoding: "hex", prefix: "sha256=" },
   payload: ["body"],
+};
+
+const STANDARD_WEBHOOKS: IngressVerification = {
+  kind: "standard-webhooks",
+  secret: { field: "linq_webhook_secret" },
 };
 
 const TIMESTAMPED: IngressVerification = {
@@ -75,6 +81,9 @@ describe("the descriptor schema", () => {
   it("accepts the shapes the shipped plugins declare", () => {
     expect(IngressVerificationSchema.safeParse(BODY_ONLY).success).toBe(true);
     expect(IngressVerificationSchema.safeParse(TIMESTAMPED).success).toBe(true);
+    expect(IngressVerificationSchema.safeParse(STANDARD_WEBHOOKS).success).toBe(
+      true,
+    );
   });
 
   it("rejects an unknown kind rather than falling back to a default", () => {
@@ -397,5 +406,115 @@ describe("canonicalVerification", () => {
     expect(canonicalVerification(forward)).not.toBe(
       canonicalVerification(reversed),
     );
+  });
+});
+
+describe("standard-webhooks verification", () => {
+  const KEY_BYTES = Buffer.from("standard-webhooks-test-key-bytes!!");
+  const WHSEC = `whsec_${KEY_BYTES.toString("base64")}`;
+  const MSG_ID = "msg_01JABC";
+  const TS = String(Math.floor(NOW_MS / 1000));
+  const BODY = '{"event_type":"message.received"}';
+
+  function sign(
+    body: string,
+    opts: { id?: string; timestamp?: string; key?: Buffer } = {},
+  ): string {
+    const id = opts.id ?? MSG_ID;
+    const timestamp = opts.timestamp ?? TS;
+    const key = opts.key ?? KEY_BYTES;
+    const digest = createHmac("sha256", key)
+      .update(`${id}.${timestamp}.${body}`, "utf8")
+      .digest("base64");
+    return `v1,${digest}`;
+  }
+
+  function headers(
+    signature: string,
+    extra: Record<string, string> = {},
+  ): Record<string, string> {
+    return {
+      "webhook-id": MSG_ID,
+      "webhook-timestamp": TS,
+      "webhook-signature": signature,
+      ...extra,
+    };
+  }
+
+  it("accepts a delivery signed the spec's way", () => {
+    expect(
+      verify(STANDARD_WEBHOOKS, headers(sign(BODY)), BODY, { secret: WHSEC }),
+    ).toEqual({ ok: true });
+  });
+
+  it("decodes a secret stored without the whsec_ prefix", () => {
+    expect(
+      verify(STANDARD_WEBHOOKS, headers(sign(BODY)), BODY, {
+        secret: KEY_BYTES.toString("base64"),
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it("accepts any matching v1 signature when several are presented", () => {
+    const other = createHmac("sha256", Buffer.from("other-key"))
+      .update("x")
+      .digest("base64");
+    const presented = `v1,${other} ${sign(BODY)}`;
+    expect(
+      verify(STANDARD_WEBHOOKS, headers(presented), BODY, { secret: WHSEC }),
+    ).toEqual({ ok: true });
+  });
+
+  it("covers the bytes as received, not a reserialization", () => {
+    expect(
+      verify(STANDARD_WEBHOOKS, headers(sign('{"a":1}')), '{ "a" : 1 }', {
+        secret: WHSEC,
+      }),
+    ).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("rejects a stale timestamp", () => {
+    const stale = String(
+      Math.floor(NOW_MS / 1000) - STANDARD_WEBHOOKS_TOLERANCE_SECONDS - 1,
+    );
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        headers(sign(BODY, { timestamp: stale }), {
+          "webhook-timestamp": stale,
+        }),
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: false, reason: "stale_timestamp" });
+  });
+
+  it("rejects a header with no v1 signature as malformed", () => {
+    expect(
+      verify(STANDARD_WEBHOOKS, headers("v2,abcd"), BODY, { secret: WHSEC }),
+    ).toEqual({ ok: false, reason: "malformed_signature" });
+  });
+
+  it("rejects a missing webhook-id as a missing payload header", () => {
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "webhook-timestamp": TS,
+          "webhook-signature": sign(BODY),
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: false, reason: "missing_payload_header" });
+  });
+
+  it("changes the digest when the secret field changes", () => {
+    expect(
+      canonicalVerification({
+        ...STANDARD_WEBHOOKS,
+        secret: { field: "other_secret" },
+      }),
+    ).not.toBe(canonicalVerification(STANDARD_WEBHOOKS));
   });
 });
