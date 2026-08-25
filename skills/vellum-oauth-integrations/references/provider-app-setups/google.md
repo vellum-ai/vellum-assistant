@@ -171,7 +171,7 @@ Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 
 Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
 
-On macOS desktop, before proceeding, copy the comma-separated scope string below to the user's clipboard using `pbcopy`. On Windows, present the scope string for the user to copy instead of invoking a macOS clipboard command.
+On macOS desktop, before proceeding, copy the comma-separated scope string below to the user's clipboard using `pbcopy`.
 
 > I've opened **Data Access**.
 >
@@ -226,7 +226,7 @@ Google-specific override for desktop apps:
 2. Register the OAuth app normally via `assistant oauth apps upsert`.
 3. For authorization, do **not** use the default browser behavior.
 4. Instead, run `assistant oauth connect google --no-browser` so the command returns the authorization URL.
-5. On macOS, open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill. On Windows, give the URL to the user to open in their signed-in browser.
+5. Open that returned authorization URL the same way as every other `Open:` step in this skill.
 6. Never use browser automation or computer-use for the Google consent screen.
 
 > I'll start the Google authorization flow now.

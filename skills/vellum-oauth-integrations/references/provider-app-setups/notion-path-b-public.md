@@ -46,12 +46,12 @@ Determine the correct redirect URI based on the channel:
 On macOS, copy the resolved redirect URI to the clipboard:
 
 ```
-
-On Windows, present the redirect URI for the user to copy instead of invoking `pbcopy`.
 host_bash:
   command: |
     echo -n "<resolved redirect URI>" | pbcopy
 ```
+
+On Windows, present the redirect URI for the user to copy instead of invoking `pbcopy`.
 
 Guide the user to the **Distribution** tab to paste the redirect URI and save.
 

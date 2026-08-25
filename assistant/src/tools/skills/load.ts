@@ -217,7 +217,7 @@ export const skillLoadTool = {
 
     if (!isSkillCompatibleWithPlatform(skill)) {
       return {
-        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill.platforms ?? [])}`,
+        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
         isError: true,
       };
     }

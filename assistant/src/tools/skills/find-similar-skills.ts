@@ -5,7 +5,6 @@ import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import {
   filterSkillsByPlatform,
-  isSkillCompatibleWithPlatform,
   type SkillPlatform,
 } from "../../skills/platform-compatibility.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
@@ -119,9 +118,6 @@ export async function executeFindSimilarSkills(
     // skills, but re-check so a shortlist source that ignores the catalog seam
     // still cannot leak one.
     if (outOfScope(skill)) {
-      continue;
-    }
-    if (!isSkillCompatibleWithPlatform(skill)) {
       continue;
     }
     enriched.push({

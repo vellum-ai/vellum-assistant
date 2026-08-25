@@ -1232,20 +1232,17 @@ export async function installSkill(spec: {
     // Bundled skills are already available — no install needed
     const catalog = loadSkillCatalog();
 
-    // Feature flag gate: reject install if the skill's flag is disabled
+    // Reject install if the skill is unsupported on this host or its flag is disabled
     const config = getConfig();
-    const flaggedSkill = catalog.find((s) => s.id === spec.slug);
-    if (flaggedSkill) {
-      if (!isSkillCompatibleWithPlatform(flaggedSkill)) {
+    const catalogSkill = catalog.find((s) => s.id === spec.slug);
+    if (catalogSkill) {
+      if (!isSkillCompatibleWithPlatform(catalogSkill)) {
         return {
           success: false,
-          error: skillPlatformUnavailableMessage(
-            spec.slug,
-            flaggedSkill.platforms ?? [],
-          ),
+          error: skillPlatformUnavailableMessage(spec.slug, catalogSkill),
         };
       }
-      const flagKey = skillFlagKey(flaggedSkill);
+      const flagKey = skillFlagKey(catalogSkill);
       if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
         return {
           success: false,
@@ -1294,10 +1291,7 @@ export async function installSkill(spec: {
           if (!isSkillCompatibleWithPlatform(catalogEntry)) {
             return {
               success: false,
-              error: skillPlatformUnavailableMessage(
-                spec.slug,
-                catalogEntry.platforms ?? [],
-              ),
+              error: skillPlatformUnavailableMessage(spec.slug, catalogEntry),
             };
           }
           // Default `overwrite` to true at the handler boundary to preserve

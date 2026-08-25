@@ -24,7 +24,6 @@ export function skillFlagKey(
 export function resolveSkillStates(
   catalog: SkillSummary[],
   config: AssistantConfig,
-  platform: NodeJS.Platform = process.platform,
 ): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
   const { entries, allowBundled } = config.skills ?? {
@@ -33,7 +32,7 @@ export function resolveSkillStates(
   };
 
   for (const skill of catalog) {
-    if (!isSkillCompatibleWithPlatform(skill, platform)) {
+    if (!isSkillCompatibleWithPlatform(skill)) {
       continue;
     }
 

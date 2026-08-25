@@ -59,7 +59,7 @@ export function filterSkillsByPlatform<T extends PlatformScopedSkill>(
 
 export function skillPlatformUnavailableMessage(
   skillId: string,
-  platforms: readonly SkillPlatform[],
+  skill: PlatformScopedSkill,
 ): string {
-  return `Skill "${skillId}" is unavailable on this operating system. Supported platforms: ${platforms.join(", ")}.`;
+  return `Skill "${skillId}" is unavailable on this operating system. Supported platforms: ${(skill.platforms ?? []).join(", ")}.`;
 }

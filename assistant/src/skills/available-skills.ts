@@ -83,7 +83,7 @@ export async function listInstalledSkills(): Promise<ResolvedSkillEntry[]> {
       activationHints: summary.activationHints,
       avoidWhen: summary.avoidWhen,
       alwaysCandidate: summary.alwaysCandidate,
-      ...(summary.platforms ? { platforms: summary.platforms } : {}),
+      platforms: summary.platforms,
       installed: true,
       source: summary.source,
       state: stateById.get(summary.id) ?? "unavailable",
@@ -128,7 +128,6 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       typeof flagKey === "string" &&
       flagKey.length > 0 &&
       !isAssistantFeatureFlagEnabled(flagKey, config);
-    const platforms = entry.platforms;
     const incompatible = !isSkillCompatibleWithPlatform(entry);
     return {
       id: entry.id,
@@ -136,7 +135,7 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       description: entry.description,
       activationHints: entry.metadata?.vellum?.["activation-hints"],
       avoidWhen: entry.metadata?.vellum?.["avoid-when"],
-      ...(platforms ? { platforms } : {}),
+      platforms: entry.platforms,
       installed: false,
       state: gated || incompatible ? "unavailable" : "available",
     };

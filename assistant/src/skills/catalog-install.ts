@@ -624,7 +624,8 @@ export async function resolveCatalog(
 /**
  * Attempt to find and install a skill from the first-party catalog.
  * Returns true if the skill was installed, false if not found in catalog.
- * Throws on install failures (network, filesystem, etc).
+ * Throws when the skill is unsupported on this host or on install failures
+ * (network, filesystem, etc).
  *
  * When `catalog` is provided it is used directly, avoiding a redundant
  * network fetch — pass a pre-resolved catalog when calling in a loop.
@@ -654,9 +655,7 @@ export async function autoInstallFromCatalog(
     return false;
   }
   if (!isSkillCompatibleWithPlatform(entry)) {
-    throw new Error(
-      skillPlatformUnavailableMessage(skillId, entry.platforms ?? []),
-    );
+    throw new Error(skillPlatformUnavailableMessage(skillId, entry));
   }
 
   // If the skill already exists on disk, reuse it instead of attempting a
