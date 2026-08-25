@@ -256,4 +256,18 @@ describe("resolveLockfileInstanceDir", () => {
       resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1"),
     ).toBeUndefined();
   });
+
+  test("empty authoritative lockfile never falls through to a legacy file", () => {
+    const legacyPath = path.join(tempDir, "legacy.json");
+    writeFileSync(lockfilePath, "");
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        assistants: [{ assistantId: "local-1", baseDataDir: instanceDir }],
+      }),
+    );
+    expect(
+      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1"),
+    ).toBeUndefined();
+  });
 });
