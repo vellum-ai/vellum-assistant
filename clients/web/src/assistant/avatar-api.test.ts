@@ -21,7 +21,6 @@ import type { AvatarState } from "@/types/avatar";
 import { isAvatarState } from "@/types/avatar";
 
 import {
-  fetchAvatarImageUrl,
   fetchAvatarImageUrlResult,
   fetchAvatarState,
   fetchCharacterTraitsResult,
@@ -190,7 +189,7 @@ describe("fetchAvatarState", () => {
   });
 });
 
-describe("fetchAvatarImageUrl", () => {
+describe("fetchAvatarImageUrlResult", () => {
   const originalCreateObjectURL = URL.createObjectURL;
 
   afterEach(() => {
@@ -209,7 +208,7 @@ describe("fetchAvatarImageUrl", () => {
       response: okResponse(),
     });
 
-    const result = await fetchAvatarImageUrl("asst-1");
+    const result = await fetchAvatarImageUrlResult("asst-1");
 
     // Regression guard: the image must be fetched through the daemon client
     // (the instance spied on here), not the platform `api` client. The latter
@@ -222,29 +221,9 @@ describe("fetchAvatarImageUrl", () => {
     expect(captured?.path).toEqual({ assistant_id: "asst-1" });
     expect(captured?.query).toEqual({ path: "data/avatar/avatar-image.png" });
     expect(captured?.parseAs).toBe("blob");
-    expect(result).toBe("blob:avatar");
+    expect(result).toEqual({ status: "found", value: "blob:avatar" });
   });
 
-  test("returns null on a non-2xx response", async () => {
-    stubGet({
-      data: undefined,
-      error: { detail: "boom" },
-      response: errorResponse(404),
-    });
-
-    expect(await fetchAvatarImageUrl("asst-1")).toBeNull();
-  });
-
-  test("returns null on a transport throw", async () => {
-    client.get = mock(() =>
-      Promise.reject(new Error("network down")),
-    ) as typeof client.get;
-
-    expect(await fetchAvatarImageUrl("asst-1")).toBeNull();
-  });
-});
-
-describe("fetchAvatarImageUrlResult", () => {
   test("a 404 is absent, an authoritative answer", async () => {
     stubGet({
       data: undefined,

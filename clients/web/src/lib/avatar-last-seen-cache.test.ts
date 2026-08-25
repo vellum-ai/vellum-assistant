@@ -9,9 +9,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { CharacterTraits } from "@/types/avatar";
 
 import {
-  claimLastSeenAvatarGeneration,
   deleteLastSeenAvatar,
-  isLastSeenAvatarGenerationCurrent,
+  lastSeenAvatarGenerations,
   readLastSeenAvatar,
   writeLastSeenAvatar,
 } from "./avatar-last-seen-cache";
@@ -173,9 +172,9 @@ describe("avatar-last-seen-cache", () => {
 
     test("a write with a superseded generation commits nothing", async () => {
       installFakeIndexedDb();
-      const stale = claimLastSeenAvatarGeneration("a");
+      const stale = lastSeenAvatarGenerations.claim("a");
       await writeLastSeenAvatar("a", { kind: "character", traits });
-      expect(isLastSeenAvatarGenerationCurrent("a", stale)).toBe(false);
+      expect(lastSeenAvatarGenerations.isCurrent("a", stale)).toBe(false);
       await writeLastSeenAvatar(
         "a",
         { kind: "image", blob: new Blob() },
@@ -191,9 +190,9 @@ describe("avatar-last-seen-cache", () => {
 
     test("a plain delete supersedes an in-flight generation", async () => {
       installFakeIndexedDb();
-      const inFlight = claimLastSeenAvatarGeneration("a");
+      const inFlight = lastSeenAvatarGenerations.claim("a");
       await deleteLastSeenAvatar("a");
-      expect(isLastSeenAvatarGenerationCurrent("a", inFlight)).toBe(false);
+      expect(lastSeenAvatarGenerations.isCurrent("a", inFlight)).toBe(false);
     });
 
     test("a failed transaction is swallowed", async () => {

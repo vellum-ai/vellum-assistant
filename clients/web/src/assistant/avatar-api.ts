@@ -77,9 +77,6 @@ export type AvatarFileResult<T> =
   | { status: "absent" }
   | { status: "failed" };
 
-const ABSENT: AvatarFileResult<never> = { status: "absent" };
-const FAILED: AvatarFileResult<never> = { status: "failed" };
-
 function parseCharacterTraits(content: string): CharacterTraits | null {
   try {
     const parsed: unknown = JSON.parse(content);
@@ -100,16 +97,16 @@ export async function fetchCharacterTraitsResult(
     });
     assertHasResponse(response, error, "Failed to fetch character traits");
     if (response.status === 404) {
-      return ABSENT;
+      return { status: "absent" };
     }
     if (!response.ok || !data) {
-      return FAILED;
+      return { status: "failed" };
     }
     // A sidecar the daemon serves but cannot render is as good as missing.
     const traits = parseCharacterTraits(data.content);
-    return traits ? { status: "found", value: traits } : ABSENT;
+    return traits ? { status: "found", value: traits } : { status: "absent" };
   } catch {
-    return FAILED;
+    return { status: "failed" };
   }
 }
 
@@ -214,21 +211,13 @@ export async function fetchAvatarImageUrlResult(
     });
     assertHasResponse(response, error, "Failed to fetch avatar image");
     if (response.status === 404) {
-      return ABSENT;
+      return { status: "absent" };
     }
     if (!response.ok || !data) {
-      return FAILED;
+      return { status: "failed" };
     }
     return { status: "found", value: URL.createObjectURL(data) };
   } catch {
-    return FAILED;
+    return { status: "failed" };
   }
-}
-
-/** {@link fetchAvatarImageUrlResult} collapsed to a value; null for absent or failed. */
-export async function fetchAvatarImageUrl(
-  assistantId: string,
-): Promise<string | null> {
-  const result = await fetchAvatarImageUrlResult(assistantId);
-  return result.status === "found" ? result.value : null;
 }

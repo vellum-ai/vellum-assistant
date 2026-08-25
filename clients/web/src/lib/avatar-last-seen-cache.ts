@@ -1,3 +1,4 @@
+import { createGenerationGuard } from "@/lib/generation-guard";
 import { type CharacterTraits, isCharacterTraits } from "@/types/avatar";
 
 /**
@@ -82,32 +83,18 @@ export async function readLastSeenAvatar(
 }
 
 /**
- * Per-assistant persistence generation. Every write or delete claims the
- * next one; a caller that did async work before committing (e.g. reading a
- * blob) passes its claimed generation and is dropped if a newer operation
- * has claimed since, so the last-issued operation always wins.
+ * Persistence generations per assistant. A caller that does async work before
+ * committing (e.g. reading a blob) claims up front and passes its generation,
+ * so a newer write or delete issued meanwhile wins.
  */
-const generations = new Map<string, number>();
-
-export function claimLastSeenAvatarGeneration(assistantId: string): number {
-  const generation = (generations.get(assistantId) ?? 0) + 1;
-  generations.set(assistantId, generation);
-  return generation;
-}
-
-export function isLastSeenAvatarGenerationCurrent(
-  assistantId: string,
-  generation: number,
-): boolean {
-  return generations.get(assistantId) === generation;
-}
+export const lastSeenAvatarGenerations = createGenerationGuard();
 
 export async function writeLastSeenAvatar(
   assistantId: string,
   avatar: LastSeenAvatar,
-  generation = claimLastSeenAvatarGeneration(assistantId),
+  generation = lastSeenAvatarGenerations.claim(assistantId),
 ): Promise<void> {
-  if (!isLastSeenAvatarGenerationCurrent(assistantId, generation)) {
+  if (!lastSeenAvatarGenerations.isCurrent(assistantId, generation)) {
     return;
   }
   const record: StoredAvatar = {
@@ -120,9 +107,9 @@ export async function writeLastSeenAvatar(
 
 export async function deleteLastSeenAvatar(
   assistantId: string,
-  generation = claimLastSeenAvatarGeneration(assistantId),
+  generation = lastSeenAvatarGenerations.claim(assistantId),
 ): Promise<void> {
-  if (!isLastSeenAvatarGenerationCurrent(assistantId, generation)) {
+  if (!lastSeenAvatarGenerations.isCurrent(assistantId, generation)) {
     return;
   }
   await withStore("readwrite", (store) => store.delete(assistantId));
