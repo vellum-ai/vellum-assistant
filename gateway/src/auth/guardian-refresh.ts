@@ -19,6 +19,7 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_AFTER_FRACTION,
   REFRESH_INACTIVITY_TTL_MS,
+  type DeviceIdentityInput,
 } from "./guardian-bootstrap.js";
 import { guardianIntegrityState } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
@@ -137,8 +138,7 @@ function mintAccessToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
-  pairingUserAgent: string | null,
-  clientReportedName: string | null,
+  identity: DeviceIdentityInput,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
@@ -163,8 +163,8 @@ function mintAccessToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      pairingUserAgent,
-      clientReportedName,
+      pairingUserAgent: identity.pairingUserAgent,
+      clientReportedName: identity.clientReportedName,
       status: "active",
       issuedAt: now,
       expiresAt,
@@ -180,8 +180,7 @@ function mintRefreshTokenInFamily(params: {
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
-  pairingUserAgent: string | null;
-  clientReportedName: string | null;
+  identity: DeviceIdentityInput;
   familyId: string;
   absoluteExpiresAt: number;
   browserRefreshCookiePath?: string;
@@ -204,8 +203,8 @@ function mintRefreshTokenInFamily(params: {
       guardianPrincipalId: params.guardianPrincipalId,
       hashedDeviceId: params.hashedDeviceId,
       platform: params.platform,
-      pairingUserAgent: params.pairingUserAgent,
-      clientReportedName: params.clientReportedName,
+      pairingUserAgent: params.identity.pairingUserAgent,
+      clientReportedName: params.identity.clientReportedName,
       status: "active",
       issuedAt: now,
       absoluteExpiresAt: params.absoluteExpiresAt,
@@ -292,20 +291,23 @@ function rotateRefreshTokenRecord(
       record.hashedDeviceId,
     );
 
+    const identity: DeviceIdentityInput = {
+      pairingUserAgent: record.pairingUserAgent,
+      clientReportedName: record.clientReportedName,
+    };
+
     const access = mintAccessToken(
       record.guardianPrincipalId,
       record.hashedDeviceId,
       record.platform,
-      record.pairingUserAgent,
-      record.clientReportedName,
+      identity,
     );
 
     const refresh = mintRefreshTokenInFamily({
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
       platform: record.platform,
-      pairingUserAgent: record.pairingUserAgent,
-      clientReportedName: record.clientReportedName,
+      identity,
       familyId: record.familyId,
       absoluteExpiresAt: record.absoluteExpiresAt,
       browserRefreshCookiePath: record.browserRefreshCookiePath ?? undefined,
