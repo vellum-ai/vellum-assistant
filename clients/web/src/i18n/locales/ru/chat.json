@@ -227,9 +227,6 @@
     "title": "Удалить диалог",
     "untitled": "Без названия"
   },
-  "detailPanelStopButton": {
-    "tooltip": "Стоп"
-  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
   },

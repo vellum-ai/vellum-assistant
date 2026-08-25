@@ -36,13 +36,15 @@ struct QuickActionsWidget: Widget {
     }
 }
 
-/// The card: the two actions along the bottom, and, only while something is
-/// unread, the assistant glancing at the count across the top.
+/// The card: the two actions along the bottom, the assistant across the top,
+/// and the count beside it while something is waiting.
 ///
-/// The mark and the chip arrive together or not at all. A quiet card is just
-/// the buttons, which is what makes the face appearing mean something: eyes on
-/// the card are the assistant saying there is something to look at, not
-/// decoration that was always there.
+/// The face is always drawn. It is the account's avatar rather than a
+/// notification, so the card wears it whatever the snapshot says, and the chip
+/// is the piece that arrives with unreads. That is also what decides where the
+/// mark sits: a quiet card rests it near the middle, and a card carrying a
+/// count moves it to the leading margin to leave the chip the other end of the
+/// row.
 ///
 /// There is no empty state and no signed-out state to draw: the buttons are
 /// what the widget is, and they work with nothing synced at all. The chip and
@@ -77,6 +79,13 @@ struct QuickActionsWidgetView: View {
     /// nudge the eyes sit in from the leading margin.
     private static let markInset: CGFloat = 13
     private static let markLeadingInset: CGFloat = 2
+
+    /// How far right of the card's center the quiet mark rests, on the design
+    /// canvas. The design does not sit the pair on the center line: it settles
+    /// it a nudge past, leaning the composition into the rightward glance the
+    /// pupils already have, so the face reads as looking across the card rather
+    /// than as a mark parked in the middle of it.
+    private static let quietMarkCenterOffset: CGFloat = 11.5
 
     private static let chipHeight: CGFloat = 31
 
@@ -131,6 +140,8 @@ struct QuickActionsWidgetView: View {
                     let markWidth = contentWidth - Self.chipAllowance(for: count, scale: scale)
                         - Self.markChipGap * scale
                     markRow(count: count, markWidth: markWidth, scale: scale)
+                } else {
+                    quietMarkRow(scale: scale)
                 }
                 Spacer(minLength: 0)
                 controlRow(diameter: Self.controlDiameter * scale, scale: scale)
@@ -144,11 +155,33 @@ struct QuickActionsWidgetView: View {
     /// across the top of the card rather than two things dropped on it.
     private func markRow(count: Int, markWidth: CGFloat, scale: CGFloat) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            avatarMark(markWidth: markWidth, scale: scale)
-                .padding(.leading, Self.markLeadingInset * scale)
+            avatarMark(
+                eyeHeight: fittedEyeHeight(in: markWidth, scale: scale),
+                imageSize: fittedImageSize(in: markWidth, scale: scale),
+                scale: scale
+            )
+            .padding(.leading, Self.markLeadingInset * scale)
             Spacer(minLength: 0)
             unreadChip(count: count, scale: scale)
         }
+        .padding(.top, Self.markInset * scale)
+    }
+
+    /// The mark alone, at the size the design draws it when nothing shares the
+    /// row with it.
+    ///
+    /// Nothing is competing for the width here, so the mark takes its full size
+    /// rather than the fitted one, and it is placed from the card's center
+    /// instead of from a margin: what the design lines the pair up against is
+    /// the card, not the edge the chip layout hangs it off.
+    private func quietMarkRow(scale: CGFloat) -> some View {
+        avatarMark(
+            eyeHeight: WidgetAvatarEyes.defaultEyeHeight * scale,
+            imageSize: Self.avatarImageSize * scale,
+            scale: scale
+        )
+        .frame(maxWidth: .infinity)
+        .offset(x: Self.quietMarkCenterOffset * scale)
         .padding(.top, Self.markInset * scale)
     }
 
@@ -169,16 +202,20 @@ struct QuickActionsWidgetView: View {
     /// The assistant, however this account's assistant can be drawn: its own
     /// photo where there is one, and the eyes the kit draws where the card is
     /// already wearing its color.
+    ///
+    /// Both sizes are the caller's because the two rows size the mark
+    /// differently, while which of the two marks to draw is a fact about the
+    /// account and belongs in one place.
     @ViewBuilder
-    private func avatarMark(markWidth: CGFloat, scale: CGFloat) -> some View {
+    private func avatarMark(eyeHeight: CGFloat, imageSize: CGFloat, scale: CGFloat) -> some View {
         if entry.avatarKind == .image, let image = entry.avatarImage {
             WidgetAvatarImageView(
                 image: image,
-                size: fittedImageSize(in: markWidth, scale: scale),
+                size: imageSize,
                 cornerRadius: Self.avatarImageCornerRadius * scale
             )
         } else {
-            WidgetAvatarEyes(eyeHeight: fittedEyeHeight(in: markWidth, scale: scale))
+            WidgetAvatarEyes(eyeHeight: eyeHeight)
         }
     }
 
@@ -238,9 +275,14 @@ struct QuickActionsWidgetView: View {
         palette.controlFill(onWhite: Self.controlFillOnWhite, onDark: Self.controlFillOnDark)
     }
 
-    /// The number for the unread chip, or nil when there is no chip or mark to
-    /// draw: nothing unread, nothing synced, or a snapshot old enough that the
-    /// count is a claim about an inbox from half an hour ago.
+    /// The number for the unread chip, or nil when there is no chip to draw:
+    /// nothing unread, nothing synced, or a snapshot old enough that the count
+    /// is a claim about an inbox from half an hour ago.
+    ///
+    /// It gates the chip and the row layout built around it, and nothing else.
+    /// The mark is drawn either way: the eyes are which assistant this account
+    /// has rather than a claim about right now, so a snapshot too old to count
+    /// with is still new enough to say whose face it is.
     ///
     /// `CatchUpRow` keeps its unread dot past that same threshold, and the two
     /// are consistent rather than in tension. A dot says "this conversation
@@ -309,6 +351,16 @@ private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
             // to come out dark, or the card is white on yellow.
             previewCard(previewEntry(unread: 12, avatar: previewCharacterAvatar(accentHex: "#F2C94C")))
         }
+    }
+}
+
+#Preview("Stale, was unread") {
+    // The count is a claim about now and drops; the face is not and stays. The
+    // card should be indistinguishable from a quiet one.
+    previewAppearances {
+        previewCard(
+            previewEntry(unread: 3, avatar: previewCharacterAvatar(accentHex: "#0E9B8B"), isStale: true)
+        )
     }
 }
 
