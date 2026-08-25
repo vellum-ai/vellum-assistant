@@ -111,7 +111,7 @@ describe("DiscordMessageCreateSchema", () => {
 
 describe("toAdmissionCandidate", () => {
   test("maps the fields the admission gate reads", () => {
-    const candidate = toAdmissionCandidate(parse(messagePayload()), undefined);
+    const candidate = toAdmissionCandidate(parse(messagePayload()));
     expect(candidate).toEqual({
       channelId: "channel-1",
       guildId: "guild-1",
@@ -121,19 +121,9 @@ describe("toAdmissionCandidate", () => {
     });
   });
 
-  test("threads carry their resolved parent", () => {
-    const candidate = toAdmissionCandidate(
-      parse(messagePayload({ channel_id: "thread-1" })),
-      "channel-1",
-    );
-    expect(candidate?.channelId).toBe("thread-1");
-    expect(candidate?.channelId).toBe("channel-1");
-  });
-
   test("webhook messages read as bot-authored", () => {
     const candidate = toAdmissionCandidate(
       parse(messagePayload({ webhook_id: "wh-1" })),
-      undefined,
     );
     expect(candidate?.authorIsBot).toBe(true);
   });
@@ -145,10 +135,7 @@ describe("toAdmissionCandidate", () => {
       { author: { id: "user-1", bot: "yes" } },
       { webhook_id: 42 },
     ]) {
-      const candidate = toAdmissionCandidate(
-        parse(messagePayload(overrides)),
-        undefined,
-      );
+      const candidate = toAdmissionCandidate(parse(messagePayload(overrides)));
       expect(candidate?.authorIsBot).toBe(true);
       const verdict = admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
@@ -159,11 +146,11 @@ describe("toAdmissionCandidate", () => {
 
   test("returns null without author identity", () => {
     expect(
-      toAdmissionCandidate(parse(messagePayload({ author: {} })), undefined),
+      toAdmissionCandidate(parse(messagePayload({ author: {} }))),
     ).toBeNull();
     const noAuthor = messagePayload();
     delete (noAuthor as Record<string, unknown>).author;
-    expect(toAdmissionCandidate(parse(noAuthor), undefined)).toBeNull();
+    expect(toAdmissionCandidate(parse(noAuthor))).toBeNull();
   });
 });
 
@@ -331,7 +318,7 @@ describe("normalizeDiscordMessage", () => {
     });
     const parsed = parse(raw);
     const event = normalizeDiscordMessage(parsed, { raw });
-    const candidate = toAdmissionCandidate(parsed, undefined);
+    const candidate = toAdmissionCandidate(parsed);
 
     expect(event?.source.chatType).toBe("dm");
     expect(event?.message.content).toBe("");
@@ -353,10 +340,10 @@ describe("normalizeDiscordMessage", () => {
   });
 
   test("a malformed guild id stays a guild message, not a DM", () => {
-    // The DM lane reads an absent guild as private and skips both the
-    // allow-list and the mention check, so a parse failure must not land
-    // there. The schema collapses a bad `guild_id` to a sentinel rather than
-    // to undefined, which keeps it on the guild path.
+    // The DM lane reads an absent guild as private and skips the mention
+    // check, so a parse failure must not land there. The schema collapses a
+    // bad `guild_id` to a sentinel rather than to undefined, which keeps it
+    // on the guild path.
     const raw = messagePayload({ guild_id: 12345, mentions: [] });
     const parsed = parse(raw);
     expect(parsed.guild_id).toBeDefined();
@@ -365,7 +352,7 @@ describe("normalizeDiscordMessage", () => {
     expect(event?.source.chatType).toBe("channel");
 
     // And the gate keeps applying the guild controls to it.
-    const candidate = toAdmissionCandidate(parsed, undefined);
+    const candidate = toAdmissionCandidate(parsed);
     expect(candidate).not.toBeNull();
     const verdict = admitDiscordMessage(candidate!, {
       botUserId: "bot-1",

@@ -2,7 +2,7 @@
  * MESSAGE_CREATE → the canonical `GatewayInboundEvent`.
  *
  * The normalizer runs after the admission gate (`admit.ts`), so every message
- * here is either a mention of the bot in an allow-listed channel or a DM to
+ * here is either a mention of the bot in a channel it can see, or a DM to
  * the bot. Attachment-only DMs can have empty content. It maps identity
  * fields onto the channel-identity vocabulary:
  * `conversationExternalId` is the delivery address (the parent channel for
@@ -18,14 +18,9 @@ import type { AdmissionCandidate } from "./admit.js";
 import { extractDiscordAttachments } from "./attachments.js";
 import type { DiscordMessageCreate } from "./message-schemas.js";
 
-/**
- * Build the admission gate's input from a parsed message. `parentChannelId`
- * comes from the client's thread-parent cache — resolution is the caller's
- * job because the cache lives there (see `AdmissionCandidate.parentChannelId`).
- */
+/** Build the admission gate's input from a parsed message. */
 export function toAdmissionCandidate(
   message: DiscordMessageCreate,
-  parentChannelId: string | undefined,
 ): AdmissionCandidate | null {
   const authorId = message.author?.id;
   if (!authorId || !message.channel_id) {
@@ -33,7 +28,6 @@ export function toAdmissionCandidate(
   }
   return {
     channelId: message.channel_id,
-    ...(parentChannelId !== undefined ? { parentChannelId } : {}),
     ...(message.guild_id !== undefined ? { guildId: message.guild_id } : {}),
     authorId,
     authorIsBot:

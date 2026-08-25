@@ -25,8 +25,8 @@
 
 import type { AdmissionDropReason } from "./admit.js";
 
-/** Levels this policy selects between. All three exist on the gateway logger. */
-export type AdmissionDropLogLevel = "warn" | "info" | "debug";
+/** Levels this policy selects between. Both exist on the gateway logger. */
+export type AdmissionDropLogLevel = "info" | "debug";
 
 /**
  * The level a reason logs at on its first occurrence for a channel.
@@ -53,9 +53,9 @@ const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
  * Channels tracked per reason before that reason stops promoting.
  *
  * The budget is per reason rather than shared because reasons differ in key
- * cardinality, and a shared budget would let a flood of one reason exhaust it
- * and silence `channel_not_allowed`, the one reason an operator needs.
- * Separate budgets mean a flood of one reason can only ever silence itself.
+ * cardinality, and a shared budget would let a flood of one reason exhaust
+ * it and silence another. Separate budgets mean a flood of one reason can
+ * only ever silence itself.
  */
 const MAX_TRACKED_CHANNELS_PER_REASON = 512;
 

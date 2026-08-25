@@ -2643,7 +2643,6 @@ async function main() {
     discordGatewayClient = new DiscordGatewayClient(
       {
         botToken,
-        // Read live (the config cache is TTL'd) so an allow-list edit applies
       },
       createDiscordInboundEventHandler({
         config,

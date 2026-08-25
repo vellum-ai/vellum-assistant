@@ -662,8 +662,7 @@ export class DiscordGatewayClient {
       return;
     }
     const message = parsed.data;
-    const parentChannelId = this.threadParents.parentOf(message.channel_id);
-    const candidate = toAdmissionCandidate(message, parentChannelId);
+    const candidate = toAdmissionCandidate(message);
     if (!candidate) {
       log.warn("Dropping MESSAGE_CREATE with no author identity");
       return;
@@ -679,20 +678,12 @@ export class DiscordGatewayClient {
         messageId: message.id,
       };
       // Severity splits by reason and volume is capped at the first drop per
-      // reason and channel. See `admission-log.ts` for why a single level
-      // cannot serve both a misconfigured allow-list and a busy guild.
+      // reason and channel; see `admission-log.ts`.
       const level = this.admissionDropLog.levelFor(
         verdict.reason,
         message.channel_id,
       );
-      if (level === "warn") {
-        log.warn(
-          fields,
-          "Discord message dropped: the channel is not on the allow-list. " +
-            "Check the bot's channel permissions in Discord. Further " +
-            "drops for this channel log at debug.",
-        );
-      } else if (level === "info") {
+      if (level === "info") {
         log.info(
           fields,
           "Discord message dropped by admission gate. Further drops for " +
@@ -704,6 +695,7 @@ export class DiscordGatewayClient {
       return;
     }
 
+    const parentChannelId = this.threadParents.parentOf(message.channel_id);
     const normalized = normalizeDiscordMessage(message, {
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,

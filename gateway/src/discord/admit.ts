@@ -92,11 +92,10 @@ export function admitDiscordMessage(
     return drop("bot_authored");
   }
 
-  // A DM is already addressed to the bot alone, so neither of the two guild
-  // checks below has anything to say about it: it sits on no channel the
-  // allow-list could name, and it needs no mention to be meant for the bot.
-  // The room is admitted; whether this particular person is answered in it is
-  // the runtime's trust-class floor to decide.
+  // A DM is already addressed to the bot alone, so the guild mention check
+  // below has nothing to say about it: it needs no mention to be meant for
+  // the bot. The room is admitted; whether this particular person is
+  // answered in it is the runtime's trust-class floor to decide.
   //
   // This reads an absent guild as a DM, which makes the absence load-bearing:
   // it is the only thing standing between "private" and "a public channel
@@ -106,18 +105,16 @@ export function admitDiscordMessage(
   // branch onto positive evidence of a DM.
   //
   // A Discord *group* DM is also guild-less and would be admitted here. This
-  // app cannot be in one: a bot joins a group DM only via the `gdm.join` OAuth
-  // scope, and the invite the setup skill builds requests `bot` and
-  // `applications.commands` only. Adding that scope would need this branch to
-  // distinguish the two first.
+  // app cannot be in one: a bot joins a group DM only via the `gdm.join`
+  // OAuth scope, which no install path grants. The fallback invite link
+  // requests the `bot` scope alone, and an app whose own install settings
+  // carry `gdm.join` is warned to remove it at setup, naming this branch as
+  // the reason. Carrying that scope would need this branch to distinguish
+  // the two first.
   if (!candidate.guildId) {
     return ADMITTED;
   }
 
-  // An unset allow-list admits nothing. The operator opting the bot into a
-  // guild is not the same as opting it into every channel in that guild, and
-  // the failure that matters is the one where an empty list means "all".
-  //
   // Requiring the bot's own id here is what keeps announcements out: Discord
   // omits `@everyone` / `@here` and role pings from the mentions array, so
   // they cannot satisfy this check.
