@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import { assistantFeatureFlagsPatch } from "@/generated/gateway/sdk.gen";
+import { t } from "@/i18n";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ASSISTANT_STRING_FLAG_DEFAULTS,
@@ -144,7 +145,9 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()((
           return { [key]: confirmedValue };
         });
         toast.error(
-          `Couldn't update "${getFlagDefinition(key)?.label ?? key}". Your change was reverted.`,
+          t("assistantFeatureFlagStore.updateFailed", {
+            label: getFlagDefinition(key)?.label ?? key,
+          }),
         );
       };
       const flagKey = storeKeyToFlagKey(key);
@@ -219,7 +222,9 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()((
           };
         });
         toast.error(
-          `Couldn't update "${getFlagDefinition(key)?.label ?? key}". Your change was reverted.`,
+          t("assistantFeatureFlagStore.updateFailed", {
+            label: getFlagDefinition(key)?.label ?? key,
+          }),
         );
       };
       const flagKey = storeKeyToFlagKey(key);

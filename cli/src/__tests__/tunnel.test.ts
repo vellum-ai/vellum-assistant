@@ -13,6 +13,7 @@ import * as childProcess from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
+  appendFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -28,6 +29,7 @@ import * as cloudflareTunnel from "../lib/cloudflare-tunnel.js";
 import * as ngrok from "../lib/ngrok.js";
 import * as nginxIngress from "../lib/nginx-ingress.js";
 import * as tailscaleTunnel from "../lib/tailscale-tunnel.js";
+import { getLogDir } from "../lib/xdg-log.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 
 const realCloudflareTunnel = { ...cloudflareTunnel };
@@ -1450,5 +1452,173 @@ describe("ngrok --domain spawn args", () => {
     ) as { ingress: { publicBaseUrl?: string; ngrok?: { domain?: string } } };
     expect(config.ingress.publicBaseUrl).toBe("https://foo.ngrok.app");
     expect(config.ingress.ngrok?.domain).toBe("foo.ngrok.app");
+  });
+});
+
+describe("tunnel --detach", () => {
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+
+  function makeFakeChild(pid: number): ChildProcess {
+    const emitter = new EventEmitter();
+    return Object.assign(emitter, {
+      stdout: null,
+      stderr: null,
+      killed: false,
+      kill: () => true,
+      unref: () => {},
+      pid,
+    }) as unknown as ChildProcess;
+  }
+
+  const spawnMock = mock((..._args: unknown[]) => makeFakeChild(9999));
+
+  // spawnDetachedTunnel() scopes the log filename to its own (parent) pid,
+  // which in-process is this test runner's pid.
+  function detachedLogPath(): string {
+    return join(getLogDir(), `tunnel-${process.pid}.log`);
+  }
+
+  beforeAll(() => {
+    mock.module("node:child_process", () => ({
+      ...realChildProcess,
+      spawn: spawnMock,
+    }));
+  });
+
+  afterAll(() => {
+    mock.module("node:child_process", () => realChildProcess);
+  });
+
+  beforeEach(() => {
+    spawnMock.mockClear();
+    const configHome = mkdtempSync(join(tmpdir(), "vellum-tunnel-xdg-"));
+    tempDirs.push(configHome);
+    process.env.XDG_CONFIG_HOME = configHome;
+    writeLockfile(makeLocalEntry());
+  });
+
+  afterEach(() => {
+    if (originalXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    }
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--detach re-invokes without the flag as a detached child and reports readiness", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "ngrok",
+      "--detach",
+    ];
+
+    // Simulate the detached child writing its readiness line to the log file
+    // the moment it is spawned.
+    spawnMock.mockImplementationOnce(() => {
+      appendFileSync(
+        detachedLogPath(),
+        "Tunnel established: https://foo.ngrok.app\n",
+      );
+      return makeFakeChild(9999);
+    });
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [, args, opts] = spawnMock.mock.calls[0] as unknown as [
+      string,
+      string[],
+      Record<string, unknown>,
+    ];
+    expect(args).toContain("tunnel");
+    expect(args).toContain("--provider");
+    expect(args).toContain("ngrok");
+    expect(args).not.toContain("--detach");
+    expect(args).not.toContain("-d");
+    expect(opts.detached).toBe(true);
+
+    expect(logs).toContain("Tunnel established: https://foo.ngrok.app");
+    expect(logs).toContain("Running in background (pid 9999)");
+    expect(logs).toContain("Stop with: kill 9999");
+
+    // The parent hands the actual tunnel workflow off to the child: it never
+    // runs the provider or edge setup itself.
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+  });
+
+  test("-d is equivalent to --detach", async () => {
+    process.argv = ["bun", "vellum", "tunnel", "-d"];
+    spawnMock.mockImplementationOnce(() => {
+      appendFileSync(
+        detachedLogPath(),
+        "Tunnel established: https://tailnet.example.ts.net\n",
+      );
+      return makeFakeChild(1234);
+    });
+
+    await runTunnelCapturingLogs();
+
+    const [, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+    expect(args).not.toContain("-d");
+    expect(args).not.toContain("--detach");
+  });
+
+  test("reports an early child exit instead of hanging", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "ngrok",
+      "--detach",
+    ];
+    spawnMock.mockImplementationOnce(() => {
+      const child = makeFakeChild(4242);
+      // Listeners attach synchronously right after spawn() returns; defer the
+      // exit so they're in place before it fires.
+      setTimeout(() => (child as unknown as EventEmitter).emit("exit", 1), 0);
+      return child;
+    });
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("exited during startup (exit code 1)");
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("an adopted ngrok tunnel gets an accurate stop message, not a false kill claim", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "tunnel",
+      "--provider",
+      "ngrok",
+      "--detach",
+    ];
+    spawnMock.mockImplementationOnce(() => {
+      appendFileSync(
+        detachedLogPath(),
+        "Found existing ngrok tunnel: https://already-up.ngrok.app\n",
+      );
+      return makeFakeChild(5555);
+    });
+
+    const logs = await runTunnelCapturingLogs();
+
+    expect(logs).toContain("Tunnel established: https://already-up.ngrok.app");
+    expect(logs).toContain("Running in background (pid 5555)");
+    // The supervisor did not spawn this ngrok agent, so killing it must not
+    // be advertised as the way to stop the tunnel.
+    expect(logs).not.toContain("Stop with: kill 5555");
+    expect(logs).toContain("only");
+    expect(logs).toContain("stops this supervisor, not the ngrok tunnel");
   });
 });
