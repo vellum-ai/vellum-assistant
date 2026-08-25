@@ -6,8 +6,8 @@
  * translators, cannot pluralize outside English, and silently reverts a screen
  * to English-only the moment someone edits it.
  *
- * This rule is enabled for `src/**/*.{ts,tsx}` via `i18nEnforcedPaths` in
- * `eslint.config.mjs` (generated code excluded). A clean lint is not proof
+ * This rule is enabled for all of `src/` (except generated) via
+ * `i18nEnforcedPaths` in `eslint.config.mjs`. A clean lint is not proof
  * every user-facing string is translated: the rule reads JSX, toast call
  * sites, and copy-shaped props, not every helper return value. See
  * `docs/I18N.md`.
