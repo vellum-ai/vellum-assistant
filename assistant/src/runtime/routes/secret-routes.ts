@@ -30,6 +30,8 @@ import {
   scrubStoredCredentialFromTranscripts,
 } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import { syncAvatarToPlatform } from "../../platform/sync-avatar.js";
+import { syncWorkspaceIdentityToPlatform } from "../../platform/sync-identity.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
@@ -423,6 +425,11 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         // defaulting; the hook no-ops until the connection is complete.
         // Detached — must not block the response.
         void maybeDefaultSpeechToManaged();
+        // Same last-write-wins shape: the startup syncs no-op before live
+        // registration, so re-enqueue them here. Both dedup and no-op until
+        // the client and assistant id exist.
+        syncWorkspaceIdentityToPlatform();
+        syncAvatarToPlatform();
       }
       log.info({ service, field }, "Credential added via HTTP");
       return { success: true, type, name };
