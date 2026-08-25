@@ -481,7 +481,7 @@ export function PricingContent() {
             <p className="mb-10 text-zinc-600">
               Bundle credits reset each billing cycle: whatever is left when
               the period ends expires and does not roll over. Purchased
-              pay-as-you-go credits last much longer &mdash; they expire twelve
+              pay-as-you-go credits last much longer: they expire twelve
               months after purchase. When your assistant spends credits, the
               ones closest to expiring are used first.
             </p>
@@ -515,7 +515,7 @@ export function PricingContent() {
                 <strong>Downgrade a tier.</strong> A smaller machine applies
                 immediately, and the price difference is credited toward your
                 next invoice. A smaller credit bundle starts at your next
-                renewal &mdash; credits already granted this cycle stay yours.
+                renewal; credits already granted this cycle stay yours.
                 There are no mid-cycle cash refunds.
               </li>
               <li>
