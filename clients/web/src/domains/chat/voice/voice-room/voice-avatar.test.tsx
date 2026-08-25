@@ -19,7 +19,7 @@ import type { VoiceAvatarVisual } from "./voice-avatar-state";
 // The avatar query pulls React Query and the daemon graph; the phase classes
 // are what this file is about. Both factories are typed against the module
 // they replace, so a stub that drifts from the real shape is a type error
-// rather than a green suite testing behavior the app no longer has.
+// rather than a green suite testing a shape the app does not have.
 mock.module(
   "@/hooks/use-assistant-avatar",
   (): Partial<typeof AssistantAvatarModule> => ({
