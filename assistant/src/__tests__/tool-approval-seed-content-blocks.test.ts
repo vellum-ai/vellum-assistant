@@ -321,9 +321,10 @@ describe("buildToolApprovalSeedContentBlocks", () => {
 });
 
 /**
- * An `ask_question` prompt promoted to a guardian request. Before it had a
- * card kind the dispatcher resolved it to `null` and the channel fell back to
- * generic guardian copy, so the guardian saw a reference code and no question.
+ * An `ask_question` prompt promoted to a guardian request. It renders as a
+ * question rather than an approval, and carries no buttons: the in-app surface
+ * route resolves approval actions only, so answering happens on the channel or
+ * by reply.
  */
 describe("ask_question card", () => {
   const questionPayload: Record<string, unknown> = {

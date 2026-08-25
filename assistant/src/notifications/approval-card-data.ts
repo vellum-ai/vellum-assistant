@@ -473,11 +473,10 @@ export function resolveApprovalCardData(
   }
 
   if (sourceEventName === "guardian.question") {
-    // A question is asked, not approved, and until it had a kind here it
-    // resolved to no card at all: the tool-approval resolver requires
-    // instruction mode `approval`, and `pending_question` without a tool name
-    // is mode `answer`. The payload carried the question and its options the
-    // whole time.
+    // Both kinds arrive under this one event, split by instruction mode: a
+    // question is asked, an approval is granted, and the tool-approval
+    // resolver accepts only `approval`. Ask about the question first, since a
+    // `pending_question` carrying a tool name is an approval either way.
     const question = resolveQuestionCard(contextPayload);
     if (question) {
       return { kind: "question", card: question };
