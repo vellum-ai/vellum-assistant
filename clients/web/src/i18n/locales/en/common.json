@@ -642,6 +642,11 @@
     "startFailed": "Couldn't start Connect Claude. Please try again.",
     "timedOut": "Timed out waiting for Claude to connect. Please try again."
   },
+  "useGlobalDeepLinkConsumer": {
+    "connectGuidance": "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine here.",
+    "connectGuidanceWithHost": "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine at {host} here.",
+    "legacyLinkGuidance": "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here."
+  },
   "useVoiceSamplePreview": {
     "playFailed": "Could not play the voice sample."
   },

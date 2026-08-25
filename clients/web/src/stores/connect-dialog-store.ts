@@ -7,7 +7,7 @@
  *     deep link, which can fire while the chooser is not mounted; the
  *     request parks here and the chooser picks it up on mount.
  *
- * Why a store instead of a query param: `initialAddress` can carry a
+ * Why a store instead of a query param: the parked payload can carry a
  * pairing link, whose device code is secret material. Carrying it in the
  * URL would place it in browser history and in navigation breadcrumbs
  * captured by telemetry.

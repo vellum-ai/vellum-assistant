@@ -547,9 +547,18 @@ export async function pollAssistantPairing(
   return { ...result, accessOnly: result.accessOnly === true };
 }
 
-/** Forget a pending pairing session, so its code cannot be exchanged later. */
+/**
+ * Forget a pending pairing session, so its code cannot be exchanged later.
+ * Callers cancel on the way out (a dismissed dialog, a dead transport) and
+ * have nothing to do about a failure, and a handle the host no longer knows
+ * is already the outcome they wanted, so a rejecting host resolves quietly.
+ */
 export async function cancelAssistantPairing(handle: string): Promise<void> {
-  await pairingCancelHost(handle);
+  try {
+    await pairingCancelHost(handle);
+  } catch {
+    // Unreachable session: cancelled, spent, or the host itself is gone.
+  }
 }
 
 // ---------------------------------------------------------------------------

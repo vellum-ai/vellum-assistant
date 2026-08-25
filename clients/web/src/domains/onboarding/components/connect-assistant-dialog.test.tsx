@@ -366,4 +366,76 @@ describe("ConnectAssistantDialog", () => {
       expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-1"),
     );
   });
+
+  test("closing before the host answers drops the session it hands back", async () => {
+    let answer: (result: StartResult) => void = () => {};
+    startAssistantPairingMock.mockImplementation(
+      () =>
+        new Promise<StartResult>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { rerender } = renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(startAssistantPairingMock).toHaveBeenCalled());
+
+    rerender(
+      <ConnectAssistantDialog
+        open={false}
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+    // Nothing to cancel yet: the handle only exists once the host answers.
+    expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
+
+    answer({ ...startedFromLink, handle: "handle-late" });
+
+    await waitFor(() =>
+      expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-late"),
+    );
+    expect(cancelAssistantPairingMock).toHaveBeenCalledTimes(1);
+    expect(pollAssistantPairingMock).not.toHaveBeenCalled();
+    expect(onImportedMock).not.toHaveBeenCalled();
+  });
+
+  test("reopening does not resume the attempt abandoned by the close", async () => {
+    let answer: (result: StartResult) => void = () => {};
+    startAssistantPairingMock.mockImplementation(
+      () =>
+        new Promise<StartResult>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { rerender } = renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(startAssistantPairingMock).toHaveBeenCalled());
+
+    rerender(
+      <ConnectAssistantDialog
+        open={false}
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+    rerender(
+      <ConnectAssistantDialog
+        open
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+
+    answer({ ...startedFromLink, handle: "handle-late" });
+
+    await waitFor(() =>
+      expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-late"),
+    );
+    expect(pollAssistantPairingMock).not.toHaveBeenCalled();
+    expect(onImportedMock).not.toHaveBeenCalled();
+  });
 });

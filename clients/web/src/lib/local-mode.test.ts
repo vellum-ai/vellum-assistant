@@ -643,6 +643,12 @@ describe("assistant pairing", () => {
 
     expect(pairingCancelHost).toHaveBeenCalledWith("handle-1");
   });
+
+  test("cancelling a session the host rejects resolves quietly", async () => {
+    pairingCancelHost.mockRejectedValueOnce(new Error("no such session"));
+
+    expect(await cancelAssistantPairing("handle-1")).toBeUndefined();
+  });
 });
 
 describe("saveManagedLockfileAssistant", () => {

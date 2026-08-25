@@ -76,7 +76,9 @@ function ConnectAssistantDialog({
   // The live session, mirrored outside React state so the polling loop and the
   // teardown can reach it without re-running on every render.
   const handleRef = useRef<string | null>(null);
-  const abandonedRef = useRef(false);
+  // One object per open, so an attempt is abandoned for good: a loop started
+  // before a close cannot un-abandon itself when the dialog opens again.
+  const attemptRef = useRef({ abandoned: false });
 
   // Drop a session the host may still hold. An attempt that ended in a reply
   // (imported, expired, denied) is already spent there, so callers past those
@@ -99,12 +101,15 @@ function ConnectAssistantDialog({
     setError(null);
     setSession(null);
     setAccessOnlyAssistantId(null);
-    abandonedRef.current = false;
+    const attempt = { abandoned: false };
+    attemptRef.current = attempt;
     // Closing the dialog abandons whatever attempt is in flight: the loop
     // stops at its next checkpoint and the host forgets the session, so the
-    // code cannot be exchanged behind a dismissed dialog.
+    // code cannot be exchanged behind a dismissed dialog. A session the host
+    // hands back after this point is dropped by the submit path, which has
+    // the handle this teardown was still waiting on.
     return () => {
-      abandonedRef.current = true;
+      attempt.abandoned = true;
       releaseSession();
     };
   }, [open, initialAddress]);
@@ -130,9 +135,16 @@ function ConnectAssistantDialog({
     setPending(true);
     setError(null);
     const trimmedName = name.trim() || undefined;
+    const attempt = attemptRef.current;
     try {
       const started = await startAssistantPairing(trimmedAddress);
-      if (abandonedRef.current) {
+      if (attempt.abandoned) {
+        // The dialog closed before the host answered, so the teardown had no
+        // handle to drop. Drop the one it was waiting on, or the session and
+        // the approval request it raised both live out their TTL.
+        if (started.ok) {
+          void cancelAssistantPairing(started.handle);
+        }
         return;
       }
       if (!started.ok) {
@@ -151,7 +163,9 @@ function ConnectAssistantDialog({
 
       for (;;) {
         const polled = await pollAssistantPairing(started.handle, trimmedName);
-        if (abandonedRef.current) {
+        if (attempt.abandoned) {
+          // The teardown holds the handle from here on, so it does the
+          // dropping; a second cancel would only race it.
           return;
         }
         if (!polled.ok) {
@@ -173,7 +187,7 @@ function ConnectAssistantDialog({
           return;
         }
         await sleep(polled.intervalSeconds * 1000);
-        if (abandonedRef.current) {
+        if (attempt.abandoned) {
           return;
         }
       }

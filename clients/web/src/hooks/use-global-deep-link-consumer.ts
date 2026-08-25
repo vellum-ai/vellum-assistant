@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { t } from "@/i18n";
 import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
@@ -67,10 +68,11 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  *   drain (`useCameraDeepLink`).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
- *   which opens its Connect a Remote Assistant dialog off that store: a
- *   `bundle` prefills the paste field; a bundle-less link (the pair
- *   page's url+code hand-off, which cannot complete a durable desktop
- *   pairing) gets guidance naming the host instead.
+ *   which opens its Connect a Remote Assistant dialog off that store
+ *   with guidance: a link carrying a `bundle` is told to fetch a fresh
+ *   pairing link, and a bundle-less link (the pair page's url+code
+ *   hand-off, which cannot complete a durable desktop pairing) gets
+ *   guidance naming the host.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * ## Deep-link text: proven provenance sends, anything else pre-fills
@@ -127,7 +129,7 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  * Guidance for a connect link that carried no bundle: the pair page's
  * url+code hand-off. The device-code exchange cannot produce a durable
  * desktop pairing (its refresh token is an HttpOnly cookie), so the
- * dialog explains how to get a pastable bundle instead. Named host only
+ * dialog explains how to get a pairing link instead. Named host only
  * when the link carried a parseable https base.
  */
 function connectGuidanceMessage(url: string | null): string {
@@ -140,11 +142,10 @@ function connectGuidanceMessage(url: string | null): string {
       // to the hostless copy.
     }
   }
-  const machine =
-    host === null
-      ? "the assistant's machine"
-      : `the assistant's machine at ${host}`;
-  return `This link came from a pairing QR code. To connect this Mac, paste the pairing link from ${machine} here.`;
+  if (host === null) {
+    return t("useGlobalDeepLinkConsumer.connectGuidance");
+  }
+  return t("useGlobalDeepLinkConsumer.connectGuidanceWithHost", { host });
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -376,17 +377,20 @@ export function useGlobalDeepLinkConsumer(): void {
     },
   );
 
+  // A `bundle` comes from app versions whose connect dialog took a pasted
+  // pairing bundle. The renderer has no importer for one, the credentials it
+  // carries are short-lived, and it is secret material, so only its presence
+  // is read: the payload reaches neither the store, the field, nor a log.
   useBusSubscription("deeplink.connect", ({ url, bundle }) => {
     void ensureMainWindowVisible();
     // Park before navigating so the chooser mounts with the dialog
     // already open (its auto-skip stands down while it is).
-    useConnectDialogStore
-      .getState()
-      .openConnectDialog(
-        bundle !== null
-          ? { initialAddress: bundle }
-          : { guidanceMessage: connectGuidanceMessage(url) },
-      );
+    useConnectDialogStore.getState().openConnectDialog({
+      guidanceMessage:
+        bundle === null
+          ? connectGuidanceMessage(url)
+          : t("useGlobalDeepLinkConsumer.legacyLinkGuidance"),
+    });
     navigateRef.current(routes.selectAssistant);
   });
 
