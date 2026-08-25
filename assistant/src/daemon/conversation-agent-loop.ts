@@ -588,6 +588,12 @@ export async function runAgentLoopImpl(
    * credit profiles the resolver never consulted (e.g. `activeProfile` on a
    * non-`mainAgent` turn), so both the turn-start report and the mid-turn
    * refresh below go through this one helper.
+   *
+   * `isResolvableProvider` matters as much as the dispatch itself: without it
+   * selection can settle on a profile naming a deleted connection, which
+   * dispatch would have skipped and healed past. The key would then name a
+   * profile the request never ran on. Same reasoning as `turnErrorAttribution`
+   * above.
    */
   const resolveModelProfileKeyFor = (
     override: string | null | undefined,
@@ -595,11 +601,13 @@ export async function runAgentLoopImpl(
     selectWinningProfile(turnCallSite, config.llm, {
       ...(override != null ? { overrideProfile: override } : {}),
       selectionSeed: ctx.conversationId,
+      isResolvableProvider: dispatchProviderResolvable,
     }).profileName ??
     resolveProfilelessModelKey(turnCallSite, config.llm, {
       ...(override != null ? { overrideProfile: override } : {}),
       ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
       selectionSeed: ctx.conversationId,
+      isResolvableProvider: dispatchProviderResolvable,
     });
 
   let appliedOverrideProfile = turnOverrideProfile;
