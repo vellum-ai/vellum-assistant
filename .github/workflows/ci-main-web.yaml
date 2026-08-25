@@ -10,6 +10,9 @@ on:
       - 'patches/**'
       - 'clients/web/**'
       - 'assistant/src/api/**'
+      # `openapi-ts` generates the web's daemon client from this spec, so a
+      # schema change here can break the web build with no web file touched.
+      - 'assistant/openapi.yaml'
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'

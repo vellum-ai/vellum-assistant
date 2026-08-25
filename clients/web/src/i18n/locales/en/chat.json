@@ -553,9 +553,6 @@
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
-  "detailPanelStopButton": {
-    "tooltip": "Stop"
-  },
   "documentAssetActions": {
     "pdfDownloadFailed": "Failed to download PDF"
   },

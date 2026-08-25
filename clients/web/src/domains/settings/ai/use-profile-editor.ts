@@ -43,7 +43,7 @@ import {
 import type {
   ConnectionProvider,
   ProfileEntry,
-  ProfilePatchEntry,
+  ProfilePatchEntryWritable,
   ProfileStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
@@ -100,7 +100,7 @@ export interface UseProfileEditorArgs {
    */
   onSave: (
     name: string,
-    entry: ProfilePatchEntry,
+    entry: ProfilePatchEntryWritable,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
 }
@@ -684,7 +684,7 @@ export function useProfileEditor({
     setSaving(true);
     setSaveError(null);
     try {
-      const entry: ProfilePatchEntry = {};
+      const entry: ProfilePatchEntryWritable = {};
       // Stale bindings are auto-cleared on save; when providerConnection is
       // empty and there's exactly one available connection, resolve to that
       // connection's name so profiles always persist with an explicit binding.
