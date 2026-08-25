@@ -136,7 +136,9 @@ struct StatusWidgetView: View {
 
     /// Chat, given the whole width because it is the action most people want
     /// most often, and the pill is the only shape on a small widget that can
-    /// say so.
+    /// say so. It carries the accent for the same reason it gets the width, and
+    /// on a themed Home Screen it carries the user's tint in the accent's
+    /// place, so the circles above it keep reading as the secondary pair.
     private func chatPill(height: CGFloat, scale: CGFloat) -> some View {
         PillActionButton(
             intent: OpenNewChatIntent(),
@@ -145,6 +147,7 @@ struct StatusWidgetView: View {
             fill: entry.softAccent.fill,
             tint: entry.softAccent.onFill,
             height: height,
+            carriesAccent: true,
             avatarImage: entry.avatarImage,
             scale: scale
         )

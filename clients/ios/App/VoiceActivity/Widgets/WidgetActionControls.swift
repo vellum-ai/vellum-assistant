@@ -210,6 +210,12 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let height: CGFloat
 
+    /// See ``WidgetActionTile/carriesAccent``. The pill is the idle card's
+    /// primary action the way the New Chat tile is the active card's, so both
+    /// states hand the tint to the control doing that job and the flip between
+    /// them does not move the user's own color onto something else.
+    var carriesAccent: Bool = false
+
     /// See ``WidgetActionTile/avatarImage``.
     var avatarImage: UIImage? = nil
 
@@ -233,10 +239,25 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
             .frame(height: height)
-            .background(isFlattened ? WidgetFlattenedFill.pill : fill, in: Capsule())
+            .background { ground }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// The pill's ground, its own shape view for the reason the tile's is:
+    /// `widgetAccentable()` tints everything beneath it, so a pill that marked
+    /// its button would sink the glyph and the word into the ground behind
+    /// them. Marking the shape alone leaves them in the default group, legible
+    /// against the tint.
+    @ViewBuilder
+    private var ground: some View {
+        let shape = Capsule().fill(isFlattened ? WidgetFlattenedFill.pill : fill)
+        if carriesAccent {
+            shape.widgetAccentable()
+        } else {
+            shape
+        }
     }
 
     /// The glyph is sized off the pill's height either way, so swapping the
