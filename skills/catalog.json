@@ -1403,7 +1403,8 @@
           ]
         }
       },
-      "compatibility": "Designed for Vellum personal assistants on Windows"
+      "compatibility": "Designed for Vellum personal assistants on Windows",
+      "updatedAt": "2026-08-25T23:37:05.000Z"
     }
   ]
 }
