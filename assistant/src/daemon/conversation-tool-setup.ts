@@ -712,6 +712,32 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
+ * Windows parity gate: skill tools may declare `supported_client_os`; drop
+ * them when the turn's client OS (or pinned OS for wakes) is not listed.
+ */
+function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
+  const supportedClientOs = getTool(name)?.supportedClientOs;
+  if (!supportedClientOs) {
+    return true;
+  }
+  const pin = ctx.toolContextPin;
+  const transportInterface = pin
+    ? pin.transportInterface
+    : ctx.transportInterface;
+  const clientOs = pin
+    ? pin.clientOs
+    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
+      (transportInterface === "macos" || transportInterface === "windows"
+        ? transportInterface
+        : undefined));
+  return supportsClientOsForSkillTool(supportedClientOs, name, {
+    clientOs,
+    transportInterface,
+    sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+  });
+}
+
+/**
  * Determine whether a tool is part of the final exposed tool set for the
  * current turn. This helper mirrors the filtering applied by
  * `createResolveToolsCallback` — including the subagent allowlist,
@@ -733,20 +759,7 @@ export function isToolActiveForContext(
   const transportInterface = pin
     ? pin.transportInterface
     : ctx.transportInterface;
-  const clientOs = pin
-    ? pin.clientOs
-    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" || transportInterface === "windows"
-        ? transportInterface
-        : undefined));
-  const supportedClientOs = getTool(name)?.supportedClientOs;
-  if (
-    !supportsClientOsForSkillTool(supportedClientOs, name, {
-      clientOs,
-      transportInterface,
-      sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
-    })
-  ) {
+  if (!isToolSupportedOnClientOs(name, ctx)) {
     return false;
   }
 
@@ -1090,7 +1103,7 @@ export function createResolveToolsCallback(
       if (excluded.has(name)) {
         continue;
       }
-      if (!isToolActiveForContext(name, ctx)) {
+      if (!isToolSupportedOnClientOs(name, ctx)) {
         continue;
       }
       turnAllowed.add(name);

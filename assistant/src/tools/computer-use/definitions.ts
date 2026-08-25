@@ -131,7 +131,7 @@ export const computerUseTypeTextTool = {
 export const computerUseKeyTool = {
   name: "computer_use_key",
   description:
-    "Press a key or keyboard shortcut. Use ctrl-based shortcuts on Windows and cmd-based shortcuts on macOS.",
+    "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab. On Windows use ctrl/alt in place of cmd/option.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -313,7 +313,7 @@ export const computerUseWaitTool = {
 export const computerUseOpenAppTool = {
   name: "computer_use_open_app",
   description:
-    "Open or switch to a desktop application by name. Preferred over keyboard-based app switching because it is more reliable and explicit.",
+    "Open or switch to a desktop application by name. Preferred over cmd+tab / alt+tab for switching apps - more reliable and explicit.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -325,7 +325,7 @@ export const computerUseOpenAppTool = {
       app_name: {
         type: "string",
         description:
-          'The name of the application to open (e.g. "Slack", "Google Chrome", "VS Code")',
+          'The name of the application to open (e.g. "Slack", "Safari", "Google Chrome", "VS Code")',
       },
       reasoning: {
         type: "string",

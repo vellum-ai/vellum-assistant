@@ -768,7 +768,7 @@ interface SourceParityPins {
  * fork's hydrated value (`true`) so the parity contract doesn't depend on
  * hydration defaults.
  *
- * `toolContextPin.transportInterface` - the interface the source's most
+ * `toolContextPin.transportInterface` — the interface the source's most
  * recent live turns ran on (see {@link resolveSourceLiveInterface}).
  * `toolContextPin.clientOs` is recovered from the same persisted user-message
  * metadata, with the transport interface as a fallback.
@@ -850,11 +850,22 @@ function resolveSourceLiveInterface(
   sliceMessages: Array<{ role: string; metadata: string | null }>,
 ): InterfaceId | undefined {
   for (let i = sliceMessages.length - 1; i >= 0; i--) {
-    const metadata = parseUserMessageMetadata(sliceMessages[i]!);
-    if (!metadata) {
+    const row = sliceMessages[i]!;
+    if (row.role !== "user" || !row.metadata) {
       continue;
     }
-    const iface = parseInterfaceId(metadata.userMessageInterface);
+    let meta: unknown;
+    try {
+      meta = JSON.parse(row.metadata);
+    } catch {
+      continue;
+    }
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
+    const iface = parseInterfaceId(
+      (meta as Record<string, unknown>).userMessageInterface,
+    );
     if (iface) {
       return iface;
     }
@@ -866,34 +877,27 @@ function resolveSourceLiveInterface(
   );
 }
 
-function parseUserMessageMetadata(row: {
-  role: string;
-  metadata: string | null;
-}): Record<string, unknown> | undefined {
-  if (row.role !== "user" || !row.metadata) {
-    return undefined;
-  }
-  try {
-    const metadata: unknown = JSON.parse(row.metadata);
-    return metadata && typeof metadata === "object"
-      ? (metadata as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
+/** Pin the source's live client OS so OS-gated tools match on wake. */
 function resolveSourceLiveClientOs(
   sliceMessages: Array<{ role: string; metadata: string | null }>,
   transportInterface: InterfaceId | undefined,
 ): ClientOs | undefined {
   for (let i = sliceMessages.length - 1; i >= 0; i--) {
-    const metadata = parseUserMessageMetadata(sliceMessages[i]!);
-    if (metadata?.clientOsFromRequest !== true) {
+    const row = sliceMessages[i]!;
+    if (row.role !== "user" || !row.metadata) {
       continue;
     }
-    const client = metadata.client;
-    if (!client || typeof client !== "object") {
+    let meta: unknown;
+    try {
+      meta = JSON.parse(row.metadata);
+    } catch {
+      continue;
+    }
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
+    const { clientOsFromRequest, client } = meta as Record<string, unknown>;
+    if (clientOsFromRequest !== true || !client || typeof client !== "object") {
       continue;
     }
     const clientOs = parseClientOs((client as Record<string, unknown>).os);
