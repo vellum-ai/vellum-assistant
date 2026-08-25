@@ -316,10 +316,11 @@
     "title": "Remove from this device?"
   },
   "resourcePressureBanner": {
-    "body": "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
-    "bodyNoUpgrade": "Your assistant has been using elevated resources for an extended period.",
+    "body": "Your assistant is working hard and reaching its current resource limits. Upgrade to keep it running smoothly.",
+    "bodyNoUpgrade": "Your assistant is working hard and reaching its current resource limits.",
     "dontShowAgain": "Don't show again",
-    "title": "Resource utilization is high",
+    "title": "Your assistant needs more power",
+    "titleNamed": "{assistantName} needs more power",
     "upgrade": "Upgrade"
   },
   "retireConfirmDialog": {

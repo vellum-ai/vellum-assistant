@@ -1161,6 +1161,7 @@ export function ChatMainPanel({
     <ResourcePressureBannerSlot
       resourcePressure={resourcePressure}
       assistantId={assistantId}
+      assistantName={assistantName}
       assistantStateKind={assistantState.kind}
       hidden={diskPressureBannerVisible}
     />
