@@ -146,22 +146,22 @@ export function deriveDeterministicTitle(context: TitleContext): string {
  * inbound whose only content is a guardian access-request card: without this
  * the sidebar shows a permanent "Generating title…". Persisted as
  * `AUTO_TITLE_DETERMINISTIC` so a later genuine turn can still upgrade it, and
- * broadcast so connected clients converge. Returns the title as persisted, or
- * null when the current one was left in place.
+ * broadcast so connected clients converge. Returns the title the conversation
+ * carries once it settles, and whether this call is what set it.
  */
 export function applyDeterministicTitleIfReplaceable(
   conversationId: string,
   title: string,
-): string | null {
+): { title: string; updated: boolean } {
   const conversation = getConversation(conversationId);
   if (conversation && !isReplaceableTitle(conversation.title)) {
-    return null;
+    return { title: conversation.title!, updated: false };
   }
   const cleaned =
     truncateTitle(title.replace(/\s+/g, " ").trim()) || UNTITLED_FALLBACK;
   updateConversationTitle(conversationId, cleaned, AUTO_TITLE_DETERMINISTIC);
   publishConversationTitleChanged(conversationId, cleaned);
-  return cleaned;
+  return { title: cleaned, updated: true };
 }
 
 // ── Title generation ─────────────────────────────────────────────────
@@ -235,32 +235,21 @@ export async function generateAndPersistConversationTitle(
 }
 
 /**
- * Settle a conversation on a title derived from its creation context when no
- * LLM title is available: the provider is unreachable, the model declined, or
- * the prompt had no text to title from.
- *
- * Applies only while the current title is still a placeholder, so a background
- * job's bootstrap title (or a custom rename that landed while the request was
- * in flight) is never traded for one that names the work less well. Persisted
- * as `AUTO_TITLE_DETERMINISTIC`, so a later generation pass can still upgrade
- * it and a conversation never sits on the loading placeholder for good.
+ * Settle a conversation on a title derived from its creation context, for the
+ * outcomes that produce no LLM title: the provider is unreachable, the model
+ * declined, or the prompt had no text to title from. Clearing a loading
+ * placeholder is worth doing; overwriting a title that already names the work
+ * (a background job's bootstrap title) is not, which is why this defers to
+ * `applyDeterministicTitleIfReplaceable` rather than writing directly.
  */
 function settleForDeterministicTitle(
   conversationId: string,
   context: TitleContext | undefined,
 ): { title: string; updated: boolean } {
-  const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-  const applied = applyDeterministicTitleIfReplaceable(
+  return applyDeterministicTitleIfReplaceable(
     conversationId,
-    fallback,
+    deriveFallbackTitle(context) ?? UNTITLED_FALLBACK,
   );
-  if (applied !== null) {
-    return { title: applied, updated: true };
-  }
-  return {
-    title: getConversation(conversationId)?.title ?? fallback,
-    updated: false,
-  };
 }
 
 // ── Serial title-generation queue ────────────────────────────────────
@@ -550,8 +539,8 @@ function buildTitlePrompt(
     }
   }
 
-  // Trim after stripping so a turn whose only content was thinking tags reads
-  // as no text at all, the same as an image-only or whitespace-only prompt.
+  // Trim after stripping so a turn carrying nothing but thinking tags reads as
+  // no text at all, the same as an image-only or whitespace-only prompt.
   const userText = userMessage ? stripThinkingTags(userMessage).trim() : "";
   if (userText) {
     parts.push(`User: ${userText}`);
