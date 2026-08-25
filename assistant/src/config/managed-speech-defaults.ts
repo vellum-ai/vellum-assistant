@@ -20,6 +20,7 @@ import { ttsSecretResolves } from "../calls/telephony-tts-capability.js";
 import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import {
   getProviderEntry,
+  isManagedSttProvider,
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
 import { sttProviderKeyResolves } from "../providers/speech-to-text/resolve.js";
@@ -78,11 +79,6 @@ function managedStandInFor(configured: SttProviderId): SttProviderId {
   return supportsProviderTurnDetection(configured) ? "vellum-flux" : "vellum";
 }
 
-/** Whether a provider id is one of the managed (platform-billed) entries. */
-function isManagedProvider(provider: SttProviderId): boolean {
-  return provider === "vellum" || provider === "vellum-flux";
-}
-
 /** The speech providers a runtime path uses, after managed-speech defaulting. */
 export interface EffectiveSpeechProviders {
   stt: SttProviderId;
@@ -114,7 +110,7 @@ export async function resolveEffectiveSpeechProviders(
   }
 
   const stt =
-    !isManagedProvider(configuredStt) &&
+    !isManagedSttProvider(configuredStt) &&
     !(await sttByokCredentialResolves(configuredStt))
       ? managedStandInFor(configuredStt)
       : configuredStt;

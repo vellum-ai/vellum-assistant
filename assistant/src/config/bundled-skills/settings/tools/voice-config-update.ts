@@ -4,6 +4,8 @@ import {
   DEEPGRAM_MULTI_LANGUAGE_CODES,
   DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
 } from "../../../../providers/speech-to-text/deepgram.js";
+import { isManagedSttProvider } from "../../../../providers/speech-to-text/provider-catalog.js";
+import type { SttProviderId } from "../../../../stt/types.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -422,9 +424,14 @@ export async function run(
     return { content: `Error: ${validation.error}`, isError: true };
   }
 
+  // Managed speech has more than one STT id, so the gate reads the catalog
+  // rather than a literal: without this, setting a managed provider other
+  // than "vellum" on a disconnected assistant persists happily and then
+  // resolves no transcriber at all.
   const wantsManagedSpeech =
-    (setting === "stt_provider" || setting === "tts_provider") &&
-    validation.coerced === "vellum";
+    (setting === "stt_provider" &&
+      isManagedSttProvider(validation.coerced as SttProviderId)) ||
+    (setting === "tts_provider" && validation.coerced === "vellum");
   if (wantsManagedSpeech && !(await managedSpeechAvailable())) {
     return {
       content:

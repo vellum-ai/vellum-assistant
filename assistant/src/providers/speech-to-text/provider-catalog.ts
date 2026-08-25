@@ -291,7 +291,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       id: "vellum-flux",
       displayName: "Vellum (Flux)",
       subtitle:
-        "Conversational speech-to-text with model-native turn detection, through your Vellum account — no separate API key needed.",
+        "Conversational speech-to-text with model-native turn detection, through your Vellum account. No separate API key needed.",
       setupMode: "connection",
       setupHint: "Connect your Vellum account to enable managed transcription.",
       // Shared with `vellum`: the platform connection is the credential, and
@@ -473,6 +473,18 @@ export function supportsDiarization(id: SttProviderId): boolean {
  * provider, so a new turn-detecting provider is a catalog entry rather than a
  * session change.
  */
+/**
+ * Whether a provider authenticates with the Vellum platform connection rather
+ * than a stored API key.
+ *
+ * Derived from the catalog rather than a hand-kept id list: every check that
+ * gates managed speech reads this, so adding a managed provider cannot leave
+ * one of them behind on a stale literal.
+ */
+export function isManagedSttProvider(id: SttProviderId): boolean {
+  return CATALOG.get(id)?.credentialProvider === "vellum";
+}
+
 export function supportsProviderTurnDetection(id: SttProviderId): boolean {
   return CATALOG.get(id)?.turnDetection === "provider";
 }

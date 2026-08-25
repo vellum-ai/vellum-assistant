@@ -12,6 +12,7 @@ import {
   batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
+  isManagedSttProvider,
   supportsBoundary,
   supportsDiarization,
 } from "./provider-catalog.js";
@@ -473,7 +474,7 @@ export async function resolveStreamingTranscriber(
   // Both managed entries authenticate with the platform connection, not a
   // stored API key: there is no key to fetch, and readiness is whether the
   // connection resolves.
-  const managed = provider === "vellum" || provider === "vellum-flux";
+  const managed = isManagedSttProvider(provider);
   const apiKey = managed
     ? null
     : await getProviderKeyAsync(credentialProviderName);
