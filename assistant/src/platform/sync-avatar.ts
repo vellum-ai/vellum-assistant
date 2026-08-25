@@ -5,7 +5,9 @@
  * a sync. The current avatar state is read when the request runs, so rapid
  * changes collapse into one PATCH carrying the newest raster. The dedup key
  * comes from the raster file itself, not the manifest, so a raster rewritten
- * in place (fs watcher path) still syncs. Best-effort: failures are logged, never
+ * in place (fs watcher path) still syncs, and is scoped to the platform
+ * destination so re-registering to another assistant or base URL re-sends.
+ * Best-effort: failures are logged, never
  * thrown, and leave the dedup key untouched so the next publish retries.
  */
 
@@ -98,7 +100,8 @@ async function doSync(requestSeq: number): Promise<void> {
       return;
     }
 
-    const { key, bytes } = await readRaster();
+    const { key: rasterKey, bytes } = await readRaster();
+    const key = `${client.baseUrl}|${assistantId}|${rasterKey}`;
     if (key === lastSyncedKey) {
       return;
     }
@@ -134,7 +137,7 @@ async function doSync(requestSeq: number): Promise<void> {
 
     if (resp.ok) {
       lastSyncedKey = key;
-      log.info({ key, assistantId }, "Synced avatar to platform");
+      log.info({ key: rasterKey, assistantId }, "Synced avatar to platform");
     } else {
       const text = await resp.text();
       log.warn(

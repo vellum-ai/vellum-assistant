@@ -8,6 +8,7 @@ import type { AvatarState } from "../avatar/avatar-manifest.js";
 let mockState: AvatarState;
 let mockRasterPath: string | null;
 let mockClient: {
+  baseUrl: string;
   platformAssistantId: string;
   fetch: (path: string, init: RequestInit) => Promise<Response>;
 } | null;
@@ -79,8 +80,9 @@ interface Patch {
 let patches: Patch[];
 let respond: () => Response;
 
-function makeClient(assistantId = "asst-1") {
+function makeClient(assistantId = "asst-1", baseUrl = "https://platform.a") {
   return {
+    baseUrl,
     platformAssistantId: assistantId,
     fetch: async (path: string, init: RequestInit) => {
       patches.push({ path, body: JSON.parse(init.body as string) });
@@ -144,6 +146,37 @@ describe("syncAvatarToPlatform", () => {
     expect(patches.map((p) => p.body.avatar_base64)).toEqual([
       Buffer.from("png-a").toString("base64"),
       Buffer.from("png-a-rewritten").toString("base64"),
+    ]);
+  });
+
+  test("re-registering to another assistant id re-sends the same raster", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    mockClient = makeClient("asst-2");
+    syncAvatarToPlatform();
+    await settle();
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches.map((p) => p.path)).toEqual([
+      "/v1/assistants/asst-1/",
+      "/v1/assistants/asst-2/",
+    ]);
+    expect(patches[1].body.avatar_base64).toBe(
+      Buffer.from("png-a").toString("base64"),
+    );
+  });
+
+  test("re-registering to another base URL re-sends the same raster", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    mockClient = makeClient("asst-1", "https://platform.b");
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches.map((p) => p.path)).toEqual([
+      "/v1/assistants/asst-1/",
+      "/v1/assistants/asst-1/",
     ]);
   });
 
@@ -240,6 +273,7 @@ describe("syncAvatarToPlatform", () => {
 
   test("a thrown fetch is swallowed and retried on the next publish", async () => {
     mockClient = {
+      baseUrl: "https://platform.a",
       platformAssistantId: "asst-1",
       fetch: async () => {
         throw new Error("boom");
