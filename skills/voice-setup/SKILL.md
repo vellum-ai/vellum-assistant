@@ -116,7 +116,7 @@ On Windows, the native helper provides local dictation partials and final transc
    - **macOS:** Fn requires the native helper and may require Input Monitoring. The Globe key can also be assigned to macOS Dictation or the emoji picker, so suggest a custom chord if both actions fire.
    - **Windows:** Fn cannot work. A Ctrl+Shift or Alt tap requires Vellum to be focused. For use from another app, record a custom global chord and make sure no other app owns it.
 4. If the user reports Speech Recognition permission as denied or not determined, call `open_system_settings` with `pane: "speech_recognition"` and the current `platform`.
-5. If the Windows shortcut fires but capture does not start, restart the Windows helper from the Vellum tray menu and retry.
+5. If the Windows shortcut fires but capture does not start, choose **Restart** from the Vellum tray menu and retry.
 
 ### "Recording but no text" or "Transcription not working"
 
@@ -126,7 +126,7 @@ On Windows, the native helper provides local dictation partials and final transc
    - **macOS:** Speech recognition works best when the system recognition language matches the speaker.
    - **Windows:** The local helper uses an installed Windows speech recognizer, preferring the current Windows display language. If no matching recognizer is installed, add the language's speech feature in Windows language settings or select an installed language.
 4. Reduce background noise or move closer to the microphone.
-5. On Windows, restart the helper from the tray menu. The helper performs on-device dictation and can recover independently of the assistant process.
+5. On Windows, choose **Restart** from the Vellum tray menu and retry. The restart relaunches Vellum and its on-device dictation helper together.
 
 ### "Changed a setting but it didn't work"
 
