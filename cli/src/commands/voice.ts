@@ -41,11 +41,11 @@ OPTIONS:
     --help               Show this help
 
 DESCRIPTION:
-    Opens a live-voice session with no microphone. Each line you type is taken
-    as a turn (max ${MAX_TEXT_TURN_CHARS} characters) and the reply is streamed
-    back as text and spoken aloud.
+    Opens a live-voice session with no microphone. Each line you type is
+    taken as a turn and the reply is streamed back as text and spoken aloud.
+    A turn is at most ${MAX_TEXT_TURN_CHARS} characters.
 
-    Speech needs a PCM player on PATH: ffplay, play (sox), or aplay stream the
+    Speech needs a PCM player on PATH. ffplay, play (sox), or aplay stream the
     audio as it arrives; afplay (macOS) plays each reply once it is complete.
     With none of them installed the session still runs, printed but silent.
 
@@ -111,16 +111,24 @@ interface SessionDeps {
  * Drive one session to completion.
  *
  * Resolves when the socket closes, whether that is the user leaving or a
- * failure; the exit code is set on the way out rather than thrown, so a failed
+ * failure. The exit code is set on the way out rather than thrown, so a failed
  * session prints one line instead of a stack.
  */
 function runSession({ client, player, reference }: SessionDeps): Promise<void> {
   return new Promise<void>((resolve) => {
     let rl: Interface | null = null;
-    // True from the moment a turn is sent until its speech is done or
-    // cancelled. The daemon refuses a second turn while one is in flight, so
-    // the prompt is withheld for exactly as long.
+    // True from the moment a turn is sent until its reply has been spoken.
+    // The daemon refuses a second turn while one is in flight, so the prompt
+    // is withheld for exactly as long.
     let turnInFlight = false;
+    /**
+     * The in-flight turn's server-side id, once anything has named it.
+     *
+     * Lets a completion frame be matched to the turn it belongs to. Null while
+     * the turn is still anonymous, in which case a completion frame is taken
+     * at face value, which is what this did before ids were tracked at all.
+     */
+    let activeTurnId: string | null = null;
     // Whether anything of this turn's reply has been printed yet, so the
     // speaker label is written once rather than per delta.
     let replyStarted = false;
@@ -141,17 +149,37 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       resolve();
     };
 
-    const endTurn = (): void => {
+    /** Hand the prompt back and let the user take another turn. */
+    const endTurn = (note?: string): void => {
+      // `finished` matters as much as `turnInFlight`: a session that closed
+      // while a `finish()` was still awaited resolves it through dispose(),
+      // and the prompt must not be redrawn under a closed interface.
+      if (!turnInFlight || finished) {
+        return;
+      }
       turnInFlight = false;
+      activeTurnId = null;
       replyStarted = false;
       lastActivity = "";
+      if (note) {
+        process.stdout.write(chalk.dim(note));
+      }
       process.stdout.write("\n");
+      rl?.resume();
       rl?.prompt();
     };
 
-    client.on("ready", (frame) => {
-      const speaking = describePlayback(player);
+    /**
+     * Whether a completion frame belongs to the turn currently in flight.
+     *
+     * A turn abandoned locally (Ctrl+C) leaves the prompt free while the
+     * daemon may still be winding down, so a late frame must not be allowed to
+     * end whatever turn came after it.
+     */
+    const completesActiveTurn = (turnId: string): boolean =>
+      turnInFlight && (activeTurnId === null || activeTurnId === turnId);
 
+    client.on("ready", (frame) => {
       if (!client.supportsTextInput) {
         // The `ready` echo is the only reliable signal. A daemon that predates
         // typed turns answers every `text` frame with `unknown_type`, so
@@ -165,13 +193,15 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
         return;
       }
 
-      console.log(chalk.dim(`Connected to ${reference} — ${speaking}.`));
+      console.log(
+        chalk.dim(`Connected to ${reference}. ${describePlayback(player)}.`),
+      );
       if (!client.hasAudioInput) {
         // Expected here rather than alarming: this client declared it can type,
         // which is what let the session open text-only instead of being refused.
         console.log(
           chalk.dim(
-            "Speech-to-text is not configured on this assistant; typed turns only.",
+            "Speech-to-text is not configured on this assistant, so typed turns only.",
           ),
         );
       }
@@ -185,7 +215,7 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       rl = createInterface({
         input: process.stdin,
         output: process.stdout,
-        prompt: chalk.cyan("› "),
+        prompt: chalk.cyan("> "),
       });
 
       rl.on("line", (line) => {
@@ -204,29 +234,37 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
           return;
         }
         if (turnInFlight) {
-          console.error(chalk.yellow("Still replying — Ctrl+C to interrupt."));
+          console.error(chalk.yellow("Still replying. Ctrl+C to interrupt."));
           return;
         }
         if (!client.sendText(text)) {
           console.error(
-            chalk.yellow("Message not sent — the session is closed."),
+            chalk.yellow("Message not sent, the session is closed."),
           );
           return;
         }
         turnInFlight = true;
+        activeTurnId = null;
         // Withhold the prompt until the reply lands, so the next line the user
         // types is not composed against a turn the daemon would refuse.
         rl?.pause();
       });
 
       rl.on("SIGINT", () => {
-        if (turnInFlight) {
-          // Barge-in: the same thing speaking over the assistant does.
-          client.interrupt();
-          player?.stop();
+        if (!turnInFlight) {
+          client.end();
           return;
         }
-        client.end();
+        // Barge-in. The turn ends here rather than on a frame from the daemon,
+        // because a client `interrupt` is answered with neither `tts_done` nor
+        // `turn_cancelled`: the daemon's `interrupt()` cancels the turn through
+        // `cancelAssistantTurn`, `tts_done` is gated on the turn not being
+        // aborted, and `turn_cancelled` is only sent down the VAD barge-in
+        // path. Waiting for one would hang the prompt for the rest of the
+        // session.
+        client.interrupt();
+        player?.stop();
+        endTurn(" [interrupted]");
       });
 
       rl.on("close", () => {
@@ -239,19 +277,20 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
     });
 
     client.on("activity", (frame) => {
-      // Only worth showing while the turn is still silent — once text is
+      activeTurnId = frame.turnId;
+      // Only worth showing while the turn is still silent. Once text is
       // streaming, the reply itself is the better progress indicator.
       if (replyStarted || frame.label === "" || frame.label === lastActivity) {
         return;
       }
       lastActivity = frame.label;
-      console.log(chalk.dim(`  … ${frame.label}`));
+      console.log(chalk.dim(`  ... ${frame.label}`));
     });
 
     client.on("textDelta", (frame) => {
       if (!replyStarted) {
         replyStarted = true;
-        process.stdout.write(chalk.green("‹ "));
+        process.stdout.write(chalk.green("< "));
       }
       process.stdout.write(frame.text);
     });
@@ -263,21 +302,25 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       player.write(Buffer.from(frame.dataBase64, "base64"), frame.sampleRate);
     });
 
-    client.on("turnDone", () => {
-      player?.finish();
-      if (turnInFlight) {
-        rl?.resume();
-        endTurn();
+    client.on("turnDone", (turnId) => {
+      if (!completesActiveTurn(turnId)) {
+        // Still drain the audio: the frame is stale for the prompt's purposes
+        // but the bytes are real and already queued.
+        void player?.finish();
+        return;
       }
+      // The turn is not over until the speaker is quiet. Handing the prompt
+      // back at the last byte instead would make Ctrl+C quit the session while
+      // the assistant is still talking, and let the next turn start a second
+      // player over the top of the first.
+      void player?.finish().then(() => endTurn());
     });
 
-    client.on("turnCancelled", () => {
+    client.on("turnCancelled", (turnId) => {
       // Audio still in flight belongs to a turn that no longer exists.
       player?.stop();
-      if (turnInFlight) {
-        process.stdout.write(chalk.dim(" [interrupted]"));
-        rl?.resume();
-        endTurn();
+      if (completesActiveTurn(turnId)) {
+        endTurn(" [interrupted]");
       }
     });
 
@@ -289,10 +332,8 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
             : `Turn not taken: ${message}`,
         ),
       );
-      if (turnInFlight) {
-        rl?.resume();
-        endTurn();
-      }
+      player?.stop();
+      endTurn();
     });
 
     client.on("warning", (message) => {
@@ -319,14 +360,14 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
  */
 function describePlayback(player: PcmPlayer | null): string {
   if (!player) {
-    return "audio off (--no-audio)";
+    return "Audio off (--no-audio)";
   }
   switch (player.mode) {
     case "streaming":
-      return `speaking via ${player.playerName}`;
+      return `Speaking via ${player.playerName}`;
     case "buffered":
-      return `speaking via ${player.playerName}, one reply at a time`;
+      return `Speaking via ${player.playerName}, one reply at a time`;
     case "silent":
-      return "silent — install ffplay, sox, or aplay to hear replies";
+      return "Silent: install ffplay, sox, or aplay to hear replies";
   }
 }

@@ -2,7 +2,7 @@
  * Playing the assistant's voice out of a terminal.
  *
  * `tts_audio` frames carry PCM16 mono at a sample rate the frame states, which
- * needs no decoding — only somewhere to put it. There is no portable way to do
+ * needs no decoding, only somewhere to put it. There is no portable way to do
  * that from Node without a native addon, and a native addon is not an option
  * for a package distributed as an npm tarball, so this shells out to whichever
  * player the machine already has.
@@ -14,7 +14,7 @@
  *   a barge-in cuts it off mid-word. This is the real thing.
  * - **Buffered** (`afplay`): cannot read stdin, so the turn's audio is
  *   collected, wrapped in a WAV header, and played once the turn finishes.
- *   Kept because it is the only player that ships with macOS — without it the
+ *   Kept because it is the only player that ships with macOS. Without it the
  *   feature is silent on a stock Mac, which is most of them.
  *
  * With no player at all the session still runs; the reply is printed and never
@@ -22,8 +22,7 @@
  * someone would rather read the answer than not get one.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,7 +30,7 @@ import { join } from "node:path";
 /** How a resolved player consumes audio. */
 export type PlaybackMode = "streaming" | "buffered" | "silent";
 
-interface PlayerCommand {
+export interface PlayerCommand {
   readonly mode: Exclude<PlaybackMode, "silent">;
   readonly name: string;
   /** Argv for a given sample rate. */
@@ -103,13 +102,22 @@ const PLAYERS: readonly PlayerCommand[] = [
   },
 ];
 
-function isOnPath(command: string): boolean {
+/**
+ * Whether a command resolves on this machine.
+ *
+ * Platform-split rather than one clever shell invocation: `command -v` is a
+ * POSIX shell builtin, and on Windows the spawned shell is `cmd.exe`, which
+ * has no such builtin. A single POSIX form there fails for every candidate and
+ * silently downgrades the session to text-only on a machine that has ffplay
+ * installed.
+ */
+export function isOnPath(command: string): boolean {
+  const [probe, args] =
+    process.platform === "win32"
+      ? ["where", [command]]
+      : ["/bin/sh", ["-c", `command -v ${command}`]];
   try {
-    execFileSync("command", ["-v", command], {
-      stdio: "ignore",
-      shell: true,
-      timeout: 2000,
-    });
+    execFileSync(probe, args, { stdio: "ignore", timeout: 2000 });
     return true;
   } catch {
     return false;
@@ -142,6 +150,13 @@ export class PcmPlayer {
   private pending: Buffer[] = [];
   private tempDir: string | null = null;
   private tempSeq = 0;
+  /**
+   * Resolvers for `finish()` callers still waiting on the current process.
+   * Held rather than resolved eagerly because "the bytes were handed over" and
+   * "the speaker went quiet" are different moments, and callers care about the
+   * second one.
+   */
+  private idleWaiters: (() => void)[] = [];
 
   constructor(player: PlayerCommand | null = resolvePlayer()) {
     this.player = player;
@@ -180,24 +195,42 @@ export class PcmPlayer {
   }
 
   /**
-   * The turn's audio is complete. Streaming players drain what is queued;
-   * buffered players play the whole turn now.
+   * The turn's audio is complete. Resolves when the machine actually stops
+   * making noise, not when the last byte is handed over.
+   *
+   * The distinction is the whole point. Closing a streaming player's stdin
+   * leaves seconds of audio still buffered inside it, and a buffered player
+   * has not even started yet at this moment. A caller that treated either as
+   * "done" would hand the prompt back while the assistant is still talking,
+   * so Ctrl+C would quit the session instead of interrupting, and the next
+   * turn would start a second player over the top of the first.
    */
-  finish(): void {
+  finish(): Promise<void> {
     if (!this.player) {
-      return;
+      return Promise.resolve();
     }
     if (this.player.mode === "buffered") {
       this.playBuffered();
-      return;
+    } else {
+      this.endStream();
     }
-    this.endStream();
+    if (!this.child) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.idleWaiters.push(resolve);
+    });
+  }
+
+  /** Whether audio is still playing. */
+  get isPlaying(): boolean {
+    return this.child !== null;
   }
 
   /**
    * Cut playback off immediately and drop anything not yet played. This is
-   * barge-in: `turn_cancelled` means the audio still in flight is for a turn
-   * that no longer exists, so draining it would be wrong.
+   * barge-in: an interrupted turn's audio is for a turn that no longer exists,
+   * so draining it would be wrong.
    */
   stop(): void {
     this.pending = [];
@@ -210,6 +243,7 @@ export class PcmPlayer {
       child.stdin?.destroy();
       child.kill("SIGKILL");
     }
+    this.releaseIdleWaiters();
   }
 
   /** Release the temp directory buffered playback used, if any. */
@@ -228,22 +262,15 @@ export class PcmPlayer {
     const child = spawn(this.player.name, this.player.args(sampleRate), {
       stdio: ["pipe", "ignore", "ignore"],
     });
-    // A player that dies mid-turn (or was never really there) must not take
-    // the session with it — EPIPE on the next write would be an unhandled
-    // error event otherwise.
-    child.on("error", () => this.stop());
-    child.stdin?.on("error", () => {});
-    this.child = child;
+    this.adopt(child);
     this.activeSampleRate = sampleRate;
   }
 
   private endStream(): void {
-    const child = this.child;
-    this.child = null;
-    this.activeSampleRate = null;
     // Closing stdin lets the player finish what is already queued and exit on
-    // its own; this is the ordinary end of a turn, not an interruption.
-    child?.stdin?.end();
+    // its own; this is the ordinary end of a turn, not an interruption. The
+    // process stays adopted so `finish()` can wait for it to actually exit.
+    this.child?.stdin?.end();
   }
 
   private playBuffered(): void {
@@ -260,22 +287,48 @@ export class PcmPlayer {
     const filePath = join(this.tempDir, `turn-${this.tempSeq++}.wav`);
     writeFileSync(filePath, wrapPcmAsWav(pcm, sampleRate));
 
-    const child = spawn(
-      this.player.name,
-      this.player.args(sampleRate, filePath),
-      {
+    this.adopt(
+      spawn(this.player.name, this.player.args(sampleRate, filePath), {
         stdio: "ignore",
-      },
+      }),
     );
-    child.on("error", () => {});
+  }
+
+  /**
+   * Take ownership of a player process and wire its exit back to whoever is
+   * waiting on `finish()`.
+   *
+   * A player that dies mid-turn, or was never really there, must not take the
+   * session with it: an unhandled `error` event would, and a `finish()` that
+   * never resolved would wedge the prompt just as surely.
+   */
+  private adopt(child: ChildProcess): void {
     this.child = child;
+    child.stdin?.on("error", () => {});
+    const settle = () => {
+      if (this.child === child) {
+        this.child = null;
+        this.activeSampleRate = null;
+      }
+      this.releaseIdleWaiters();
+    };
+    child.on("error", settle);
+    child.on("exit", settle);
+  }
+
+  private releaseIdleWaiters(): void {
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    for (const resolve of waiters) {
+      resolve();
+    }
   }
 }
 
 /**
  * Wrap raw PCM16 mono in a 44-byte canonical WAV header.
  *
- * Only for the buffered path — a streaming player is told the format on its
+ * Only for the buffered path. A streaming player is told the format on its
  * command line and wants headerless bytes.
  */
 export function wrapPcmAsWav(pcm: Buffer, sampleRate: number): Buffer {

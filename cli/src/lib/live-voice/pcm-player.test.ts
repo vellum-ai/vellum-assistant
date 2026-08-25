@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { wrapPcmAsWav } from "./pcm-player.js";
+import {
+  isOnPath,
+  PcmPlayer,
+  wrapPcmAsWav,
+  type PlayerCommand,
+} from "./pcm-player.js";
 
 describe("wrapPcmAsWav", () => {
   test("writes a canonical 44-byte mono PCM16 header for the given rate", () => {
@@ -24,5 +29,73 @@ describe("wrapPcmAsWav", () => {
   test("tracks the sample rate the frame declared, not a fixed one", () => {
     expect(wrapPcmAsWav(Buffer.alloc(2), 16000).readUInt32LE(24)).toBe(16000);
     expect(wrapPcmAsWav(Buffer.alloc(2), 44100).readUInt32LE(24)).toBe(44100);
+  });
+});
+
+describe("PcmPlayer playback lifetime", () => {
+  /** A player process whose lifetime a test controls. */
+  const sleeper = (seconds: number): PlayerCommand => ({
+    mode: "streaming",
+    name: "/bin/sh",
+    args: () => ["-c", `sleep ${seconds}`],
+  });
+
+  test("finish() waits for the player to exit, not for the last byte", async () => {
+    const player = new PcmPlayer(sleeper(0.4));
+    player.write(Buffer.alloc(64), 24000);
+    expect(player.isPlaying).toBe(true);
+
+    const started = performance.now();
+    await player.finish();
+    const elapsed = performance.now() - started;
+
+    // Handing the prompt back at the last byte would resolve immediately; the
+    // point of the await is that the speaker has actually gone quiet.
+    expect(elapsed).toBeGreaterThan(250);
+    expect(player.isPlaying).toBe(false);
+    player.dispose();
+  });
+
+  test("stop() cuts playback off and releases a pending finish()", async () => {
+    const player = new PcmPlayer(sleeper(5));
+    player.write(Buffer.alloc(64), 24000);
+
+    const started = performance.now();
+    const pending = player.finish();
+    player.stop();
+    await pending;
+
+    // A finish() that outlived its interrupt would wedge the prompt for the
+    // rest of the session, which is exactly the barge-in case.
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(player.isPlaying).toBe(false);
+    player.dispose();
+  });
+
+  test("finish() resolves immediately when there is no player", async () => {
+    const player = new PcmPlayer(null);
+    player.write(Buffer.alloc(64), 24000);
+    await player.finish();
+    expect(player.mode).toBe("silent");
+  });
+
+  test("a player that cannot be spawned does not wedge finish()", async () => {
+    const missing: PlayerCommand = {
+      mode: "streaming",
+      name: "definitely-not-a-real-player-binary",
+      args: () => [],
+    };
+    const player = new PcmPlayer(missing);
+    player.write(Buffer.alloc(64), 24000);
+    await player.finish();
+    expect(player.isPlaying).toBe(false);
+    player.dispose();
+  });
+});
+
+describe("isOnPath", () => {
+  test("finds a binary that exists and rejects one that does not", () => {
+    expect(isOnPath("sh")).toBe(true);
+    expect(isOnPath("definitely-not-a-real-binary-xyz")).toBe(false);
   });
 });

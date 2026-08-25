@@ -5,7 +5,7 @@
  * `clients/web/src/domains/chat/voice/live-voice/protocol.ts` is: the CLI ships
  * as an npm package and nothing outside `cli/` lands in the tarball, so the
  * daemon's copy cannot be imported. Deliberately a subset rather than a full
- * port — this client never captures audio, so the capture half of the protocol
+ * port. This client never captures audio, so the capture half of the protocol
  * (`audio`, `ptt_release`, `speech_started`, `utterance_end`, the `stt_*`
  * frames) is absent instead of present and unreachable.
  *
@@ -40,7 +40,7 @@ export interface LiveVoiceStartFrame {
    * it is what lets a session whose speech-to-text leg has no working
    * credential open text-only (`ready.audioInput: false`) instead of being
    * refused outright with `credentials_unavailable`. A CLI that cannot hear
-   * loses nothing — it was never going to listen.
+   * loses nothing: it was never going to listen.
    */
   readonly textInput: true;
 }
@@ -67,7 +67,7 @@ export interface LiveVoiceReadyFrame extends ServerFrameBase {
    */
   readonly textInput?: boolean;
   /**
-   * Whether the speech-to-text leg is live. Absent means yes — an older daemon
+   * Whether the speech-to-text leg is live. Absent means yes, because an older daemon
    * refuses any session it cannot transcribe, so every session it readies can
    * hear. False is reachable only because this client declared `textInput`.
    */
@@ -122,7 +122,7 @@ export interface LiveVoiceErrorFrame extends ServerFrameBase {
 }
 
 /**
- * A frame this build has no handling for — a newer daemon's addition, or one
+ * A frame this build has no handling for: a newer daemon's addition, or one
  * of the capture-side frames a microphone-less session never acts on.
  * Surfaced as a type rather than dropped in the parser so the client can log
  * it at debug level instead of silently swallowing protocol drift.
@@ -170,7 +170,7 @@ const HANDLED_FRAME_TYPES = new Set([
  * Lenient by design: a frame whose type this build knows is returned as-is
  * (extra fields ride along harmlessly), an unrecognized type becomes
  * `unhandled`, and anything unparseable becomes `malformed`. Nothing here
- * throws — a single bad frame must never take down a session.
+ * throws, because a single bad frame must never take down a session.
  */
 export function parseServerFrame(payload: string): LiveVoiceServerFrame {
   let value: unknown;

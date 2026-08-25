@@ -8,7 +8,7 @@
  * upstream (`gateway/src/http/routes/live-voice-websocket.ts`).
  *
  * What the gateway wants is an actor edge JWT belonging to the *bound
- * guardian* — live voice is a guardian-only surface, because the daemon stamps
+ * guardian*. Live voice is a guardian-only surface, because the daemon stamps
  * each voice turn with the guardian's trust context and the proxy replaces the
  * caller's identity upstream, so the pin at the gateway is the only place a
  * non-guardian can be stopped.
@@ -16,7 +16,7 @@
  * The CLI already holds exactly that credential and has since it first paired:
  * `leaseGuardianToken` POSTs `/v1/guardian/init`, which resolves the *vellum*
  * guardian principal and mints an access token subject
- * `actor:<assistantId>:<guardianPrincipalId>` — the same principal
+ * `actor:<assistantId>:<guardianPrincipalId>`, the same principal
  * `findVellumGuardian()` returns on the other side of the check. So the pin
  * passes by construction, and there is nothing new to provision here.
  */
@@ -39,7 +39,7 @@ export interface LiveVoiceConnection {
   /** Guardian access token, sent as `Authorization: Bearer`. */
   readonly token: string;
   readonly assistantId: string;
-  /** `name (id)` when they differ, else the id — for user-facing output. */
+  /** `name (id)` when they differ, else the id, for user-facing output. */
   readonly reference: string;
 }
 
@@ -50,9 +50,9 @@ export class LiveVoiceConnectionError extends Error {}
  *
  * Refreshes the token when it is already due for renewal, so a long session
  * does not open on a credential that expires mid-conversation. A token that is
- * merely *rejected* is not refreshed here — that would disclose the long-lived
- * refresh credential on demand — which matches how `AssistantClient` gates its
- * own reactive refresh.
+ * merely *rejected* is not refreshed here, because that would disclose the
+ * long-lived refresh credential on demand, which matches how `AssistantClient`
+ * gates its own reactive refresh.
  */
 export async function resolveLiveVoiceConnection(
   assistantIdArg?: string,
@@ -67,7 +67,7 @@ export async function resolveLiveVoiceConnection(
 
   // Platform-cloud assistants authenticate with a platform session token
   // (`X-Session-Token`), and the live-voice upgrade accepts only an actor edge
-  // JWT or a velay attestation — neither of which the CLI has for a cloud
+  // JWT or a velay attestation, neither of which the CLI has for a cloud
   // instance. Say so plainly rather than opening a socket that 401s.
   if (entry.cloud === "vellum") {
     throw new LiveVoiceConnectionError(

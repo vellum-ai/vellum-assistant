@@ -114,7 +114,7 @@ describe("typed turns", () => {
   test("are refused when ready omits textInput, rather than sent blind", () => {
     const { client, socket } = connected();
     // A daemon predating typed turns answers `text` with `unknown_type`, which
-    // is byte-identical to the `update_config` rejection — so absence of the
+    // is byte-identical to the `update_config` rejection, so absence of the
     // echo has to mean "no", not "probably fine".
     socket.deliver({ ...READY, textInput: undefined });
 

@@ -146,7 +146,7 @@ export class CliLiveVoiceClient {
   /**
    * Take a turn by typing it. Returns whether the frame went out.
    *
-   * False means the turn was not taken at all and the caller must say so — the
+   * False means the turn was not taken at all and the caller must say so: the
    * session is not active, the daemon predates typed turns, or the text is
    * empty or over the cap. A turn the daemon *receives* but refuses (it is
    * mid-reply) comes back later as `textTurnRejected`, not as false here.
@@ -335,8 +335,8 @@ export class CliLiveVoiceClient {
  * header.
  *
  * The gateway takes the credential either as a header or as a `?token=` query
- * parameter. The browser client has to use the query form — `WebSocket` there
- * cannot set headers — but a CLI can, and should: a query parameter lands in
+ * parameter. The browser client has to use the query form, because `WebSocket`
+ * there cannot set headers, but a CLI can and should: a query parameter lands in
  * process listings, shell history, and gateway access logs, and this token is
  * the bound guardian's.
  */
@@ -357,7 +357,7 @@ function closeReason(event: CloseEvent): string {
   }
   return (
     "Live-voice session closed before it opened " +
-    `(code ${event.code}). The gateway may have rejected the credential — ` +
+    `(code ${event.code}). The gateway may have rejected the credential: ` +
     "try 'vellum wake' to lease a fresh one."
   );
 }
