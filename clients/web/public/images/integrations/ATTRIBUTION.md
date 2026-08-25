@@ -13,7 +13,7 @@ exactly.
 
 | Assets                                                                                                | Source                                                       | Licence                                          |
 | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------ |
-| `airtable`, `asana`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons) | CC0-1.0 (public domain, no attribution required) |
+| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons) | CC0-1.0 (public domain, no attribution required) |
 | `salesforce`                                                                                          | [glincker/thesvg](https://github.com/glincker/thesvg)        | MIT (notice below)                               |
 
 ## Unrecorded provenance
