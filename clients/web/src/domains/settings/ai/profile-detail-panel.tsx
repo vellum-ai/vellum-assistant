@@ -13,10 +13,8 @@ import { useProfileDeleteFlow } from "@/domains/settings/ai/use-profile-delete-f
 import { useProfileEditor } from "@/domains/settings/ai/use-profile-editor";
 import { useProfileSave } from "@/domains/settings/ai/use-profile-save";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
-import {
-  configGetOptions,
-  inferenceProviderconnectionsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import { useTranslation } from "@/i18n";
 
 interface ProfileDetailPanelProps {
@@ -48,11 +46,7 @@ export function ProfileDetailPanel({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
   });
-  const { data: connectionsData } = useQuery({
-    ...inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-  });
+  const { data: connectionsData } = useProviderConnections(assistantId);
   const connections = connectionsData?.connections;
 
   const profiles = useMemo(

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { DetailShell } from "@/components/detail-shell";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-content";
 import { providerConnectionDisplayName } from "@/domains/settings/ai/provider-editor-constants";
 import {
   configLlmDefaultproviderGetQueryKey,
-  inferenceProviderconnectionsGetOptions,
   inferenceProviderconnectionsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import { useTranslation } from "@/i18n";
 
 interface ProviderDetailPanelProps {
@@ -39,11 +39,7 @@ export function ProviderDetailPanel({
   // portal target. Null on the first render, so the actions land one commit
   // after the body.
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
-  const { data } = useQuery(
-    inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-  );
+  const { data } = useProviderConnections(assistantId);
   const connections = useMemo(() => data?.connections ?? [], [data]);
   const connection = useMemo(
     () =>

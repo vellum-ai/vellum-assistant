@@ -7,8 +7,8 @@ import {
   configLlmDefaultproviderGetOptions,
   conversationsByIdGetOptions,
   inferenceProfilesGetOptions,
-  inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import {
   type AvailabilityStatus,
   defaultChatRouteBurnsManagedCredits,
@@ -95,10 +95,7 @@ export function useSuppressCreditBannersForByok(
     enabled: routeQueriesEnabled,
     staleTime: 30_000,
   });
-  const connectionsQuery = useQuery({
-    ...inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId ?? "" },
-    }),
+  const connectionsQuery = useProviderConnections(assistantId, {
     enabled: routeQueriesEnabled,
     staleTime: 30_000,
   });

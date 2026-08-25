@@ -1638,6 +1638,7 @@
     "addProvider": "Add Provider",
     "empty": "No providers yet. Add one to get started.",
     "loadError": "Failed to load providers. Please try again.",
+    "retry": "Retry",
     "title": "Providers"
   },
   "provisioningState": {

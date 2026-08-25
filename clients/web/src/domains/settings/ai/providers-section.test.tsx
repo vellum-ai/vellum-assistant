@@ -11,9 +11,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
 
 import type {
   DefaultProviderStatus,
@@ -25,6 +29,10 @@ import type {
 // ---------------------------------------------------------------------------
 
 let connectionsState: ProviderConnection[] = [];
+let connectionsResponder: () => Promise<{
+  data: { connections: ProviderConnection[] };
+}> = async () => ({ data: { connections: connectionsState } });
+let connectionsRequestCount = 0;
 let defaultProviderState: DefaultProviderStatus = {
   provider: null,
   resolvedConnectionName: null,
@@ -55,9 +63,10 @@ const actualSdk = await import("@/generated/daemon/sdk.gen");
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...actualSdk,
-  inferenceProviderconnectionsGet: async () => ({
-    data: { connections: connectionsState },
-  }),
+  inferenceProviderconnectionsGet: async () => {
+    connectionsRequestCount += 1;
+    return connectionsResponder();
+  },
   configLlmDefaultproviderGet: async () => {
     defaultProviderGetCalls += 1;
     return { data: defaultProviderState };
@@ -80,12 +89,53 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { ProvidersSection } = await import(
-  "@/domains/settings/ai/providers-section"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const STUB_TIMEOUT_MS = 30;
+
+class StubRequestTimeoutError extends Error {
+  readonly timeoutMs = STUB_TIMEOUT_MS;
+
+  constructor() {
+    super(`Request timed out after ${STUB_TIMEOUT_MS}ms`);
+    this.name = "RequestTimeoutError";
+  }
+}
+
+class StubRequestAbortedError extends Error {
+  constructor() {
+    super("Request aborted");
+    this.name = "RequestAbortedError";
+  }
+}
+
+mock.module("@/utils/request-timeout", () => ({
+  RequestAbortedError: StubRequestAbortedError,
+  RequestTimeoutError: StubRequestTimeoutError,
+  runWithRequestTimeout: <T,>({
+    run,
+  }: {
+    run: (signal: AbortSignal) => Promise<T>;
+  }) => {
+    const controller = new AbortController();
+    const running = run(controller.signal);
+    running.catch(() => {});
+    return Promise.race([
+      running,
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => {
+          const error = new StubRequestTimeoutError();
+          controller.abort(error);
+          reject(error);
+        }, STUB_TIMEOUT_MS);
+      }),
+    ]);
+  },
+}));
+
+const { ProvidersSection } =
+  await import("@/domains/settings/ai/providers-section");
+const { getDiagnosticsEvents } = await import("@/lib/diagnostics");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,16 +153,15 @@ function connection(
   } as ProviderConnection;
 }
 
-function Wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
+function createQueryClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
   });
-  return createElement(QueryClientProvider, { client }, children);
 }
 
-function renderSection() {
+function renderSection(client = createQueryClient()) {
   return render(
-    <Wrapper>
+    <QueryClientProvider client={client}>
       <ProvidersSection
         assistantId="asst-1"
         selectedConnectionName={null}
@@ -120,8 +169,26 @@ function renderSection() {
         onAddProvider={() => {}}
         onConnectionDeleted={() => {}}
       />
-    </Wrapper>,
+    </QueryClientProvider>,
   );
+}
+
+function skeletons(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="skeleton"]'),
+  );
+}
+
+function retryButton(): HTMLButtonElement | undefined {
+  return Array.from(document.querySelectorAll("button")).find(
+    (button) => button.textContent?.trim() === "Retry",
+  );
+}
+
+function providerDiagnostics(from: number) {
+  return getDiagnosticsEvents()
+    .slice(from)
+    .filter((event) => event.kind.startsWith("provider_connections_"));
 }
 
 function rows(): HTMLElement[] {
@@ -192,6 +259,10 @@ function seedConnections() {
 
 beforeEach(() => {
   seedConnections();
+  connectionsResponder = async () => ({
+    data: { connections: connectionsState },
+  });
+  connectionsRequestCount = 0;
   defaultProviderState = {
     provider: "anthropic",
     resolvedConnectionName: "anthropic-personal",
@@ -207,6 +278,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  focusManager.setFocused(undefined);
+  onlineManager.setOnline(true);
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -255,6 +328,126 @@ describe("ProvidersSection - rows and chips", () => {
     expect(defaultProviderGetCalls).toBe(0);
     const menu = await openKebab("Anthropic");
     expect(menuItems(menu)).not.toContain("Set as default");
+  });
+});
+
+describe("ProvidersSection - bounded request lifecycle", () => {
+  test("a stalled request leaves the skeletons for a retryable error", async () => {
+    connectionsResponder = () => new Promise(() => {});
+
+    renderSection();
+    expect(skeletons().length).toBe(3);
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Failed to load providers");
+    });
+    expect(skeletons().length).toBe(0);
+    expect(retryButton()).toBeDefined();
+  });
+
+  test("Retry renders the fresh request result", async () => {
+    connectionsResponder = () => new Promise(() => {});
+    renderSection();
+    await waitFor(() => {
+      expect(retryButton()).toBeDefined();
+    });
+
+    connectionsState = [
+      connection({ name: "openrouter-key", provider: "openrouter" }),
+      connection({
+        name: "vellum",
+        provider: "vellum",
+        isManaged: true,
+        auth: { type: "platform" } as ProviderConnection["auth"],
+      }),
+    ];
+    connectionsResponder = async () => ({
+      data: { connections: connectionsState },
+    });
+
+    act(() => {
+      retryButton()?.click();
+    });
+
+    await waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    expect(rows()[0]?.textContent).toContain("Vellum");
+    expect(rows()[1]?.textContent).toContain("OpenRouter");
+    expect(document.body.textContent).not.toContain("Failed to load providers");
+    expect(connectionsRequestCount).toBe(2);
+  });
+
+  test("a timeout stays actionable through mount, focus, and reconnect", async () => {
+    connectionsResponder = () => new Promise(() => {});
+    const client = createQueryClient();
+    renderSection(client);
+    await waitFor(() => {
+      expect(retryButton()).toBeDefined();
+    });
+    expect(connectionsRequestCount).toBe(1);
+
+    connectionsResponder = async () => ({
+      data: { connections: connectionsState },
+    });
+
+    renderSection(client);
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+
+    expect(connectionsRequestCount).toBe(1);
+    expect(skeletons().length).toBe(0);
+    expect(retryButton()).toBeDefined();
+  });
+
+  test("a stalled request records a client timeout without payload data", async () => {
+    connectionsResponder = () => new Promise(() => {});
+    const from = getDiagnosticsEvents().length;
+
+    renderSection();
+    await waitFor(() => {
+      expect(retryButton()).toBeDefined();
+    });
+
+    const diagnostics = providerDiagnostics(from);
+    const kinds = diagnostics.map((event) => event.kind);
+    expect(kinds[0]).toBe("provider_connections_query_invoked");
+    expect(kinds).toContain("provider_connections_request_dispatched");
+    expect(kinds.at(-1)).toBe("provider_connections_client_timeout");
+    expect(diagnostics.at(-1)?.details).toMatchObject({
+      assistantId: "asst-1",
+      timeoutMs: STUB_TIMEOUT_MS,
+    });
+    const details = JSON.stringify(diagnostics.map((event) => event.details));
+    expect(details).not.toContain("credential");
+    expect(details).not.toContain("auth");
+    expect(details).not.toContain("anthropic-personal");
+  });
+
+  test("a rejected request records an error instead of a timeout", async () => {
+    connectionsResponder = () =>
+      Promise.reject(new Error("provider connections unavailable"));
+    const from = getDiagnosticsEvents().length;
+
+    renderSection();
+
+    await waitFor(() => {
+      expect(providerDiagnostics(from).map((event) => event.kind)).toContain(
+        "provider_connections_error_received",
+      );
+    });
+    const diagnostics = providerDiagnostics(from);
+    expect(diagnostics.map((event) => event.kind)).not.toContain(
+      "provider_connections_client_timeout",
+    );
+    expect(diagnostics.at(-1)?.details.errorName).toBe("Error");
+    expect(
+      JSON.stringify(diagnostics.map((event) => event.details)),
+    ).not.toContain("unavailable");
   });
 });
 

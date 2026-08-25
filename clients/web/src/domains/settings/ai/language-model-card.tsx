@@ -11,8 +11,8 @@ import { ProvidersSection } from "@/domains/settings/ai/providers-section";
 import {
   configGetOptions,
   configLlmDefaultproviderGetOptions,
-  inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { useTranslation } from "@/i18n";
 
@@ -64,11 +64,7 @@ export function LanguageModelCard({
 
   // Connection rows resolve openai-compatible model display names in the
   // profile rows; shared TanStack cache with the sections and sidepanels.
-  const { data: connectionsData } = useQuery({
-    ...inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-  });
+  const { data: connectionsData } = useProviderConnections(assistantId);
   const connections = connectionsData?.connections;
 
   const callSites = config?.llm?.callSites ?? {};

@@ -1638,6 +1638,7 @@
     "addProvider": "Añadir proveedor",
     "empty": "Aún no hay proveedores. Añade uno para empezar.",
     "loadError": "No se pudieron cargar los proveedores. Inténtalo de nuevo.",
+    "retry": "Reintentar",
     "title": "Proveedores"
   },
   "provisioningState": {

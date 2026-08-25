@@ -11,10 +11,8 @@ import { LanguageModelSection } from "@/domains/settings/ai/language-model-secti
 import { ProviderRow } from "@/domains/settings/ai/provider-row";
 import { VELLUM_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
 import { useProviderActions } from "@/domains/settings/ai/use-provider-actions";
-import {
-  configLlmDefaultproviderGetOptions,
-  inferenceProviderconnectionsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { configLlmDefaultproviderGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { useTranslation } from "@/i18n";
 
@@ -45,15 +43,8 @@ export function ProvidersSection({
   onConnectionDeleted,
 }: ProvidersSectionProps) {
   const { t } = useTranslation("settings");
-  const {
-    data,
-    isLoading,
-    isError,
-  } = useQuery(
-    inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-  );
+  const { data, isLoading, isError, isFetching, refetch } =
+    useProviderConnections(assistantId);
 
   // Older assistants 404 the default-provider routes; the gate keeps the
   // query dark and the Default chip + Set-as-default action hidden.
@@ -101,13 +92,22 @@ export function ProvidersSection({
           ))}
         </div>
       ) : isError ? (
-        <Typography
-          variant="body-medium-default"
-          as="p"
-          className="py-4 text-center text-(--system-negative-strong)"
-        >
-          {t("providersSection.loadError")}
-        </Typography>
+        <div className="flex flex-col items-center gap-3 py-4">
+          <Typography
+            variant="body-medium-default"
+            as="p"
+            className="text-center text-(--system-negative-strong)"
+          >
+            {t("providersSection.loadError")}
+          </Typography>
+          <Button
+            variant="outlined"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+          >
+            {t("providersSection.retry")}
+          </Button>
+        </div>
       ) : connections.length === 0 ? (
         <Typography
           variant="body-medium-lighter"
