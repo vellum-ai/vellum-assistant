@@ -146,21 +146,22 @@ export function deriveDeterministicTitle(context: TitleContext): string {
  * inbound whose only content is a guardian access-request card: without this
  * the sidebar shows a permanent "Generating title…". Persisted as
  * `AUTO_TITLE_DETERMINISTIC` so a later genuine turn can still upgrade it, and
- * broadcast so connected clients converge. Returns whether the title changed.
+ * broadcast so connected clients converge. Returns the title as persisted, or
+ * null when the current one was left in place.
  */
 export function applyDeterministicTitleIfReplaceable(
   conversationId: string,
   title: string,
-): boolean {
+): string | null {
   const conversation = getConversation(conversationId);
   if (conversation && !isReplaceableTitle(conversation.title)) {
-    return false;
+    return null;
   }
   const cleaned =
     truncateTitle(title.replace(/\s+/g, " ").trim()) || UNTITLED_FALLBACK;
   updateConversationTitle(conversationId, cleaned, AUTO_TITLE_DETERMINISTIC);
   publishConversationTitleChanged(conversationId, cleaned);
-  return true;
+  return cleaned;
 }
 
 // ── Title generation ─────────────────────────────────────────────────
@@ -195,19 +196,21 @@ export async function generateAndPersistConversationTitle(
     return { title: conversation.title!, updated: false };
   }
 
+  const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
+  // A prompt carrying no text gives the model nothing to title from: an
+  // image-only turn submits an empty prompt, and the forced title tool makes
+  // the model fabricate a topic rather than decline.
+  if (prompt.trim() === "") {
+    return settleForDeterministicTitle(conversationId, context);
+  }
+
   const provider =
     params.provider ?? (await getConfiguredProvider("conversationTitle"));
   if (!provider) {
-    // No provider available — fall back to context-derived title or untitled.
-    // Deterministic, so keep it upgradeable by a later generation pass.
-    const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-    updateConversationTitle(conversationId, fallback, AUTO_TITLE_DETERMINISTIC);
-    publishConversationTitleChanged(conversationId, fallback);
     logRetryableFallback(params, "no_provider");
-    return { title: fallback, updated: true };
+    return settleForDeterministicTitle(conversationId, context);
   }
 
-  const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
   const title = await generateTitleViaLLM(
     provider,
     prompt,
@@ -227,21 +230,37 @@ export async function generateAndPersistConversationTitle(
     return { title, updated: true };
   }
 
-  // No text in response — use fallback
-  // Re-check replaceability before persisting (race guard — same as the
-  // text-response path above). A concurrent custom rename may have landed
-  // while the LLM request was in-flight; writing unconditionally would
-  // clobber the user's intent.
-  const currentForFallback = getConversation(conversationId);
-  if (currentForFallback && !canReplaceTitle(currentForFallback)) {
-    return { title: currentForFallback.title!, updated: false };
-  }
-
-  const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-  updateConversationTitle(conversationId, fallback, AUTO_TITLE_DETERMINISTIC);
-  publishConversationTitleChanged(conversationId, fallback);
   logRetryableFallback(params, "empty_output");
-  return { title: fallback, updated: true };
+  return settleForDeterministicTitle(conversationId, context);
+}
+
+/**
+ * Settle a conversation on a title derived from its creation context when no
+ * LLM title is available: the provider is unreachable, the model declined, or
+ * the prompt had no text to title from.
+ *
+ * Applies only while the current title is still a placeholder, so a background
+ * job's bootstrap title (or a custom rename that landed while the request was
+ * in flight) is never traded for one that names the work less well. Persisted
+ * as `AUTO_TITLE_DETERMINISTIC`, so a later generation pass can still upgrade
+ * it and a conversation never sits on the loading placeholder for good.
+ */
+function settleForDeterministicTitle(
+  conversationId: string,
+  context: TitleContext | undefined,
+): { title: string; updated: boolean } {
+  const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
+  const applied = applyDeterministicTitleIfReplaceable(
+    conversationId,
+    fallback,
+  );
+  if (applied !== null) {
+    return { title: applied, updated: true };
+  }
+  return {
+    title: getConversation(conversationId)?.title ?? fallback,
+    updated: false,
+  };
 }
 
 // ── Serial title-generation queue ────────────────────────────────────
@@ -531,11 +550,17 @@ function buildTitlePrompt(
     }
   }
 
-  if (userMessage) {
-    parts.push(`User: ${stripThinkingTags(userMessage)}`);
+  // Trim after stripping so a turn whose only content was thinking tags reads
+  // as no text at all, the same as an image-only or whitespace-only prompt.
+  const userText = userMessage ? stripThinkingTags(userMessage).trim() : "";
+  if (userText) {
+    parts.push(`User: ${userText}`);
   }
-  if (assistantResponse) {
-    parts.push(`Assistant: ${stripThinkingTags(assistantResponse)}`);
+  const assistantText = assistantResponse
+    ? stripThinkingTags(assistantResponse).trim()
+    : "";
+  if (assistantText) {
+    parts.push(`Assistant: ${assistantText}`);
   }
 
   return parts.join("\n");
