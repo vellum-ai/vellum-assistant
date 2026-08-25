@@ -7,6 +7,7 @@
 import type { ChannelConversationType } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
+import type { RiskThreshold } from "../permissions/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 
 export interface TrustContext {
@@ -66,6 +67,14 @@ export interface TrustContext {
    * was resolved locally without a gateway verdict.
    */
   requesterInteractionCount?: number;
+  /**
+   * Contact-level auto-approve ceiling from the gateway `contacts` row,
+   * stamped on the trust verdict. Null means the contact has no explicit
+   * override and inherits the room / trust-class cascade. Undefined when
+   * the verdict carries no member channel (unknown sender) or when trust
+   * was resolved locally without a gateway verdict.
+   */
+  autoApproveThreshold?: RiskThreshold | null;
 }
 
 /**

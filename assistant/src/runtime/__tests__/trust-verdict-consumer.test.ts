@@ -164,6 +164,62 @@ describe("trustContextFromVerdict", () => {
     expect(result.requesterInteractionCount).toBeUndefined();
   });
 
+  test("stamps the verdict's contact risk ceiling onto the context", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+      autoApproveThreshold: "high",
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.autoApproveThreshold).toBe("high");
+  });
+
+  test("stamps a null contact ceiling so approval inherits the cascade", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+      autoApproveThreshold: null,
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.autoApproveThreshold).toBeNull();
+  });
+
+  test("leaves the contact ceiling undefined when the verdict carries none", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.autoApproveThreshold).toBeUndefined();
+  });
+
   test("memberless verdict leaves ACL member fields undefined", () => {
     const verdict = {
       trustClass: "unknown",

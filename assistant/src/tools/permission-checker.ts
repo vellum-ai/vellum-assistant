@@ -168,6 +168,7 @@ export class PermissionChecker {
         policyContext.conversationId,
         policyContext.executionContext,
         cellQuery,
+        policyContext.autoApproveThreshold,
       );
       const riskThreshold = conversationThreshold as RiskThreshold;
 
@@ -316,6 +317,7 @@ export class PermissionChecker {
             context.conversationId,
             "background",
             cellQuery,
+            context.autoApproveThreshold,
           );
           const thresholdOrdinal: Record<string, number> = {
             none: -1,

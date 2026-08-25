@@ -709,6 +709,7 @@ export async function check(
     policyContext?.conversationId,
     policyContext?.executionContext,
     cellQuery,
+    policyContext?.autoApproveThreshold,
   );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
@@ -740,6 +741,7 @@ export async function check(
       policyContext?.conversationId,
       policyContext?.executionContext,
       cellQuery,
+      policyContext?.autoApproveThreshold,
     );
     if (freshThreshold !== null && freshThreshold !== threshold) {
       approvalDecision = defaultApprovalPolicy.evaluate({

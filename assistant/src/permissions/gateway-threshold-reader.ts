@@ -322,9 +322,16 @@ export async function channelNoCellDefault(
 /**
  * Read the auto-approve threshold from the gateway via IPC.
  *
- * For `"conversation"` context with a `conversationId`, checks for a
- * per-conversation override first. Falls through to global defaults when
- * the conversation override is absent.
+ * Cascade, most specific first:
+ * 1. Per-conversation override (when `"conversation"` context has an id)
+ * 2. Contact-level ceiling (when the turn stamped a non-null override)
+ * 3. Channel-permission matrix cell (collapsed for contacts)
+ * 4. Global defaults for the execution context
+ *
+ * The contact ceiling is the owner's override for that person. It is not
+ * collapsed to the channel's two levels, so `medium` and `high` can
+ * authorize sandbox bash. Null / omitted means inherit the cell / global
+ * cascade.
  *
  * Caches global thresholds for 30 seconds to avoid hammering the gateway.
  * On any IPC error or unexpected response, returns `"none"` (Strict) so
@@ -334,6 +341,7 @@ export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
   cellQuery?: ResolveChannelPermissionRequest,
+  contactOverride?: AutoApproveThreshold | null,
 ): Promise<AutoApproveThreshold> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
@@ -384,6 +392,13 @@ export async function getAutoApproveThreshold(
         });
       }
     }
+  }
+
+  // Contact-level ceiling: the owner's override for this person. Beats the
+  // collapsed room / trust-class cascade. Conversation override above is
+  // more specific (this chat) and still wins when set.
+  if (contactOverride != null && isValidThreshold(contactOverride)) {
+    return contactOverride;
   }
 
   // Channel-permission matrix cell: for non-guardian actors this layer is
@@ -496,6 +511,7 @@ export async function refreshAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
   cellQuery?: ResolveChannelPermissionRequest,
+  contactOverride?: AutoApproveThreshold | null,
 ): Promise<AutoApproveThreshold | null> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
@@ -526,6 +542,10 @@ export async function refreshAutoApproveThreshold(
       threshold: null,
       timestamp: Date.now(),
     });
+  }
+
+  if (contactOverride != null && isValidThreshold(contactOverride)) {
+    return contactOverride;
   }
 
   // Fresh cell read (cache bypassed, then primed). A transport failure here

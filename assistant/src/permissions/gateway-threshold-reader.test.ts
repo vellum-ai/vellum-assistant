@@ -633,3 +633,102 @@ describe("contact cell layer failure semantics", () => {
     ).toBe("low");
   });
 });
+
+describe("contact-level ceiling", () => {
+  beforeEach(() => {
+    _clearGlobalCacheForTesting();
+    _resetFailureCoalesceForTesting();
+    ipcHandlers.clear();
+    ipcCallLog.length = 0;
+  });
+
+  test("the conversation override beats the contact ceiling", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => ({
+      threshold: "none",
+    }));
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "low", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct1",
+        "conversation",
+        CELL_QUERY,
+        "high",
+      ),
+    ).toBe("none");
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+
+  test("the contact ceiling beats the cell", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct2",
+        "conversation",
+        CELL_QUERY,
+        "high",
+      ),
+    ).toBe("high");
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+
+  test("the contact ceiling is not collapsed", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct3",
+        "conversation",
+        CELL_QUERY,
+        "medium",
+      ),
+    ).toBe("medium");
+  });
+
+  test("a null contact ceiling inherits the cell cascade", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct4",
+        "conversation",
+        CELL_QUERY,
+        null,
+      ),
+    ).toBe("none");
+  });
+
+  test("refresh honors the contact ceiling after a conversation miss", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await refreshAutoApproveThreshold(
+        "conv-ct5",
+        "conversation",
+        CELL_QUERY,
+        "high",
+      ),
+    ).toBe("high");
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+});

@@ -90,4 +90,10 @@ export interface PolicyContext {
    * grant then never fires.
    */
   procToSkillsActive?: boolean;
+  /**
+   * Contact-level auto-approve ceiling from the turn's trust context.
+   * Null means the contact has no explicit override (inherit the room /
+   * trust-class cascade). Undefined when the turn has no member channel.
+   */
+  autoApproveThreshold?: RiskThreshold | null;
 }
