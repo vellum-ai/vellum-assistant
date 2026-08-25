@@ -53,7 +53,7 @@ export interface AssistantAvatarOptions {
  * Query keeps the previously cached avatar instead of blanking out — see
  * the `retry` / `staleTime` options below.
  */
-async function fetchAvatarViaManifest(
+export async function fetchAvatarViaManifest(
   assistantId: string,
 ): Promise<{ traits: CharacterTraits | null; imageUrl: string | null }> {
   const state = await fetchAvatarState(assistantId);
@@ -88,7 +88,7 @@ async function fetchAvatarViaManifest(
  * alive behind the version gate — see
  * `lib/backwards-compat/avatar-state-manifest.ts`.
  */
-async function fetchAvatarViaLegacyFiles(
+export async function fetchAvatarViaLegacyFiles(
   assistantId: string,
 ): Promise<{ traits: CharacterTraits | null; imageUrl: string | null }> {
   const imageUrl = await fetchAvatarImageUrl(assistantId);
