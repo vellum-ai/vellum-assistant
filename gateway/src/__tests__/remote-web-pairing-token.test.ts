@@ -762,6 +762,19 @@ describe("remote web pairing token exchange", () => {
     expect(activeTokens()).toHaveLength(0);
   });
 
+  // Regression: JSON.parse("null") succeeds without throwing, so a literal
+  // `null` body used to reach field extraction on a null value and crash
+  // with an unhandled TypeError (surfacing as a 500) instead of this 400.
+  test("a literal null JSON body returns 400 instead of crashing", async () => {
+    const res = await handleRemoteWebPairingToken(makeTokenRequest(null));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: "BAD_REQUEST", message: "invalid JSON body" },
+    });
+    expect(activeTokens()).toHaveLength(0);
+  });
+
   test("exchange request's User-Agent is persisted on both minted rows", async () => {
     const challenge = createRemoteWebPairingChallenge(
       PUBLIC_BASE_URL,
