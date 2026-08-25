@@ -78,6 +78,11 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   poolside: "Poolside",
 };
 
+// litellm is deliberately excluded: it has no fixed default model (proxied
+// endpoints vary per deployment), so it cannot back llm.defaultProvider
+// (see DEFAULT_PROVIDER_CHOICES in assistant/src/config/schemas/llm.ts).
+// Picking it here would collect a key the assistant then never uses, since
+// resolveHatchDefaultProvider falls back to anthropic instead.
 export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
   "anthropic",
   "openai",
@@ -88,7 +93,6 @@ export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
   "together",
   "minimax",
   "atlascloud",
-  "litellm",
   "baseten",
   "poolside",
 ];

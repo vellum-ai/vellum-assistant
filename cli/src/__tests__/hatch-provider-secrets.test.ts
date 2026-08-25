@@ -298,6 +298,10 @@ describe("hatch provider secrets", () => {
     }
   });
 
+  test("HATCH_PROVIDER_CHOICES excludes litellm, which cannot back llm.defaultProvider", () => {
+    expect(HATCH_PROVIDER_CHOICES).not.toContain("litellm");
+  });
+
   describe("hasExplicitHatchProvider", () => {
     test("is false for an empty config", () => {
       expect(hasExplicitHatchProvider({})).toBe(false);
