@@ -275,3 +275,38 @@ describe("StringDedupCache", () => {
     expect(tinyCache.has("d")).toBe(true);
   });
 });
+
+/**
+ * A Telegram `update_id` is a per-bot sequence, so replacing the bot token
+ * starts a new one. The high-water mark from the previous bot then sits above
+ * every incoming id, and the webhook route answers an idempotent 200 while
+ * delivering nothing: success to Telegram, silence to the user, until the
+ * gateway restarts.
+ */
+describe("DedupCache.reset for a changed bot", () => {
+  test("a lower update_id is accepted again after a reset", () => {
+    const cache = new DedupCache();
+
+    // The previous bot ran up to a high id.
+    expect(cache.reserve(900_000)).toBe("reserved");
+    cache.set(900_000, "{}", 200);
+
+    // A new bot's first update is far below it, and is refused as a replay.
+    expect(cache.reserve(12)).toBe("already_processed");
+
+    cache.reset();
+
+    expect(cache.reserve(12)).toBe("reserved");
+  });
+
+  test("reset clears in-flight entries too, not just the mark", () => {
+    const cache = new DedupCache();
+    cache.reserve(5);
+    cache.set(5, "{}", 200);
+    expect(cache.reserve(5)).toBe("duplicate");
+
+    cache.reset();
+
+    expect(cache.reserve(5)).toBe("reserved");
+  });
+});
