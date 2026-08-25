@@ -7,6 +7,7 @@
   "exports": {
     "./about": "./src/about.ts",
     "./accelerator": "./src/accelerator.ts",
+    "./app-logger": "./src/app-logger.ts",
     "./app-origin": "./src/app-origin.ts",
     "./auto-update": "./src/auto-update.ts",
     "./avatar": "./src/avatar.ts",
@@ -57,7 +58,6 @@
     "./local-mode": "./src/local-mode.ts",
     "./local-mode-bridge": "./src/local-mode-bridge.ts",
     "./lockfile-watcher": "./src/lockfile-watcher.ts",
-    "./logger": "./src/logger.ts",
     "./module-configuration": "./src/module-configuration.ts",
     "./native-auth": "./src/native-auth.ts",
     "./notifications": "./src/notifications.ts",
