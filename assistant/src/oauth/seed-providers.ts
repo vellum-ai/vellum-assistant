@@ -684,6 +684,128 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["email", "preferred_username"],
   },
 
+  monday: {
+    provider: "monday",
+    authorizeUrl: "https://auth.monday.com/oauth2/authorize",
+    tokenExchangeUrl: "https://auth.monday.com/oauth2/token",
+    pingUrl: "https://api.monday.com/v2",
+    pingMethod: "POST",
+    pingHeaders: { "Content-Type": "application/json" },
+    pingBody: { query: "{ me { id name email } }" },
+    baseUrl: "https://api.monday.com",
+    displayLabel: "monday.com",
+    description: "Boards, items, docs, and updates",
+    dashboardUrl: "https://auth.monday.com/apps",
+    clientIdPlaceholder: null,
+    // Simple Icons does not host a monday.com mark (both `monday` and
+    // `mondaydotcom` 404 on the CDN), so use the documented thesvg fallback.
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/monday/default.svg",
+    // monday tokens do not expire under the legacy OAuth flow and no refresh
+    // token is issued, so there is no refreshUrl. The newer OAuth 2.1 flow
+    // adds expiry/refresh/revocation but is opt-in per app version in the
+    // Developer Center and posts JSON (not form-encoded) credentials, so it
+    // is deliberately not used here.
+    defaultScopes: [
+      "me:read",
+      "account:read",
+      "users:read",
+      "teams:read",
+      "workspaces:read",
+      "boards:read",
+      "boards:write",
+      "items:read",
+      "items:write",
+      "docs:read",
+      "updates:read",
+      "updates:write",
+      "assets:read",
+      "tags:read",
+      "notifications:write",
+    ],
+    availableScopes: [
+      { scope: "me:read", description: "Read the user's profile information" },
+      {
+        scope: "account:read",
+        description: "Read general information about the account",
+      },
+      {
+        scope: "users:read",
+        description: "Read profile information of the account's users",
+      },
+      {
+        scope: "users:write",
+        description: "Modify profile information of the account's users",
+      },
+      {
+        scope: "teams:read",
+        description: "Read information about the account's teams",
+      },
+      { scope: "teams:write", description: "Modify the account's teams" },
+      {
+        scope: "workspaces:read",
+        description: "Read a user's workspaces data",
+      },
+      {
+        scope: "workspaces:write",
+        description: "Modify a user's workspaces data",
+      },
+      { scope: "boards:read", description: "Read a user's board data" },
+      { scope: "boards:write", description: "Modify a user's board data" },
+      { scope: "items:read", description: "Read a user's item data" },
+      { scope: "items:write", description: "Modify a user's item data" },
+      { scope: "docs:read", description: "Read a user's docs" },
+      { scope: "docs:write", description: "Modify a user's docs" },
+      {
+        scope: "updates:read",
+        description: "Read updates and replies the user can see",
+      },
+      {
+        scope: "updates:write",
+        description: "Post or edit updates on behalf of the user",
+      },
+      {
+        scope: "assets:read",
+        description: "Read data from assets the user has access to",
+      },
+      { scope: "tags:read", description: "Read the account's tags" },
+      {
+        scope: "notifications:write",
+        description: "Send notifications on behalf of the user",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read existing webhooks configuration",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and modify webhooks",
+      },
+      {
+        scope: "departments:read",
+        description: "Read the account's department data",
+      },
+      {
+        scope: "departments:write",
+        description: "Modify the account's departments",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17338,
+    managedServiceConfigKey: "monday-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.monday.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    identityUrl: "https://api.monday.com/v2",
+    identityResponsePaths: ["data.me.name", "data.me.email"],
+  },
+
   figma: {
     provider: "figma",
     authorizeUrl: "https://www.figma.com/oauth",

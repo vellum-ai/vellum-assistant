@@ -32,6 +32,7 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   github: publicAsset("/images/integrations/github.svg"),
   hubspot: publicAsset("/images/integrations/hubspot.svg"),
   linear: publicAsset("/images/integrations/linear-light-logo.svg"),
+  monday: publicAsset("/images/integrations/monday.svg"),
   notion: publicAsset("/images/integrations/notion.svg"),
   outlook: publicAsset("/images/integrations/outlook.png"),
   salesforce: publicAsset("/images/integrations/salesforce.svg"),
