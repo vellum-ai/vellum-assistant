@@ -303,7 +303,7 @@ Rules:
     id: "03-cli-reference",
     body: `## Assistant CLI
 
-The \`assistant\` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the \`bash\` tool (never \`host_bash\`) when running \`assistant\` commands.
+The \`assistant\` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the \`bash\` tool (never \`host_bash\`) when running \`assistant\` commands. Exception: \`assistant ui confirm\` may run inside \`host_bash\` when a loaded skill keeps it in the same command as the host action it gates.
 
 Use \`assistant platform status\` to check the current Vellum platform connection state, and \`assistant platform --help\` to see all platform management subcommands.
 

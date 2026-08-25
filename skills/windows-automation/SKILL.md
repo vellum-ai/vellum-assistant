@@ -64,14 +64,17 @@ Close temporary documents and call `[System.Runtime.InteropServices.Marshal]::Re
 
 ## Gate consequential actions
 
-Every PowerShell command sequence that saves, sends, deletes, or overwrites content must call `assistant ui confirm` and check its exit code before performing the action. Keep the confirmation and the action in the same `host_bash` invocation. Describe the exact action and target in the confirmation message.
+Every PowerShell command sequence that saves, sends, deletes, or overwrites content must call `assistant ui confirm` and check its exit code before performing the action. Keep the confirmation and the action in the same `host_bash` invocation. This is the only `assistant` CLI command that may run through `host_bash`. Describe the exact action and target in the confirmation message.
+
+Run the invocation with `host_bash.timeout_seconds` set to at least `330`. The confirmation waits up to five minutes, so the host process needs additional time to branch and finish.
 
 ```powershell
 assistant ui confirm `
   --title "Save workbook" `
   --message "Save the new workbook to C:\Users\Public\Documents\example.xlsx?" `
   --confirm-label "Save" `
-  --deny-label "Cancel"
+  --deny-label "Cancel" `
+  --timeout 300000
 
 if ($LASTEXITCODE -ne 0) {
   Write-Output "Save cancelled."
