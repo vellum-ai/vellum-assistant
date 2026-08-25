@@ -1378,6 +1378,15 @@ export class AgentLoop {
           }
         }
 
+        // Settle the live profile before the tool list is built, so a tool
+        // whose activation depends on the model is gated against the profile
+        // THIS call routes to. Some re-entries (post-model-call continue,
+        // ordering repair, interrupted-stream retry) reach here without
+        // crossing the budget gate, so the resolution cannot be left to a
+        // later step: the resolver reads the profile the resolution stamps.
+        // Cheap and idempotent: the override read is in-memory and the
+        // re-resolution behind it runs only when the override changed.
+        resolveEffectiveOverrideProfile();
         // Resolve tools for this turn: use the dynamic resolver if provided,
         // otherwise fall back to the static tool list.
         const resolvedTools = this.resolveTools

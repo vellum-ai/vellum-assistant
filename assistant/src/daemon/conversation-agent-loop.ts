@@ -31,8 +31,6 @@ import {
 import {
   resolveCallSiteConfig,
   resolveCallSiteConfigWithProfile,
-  resolveProfilelessModelKey,
-  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -66,6 +64,8 @@ import {
   isManagedConnectionRoute,
   resolveEntryConnectionName,
 } from "../providers/connection-resolution.js";
+import type { TurnModelSelection } from "../providers/inference/turn-model-selection.js";
+import { resolveTurnModelSelection } from "../providers/inference/turn-model-selection.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
@@ -582,6 +582,21 @@ export async function runAgentLoopImpl(
   );
   ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
 
+  /**
+   * The profile and model this turn's provider calls run on, for a given
+   * override. Both the turn-start report and the mid-turn refresh below go
+   * through it, so the model the tool gate reads can never be resolved by a
+   * different chain than the one that named the turn's profile.
+   */
+  const resolveModelSelectionFor = (
+    override: string | null | undefined,
+  ): TurnModelSelection =>
+    resolveTurnModelSelection(turnCallSite, config.llm, {
+      overrideProfile: override,
+      forceOverrideProfile,
+      selectionSeed: ctx.conversationId,
+    });
+
   let appliedOverrideProfile = turnOverrideProfile;
   const refreshCurrentProfileState = (): string | undefined => {
     const currentOverrideProfile = readCurrentOverrideProfile();
@@ -604,6 +619,13 @@ export async function runAgentLoopImpl(
       );
       ctx.contextWindowManager.updateConfig(currentContextWindowConfig);
       appliedOverrideProfile = currentOverrideProfile;
+      // Re-stamp the per-turn tool gate's view of the model. The tool list is
+      // rebuilt before every provider call, so a plugin tool's `isActive`
+      // predicate must see the model the *next* call routes to, not the one
+      // the turn opened on.
+      ctx.currentTurnModel = resolveModelSelectionFor(
+        currentOverrideProfile,
+      ).model;
       rlog.info(
         { overrideProfile: currentOverrideProfile ?? null },
         "Turn inference profile changed mid-loop",
@@ -803,6 +825,7 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnModel = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop
     // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit
@@ -1152,25 +1175,20 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
-    // The reported key must come from the same winner selection dispatch used —
-    // a hand-rolled chain would credit profiles the resolver never consulted
-    // (e.g. activeProfile on a non-mainAgent turn).
-    const effectiveProfileKey =
-      selectWinningProfile(turnCallSite, config.llm, {
-        ...(turnOverrideProfile != null
-          ? { overrideProfile: turnOverrideProfile }
-          : {}),
-        selectionSeed: ctx.conversationId,
-      }).profileName ??
-      resolveProfilelessModelKey(turnCallSite, config.llm, {
-        ...(turnOverrideProfile != null
-          ? { overrideProfile: turnOverrideProfile }
-          : {}),
-        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-        selectionSeed: ctx.conversationId,
-      });
+    // The reported key must come from the same winner selection dispatch used,
+    // which `resolveModelSelectionFor` owns for both this report and the
+    // mid-turn refresh in `refreshCurrentProfileState`.
+    const turnModelSelection = resolveModelSelectionFor(turnOverrideProfile);
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    const modelProfileKey = effectiveProfileKey;
+    const modelProfileKey = turnModelSelection.profileKey;
+    // The resolved model, not the profile key, is mirrored onto the live
+    // conversation for the per-turn tool gate to hand a plugin tool's
+    // `isActive` predicate on every provider call: a weighted mix's key names
+    // the mix rather than the arm the call runs on, so only the model answers
+    // a capability question. `refreshCurrentProfileState` re-stamps it if the
+    // profile changes mid-turn, so the gate always sees the model of the call
+    // it is building the tool list for.
+    ctx.currentTurnModel = turnModelSelection.model;
     const modelProfileNoticeKey =
       modelProfileKey !== lastNotified ? modelProfileKey : null;
     ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;

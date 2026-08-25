@@ -177,6 +177,60 @@ describe("AgentLoop", () => {
     expect(calls[1].options?.config?.overrideProfile).toBe("quality-optimized");
   });
 
+  test("settles the override profile before it resolves the tool list", async () => {
+    const toolCallId = "tool-1";
+    const { provider, calls } = createMockProvider([
+      toolUseResponse(toolCallId, "read_file", { path: "/tmp/test.txt" }),
+      textResponse("File contents received."),
+    ]);
+
+    let overrideProfile: string | undefined;
+    const order: string[] = [];
+    const toolExecutor = async () => {
+      overrideProfile = "quality-optimized";
+      return { content: "ok", isError: false };
+    };
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+      resolveTools: () => {
+        order.push(`tools:${overrideProfile ?? "none"}`);
+        return dummyTools;
+      },
+    });
+
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "req-1",
+      callSite: "mainAgent",
+      resolveOverrideProfile: () => {
+        order.push(`profile:${overrideProfile ?? "none"}`);
+        return overrideProfile;
+      },
+    });
+
+    expect(calls).toHaveLength(2);
+    // Every tool resolution is immediately preceded by a live profile
+    // resolution, so a tool gated on the model is never evaluated against the
+    // profile of the previous call. Re-entries that skip the budget gate
+    // (post-model-call continue, ordering repair, interrupted-stream retry)
+    // rely on this ordering holding unconditionally.
+    const toolIndexes = order
+      .map((entry, index) => (entry.startsWith("tools:") ? index : -1))
+      .filter((index) => index >= 0);
+    expect(toolIndexes).toHaveLength(2);
+    for (const index of toolIndexes) {
+      expect(index).toBeGreaterThan(0);
+      expect(order[index - 1]).toBe(order[index].replace("tools:", "profile:"));
+    }
+    expect(order[toolIndexes[1]]).toBe("tools:quality-optimized");
+  });
+
   test("re-resolves max input tokens before truncating tool results", async () => {
     const toolCallId = "tool-1";
     const toolOutput = "x".repeat(2_500);

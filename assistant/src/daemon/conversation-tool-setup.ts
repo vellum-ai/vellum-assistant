@@ -711,7 +711,8 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
  * Determine whether a tool is part of the final exposed tool set for the
  * current turn. This helper mirrors the filtering applied by
  * `createResolveToolsCallback` — including the subagent allowlist,
- * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
+ * `toolsDisabledDepth`, disk-pressure cleanup restrictions, and a plugin
+ * tool's own `isActive` predicate.
  */
 export function isToolActiveForContext(
   name: string,
@@ -766,6 +767,25 @@ export function isToolActiveForContext(
     !isDiskPressureCleanupToolName(name)
   ) {
     return false;
+  }
+  // A plugin tool may declare its own per-turn activation predicate. It is the
+  // only tool-declared gate on this surface, and it can only take a tool off
+  // the wire: the host checks above have already run and the checks below
+  // still apply. Honored for plugin-owned tools only: core, skill, MCP, and
+  // workspace tools are gated by the host rules in this function.
+  if (getToolOwner(name)?.kind === "plugin") {
+    const isActive = getTool(name)?.isActive;
+    if (typeof isActive === "function") {
+      try {
+        if (!isActive({ model: ctx.currentTurnModel ?? "" })) {
+          return false;
+        }
+      } catch {
+        // A predicate that throws counts as inactive. A plugin must not be
+        // able to fault the whole tool surface for the turn.
+        return false;
+      }
+    }
   }
   if (name === "remember") {
     try {

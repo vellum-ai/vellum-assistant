@@ -63,6 +63,9 @@
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
+ * - {@link ToolActivationContext} - passed to a plugin tool's optional
+ *   `isActive` predicate, which keeps the tool off the wire on turns where it
+ *   is irrelevant
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
  */
 
@@ -119,6 +122,7 @@ export type {
   PreModelCallContext,
   ShutdownContext,
   StopContext,
+  ToolActivationContext,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
@@ -216,6 +220,12 @@ export { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+// Canonical on-disk path of a persisted attachment, or null when the id is
+// unknown or the attachment is not file-backed. A plugin that holds a media
+// block's `workspace_ref` source (which carries only an `attachmentId`) uses
+// this to name the file the way the model sees it in the transcript, or to
+// read it directly.
+export { getFilePathForAttachment as getAttachmentFilePath } from "../persistence/attachments-store.js";
 // Resolve an image/file block's media `source` to its bytes as inline base64,
 // whether the source is inline base64 or a persisted workspace reference
 // (attachment-store row or a file on disk). Returns null when a reference can no

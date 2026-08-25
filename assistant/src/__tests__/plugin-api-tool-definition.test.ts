@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   RiskLevel,
+  type ToolActivationContext,
   type ToolContext,
   type ToolDefinition,
   type ToolExecutionResult,
@@ -46,6 +47,17 @@ describe("ToolDefinition (public author-facing tool spec) ", () => {
     // for anyone reading the test without TS folded in.
     expect(typeof tool.execute).toBe("function");
     expect(tool.defaultRiskLevel).toBe(RiskLevel.Low);
+  });
+
+  test("isActive is an optional synchronous predicate over the activation context", () => {
+    const tool = {
+      description: "Only useful when the turn runs on a text-only model.",
+      isActive: ({ model }: ToolActivationContext): boolean =>
+        model === "text-only-model",
+    } as const satisfies ToolDefinition;
+
+    expect(tool.isActive({ model: "text-only-model" })).toBe(true);
+    expect(tool.isActive({ model: "vision-model" })).toBe(false);
   });
 
   test("every field is optional — empty literal satisfies the interface", () => {
