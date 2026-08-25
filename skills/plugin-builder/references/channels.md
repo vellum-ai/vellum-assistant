@@ -75,7 +75,7 @@ A vendor that signs `X-Example-Signature` has its own scheme. Declare `verificat
 }
 ```
 
-A vendor that adopted [Standard Webhooks](https://www.standardwebhooks.com/) (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>`, `whsec_` secret) declares that complete scheme instead. The signed content, key encoding, and five-minute replay window are fixed by the spec, so they are not listed as HMAC parts:
+A vendor that adopted [Standard Webhooks](https://www.standardwebhooks.com/) (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>`, `whsec_` secret) declares that complete scheme instead. The signed content, key encoding, and five-minute replay window are fixed by the spec, so they are not listed as HMAC parts. When `webhook-signature` is absent, the gateway also accepts Linq's deprecated `X-Webhook-Signature` / `X-Webhook-Timestamp` pair (hex HMAC-SHA256 of `{timestamp}.{raw body}`), which survives hops that drop the unprefixed spec names:
 
 ```json
 {

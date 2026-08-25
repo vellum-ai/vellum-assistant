@@ -303,6 +303,13 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
           signer: route.signer,
           scheme: verification?.kind ?? "vellum",
           rejection,
+          signatureHeaders: {
+            "webhook-signature": req.headers.has("webhook-signature"),
+            "webhook-id": req.headers.has("webhook-id"),
+            "webhook-timestamp": req.headers.has("webhook-timestamp"),
+            "x-webhook-signature": req.headers.has("x-webhook-signature"),
+            "x-webhook-timestamp": req.headers.has("x-webhook-timestamp"),
+          },
         },
         "Plugin webhook signature verification failed",
       );

@@ -132,6 +132,12 @@ export const HmacVerificationSchema = z
  * reconstructing those rules as an `hmac` payload list, which cannot decode
  * the secret or accept multiple signatures.
  *
+ * When `webhook-signature` is absent, the same kind also accepts Linq's
+ * deprecated `X-Webhook-Signature` / `X-Webhook-Timestamp` pair (hex
+ * HMAC-SHA256 of `{timestamp}.{raw body}`). Those names survive hops that
+ * drop the unprefixed spec headers. The spec headers win whenever they
+ * arrive.
+ *
  * Replay window is five minutes, matching the spec's default.
  */
 export const StandardWebhooksVerificationSchema = z
@@ -238,12 +244,110 @@ function standardWebhooksKey(secret: string): Buffer | null {
   return key.length > 0 ? key : null;
 }
 
+/** Unix-seconds freshness used by both Standard Webhooks header sets. */
+function readUnixSecondsTimestamp(
+  timestamp: string,
+  nowMs: number,
+): { timestamp: string } | { reason: VerificationRejection } {
+  if (!/^-?\d+$/.test(timestamp)) {
+    return { reason: "missing_timestamp" };
+  }
+  const seconds = Number(timestamp);
+  if (!Number.isSafeInteger(seconds)) {
+    return { reason: "missing_timestamp" };
+  }
+  if (
+    Math.abs(nowMs - seconds * 1000) >
+    STANDARD_WEBHOOKS_TOLERANCE_SECONDS * 1000
+  ) {
+    return { reason: "stale_timestamp" };
+  }
+  return { timestamp };
+}
+
+/**
+ * HMAC keys a Linq legacy digest may have been made with.
+ *
+ * The spec path always decodes a `whsec_` secret. The deprecated hex
+ * signature has been produced with those same key bytes and with the
+ * secret string as UTF-8, so both are tried.
+ */
+function linqLegacyKeys(secret: string): Buffer[] {
+  const keys: Buffer[] = [];
+  const decoded = standardWebhooksKey(secret);
+  if (decoded) {
+    keys.push(decoded);
+  }
+  const utf8 = Buffer.from(secret, "utf8");
+  if (utf8.length > 0 && !(decoded && decoded.equals(utf8))) {
+    keys.push(utf8);
+  }
+  return keys;
+}
+
+/**
+ * Linq's deprecated header pair, still sent on every delivery.
+ *
+ * Signed content is `{timestamp}.{raw body}`. The digest is hex HMAC-SHA256,
+ * optionally prefixed `sha256=`. Replay window matches the spec.
+ */
+function verifyLinqLegacyWebhooks(opts: {
+  headers: Headers;
+  body: Uint8Array;
+  secret: string;
+  nowMs: number;
+}): VerificationResult {
+  const { headers, body, secret, nowMs } = opts;
+  const signatureHeader = headers.get("x-webhook-signature");
+  if (!signatureHeader) {
+    return { ok: false, reason: "missing_signature" };
+  }
+  const stamped = headers.get("x-webhook-timestamp");
+  if (stamped === null) {
+    return { ok: false, reason: "missing_timestamp" };
+  }
+  const freshness = readUnixSecondsTimestamp(stamped, nowMs);
+  if ("reason" in freshness) {
+    return { ok: false, reason: freshness.reason };
+  }
+
+  const presented = signatureHeader.startsWith("sha256=")
+    ? signatureHeader.slice("sha256=".length)
+    : signatureHeader;
+  const digest = decodeDigest(presented, "hex");
+  if (!digest) {
+    return { ok: false, reason: "malformed_signature" };
+  }
+
+  const signedContent = Buffer.concat([
+    Buffer.from(`${freshness.timestamp}.`, "utf8"),
+    Buffer.from(body),
+  ]);
+  const keys = linqLegacyKeys(secret);
+  if (keys.length === 0) {
+    return { ok: false, reason: "missing_signature" };
+  }
+
+  for (const key of keys) {
+    const expected = createHmac("sha256", key).update(signedContent).digest();
+    if (digest.length !== expected.length) {
+      continue;
+    }
+    if (timingSafeEqual(digest, expected)) {
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, reason: "bad_signature" };
+}
+
 /**
  * Verify a Standard Webhooks delivery.
  *
  * Headers are looked up case-insensitively (`Headers.get`). The signed
  * content is `{webhook-id}.{webhook-timestamp}.{raw body}`. Any `v1,`
- * signature in the space-separated header is enough.
+ * signature in the space-separated header is enough. When that header is
+ * absent, Linq's `X-Webhook-*` pair is checked instead.
  */
 function verifyStandardWebhooks(opts: {
   headers: Headers;
@@ -256,12 +360,13 @@ function verifyStandardWebhooks(opts: {
     return { ok: false, reason: "missing_signature" };
   }
 
-  const msgId = headers.get("webhook-id");
-  const timestamp = headers.get("webhook-timestamp");
   const signatureHeader = headers.get("webhook-signature");
   if (!signatureHeader) {
-    return { ok: false, reason: "missing_signature" };
+    return verifyLinqLegacyWebhooks({ headers, body, secret, nowMs });
   }
+
+  const msgId = headers.get("webhook-id");
+  const timestamp = headers.get("webhook-timestamp");
   if (msgId === null) {
     return { ok: false, reason: "missing_payload_header" };
   }
@@ -269,15 +374,9 @@ function verifyStandardWebhooks(opts: {
     return { ok: false, reason: "missing_timestamp" };
   }
 
-  if (!/^-?\d+$/.test(timestamp)) {
-    return { ok: false, reason: "missing_timestamp" };
-  }
-  const stampedMs = Number(timestamp) * 1000;
-  if (!Number.isSafeInteger(Number(timestamp))) {
-    return { ok: false, reason: "missing_timestamp" };
-  }
-  if (Math.abs(nowMs - stampedMs) > STANDARD_WEBHOOKS_TOLERANCE_SECONDS * 1000) {
-    return { ok: false, reason: "stale_timestamp" };
+  const freshness = readUnixSecondsTimestamp(timestamp, nowMs);
+  if ("reason" in freshness) {
+    return { ok: false, reason: freshness.reason };
   }
 
   const key = standardWebhooksKey(secret);
@@ -286,7 +385,7 @@ function verifyStandardWebhooks(opts: {
   }
 
   const signedContent = Buffer.concat([
-    Buffer.from(`${msgId}.${timestamp}.`, "utf8"),
+    Buffer.from(`${msgId}.${freshness.timestamp}.`, "utf8"),
     Buffer.from(body),
   ]);
   const expected = createHmac("sha256", key).update(signedContent).digest();

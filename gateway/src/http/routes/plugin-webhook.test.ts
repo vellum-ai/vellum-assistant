@@ -1005,6 +1005,34 @@ describe("standard-webhooks verification", () => {
     expect(calls).toEqual([]);
   });
 
+  it("forwards a delivery signed with Linq's X-Webhook headers", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: STANDARD_CREDENTIALS,
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHmac("sha256", KEY_BYTES)
+      .update(`${timestamp}.${body}`, "utf8")
+      .digest("hex");
+    const res = await handle(
+      vendorPost(body, {
+        "X-Webhook-Timestamp": timestamp,
+        "X-Webhook-Signature": signature,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toBe(body);
+  });
+
   it("409s when the Standard Webhooks secret field holds nothing", async () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({

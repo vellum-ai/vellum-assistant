@@ -441,6 +441,17 @@ describe("standard-webhooks verification", () => {
     };
   }
 
+  function signLegacy(
+    body: string,
+    opts: { timestamp?: string; key?: Buffer | string } = {},
+  ): string {
+    const timestamp = opts.timestamp ?? TS;
+    const key = opts.key ?? KEY_BYTES;
+    return createHmac("sha256", key)
+      .update(`${timestamp}.${body}`, "utf8")
+      .digest("hex");
+  }
+
   it("accepts a delivery signed the spec's way", () => {
     expect(
       verify(STANDARD_WEBHOOKS, headers(sign(BODY)), BODY, { secret: WHSEC }),
@@ -507,6 +518,102 @@ describe("standard-webhooks verification", () => {
         { secret: WHSEC },
       ),
     ).toEqual({ ok: false, reason: "missing_payload_header" });
+  });
+
+  it("accepts Linq's X-Webhook headers when the spec names are absent", () => {
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "X-Webhook-Timestamp": TS,
+          "X-Webhook-Signature": signLegacy(BODY),
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("accepts a legacy digest keyed by the secret string itself", () => {
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "X-Webhook-Timestamp": TS,
+          "X-Webhook-Signature": signLegacy(BODY, { key: WHSEC }),
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("accepts a sha256= prefix on the legacy hex digest", () => {
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "X-Webhook-Timestamp": TS,
+          "X-Webhook-Signature": `sha256=${signLegacy(BODY)}`,
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects a stale legacy timestamp", () => {
+    const stale = String(
+      Math.floor(NOW_MS / 1000) - STANDARD_WEBHOOKS_TOLERANCE_SECONDS - 1,
+    );
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "X-Webhook-Timestamp": stale,
+          "X-Webhook-Signature": signLegacy(BODY, { timestamp: stale }),
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: false, reason: "stale_timestamp" });
+  });
+
+  it("rejects a wrong legacy digest", () => {
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "X-Webhook-Timestamp": TS,
+          "X-Webhook-Signature": signLegacy(BODY, { key: "other-secret" }),
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("does not fall through to legacy when a spec signature is present", () => {
+    expect(
+      verify(
+        STANDARD_WEBHOOKS,
+        {
+          "webhook-id": MSG_ID,
+          "webhook-timestamp": TS,
+          "webhook-signature": "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+          "X-Webhook-Timestamp": TS,
+          "X-Webhook-Signature": signLegacy(BODY),
+        },
+        BODY,
+        { secret: WHSEC },
+      ),
+    ).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("reports missing_signature when neither header set arrives", () => {
+    expect(
+      verify(STANDARD_WEBHOOKS, {}, BODY, { secret: WHSEC }),
+    ).toEqual({ ok: false, reason: "missing_signature" });
   });
 
   it("changes the digest when the secret field changes", () => {

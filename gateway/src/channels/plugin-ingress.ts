@@ -141,8 +141,9 @@ export const IngressRouteSchema = z.object({
    * That is right for a caller Vellum controls and wrong for every other one
    * — Comms signs `X-Osis-Signature`, Photon signs `X-Spectrum-Signature` over
    * a timestamped preamble, and Linq signs Standard Webhooks
-   * (`webhook-id` / `webhook-timestamp` / `webhook-signature`). None of
-   * those callers can be asked to sign ours.
+   * (`webhook-id` / `webhook-timestamp` / `webhook-signature`), still
+   * emitting `X-Webhook-Signature` / `X-Webhook-Timestamp` on the same
+   * delivery. None of those callers can be asked to sign ours.
    *
    * Present, the route is verified by the descriptor instead. `hmac` is a
    * single engine that reads the vendor's parts as data. `standard-webhooks`
