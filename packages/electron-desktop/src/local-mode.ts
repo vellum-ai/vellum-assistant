@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 
 import {
@@ -28,8 +30,10 @@ import {
   type WakeOptions,
 } from "@vellumai/local-mode";
 import type {
+  LocalAssistantAvatar,
   LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
 } from "@vellumai/ipc-contract";
 import { capabilityToken } from "./capability-registry";
@@ -319,6 +323,101 @@ export async function getPairedGuardianAccessToken(
   );
 }
 
+// Workspace avatar layout, mirroring `assistant/src/util/platform.ts` and
+// `assistant/src/avatar/`. Read directly off disk so a sleeping sibling
+// assistant still has an avatar in the chooser.
+const AVATAR_MANIFEST_FILENAME = "avatar.json";
+const AVATAR_TRAITS_FILENAME = "character-traits.json";
+const AVATAR_IMAGE_FILENAME = "avatar-image.png";
+const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+const characterTraitsSchema = z.object({
+  bodyShape: z.string().min(1),
+  eyeStyle: z.string().min(1),
+  color: z.string().min(1),
+});
+
+function readJsonFile(filePath: string): unknown {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function readAvatarImage(avatarDir: string): LocalAssistantAvatar | null {
+  const imagePath = path.join(avatarDir, AVATAR_IMAGE_FILENAME);
+  try {
+    const stats = fs.statSync(imagePath);
+    if (!stats.isFile() || stats.size > AVATAR_IMAGE_MAX_BYTES) {
+      return null;
+    }
+    return {
+      kind: "image",
+      imageBase64: fs.readFileSync(imagePath).toString("base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function toCharacterAvatar(traits: unknown): LocalAssistantAvatar | null {
+  const parsed = characterTraitsSchema.safeParse(traits);
+  return parsed.success ? { kind: "character", traits: parsed.data } : null;
+}
+
+/**
+ * Manifest first, then the legacy traits-first inference from
+ * `deriveStateFromLegacyFiles`: a traits file always wins over the PNG
+ * because character builds write the raster too. A corrupt or partial
+ * manifest is treated as absent, as the daemon's `readManifest` does.
+ */
+function readWorkspaceAvatar(avatarDir: string): LocalAssistantAvatar | null {
+  const manifest = readJsonFile(path.join(avatarDir, AVATAR_MANIFEST_FILENAME));
+  if (manifest && typeof manifest === "object") {
+    const { kind, traits } = manifest as Record<string, unknown>;
+    const character = kind === "character" ? toCharacterAvatar(traits) : null;
+    if (character) {
+      return character;
+    }
+    if (kind === "image") {
+      return readAvatarImage(avatarDir);
+    }
+    if (kind === "none") {
+      return null;
+    }
+  }
+  return (
+    toCharacterAvatar(
+      readJsonFile(path.join(avatarDir, AVATAR_TRAITS_FILENAME)),
+    ) ?? readAvatarImage(avatarDir)
+  );
+}
+
+function readAssistantAvatar(
+  lockfilePaths: string[],
+  assistantId: string,
+): LocalReadAssistantAvatarResult {
+  const lockfile = getLockfileData(lockfilePaths);
+  if (!lockfile.ok) {
+    return { ok: true, avatar: null };
+  }
+  const instanceDir = lockfile.data.assistants.find(
+    (entry) => entry.assistantId === assistantId,
+  )?.resources?.instanceDir;
+  if (!instanceDir) {
+    return { ok: true, avatar: null };
+  }
+  const avatarDir = path.join(
+    instanceDir,
+    ".vellum",
+    "workspace",
+    "data",
+    "avatar",
+  );
+  return { ok: true, avatar: readWorkspaceAvatar(avatarDir) };
+}
+
 // A persisted assistant entry as it crosses the IPC boundary. The
 // package's lockfile parser owns the real field-level contract; here we
 // only assert the renderer sent an object, so unknown/forward-compat
@@ -562,6 +661,17 @@ export const installLocalMode = (): void => {
     }
     return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
+
+  ipc(
+    "vellum:localMode:readAssistantAvatar",
+    assistantIdArgs,
+    ([assistantId]): LocalReadAssistantAvatarResult => {
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
+      return readAssistantAvatar(lockfilePaths, assistantId);
+    },
+  );
 
   ipc(
     "vellum:localMode:guardianToken",

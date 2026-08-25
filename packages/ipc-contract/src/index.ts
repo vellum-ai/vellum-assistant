@@ -13,9 +13,11 @@ export * from "./types";
 export * from "./schemas";
 export {
   type ElectronHostOS,
+  type LocalAssistantAvatar,
   type LocalConnectImportResult,
   type LocalListDevicesResult,
   type LocalPairedDeviceRecord,
+  type LocalReadAssistantAvatarResult,
   type LocalRevokeDeviceResult,
   type LocalUpgradeOptions,
   type LocalWakeOptions,
