@@ -73,9 +73,25 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   together: "Together AI",
+  litellm: "LiteLLM",
   baseten: "Baseten",
   poolside: "Poolside",
 };
+
+export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "openrouter",
+  "vercel-ai-gateway",
+  "fireworks",
+  "together",
+  "minimax",
+  "atlascloud",
+  "litellm",
+  "baseten",
+  "poolside",
+];
 
 export function formatProviderName(provider: LlmProviderId): string {
   return PROVIDER_LABELS[provider];
@@ -105,6 +121,32 @@ export function resolveHatchProvider(
   }
 
   return provider;
+}
+
+// Distinguishes an explicit `--config` provider from resolveHatchProvider's
+// silent fallback to Anthropic, without duplicating its resolution order.
+export function hasExplicitHatchProvider(
+  configValues: Record<string, string | undefined>,
+): boolean {
+  return resolveConfiguredMainAgentProvider(configValues) !== undefined;
+}
+
+export interface ShouldPromptForHatchProviderOptions {
+  configValues: Record<string, string | undefined>;
+  setupProviderCredentials: boolean;
+  hasProviderApiKey: boolean;
+  stdinIsTTY: boolean | undefined;
+}
+
+export function shouldPromptForHatchProvider(
+  options: ShouldPromptForHatchProviderOptions,
+): boolean {
+  return (
+    options.setupProviderCredentials &&
+    !options.hasProviderApiKey &&
+    !hasExplicitHatchProvider(options.configValues) &&
+    !!options.stdinIsTTY
+  );
 }
 
 function resolveConfiguredMainAgentProvider(
@@ -421,6 +463,95 @@ export async function promptSecret(
 
     input.on("data", onData);
   });
+}
+
+// Unlike promptSecret, never enables raw mode — a numbered choice needs no
+// masking, so canonical-mode line editing (backspace, etc.) comes free.
+export async function promptLine(
+  prompt: string,
+  streams: {
+    input?: NodeJS.ReadStream;
+    output?: NodeJS.WriteStream;
+  } = {},
+): Promise<string> {
+  const input = streams.input ?? process.stdin;
+  const output = streams.output ?? process.stdout;
+
+  output.write(prompt);
+
+  return new Promise((resolve) => {
+    input.resume();
+
+    let buffered = "";
+
+    const cleanup = (): void => {
+      input.removeListener("data", onData);
+      input.pause();
+    };
+
+    const onData = (chunk: Buffer | string): void => {
+      buffered += chunk.toString();
+      const newlineIndex = buffered.search(/[\r\n]/);
+      if (newlineIndex === -1) {
+        return;
+      }
+      const line = buffered.slice(0, newlineIndex);
+      cleanup();
+      resolve(line);
+    };
+
+    input.on("data", onData);
+  });
+}
+
+export interface PromptProviderChoiceOptions {
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+  choices?: readonly LlmProviderId[];
+}
+
+// Resolves null on blank input — the caller's signal to keep whatever
+// resolveHatchProvider already picked.
+export async function promptProviderChoice(
+  options: PromptProviderChoiceOptions = {},
+): Promise<LlmProviderId | null> {
+  const output = options.output ?? process.stdout;
+  const choices = options.choices ?? HATCH_PROVIDER_CHOICES;
+
+  output.write(
+    "No LLM provider API key was found in your environment.\n" +
+      "Choose a provider to use for this assistant:\n\n",
+  );
+  choices.forEach((provider, index) => {
+    const suffix = index === 0 ? " (default)" : "";
+    output.write(`  ${index + 1}) ${formatProviderName(provider)}${suffix}\n`);
+  });
+  output.write("\n");
+
+  const defaultLabel = formatProviderName(choices[0]);
+  for (;;) {
+    const answer = (
+      await promptLine(
+        `Enter a number (1-${choices.length}), or press Enter to keep the default (${defaultLabel}): `,
+        { input: options.input, output },
+      )
+    ).trim();
+
+    if (answer === "") {
+      return null;
+    }
+
+    if (/^\d+$/.test(answer)) {
+      const index = Number(answer);
+      if (index >= 1 && index <= choices.length) {
+        return choices[index - 1];
+      }
+    }
+
+    output.write(
+      `Please enter a number between 1 and ${choices.length}, or press Enter to skip.\n`,
+    );
+  }
 }
 
 export async function ensureProviderApiKey(
