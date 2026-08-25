@@ -12,6 +12,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatRate,
+  modelEntry,
+  openrouterBlock,
+  openrouterCatalogModels,
+  parseLiveModels,
   perMillionFromOpenRouterPrice,
   planSync,
   rateDiffers,
@@ -20,38 +24,12 @@ import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 
 const CATALOG_PATH = join(process.cwd(), "src/providers/model-catalog.ts");
 
-/** Source of the `openrouter` provider entry, bounded by the next provider. */
-function openrouterBlock(source: string): string {
-  const start = source.search(/^\s*id: "openrouter",$/m);
-  const rest = source.slice(start + 1);
-  const next = rest.search(/^\s{4}id: "[^"]+",$/m);
-  return next === -1
-    ? source.slice(start)
-    : source.slice(start, start + 1 + next);
-}
-
-/** Source of one model's object inside the openrouter block. */
-function modelEntry(block: string, modelId: string): string {
-  const at = block.indexOf(`id: "${modelId}",`);
-  return block.slice(at, block.indexOf("\n      },", at));
-}
-
-function openrouterModels() {
-  const entry = PROVIDER_CATALOG.find(
-    (provider) => provider.id === "openrouter",
-  );
-  if (!entry) {
-    throw new Error("PROVIDER_CATALOG is missing the openrouter entry");
-  }
-  return entry.models;
-}
-
 /** A live card that agrees with the catalog exactly, as the baseline. */
 function liveCardMatchingCatalog() {
   const perToken = (per1m: number | undefined) =>
     per1m === undefined ? undefined : String(per1m / 1_000_000);
   return new Map(
-    openrouterModels().map((model) => [
+    openrouterCatalogModels().map((model) => [
       model.id,
       {
         id: model.id,
@@ -96,6 +74,61 @@ describe("OpenRouter price conversion", () => {
   });
 });
 
+describe("parseLiveModels", () => {
+  const tracked = new Set(["a/one"]);
+
+  test("accepts a well-formed card", () => {
+    const live = parseLiveModels(
+      { data: [{ id: "a/one", pricing: { prompt: "0.000001" } }] },
+      tracked,
+    );
+    expect(live.get("a/one")?.pricing?.prompt).toBe("0.000001");
+  });
+
+  test("rejects a coercible non-string price on a tracked model", () => {
+    // Number(true) is 1, so an unvalidated payload could turn a boolean into
+    // a committed rate.
+    expect(() =>
+      parseLiveModels(
+        { data: [{ id: "a/one", pricing: { prompt: true } }] },
+        tracked,
+      ),
+    ).toThrow(/unusable entries/);
+  });
+
+  test("rejects a non-numeric price string on a tracked model", () => {
+    expect(() =>
+      parseLiveModels(
+        { data: [{ id: "a/one", pricing: { prompt: "free" } }] },
+        tracked,
+      ),
+    ).toThrow(/unusable entries/);
+  });
+
+  test("drops a malformed entry the catalog does not track", () => {
+    const live = parseLiveModels(
+      {
+        data: [
+          { id: "a/one", pricing: { prompt: "0.000001" } },
+          { id: "z/untracked", pricing: { prompt: false } },
+        ],
+      },
+      tracked,
+    );
+    expect(live.has("a/one")).toBe(true);
+    expect(live.has("z/untracked")).toBe(false);
+  });
+
+  test("rejects a payload that is not a model list", () => {
+    expect(() => parseLiveModels({ data: [] }, tracked)).toThrow(
+      /did not return a model list/,
+    );
+    expect(() => parseLiveModels({}, tracked)).toThrow(
+      /did not return a model list/,
+    );
+  });
+});
+
 describe("planSync", () => {
   const source = readFileSync(CATALOG_PATH, "utf-8");
 
@@ -107,7 +140,7 @@ describe("planSync", () => {
 
   test("a moved rate rewrites exactly that one literal", () => {
     const live = liveCardMatchingCatalog();
-    const target = openrouterModels().find(
+    const target = openrouterCatalogModels().find(
       (model) => model.pricing?.inputPer1mTokens !== undefined,
     );
     expect(target).toBeDefined();
@@ -138,7 +171,9 @@ describe("planSync", () => {
     // would corrupt the second one, so the rewrite is bounded to the
     // openrouter provider entry.
     const sharedId = "deepseek/deepseek-v4-flash";
-    const inOpenrouter = openrouterModels().find((m) => m.id === sharedId);
+    const inOpenrouter = openrouterCatalogModels().find(
+      (m) => m.id === sharedId,
+    );
     expect(
       inOpenrouter,
       `${sharedId} is the cross-block fixture for this test`,
@@ -179,13 +214,13 @@ describe("planSync", () => {
     // `2.0` parses to `2`, so a matcher built from the parsed number would
     // replace only the leading digit and strand the `.0`.
     const block = openrouterBlock(source);
-    const spelledWithDotZero = openrouterModels().find(
+    const spelledWithDotZero = openrouterCatalogModels().find(
       (model) =>
         !model.pricing?.tiers?.length &&
         model.pricing?.outputPer1mTokens !== undefined &&
         // Scoped to this model's own entry: the same literal spelled `.0` on
         // an unrelated model would otherwise satisfy a whole-file search.
-        modelEntry(block, model.id).includes(
+        modelEntry(block, model.id)?.includes(
           `outputPer1mTokens: ${model.pricing.outputPer1mTokens}.0,`,
         ),
     );
@@ -216,7 +251,7 @@ describe("planSync", () => {
   test("a tiered model reports its base move instead of applying it", () => {
     // Tier rates are scaled from the base rather than published, so moving a
     // base alone would price the model inconsistently above its threshold.
-    const tiered = openrouterModels().find(
+    const tiered = openrouterCatalogModels().find(
       (model) =>
         model.pricing?.tiers?.length &&
         model.pricing.inputPer1mTokens !== undefined,
@@ -242,7 +277,7 @@ describe("planSync", () => {
 
   test("an id the live card no longer serves is reported, never deleted", () => {
     const live = liveCardMatchingCatalog();
-    const dropped = openrouterModels()[0]!;
+    const dropped = openrouterCatalogModels()[0]!;
     live.delete(dropped.id);
 
     const plan = planSync(source, live);

@@ -39,6 +39,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
+import { z } from "zod";
+
 import {
   openrouterRoutesReportCachedTokens,
   PROVIDER_CATALOG,
@@ -53,7 +55,7 @@ const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const FETCH_TIMEOUT_MS = 30_000;
 
 /** Relative band a rate must move beyond before it counts as drift. */
-export const RATE_TOLERANCE = 0.02;
+const RATE_TOLERANCE = 0.02;
 
 /**
  * A numeric literal as TypeScript source spells it, including forms a parsed
@@ -69,17 +71,34 @@ const SYNCED_RATE_FIELDS = [
   ["cacheWritePer1mTokens", "input_cache_write"],
 ] as const;
 
-interface OpenRouterPricing {
-  prompt?: string;
-  completion?: string;
-  input_cache_read?: string;
-  input_cache_write?: string;
-}
+/**
+ * A price as OpenRouter quotes it: a decimal string, or "" when unpriced.
+ * Refused rather than coerced, so a boolean or object upstream cannot reach
+ * `Number()` and become a committed rate.
+ */
+const OpenRouterPrice = z
+  .string()
+  .refine((raw) => raw === "" || Number.isFinite(Number(raw)), {
+    message: "price is not a decimal string",
+  });
 
-interface OpenRouterModel {
-  id: string;
-  pricing?: OpenRouterPricing;
-}
+const OpenRouterModelSchema = z.object({
+  id: z.string().min(1),
+  pricing: z
+    .object({
+      prompt: OpenRouterPrice.optional(),
+      completion: OpenRouterPrice.optional(),
+      input_cache_read: OpenRouterPrice.optional(),
+      input_cache_write: OpenRouterPrice.optional(),
+    })
+    .optional(),
+});
+
+const OpenRouterModelsResponseSchema = z.object({
+  data: z.array(z.unknown()).min(1),
+});
+
+type OpenRouterModel = z.infer<typeof OpenRouterModelSchema>;
 
 /**
  * OpenRouter quotes per-token prices as decimal strings; the catalog stores
@@ -144,7 +163,7 @@ export interface SyncPlan {
   findings: StructuralFinding[];
 }
 
-function openrouterModels() {
+export function openrouterCatalogModels() {
   const entry = PROVIDER_CATALOG.find(
     (provider) => provider.id === "openrouter",
   );
@@ -187,6 +206,18 @@ function modelSourceSpan(
   return [marker, close];
 }
 
+/** Source of the `openrouter` provider entry, bounded by the next provider. */
+export function openrouterBlock(source: string): string {
+  const [start, end] = openrouterSourceRange(source);
+  return source.slice(start, end);
+}
+
+/** Source of one model's object inside the openrouter block. */
+export function modelEntry(block: string, modelId: string): string | undefined {
+  const span = modelSourceSpan(block, modelId);
+  return span ? block.slice(span[0], span[1]) : undefined;
+}
+
 /**
  * Compute the rewritten catalog source plus everything that needs a human.
  * Rewrites only rate literals that already exist, and asserts each rewrite
@@ -202,7 +233,7 @@ export function planSync(
   const changes: RateChange[] = [];
   const findings: StructuralFinding[] = [];
 
-  for (const model of openrouterModels()) {
+  for (const model of openrouterCatalogModels()) {
     const liveModel = live.get(model.id);
     if (!liveModel) {
       findings.push({
@@ -224,6 +255,12 @@ export function planSync(
         continue;
       }
       if (current === undefined) {
+        if (
+          field === "cacheReadPer1mTokens" &&
+          !openrouterRoutesReportCachedTokens(model.id)
+        ) {
+          continue;
+        }
         findings.push({
           modelId: model.id,
           detail: `OpenRouter publishes ${liveKey} ${formatRate(liveRate)} but the catalog carries no ${field}. Adding one usually means flipping supportsCaching too, which is a judgement call.`,
@@ -268,21 +305,6 @@ export function planSync(
         block.slice(segEnd);
       changes.push({ modelId: model.id, field, from: current, to: liveRate });
     }
-
-    const liveCacheRead = perMillionFromOpenRouterPrice(
-      liveModel.pricing?.input_cache_read,
-    );
-    if (
-      liveCacheRead !== undefined &&
-      model.pricing?.cacheReadPer1mTokens === undefined &&
-      openrouterRoutesReportCachedTokens(model.id) &&
-      !model.supportsCaching
-    ) {
-      findings.push({
-        modelId: model.id,
-        detail: `OpenRouter publishes a cache-read rate of ${formatRate(liveCacheRead)} but supportsCaching is false.`,
-      });
-    }
   }
 
   return {
@@ -292,7 +314,49 @@ export function planSync(
   };
 }
 
-async function fetchLiveModels(): Promise<Map<string, OpenRouterModel>> {
+/**
+ * Validate a live card into the models the catalog tracks.
+ *
+ * Entries for ids the catalog does not carry are dropped quietly; there are
+ * hundreds of them and none can reach a rate. A malformed entry for an id the
+ * catalog does carry throws, so vendor schema drift fails the run instead of
+ * looking like a dropped model and being committed as one.
+ */
+export function parseLiveModels(
+  payload: unknown,
+  trackedIds: ReadonlySet<string>,
+): Map<string, OpenRouterModel> {
+  const envelope = OpenRouterModelsResponseSchema.safeParse(payload);
+  if (!envelope.success) {
+    throw new Error(
+      `OpenRouter /api/v1/models did not return a model list: ${envelope.error.message}`,
+    );
+  }
+
+  const live = new Map<string, OpenRouterModel>();
+  const malformed: string[] = [];
+  for (const raw of envelope.data.data) {
+    const model = OpenRouterModelSchema.safeParse(raw);
+    if (model.success) {
+      live.set(model.data.id, model.data);
+      continue;
+    }
+    const id = (raw as { id?: unknown }).id;
+    if (typeof id === "string" && trackedIds.has(id)) {
+      malformed.push(`${id}: ${model.error.message}`);
+    }
+  }
+  if (malformed.length > 0) {
+    throw new Error(
+      `OpenRouter returned unusable entries for catalog models:\n${malformed.join("\n")}`,
+    );
+  }
+  return live;
+}
+
+async function fetchLiveModels(
+  trackedIds: ReadonlySet<string>,
+): Promise<Map<string, OpenRouterModel>> {
   const response = await fetch(OPENROUTER_MODELS_URL, {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
@@ -301,16 +365,11 @@ async function fetchLiveModels(): Promise<Map<string, OpenRouterModel>> {
       `OpenRouter /api/v1/models returned HTTP ${response.status}`,
     );
   }
-  const payload = (await response.json()) as { data?: OpenRouterModel[] };
-  const models = payload.data;
-  if (!Array.isArray(models) || models.length === 0) {
-    throw new Error("OpenRouter /api/v1/models returned no models");
-  }
-  return new Map(models.map((model) => [model.id, model]));
+  return parseLiveModels(await response.json(), trackedIds);
 }
 
 /** One line per change, stable order, so a PR body reads as a changelog. */
-export function renderReport(plan: SyncPlan): string {
+function renderReport(plan: SyncPlan): string {
   const lines: string[] = [];
   if (plan.changes.length > 0) {
     lines.push("Rates updated:");
@@ -335,7 +394,8 @@ export function renderReport(plan: SyncPlan): string {
 async function main() {
   const isCheck = process.argv.includes("--check");
   const source = await readFile(CATALOG_PATH, "utf-8");
-  const plan = planSync(source, await fetchLiveModels());
+  const trackedIds = new Set(openrouterCatalogModels().map((m) => m.id));
+  const plan = planSync(source, await fetchLiveModels(trackedIds));
   const rel = relative(ROOT, CATALOG_PATH);
   const report = renderReport(plan);
 
