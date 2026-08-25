@@ -1240,6 +1240,7 @@
   "pairDeviceUrl": {
     "loopback": "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
     "nonHttps": "The URL must use https so your devices can connect securely.",
+    "privateAddress": "This address points at a private network address. Enter the assistant's public https URL so your devices can reach it.",
     "serviceFallbackName": "the tunnel provider",
     "serviceWebsite": "This is {service}'s website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
     "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."

@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildRemoteWebPairingUrl,
+  isPrivateNetworkPublicUrl,
   parsePairingAddress,
   parseRemoteWebPairingParams,
+  resolvePublicBaseUrl,
   type PublicBaseUrlRejection,
 } from "../remote-web-pairing.js";
 
@@ -101,5 +103,86 @@ describe("parsePairingAddress", () => {
     ["https://login.tailscale.com/admin/invite/abc123", "service-website"],
   ])("rejects %s", (raw, reason) => {
     expect(parsePairingAddress(raw)).toEqual({ ok: false, reason });
+  });
+});
+
+describe("resolvePublicBaseUrl private-address containment", () => {
+  // A host POSTs to whatever address was pasted, so an IP literal aimed at the
+  // local network (or at 169.254.169.254, the cloud instance metadata
+  // endpoint) is a blind SSRF target and is refused before any request.
+  test.each([
+    ["https://0.0.0.0", "0/8"],
+    ["https://10.0.0.1", "10/8"],
+    ["https://10.255.255.254:8443", "10/8 with a port"],
+    ["https://169.254.169.254", "169.254/16 cloud metadata"],
+    ["https://172.16.0.1", "172.16/12 low edge"],
+    ["https://172.31.255.254", "172.16/12 high edge"],
+    ["https://192.0.0.8", "192.0.0/24"],
+    ["https://192.168.1.5", "192.168/16"],
+    ["https://198.18.0.1", "198.18/15"],
+    ["https://198.19.255.254", "198.18/15 high half"],
+    ["https://224.0.0.1", "224/4 multicast"],
+    ["https://240.0.0.1", "240/4 reserved"],
+    ["https://255.255.255.255", "broadcast"],
+    // WHATWG URL canonicalizes these to a dotted-quad before the check.
+    ["https://2130706433", "decimal-encoded 127.0.0.1"],
+    ["https://0xa000001", "hex-encoded 10.0.0.1"],
+    ["https://[::]", "IPv6 unspecified"],
+    ["https://[fd00::1]", "fc00::/7 unique-local"],
+    ["https://[fc00::5]", "fc00::/7 low edge"],
+    ["https://[fe80::1]", "fe80::/10 link-local"],
+    ["https://[ff02::1]", "ff00::/8 multicast"],
+    ["https://[::ffff:10.0.0.1]", "IPv4-mapped private"],
+    ["https://[::ffff:169.254.169.254]", "IPv4-mapped metadata"],
+    ["https://[::192.168.1.5]", "IPv4-compatible private"],
+  ])("refuses %s (%s)", (raw) => {
+    const result = resolvePublicBaseUrl(raw);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    // 127/8 and ::1 keep their more specific loopback reason.
+    expect(["private-address", "loopback"]).toContain(result.reason);
+  });
+
+  test.each([
+    "https://0.0.0.0",
+    "https://10.0.0.1",
+    "https://169.254.169.254",
+    "https://172.20.3.4",
+    "https://192.168.1.5",
+    "https://198.18.0.1",
+    "https://[fd00::1]",
+    "https://[fe80::1]",
+    "https://[::ffff:10.0.0.1]",
+  ])("reports %s as private-address, not loopback", (raw) => {
+    expect(resolvePublicBaseUrl(raw)).toEqual({
+      ok: false,
+      reason: "private-address",
+    });
+  });
+
+  // Tailscale hands out 100.64.0.0/10 CGNAT addresses and `*.ts.net` names are
+  // a supported pairing target, so neither the range nor any hostname is
+  // filtered. Names are never resolved (see isPrivateNetworkPublicUrl).
+  test.each([
+    "https://my-box.tail1234.ts.net",
+    "https://assistant.example.com",
+    "https://100.101.102.103",
+    "https://[2606:4700::1111]",
+    "https://172.32.0.1",
+    "https://192.0.1.1",
+    "https://198.20.0.1",
+    "https://223.255.255.255",
+  ])("still resolves %s", (raw) => {
+    expect(resolvePublicBaseUrl(raw)).toEqual({ ok: true, url: raw });
+  });
+
+  test("isPrivateNetworkPublicUrl reports a plain hostname as public", () => {
+    expect(isPrivateNetworkPublicUrl("https://my-box.tail1234.ts.net")).toBe(
+      false,
+    );
+    expect(isPrivateNetworkPublicUrl("not a url")).toBe(false);
+    expect(isPrivateNetworkPublicUrl("https://192.168.0.1")).toBe(true);
   });
 });

@@ -651,6 +651,12 @@ describe("pairingStart", () => {
     const cases: Array<[string, string]> = [
       ["http://localhost:7830", "loopback"],
       ["https://127.0.0.1", "loopback"],
+      ["https://10.0.0.1", "private-address"],
+      ["https://192.168.1.5", "private-address"],
+      // The cloud instance metadata endpoint, the classic blind-SSRF target.
+      ["https://169.254.169.254", "private-address"],
+      ["https://[fd00::1]", "private-address"],
+      ["https://[::ffff:10.0.0.1]", "private-address"],
       ["http://gw.example.com", "non-https"],
       ["https://login.tailscale.com/admin/invite/abc", "service-website"],
       ["not a url", "unparseable"],
@@ -896,6 +902,81 @@ describe("pairingPoll", () => {
     expect(fs.existsSync(lockfilePath)).toBe(false);
     // The gateway spent the code before replying, so the session is dead.
     expect(pairingCancel(handle)).toBe(false);
+  });
+
+  test.each([
+    ["an empty accessToken", { accessToken: "" }],
+    ["a non-string accessToken", { accessToken: 42 }],
+    ["a non-string refreshToken", { refreshToken: 7 }],
+    ["an object refreshTokenExpiresAt", { refreshTokenExpiresAt: {} }],
+    ["a non-string refreshAfter", { refreshAfter: 900 }],
+  ])(
+    "a reply with %s is a gateway failure, not a half-written credential",
+    async (_label, overrides) => {
+      respond = () => json(200, approvedBody(overrides));
+      const handle = await startFromLink();
+
+      const result = await pairingPoll([lockfilePath], configDir, { handle });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        return;
+      }
+      expect(result.reason).toBe("gateway");
+      expect(result.status).toBe(502);
+      // Nothing was persisted: no lockfile entry and no guardian token.
+      expect(fs.existsSync(lockfilePath)).toBe(false);
+      expect(fs.existsSync(path.join(configDir, "assistants"))).toBe(false);
+      // The gateway spent the code before replying, so the session is dead.
+      expect(pairingCancel(handle)).toBe(false);
+    },
+  );
+
+  test("a reply with no refresh fields at all still imports access-only", async () => {
+    respond = () =>
+      json(200, {
+        status: "approved",
+        accessToken: "acc-tok",
+        accessTokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        guardianId: "guardian-1",
+        assistantId: "self",
+      });
+    const handle = await startFromLink();
+
+    const result = await pairingPoll([lockfilePath], configDir, {
+      handle,
+      name: "Old Gateway",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      status: "imported",
+      assistantId: "old-gateway",
+      updated: false,
+      accessOnly: true,
+    });
+    const token = readGuardianToken("old-gateway");
+    expect(token.accessToken).toBe("acc-tok");
+    expect(token.refreshToken).toBe("");
+    expect(token.refreshAfter).toBe("");
+    expect(token.refreshTokenExpiresAt).toBe(0);
+  });
+
+  test("a numeric refreshTokenExpiresAt is kept rather than dropped", async () => {
+    const expiresAtMs = Date.now() + 86_400_000;
+    respond = () =>
+      json(200, approvedBody({ refreshTokenExpiresAt: expiresAtMs }));
+    const handle = await startFromLink();
+
+    const result = await pairingPoll([lockfilePath], configDir, {
+      handle,
+      name: "Numeric Expiry",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(readGuardianToken("numeric-expiry").refreshTokenExpiresAt).toBe(
+      expiresAtMs,
+    );
   });
 
   test("a local write refusal surfaces as an import failure", async () => {

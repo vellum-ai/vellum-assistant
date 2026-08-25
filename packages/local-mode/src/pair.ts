@@ -9,7 +9,6 @@ import {
   type PublicBaseUrlRejection,
   type RemoteWebPairingChallengeRequest,
   type RemoteWebPairingChallengeResponse,
-  type RemoteWebPairingTokenApprovedResponse,
   type RemoteWebPairingTokenPendingResponse,
   type RemoteWebPairingTokenRequest,
 } from "@vellumai/service-contracts/remote-web-pairing";
@@ -377,6 +376,8 @@ function addressRejectionMessage(
   switch (reason) {
     case "loopback":
       return "That address points back at this machine. Use the assistant's public https address.";
+    case "private-address":
+      return "That address points at a private network address. Pairing needs the assistant's public address.";
     case "non-https":
       return "A pairing address must use https.";
     case "service-website":
@@ -427,6 +428,16 @@ function oversizedGatewayReply(): PairingFailure {
     reason: "gateway",
     status: 502,
     error: "The assistant's pairing reply was too large to be read.",
+  };
+}
+
+function unusableGatewayCredentials(): PairingFailure {
+  return {
+    ok: false,
+    reason: "gateway",
+    status: 502,
+    error:
+      "The assistant approved the pairing but returned credentials this device cannot use.",
   };
 }
 
@@ -535,14 +546,59 @@ function isChallengeResponse(
   );
 }
 
-function isApprovedResponse(
-  value: unknown,
-): value is RemoteWebPairingTokenApprovedResponse {
-  const payload =
-    value as Partial<RemoteWebPairingTokenApprovedResponse> | null;
-  return (
-    payload?.status === "approved" && typeof payload.accessToken === "string"
-  );
+/** The credential fields a usable approved pairing reply carries. */
+interface ApprovedCredentials {
+  accessToken: string;
+  refreshToken?: string;
+  refreshTokenExpiresAt?: string | number;
+  refreshAfter?: string;
+}
+
+/**
+ * The credentials of an approved reply, or null when it is not one this device
+ * can persist. Every field is checked before anything reaches the guardian
+ * token file: an empty `accessToken` or a wrong-typed refresh field would
+ * otherwise be written as a credential that reports success now and fails
+ * later, at first use or first refresh.
+ *
+ * ABSENT refresh fields are legitimate. That is the older-gateway path, which
+ * mints no device-bound refresh credential, and it imports access-only. A
+ * field that is PRESENT with the wrong type is malformed rather than dropped,
+ * so a broken reply is reported instead of silently degrading the pairing.
+ */
+function approvedCredentials(value: unknown): ApprovedCredentials | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const {
+    status,
+    accessToken,
+    refreshToken,
+    refreshTokenExpiresAt,
+    refreshAfter,
+  } = value as Record<string, unknown>;
+  if (status !== "approved") {
+    return null;
+  }
+  if (typeof accessToken !== "string" || !accessToken) {
+    return null;
+  }
+  if (refreshToken !== undefined && typeof refreshToken !== "string") {
+    return null;
+  }
+  if (refreshAfter !== undefined && typeof refreshAfter !== "string") {
+    return null;
+  }
+  // ISO string on the wire; an epoch-ms number is accepted too because
+  // PairedAssistantCredentials persists either rather than dropping one.
+  if (
+    refreshTokenExpiresAt !== undefined &&
+    typeof refreshTokenExpiresAt !== "string" &&
+    typeof refreshTokenExpiresAt !== "number"
+  ) {
+    return null;
+  }
+  return { accessToken, refreshToken, refreshTokenExpiresAt, refreshAfter };
 }
 
 /** An ISO instant as epoch ms, or `fallback` when it isn't one. */
@@ -578,9 +634,9 @@ function openPairingSession(
  * whose `userCode` the caller displays for approval on the host.
  *
  * SSRF containment rides on `parsePairingAddress`, which refuses loopback,
- * non-https, and tunnel-vendor websites before any request is made, and on
- * {@link postPairingRequest} refusing to follow redirects away from the
- * address that was checked.
+ * private-network IP literals, non-https, and tunnel-vendor websites before
+ * any request is made, and on {@link postPairingRequest} refusing to follow
+ * redirects away from the address that was checked.
  */
 export async function pairingStart(
   address: unknown,
@@ -732,11 +788,11 @@ export async function pairingPoll(
   // not the reply is usable and whether or not the local write succeeds; a
   // retry starts from a fresh code.
   pendingPairings.delete(key);
-  if (!isApprovedResponse(posted.body)) {
-    return unexpectedGatewayReply(posted.status);
+  const approved = approvedCredentials(posted.body);
+  if (!approved) {
+    return unusableGatewayCredentials();
   }
 
-  const approved = posted.body;
   const result = pairAssistant(lockfilePaths, configDir, {
     credentials: {
       gatewayUrl: session.publicBaseUrl,
