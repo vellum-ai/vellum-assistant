@@ -23,6 +23,8 @@ export interface ChooserAvatarChipProps {
   /** Rendered when there is no avatar, or while the character chunk loads. */
   fallback: ReactNode;
   className?: string;
+  /** Hide from assistive tech when a sibling already names the row. */
+  decorative?: boolean;
 }
 
 export function ChooserAvatarChip({
@@ -31,6 +33,7 @@ export function ChooserAvatarChip({
   size = 48,
   fallback,
   className,
+  decorative = false,
 }: ChooserAvatarChipProps) {
   const { t } = useTranslation();
   const components = useBundledAvatarComponents();
@@ -46,7 +49,7 @@ export function ChooserAvatarChip({
       traits.color,
     );
     if (renderable) {
-      return (
+      const avatar = (
         <AvatarRenderer
           components={components}
           bodyShapeId={traits.bodyShape}
@@ -56,6 +59,7 @@ export function ChooserAvatarChip({
           className={className}
         />
       );
+      return decorative ? <span aria-hidden="true">{avatar}</span> : avatar;
     }
   }
 
@@ -63,7 +67,7 @@ export function ChooserAvatarChip({
     return (
       <img
         src={imageUrl}
-        alt={t("chooserAvatarChip.alt")}
+        alt={decorative ? "" : t("chooserAvatarChip.alt")}
         width={size}
         height={size}
         className={`rounded-full object-cover ${className ?? ""}`.trim()}

@@ -262,10 +262,19 @@ const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
 mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
 
 // The real chip lazily loads the character chunk; a marker keeps the suite
-// hermetic while still exercising the fallback branch.
+// hermetic while still exercising the fallback branch. The img mirrors the
+// real chip's alt handling so accessible-name assertions stay meaningful.
 const chooserAvatarChipMock: Partial<typeof ChooserAvatarChipModule> = {
-  ChooserAvatarChip: ({ traits, imageUrl, fallback }) =>
-    traits || imageUrl ? <span data-testid="chooser-avatar-chip" /> : fallback,
+  ChooserAvatarChip: ({ traits, imageUrl, fallback, decorative }) =>
+    traits || imageUrl ? (
+      <img
+        data-testid="chooser-avatar-chip"
+        src={imageUrl ?? undefined}
+        alt={decorative ? "" : "Assistant avatar"}
+      />
+    ) : (
+      fallback
+    ),
 };
 mock.module("@/components/avatar/chooser-avatar-chip", () => chooserAvatarChipMock);
 
@@ -1585,6 +1594,18 @@ describe("SelectAssistantScreen assistant avatars", () => {
     render(<SelectAssistantScreen />);
     expect(screen.getByTestId("chooser-avatar-chip")).toBeTruthy();
     expect(document.querySelector("svg.lucide-cloud")).toBeNull();
+  });
+
+  test("an image-backed row's radio is named by its title, not the alt", () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+    rowAvatars.set(PAIRED_ID, {
+      traits: null,
+      imageUrl: "https://example.test/a.png",
+    });
+    render(<SelectAssistantScreen />);
+    expect(screen.getByRole("radio", { name: /^Office Mac/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /Assistant avatar/ })).toBeNull();
+    expect(screen.getByTestId("chooser-avatar-chip").getAttribute("alt")).toBe("");
   });
 
   test("a row with no avatar keeps its glyph", () => {

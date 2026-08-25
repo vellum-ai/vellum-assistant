@@ -1174,6 +1174,7 @@ function AssistantCard({
           imageUrl={imageUrl}
           size={48}
           fallback={glyph}
+          decorative
         />
       }
       title={label}
