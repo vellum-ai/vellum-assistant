@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { fetchAvatarState } from "@/assistant/avatar-api";
 import {
-  fetchAvatarViaLegacyFiles,
   fetchAvatarViaManifest,
+  readAvatarViaLegacyFiles,
+  resolveAvatarFromState,
   useAssistantAvatar,
 } from "@/hooks/use-assistant-avatar";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -73,9 +75,10 @@ export interface ChooserRowAvatar {
 
 /**
  * A live read plus whether it is authoritative. The manifest answers
- * conclusively (including "none"); the legacy sidecar path swallows failures
- * into nulls, so only a legacy read that found something is conclusive. An
- * inconclusive read never bypasses or evicts the last-seen cache.
+ * conclusively (including "none") or throws; a legacy sidecar read is
+ * conclusive when it found a file or both files are absent (404), and
+ * inconclusive on a transport failure. An inconclusive read never bypasses
+ * or evicts the last-seen cache.
  */
 interface RowAvatarResult extends ChooserRowAvatar {
   conclusive: boolean;
@@ -84,9 +87,9 @@ interface RowAvatarResult extends ChooserRowAvatar {
 const EMPTY_AVATAR: ChooserRowAvatar = { traits: null, imageUrl: null };
 
 /**
- * The legacy sidecar path swallows read failures into nulls, so an empty
- * result may be a transient error rather than a bare avatar. Let it go stale
- * on a normal clock instead of pinning the glyph fallback forever.
+ * A bare avatar is the state most likely to change soon (a fresh assistant
+ * gets one during onboarding), and a legacy transport failure also lands
+ * here. Let it go stale on a normal clock instead of pinning the glyph.
  */
 export const EMPTY_AVATAR_STALE_TIME_MS = 60_000;
 
@@ -127,7 +130,8 @@ export function canFetchRowAvatarViaPlatformProxy(
 /**
  * Manifest reads for runtimes known to serve `/avatar/state`; legacy sidecar
  * reads for runtimes known not to. An unknown version probes the manifest
- * first and falls back to the sidecars when the probe fails.
+ * first and falls back to the sidecars when the probe fails. A manifest that
+ * promises an image whose content fails throws (never a false "none").
  */
 async function fetchRowAvatar(
   assistant: ResolvedAssistant,
@@ -140,17 +144,16 @@ async function fetchRowAvatar(
     };
   }
   if (manifestSupport === "unknown") {
-    try {
+    const state = await fetchAvatarState(assistant.id);
+    if (state !== null) {
       return {
-        ...(await fetchAvatarViaManifest(assistant.id)),
+        ...(await resolveAvatarFromState(assistant.id, state)),
         conclusive: true,
       };
-    } catch {
-      // Probe failed: the runtime is likely pre-manifest.
     }
+    // Probe failed: the runtime is likely pre-manifest.
   }
-  const legacy = await fetchAvatarViaLegacyFiles(assistant.id);
-  return { ...legacy, conclusive: !isEmptyAvatar(legacy) };
+  return readAvatarViaLegacyFiles(assistant.id);
 }
 
 function trackBlobUrl(
@@ -277,8 +280,9 @@ export function useChooserRowAvatar(
   });
 
   // A live source is conclusive once its query succeeded through a path
-  // that cannot mistake a failure for a bare avatar; on error React Query
-  // keeps prior data, which is still worth rendering but not caching.
+  // that cannot mistake a failure for a bare avatar (useAssistantAvatar
+  // throws on every inconclusive read); on error React Query keeps prior
+  // data, which is still worth rendering but not caching.
   const live: ChooserRowAvatar | undefined = isConnectedRow
     ? { traits: connected.traits, imageUrl: connected.customImageUrl }
     : rowQuery.data && {
@@ -286,8 +290,7 @@ export function useChooserRowAvatar(
         imageUrl: rowQuery.data.imageUrl,
       };
   const liveConclusive = isConnectedRow
-    ? connected.isSuccess &&
-      (connected.supportsManifest || !isEmptyAvatar(live))
+    ? connected.isSuccess
     : rowQuery.isSuccess && rowQuery.data.conclusive;
   const showLive =
     liveConclusive || (live !== undefined && !isEmptyAvatar(live));

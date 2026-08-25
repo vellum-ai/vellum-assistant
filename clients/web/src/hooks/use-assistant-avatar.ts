@@ -4,10 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchCharacterComponents,
   fetchAvatarState,
-  fetchAvatarImageUrl,
-  fetchCharacterTraits,
+  fetchAvatarImageUrlResult,
+  fetchCharacterTraitsResult,
 } from "@/assistant/avatar-api";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type {
+  AvatarState,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
 import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
@@ -47,6 +51,43 @@ export interface AssistantAvatarOptions {
   enabled?: boolean;
 }
 
+export interface AvatarRead {
+  traits: CharacterTraits | null;
+  imageUrl: string | null;
+}
+
+/**
+ * Resolve the render mode from an already-fetched `/avatar/state` manifest.
+ * Throws when the manifest promises an image whose content request fails,
+ * so React Query keeps the previously cached avatar instead of blanking out.
+ */
+export async function resolveAvatarFromState(
+  assistantId: string,
+  state: AvatarState,
+): Promise<AvatarRead> {
+  if (state.kind === "character") {
+    // Built/AI character: render the animated SVG from traits. The daemon
+    // also writes a derived avatar-image.png raster, but the web never
+    // uses it, so we skip the image fetch entirely.
+    return { traits: state.traits, imageUrl: null };
+  }
+  if (state.kind === "image") {
+    // Custom uploaded image: render the static circle. A 404 here means
+    // the image went away after the manifest was read; that is a real none.
+    const image = await fetchAvatarImageUrlResult(assistantId);
+    if (image.status === "failed") {
+      throw new Error("Failed to fetch avatar image");
+    }
+    return {
+      traits: null,
+      imageUrl: image.status === "found" ? image.value : null,
+    };
+  }
+  // kind === "none": both stay null, and ChatAvatar falls back to default
+  // components / the "V".
+  return { traits: null, imageUrl: null };
+}
+
 /**
  * Resolve the avatar render mode from the authoritative `/avatar/state`
  * manifest (assistants on `MIN_VERSION`+). Throws on a null state so React
@@ -55,7 +96,7 @@ export interface AssistantAvatarOptions {
  */
 export async function fetchAvatarViaManifest(
   assistantId: string,
-): Promise<{ traits: CharacterTraits | null; imageUrl: string | null }> {
+): Promise<AvatarRead> {
   const state = await fetchAvatarState(assistantId);
   if (state === null) {
     // `fetchAvatarState` returns null only on transport failure. Throw
@@ -65,20 +106,15 @@ export async function fetchAvatarViaManifest(
     // showing the last good avatar instead of blanking out to the "V".
     throw new Error("Failed to fetch avatar state");
   }
+  return resolveAvatarFromState(assistantId, state);
+}
 
-  if (state.kind === "character") {
-    // Built/AI character: render the animated SVG from traits. The daemon
-    // also writes a derived avatar-image.png raster, but the web never
-    // uses it, so we skip the image fetch entirely.
-    return { traits: state.traits, imageUrl: null };
-  }
-  if (state.kind === "image") {
-    // Custom uploaded image: render the static circle.
-    return { traits: null, imageUrl: await fetchAvatarImageUrl(assistantId) };
-  }
-  // kind === "none": both stay null, and ChatAvatar falls back to default
-  // components / the "V".
-  return { traits: null, imageUrl: null };
+/**
+ * A legacy sidecar read plus whether it is authoritative: a found file is;
+ * two 404s are a real bare avatar; any transport failure is inconclusive.
+ */
+export interface LegacyAvatarRead extends AvatarRead {
+  conclusive: boolean;
 }
 
 /**
@@ -88,15 +124,37 @@ export async function fetchAvatarViaManifest(
  * alive behind the version gate — see
  * `lib/backwards-compat/avatar-state-manifest.ts`.
  */
-export async function fetchAvatarViaLegacyFiles(
+export async function readAvatarViaLegacyFiles(
   assistantId: string,
-): Promise<{ traits: CharacterTraits | null; imageUrl: string | null }> {
-  const imageUrl = await fetchAvatarImageUrl(assistantId);
+): Promise<LegacyAvatarRead> {
+  const image = await fetchAvatarImageUrlResult(assistantId);
   // Skip the traits fetch when a custom image exists — the traits file is
   // intentionally deleted on the daemon side in that case, so requesting it
   // just generates 404s. `AvatarRenderer` only reads `traits` when there is
   // no `customImageUrl`.
-  const traits = imageUrl ? null : await fetchCharacterTraits(assistantId);
+  if (image.status === "found") {
+    return { traits: null, imageUrl: image.value, conclusive: true };
+  }
+  const traits = await fetchCharacterTraitsResult(assistantId);
+  if (traits.status === "found") {
+    return { traits: traits.value, imageUrl: null, conclusive: true };
+  }
+  return {
+    traits: null,
+    imageUrl: null,
+    conclusive: image.status === "absent" && traits.status === "absent",
+  };
+}
+
+/** {@link readAvatarViaLegacyFiles} that throws on an inconclusive read, like the manifest path. */
+export async function fetchAvatarViaLegacyFiles(
+  assistantId: string,
+): Promise<AvatarRead> {
+  const { traits, imageUrl, conclusive } =
+    await readAvatarViaLegacyFiles(assistantId);
+  if (!conclusive) {
+    throw new Error("Failed to fetch avatar sidecars");
+  }
   return { traits, imageUrl };
 }
 

@@ -22,13 +22,21 @@ import { isAvatarState } from "@/types/avatar";
 
 import {
   fetchAvatarImageUrl,
+  fetchAvatarImageUrlResult,
   fetchAvatarState,
+  fetchCharacterTraitsResult,
   uploadAvatarImage,
 } from "./avatar-api";
 
+const CHARACTER_TRAITS = {
+  bodyShape: "round",
+  eyeStyle: "happy",
+  color: "#123456",
+};
+
 const CHARACTER_STATE: AvatarState = {
   kind: "character",
-  traits: { bodyShape: "round", eyeStyle: "happy", color: "#123456" },
+  traits: CHARACTER_TRAITS,
   source: "builder",
   image: null,
 };
@@ -233,6 +241,81 @@ describe("fetchAvatarImageUrl", () => {
     ) as typeof client.get;
 
     expect(await fetchAvatarImageUrl("asst-1")).toBeNull();
+  });
+});
+
+describe("fetchAvatarImageUrlResult", () => {
+  test("a 404 is absent, an authoritative answer", async () => {
+    stubGet({
+      data: undefined,
+      error: { detail: "missing" },
+      response: errorResponse(404),
+    });
+
+    expect(await fetchAvatarImageUrlResult("asst-1")).toEqual({
+      status: "absent",
+    });
+  });
+
+  test("any other non-2xx is failed", async () => {
+    stubGet({
+      data: undefined,
+      error: { detail: "boom" },
+      response: errorResponse(502),
+    });
+
+    expect(await fetchAvatarImageUrlResult("asst-1")).toEqual({
+      status: "failed",
+    });
+  });
+
+  test("a transport throw is failed", async () => {
+    client.get = mock(() =>
+      Promise.reject(new Error("network down")),
+    ) as typeof client.get;
+
+    expect(await fetchAvatarImageUrlResult("asst-1")).toEqual({
+      status: "failed",
+    });
+  });
+});
+
+describe("fetchCharacterTraitsResult", () => {
+  test("a 404 is absent while a 5xx is failed", async () => {
+    stubGet({ data: undefined, error: {}, response: errorResponse(404) });
+    expect(await fetchCharacterTraitsResult("asst-1")).toEqual({
+      status: "absent",
+    });
+
+    stubGet({ data: undefined, error: {}, response: errorResponse(500) });
+    expect(await fetchCharacterTraitsResult("asst-1")).toEqual({
+      status: "failed",
+    });
+  });
+
+  test("a sidecar that does not parse as traits is absent", async () => {
+    stubGet({
+      data: { content: "not json" },
+      error: undefined,
+      response: okResponse(),
+    });
+
+    expect(await fetchCharacterTraitsResult("asst-1")).toEqual({
+      status: "absent",
+    });
+  });
+
+  test("a valid sidecar is found", async () => {
+    stubGet({
+      data: { content: JSON.stringify(CHARACTER_TRAITS) },
+      error: undefined,
+      response: okResponse(),
+    });
+
+    expect(await fetchCharacterTraitsResult("asst-1")).toEqual({
+      status: "found",
+      value: CHARACTER_TRAITS,
+    });
   });
 });
 
