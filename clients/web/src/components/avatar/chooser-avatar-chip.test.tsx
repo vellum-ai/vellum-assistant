@@ -84,6 +84,29 @@ describe("ChooserAvatarChip", () => {
     expect(img?.style.width).toBe("48px");
   });
 
+  test("decorative hides the image and character from assistive tech", () => {
+    const { container, rerender } = render(
+      <ChooserAvatarChip
+        traits={null}
+        imageUrl="https://example.test/a.png"
+        fallback={fallback}
+        decorative
+      />,
+    );
+    expect(container.querySelector("img")?.getAttribute("alt")).toBe("");
+
+    rerender(
+      <ChooserAvatarChip
+        traits={TRAITS}
+        imageUrl={null}
+        fallback={fallback}
+        decorative
+      />,
+    );
+    const hidden = container.querySelector("[aria-hidden='true']");
+    expect(hidden?.querySelector("svg")).not.toBeNull();
+  });
+
   test("unknown trait ids fall through to the image", () => {
     const { container } = render(
       <ChooserAvatarChip
