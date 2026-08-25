@@ -275,9 +275,14 @@ struct QuickActionsWidgetView: View {
         palette.controlFill(onWhite: Self.controlFillOnWhite, onDark: Self.controlFillOnDark)
     }
 
-    /// The number for the unread chip, or nil when there is no chip or mark to
-    /// draw: nothing unread, nothing synced, or a snapshot old enough that the
-    /// count is a claim about an inbox from half an hour ago.
+    /// The number for the unread chip, or nil when there is no chip to draw:
+    /// nothing unread, nothing synced, or a snapshot old enough that the count
+    /// is a claim about an inbox from half an hour ago.
+    ///
+    /// It gates the chip and the row layout built around it, and nothing else.
+    /// The mark is drawn either way: the eyes are which assistant this account
+    /// has rather than a claim about right now, so a snapshot too old to count
+    /// with is still new enough to say whose face it is.
     ///
     /// It gates the chip and the row layout built around it, and nothing else.
     /// The mark is drawn either way: the eyes are which assistant this account
