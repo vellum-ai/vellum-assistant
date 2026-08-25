@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import type { AssistantChannelsListProps } from "@/domains/channels/components/assistant-channels-list";
 import type { SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
 import { useChannelTrustFloors } from "@/domains/channels/hooks/use-channel-trust-floors";
+import { useSupportsDiscordChannel } from "@/lib/backwards-compat/use-supports-discord-channel";
 import {
   SETUP_CHANNEL_IDS,
   type AssistantChannelState,
@@ -31,6 +32,7 @@ import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
   slack: "I want to reach you on Slack. Let's set it up.",
   telegram: "I want to reach you on Telegram. Let's set it up.",
+  discord: "I want to reach you on Discord. Let's set it up.",
   phone: "I want to be able to call you. Let's set you up with a phone number.",
 };
 
@@ -42,6 +44,7 @@ const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
 const ASSISTANT_FINISH_PROMPTS: Record<SetupChannelId, string> = {
   slack: "Slack is set up but not working. Can you finish it off?",
   telegram: "Telegram is set up but not working. Can you finish it off?",
+  discord: "Discord is set up but not working. Can you finish it off?",
   phone: "My phone number is set up but not working. Can you finish it off?",
 };
 
@@ -91,9 +94,15 @@ export function useAssistantChannels({
     select: (data) => data.snapshots,
   });
 
+  const supportsDiscord = useSupportsDiscordChannel();
+  const setupChannels = useMemo(
+    () => setupChannelsFor(supportsDiscord),
+    [supportsDiscord],
+  );
+
   const channels = useMemo(
-    () => deriveChannelStates(readinessQuery.data ?? []),
-    [readinessQuery.data],
+    () => deriveChannelStates(readinessQuery.data ?? [], setupChannels),
+    [readinessQuery.data, setupChannels],
   );
 
   // Setup, not health: the connection card stays mounted through a socket
@@ -242,8 +251,21 @@ export function useAssistantChannels({
   };
 }
 
+/**
+ * Channels this assistant version can answer for. A daemon below the Discord
+ * gate has no probe for it, so its readiness service reports the channel
+ * unsupported rather than not-configured, and a row would read as permanently
+ * broken instead of ready to set up.
+ */
+function setupChannelsFor(supportsDiscord: boolean): readonly SetupChannelId[] {
+  return supportsDiscord
+    ? SETUP_CHANNEL_IDS
+    : SETUP_CHANNEL_IDS.filter((key) => key !== "discord");
+}
+
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
+  setupChannels: readonly SetupChannelId[],
 ): AssistantChannelState[] {
   const byChannel = new Map<
     ChannelReadinessSnapshot["channel"],
@@ -253,7 +275,7 @@ function deriveChannelStates(
     byChannel.set(snap.channel, snap);
   }
 
-  return SETUP_CHANNEL_IDS.map((key) => {
+  return setupChannels.map((key) => {
     const snap = byChannel.get(key);
     const status = toChannelStatus(snap);
     return {

@@ -102,6 +102,10 @@
       "disconnectMessage": "Esto borra el token de bot de Telegram guardado para este asistente. Puedes volver a conectarlo más tarde.",
       "disconnectedPitch": "Conecta un bot de Telegram para que {assistant} pueda enviar y recibir mensajes en Telegram."
     },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "Conecta un bot de Discord para que {assistant} pueda leer y responder en tu servidor."
+    },
     "phone": {
       "label": "Llamadas telefónicas",
       "disconnectMessage": "Esto borra las credenciales de Twilio guardadas para este asistente. Puedes volver a conectarlo más tarde.",

@@ -24,6 +24,7 @@ interface ChannelMeta {
   labelKey:
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
+    | "channelMeta.discord.label"
     | "channelMeta.phone.label";
   /**
    * Catalog key for the disconnect dialog's body.
@@ -68,6 +69,7 @@ interface ChannelMeta {
    */
   disconnectedPitchKey:
     | "channelMeta.telegram.disconnectedPitch"
+    | "channelMeta.discord.disconnectedPitch"
     | "channelMeta.phone.disconnectedPitch"
     | undefined;
 }
@@ -91,6 +93,16 @@ export const CHANNEL_META = {
     hasTrustFloorControl: true,
     credentialForm: "telegram-token",
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
+  },
+  discord: {
+    labelKey: "channelMeta.discord.label",
+    // No route clears Discord's credentials yet, so no disconnect copy: the
+    // absence is what keeps the button unoffered. The in-product credential
+    // form arrives with the config API; until then setup is the guided flow.
+    disconnectMessageKey: undefined,
+    hasTrustFloorControl: true,
+    credentialForm: undefined,
+    disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
   },
   phone: {
     labelKey: "channelMeta.phone.label",
