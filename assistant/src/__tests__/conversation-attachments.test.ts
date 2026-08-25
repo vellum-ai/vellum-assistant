@@ -28,7 +28,6 @@ mock.module("../permissions/types.js", () => ({
     Medium: "medium",
     High: "high",
   },
-  isAllowDecision: () => true,
 }));
 
 import type { AssistantAttachmentDraft } from "../daemon/assistant-attachments.js";

@@ -31662,6 +31662,26 @@ paths:
                           type: string
                           minLength: 1
                           maxLength: 64
+                        tool_name:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        risk_level:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        risk_threshold:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        surface:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        conversation_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
                       required:
                         - event_name
                       description:

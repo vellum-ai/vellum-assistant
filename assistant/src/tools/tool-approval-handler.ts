@@ -708,7 +708,6 @@ export class ToolApprovalHandler {
       reason,
       riskLevel,
       durationMs: Date.now() - startTime,
-      wasPrompted: false,
     });
   }
 
