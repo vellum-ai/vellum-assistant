@@ -51,22 +51,11 @@ describe("isFileUnheld", () => {
     ).toBe(true);
   });
 
-  test("fails closed when lsof is unavailable", async () => {
+  test("treats lsof errors as unheld to match prior behavior", async () => {
     expect(
       await isFileUnheld("lock", "linux", async () => {
         throw Object.assign(new Error("missing"), { code: "ENOENT" });
       }),
-    ).toBe(false);
-  });
-
-  test("fails closed when lsof reports an error", async () => {
-    expect(
-      await isFileUnheld("lock", "linux", async () => {
-        throw Object.assign(new Error("permission denied"), {
-          code: 1,
-          stderr: "permission denied",
-        });
-      }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

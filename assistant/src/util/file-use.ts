@@ -52,26 +52,7 @@ const runExecFile: ExecFileRunner = async (command, args, options) => {
   return { stdout };
 };
 
-function errorCode(error: unknown): unknown {
-  return typeof error === "object" && error !== null && "code" in error
-    ? (error as { code?: unknown }).code
-    : undefined;
-}
-
-function errorStderr(error: unknown): string {
-  if (typeof error !== "object" || error === null || !("stderr" in error)) {
-    return "";
-  }
-  const stderr = (error as { stderr?: unknown }).stderr;
-  return typeof stderr === "string" ? stderr : "";
-}
-
-function exitedWithCode(error: unknown, expected: number): boolean {
-  const code = errorCode(error);
-  return code === expected || code === String(expected);
-}
-
-/** True only when the native platform probe reports no open file handle. */
+/** Whether no process holds `path` open. Windows fails closed on probe errors. */
 export async function isFileUnheld(
   path: string,
   platform: NodeJS.Platform = process.platform,
@@ -102,7 +83,9 @@ export async function isFileUnheld(
       timeout: 3000,
     });
     return stdout.length === 0;
-  } catch (error) {
-    return exitedWithCode(error, 1) && errorStderr(error).trim() === "";
+  } catch {
+    // lsof exits non-zero when no process holds the file. On hosts without
+    // lsof this degrades to unconditional removal, matching prior behavior.
+    return true;
   }
 }

@@ -53,7 +53,7 @@ export interface ProcTreeNode {
 }
 
 interface ProcessTreeBuilder {
-  build: (pid: number, syntheticName?: string) => ProcTreeNode;
+  build: (pid: number) => ProcTreeNode;
   byPid: Map<number, ProcInfo>;
   visited: Set<number>;
 }
@@ -199,29 +199,30 @@ export async function listProcesses(
 function createProcessTreeBuilder(procs: ProcInfo[]): ProcessTreeBuilder {
   const byPid = new Map<number, ProcInfo>();
   const childrenOf = new Map<number, number[]>();
-  for (const processInfo of procs) {
-    byPid.set(processInfo.pid, processInfo);
-    const siblings = childrenOf.get(processInfo.ppid);
+  for (const p of procs) {
+    byPid.set(p.pid, p);
+    const siblings = childrenOf.get(p.ppid);
     if (siblings) {
-      siblings.push(processInfo.pid);
+      siblings.push(p.pid);
     } else {
-      childrenOf.set(processInfo.ppid, [processInfo.pid]);
+      childrenOf.set(p.ppid, [p.pid]);
     }
   }
 
   const visited = new Set<number>();
-  const build = (pid: number, syntheticName = "assistant"): ProcTreeNode => {
+  const build = (pid: number): ProcTreeNode => {
     visited.add(pid);
     const info = byPid.get(pid);
     const command = info?.command ?? "";
     const children = (childrenOf.get(pid) ?? [])
       .filter((child) => child !== pid && !visited.has(child))
       .sort((a, b) => a - b)
-      .map((child) => build(child));
+      .map(build);
     return {
       pid,
-      name: info ? deriveName(command) : syntheticName,
+      name: info ? deriveName(command) : "assistant",
       command,
+      // A synthesized root (daemon PID absent from the table) is the workspace.
       origin: info?.origin ?? "workspace",
       children,
     };

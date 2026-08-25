@@ -161,6 +161,8 @@ export async function writeSnapshot(
   try {
     processTable = await listProcessTableAsync();
     const procs = await listProcesses(processTable);
+    // pid 1 is the container init; its subtree is the whole container. Windows
+    // has no such root, so every process hangs off a synthetic one.
     tree =
       process.platform === "win32"
         ? buildSystemProcessTree(procs)
@@ -184,13 +186,17 @@ export async function writeSnapshot(
     kind,
     sample,
     fileResidency,
-    // Linux uses PSS with an anon/file split. Windows uses working-set size.
+    // PSS-ranked with per-process anon/file split; PSS sums reconcile against
+    // the cgroup total where an RSS sum double-counts shared pages. Windows
+    // reports working-set size instead.
     topProcesses: topProcessesByMemory(15, processOptions),
     // Slab memory belongs to no process; without this, cgroup usage that
     // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
-    // Linux ranks descriptor pressure against the soft limit. Windows records
-    // handle counts because it has no comparable per-process soft limit.
+    // Descriptor pressure, ranked against each process's own soft limit. An
+    // EMFILE storm and a memory spike look alike from the outside (unrelated
+    // failures across the daemon), so the capture records both. Windows
+    // records raw handle counts since it has no comparable soft limit.
     topProcessesByFd: topProcessesByFd(15, processOptions),
     processTree: tree,
   };
