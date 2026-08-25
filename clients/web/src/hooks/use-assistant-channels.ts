@@ -15,6 +15,7 @@ import { removeSlackWorkspaceQueries } from "@/utils/slack-workspace-cache";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
+  integrationsDiscordConfigGetOptions,
   integrationsSlackChannelConfigGetOptions,
   integrationsSlackChannelConfigGetQueryKey,
   integrationsSlackChannelConfigPatchMutation,
@@ -159,6 +160,13 @@ export function useAssistantChannels({
   // channel-setup panel); they validate, trim, and invalidate readiness.
   const saveTelegramMutation = useSaveTelegramConfig({ assistantId });
   const saveDiscordMutation = useSaveDiscordConfig({ assistantId });
+  // The stored config, so the invite step still has an application to link to
+  // after a reload. A connect result only exists for the life of the mutation,
+  // and setup is routinely finished in a later sitting.
+  const discordConfigQuery = useQuery({
+    ...integrationsDiscordConfigGetOptions(pathOpts),
+    enabled: Boolean(assistantId) && supportsDiscord,
+  });
   const saveSlackMutation = useSaveSlackConfig({ assistantId });
   const saveTwilioMutation = useSaveTwilioCredentials({ assistantId });
 
@@ -261,7 +269,9 @@ export function useAssistantChannels({
     discordSaveError: saveDiscordMutation.error?.message ?? null,
     // The application the validated token belongs to, which the invite step
     // builds its link from. Present only after a successful connect.
-    discordApplicationId: saveDiscordMutation.data?.data?.applicationId,
+    discordApplicationId:
+      saveDiscordMutation.data?.data?.applicationId ??
+      discordConfigQuery.data?.applicationId,
     onSaveSlackConfig,
     slackSaveStatus: saveSlackMutation.status,
     slackSaveError: saveSlackMutation.error?.message ?? null,

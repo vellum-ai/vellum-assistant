@@ -32,6 +32,7 @@ interface ChannelMeta {
   disconnectMessageKey?:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
+    | "channelMeta.discord.disconnectMessage"
     | "channelMeta.phone.disconnectMessage";
   /**
    * Whether a connected channel surfaces the "Who can message" trust-floor
@@ -84,6 +85,7 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
   },
   discord: {
     labelKey: "channelMeta.discord.label",
+    disconnectMessageKey: "channelMeta.discord.disconnectMessage",
     hasTrustFloorControl: true,
     credentialForm: "discord-token",
     disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
