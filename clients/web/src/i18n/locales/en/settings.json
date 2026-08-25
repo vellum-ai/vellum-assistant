@@ -1245,7 +1245,9 @@
     "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
+    "browserOnOs": "{browser} on {os}",
     "confirmMessage": "The {platform} device {hash} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
+    "confirmMessageNamed": "{name} ({hash}) loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
     "confirmTitle": "Revoke this device?",
     "dateUnknown": "unknown",
     "hostRevokeDisabledTitle": "This is this machine's own credential; revoking it would lock the host out of the assistant.",
