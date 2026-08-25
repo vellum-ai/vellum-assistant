@@ -748,6 +748,7 @@ export const PROVIDER_SEED_DATA: Record<
         description: "Create, update, and delete contacts",
       },
     ],
+    tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17337,
     managedServiceConfigKey: "calendly-oauth",
     injectionTemplates: [
