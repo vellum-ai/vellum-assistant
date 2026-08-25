@@ -7,6 +7,10 @@ import {
   listCredentialProviderNames,
   listProviderEntries,
   listProviderIds,
+  listProviderModelFamilies,
+  listSelectableProviderIds,
+  resolveSttCatalogKey,
+  sttConfigForCatalogKey,
   supportsBoundary,
   supportsDiarization,
   supportsProviderTurnDetection,
@@ -256,6 +260,80 @@ describe("connection-based providers", () => {
     for (const expected of ["deepgram", "gemini", "openai", "xai"]) {
       expect(names).toContain(expected);
     }
+  });
+});
+
+describe("model families", () => {
+  test("flux rows are variants, not separately selectable providers", () => {
+    // The whole point of folding these back: a model choice must not cost a
+    // provider enum entry and a picker row.
+    for (const id of ["deepgram-flux", "vellum-flux"] as const) {
+      expect(getProviderEntry(id)?.variantOf).toBeDefined();
+      expect(listSelectableProviderIds()).not.toContain(id);
+    }
+    expect(listSelectableProviderIds()).toEqual(
+      expect.arrayContaining(["deepgram", "vellum"]),
+    );
+  });
+
+  test("a provider plus model family resolves to the variant row", () => {
+    expect(
+      resolveSttCatalogKey({
+        provider: "deepgram",
+        providers: { deepgram: { model: "flux" } },
+      }),
+    ).toBe("deepgram-flux");
+    expect(
+      resolveSttCatalogKey({
+        provider: "vellum",
+        providers: { vellum: { model: "flux" } },
+      }),
+    ).toBe("vellum-flux");
+  });
+
+  test("no model, or one the provider does not offer, resolves to the base row", () => {
+    expect(resolveSttCatalogKey({ provider: "deepgram" })).toBe("deepgram");
+    expect(
+      resolveSttCatalogKey({
+        provider: "deepgram",
+        providers: { deepgram: { model: "nova-3" } },
+      }),
+    ).toBe("deepgram");
+    // Inert rather than fatal: a family a provider does not implement falls
+    // back instead of resolving nothing.
+    expect(
+      resolveSttCatalogKey({
+        provider: "openai-whisper",
+        providers: { "openai-whisper": { model: "flux" } },
+      }),
+    ).toBe("openai-whisper");
+  });
+
+  test("a model set on another provider's entry does not leak", () => {
+    expect(
+      resolveSttCatalogKey({
+        provider: "deepgram",
+        providers: { vellum: { model: "flux" } },
+      }),
+    ).toBe("deepgram");
+  });
+
+  test("round-trips a resolved key back to the config that selects it", () => {
+    // Anything persisting a resolved provider needs this: the key itself is
+    // not a valid services.stt.provider value.
+    expect(sttConfigForCatalogKey("vellum-flux")).toEqual({
+      provider: "vellum",
+      model: "flux",
+    });
+    expect(sttConfigForCatalogKey("deepgram")).toEqual({
+      provider: "deepgram",
+    });
+  });
+
+  test("only providers with variants advertise families", () => {
+    expect(listProviderModelFamilies("deepgram")).toEqual(["nova-3", "flux"]);
+    expect(listProviderModelFamilies("openai-whisper")).toEqual([]);
+    expect(listProviderModelFamilies("deepgram-flux")).toEqual([]);
   });
 });
 

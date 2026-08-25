@@ -49,6 +49,7 @@ import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   pinnedListeningLanguage,
+  resolveSttCatalogKey,
   supportsBoundary,
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
@@ -1743,7 +1744,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // below.
       this.setProviderTurnEndActive(
         this.fluxConfig.turnEnd.enabled &&
-          supportsProviderTurnDetection(stt.provider as SttProviderId) &&
+          supportsProviderTurnDetection(resolveSttCatalogKey(stt)) &&
           this.turnDetector !== null,
       );
       const transcriber = await this.resolveTranscriber({

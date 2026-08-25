@@ -561,34 +561,6 @@ describe("voice_config_update — stt_provider", () => {
     expect((readConfig().services as any)?.stt?.provider).toBeUndefined();
   });
 
-  test("rejects every managed provider without a platform connection", async () => {
-    // Regression: the gate matched the literal "vellum", so a second managed
-    // id persisted happily on a disconnected assistant and then resolved no
-    // transcriber at all. The check reads the catalog now.
-    mockManagedSpeechAvailable = false;
-
-    const result = await run(
-      { setting: "stt_provider", value: "vellum-flux" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("assistant platform connect");
-    expect((readConfig().services as any)?.stt?.provider).toBeUndefined();
-  });
-
-  test("persists a managed provider once the platform connection exists", async () => {
-    mockManagedSpeechAvailable = true;
-
-    const result = await run(
-      { setting: "stt_provider", value: "vellum-flux" },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-    expect((readConfig().services as any)?.stt?.provider).toBe("vellum-flux");
-  });
-
   test("switching away from vellum takes effect", async () => {
     writeConfig({ services: { stt: { provider: "vellum" } } });
     invalidateConfigCache();

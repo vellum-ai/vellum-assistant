@@ -13,6 +13,7 @@ import {
   getCredentialProvider,
   getProviderEntry,
   isManagedSttProvider,
+  resolveSttCatalogKey,
   supportsBoundary,
   supportsDiarization,
 } from "./provider-catalog.js";
@@ -107,7 +108,7 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   // Snapshot the stt config once, before any await, so a concurrent config
   // change cannot pair one setting's old value with another's new value.
   const stt = getConfig().services.stt;
-  const provider = stt.provider;
+  const provider = resolveSttCatalogKey(stt);
   const language = effectiveSttLanguage(
     provider as SttProviderId,
     stt.language,
@@ -197,7 +198,7 @@ export type TelephonySttCapability =
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = resolveSttCatalogKey(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -286,7 +287,7 @@ export type ConversationStreamingSttCapability =
  */
 export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = resolveSttCatalogKey(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -414,7 +415,7 @@ export async function resolveStreamingTranscriber(
   // change cannot pair one setting's old value with another's new value
   // (e.g. the old provider with the new language).
   const stt = getConfig().services.stt;
-  const provider = options.providerId ?? (stt.provider as SttProviderId);
+  const provider = options.providerId ?? resolveSttCatalogKey(stt);
   // Config-level language applies to every streaming caller (live voice,
   // dictation, telephony) unless one overrides it for a single session, so
   // the setting lands in one place rather than at each call site. An unset

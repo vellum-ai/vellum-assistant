@@ -13,6 +13,7 @@
 import type {
   ConversationStreamingMode,
   SttBoundaryId,
+  SttModelFamily,
   SttProviderId,
   SttTurnDetectionMode,
   TelephonySttMode,
@@ -122,6 +123,23 @@ interface SttProviderEntry {
 
   /** Guide for obtaining API credentials from this provider. */
   readonly credentialsGuide?: SttCredentialsGuide;
+
+  /**
+   * Set when this row is a model family of another provider rather than a
+   * provider in its own right: the id a user selects, plus the
+   * `services.stt.providers.<id>.model` value that reaches this row.
+   *
+   * Rows carrying this are not separately selectable — they share the parent's
+   * credential and appear nowhere in a provider picker.
+   */
+  readonly variantOf?: SttProviderId;
+  readonly variantModel?: SttModelFamily;
+
+  /**
+   * The family this row runs when no `model` is set. Present only on rows that
+   * have variants, so the default is nameable in config and in errors.
+   */
+  readonly baseModelFamily?: SttModelFamily;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +174,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "deepgram",
     {
       id: "deepgram",
+      baseModelFamily: "nova-3",
       displayName: "Deepgram",
       subtitle:
         "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
@@ -178,6 +197,8 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "deepgram-flux",
     {
       id: "deepgram-flux",
+      variantOf: "deepgram",
+      variantModel: "flux",
       displayName: "Deepgram Flux",
       subtitle:
         "Conversational speech-to-text with model-native turn detection. Uses your Deepgram API key.",
@@ -266,6 +287,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "vellum",
     {
       id: "vellum",
+      baseModelFamily: "nova-3",
       displayName: "Vellum",
       subtitle:
         "Speech-to-text through your Vellum account — billed to Vellum credits, no separate API key needed.",
@@ -289,6 +311,8 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "vellum-flux",
     {
       id: "vellum-flux",
+      variantOf: "vellum",
+      variantModel: "flux",
       displayName: "Vellum (Flux)",
       subtitle:
         "Conversational speech-to-text with model-native turn detection, through your Vellum account. No separate API key needed.",
@@ -483,6 +507,81 @@ export function supportsDiarization(id: SttProviderId): boolean {
  */
 export function isManagedSttProvider(id: SttProviderId): boolean {
   return CATALOG.get(id)?.credentialProvider === "vellum";
+}
+
+/**
+ * The catalog row a configured provider plus model family resolves to.
+ *
+ * Falls back to the provider's own row when it offers no matching variant, so
+ * a model setting a provider does not implement is inert rather than fatal.
+ * The parameter is structural to keep the catalog free of config imports.
+ */
+export function resolveSttCatalogKey(stt: {
+  readonly provider: string;
+  readonly providers?:
+    | Record<string, { readonly model?: unknown } | undefined>
+    | undefined;
+}): SttProviderId {
+  const provider = stt.provider as SttProviderId;
+  const model = stt.providers?.[provider]?.model;
+  if (typeof model !== "string") {
+    return provider;
+  }
+  for (const entry of CATALOG.values()) {
+    if (entry.variantOf === provider && entry.variantModel === model) {
+      return entry.id;
+    }
+  }
+  return provider;
+}
+
+/**
+ * The model families a provider offers, as `services.stt.providers.<id>.model`
+ * values. A provider with a single family returns an empty list, and setting
+ * `model` on it is a configuration error rather than a silent no-op.
+ */
+export function listProviderModelFamilies(
+  id: SttProviderId,
+): readonly SttModelFamily[] {
+  const base = CATALOG.get(id);
+  if (!base || base.variantOf !== undefined) {
+    return [];
+  }
+  const families = [...CATALOG.values()]
+    .filter((entry) => entry.variantOf === id && entry.variantModel)
+    .map((entry) => entry.variantModel as SttModelFamily);
+  return families.length > 0
+    ? [base.baseModelFamily ?? "nova-3", ...families]
+    : [];
+}
+
+/**
+ * The config that selects a catalog row: the provider id a user sets, plus
+ * the model family when the row is a variant.
+ *
+ * The inverse of {@link resolveSttCatalogKey}. Anything persisting a resolved
+ * provider has to write these two fields rather than the key, which is not a
+ * valid `services.stt.provider` value for a variant row.
+ */
+export function sttConfigForCatalogKey(id: SttProviderId): {
+  provider: SttProviderId;
+  model?: SttModelFamily;
+} {
+  const entry = CATALOG.get(id);
+  if (!entry?.variantOf || !entry.variantModel) {
+    return { provider: id };
+  }
+  return { provider: entry.variantOf, model: entry.variantModel };
+}
+
+/**
+ * Provider ids a user may select. Excludes model-family rows, which are
+ * reached through `services.stt.providers.<id>.model` instead.
+ */
+export function listSelectableProviderIds(): readonly SttProviderId[] {
+  return [...CATALOG.values()]
+    .filter((entry) => entry.variantOf === undefined)
+    .map((entry) => entry.id);
 }
 
 export function supportsProviderTurnDetection(id: SttProviderId): boolean {

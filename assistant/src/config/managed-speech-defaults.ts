@@ -21,6 +21,8 @@ import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import {
   getProviderEntry,
   isManagedSttProvider,
+  resolveSttCatalogKey,
+  sttConfigForCatalogKey,
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
 import { sttProviderKeyResolves } from "../providers/speech-to-text/resolve.js";
@@ -102,7 +104,7 @@ export async function resolveEffectiveSpeechProviders(
   config?: AssistantConfig,
 ): Promise<EffectiveSpeechProviders> {
   const services = (config ?? getConfig()).services;
-  const configuredStt = services.stt.provider as SttProviderId;
+  const configuredStt = resolveSttCatalogKey(services.stt);
   const configuredTts = services.tts.provider as TtsProviderId;
 
   if (!(await managedSpeechAvailable())) {
@@ -139,8 +141,22 @@ export async function maybeDefaultSpeechToManaged(): Promise<void> {
     const effective = await resolveEffectiveSpeechProviders();
 
     const updates: { path: string; provider: string }[] = [];
-    if (effective.stt !== services.stt.provider) {
-      updates.push({ path: "services.stt.provider", provider: effective.stt });
+    if (effective.stt !== resolveSttCatalogKey(services.stt)) {
+      // A variant row is not a valid services.stt.provider value, so persist
+      // the pair that selects it. Writing the key itself would put an id the
+      // schema rejects on disk, and an unparseable services block is how the
+      // loader's salvage ladder ends up resetting the whole section.
+      const sttConfig = sttConfigForCatalogKey(effective.stt);
+      updates.push({
+        path: "services.stt.provider",
+        provider: sttConfig.provider,
+      });
+      if (sttConfig.model !== undefined) {
+        updates.push({
+          path: `services.stt.providers.${sttConfig.provider}.model`,
+          provider: sttConfig.model,
+        });
+      }
     }
     if (effective.tts !== services.tts.provider) {
       updates.push({ path: "services.tts.provider", provider: effective.tts });
