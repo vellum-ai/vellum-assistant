@@ -824,8 +824,13 @@ describe("useAssistantResourceSync", () => {
     emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     await waitFor(() => {
       expect(
-        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")).length,
-      ).toBe(1);
+        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")),
+      ).toEqual([
+        {
+          queryKey: chooserRowAvatarQueryKeyPrefix("asst-1"),
+          refetchType: "none",
+        },
+      ]);
     });
   });
 
@@ -839,8 +844,13 @@ describe("useAssistantResourceSync", () => {
     emit({ type: "avatar_updated" } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(
-        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")).length,
-      ).toBe(1);
+        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")),
+      ).toEqual([
+        {
+          queryKey: chooserRowAvatarQueryKeyPrefix("asst-1"),
+          refetchType: "none",
+        },
+      ]);
     });
   });
 

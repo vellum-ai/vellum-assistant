@@ -29,7 +29,6 @@ mock.module(
       customImageUrl: null,
       isLoading: false,
       isSuccess: true,
-      supportsManifest: true,
       invalidate: () => {},
     }),
   }),

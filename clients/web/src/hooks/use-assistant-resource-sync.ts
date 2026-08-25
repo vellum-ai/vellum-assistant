@@ -247,9 +247,11 @@ function invalidateAvatarQueries(
     queryKey: avatarQueryKey(assistantId),
     refetchType,
   });
+  // Chooser-row queries are disabled for the connected row, so this only
+  // marks them stale for when the user switches away and back.
   void queryClient.invalidateQueries({
     queryKey: chooserRowAvatarQueryKeyPrefix(assistantId),
-    refetchType,
+    refetchType: "none",
   });
 }
 

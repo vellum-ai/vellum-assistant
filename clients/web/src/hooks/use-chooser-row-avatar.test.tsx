@@ -614,11 +614,8 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.traits).toBeNull();
     });
 
-    test.each([
-      ["a null avatar", { ok: true, avatar: null } as HostAvatarResult],
-      ["a failure", { ok: false, error: "nope" } as HostAvatarResult],
-    ])("%s falls through to the last-seen cache", async (_l, hostResult) => {
-      readAssistantAvatarHost.mockResolvedValue(hostResult);
+    test("a host failure falls through to the last-seen cache", async () => {
+      readAssistantAvatarHost.mockResolvedValue({ ok: false, error: "nope" });
       readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
       const { result } = renderHook(
         () => useChooserRowAvatar(localRow("other")),
@@ -631,6 +628,27 @@ describe("useChooserRowAvatar", () => {
       });
       expect(readAssistantAvatarHost).toHaveBeenCalledTimes(1);
       expect(readLastSeenAvatar).toHaveBeenCalledWith("other");
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a host read with no avatar is conclusive: it evicts the cache and shows the glyph", async () => {
+      readAssistantAvatarHost.mockResolvedValue({ ok: true, avatar: null });
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          expect.any(Number),
+        );
+      });
+      await settle();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
     });
 
     test("resolves to nulls when the host and the cache have nothing", async () => {
@@ -900,6 +918,52 @@ describe("useChooserRowAvatar", () => {
       });
       await settle();
       expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a version-unknown row whose probe failed keeps its cached avatar on a double 404", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", {
+              runtimeVersion: undefined,
+              currentReleaseVersion: null,
+            }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a version-unknown row whose probe failed still trusts a populated sidecar", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      fetchCharacterTraitsResult.mockResolvedValue(found(traits));
+      renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", {
+              runtimeVersion: undefined,
+              currentReleaseVersion: null,
+            }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "other",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
     });
 
     test("a populated legacy read still writes the cache", async () => {

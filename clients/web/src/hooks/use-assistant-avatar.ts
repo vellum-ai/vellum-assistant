@@ -7,12 +7,13 @@ import {
   fetchAvatarImageUrlResult,
   fetchCharacterTraitsResult,
 } from "@/assistant/avatar-api";
+import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
+import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import type {
   AvatarState,
   CharacterComponents,
   CharacterTraits,
 } from "@/types/avatar";
-import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
@@ -31,22 +32,15 @@ const activeBlobUrls = new Map<string, string>();
 
 export interface AssistantAvatarOptions {
   /**
-   * Per-assistant override for the avatar-state-manifest capability. The
-   * default gate reads the ACTIVE assistant's version, which is wrong for
-   * a sibling assistant on another runtime: a pre-manifest sibling would
-   * be asked for `/avatar/state` it doesn't serve and its avatar would
-   * collapse to the fallback. List surfaces resolve the sibling's own
-   * version (`versionSupportsAvatarStateManifest`) and pass it here;
-   * `undefined` keeps the active-assistant gate.
+   * Per-assistant manifest gate. The default reads the ACTIVE assistant's
+   * version, which is wrong for a sibling on another runtime; list surfaces
+   * resolve the sibling's own version and pass it here.
    */
   supportsManifest?: boolean;
   /**
-   * Skip the fetch entirely (`false`) and hand consumers the null avatar.
-   * For sibling assistants whose transport cannot be addressed
-   * independently: with a self-hosted ingress active, every daemon request
-   * is rewritten to that single gateway whatever assistant id the path
-   * carries, so a sibling fetch would return the ACTIVE assistant's
-   * avatar. Defaults to `true`.
+   * `false` skips the fetch and hands consumers the null avatar, for siblings
+   * whose transport cannot be addressed by id (see
+   * `canFetchRowAvatarViaPlatformProxy` in `use-chooser-row-avatar`).
    */
   enabled?: boolean;
 }
@@ -110,8 +104,8 @@ export async function fetchAvatarViaManifest(
 }
 
 /**
- * A legacy sidecar read plus whether it is authoritative: a found file is;
- * two 404s are a real bare avatar; any transport failure is inconclusive.
+ * A read plus whether it is authoritative. A found file or manifest answer
+ * is; two sidecar 404s are a real bare avatar; a transport failure is not.
  */
 export interface LegacyAvatarRead extends AvatarRead {
   conclusive: boolean;
@@ -201,15 +195,7 @@ export function useAssistantAvatar(
         throw new Error("Failed to fetch character components");
       }
 
-      const prev = activeBlobUrls.get(id);
-      if (prev && prev !== imageUrl) {
-        URL.revokeObjectURL(prev);
-      }
-      if (imageUrl) {
-        activeBlobUrls.set(id, imageUrl);
-      } else {
-        activeBlobUrls.delete(id);
-      }
+      trackBlobUrl(activeBlobUrls, id, imageUrl);
 
       return { components, traits, customImageUrl: imageUrl };
     },
@@ -237,7 +223,6 @@ export function useAssistantAvatar(
     customImageUrl: data?.customImageUrl ?? null,
     isLoading,
     isSuccess,
-    supportsManifest,
     invalidate,
   };
 }
