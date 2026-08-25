@@ -22,42 +22,12 @@ describe("sameTrustIdentity", () => {
     expect(sameTrustIdentity(contactTrust(), contactTrust())).toBe(true);
   });
 
-  test("a different contact ceiling is a different privilege", () => {
+  test("a different contact id is a different actor", () => {
     expect(
       sameTrustIdentity(
-        contactTrust({ autoApproveThreshold: "high" }),
-        contactTrust({ autoApproveThreshold: "none" }),
+        contactTrust({ requesterContactId: "contact-abc" }),
+        contactTrust({ requesterContactId: "contact-xyz" }),
       ),
     ).toBe(false);
-  });
-
-  test("an absent ceiling does not match a present one", () => {
-    expect(
-      sameTrustIdentity(
-        contactTrust(),
-        contactTrust({ autoApproveThreshold: "high" }),
-      ),
-    ).toBe(false);
-    expect(
-      sameTrustIdentity(
-        contactTrust({ autoApproveThreshold: null }),
-        contactTrust({ autoApproveThreshold: "none" }),
-      ),
-    ).toBe(false);
-  });
-
-  test("matching contact ceilings still compare equal", () => {
-    expect(
-      sameTrustIdentity(
-        contactTrust({ autoApproveThreshold: "high" }),
-        contactTrust({ autoApproveThreshold: "high" }),
-      ),
-    ).toBe(true);
-    expect(
-      sameTrustIdentity(
-        contactTrust({ autoApproveThreshold: null }),
-        contactTrust({ autoApproveThreshold: null }),
-      ),
-    ).toBe(true);
   });
 });

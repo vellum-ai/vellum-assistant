@@ -6,8 +6,7 @@
  * inbound `sourceMetadata`. These pure mappers turn that verdict into the same
  * {@link TrustContext} the local resolver would have produced: ACL + identity
  * only. INFO fields (notes, userFile, contactType) are never carried on the
- * wire; the consumer re-joins them locally by contactId. The contact risk
- * ceiling is ACL, not INFO, and is stamped from the verdict when present.
+ * wire; the consumer re-joins them locally by contactId.
  */
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
@@ -112,12 +111,6 @@ export function trustContextFromVerdict(
   // assistant DB.
   if (verdict.interactionCount !== undefined) {
     context.requesterInteractionCount = verdict.interactionCount;
-  }
-
-  // Contact risk ceiling is ACL: carry the verdict's value so approval
-  // calculation reads it from the turn rather than a local re-resolution.
-  if (verdict.autoApproveThreshold !== undefined) {
-    context.autoApproveThreshold = verdict.autoApproveThreshold;
   }
 
   return context;

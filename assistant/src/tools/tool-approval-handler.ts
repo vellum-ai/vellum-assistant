@@ -18,6 +18,7 @@ import {
 } from "../permissions/checker.js";
 import {
   channelNoCellDefault,
+  getContactAutoApproveThreshold,
   resolveChannelPermissionCell,
 } from "../permissions/gateway-threshold-reader.js";
 import {
@@ -562,17 +563,6 @@ function isChannelLiftable(
   return true;
 }
 
-function isValidContactCeiling(
-  value: ToolContext["autoApproveThreshold"],
-): value is AutoApproveThreshold {
-  return (
-    value === "none" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high"
-  );
-}
-
 /**
  * Whether a contact-level ceiling may lift the floor for this invocation.
  *
@@ -641,11 +631,11 @@ async function resolveApprovalCellThreshold(
     return undefined;
   }
 
-  const contactCeiling = isValidContactCeiling(context.autoApproveThreshold)
-    ? context.autoApproveThreshold
-    : undefined;
+  const contactCeiling = await getContactAutoApproveThreshold(
+    context.requesterContactId,
+  );
   if (
-    contactCeiling !== undefined &&
+    contactCeiling !== null &&
     isContactCeilingLiftable(reach, toolName, input, context.workingDir)
   ) {
     return contactCeiling;

@@ -91,9 +91,8 @@ export interface PolicyContext {
    */
   procToSkillsActive?: boolean;
   /**
-   * Contact-level auto-approve ceiling from the turn's trust context.
-   * Null means the contact has no explicit override (inherit the room /
-   * trust-class cascade). Undefined when the turn has no member channel.
+   * Contact ID of the requester's member record. The threshold reader looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
    */
-  autoApproveThreshold?: RiskThreshold | null;
+  requesterContactId?: string;
 }

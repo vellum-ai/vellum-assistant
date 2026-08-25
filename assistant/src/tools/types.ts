@@ -10,7 +10,6 @@ import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
-import type { RiskThreshold } from "../permissions/types.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
@@ -369,6 +368,12 @@ export interface ToolContext {
    */
   requesterIdentifier?: string;
   /**
+   * Contact ID of the requester's member record. Approval resolution looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
+   * @legacy
+   */
+  requesterContactId?: string;
+  /**
    * Preferred display name for the requester.
    * @legacy
    */
@@ -388,12 +393,6 @@ export interface ToolContext {
    * @legacy
    */
   channelPermissionChannelId?: string;
-  /**
-   * Contact-level auto-approve ceiling stamped on the turn's trust context.
-   * Null means the contact has no explicit override (inherit the room /
-   * trust-class cascade). Undefined when the turn has no member channel.
-   */
-  autoApproveThreshold?: RiskThreshold | null;
   /**
    * The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations.
    * @legacy

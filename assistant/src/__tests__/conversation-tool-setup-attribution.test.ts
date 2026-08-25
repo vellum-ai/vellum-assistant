@@ -403,7 +403,7 @@ describe("createToolExecutor channel-permission coordinate threading", () => {
     expect(bindingLookups).toEqual([]);
   });
 
-  test("copies the contact risk ceiling from turn trust onto tool context", async () => {
+  test("copies the requester contact id from turn trust onto tool context", async () => {
     const { executor, calls } = makeCapturingExecutor();
     await makeToolFn(
       executor,
@@ -411,12 +411,12 @@ describe("createToolExecutor channel-permission coordinate threading", () => {
         currentTurnTrustContext: {
           sourceChannel: "slack",
           trustClass: "trusted_contact",
-          autoApproveThreshold: "high",
+          requesterContactId: "contact-abc",
         },
       }),
     )("file_read", { path: "/tmp/a" });
 
-    expect(calls[0].context.autoApproveThreshold).toBe("high");
+    expect(calls[0].context.requesterContactId).toBe("contact-abc");
   });
 });
 

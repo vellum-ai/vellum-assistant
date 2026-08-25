@@ -1036,10 +1036,11 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     test.each(["low", "medium", "high"] as const)(
       "a %s contact ceiling lifts sandbox bash — no scoped grant required",
       async (threshold) => {
+        thresholdReaderMock.contactThreshold = threshold;
         const result = await handler.checkPreExecutionGates(
           "bash",
           { command: "ls" },
-          channelContext({ autoApproveThreshold: threshold }),
+          channelContext({ requesterContactId: "contact-1" }),
           "low",
           Date.now(),
         );
@@ -1056,10 +1057,11 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     );
 
     test("a none contact ceiling leaves sandbox bash on the floor", async () => {
+      thresholdReaderMock.contactThreshold = "none";
       const result = await handler.checkPreExecutionGates(
         "bash",
         { command: "ls" },
-        channelContext({ autoApproveThreshold: "none" }),
+        channelContext({ requesterContactId: "contact-1" }),
         "low",
         Date.now(),
       );
@@ -1086,10 +1088,11 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     });
 
     test("a high contact ceiling does not lift host_bash", async () => {
+      thresholdReaderMock.contactThreshold = "high";
       const result = await handler.checkPreExecutionGates(
         "host_bash",
         { command: "ls" },
-        channelContext({ autoApproveThreshold: "high" }),
+        channelContext({ requesterContactId: "contact-1" }),
         "low",
         Date.now(),
       );
@@ -1103,10 +1106,11 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     });
 
     test("a high contact ceiling does not lift a control-plane write", async () => {
+      thresholdReaderMock.contactThreshold = "high";
       const result = await handler.checkPreExecutionGates(
         "file_write",
         { path: "SOUL.md", content: "x" },
-        channelContext({ autoApproveThreshold: "high" }),
+        channelContext({ requesterContactId: "contact-1" }),
         "low",
         Date.now(),
       );
@@ -1121,11 +1125,12 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
 
     test("a high contact ceiling lifts an ordinary workspace write even when the cell is Strict", async () => {
       thresholdReaderMock.cell = cell("none");
+      thresholdReaderMock.contactThreshold = "high";
 
       const result = await handler.checkPreExecutionGates(
         "file_write",
         { path: "notes/todo.md", content: "x" },
-        channelContext({ autoApproveThreshold: "high" }),
+        channelContext({ requesterContactId: "contact-1" }),
         "low",
         Date.now(),
       );
@@ -1140,11 +1145,12 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
 
     test("a none contact ceiling leaves an ordinary workspace write on the floor even when the cell is Full access", async () => {
       thresholdReaderMock.cell = cell("high");
+      thresholdReaderMock.contactThreshold = "none";
 
       const result = await handler.checkPreExecutionGates(
         "file_write",
         { path: "notes/todo.md", content: "x" },
-        channelContext({ autoApproveThreshold: "none" }),
+        channelContext({ requesterContactId: "contact-1" }),
         "low",
         Date.now(),
       );

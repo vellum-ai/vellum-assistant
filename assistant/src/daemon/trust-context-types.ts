@@ -7,7 +7,6 @@
 import type { ChannelConversationType } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
-import type { RiskThreshold } from "../permissions/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 
 export interface TrustContext {
@@ -67,14 +66,6 @@ export interface TrustContext {
    * was resolved locally without a gateway verdict.
    */
   requesterInteractionCount?: number;
-  /**
-   * Contact-level auto-approve ceiling from the gateway `contacts` row,
-   * stamped on the trust verdict. Null means the contact has no explicit
-   * override and inherits the room / trust-class cascade. Undefined when
-   * the verdict carries no member channel (unknown sender) or when trust
-   * was resolved locally without a gateway verdict.
-   */
-  autoApproveThreshold?: RiskThreshold | null;
 }
 
 /**
@@ -82,19 +73,17 @@ export interface TrustContext {
  * privilege, for callers that may only run work under one of them (batched
  * turns being the case that matters).
  *
- * Compares the privilege (`trustClass` and the contact risk ceiling), the
- * channel a grant is scoped to (`sourceChannel`), and every field that can
- * carry who the actor is. The identity fields are covered exhaustively
- * rather than by picking the usual ones: an ingress that populates only
- * `requesterIdentifier` or `requesterContactId` would otherwise leave two
- * distinct senders comparing equal on a pair of undefineds, which is the
- * exact case this guards.
+ * Compares the privilege (`trustClass`), the channel a grant is scoped to
+ * (`sourceChannel`), and every field that can carry who the actor is. The
+ * identity fields are covered exhaustively rather than by picking the usual
+ * ones: an ingress that populates only `requesterIdentifier` or
+ * `requesterContactId` would otherwise leave two distinct senders comparing
+ * equal on a pair of undefineds, which is the exact case this guards.
  *
  * Deliberately conservative: an absent field never matches a present one, so
  * unknown identities are treated as distinct. Answering "different" when they
  * match only costs a batching opportunity; answering "same" when they differ
- * runs one actor's work under another's privileges, including a later
- * `none` ceiling executing under an earlier `high` ceiling.
+ * runs one actor's work under another's privileges.
  */
 export function sameTrustIdentity(
   a: TrustContext | undefined,
@@ -114,8 +103,7 @@ export function sameTrustIdentity(
     a.requesterIdentifier === b.requesterIdentifier &&
     a.requesterContactId === b.requesterContactId &&
     a.guardianExternalUserId === b.guardianExternalUserId &&
-    a.guardianPrincipalId === b.guardianPrincipalId &&
-    a.autoApproveThreshold === b.autoApproveThreshold
+    a.guardianPrincipalId === b.guardianPrincipalId
   );
 }
 

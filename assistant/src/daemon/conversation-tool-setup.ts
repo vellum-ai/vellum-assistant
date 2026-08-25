@@ -410,8 +410,8 @@ export function createToolExecutor(
       sourceThreadId: turnTrust.sourceThreadId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
+      requesterContactId: turnTrust.requesterContactId,
       channelConversationType: turnTrust.conversationType,
-      autoApproveThreshold: turnTrust.autoApproveThreshold,
       // The binding's external chat id is the canonical conversation address
       // for every channel adapter (Slack channel, Telegram chat, …); it keys
       // the channel tier of permission-matrix cell resolution, so a

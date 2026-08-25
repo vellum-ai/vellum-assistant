@@ -494,50 +494,6 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
     expect(queue.length).toBe(0);
   });
 
-  test("buildPassthroughBatch refuses to coalesce two ceilings from the same sender", async () => {
-    // The owner can change a contact's ceiling between two queued messages.
-    // The batch runs under the head's trust, so a later `none` must not
-    // execute sandbox bash under an earlier `high`.
-    const ifCtx: TurnInterfaceContext = {
-      userMessageInterface: "web",
-      assistantMessageInterface: "web",
-    };
-    const queue = new MessageQueue();
-    queue.push(
-      makeQueuedMessage({
-        requestId: "req-high",
-        content: "first",
-        turnInterfaceContext: ifCtx,
-        trustContext: {
-          trustClass: "trusted_contact",
-          sourceChannel: "slack",
-          requesterExternalUserId: "U12345678",
-          autoApproveThreshold: "high",
-        },
-      }),
-    );
-    queue.push(
-      makeQueuedMessage({
-        requestId: "req-none",
-        content: "second",
-        turnInterfaceContext: ifCtx,
-        trustContext: {
-          trustClass: "trusted_contact",
-          sourceChannel: "slack",
-          requesterExternalUserId: "U12345678",
-          autoApproveThreshold: "none",
-        },
-      }),
-    );
-    const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
-
-    await drainQueue(ctx);
-
-    expect(queue.length).toBe(1);
-    expect(queue.peek(0)?.requestId).toBe("req-none");
-    expect(ctx.currentTurnTrustContext?.autoApproveThreshold).toBe("high");
-  });
-
   test("drainSingleMessage does NOT re-add 'app-control' for web-sourced message when no capable client is connected", async () => {
     // mockCapabilityClients remains [] (reset by afterEach from prior test)
     const queue = new MessageQueue();
