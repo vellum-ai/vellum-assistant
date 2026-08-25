@@ -1461,9 +1461,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.522174,
-          outputPer1mTokens: 1.044348,
-          cacheReadPer1mTokens: 0.0435145,
+          inputPer1mTokens: 0.790308,
+          outputPer1mTokens: 1.580616,
+          cacheReadPer1mTokens: 0.065859,
         },
       },
       {
@@ -1476,9 +1476,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.056,
-          outputPer1mTokens: 0.112,
-          cacheReadPer1mTokens: 0.0112,
+          inputPer1mTokens: 0.088606,
+          outputPer1mTokens: 0.177212,
+          cacheReadPer1mTokens: 0.0177212,
         },
       },
       // Qwen
@@ -1703,9 +1703,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.966,
-          outputPer1mTokens: 3.036,
-          cacheReadPer1mTokens: 0.1932,
+          inputPer1mTokens: 1.19,
+          outputPer1mTokens: 3.74,
+          cacheReadPer1mTokens: 0.221,
         },
       },
       // Mistral
