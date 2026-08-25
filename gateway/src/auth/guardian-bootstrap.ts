@@ -7,6 +7,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
@@ -1095,6 +1096,18 @@ export async function ensureVellumGuardianBinding(
 }
 
 /**
+ * Bootstrap is on the critical path, so a throwing or empty hostname
+ * degrades to `undefined` rather than failing guardian bootstrap.
+ */
+function readHostReportedName(): string | undefined {
+  try {
+    return hostname() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Execute the full guardian bootstrap flow:
  *   1. Ensure a guardian principal exists for the vellum channel
  *   2. Revoke existing credentials for this device
@@ -1116,6 +1129,7 @@ export async function bootstrapGuardian(params: {
     guardianPrincipalId,
     deviceId: params.deviceId,
     platform: params.platform,
+    identity: { clientReportedName: readHostReportedName() },
   });
 
   log.info(
