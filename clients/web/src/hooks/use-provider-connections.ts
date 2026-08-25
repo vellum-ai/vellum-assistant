@@ -1,12 +1,12 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { inferenceProviderconnectionsGet } from "@/generated/daemon/sdk.gen";
+import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { InferenceProviderconnectionsGetResponse } from "@/generated/daemon/types.gen";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import { shouldRetryQuery } from "@/utils/query-retry";
 import {
+  RequestAbortedError,
   RequestTimeoutError,
   runWithRequestTimeout,
 } from "@/utils/request-timeout";
@@ -26,9 +26,10 @@ interface UseProviderConnectionsOptions {
 }
 
 /**
- * Provider connections for an assistant, on the generated query key so every
- * consumer shares one cache entry, one in-flight request, and one
- * loading/error/retry state.
+ * Provider connections for an assistant, wrapping the generated
+ * `inferenceProviderconnectionsGetOptions()` factory so every consumer shares
+ * one cache entry, one in-flight request, and one loading/error/retry state,
+ * and so the request keeps whatever the generated query function does.
  *
  * The request is bounded (`PROVIDER_CONNECTIONS_TIMEOUT_MS`) and each stage of
  * its lifecycle lands in the diagnostics ring, so a request that stalls before
@@ -40,11 +41,20 @@ export function useProviderConnections(
   assistantId: string | null | undefined,
   options: UseProviderConnectionsOptions = {},
 ): UseQueryResult<InferenceProviderconnectionsGetResponse> {
-  const requestOptions = { path: { assistant_id: assistantId ?? "" } };
+  const baseOptions = inferenceProviderconnectionsGetOptions({
+    path: { assistant_id: assistantId ?? "" },
+  });
 
   return useQuery({
-    queryKey: inferenceProviderconnectionsGetQueryKey(requestOptions),
-    queryFn: async ({ signal }) => {
+    ...baseOptions,
+    queryFn: async (context) => {
+      const generatedQueryFn = baseOptions.queryFn;
+      if (typeof generatedQueryFn !== "function") {
+        throw new Error(
+          "Generated provider-connections query function is unavailable",
+        );
+      }
+
       const startedAt = Date.now();
       const elapsedMs = () => Date.now() - startedAt;
       recordDiagnostic("provider_connections_query_invoked", { assistantId });
@@ -52,18 +62,16 @@ export function useProviderConnections(
       try {
         const data = await runWithRequestTimeout({
           timeoutMs: PROVIDER_CONNECTIONS_TIMEOUT_MS,
-          signal,
+          signal: context.signal,
           run: async (requestSignal) => {
             recordDiagnostic("provider_connections_request_dispatched", {
               assistantId,
               elapsedMs: elapsedMs(),
             });
-            const { data: response } = await inferenceProviderconnectionsGet({
-              ...requestOptions,
+            return await generatedQueryFn({
+              ...context,
               signal: requestSignal,
-              throwOnError: true,
             });
-            return response;
           },
         });
         recordDiagnostic("provider_connections_response_received", {
@@ -86,6 +94,13 @@ export function useProviderConnections(
           });
           throw error;
         }
+        if (error instanceof RequestAbortedError) {
+          recordDiagnostic("provider_connections_request_aborted", {
+            assistantId,
+            elapsedMs: elapsedMs(),
+          });
+          throw error;
+        }
         recordDiagnostic("provider_connections_error_received", {
           assistantId,
           elapsedMs: elapsedMs(),
@@ -98,7 +113,8 @@ export function useProviderConnections(
     // the user's back only pushes the terminal state further away: the Retry
     // control owns that decision. Other failures keep the global policy.
     retry: (failureCount, error) =>
-      error instanceof RequestTimeoutError
+      error instanceof RequestTimeoutError ||
+      error instanceof RequestAbortedError
         ? false
         : shouldRetryQuery(failureCount, error),
     enabled: (options.enabled ?? true) && !!assistantId,

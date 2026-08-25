@@ -4,12 +4,14 @@
  *
  * A request that settles in time passes through untouched; one that outlives
  * the bound rejects with `RequestTimeoutError` and aborts the work it wrapped;
- * an abort from the surrounding lifecycle is forwarded to the request.
+ * an abort from the surrounding lifecycle is forwarded to the request and
+ * settles the call even when the request ignores its signal.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import {
+  RequestAbortedError,
   RequestTimeoutError,
   runWithRequestTimeout,
 } from "@/utils/request-timeout";
@@ -80,5 +82,27 @@ describe("runWithRequestTimeout", () => {
     // THEN the request sees the abort and the call settles
     await expect(settled).rejects.toThrow("aborted");
     expect(requestSignal?.aborted).toBe(true);
+  });
+
+  test("settles on a cancelled lifecycle even when the request ignores its signal", async () => {
+    /**
+     * Tests that cancelling the surrounding lifecycle does not leave the call
+     * hanging until the bound expires, which would report a stalled request
+     * that nothing is waiting for as a client timeout.
+     */
+
+    // GIVEN a request that never settles and never observes its signal
+    const outer = new AbortController();
+    const settled = runWithRequestTimeout({
+      timeoutMs: 10_000,
+      signal: outer.signal,
+      run: () => new Promise<string>(() => {}),
+    });
+
+    // WHEN the surrounding lifecycle aborts
+    outer.abort();
+
+    // THEN the call settles as an abort, not as a timeout
+    await expect(settled).rejects.toBeInstanceOf(RequestAbortedError);
   });
 });

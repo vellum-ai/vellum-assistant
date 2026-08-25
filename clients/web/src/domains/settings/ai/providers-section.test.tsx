@@ -111,7 +111,15 @@ class StubRequestTimeoutError extends Error {
   }
 }
 
+class StubRequestAbortedError extends Error {
+  constructor() {
+    super("Request aborted");
+    this.name = "RequestAbortedError";
+  }
+}
+
 mock.module("@/utils/request-timeout", () => ({
+  RequestAbortedError: StubRequestAbortedError,
   RequestTimeoutError: StubRequestTimeoutError,
   runWithRequestTimeout: <T,>({
     run,
