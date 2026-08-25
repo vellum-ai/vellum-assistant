@@ -20,6 +20,7 @@ import {
   ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
+import { useCameraDeepLink } from "@/domains/chat/components/chat-attachments/use-camera-deep-link";
 import {
   selectPathReferencePaths,
   selectUploadedIds,
@@ -54,6 +55,8 @@ import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
+import { endLiveVoiceSessionOnAssistant } from "@/domains/chat/voice/live-voice/live-voice-session-end-api";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
@@ -399,6 +402,7 @@ export function ChatComposer({
   const supportsLiveVoice = useSupportsLiveVoice(assistantId);
   const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoiceError = useLiveVoiceStore.use.error();
+  const liveVoiceErrorRecovery = useLiveVoiceStore.use.errorRecovery();
   // Whether any session is live anywhere (this thread or another). `failed`
   // is a retryable/inactive state, so it must count as inactive — otherwise
   // dictation would stay unavailable after a failed start.
@@ -545,6 +549,60 @@ export function ChatComposer({
     setLiveVoiceEntryOrigin(origin);
     starter?.start(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
+  /**
+   * In-flight reclaim, so unmounting cancels it. The start on the far side of
+   * the await reads this composer's chat identity, and a composer that has
+   * unmounted stops updating it: its staleness check would compare the values
+   * captured at unmount against itself, pass, and open a session for the page
+   * the user left.
+   */
+  const liveVoiceReclaimRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      liveVoiceReclaimRef.current?.abort();
+      liveVoiceReclaimRef.current = null;
+    },
+    [],
+  );
+  /**
+   * Take the live-voice slot from the session that refused this one, and start
+   * here. The blocking session is usually the same person on a surface they
+   * cannot get back to, so the way out is to end it from here rather than to
+   * go find it.
+   */
+  const handleReclaimLiveVoice = useCallback(async () => {
+    if (!assistantId) {
+      return;
+    }
+    // Prewarm from inside the click, before any await: WebKit's playback
+    // permission belongs to the gesture, and `startLiveVoiceSession` below
+    // runs after a network round trip, by which time the gesture is spent.
+    useLiveVoiceStore.getState().starter?.prewarm();
+    const reclaim = new AbortController();
+    liveVoiceReclaimRef.current?.abort();
+    liveVoiceReclaimRef.current = reclaim;
+    // The result is not branched on: whether the slot was already free or the
+    // call failed, the next move is to try to start, and the start handshake
+    // reports anything still wrong. A second error in front of someone
+    // escaping the first one helps nobody.
+    await endLiveVoiceSessionOnAssistant(assistantId, reclaim.signal);
+    if (liveVoiceReclaimRef.current === reclaim) {
+      liveVoiceReclaimRef.current = null;
+    }
+    if (reclaim.signal.aborted) {
+      return;
+    }
+    dismissLiveVoiceFailure();
+    void startLiveVoiceSession();
+  }, [assistantId, startLiveVoiceSession]);
+  const handleGoToVoiceSession = useCallback(() => {
+    const holderConversationId = liveVoiceErrorRecovery?.holderConversationId;
+    if (!holderConversationId) {
+      return;
+    }
+    dismissLiveVoiceFailure();
+    navigateToConversation(navigate, holderConversationId);
+  }, [liveVoiceErrorRecovery, navigate]);
   const handleLiveVoiceStart = useCallback(
     (origin?: { x: number; y: number }) => {
       if (!assistantId) {
@@ -751,10 +809,11 @@ export function ChatComposer({
 
   // Mobile lifts the access and profile triggers out of the action row into a
   // row that floats above the card while the composer is in use, and hangs a
-  // caption under the card while it rests. A variant that passes neither
-  // settings slot is the app-editing panel, which gets neither.
-  const isMobileMainComposer =
-    isMobile && Boolean(thresholdPickerSlot || modelPickerSlot);
+  // caption under the card while it rests. Only `ChatMainPanel` fills the
+  // settings slots, and only once it has an assistant to point them at, so a
+  // variant that passes neither (the onboarding tour's composer) gets neither.
+  const isMainComposer = Boolean(thresholdPickerSlot || modelPickerSlot);
+  const isMobileMainComposer = isMobile && isMainComposer;
 
   // No longer suppressed during a live-voice session: it was suppressed
   // because the streaming speech rendered in the ghost-suffix mirror's own
@@ -840,6 +899,19 @@ export function ChatComposer({
     multiple: true,
   });
 
+  // The camera a Home Screen widget's button asks for. Owned here for the same
+  // reason as the picker above, and gated to the `ChatMainPanel` composer so a
+  // one-shot park is never spent by the onboarding tour's. That gate leaves
+  // exactly one taker: `ChatMainPanel` renders on either the app-editing
+  // branch or the plain chat branch, never both.
+  const {
+    overlayNode: cameraDeepLinkOverlay,
+    captureOpen: cameraDeepLinkCaptureOpen,
+  } = useCameraDeepLink({
+    onFiles: onAddAttachmentFiles,
+    enabled: isMainComposer,
+  });
+
   // A surface opened from the composer takes the focus this would otherwise
   // read, so each one has to hold the row up for as long as it is standing.
   // A sheet moves focus into a portal; the native picker takes the web view's
@@ -851,7 +923,8 @@ export function ChatComposer({
     settingsSheetOpen ||
     addSheetOpen ||
     addSheetPickerOpen ||
-    attachPickerOpen;
+    attachPickerOpen ||
+    cameraDeepLinkCaptureOpen;
   // Whether a banner is standing over the card. Read off the box rather than
   // derived from props: most of that stack arrives through
   // `noticesAboveFormSlot`, an opaque node, and the composer-owned notices in
@@ -1057,12 +1130,12 @@ export function ChatComposer({
       disabled={sendBlocked}
       title={
         sendDisabled || !canSendMessageContent
-          ? "Type a message to send"
+          ? t("chatComposer.typeToSend")
           : attachmentsUploadingCount > 0
-            ? "Uploading attachments…"
-            : "Send message"
+            ? t("chatComposer.uploadingAttachments")
+            : t("chatComposer.sendMessage")
       }
-      aria-label="Send message"
+      aria-label={t("chatComposer.sendMessage")}
       className={cn(
         isMobile && MOBILE_CONTROL_CLASS,
         isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
@@ -1081,8 +1154,8 @@ export function ChatComposer({
       expandOnMobile={!isMobile}
       type="submit"
       onMouseDown={rowPressGuard}
-      title="Send message"
-      aria-label="Send message"
+      title={t("chatComposer.sendMessage")}
+      aria-label={t("chatComposer.sendMessage")}
       className={cn(
         // Reachable only when the draft can actually go, so the filled tone
         // never lands on a send nobody can press.
@@ -1098,7 +1171,7 @@ export function ChatComposer({
       expandOnMobile={!isMobile}
       onMouseDown={rowPressGuard}
       onClick={onStopGenerating}
-      aria-label="Stop generating"
+      aria-label={t("chatComposer.stopGenerating")}
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
   );
@@ -1109,7 +1182,11 @@ export function ChatComposer({
     // this inline waveform because the overlay bridge no-ops there.
     <div
       className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-      aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
+      aria-label={
+        voicePhase === "processing"
+          ? t("chatComposer.transcribing")
+          : t("chatComposer.recording")
+      }
       aria-live="polite"
     >
       <StreamingWaveform
@@ -1118,7 +1195,7 @@ export function ChatComposer({
       />
       {voicePhase === "processing" ? (
         <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
-          Transcribing…
+          {t("chatComposer.transcribingEllipsis")}
         </p>
       ) : (
         voiceInterim && (
@@ -1406,7 +1483,37 @@ export function ChatComposer({
             eligibility drop must still surface its error. */}
         {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
           <div className="mb-2">
-            <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
+            <Notice
+              tone="error"
+              onDismiss={dismissLiveVoiceFailure}
+              actions={
+                liveVoiceErrorRecovery?.kind === "reclaim" ? (
+                  <>
+                    <Button
+                      variant="outlined"
+                      size="compact"
+                      onClick={() => {
+                        void handleReclaimLiveVoice();
+                      }}
+                    >
+                      {t("chatComposer.endOtherVoiceSession")}
+                    </Button>
+                    {/* Only when it is somewhere else: navigating to the
+                        conversation already on screen would visibly do
+                        nothing. */}
+                    {liveVoiceErrorRecovery.holderConversationId && (
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        onClick={handleGoToVoiceSession}
+                      >
+                        {t("chatComposer.goToVoiceSession")}
+                      </Button>
+                    )}
+                  </>
+                ) : undefined
+              }
+            >
               {liveVoiceError}
             </Notice>
           </div>
@@ -1429,7 +1536,7 @@ export function ChatComposer({
                     navigate(routes.settings.voice);
                   }}
                 >
-                  Configure voice
+                  {t("chatComposer.configureVoice")}
                 </Button>
               }
             >
@@ -1662,6 +1769,11 @@ export function ChatComposer({
               The hook lays the input out as `absolute inset-0`, so it needs a
               positioned box of its own. */}
           <div className="relative">{attachPickerInput}</div>
+          {/* The camera behind `deeplink.openCamera`. A `fixed inset-0`
+              surface of its own rather than a hidden input, so it needs no box
+              here, and rendered whether or not this composer offers a camera
+              control: the command comes from outside the app. */}
+          {cameraDeepLinkOverlay}
           {(usesAddSheet || addSheetEverPresented) && (
             // The sheet's own three inputs, beside the form for the same
             // reason. The latch keeps a sheet that has ever been presented

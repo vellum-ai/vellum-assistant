@@ -3,12 +3,14 @@ import { z } from "zod";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
+import { CHANNEL_METADATA } from "../channels/types.js";
 import { getNestedValue, loadRawConfig } from "../config/loader.js";
 import { hasWebhookRoutingConfigured } from "../config/webhook-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
+  ChannelHealth,
   ChannelId,
   ChannelProbe,
   ChannelProbeContext,
@@ -247,12 +249,19 @@ const telegramProbe: ChannelProbe = {
       health.status === "unknown" ||
       health.status === "unverified";
     const result = check(
+      // Published identifier. Installed skill copies and external clients
+      // search readiness responses for this name, and they do not upgrade in
+      // lockstep with the daemon, so renaming it silently breaks their
+      // delivery gate while Telegram is healthy.
       "webhook_delivery",
       health.status === "healthy" || indeterminate,
       "Telegram is delivering to this assistant",
       health.detail,
     );
-    return [indeterminate ? { ...result, indeterminate: true } : result];
+    const operational = { ...result, kind: "operational" as const };
+    return [
+      indeterminate ? { ...operational, indeterminate: true } : operational,
+    ];
   },
 };
 
@@ -354,6 +363,96 @@ const whatsappProbe: ChannelProbe = {
 
 // ── Slack Probe ─────────────────────────────────────────────────────────────
 
+/**
+ * Ask the gateway whether a socket-backed channel's connection is receiving.
+ *
+ * One function for every such channel, matching the IPC route it reads, which
+ * is keyed by channel for the same reason: the question and the answer are the
+ * same wherever a socket carries inbound. A channel whose ingress is not a
+ * gateway-owned socket answers `unsupported`, which reads as indeterminate
+ * rather than a fault, so asking is always safe.
+ *
+ * Distinct from the credential checks: valid tokens establish that the
+ * provider would accept us, not that anything is arriving. A socket can be
+ * open at the transport layer and deliver nothing.
+ *
+ * Three outcomes, matching the Telegram probe:
+ *
+ *   - `connected` is the only verified pass.
+ *   - `disconnected` is a failure with a concrete cause.
+ *   - `not_configured`, `unsupported` and an unreachable gateway are
+ *     indeterminate. None is evidence of a fault, so none may show the channel
+ *     as broken; none is evidence of delivery either, so none may make it
+ *     ready.
+ *
+ * `lastLivenessAt` is reported and never gated on: a connection's first
+ * keepalive is a full interval after it opens, so requiring one would call
+ * every healthy reconnect broken.
+ *
+ * Declared `operational`, so it decides the channel's health rather than its
+ * setup progress: a dead socket means a configured channel is down, not a
+ * half-configured one.
+ *
+ * It runs among the local checks purely for freshness. It costs one IPC round
+ * trip to the gateway beside us rather than a call to Slack, and the remote
+ * bucket is cached for {@link REMOTE_TTL_MS}, far longer than a socket takes
+ * to die and recover. Placement is a cost decision here; `kind` carries the
+ * meaning.
+ */
+async function checkSocketInboundDelivery(
+  channel: ChannelId,
+): Promise<ReadinessCheckResult> {
+  // The channel's own display name, so a socket-backed channel added later
+  // needs no string decision here. Falls back to the id for a channel with no
+  // metadata entry, which is every channel clients are not offered.
+  const label = CHANNEL_METADATA[channel]?.label ?? channel;
+  // Imported here rather than at module scope, matching the Telegram probe:
+  // the gateway IPC client pulls in a module graph that unrelated consumers of
+  // this service should not have to mock.
+  const { readChannelSocketHealth } =
+    await import("../channels/gateway-channel-socket-health.js");
+
+  let health;
+  try {
+    health = await readChannelSocketHealth(channel);
+  } catch {
+    return {
+      name: "inbound_delivery",
+      kind: "operational",
+      passed: true,
+      message: `Could not reach the gateway to read the ${label} connection state`,
+      indeterminate: true,
+    };
+  }
+
+  if (health.status === "not_configured" || health.status === "unsupported") {
+    return {
+      name: "inbound_delivery",
+      kind: "operational",
+      passed: true,
+      message:
+        health.status === "not_configured"
+          ? `${label} is not connected, because its credentials are not configured`
+          : `${label} does not report a gateway-owned socket`,
+      indeterminate: true,
+    };
+  }
+
+  const lastProof =
+    health.lastLivenessAt === undefined
+      ? "no keepalive answered yet on this connection"
+      : `last keepalive ${new Date(health.lastLivenessAt).toISOString()}`;
+  return {
+    ...check(
+      "inbound_delivery",
+      health.status === "connected",
+      `${label} is delivering to this assistant (${lastProof})`,
+      `${label} holds no live connection, so inbound messages are not reaching this assistant`,
+    ),
+    kind: "operational",
+  };
+}
+
 const slackProbe: ChannelProbe = {
   channel: "slack",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
@@ -370,6 +469,7 @@ const slackProbe: ChannelProbe = {
         "app_token",
         "Slack app token",
       ),
+      await checkSocketInboundDelivery("slack"),
     ];
   },
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
@@ -448,6 +548,77 @@ const slackProbe: ChannelProbe = {
   },
 };
 
+/**
+ * Whether Discord admits anything in the guilds it has joined.
+ *
+ * A configuration check rather than an operational one, and the distinction
+ * carries the meaning. An empty allow-list is a setup step nobody finished,
+ * not a channel that broke: direct messages reach the assistant either way,
+ * because a message with no guild never meets this gate. Reporting it as
+ * failing health would send an operator to look for an outage that is not
+ * there, and reporting it as ready would claim delivery while every guild
+ * message is dropped.
+ *
+ * An unreachable gateway is indeterminate, matching the socket check beside
+ * it: nobody looked, so nothing is claimed either way.
+ */
+async function checkDiscordGuildAdmission(): Promise<ReadinessCheckResult> {
+  const { readDiscordAdmission } =
+    await import("../channels/gateway-discord-admission.js");
+
+  let admitted;
+  try {
+    admitted = (await readDiscordAdmission()).admittedChannelCount;
+  } catch {
+    return {
+      name: "guild_admission",
+      passed: true,
+      message: "Could not reach the gateway to read Discord's allow-list",
+      indeterminate: true,
+    };
+  }
+
+  return check(
+    "guild_admission",
+    admitted > 0,
+    `Discord may act in ${admitted} channel${admitted === 1 ? "" : "s"}`,
+    "Discord is in no channel's allow-list, so every guild message is dropped. Add channel ids to `discord.allowedChannelIds`",
+  );
+}
+
+// ── Discord Probe ───────────────────────────────────────────────────────────
+
+/**
+ * Discord readiness.
+ *
+ * One credential and one socket, which is the whole of it. Discord holds a
+ * Gateway connection rather than receiving webhooks, so there is no ingress
+ * routing to check: nothing has to reach this deployment from outside for
+ * inbound to work.
+ *
+ * No remote check either, and that is a decision rather than an omission. The
+ * remote bucket exists to ask a provider whether it would accept us, which for
+ * Slack is worth asking separately because its socket authenticates with a
+ * different token than its sends. Discord uses one bot token for both, so a
+ * live Gateway connection already proves the token the sends will use, and a
+ * call to `GET /users/@me` would restate it a cache interval later.
+ */
+const discordProbe: ChannelProbe = {
+  channel: "discord",
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
+    return [
+      await checkCredential(
+        "bot_token",
+        "discord_channel",
+        "bot_token",
+        "Discord bot token",
+      ),
+      await checkSocketInboundDelivery("discord"),
+      await checkDiscordGuildAdmission(),
+    ];
+  },
+};
+
 // ── Service ─────────────────────────────────────────────────────────────────
 
 export class ChannelReadinessService {
@@ -519,14 +690,7 @@ export class ChannelReadinessService {
       // itself live on the strength of a check that never ran.
       const verified = (c: ReadinessCheckResult): boolean =>
         c.passed && !c.indeterminate;
-      const allLocalPassed = localChecks.every(verified);
-      const allRemotePassed =
-        remoteChecks && remoteChecksAffectReadiness
-          ? remoteChecks.every(verified)
-          : true;
-      const ready = allLocalPassed && allRemotePassed;
 
-      // setupStatus: considers all checks (credentials + infrastructure)
       const consideredChecks = [
         ...localChecks,
         ...(remoteChecks && remoteChecksAffectReadiness ? remoteChecks : []),
@@ -537,12 +701,37 @@ export class ChannelReadinessService {
       // progress reports an untouched workspace as `incomplete`, which is what
       // sends the Channels UI down the "finish setup" path instead of the
       // normal setup flow.
-      const anyCheckPassed = consideredChecks.some(verified);
-      const setupStatus: SetupStatus = !anyCheckPassed
+      // Two axes, not one ladder. Setup progress derives from configuration
+      // checks and health from operational ones, because "is this configured"
+      // and "is it working" have different answers and different remedies. A
+      // fully configured channel whose delivery is failing is not half set
+      // up, and reporting it as incomplete sends its owner to fix the one
+      // thing that is not broken.
+      const configurationChecks = consideredChecks.filter(
+        (c) => (c.kind ?? "configuration") === "configuration",
+      );
+      const operationalChecks = consideredChecks.filter(
+        (c) => c.kind === "operational",
+      );
+
+      const setupStatus: SetupStatus = !configurationChecks.some(verified)
         ? "not_configured"
-        : ready
+        : configurationChecks.every(verified)
           ? "ready"
           : "incomplete";
+
+      // Absent, not "unknown", when the channel asks no operational question.
+      // Nothing was measured, so nothing is claimed, and readiness rests on
+      // configuration alone. Collapsing that into `unknown` would report every
+      // channel without a delivery check as unverifiable.
+      const health: ChannelHealth | undefined =
+        operationalChecks.length === 0
+          ? undefined
+          : operationalChecks.some((c) => !c.passed)
+            ? "failing"
+            : operationalChecks.every(verified)
+              ? "ok"
+              : "unknown";
 
       const reasons: Array<{ code: string; text: string }> = [];
       for (const check of localChecks) {
@@ -560,8 +749,12 @@ export class ChannelReadinessService {
 
       const snapshot: ChannelReadinessSnapshot = {
         channel: ch,
-        ready,
+        ready:
+          setupStatus === "ready" &&
+          health !== "failing" &&
+          health !== "unknown",
         setupStatus,
+        health,
         checkedAt:
           remoteChecks && cached && !remoteChecksFreshlyFetched
             ? cached.checkedAt
@@ -618,7 +811,13 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in Voice, Telegram, Email, WhatsApp, and Slack probes registered. */
+/**
+ * A service with every built-in probe registered.
+ *
+ * The registrations below are the list; naming them here as well gives the set
+ * a second home that drifts the moment a channel is added, which is what it
+ * did.
+ */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(voiceProbe);
@@ -626,5 +825,6 @@ export function createReadinessService(): ChannelReadinessService {
   service.registerProbe(emailProbe);
   service.registerProbe(whatsappProbe);
   service.registerProbe(slackProbe);
+  service.registerProbe(discordProbe);
   return service;
 }

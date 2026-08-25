@@ -3,6 +3,7 @@
  */
 
 import type { AssistantEvent } from "../api/index.js";
+import { audienceForReader } from "../channels/message-audience.js";
 import {
   type ChannelId,
   isChannelId,
@@ -333,10 +334,11 @@ export async function sweepFailedEvents(
           text: DISK_PRESSURE_REMOTE_BLOCK_REPLY,
           assistantId,
         };
-        if (sourceChannel === "slack" && requesterExternalUserId) {
-          replyPayload.ephemeral = true;
-          replyPayload.user = requesterExternalUserId;
-        }
+        replyPayload.audience = audienceForReader(
+          sourceChannel,
+          externalChatId,
+          requesterExternalUserId,
+        );
         try {
           await deliverChannelReply(replyCallbackUrl, replyPayload);
         } catch (err) {

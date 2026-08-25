@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { buildApprovalNotificationBlocks } from "../notifications/adapters/slack.js";
 import type {
   ApprovalCardBlock,
   ApprovalCardFallbackBlock,
@@ -90,9 +91,11 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     });
   });
 
-  test("returns null for pending_question without toolName", () => {
+  test("pending_question without toolName renders as a question, not an approval", () => {
     const payload = { ...voiceToolApprovalPayload, toolName: undefined };
-    expect(buildToolApprovalSeedContentBlocks(payload)).toBeNull();
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.title).toBe("Question");
+    expect(surface.data.subtitle).toBe("Waiting on your answer");
   });
 
   test("produces a ui_surface block and a text fallback block for tool_approval", () => {
@@ -315,5 +318,108 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       buildToolApprovalSeedContentBlocks(payload)!,
     );
     expect(fallback.text).toContain("Approve tool: bash (requested by Bob)");
+  });
+});
+
+/**
+ * An `ask_question` prompt promoted to a guardian request. It renders as a
+ * question rather than an approval, and carries no buttons: the in-app surface
+ * route resolves approval actions only, so answering happens on the channel or
+ * by reply.
+ */
+describe("ask_question card", () => {
+  const questionPayload: Record<string, unknown> = {
+    requestId: "req-ask-321",
+    requestCode: "08B619",
+    requestKind: "pending_question",
+    questionText: "What should I dig into?",
+    sourceChannel: "slack",
+    options: [
+      { id: "opt-thread", label: "This Slack thread" },
+      { id: "opt-pr", label: "The pull request" },
+      { id: "opt-ticket", label: "The Linear ticket" },
+    ],
+  };
+
+  test("the question leads the card rather than generic guardian copy", () => {
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(questionPayload)!,
+    );
+    expect(surface.title).toBe("Question");
+    expect(surface.data.title).toBe("What should I dig into?");
+  });
+
+  test("a question card offers no buttons, not even Approve and Reject", () => {
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(questionPayload)!,
+    );
+    // Empty rather than absent: the builder reads an absent action set as a
+    // request for its generic Approve/Reject pair, which is the wrong verb for
+    // a question and would resolve as "Yes" or a skip if tapped. The answer
+    // options are not offered here either, because the in-app surface route
+    // resolves only approval actions, so they would be inert.
+    expect(surface.actions).toEqual([]);
+  });
+
+  test("a channel without buttons still gets the question and its options", () => {
+    const fallback = fallbackBlock(
+      buildToolApprovalSeedContentBlocks(questionPayload)!,
+    );
+    expect(fallback.text).toContain("What should I dig into?");
+    expect(fallback.text).toContain("1. This Slack thread");
+    expect(fallback.text).toContain("3. The Linear ticket");
+    expect(fallback.text).toContain("08B619");
+  });
+
+  test("a question with no options still offers no buttons", () => {
+    const payload = { ...questionPayload, options: undefined };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.title).toBe("What should I dig into?");
+    expect(surface.actions).toEqual([]);
+  });
+});
+
+/**
+ * The Slack card heads itself from the approval's stated intent, so a question
+ * is not titled as an approval. Producers resolve the intent; the adapter only
+ * draws it.
+ */
+describe("Slack card intent", () => {
+  const base = {
+    sourceEventName: "guardian.question",
+    copy: { deliveryText: "What should I dig into?" },
+  };
+
+  test("a question card is headed Question", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      {
+        ...base,
+        approvalContext: {
+          requestId: "req-ask-321",
+          actions: [{ id: "answer_0", label: "This Slack thread" }],
+          plainTextFallback: 'Reply "08B619 <your answer>".',
+          intent: "question",
+        },
+      } as never,
+      "What should I dig into?",
+    );
+    const card = blocks[0] as { title?: { text?: string } };
+    expect(card.title?.text).toBe("Question");
+  });
+
+  test("an approval with no tool details keeps its own heading", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      {
+        ...base,
+        approvalContext: {
+          requestId: "req-appr-1",
+          actions: [{ id: "approve_once", label: "Approve" }],
+          plainTextFallback: 'Reply "ABC123 approve".',
+        },
+      } as never,
+      "Approve this",
+    );
+    const card = blocks[0] as { title?: { text?: string } };
+    expect(card.title?.text).toBe("Approval Request");
   });
 });

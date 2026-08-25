@@ -29,6 +29,10 @@ import type {
 } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
 import {
+  FASTCRW_DEFAULT_API_BASE,
+  resolveProviderApiUrl,
+} from "./firecrawl-compat.js";
+import {
   buildHostHeader,
   isIPv4,
   isIPv6,
@@ -46,6 +50,7 @@ import {
 const log = getLogger("web-fetch");
 
 const FIRECRAWL_SCRAPE_API_URL = "https://api.firecrawl.dev/v2/scrape";
+const FASTCRW_SCRAPE_PATH = "/v1/scrape";
 
 const DEFAULT_TIMEOUT_SECONDS = 20;
 const MAX_TIMEOUT_SECONDS = 60;
@@ -1114,25 +1119,29 @@ interface FirecrawlScrapeResponse {
 
 function getWebFetchProvider(): WebFetchProviderId {
   const configured = getConfig().services["web-fetch"]?.provider ?? "default";
-  return configured === "firecrawl" ? "firecrawl" : "default";
+  if (configured === "firecrawl" || configured === "fastcrw") {
+    return configured;
+  }
+  return "default";
 }
 
 /**
- * Decide whether a request may be routed to the hosted Firecrawl provider.
+ * Decide whether a request may be routed to a hosted scrape provider
+ * (Firecrawl / fastCRW).
  *
- * Posting a URL to Firecrawl sends its path + query (which can hold secrets) to
- * a third party, so we apply the SAME safety gate as the built-in fetcher
- * BEFORE dispatching — not just the lexical host check:
- *   - only http(s) URLs (Firecrawl can't do other schemes anyway),
+ * Posting a URL to a hosted scraper sends its path + query (which can hold
+ * secrets) to a third party, so we apply the SAME safety gate as the built-in
+ * fetcher BEFORE dispatching — not just the lexical host check:
+ *   - only http(s) URLs (hosted scrapers can't do other schemes anyway),
  *   - never `allow_private_network` requests (those are intentionally local;
- *     Firecrawl can't reach them and the built-in path owns that mode),
+ *     hosted scrapers can't reach them and the built-in path owns that mode),
  *   - and a DNS resolution check so a public hostname that resolves to a
  *     private/blocked address (e.g. `internal.example` → 10.x.x.x) is NOT
- *     leaked to Firecrawl.
+ *     leaked to the hosted scraper.
  * Anything that fails falls back to the built-in fetcher, which enforces its
  * own SSRF rules and returns the appropriate error.
  */
-async function canRouteToFirecrawl(
+async function canRouteToHostedScraper(
   input: Record<string, unknown>,
 ): Promise<boolean> {
   if (input.allow_private_network === true) {
@@ -1163,10 +1172,11 @@ async function canRouteToFirecrawl(
   return true;
 }
 
-function firecrawlErrorResult(
+function hostedScrapeErrorResult(
   requestedUrl: string,
   startedAt: number,
   errorMessage: string,
+  provider: "firecrawl" | "fastcrw",
   status = 0,
 ): ToolExecutionResult {
   const domain = extractDomain(requestedUrl);
@@ -1177,7 +1187,7 @@ function firecrawlErrorResult(
       webFetch: {
         url: requestedUrl,
         finalUrl: requestedUrl,
-        provider: "firecrawl",
+        provider,
         status,
         byteCount: 0,
         charCount: 0,
@@ -1193,7 +1203,7 @@ function firecrawlErrorResult(
 }
 
 /**
- * Fetch a page via Firecrawl's hosted `/v2/scrape` endpoint, returning clean
+ * Fetch a page via a Firecrawl-compatible scrape endpoint, returning clean
  * markdown. Mirrors the built-in fetcher's output shape (same
  * {@link formatWebFetchOutput} and {@link WebFetchMetadata}) so the model and
  * client UIs can't tell which backend served the page apart from
@@ -1202,9 +1212,15 @@ function firecrawlErrorResult(
  * Exported for direct unit testing; the registered tool dispatches here via
  * {@link getWebFetchProvider}.
  */
-export async function executeFirecrawlScrape(
+export async function executeFirecrawlCompatScrape(
   input: Record<string, unknown>,
-  options: { apiKey: string; signal?: AbortSignal },
+  options: {
+    apiKey: string;
+    endpoint: string;
+    provider: "firecrawl" | "fastcrw";
+    displayName: string;
+    signal?: AbortSignal;
+  },
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
   const parsedUrl = parseUrl(input.url);
@@ -1215,22 +1231,24 @@ export async function executeFirecrawlScrape(
     : sanitizeUrlStringForOutput(targetUrl);
 
   if (!targetUrl) {
-    return firecrawlErrorResult(
+    return hostedScrapeErrorResult(
       safeRequestedUrl,
       startedAt,
       "url is required and must be a valid HTTP(S) URL",
+      options.provider,
     );
   }
 
-  // Never forward URL-embedded credentials (user:password@host) to the hosted
-  // Firecrawl API. The built-in fetcher turns them into a Basic-auth header to
-  // the target; Firecrawl can't, so reject rather than leak them to a third
-  // party.
+  // Never forward URL-embedded credentials (user:password@host) to a hosted
+  // scrape API. The built-in fetcher turns them into a Basic-auth header to
+  // the target; hosted scrapers can't, so reject rather than leak them to a
+  // third party.
   if (parsedUrl?.username || parsedUrl?.password) {
-    return firecrawlErrorResult(
+    return hostedScrapeErrorResult(
       safeRequestedUrl,
       startedAt,
-      "URLs with embedded credentials are not supported by the Firecrawl provider. Remove the user:password@ portion of the URL.",
+      `URLs with embedded credentials are not supported by the ${options.displayName} provider. Remove the user:password@ portion of the URL.`,
+      options.provider,
     );
   }
 
@@ -1255,16 +1273,21 @@ export async function executeFirecrawlScrape(
     timeout: timeoutSeconds * 1000,
   };
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Client-Source": "vellum-assistant",
+  };
+  const trimmedKey = options.apiKey.trim();
+  if (trimmedKey.length > 0) {
+    headers.Authorization = `Bearer ${trimmedKey}`;
+  }
+
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     let response: Response;
     try {
-      response = await fetch(FIRECRAWL_SCRAPE_API_URL, {
+      response = await fetch(options.endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${options.apiKey}`,
-          "X-Client-Source": "vellum-assistant",
-        },
+        headers,
         body: JSON.stringify(requestBody),
         signal: options.signal,
       });
@@ -1273,17 +1296,19 @@ export async function executeFirecrawlScrape(
         options.signal?.aborted ||
         (err instanceof Error && err.name === "AbortError")
       ) {
-        return firecrawlErrorResult(
+        return hostedScrapeErrorResult(
           safeRequestedUrl,
           startedAt,
           "web fetch was cancelled",
+          options.provider,
         );
       }
       const msg = err instanceof Error ? err.message : String(err);
-      return firecrawlErrorResult(
+      return hostedScrapeErrorResult(
         safeRequestedUrl,
         startedAt,
-        `Firecrawl scrape failed: ${msg}`,
+        `${options.displayName} scrape failed: ${msg}`,
+        options.provider,
       );
     }
 
@@ -1292,24 +1317,26 @@ export async function executeFirecrawlScrape(
       try {
         json = (await response.json()) as FirecrawlScrapeResponse;
       } catch {
-        return firecrawlErrorResult(
+        return hostedScrapeErrorResult(
           safeRequestedUrl,
           startedAt,
-          "Firecrawl scrape returned an invalid JSON payload.",
+          `${options.displayName} scrape returned an invalid JSON payload.`,
+          options.provider,
           response.status,
         );
       }
       const data = json.data ?? {};
-      const fcMeta = data.metadata ?? {};
+      const scrapeMeta = data.metadata ?? {};
       // A 200 can still carry a payload-level failure (success:false, a
       // top-level error, or a per-page error in data.metadata). Surface it
       // instead of treating an empty body as a successful "no content" scrape.
-      const payloadError = json.error ?? fcMeta.error;
+      const payloadError = json.error ?? scrapeMeta.error;
       if (json.success === false || payloadError) {
-        return firecrawlErrorResult(
+        return hostedScrapeErrorResult(
           safeRequestedUrl,
           startedAt,
-          payloadError ?? "Firecrawl scrape failed.",
+          payloadError ?? `${options.displayName} scrape failed.`,
+          options.provider,
           response.status,
         );
       }
@@ -1322,15 +1349,15 @@ export async function executeFirecrawlScrape(
       const sliced = processed.slice(safeStart, safeEnd);
       const bytesRead = Buffer.byteLength(processed, "utf8");
 
-      const finalUrlRaw = fcMeta.url ?? fcMeta.sourceURL ?? targetUrl;
+      const finalUrlRaw = scrapeMeta.url ?? scrapeMeta.sourceURL ?? targetUrl;
       const finalUrl = sanitizeUrlStringForOutput(finalUrlRaw);
-      const status = fcMeta.statusCode ?? 200;
-      const contentType = fcMeta.contentType ?? "text/markdown";
+      const status = scrapeMeta.statusCode ?? 200;
+      const contentType = scrapeMeta.contentType ?? "text/markdown";
 
       const notices: string[] = [];
       const warning = data.warning ?? json.warning;
       if (warning) {
-        notices.push(`Firecrawl: ${warning}`);
+        notices.push(`${options.displayName}: ${warning}`);
       }
       if (safeEnd < processed.length) {
         notices.push(`Output truncated by max_chars=${maxChars}.`);
@@ -1352,8 +1379,8 @@ export async function executeFirecrawlScrape(
         startIndex: safeStart,
         endIndex: safeEnd,
         content: sliced,
-        title: fcMeta.title,
-        description: fcMeta.description,
+        title: scrapeMeta.title,
+        description: scrapeMeta.description,
         notices,
         raw: false,
         markdown: true,
@@ -1363,13 +1390,13 @@ export async function executeFirecrawlScrape(
       const meta: WebFetchMetadata = {
         url: safeRequestedUrl,
         finalUrl,
-        provider: "firecrawl",
+        provider: options.provider,
         status,
         contentType,
         byteCount: bytesRead,
         charCount: sliced.length,
         truncated: safeEnd < processed.length,
-        title: fcMeta.title,
+        title: scrapeMeta.title,
         domain: finalDomain,
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: 0,
@@ -1387,10 +1414,11 @@ export async function executeFirecrawlScrape(
     const bodyText = await response.text();
 
     if (response.status === 401 || response.status === 403) {
-      return firecrawlErrorResult(
+      return hostedScrapeErrorResult(
         safeRequestedUrl,
         startedAt,
-        "Invalid or expired Firecrawl API key",
+        `Invalid or expired ${options.displayName} API key`,
+        options.provider,
         response.status,
       );
     }
@@ -1402,37 +1430,75 @@ export async function executeFirecrawlScrape(
         DEFAULT_BASE_DELAY_MS,
       );
       log.warn(
-        { attempt: attempt + 1, delayMs },
-        "Firecrawl scrape rate limited, retrying",
+        { attempt: attempt + 1, delayMs, provider: options.provider },
+        `${options.displayName} scrape rate limited, retrying`,
       );
       await sleep(delayMs);
       continue;
     }
 
     log.warn(
-      { status: response.status, body: safeStringSlice(bodyText, 0, 200) },
-      "Firecrawl scrape API error",
+      {
+        status: response.status,
+        body: safeStringSlice(bodyText, 0, 200),
+        provider: options.provider,
+      },
+      `${options.displayName} scrape API error`,
     );
     const errorMessage =
       response.status === 429
-        ? "Firecrawl scrape rate limit exceeded after retries. Try again shortly."
+        ? `${options.displayName} scrape rate limit exceeded after retries. Try again shortly.`
         : response.status === 402
-          ? "Firecrawl scrape failed: account balance/credits exhausted."
-          : `Firecrawl scrape API returned status ${response.status}`;
-    return firecrawlErrorResult(
+          ? `${options.displayName} scrape failed: account balance/credits exhausted.`
+          : `${options.displayName} scrape API returned status ${response.status}`;
+    return hostedScrapeErrorResult(
       safeRequestedUrl,
       startedAt,
       errorMessage,
+      options.provider,
       response.status,
     );
   }
 
-  return firecrawlErrorResult(
+  return hostedScrapeErrorResult(
     safeRequestedUrl,
     startedAt,
-    "Firecrawl scrape rate limit exceeded after retries. Try again shortly.",
+    `${options.displayName} scrape rate limit exceeded after retries. Try again shortly.`,
+    options.provider,
     429,
   );
+}
+
+export async function executeFirecrawlScrape(
+  input: Record<string, unknown>,
+  options: { apiKey: string; signal?: AbortSignal },
+): Promise<ToolExecutionResult> {
+  return executeFirecrawlCompatScrape(input, {
+    apiKey: options.apiKey,
+    endpoint: FIRECRAWL_SCRAPE_API_URL,
+    provider: "firecrawl",
+    displayName: "Firecrawl",
+    signal: options.signal,
+  });
+}
+
+export async function executeFastcrwScrape(
+  input: Record<string, unknown>,
+  options: { apiKey: string; signal?: AbortSignal },
+): Promise<ToolExecutionResult> {
+  const apiBase = getConfig().services["web-fetch"]?.apiBase;
+  const endpoint = resolveProviderApiUrl(
+    apiBase,
+    FASTCRW_SCRAPE_PATH,
+    FASTCRW_DEFAULT_API_BASE,
+  );
+  return executeFirecrawlCompatScrape(input, {
+    apiKey: options.apiKey,
+    endpoint,
+    provider: "fastcrw",
+    displayName: "fastCRW",
+    signal: options.signal,
+  });
 }
 
 export const webFetchTool = {
@@ -1482,19 +1548,33 @@ export const webFetchTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    const fetchProvider = getWebFetchProvider();
     if (
-      getWebFetchProvider() === "firecrawl" &&
-      (await canRouteToFirecrawl(input))
+      (fetchProvider === "firecrawl" || fetchProvider === "fastcrw") &&
+      (await canRouteToHostedScraper(input))
     ) {
-      const apiKey = await getProviderKeyAsync("firecrawl");
-      if (apiKey) {
-        return executeFirecrawlScrape(input, {
+      const apiKey = (await getProviderKeyAsync(fetchProvider)) ?? "";
+      const webFetchApiBase = getConfig().services["web-fetch"]?.apiBase;
+      const allowsKeylessSelfHost =
+        fetchProvider === "fastcrw" &&
+        typeof webFetchApiBase === "string" &&
+        webFetchApiBase.trim().length > 0;
+
+      if (apiKey || allowsKeylessSelfHost) {
+        if (fetchProvider === "firecrawl") {
+          return executeFirecrawlScrape(input, {
+            apiKey,
+            signal: context.signal,
+          });
+        }
+        return executeFastcrwScrape(input, {
           apiKey,
           signal: context.signal,
         });
       }
       log.info(
-        "web_fetch provider is firecrawl but no API key is configured; falling back to the built-in fetcher",
+        { provider: fetchProvider },
+        "web_fetch BYOK provider has no API key configured; falling back to the built-in fetcher",
       );
       // Fall through to the built-in fetcher.
     }

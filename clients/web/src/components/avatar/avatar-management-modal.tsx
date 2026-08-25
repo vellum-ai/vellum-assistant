@@ -16,6 +16,7 @@ import {
   uploadAvatarImage,
 } from "@/assistant/avatar-api";
 import { AvatarRenderer } from "@/components/avatar-renderer";
+import { useTranslation } from "@/i18n";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 interface AvatarManagementModalProps {
@@ -64,6 +65,7 @@ export function AvatarManagementModal({
   onRenameSubmit,
   isRenaming = false,
 }: AvatarManagementModalProps) {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fallback fetch for assistants whose cached avatar query resolved without
@@ -290,7 +292,7 @@ export function AvatarManagementModal({
     <Modal.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Update Avatar</Modal.Title>
+          <Modal.Title>{t("avatarManagementModal.title")}</Modal.Title>
         </Modal.Header>
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSave}>
           <Modal.Body className="space-y-4">
@@ -300,7 +302,7 @@ export function AvatarManagementModal({
                   <div className="rounded-2xl bg-[var(--surface-sunken)] p-6">
                     <img
                       src={displayImageUrl!}
-                      alt="Uploaded avatar"
+                      alt={t("avatarManagementModal.uploadedAlt")}
                       className="h-40 w-40 rounded-xl object-cover"
                     />
                   </div>
@@ -309,8 +311,10 @@ export function AvatarManagementModal({
                 <div className="space-y-3">
                   {nameRow}
                   <SwitchModeRow
-                    label="Use a character instead"
-                    description="Pick from our built-in avatars"
+                    label={t("avatarManagementModal.useCharacterLabel")}
+                    description={t(
+                      "avatarManagementModal.useCharacterDescription",
+                    )}
                     onClick={() => setPreviewMode("character")}
                     thumbnail={
                       resolvedComponents &&
@@ -343,8 +347,7 @@ export function AvatarManagementModal({
                   </div>
                 ) : (
                   <div className="py-8 text-center text-body-medium-lighter text-[var(--content-quiet)]">
-                    Unable to load avatar components. Make sure your assistant
-                    is running.
+                    {t("avatarManagementModal.loadError")}
                   </div>
                 )}
               </>
@@ -365,7 +368,7 @@ export function AvatarManagementModal({
                 <div className="space-y-3">
                   {nameRow}
                   <CycleRow
-                    label="Body"
+                    label={t("avatarManagementModal.body")}
                     value={currentBody!.id}
                     onPrev={() =>
                       setBodyIndex(
@@ -387,7 +390,7 @@ export function AvatarManagementModal({
                     }
                   />
                   <CycleRow
-                    label="Eyes"
+                    label={t("avatarManagementModal.eyes")}
                     value={currentEye!.id}
                     onPrev={() =>
                       setEyeIndex(
@@ -409,7 +412,7 @@ export function AvatarManagementModal({
                     }
                   />
                   <CycleRow
-                    label="Color"
+                    label={t("avatarManagementModal.color")}
                     value={currentColor!.id}
                     colorHex={currentColor!.hex}
                     onPrev={() =>
@@ -435,8 +438,10 @@ export function AvatarManagementModal({
 
                 {hasCustomImage && (
                   <SwitchModeRow
-                    label="Keep your uploaded image"
-                    description="Saving the character replaces it"
+                    label={t("avatarManagementModal.keepUploadedLabel")}
+                    description={t(
+                      "avatarManagementModal.keepUploadedDescription",
+                    )}
                     onClick={() => setPreviewMode("custom")}
                     thumbnail={
                       <img
@@ -456,8 +461,8 @@ export function AvatarManagementModal({
                 type="button"
                 variant="outlined"
                 iconOnly={<Dices />}
-                aria-label="Randomize"
-                tooltip="Randomize"
+                aria-label={t("avatarManagementModal.randomize")}
+                tooltip={t("avatarManagementModal.randomize")}
                 onClick={handleRandomize}
                 disabled={!resolvedComponents}
               />
@@ -465,8 +470,8 @@ export function AvatarManagementModal({
                 type="button"
                 variant="outlined"
                 iconOnly={<Upload />}
-                aria-label="Upload image"
-                tooltip="Upload image"
+                aria-label={t("avatarManagementModal.uploadImage")}
+                tooltip={t("avatarManagementModal.uploadImage")}
                 onClick={handleUploadClick}
                 disabled={isUploading}
               />
@@ -476,7 +481,9 @@ export function AvatarManagementModal({
               variant="primary"
               disabled={isSaving || isRenaming || isUploading}
             >
-              {isSaving || isRenaming ? "Saving…" : "Save"}
+              {isSaving || isRenaming
+                ? t("avatarManagementModal.saving")
+                : t("avatarManagementModal.save")}
             </Button>
           </Modal.Footer>
         </form>
@@ -504,10 +511,11 @@ interface NameRowProps {
  *  the cycle rows (content-sized input + a chevron-width spacer on the right,
  *  so the text lines up with Body/Eyes/Color values). */
 function NameRow({ value, onChange, disabled }: NameRowProps) {
+  const { t } = useTranslation();
   return (
     <label className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3 py-2">
       <span className="text-body-small-default uppercase tracking-wider text-[var(--content-quiet)]">
-        Name
+        {t("avatarManagementModal.name")}
       </span>
       <div className="flex min-w-0 items-center gap-2">
         <div className="flex min-w-[80px] items-center justify-center">
@@ -517,8 +525,8 @@ function NameRow({ value, onChange, disabled }: NameRowProps) {
             disabled={disabled}
             maxLength={40}
             size={8}
-            placeholder="Name"
-            aria-label="Name"
+            placeholder={t("avatarManagementModal.name")}
+            aria-label={t("avatarManagementModal.name")}
             className="h-7 min-w-0 field-sizing-content bg-transparent text-center text-body-medium-default text-[var(--content-strong)] outline-none placeholder:text-[var(--content-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
@@ -574,6 +582,7 @@ interface CycleRowProps {
 }
 
 function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3 py-2">
       <span className="text-body-small-default uppercase tracking-wider text-[var(--content-quiet)]">
@@ -583,7 +592,9 @@ function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
         <button
           type="button"
           onClick={onPrev}
-          aria-label={`Previous ${label.toLowerCase()}`}
+          aria-label={t("avatarManagementModal.previous", {
+            label: label.toLowerCase(),
+          })}
           className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -602,7 +613,9 @@ function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
         <button
           type="button"
           onClick={onNext}
-          aria-label={`Next ${label.toLowerCase()}`}
+          aria-label={t("avatarManagementModal.next", {
+            label: label.toLowerCase(),
+          })}
           className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)]"
         >
           <ChevronRight className="h-4 w-4" />

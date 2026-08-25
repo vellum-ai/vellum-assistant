@@ -19,6 +19,7 @@ mock.module("@/runtime/browser", () => ({
 }));
 
 import {
+  dispatchOpenUrl,
   getHttpUrl,
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
@@ -34,17 +35,40 @@ interface MockWindowOptions {
   open?:
     | ((url?: string, target?: string, features?: string) => Window | null)
     | null;
+  vellum?: unknown;
 }
 
 function setMockWindow({
   origin = "https://app.vellum.ai",
   open,
+  vellum,
 }: MockWindowOptions = {}): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
       location: { origin },
       open,
+      vellum,
+    },
+  });
+}
+
+function setElectronPermissionsWindow(
+  hostOS: "macos" | "windows",
+  openSettings: (kind: string) => Promise<unknown>,
+): void {
+  setMockWindow({
+    open: null,
+    vellum: {
+      platform: "electron",
+      hostOS,
+      permissions: {
+        getState: () => Promise.resolve({}),
+        request: () => Promise.resolve({}),
+        openSettings,
+        quitAndReopen: () => Promise.resolve(),
+        onState: () => () => undefined,
+      },
     },
   });
 }
@@ -197,6 +221,47 @@ describe("oauth popup links", () => {
 
       expect(openUrlInPopupOrTab(oauthUrl)).toBe(false);
       expect(openUrlInPopupOrTab("https://example.com/docs")).toBe(false);
+    });
+  });
+
+  describe("dispatchOpenUrl", () => {
+    test("routes allowlisted settings URLs through the Electron permissions bridge", () => {
+      const openSettings = mock((_kind: string) => Promise.resolve({}));
+      setElectronPermissionsWindow("windows", openSettings);
+
+      expect(
+        dispatchOpenUrl("ms-settings:privacy-microphone", {
+          isNative: false,
+          push: () => undefined,
+        }),
+      ).toEqual({ kind: "opened" });
+      expect(openSettings).toHaveBeenCalledWith("microphone");
+    });
+
+    test("rejects arbitrary settings URLs", () => {
+      const openSettings = mock((_kind: string) => Promise.resolve({}));
+      setElectronPermissionsWindow("windows", openSettings);
+
+      expect(
+        dispatchOpenUrl("ms-settings:privacy-location", {
+          isNative: false,
+          push: () => undefined,
+        }),
+      ).toEqual({ kind: "invalid" });
+      expect(openSettings).not.toHaveBeenCalled();
+    });
+
+    test("ignores settings URLs for another Electron host OS", () => {
+      const openSettings = mock((_kind: string) => Promise.resolve({}));
+      setElectronPermissionsWindow("macos", openSettings);
+
+      expect(
+        dispatchOpenUrl("ms-settings:privacy-microphone", {
+          isNative: false,
+          push: () => undefined,
+        }),
+      ).toEqual({ kind: "ignored" });
+      expect(openSettings).not.toHaveBeenCalled();
     });
   });
 });

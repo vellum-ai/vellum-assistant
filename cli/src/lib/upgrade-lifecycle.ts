@@ -584,6 +584,7 @@ export async function attemptFailedStateRestore(opts: {
     opts.runtimeUrl,
     opts.assistantId,
     opts.backupPath,
+    { kind: "docker", assistantId: opts.assistantId },
   );
   if (!restored) {
     return { restored: false, ready: false };
@@ -1000,6 +1001,7 @@ export async function performDockerRollback(
               entry.runtimeUrl,
               entry.assistantId,
               preRollbackBackupPath,
+              { kind: "docker", assistantId: entry.assistantId },
             );
             if (restored) {
               console.log("   ✅ Data restored successfully\n");

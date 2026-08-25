@@ -26,6 +26,7 @@ import {
   openUrlInPopupOrTab,
 } from "@/domains/chat/utils/oauth-popup-links";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { t } from "@/i18n";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
@@ -47,10 +48,10 @@ export function handleOpenUrlDirectiveEnvelope(
   const outcome = dispatchOpenUrl(event.url, deps);
   if (outcome.kind === "blocked") {
     // The toast action runs from a real click, which browsers never block.
-    toast.warning("Your browser blocked a page the assistant tried to open.", {
+    toast.warning(t("useOpenUrlDirectives.blocked"), {
       duration: BLOCKED_OPEN_TOAST_DURATION_MS,
       action: {
-        label: "Open page",
+        label: t("useOpenUrlDirectives.openPage"),
         onClick: () => {
           openUrlInPopupOrTab(outcome.url);
         },

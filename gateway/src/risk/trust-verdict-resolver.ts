@@ -18,6 +18,7 @@ import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { guardianIntegrityState } from "../auth/guardian-integrity.js";
+import { parseContactAutoApproveThreshold } from "../db/contact-auto-approve-threshold.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   contacts as gwContacts,
@@ -103,6 +104,7 @@ export async function resolveTrustVerdict(
           memberDisplayName: gwContacts.displayName,
           memberRole: gwContacts.role,
           memberPrincipalId: gwContacts.principalId,
+          autoApproveThreshold: gwContacts.autoApproveThreshold,
         })
         .from(gwContactChannels)
         .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
@@ -267,6 +269,9 @@ export async function resolveTrustVerdict(
     verdict.verifiedAt = memberRow.verifiedAt;
     verdict.interactionCount = memberRow.interactionCount;
     verdict.memberDisplayName = memberRow.memberDisplayName;
+    verdict.autoApproveThreshold = parseContactAutoApproveThreshold(
+      memberRow.autoApproveThreshold,
+    );
   }
 
   return verdict;

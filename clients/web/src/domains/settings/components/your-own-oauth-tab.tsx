@@ -18,6 +18,7 @@ import type {
   OauthAppsByAppIdConnectionsGetResponses,
   OauthAppsGetResponses,
 } from "@/generated/daemon/types.gen";
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -64,6 +65,7 @@ export function YourOwnTab({
   displayName,
   logoUrl,
 }: YourOwnTabProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
 
   // --- Server state via TanStack Query ---
@@ -114,20 +116,22 @@ export function YourOwnTab({
       setClientId("");
       setClientSecret("");
       setIsShowingAddAppForm(false);
-      toast.success(`${displayName} OAuth app added.`);
+      toast.success(
+        t("yourOwnOauthTab.appAddedToast", { name: displayName }),
+      );
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to create OAuth app");
+      toast.error(err.message || t("yourOwnOauthTab.createFailedToast"));
     },
   });
 
   const deleteAppMutation = useOauthAppsByIdDeleteMutation({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: appsQueryKey });
-      toast.success("OAuth app deleted.");
+      toast.success(t("yourOwnOauthTab.appDeletedToast"));
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to delete OAuth app");
+      toast.error(err.message || t("yourOwnOauthTab.deleteFailedToast"));
     },
   });
 
@@ -138,7 +142,7 @@ export function YourOwnTab({
       }
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to start OAuth flow");
+      toast.error(err.message || t("yourOwnOauthTab.connectFailedToast"));
     },
   });
 
@@ -220,10 +224,14 @@ export function YourOwnTab({
           });
           void queryClient.invalidateQueries({ queryKey: connectionQueryKey });
           void queryClient.invalidateQueries({ queryKey: appsQueryKey });
-          toast.success(`${displayName} account disconnected.`);
+          toast.success(
+            t("yourOwnOauthTab.disconnectedToast", { name: displayName }),
+          );
         },
         onError: (err) => {
-          toast.error(err.message || "Failed to disconnect account");
+          toast.error(
+            err.message || t("yourOwnOauthTab.disconnectFailedToast"),
+          );
         },
       },
     );
@@ -249,18 +257,17 @@ export function YourOwnTab({
             <div className="space-y-1">
               <p className="text-body-medium-default text-[var(--content-default)]">
                 {apps.length === 0
-                  ? `Add your own ${displayName} OAuth app`
-                  : `Add another ${displayName} OAuth app`}
+                  ? t("yourOwnOauthTab.addOwnApp", { name: displayName })
+                  : t("yourOwnOauthTab.addAnotherApp", { name: displayName })}
               </p>
               <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
-                Credentials are stored encrypted on the assistant and are never
-                sent to Vellum.
+                {t("yourOwnOauthTab.credentialsNote")}
               </p>
             </div>
             {oauthCallbackUrl ? (
               <div className="space-y-1">
                 <p className="text-body-small-default text-[var(--content-secondary)]">
-                  Redirect URL
+                  {t("yourOwnOauthTab.redirectUrl")}
                 </p>
                 <div className="flex items-center gap-2">
                   <Input
@@ -275,8 +282,8 @@ export function YourOwnTab({
                     size="compact"
                     onClick={() => {
                       copyToClipboard(oauthCallbackUrl, {
-                        successMessage: "Copied to clipboard!",
-                        errorMessage: "Couldn't copy the redirect URL.",
+                        successMessage: t("yourOwnOauthTab.copiedToast"),
+                        errorMessage: t("yourOwnOauthTab.copyFailedToast"),
                         onCopied: () => {
                           setCallbackUrlCopied(true);
                           setTimeout(() => setCallbackUrlCopied(false), 2000);
@@ -284,7 +291,9 @@ export function YourOwnTab({
                       });
                     }}
                     aria-label={
-                      callbackUrlCopied ? "Copied" : "Copy redirect URL"
+                      callbackUrlCopied
+                        ? t("yourOwnOauthTab.copiedAria")
+                        : t("yourOwnOauthTab.copyRedirectAria")
                     }
                     iconOnly={
                       callbackUrlCopied ? (
@@ -296,24 +305,24 @@ export function YourOwnTab({
                   />
                 </div>
                 <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  Add this URL to your OAuth app&apos;s redirect settings.
+                  {t("yourOwnOauthTab.redirectHint")}
                 </p>
               </div>
             ) : null}
             <Input
-              label="Client ID"
+              label={t("yourOwnOauthTab.clientId")}
               type="text"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              placeholder="Enter your client ID"
+              placeholder={t("yourOwnOauthTab.clientIdPlaceholder")}
               fullWidth
             />
             <Input
-              label="Client Secret"
+              label={t("yourOwnOauthTab.clientSecret")}
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
-              placeholder="Enter your client secret"
+              placeholder={t("yourOwnOauthTab.clientSecretPlaceholder")}
               fullWidth
             />
             <div className="flex items-center justify-end gap-2 pt-1">
@@ -329,7 +338,7 @@ export function YourOwnTab({
                   }}
                   disabled={creatingApp}
                 >
-                  Cancel
+                  {t("yourOwnOauthTab.cancel")}
                 </Button>
               ) : null}
               <Button
@@ -347,7 +356,7 @@ export function YourOwnTab({
                   )
                 }
               >
-                Add App
+                {t("yourOwnOauthTab.addApp")}
               </Button>
             </div>
           </Card.Body>
@@ -367,7 +376,9 @@ export function YourOwnTab({
                     {maskClientId(app.client_id)}
                   </p>
                   <p className="text-body-small-default text-[var(--content-tertiary)]">
-                    Added {formatOAuthTimestamp(app.created_at)}
+                    {t("yourOwnOauthTab.addedOn", {
+                      date: formatOAuthTimestamp(app.created_at),
+                    })}
                   </p>
                 </div>
                 <Button
@@ -376,7 +387,9 @@ export function YourOwnTab({
                   size="compact"
                   onClick={() => setAppPendingDeletion(app)}
                   disabled={isDeleting}
-                  aria-label={`Delete OAuth app ${maskClientId(app.client_id)}`}
+                  aria-label={t("yourOwnOauthTab.deleteAppAria", {
+                    id: maskClientId(app.client_id),
+                  })}
                   iconOnly={
                     isDeleting ? (
                       <Loader2 className="animate-spin" aria-hidden />
@@ -391,6 +404,11 @@ export function YourOwnTab({
                 <ul className="divide-y divide-[var(--border-base)] overflow-hidden rounded-md border border-[var(--border-base)] dark:divide-[var(--border-base)] dark:border-[var(--border-base)]">
                   {connections.map((connection) => {
                     const isDisconnecting = disconnectingId === connection.id;
+                    const accountLabel =
+                      connection.account_info ??
+                      t("yourOwnOauthTab.accountFallback", {
+                        name: displayName,
+                      });
                     return (
                       <li
                         key={connection.id}
@@ -403,7 +421,7 @@ export function YourOwnTab({
                           size={18}
                         />
                         <span className="min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]">
-                          {connection.account_info ?? `${displayName} Account`}
+                          {accountLabel}
                         </span>
                         <Button
                           type="button"
@@ -416,7 +434,9 @@ export function YourOwnTab({
                             })
                           }
                           disabled={isDisconnecting}
-                          aria-label={`Disconnect ${connection.account_info ?? `${displayName} account`}`}
+                          aria-label={t("yourOwnOauthTab.disconnectAria", {
+                            account: accountLabel,
+                          })}
                           iconOnly={
                             isDisconnecting ? (
                               <Loader2 className="animate-spin" aria-hidden />
@@ -446,8 +466,8 @@ export function YourOwnTab({
                 }
               >
                 {isConnecting
-                  ? "Waiting for authorization..."
-                  : "Connect account"}
+                  ? t("yourOwnOauthTab.waitingAuthorization")
+                  : t("yourOwnOauthTab.connectAccount")}
               </Button>
             </Card.Body>
           </Card.Root>
@@ -463,31 +483,37 @@ export function YourOwnTab({
           className="w-full border-dashed"
           leftIcon={<Plus aria-hidden />}
         >
-          Add Another App
+          {t("yourOwnOauthTab.addAnotherAppButton")}
         </Button>
       ) : null}
       <ConfirmDialog
         open={appPendingDeletion !== null}
-        title="Delete OAuth app"
+        title={t("yourOwnOauthTab.deleteAppTitle")}
         message={
           appPendingDeletion
-            ? `Delete OAuth app '${maskClientId(appPendingDeletion.client_id)}'? This will disconnect all linked accounts.`
+            ? t("yourOwnOauthTab.deleteAppMessage", {
+                id: maskClientId(appPendingDeletion.client_id),
+              })
             : ""
         }
-        confirmLabel="Delete"
+        confirmLabel={t("yourOwnOauthTab.delete")}
         destructive
         onConfirm={confirmDeleteApp}
         onCancel={() => setAppPendingDeletion(null)}
       />
       <ConfirmDialog
         open={connectionPendingDisconnect !== null}
-        title={`Disconnect ${displayName}?`}
+        title={t("yourOwnOauthTab.disconnectTitle", { name: displayName })}
         message={
           connectionPendingDisconnect
-            ? `Disconnect ${connectionPendingDisconnect.connection.account_info ?? `${displayName} Account`}? You can reconnect later.`
+            ? t("yourOwnOauthTab.disconnectMessage", {
+                account:
+                  connectionPendingDisconnect.connection.account_info ??
+                  t("yourOwnOauthTab.accountFallback", { name: displayName }),
+              })
             : ""
         }
-        confirmLabel="Disconnect"
+        confirmLabel={t("yourOwnOauthTab.disconnect")}
         destructive
         onConfirm={confirmDisconnect}
         onCancel={() => setConnectionPendingDisconnect(null)}

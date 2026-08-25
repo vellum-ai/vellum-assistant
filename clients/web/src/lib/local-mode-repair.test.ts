@@ -262,6 +262,43 @@ describe("primeLocalGatewayConnectionWithRepair", () => {
     expect((err as InstanceType<typeof GatewayTokenError>).status).toBe(503);
     expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
   });
+
+  test("rides out a post-wake guardian refresh 503, then reconnects", async () => {
+    // The reopen-the-app symptom: with the gateway down, refresh reports 503.
+    // Wake restarts the gateway, but the refresh that follows can still land
+    // before it answers. Riding that 5xx out keeps a plain reopen from
+    // dead-ending on the recovery dialog.
+    let fetches = 0;
+    fetchGuardianTokenHost = mock(async (_id: string) => {
+      fetches++;
+      if (fetches <= 2) {
+        throw new GuardianTokenError(503, "Assistant gateway is unreachable");
+      }
+      return "tok";
+    });
+
+    await primeLocalGatewayConnectionWithRepair();
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    // One pre-wake fetch, one post-wake fetch ridden out, then the success.
+    expect(fetches).toBe(3);
+  });
+
+  test("a post-wake guardian 401 surfaces immediately as a spent credential", async () => {
+    fetchGuardianTokenHost = mock(async () => {
+      throw new GuardianTokenError(401, "Failed to refresh guardian token");
+    });
+
+    const err = await primeLocalGatewayConnectionWithRepair().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(401);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    // One pre-wake fetch plus one terminal post-wake fetch.
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("primeLocalGatewayConnectionWithStartupRetry", () => {

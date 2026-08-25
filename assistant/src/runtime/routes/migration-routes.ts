@@ -7,9 +7,11 @@
  * POST /v1/migrations/import          — commit a .vbundle archive import to disk.
  *
  * Accepts raw binary body (Content-Type: application/octet-stream),
- * multipart form data with a "file" field, or — on /import only — a JSON
- * body of shape `{ "url": "<signed-gcs-url>" }` that causes the daemon to
- * fetch the bundle from GCS and stream it through `streamCommitImport`.
+ * multipart form data with a "file" field, or a JSON body of shape
+ * `{ "url": "<signed-gcs-url>" }` (import only) or `{ "path": "<staged>" }`
+ * (import and import-preflight). The path form streams a file the CLI
+ * staged under `${workspace}/.restore-staging/`. The URL form fetches the
+ * bundle from GCS and streams it through `streamCommitImport`.
  * Returns structured validation results with is_valid flag and detailed
  * error descriptions.
  */
@@ -58,6 +60,10 @@ import {
   migrationJobs,
 } from "../migrations/job-registry.js";
 import { getOriginMode } from "../migrations/origin-mode.js";
+import {
+  resolveStagedImportPath,
+  StagedImportPathError,
+} from "../migrations/staged-import-path.js";
 import type {
   VBundleAssistantInfo,
   VBundleCompatibility,
@@ -81,6 +87,11 @@ import {
   type ImportCommitResult,
 } from "../migrations/vbundle-importer.js";
 import { streamCommitImport } from "../migrations/vbundle-streaming-importer.js";
+import {
+  readAndValidateManifest,
+  StreamingValidationError,
+} from "../migrations/vbundle-streaming-validator.js";
+import { parseVBundleStream } from "../migrations/vbundle-tar-stream.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 import {
   BadGatewayError,
@@ -806,6 +817,8 @@ async function extractFileData(
  * The file can be sent as:
  * - Raw binary body with Content-Type: application/octet-stream
  * - Multipart form data with a "file" field
+ * - JSON body `{ "path": "<staged-relative-or-absolute>" }` pointing at a
+ *   `.vbundle` the caller placed under `${workspace}/.restore-staging/`
  *
  * Returns:
  *   200: {
@@ -825,7 +838,13 @@ async function extractFileData(
 export async function handleMigrationImportPreflight({
   rawBody,
   headers,
+  body,
 }: RouteHandlerArgs) {
+  const contentType = headers?.["content-type"] ?? "";
+  if (contentType.includes("application/json")) {
+    return handleMigrationPreflightFromPath(body);
+  }
+
   const fileData = await extractFileData(rawBody, headers);
 
   try {
@@ -872,15 +891,18 @@ export async function handleMigrationImportPreflight({
  * 5. Verifies post-write integrity (SHA-256 check)
  * 6. Returns a detailed report of what was imported
  *
- * The bundle can be supplied in any of three ways:
+ * The bundle can be supplied as:
  * - Raw binary body with Content-Type: application/octet-stream
  * - Multipart form data with a "file" field
  * - JSON body `{ "url": "<signed-gcs-url>" }` (Content-Type:
  *   application/json). The daemon fetches and streams the archive
  *   through `streamCommitImport`, so peak memory stays bounded by a
  *   single tar entry rather than bundle size.
+ * - JSON body `{ "path": "<staged>" }` pointing at a `.vbundle` the
+ *   caller placed under `${workspace}/.restore-staging/`. The daemon
+ *   streams that file through `streamCommitImport`.
  *
- * Returns (all three paths):
+ * Returns:
  *   200: {
  *     success: true,
  *     summary: { total_files, files_created, files_overwritten, files_skipped, backups_created },
@@ -900,11 +922,10 @@ export async function handleMigrationImport(
   args: RouteHandlerArgs,
 ): Promise<unknown> {
   const { body, rawBody, headers } = args;
-  // JSON body means the caller is asking us to fetch the bundle from a
-  // signed URL and stream it through the importer.
+  // JSON body is either a signed URL fetch or a staged local-file stream.
   const contentType = headers?.["content-type"] ?? "";
   if (contentType.includes("application/json")) {
-    return handleMigrationImportFromUrl(body);
+    return handleMigrationImportFromJson(body);
   }
 
   const fileData = await extractFileData(rawBody, headers);
@@ -1014,6 +1035,8 @@ export async function handleMigrationImport(
 const URL_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
 
 const MigrationImportUrlBody = z.object({ url: z.string().min(1) });
+
+const MigrationImportPathBody = z.object({ path: z.string().min(1) });
 
 const MigrationImportFromGcsBody = z.object({ bundle_url: z.string().url() });
 
@@ -1592,6 +1615,174 @@ async function runGcsImport(
 }
 
 /**
+ * Dispatch a JSON import body to the URL-fetch or staged-path streamer.
+ * The body must include exactly one of `url` or `path`.
+ */
+async function handleMigrationImportFromJson(
+  body: Record<string, unknown> | undefined,
+): Promise<unknown> {
+  const hasUrl = typeof body?.url === "string";
+  const hasPath = typeof body?.path === "string";
+  if (hasUrl && hasPath) {
+    throw new BadRequestError(
+      "Request body must include exactly one of url or path",
+    );
+  }
+  if (hasPath) {
+    return handleMigrationImportFromPath(body);
+  }
+  return handleMigrationImportFromUrl(body);
+}
+
+async function handleMigrationImportFromPath(
+  body: Record<string, unknown> | undefined,
+): Promise<unknown> {
+  const parsed = MigrationImportPathBody.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      "Request body must be { path: string } with a non-empty path",
+    );
+  }
+
+  let resolvedPath: string;
+  try {
+    resolvedPath = resolveStagedImportPath(parsed.data.path, getWorkspaceDir());
+  } catch (err) {
+    if (err instanceof StagedImportPathError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+
+  const source = createReadStream(resolvedPath);
+  const pathResolver = new DefaultPathResolver(
+    getWorkspaceDir(),
+    getWorkspaceHooksDir(),
+  );
+  let credentialsImported: CredentialImportSummary | undefined;
+  const credentialImportWarningSink: CredentialWarningSink = { warnings: [] };
+
+  try {
+    const result = await streamCommitImport({
+      source,
+      pathResolver,
+      workspaceDir: getWorkspaceDir(),
+      importCredentials: async (bundleCredentials) => {
+        credentialsImported = await importBundleCredentialsIntoCes(
+          bundleCredentials,
+          credentialImportWarningSink,
+        );
+      },
+    });
+
+    if (!result.ok) {
+      throwImportCommitFailure(result);
+    }
+
+    if (credentialImportWarningSink.warnings.length > 0) {
+      result.report.warnings.push(...credentialImportWarningSink.warnings);
+    }
+
+    await reconcileVellumMetadataFromCes(result.report);
+    appendNewerMigrationWarningsIfAny(result.report);
+    return importCommitSuccessResult(result.report, credentialsImported);
+  } catch (err) {
+    if (err instanceof RouteError) {
+      throw err;
+    }
+    log.error({ err }, "Unexpected error during staged-path import");
+    throw new InternalError(
+      err instanceof Error ? err.message : "Unexpected import error",
+    );
+  } finally {
+    source.destroy();
+  }
+}
+
+async function handleMigrationPreflightFromPath(
+  body: Record<string, unknown> | undefined,
+): Promise<unknown> {
+  const parsed = MigrationImportPathBody.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      "Request body must be { path: string } with a non-empty path",
+    );
+  }
+
+  let resolvedPath: string;
+  try {
+    resolvedPath = resolveStagedImportPath(parsed.data.path, getWorkspaceDir());
+  } catch (err) {
+    if (err instanceof StagedImportPathError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+
+  const source = createReadStream(resolvedPath);
+  try {
+    const entries = parseVBundleStream(source);
+    const first = await entries.next();
+    if (first.done) {
+      return {
+        can_import: false,
+        validation: {
+          is_valid: false as const,
+          errors: [
+            {
+              code: "empty_archive",
+              message: "Bundle archive is empty",
+            },
+          ],
+        },
+      };
+    }
+
+    let manifest;
+    try {
+      ({ manifest } = await readAndValidateManifest(first.value));
+    } catch (err) {
+      if (err instanceof StreamingValidationError) {
+        return {
+          can_import: false,
+          validation: {
+            is_valid: false as const,
+            errors: [
+              {
+                code: err.code,
+                message: err.message,
+                ...(err.archivePath !== undefined && { path: err.archivePath }),
+              },
+            ],
+          },
+        };
+      }
+      throw err;
+    }
+
+    for await (const entry of entries) {
+      entry.body.resume();
+    }
+
+    const pathResolver = new DefaultPathResolver(
+      getWorkspaceDir(),
+      getWorkspaceHooksDir(),
+    );
+    return analyzeImport({ manifest, pathResolver });
+  } catch (err) {
+    if (err instanceof RouteError) {
+      throw err;
+    }
+    log.error({ err }, "Unexpected error during staged-path preflight");
+    throw new InternalError(
+      err instanceof Error ? err.message : "Unexpected import preflight error",
+    );
+  } finally {
+    source.destroy();
+  }
+}
+
+/**
  * Handle a JSON `{ "url": "..." }` body on POST /v1/migrations/import.
  *
  * Thin wrapper around `runGcsImport` that preserves the legacy synchronous
@@ -2142,8 +2333,17 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Dry-run import analysis",
     description:
-      "Validate a .vbundle archive and return a report of what would change on import without modifying data.",
+      "Validate a .vbundle archive and return a report of what would change on import without modifying data. Accepts raw bytes, multipart form data, or JSON `{ path }` pointing at a file staged under the workspace `.restore-staging` directory.",
     tags: ["migrations"],
+    requestBody: z.object({
+      path: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).",
+        ),
+    }),
     responseBody: z.object({
       can_import: z.boolean(),
       summary: z.object({}).passthrough(),
@@ -2163,14 +2363,22 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Import a .vbundle archive",
     description:
-      "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body with `{ url }` carrying a signed URL the daemon fetches.",
+      "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, a JSON body with `{ url }` carrying a signed URL the daemon fetches, or a JSON body with `{ path }` pointing at a file staged under the workspace `.restore-staging` directory.",
     tags: ["migrations"],
     requestBody: z.object({
       url: z
         .string()
         .url()
+        .optional()
         .describe(
           "A signed GCS URL pointing to the .vbundle archive (JSON body path only).",
+        ),
+      path: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).",
         ),
     }),
     additionalResponses: {

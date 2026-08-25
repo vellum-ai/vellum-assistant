@@ -35,6 +35,7 @@ import { getRiskToleranceHint, toRiskLevel } from "@/domains/chat/utils/risk";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import type { AllowlistOption } from "@/types/interaction-ui-types";
 import type { TrustRuleRisk } from "@/types/trust-rules";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -199,6 +200,7 @@ export function ChatRuleEditorModal({
   onSaveAsNew,
   onDismiss,
 }: ChatRuleEditorModalProps) {
+  const { t } = useTranslation("chat");
   const { existingRule, suggestion } = context;
   const isEditMode = !!existingRule;
 
@@ -472,11 +474,10 @@ export function ChatRuleEditorModal({
       <Modal.Content size="sm" hideCloseButton>
         <Modal.Header>
           <Modal.Title>
-            {isEditMode ? "Edit Trust Rule" : "Create Trust Rule"}
+            {isEditMode ? t("chatRuleEditorModal.editTitle") : t("chatRuleEditorModal.createTitle")}
           </Modal.Title>
           <Modal.Description>
-            Matching tool calls take this rule's risk level, so your approval
-            tolerance can auto-approve them.
+            {t("chatRuleEditorModal.description")}
           </Modal.Description>
         </Modal.Header>
 
@@ -510,7 +511,7 @@ export function ChatRuleEditorModal({
 
             {/* Apply to — pattern options */}
             <section className="flex flex-col gap-2">
-              <SectionHeading>Apply to</SectionHeading>
+              <SectionHeading>{t("chatRuleEditorModal.applyTo")}</SectionHeading>
               {isEditMode && existingRule ? (
                 <>
                   {/* Edit mode: the existing rule pattern is locked */}
@@ -532,10 +533,10 @@ export function ChatRuleEditorModal({
                   {showSaveAsNew && (
                     <>
                       <SectionHeading className="mt-1">
-                        Or narrow the scope:
+                        {t("chatRuleEditorModal.orNarrowScope")}
                       </SectionHeading>
                       <RadioGroup
-                        aria-label="Narrower scope"
+                        aria-label={t("chatRuleEditorModal.narrowerScopeAria")}
                         className="gap-2"
                         value={String(selectedPatternIndex)}
                         onValueChange={(next) =>
@@ -584,7 +585,7 @@ export function ChatRuleEditorModal({
                 </OverlayCard>
               ) : generalizedOptions.length > 1 ? (
                 <RadioGroup
-                  aria-label="Apply to"
+                  aria-label={t("chatRuleEditorModal.applyTo")}
                   className="gap-2"
                   value={String(selectedPatternIndex)}
                   onValueChange={(next) =>
@@ -618,9 +619,9 @@ export function ChatRuleEditorModal({
             {/* Where — directory scope, one card per option */}
             {directoryScopeFiltered.length > 0 && (
               <section className="flex flex-col gap-2">
-                <SectionHeading>Where</SectionHeading>
+                <SectionHeading>{t("chatRuleEditorModal.where")}</SectionHeading>
                 <RadioGroup
-                  aria-label="Where"
+                  aria-label={t("chatRuleEditorModal.where")}
                   className="gap-2"
                   value={String(selectedDirScopeIndex)}
                   onValueChange={(next) =>
@@ -649,7 +650,7 @@ export function ChatRuleEditorModal({
                   >
                     <Radio
                       value="-1"
-                      label={<OptionLabel>Everywhere</OptionLabel>}
+                      label={<OptionLabel>{t("chatRuleEditorModal.everywhere")}</OptionLabel>}
                     />
                   </OverlayCard>
                 </RadioGroup>
@@ -658,9 +659,9 @@ export function ChatRuleEditorModal({
 
             {/* Treat as — risk level picker */}
             <section className="flex flex-col gap-2">
-              <SectionHeading>Treat as</SectionHeading>
+              <SectionHeading>{t("chatRuleEditorModal.treatAs")}</SectionHeading>
               <SegmentControl<TrustRuleRisk>
-                ariaLabel="Treat as"
+                ariaLabel={t("chatRuleEditorModal.treatAs")}
                 value={selectedRiskLevel}
                 onChange={(next) =>
                   handleUserInteraction(() => setSelectedRiskLevel(next))
@@ -681,7 +682,7 @@ export function ChatRuleEditorModal({
                   variant="label-medium-default"
                   className="capitalize text-[var(--content-tertiary)]"
                 >
-                  Suggested: {suggestion.risk}
+                  {t("chatRuleEditorModal.suggested", { risk: suggestion.risk })}
                 </Typography>
               )}
               {riskHint && (
@@ -707,32 +708,32 @@ export function ChatRuleEditorModal({
                     isSaving || selectedPatternIndex >= effectiveOptions.length
                   }
                 >
-                  Save As New
+                  {t("chatRuleEditorModal.saveAsNew")}
                 </Button>
               )}
               <div className="flex-1" />
               <Button variant="outlined" onClick={onDismiss}>
-                Cancel
+                {t("chatRuleEditorModal.cancel")}
               </Button>
               <Button
                 variant="primary"
                 onClick={handleSave}
                 disabled={isSaving}
               >
-                {isSaving ? "Saving…" : "Save"}
+                {isSaving ? t("chatRuleEditorModal.saving") : t("chatRuleEditorModal.save")}
               </Button>
             </>
           ) : (
             <>
               <Button variant="outlined" onClick={onDismiss}>
-                Cancel
+                {t("chatRuleEditorModal.cancel")}
               </Button>
               <Button
                 variant="primary"
                 onClick={handleSave}
                 disabled={!canSave}
               >
-                {isSaving ? "Saving…" : "Save Rule"}
+                {isSaving ? t("chatRuleEditorModal.saving") : t("chatRuleEditorModal.saveRule")}
               </Button>
             </>
           )}

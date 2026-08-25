@@ -1,7 +1,9 @@
+import { Slot } from "@radix-ui/react-slot";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
+import { useHoverCapable } from "../utils/hover-capability";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
@@ -10,6 +12,22 @@ import { usePortalContainer } from "../utils/portal-container";
  * Renders a styled overlay label when the user hovers or focuses the trigger
  * element. Content is portaled into the nearest `<PortalContainerProvider>`
  * so design tokens resolve correctly.
+ *
+ * Nothing mounts at all where the device cannot hover. A tooltip is a hover
+ * affordance: the trigger also opens on focus, and on a touch surface focus is
+ * something a tap hands out, so the label arrives over the control the user
+ * just aimed at and stays until something else takes focus. An autofocused
+ * dialog can strand one with no tap at all. That leaves the tooltip's own
+ * contents unreachable on those devices either way, so a label that carries
+ * information a touch user needs belongs somewhere a thumb can get to, not in
+ * a tooltip.
+ *
+ * The suppression stands even for a hardware keyboard on such a device:
+ * keyboard focus and tap focus arrive as the same event there, and telling
+ * them apart is the heuristic that fails on these devices in the first place.
+ * The accessible name stays on the control itself (callers pair `tooltip`
+ * with an `aria-label`), and content beyond a name belongs in a surface every
+ * input can reach.
  *
  * The convenience `Tooltip` wrapper embeds its own `TooltipProvider` so
  * it works standalone. For compound usage, wrap the tree in a
@@ -61,6 +79,12 @@ function Content({
   ...rest
 }: TooltipContentProps) {
   const portalContainer = usePortalContainer();
+  const hoverCapable = useHoverCapable();
+
+  if (!hoverCapable) {
+    return null;
+  }
+
   return (
     <RadixTooltip.Portal container={portalContainer ?? undefined}>
       <RadixTooltip.Content
@@ -112,7 +136,9 @@ export interface TooltipProps
  * can still reach the element underneath. Without that, a tooltipped child
  * silently swallows the handlers such a primitive clones onto it, and the
  * element ends up with a tooltip and none of the behaviour that was wrapped
- * around it.
+ * around it. Where the device cannot hover the tooltip is gone but that
+ * forwarding is not: the child is rendered on its own, still merged with
+ * whatever an outer primitive passed through.
  */
 function Tooltip({
   content,
@@ -122,6 +148,12 @@ function Tooltip({
   delayDuration,
   ...triggerProps
 }: TooltipProps) {
+  const hoverCapable = useHoverCapable();
+
+  if (!hoverCapable) {
+    return <Slot {...triggerProps}>{children}</Slot>;
+  }
+
   return (
     <RadixTooltip.Provider delayDuration={200} skipDelayDuration={300}>
       <Root delayDuration={delayDuration}>

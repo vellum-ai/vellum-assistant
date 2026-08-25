@@ -3,11 +3,38 @@ import { describe, expect, test } from "bun:test";
 import type { Conversation } from "@/types/conversation-types";
 import { listPage } from "@/utils/conversation-list.test-helper";
 
-import { insertByRecency, insertIntoWindow } from "./conversation-order";
+import {
+  activeConversationsByRecency,
+  insertByRecency,
+  insertIntoWindow,
+} from "./conversation-order";
 
 function row(conversationId: string, lastMessageAt: number): Conversation {
   return { conversationId, title: conversationId, createdAt: 1, lastMessageAt };
 }
+
+describe("activeConversationsByRecency", () => {
+  test("drops archived rows and orders the rest newest first", () => {
+    const rows = [
+      row("older", 1_000),
+      { ...row("archived", 3_000), archivedAt: 3_000 },
+      row("newest", 2_000),
+    ];
+
+    expect(
+      activeConversationsByRecency(rows).map((c) => c.conversationId),
+    ).toEqual(["newest", "older"]);
+  });
+
+  test("leaves the caller's list alone", () => {
+    // Both native mirrors pass the list straight out of the query cache.
+    const rows = [row("older", 1_000), row("newest", 2_000)];
+
+    activeConversationsByRecency(rows);
+
+    expect(rows.map((c) => c.conversationId)).toEqual(["older", "newest"]);
+  });
+});
 
 describe("insertByRecency", () => {
   test("ties place the new row first among its peers", () => {

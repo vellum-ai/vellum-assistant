@@ -121,7 +121,7 @@ struct VoiceSessionAttributes: ActivityAttributes {
         ) {
             self.phase = phase
             self.label = label
-            self.accentHex = Self.canonicalAccentHex(accentHex)
+            self.accentHex = canonicalCSSHex(accentHex) ?? Self.neutralAccentHex
             self.muted = muted
             self.outputMuted = outputMuted
             self.detail = detail
@@ -164,26 +164,6 @@ struct VoiceSessionAttributes: ActivityAttributes {
                     forKey: .approvalRequestId
                 ) ?? ""
             )
-        }
-
-        /// Canonicalizes a CSS hex color (`#RGB`, `#RRGGBB`, `#RRGGBBAA`, with
-        /// the `#` optional) to `#` plus uppercase digits, falling back to
-        /// ``neutralAccentHex`` for anything else. The accepted grammar matches
-        /// `UIColor(cssHex:)`, so the canonical form always parses.
-        static func canonicalAccentHex(_ raw: String) -> String {
-            var digits = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            if digits.hasPrefix("#") {
-                digits.removeFirst()
-            }
-            if digits.count == 3 {
-                digits = digits.map { "\($0)\($0)" }.joined()
-            }
-            guard digits.count == 6 || digits.count == 8,
-                  digits.allSatisfy({ $0.isASCII && $0.isHexDigit })
-            else {
-                return neutralAccentHex
-            }
-            return "#" + digits
         }
     }
 

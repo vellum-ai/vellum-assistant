@@ -2,12 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 
 import {
+  CompanionIntro,
+  introPhase,
+  introSpotlight,
+} from "@/components/companion-intro";
+import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
-import type { VoiceActivityState } from "@vellumai/ipc-contract";
+import {
+  COMPANION_INTRO_BEATS,
+  type CompanionIntroBeat,
+  type VoiceActivityState,
+} from "@vellumai/ipc-contract";
 
 /**
  * A session for the demo reel to draw.
@@ -66,6 +75,15 @@ type Backdrop = keyof typeof BACKDROPS;
 
 type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
   backdrop: Backdrop;
+  /**
+   * Which beat the introduction opens on, for the `Introduction` story.
+   *
+   * A control rather than only a starting point, because the beats are what a
+   * user meets the surface through once and each one has to be looked at on its
+   * own: clicking through to the third every time to check the third is how a
+   * beat goes unreviewed.
+   */
+  introBeat?: CompanionIntroBeat;
 };
 
 const meta: Meta<StoryArgs> = {
@@ -77,7 +95,7 @@ const meta: Meta<StoryArgs> = {
   argTypes: {
     phase: {
       control: "inline-radio",
-      options: ["resting", "hover", "call", "typing"],
+      options: ["resting", "hover", "watching", "call", "typing"],
     },
     backdrop: {
       control: "inline-radio",
@@ -93,10 +111,21 @@ const meta: Meta<StoryArgs> = {
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
+    watching: { control: "boolean" },
+    watchEnabled: { control: "boolean" },
+    introBeat: {
+      control: "inline-radio",
+      options: COMPANION_INTRO_BEATS,
+    },
   },
   args: {
     phase: "resting",
     glow: true,
+    // On here, off everywhere a real user meets it until the flag says
+    // otherwise. Design stories are for looking at what the surface can draw,
+    // and a control the stories hid would be one nobody could review. Turn it
+    // off to see the two-control row a user without the flag gets.
+    watchEnabled: true,
     backdrop: "dark",
     avatarSrc: EXAMPLE_AVATAR,
     character: EXAMPLE_CHARACTER,
@@ -161,9 +190,7 @@ export const TypingWhileWorking: Story = {
     phase: "typing",
     working: true,
     assistantName: "Ziggy",
-    turns: [
-      { role: "user", text: "what is on my calendar tomorrow?" },
-    ],
+    turns: [{ role: "user", text: "what is on my calendar tomorrow?" }],
   },
 };
 
@@ -177,6 +204,101 @@ export const TypingWhileWorking: Story = {
  */
 export const Hover: Story = {
   args: { phase: "hover", hovered: true },
+};
+
+/**
+ * A session reading the screen, with the pointer nowhere near the surface.
+ *
+ * `hovered` is off on purpose: this is the state the phase exists for. The pill
+ * stays open with no hand on it, Watch is held down, and the ring burns amber
+ * rather than the assistant's own colour, so the running session is legible
+ * from across the desk.
+ *
+ * The phase and the flag are both set because they answer different questions.
+ * Turn `watching` off and the pill stays open on a row nothing is running
+ * behind, which is what the phase alone means.
+ *
+ * Watch is the one control on this surface that is genuinely on or off, so it
+ * is the one that reports a pressed state. Everything else the surface says
+ * about a running session is a colour, and a colour reaches nobody who is
+ * reading the page rather than looking at it.
+ */
+export const Watching: Story = {
+  args: { phase: "watching", watching: true, hovered: false },
+};
+
+/**
+ * The session is over and its summary is being written.
+ *
+ * A session ends twice. The socket closes on the stop press, and the account of
+ * what was narrated is written afterwards by a turn that runs for the better
+ * part of a minute. Collapsing to rest across that gap reads as the recording
+ * having been thrown away, so the pill stays open and says what is happening.
+ *
+ * The ring is the session's amber rather than the assistant's accent, because
+ * this is the same session finishing rather than an unrelated turn.
+ */
+export const SummaryPending: Story = {
+  args: { phase: "summary", watchRetro: "pending", hovered: false },
+};
+
+/**
+ * The summary is written, and the surface asks whether to open it.
+ *
+ * Two answers, both drawn. This surface floats over whatever the user does
+ * next, so the way out of a question has to be as reachable as the way in: a
+ * prompt whose only dismissal is going somewhere else is one that follows them
+ * around. Not now is a deferral rather than a discard, since the report is
+ * already in the assistant's conversation list under the session's own title.
+ *
+ * **Clear `watchRetro` to see what the phase alone means.** The row falls back
+ * to the ordinary controls, which is right: nothing here should draw a question
+ * with no answer behind it.
+ */
+export const SummaryReady: Story = {
+  args: { phase: "summary", watchRetro: "ready", hovered: false },
+};
+
+/**
+ * The same session, with the user mid-sentence in the composer.
+ *
+ * The phase the pill draws is `typing`, which outranks `watching`, and the
+ * indicator survives it: the ring is the session's, not the phase's. This is
+ * also the hardest geometry it has to hold, since the card is the one state
+ * that is not a pill.
+ *
+ * The way out survives with it, in the composer's own trailing controls: the
+ * idle row that carries Watch is not drawn here, and a ring the user can see
+ * and cannot act on is a worse bargain than no ring at all. It sits on this row
+ * rather than a row of its own because the card is already within ten points of
+ * the height main sized the canvas for.
+ *
+ * **Turn `watching` off to see what an indicator drawn from the phase would
+ * do.** The card goes dark, and the control goes with it, while the screen is
+ * still being read.
+ */
+export const TypingWhileWatching: Story = {
+  args: {
+    phase: "typing",
+    watching: true,
+    assistantName: "Ziggy",
+    turns: [{ role: "user", text: "what changed in this file?" }],
+  },
+};
+
+/**
+ * The same session again, with a call running over it.
+ *
+ * Two things are live and the surface has one edge to say so with, so the
+ * capture takes it: the creature already carries the turn in its own pose,
+ * and a call is a thing the user started and can hear.
+ *
+ * The widest row the surface draws outside the card: the activity line and five
+ * controls, with the stop beside what the session is doing rather than beside
+ * End, since two stops in a row is a misclick that ends the wrong one.
+ */
+export const InCallWhileWatching: Story = {
+  args: { phase: "call", watching: true, call: DEMO_CALL },
 };
 
 /** Expanded mid-call: the session's own controls, at pill scale. */
@@ -636,3 +758,81 @@ function DemoReelPlayer(args: StoryArgs) {
     </div>
   );
 }
+
+/**
+ * The one-time introduction, walkable.
+ *
+ * The beats are what a user meets the surface through exactly once, so the
+ * thing worth looking at here is the whole run rather than any one card: the
+ * pill opening on the second beat, the spotlight moving between controls, and
+ * the card holding still through all of it because it hangs off the avatar
+ * rather than off the pill.
+ *
+ * Ends by starting over, which the real run pointedly does not do. Main records
+ * that it has been seen and there is no way back into it from the app; this is
+ * a story, and a story that could only be watched once would be useless.
+ */
+function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
+  const [beat, setBeat] = useState<CompanionIntroBeat | null>(
+    introBeat ?? COMPANION_INTRO_BEATS[0],
+  );
+
+  // Jumping straight to a beat from the controls panel, so each one can be
+  // reviewed without walking to it.
+  useEffect(() => {
+    setBeat(introBeat ?? COMPANION_INTRO_BEATS[0]);
+  }, [introBeat]);
+
+  return (
+    <CompanionSurface
+      {...args}
+      phase={introPhase(beat) ?? args.phase}
+      spotlight={introSpotlight(beat)}
+      intro={
+        beat === null ? null : (
+          <CompanionIntro
+            beat={beat}
+            growth={args.growth}
+            cardGrowth={args.cardGrowth}
+            accentHex={args.accentHex}
+            onAdvance={(action) => {
+              const next =
+                action === "dismiss"
+                  ? null
+                  : (COMPANION_INTRO_BEATS[
+                      COMPANION_INTRO_BEATS.indexOf(beat) + 1
+                    ] ?? null);
+              // Back to the top rather than gone, so the run can be watched
+              // again without reloading the story.
+              setBeat(next ?? COMPANION_INTRO_BEATS[0]);
+            }}
+          />
+        )
+      }
+    />
+  );
+}
+
+export const Introduction: Story = {
+  args: { phase: "resting", introBeat: COMPANION_INTRO_BEATS[0] },
+  render: (args) => <IntroWalkthrough {...args} />,
+};
+
+/**
+ * The card with a reply that uses the formatting an assistant actually writes:
+ * emphasis, inline code, and a short list. What the card does with markdown is
+ * worth looking at rather than reasoning about, since it is 360pt wide and set
+ * at 12px, and the primitive is authored for a full-width transcript.
+ */
+export const TypingWithMarkdown: Story = {
+  args: {
+    phase: "typing",
+    turns: [
+      { role: "user", text: "how do i reset the intro?" },
+      {
+        role: "assistant",
+        text: '## Resetting it\n\nRun this with the app quit:\n\n```sh\njq \'del(.companionIntroSeen)\' "$f" > "$f.tmp" && mv "$f.tmp" "$f"\n```\n\n- It runs **once per install**\n- `companionHidden` must be `false`\n- The surface appears *after* sign-in',
+      },
+    ],
+  },
+};

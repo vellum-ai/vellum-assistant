@@ -7,7 +7,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
-import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { shouldShowBillingTab } from "@/domains/settings/billing/billing-tab-visibility";
 import { CheckoutBonusModal } from "@/domains/settings/billing/checkout-bonus-modal";
@@ -333,11 +332,7 @@ function BillingTabContent() {
 }
 
 function BillingTab() {
-  return (
-    <AndroidBillingGate>
-      <BillingTabContent />
-    </AndroidBillingGate>
-  );
+  return <BillingTabContent />;
 }
 
 function UsagePanel() {

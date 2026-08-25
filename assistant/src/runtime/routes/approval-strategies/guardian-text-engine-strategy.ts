@@ -3,6 +3,7 @@
  * the conversational approval engine when an approvalConversationGenerator is
  * available. Classifies natural language and responds conversationally.
  */
+import { audienceForReader } from "../../../channels/message-audience.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { runApprovalConversationTurn } from "../../approval-conversation-turn.js";
@@ -21,17 +22,6 @@ import type { ApprovalInterceptionResult } from "../approval-interception-types.
 import { deliverStaleApprovalReply } from "../guardian-approval-reply-helpers.js";
 
 const log = getLogger("runtime-http");
-
-/**
- * Resolve the Slack ephemeral user ID when the source channel is Slack.
- * Returns `undefined` for non-Slack channels.
- */
-function slackEphemeralUserId(
-  sourceChannel: ChannelId,
-  userId: string | undefined,
-): string | undefined {
-  return sourceChannel === "slack" && userId ? userId : undefined;
-}
 
 export interface TextEngineDecisionParams {
   conversationId: string;
@@ -96,11 +86,11 @@ export async function handleGuardianTextEngineDecision(
         text: engineResult.replyText,
         assistantId,
       };
-      const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
-      if (ephemeral) {
-        keepPendingPayload.ephemeral = true;
-        keepPendingPayload.user = ephemeral;
-      }
+      keepPendingPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        actorExternalId,
+      );
       await deliverChannelReply(replyCallbackUrl, keepPendingPayload);
     } catch (err) {
       log.error(
@@ -131,11 +121,11 @@ export async function handleGuardianTextEngineDecision(
         text: engineResult.replyText,
         assistantId,
       };
-      const ephemeral = slackEphemeralUserId(sourceChannel, actorExternalId);
-      if (ephemeral) {
-        decisionPayload.ephemeral = true;
-        decisionPayload.user = ephemeral;
-      }
+      decisionPayload.audience = audienceForReader(
+        sourceChannel,
+        conversationExternalId,
+        actorExternalId,
+      );
       await deliverChannelReply(replyCallbackUrl, decisionPayload);
     } catch (err) {
       log.error(
@@ -160,7 +150,11 @@ export async function handleGuardianTextEngineDecision(
     logger: log,
     errorLogMessage: "Failed to deliver stale approval notice",
     errorLogContext: { conversationId },
-    ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
+    audience: audienceForReader(
+      sourceChannel,
+      conversationExternalId,
+      actorExternalId,
+    ),
   });
 
   return { handled: true, type: "stale_ignored" };

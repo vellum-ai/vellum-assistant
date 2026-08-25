@@ -1,3 +1,5 @@
+
+import { useTranslation } from "@/i18n";
 /**
  * Nested detail view for a subagent "Searching the web" query pill: the search
  * query rendered verbatim, then the sources it returned as the same favicon
@@ -16,6 +18,7 @@ import { WebSearchStepRow } from "@/domains/chat/components/web-search/web-searc
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 export function WebSearchDetailView({ detail }: { detail: ToolDetailPayload }) {
+  const { t } = useTranslation("chat");
   const query = detail.searchQuery ?? "";
   const results = detail.searchResults ?? [];
 
@@ -28,7 +31,7 @@ export function WebSearchDetailView({ detail }: { detail: ToolDetailPayload }) {
             as="h3"
             className="text-[var(--content-emphasised)]"
           >
-            Query
+            {t("webSearchDetailView.query")}
           </Typography>
           <Typography
             variant="body-medium-lighter"
@@ -46,7 +49,9 @@ export function WebSearchDetailView({ detail }: { detail: ToolDetailPayload }) {
           as="h3"
           className="text-[var(--content-emphasised)]"
         >
-          {results.length > 0 ? `Sources (${results.length})` : "Sources"}
+          {results.length > 0
+            ? t("webSearchDetailView.sourcesWithCount", { count: results.length })
+            : t("webSearchDetailView.sources")}
         </Typography>
         {results.length > 0 ? (
           // Reuse the timeline's source-chip cluster so the detail and the
@@ -65,7 +70,7 @@ export function WebSearchDetailView({ detail }: { detail: ToolDetailPayload }) {
             variant="body-small-default"
             className="text-[var(--content-tertiary)]"
           >
-            No sources found.
+            {t("webSearchDetailView.noSources")}
           </Typography>
         )}
       </div>

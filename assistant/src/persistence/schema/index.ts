@@ -16,4 +16,5 @@ export * from "./memory-injection.js";
 export * from "./notifications.js";
 export * from "./oauth.js";
 export * from "./tasks.js";
+export * from "./watch.js";
 export * from "./workflows.js";

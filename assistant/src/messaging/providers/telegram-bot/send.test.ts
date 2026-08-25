@@ -30,7 +30,8 @@ mock.module("./api.js", () => ({
 }));
 
 const { TelegramNonRetryableError } = await import("./api.js");
-const { sendTelegramReply, sendTelegramRichReply } = await import("./send.js");
+const { editTelegramMessage, sendTelegramReply, sendTelegramRichReply } =
+  await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
 const approval: ApprovalUIMetadata = {
@@ -191,15 +192,15 @@ describe("telegramTransport.deliver routing", () => {
     } as ChannelReplyPayload;
   }
 
-  test("routes to the rich send when useBlocks is set", async () => {
-    await telegramTransport.deliver(ctx, payload({ useBlocks: true }));
+  test("routes to the rich send when a rich render is asked for", async () => {
+    await telegramTransport.deliver(ctx, payload({ renderRichly: true }));
 
     expect(callsTo("sendRichMessage")).toHaveLength(1);
     expect(callsTo("sendMessage")).toHaveLength(0);
   });
 
-  test("stays on the plain send when useBlocks is absent", async () => {
-    await telegramTransport.deliver(ctx, payload({ useBlocks: false }));
+  test("stays on the plain send when it is not", async () => {
+    await telegramTransport.deliver(ctx, payload({ renderRichly: false }));
 
     expect(callsTo("sendRichMessage")).toHaveLength(0);
     expect(callsTo("sendMessage")).toHaveLength(1);
@@ -208,7 +209,7 @@ describe("telegramTransport.deliver routing", () => {
   test("forwards approval metadata through the rich path", async () => {
     await telegramTransport.deliver(
       ctx,
-      payload({ useBlocks: true, approval } as Partial<ChannelReplyPayload>),
+      payload({ renderRichly: true, approval } as Partial<ChannelReplyPayload>),
     );
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
@@ -238,7 +239,7 @@ describe("telegramTransport topic targeting", () => {
   }
 
   test("plain replies target the topic from the callback threadId param", async () => {
-    await telegramTransport.deliver(topicCtx, payload({ useBlocks: false }));
+    await telegramTransport.deliver(topicCtx, payload({ renderRichly: false }));
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",
@@ -248,7 +249,7 @@ describe("telegramTransport topic targeting", () => {
   });
 
   test("rich replies target the topic", async () => {
-    await telegramTransport.deliver(topicCtx, payload({ useBlocks: true }));
+    await telegramTransport.deliver(topicCtx, payload({ renderRichly: true }));
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendRichMessage", {
       chat_id: "123",
@@ -262,7 +263,7 @@ describe("telegramTransport topic targeting", () => {
       throw new TelegramNonRetryableError("rejected", "rejected");
     });
 
-    await telegramTransport.deliver(topicCtx, payload({ useBlocks: true }));
+    await telegramTransport.deliver(topicCtx, payload({ renderRichly: true }));
 
     expect(callTelegramBotApiMock).toHaveBeenNthCalledWith(2, "sendMessage", {
       chat_id: "123",
@@ -272,7 +273,10 @@ describe("telegramTransport topic targeting", () => {
   });
 
   test("typing indicators target the topic", async () => {
-    await telegramTransport.typing!(topicCtx, "123");
+    await telegramTransport.setActivity!(topicCtx, {
+      chatId: "123",
+      phase: "thinking",
+    });
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendChatAction", {
       chat_id: "123",
@@ -281,14 +285,32 @@ describe("telegramTransport topic targeting", () => {
     });
   });
 
+  // Telegram's chat action expires on its own, so a phase that is not running
+  // has nothing to say. Asserting the call count rather than the absence of a
+  // "stop" call is what catches a clearing request being invented later.
+  test.each(["idle", "awaiting_confirmation"] as const)(
+    "says nothing to Telegram for the %s phase",
+    async (phase) => {
+      await telegramTransport.setActivity!(topicCtx, {
+        chatId: "123",
+        phase,
+      });
+
+      expect(callTelegramBotApiMock).not.toHaveBeenCalled();
+    },
+  );
+
   test("a callback URL without threadId keeps sends thread-less", async () => {
     const bareCtx: CallbackContext = {
       callbackUrl: "/deliver/telegram",
       params: {},
     };
 
-    await telegramTransport.deliver(bareCtx, payload({ useBlocks: false }));
-    await telegramTransport.typing!(bareCtx, "123");
+    await telegramTransport.deliver(bareCtx, payload({ renderRichly: false }));
+    await telegramTransport.setActivity!(bareCtx, {
+      chatId: "123",
+      phase: "thinking",
+    });
 
     expect(callTelegramBotApiMock).toHaveBeenCalledWith("sendMessage", {
       chat_id: "123",
@@ -298,5 +320,80 @@ describe("telegramTransport topic targeting", () => {
       chat_id: "123",
       action: "typing",
     });
+  });
+});
+
+describe("editTelegramMessage", () => {
+  const ctx = { callbackUrl: "http://gw/deliver/telegram", params: {} };
+
+  const sendMessageCalls = () =>
+    callTelegramBotApiMock.mock.calls.filter(
+      (call) => call[0] === "sendMessage",
+    );
+
+  test("edits in place and never posts a new message", async () => {
+    await telegramTransport.edit!(ctx as CallbackContext, {
+      chatId: "123",
+      messageId: "456",
+      text: "revised",
+    });
+
+    expect(callTelegramBotApiMock).toHaveBeenCalledTimes(1);
+    const [method, body] = callTelegramBotApiMock.mock.calls[0]!;
+    expect(method).toBe("editMessageText");
+    // Telegram wants a numeric message id, where the capability carries the
+    // channel's id as a string.
+    expect(body).toEqual({
+      chat_id: "123",
+      message_id: 456,
+      text: "revised",
+      reply_markup: { inline_keyboard: [] },
+    });
+  });
+
+  test("clears the inline keyboard, so a settled message keeps no buttons", async () => {
+    await telegramTransport.edit!(ctx as CallbackContext, {
+      chatId: "123",
+      messageId: "456",
+      text: "\u2713 Approved",
+    });
+
+    const [, body] = callTelegramBotApiMock.mock.calls[0]!;
+    // Omitting reply_markup leaves an existing keyboard in place, which would
+    // leave live Approve and Reject buttons under text saying the request is
+    // already decided. The field has to be sent, and sent empty.
+    expect((body as Record<string, unknown>).reply_markup).toEqual({
+      inline_keyboard: [],
+    });
+  });
+
+  test("treats an unchanged message as already done", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError(
+        "Bad Request",
+        "Bad Request: message is not modified",
+      );
+    });
+
+    // The edit asked for a state the message is already in, which is the
+    // request satisfied rather than refused.
+    await expect(
+      editTelegramMessage("123", "456", "same"),
+    ).resolves.toBeUndefined();
+    expect(sendMessageCalls()).toHaveLength(0);
+  });
+
+  test("throws on any other rejection rather than posting a replacement", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError(
+        "Bad Request",
+        "Bad Request: message to edit not found",
+      );
+    });
+
+    // Posting instead would leave the original beside a duplicate, so the
+    // failure has to reach the caller.
+    await expect(editTelegramMessage("123", "456", "gone")).rejects.toThrow();
+    expect(sendMessageCalls()).toHaveLength(0);
   });
 });

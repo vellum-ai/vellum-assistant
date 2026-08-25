@@ -24,6 +24,11 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
+import {
+  normalizeSkillPlatforms,
+  SKILL_PLATFORM_VALUES,
+  type SkillPlatform,
+} from "../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { OwnerInfo } from "../tools/types.js";
@@ -51,6 +56,7 @@ const VellumMetadataSchema = z
     "avoid-when": z.array(z.string()).optional(),
     category: z.string().optional(),
     "always-candidate": z.boolean().optional(),
+    platforms: z.array(z.enum(SKILL_PLATFORM_VALUES)).optional(),
   })
   .passthrough();
 
@@ -129,6 +135,8 @@ export interface SkillSummary {
    * the model must judge, not embedding similarity.
    */
   alwaysCandidate?: boolean;
+  /** Host operating systems on which this skill may be offered and loaded. */
+  platforms?: SkillPlatform[];
   /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
@@ -254,6 +262,7 @@ interface ParsedFrontmatter {
   avoidWhen?: string[];
   category?: string;
   alwaysCandidate?: boolean;
+  platforms?: SkillPlatform[];
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
@@ -376,6 +385,8 @@ function parseFrontmatter(
       ? vellum["always-candidate"]
       : undefined;
 
+  const platforms = normalizeSkillPlatforms(vellum?.platforms);
+
   const strippedBody = stripCommentLines(body);
 
   // Parse inline command expansions from the body (after frontmatter/comment stripping)
@@ -401,6 +412,7 @@ function parseFrontmatter(
     avoidWhen,
     category,
     alwaysCandidate,
+    platforms,
     inlineCommandExpansions,
   };
 }
@@ -561,6 +573,7 @@ function readSkillFromDirectory(
       avoidWhen: parsed.avoidWhen,
       category: parsed.category,
       alwaysCandidate: parsed.alwaysCandidate,
+      platforms: parsed.platforms,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -617,6 +630,7 @@ function readBundledSkillFromDirectory(
       avoidWhen: parsed.avoidWhen,
       category: parsed.category,
       alwaysCandidate: parsed.alwaysCandidate,
+      platforms: parsed.platforms,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -685,6 +699,7 @@ function loadBundledSkills(): SkillSummary[] {
       avoidWhen: skill.avoidWhen,
       category: skill.category,
       alwaysCandidate: skill.alwaysCandidate,
+      platforms: skill.platforms,
       inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
@@ -975,6 +990,7 @@ function skillSummaryFromDefinition(
     avoidWhen: skill.avoidWhen,
     category: skill.category,
     alwaysCandidate: skill.alwaysCandidate,
+    platforms: skill.platforms,
     inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
@@ -1038,6 +1054,7 @@ export function loadSkillCatalog(
             avoidWhen: parsed.avoidWhen,
             category: parsed.category,
             alwaysCandidate: parsed.alwaysCandidate,
+            platforms: parsed.platforms,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -1185,6 +1202,7 @@ export function loadSkillCatalog(
           avoidWhen: parsed.avoidWhen,
           category: parsed.category,
           alwaysCandidate: parsed.alwaysCandidate,
+          platforms: parsed.platforms,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 

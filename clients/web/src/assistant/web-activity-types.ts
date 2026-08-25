@@ -6,9 +6,10 @@ export type WebSearchProviderId =
   | "perplexity"
   | "tavily"
   | "keenable"
-  | "firecrawl";
+  | "firecrawl"
+  | "fastcrw";
 
-export type WebFetchProviderId = "default" | "firecrawl";
+export type WebFetchProviderId = "default" | "firecrawl" | "fastcrw";
 
 export interface WebSearchResultItem {
   rank: number;

@@ -11,6 +11,7 @@
 import { Sparkles } from "lucide-react";
 
 import type { ResearchSuggestion } from "@/domains/chat/onboarding-research/research-facts";
+import { useTranslation } from "@/i18n";
 
 interface ResearchSuggestionsProps {
   suggestions: ResearchSuggestion[];
@@ -22,13 +23,14 @@ export function ResearchSuggestions({
   suggestions,
   onSelect,
 }: ResearchSuggestionsProps) {
+  const { t } = useTranslation("chat");
   if (suggestions.length === 0) {
     return null;
   }
   return (
     <div className="flex w-full flex-col gap-3">
       <h2 className="text-lg font-medium text-[var(--content-secondary)]">
-        Here&apos;s how I could help to start:
+        {t("researchSuggestions.heading")}
       </h2>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {suggestions.slice(0, 4).map((suggestion, index) => (

@@ -8,21 +8,14 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsUpgradePolicyDetailPartialUpdate } from "@/generated/api/sdk.gen";
 import type { FrequencyEnum, UpgradePolicy } from "@/generated/api/types.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-const DAY_ENTRIES: ReadonlyArray<[label: string, backendIndex: number]> = [
-  ["Mon", 0],
-  ["Tue", 1],
-  ["Wed", 2],
-  ["Thu", 3],
-  ["Fri", 4],
-  ["Sat", 5],
-  ["Sun", 6],
-];
+const DAY_BACKEND_INDEXES = [0, 1, 2, 3, 4, 5, 6] as const;
 
 function utcTimeToLocal(utcTime: string): string {
   const [hours, minutes] = utcTime.split(":").map(Number);
@@ -93,7 +86,18 @@ interface UpdateWindowPolicyProps {
 }
 
 export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
+
+  const dayLabels = [
+    t("updateWindowPolicy.dayMon"),
+    t("updateWindowPolicy.dayTue"),
+    t("updateWindowPolicy.dayWed"),
+    t("updateWindowPolicy.dayThu"),
+    t("updateWindowPolicy.dayFri"),
+    t("updateWindowPolicy.daySat"),
+    t("updateWindowPolicy.daySun"),
+  ];
 
   const {
     data: policy,
@@ -172,7 +176,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
           },
         },
       });
-      toast.success("Auto-update policy saved.");
+      toast.success(t("updateWindowPolicy.toastSaved"));
       setLocalForm(null);
       setDaysOfMonthText(null);
       queryClient.invalidateQueries({
@@ -181,7 +185,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
         }),
       });
     } catch {
-      toast.error("Failed to save policy. Please try again.");
+      toast.error(t("updateWindowPolicy.toastSaveFailed"));
     }
   };
 
@@ -189,7 +193,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
     return (
       <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading update window settings...
+        {t("updateWindowPolicy.loading")}
       </div>
     );
   }
@@ -197,7 +201,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
   if (policyError) {
     return (
       <p className="text-body-medium-lighter text-[var(--system-negative-strong)]">
-        Failed to load update window policy. Refresh the page to try again.
+        {t("updateWindowPolicy.loadError")}
       </p>
     );
   }
@@ -207,19 +211,19 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
       <Toggle
         checked={form.enabled}
         onChange={(next) => update({ enabled: next })}
-        label="Automatic updates"
-        helperText="Update automatically during a configured time window"
+        label={t("updateWindowPolicy.automaticUpdates")}
+        helperText={t("updateWindowPolicy.automaticUpdatesHelper")}
       />
 
       {form.enabled && (
         <div className="space-y-5">
           <div className="space-y-2">
             <label className="block text-body-small-default text-[var(--content-secondary)]">
-              Frequency
+              {t("updateWindowPolicy.frequency")}
             </label>
             <div className="max-w-[400px]">
               <SegmentControl<FrequencyEnum>
-                ariaLabel="Frequency"
+                ariaLabel={t("updateWindowPolicy.frequency")}
                 value={form.frequency}
                 onChange={(f) => {
                   if (f !== "monthly") {
@@ -228,9 +232,9 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
                   update({ frequency: f });
                 }}
                 items={[
-                  { value: "daily", label: "Daily" },
-                  { value: "weekly", label: "Weekly" },
-                  { value: "monthly", label: "Monthly" },
+                  { value: "daily", label: t("updateWindowPolicy.daily") },
+                  { value: "weekly", label: t("updateWindowPolicy.weekly") },
+                  { value: "monthly", label: t("updateWindowPolicy.monthly") },
                 ]}
               />
             </div>
@@ -239,10 +243,10 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
           {form.frequency === "weekly" && (
             <div className="space-y-2">
               <label className="block text-body-small-default text-[var(--content-secondary)]">
-                Day(s) of week
+                {t("updateWindowPolicy.daysOfWeek")}
               </label>
               <div className="flex flex-wrap gap-1.5">
-                {DAY_ENTRIES.map(([name, idx]) => (
+                {DAY_BACKEND_INDEXES.map((idx) => (
                   <Button
                     key={idx}
                     variant="outlined"
@@ -250,7 +254,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
                     active={form.daysOfWeek.includes(idx)}
                     onClick={() => toggleDayOfWeek(idx)}
                   >
-                    {name}
+                    {dayLabels[idx]}
                   </Button>
                 ))}
               </div>
@@ -259,7 +263,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
 
           {form.frequency === "monthly" && (
             <Input
-              label="Day(s) of month"
+              label={t("updateWindowPolicy.daysOfMonth")}
               type="text"
               value={displayDaysOfMonthText}
               onChange={(e) => setDaysOfMonthText(e.target.value)}
@@ -268,15 +272,17 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
                 update({ daysOfMonth: days });
                 setDaysOfMonthText(days.join(", "));
               }}
-              placeholder="e.g. 1, 15"
-              helperText="Comma-separated day numbers (1–31)"
+              placeholder={t("updateWindowPolicy.daysOfMonthPlaceholder")}
+              helperText={t("updateWindowPolicy.daysOfMonthHelper")}
               className="w-48"
             />
           )}
 
           <div className="space-y-2">
             <label className="block text-body-small-default text-[var(--content-secondary)]">
-              Update window{tzAbbrev ? ` (${tzAbbrev})` : ""}
+              {tzAbbrev
+                ? t("updateWindowPolicy.updateWindowWithTz", { tz: tzAbbrev })
+                : t("updateWindowPolicy.updateWindow")}
             </label>
             <div className="flex items-center gap-3">
               <Input
@@ -285,7 +291,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
                 onChange={(e) => update({ windowStart: e.target.value })}
               />
               <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-                to
+                {t("updateWindowPolicy.to")}
               </span>
               <Input
                 type="time"
@@ -307,7 +313,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
         onClick={handleSavePolicy}
         disabled={policyUpdate.isPending || !dirty}
       >
-        Save policy
+        {t("updateWindowPolicy.savePolicy")}
       </Button>
     </div>
   );

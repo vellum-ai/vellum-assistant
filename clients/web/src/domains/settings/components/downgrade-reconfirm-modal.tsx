@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -19,6 +20,8 @@ export function DowngradeReconfirmModal({
   confirming,
   lostFeatures,
 }: DowngradeReconfirmModalProps) {
+  const { t } = useTranslation("settings");
+
   return (
     <Modal.Root
       open={open}
@@ -30,7 +33,7 @@ export function DowngradeReconfirmModal({
     >
       <Modal.Content size="md" hideCloseButton>
         <Modal.Header icon={AlertTriangle}>
-          <Modal.Title>Downgrade to Base?</Modal.Title>
+          <Modal.Title>{t("downgradeReconfirmModal.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Typography
@@ -38,7 +41,7 @@ export function DowngradeReconfirmModal({
             variant="body-medium-default"
             className="text-(--content-secondary)"
           >
-            Downgrading removes the following Pro features:
+            {t("downgradeReconfirmModal.body")}
           </Typography>
           <ul className="mt-4 list-disc space-y-2 pl-5">
             {lostFeatures.map((feature) => (
@@ -52,7 +55,7 @@ export function DowngradeReconfirmModal({
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={onCancel} disabled={confirming}>
-            Keep Pro
+            {t("downgradeReconfirmModal.keepPro")}
           </Button>
           <Button
             variant="danger"
@@ -60,7 +63,7 @@ export function DowngradeReconfirmModal({
             disabled={confirming}
             data-testid="confirm-downgrade-button"
           >
-            Confirm Downgrade
+            {t("downgradeReconfirmModal.confirm")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

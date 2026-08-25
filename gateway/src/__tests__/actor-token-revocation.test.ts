@@ -1,6 +1,7 @@
 /**
- * Tests for the hot-path actor-token revocation check: a revoked actor token
- * is rejected on live requests, with fail-open semantics for non-actor,
+ * Tests for hot-path actor-token admission: a revoked actor token is rejected
+ * on live requests and stamps nothing, an admitted one records its device's
+ * activity off the same lookup, with fail-open semantics for non-actor,
  * unrecorded, and DB-error cases.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -20,8 +21,11 @@ const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
 const { actorTokenRecords, contacts } = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
-const { isActorTokenRevoked, actorTokenRecordHash } =
-  await import("../auth/actor-token-revocation.js");
+const {
+  admitActorToken,
+  actorTokenRecordHash,
+  __resetLastUsedDebounceForTests,
+} = await import("../auth/actor-token-revocation.js");
 const { createRuntimeProxyHandler } =
   await import("../http/routes/runtime-proxy.js");
 const { bustGuardianIntegrityCache } =
@@ -36,7 +40,11 @@ const actorClaims = { sub: ACTOR_SUB } as TokenClaims;
 
 let testRoot: string;
 
-function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
+function insertTokenRecord(
+  rawToken: string,
+  status: "active" | "revoked" | "derived",
+  deviceLabel = "device-A",
+) {
   const now = Date.now();
   getGatewayDb()
     .insert(actorTokenRecords)
@@ -44,7 +52,7 @@ function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
       id: `id-${rawToken}`,
       tokenHash: hashToken(rawToken),
       guardianPrincipalId: "guardian-001",
-      hashedDeviceId: hashToken("device-A"),
+      hashedDeviceId: hashToken(deviceLabel),
       platform: "web",
       status,
       issuedAt: now,
@@ -53,6 +61,46 @@ function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
       updatedAt: now,
     })
     .run();
+}
+
+function readRow(rawToken: string) {
+  return getGatewayDb()
+    .select({
+      lastUsedAt: actorTokenRecords.lastUsedAt,
+      updatedAt: actorTokenRecords.updatedAt,
+    })
+    .from(actorTokenRecords)
+    .where(eq(actorTokenRecords.tokenHash, hashToken(rawToken)))
+    .get();
+}
+
+/** Records the SQL drizzle prepares while `fn` runs. */
+function captureSql(fn: () => void): string[] {
+  type PreparingClient = {
+    prepare: (sql: string, ...rest: unknown[]) => unknown;
+  };
+  const client = (getGatewayDb() as unknown as { $client: PreparingClient })
+    .$client;
+  const original = client.prepare;
+  const seen: string[] = [];
+  client.prepare = (sql, ...rest) => {
+    seen.push(sql);
+    return original.call(client, sql, ...rest);
+  };
+  try {
+    fn();
+  } finally {
+    client.prepare = original;
+  }
+  return seen;
+}
+
+function statementsOn(sql: string[], verb: "select" | "update"): string[] {
+  return sql.filter(
+    (stmt) =>
+      stmt.trim().toLowerCase().startsWith(verb) &&
+      stmt.includes("actor_token_records"),
+  );
 }
 
 function insertGuardianContact() {
@@ -76,6 +124,7 @@ beforeEach(async () => {
   mkdirSync(securityDir, { recursive: true });
   process.env.GATEWAY_SECURITY_DIR = securityDir;
   await initGatewayDb();
+  __resetLastUsedDebounceForTests();
   // The integrity state is module-cached across tests; token rows seeded here
   // are integrity evidence, so keep the reporter silenced and the cache cold.
   bustGuardianIntegrityCache();
@@ -100,31 +149,31 @@ afterEach(() => {
   }
 });
 
-describe("isActorTokenRevoked", () => {
-  test("returns true for an actor token whose record is revoked", () => {
+describe("admitActorToken: revocation verdict", () => {
+  test("rejects an actor token whose record is revoked", () => {
     insertTokenRecord("token-revoked", "revoked");
-    expect(isActorTokenRevoked("token-revoked", actorClaims)).toBe(true);
+    expect(admitActorToken("token-revoked", actorClaims)).toBe(false);
   });
 
-  test("returns false for an actor token whose record is active", () => {
+  test("admits an actor token whose record is active", () => {
     insertTokenRecord("token-active", "active");
-    expect(isActorTokenRevoked("token-active", actorClaims)).toBe(false);
+    expect(admitActorToken("token-active", actorClaims)).toBe(true);
   });
 
-  test("returns false (fail-open) for an actor token with no record", () => {
-    expect(isActorTokenRevoked("token-unknown", actorClaims)).toBe(false);
+  test("admits (fail-open) an actor token with no record", () => {
+    expect(admitActorToken("token-unknown", actorClaims)).toBe(true);
   });
 
   test("never checks non-actor tokens (svc)", () => {
     // Even if a row with this hash were revoked, a svc sub must be ignored.
     insertTokenRecord("svc-token", "revoked");
     const svcClaims = { sub: "svc:gateway:self" } as TokenClaims;
-    expect(isActorTokenRevoked("svc-token", svcClaims)).toBe(false);
+    expect(admitActorToken("svc-token", svcClaims)).toBe(true);
   });
 
-  test("returns false (fail-open) when the gateway DB is unavailable", () => {
+  test("admits (fail-open) when the gateway DB is unavailable", () => {
     resetGatewayDb();
-    expect(isActorTokenRevoked("token-anything", actorClaims)).toBe(false);
+    expect(admitActorToken("token-anything", actorClaims)).toBe(true);
   });
 
   test("still detects revocation when the token has surrounding whitespace", () => {
@@ -132,8 +181,20 @@ describe("isActorTokenRevoked", () => {
     // supplied with trailing whitespace (e.g. a `?token=<jwt>%20` WS param)
     // must still resolve to the revoked record.
     insertTokenRecord("token-revoked", "revoked");
-    expect(isActorTokenRevoked("token-revoked ", actorClaims)).toBe(true);
-    expect(isActorTokenRevoked(" token-revoked\n", actorClaims)).toBe(true);
+    expect(admitActorToken("token-revoked ", actorClaims)).toBe(false);
+    expect(admitActorToken(" token-revoked\n", actorClaims)).toBe(false);
+  });
+
+  test("a revoked token is rejected without stamping any row", () => {
+    // A re-paired device: the revoked row and a fresh active row share a
+    // hashed device id, so a misordered stamp would land on the active one.
+    insertTokenRecord("token-stale", "revoked");
+    insertTokenRecord("token-fresh", "active");
+
+    expect(admitActorToken("token-stale", actorClaims)).toBe(false);
+
+    expect(readRow("token-stale")?.lastUsedAt).toBeNull();
+    expect(readRow("token-fresh")?.lastUsedAt).toBeNull();
   });
 });
 
@@ -161,19 +222,19 @@ describe("signature-encoding canonicalization (revocation bypass)", () => {
     insertTokenRecord(jwt, "revoked"); // stored under the canonical token hash
 
     // Baseline: the canonical token is detected as revoked.
-    expect(isActorTokenRevoked(jwt, actorClaims)).toBe(true);
+    expect(admitActorToken(jwt, actorClaims)).toBe(false);
 
     // Bypass attempt: same token, signature re-encoded (different string, same
     // bytes). Must still resolve to the revoked record.
     const padded = padSignature(jwt);
     expect(padded).not.toBe(jwt);
-    expect(isActorTokenRevoked(padded, actorClaims)).toBe(true);
+    expect(admitActorToken(padded, actorClaims)).toBe(false);
   });
 
   test("does not falsely revoke an active token re-encoded with padding", () => {
     const jwt = mintActorJwt();
     insertTokenRecord(jwt, "active");
-    expect(isActorTokenRevoked(padSignature(jwt), actorClaims)).toBe(false);
+    expect(admitActorToken(padSignature(jwt), actorClaims)).toBe(true);
   });
 });
 
@@ -299,12 +360,12 @@ describe("/auth/token revocation", () => {
       .get();
 
     expect(derivedRecord?.status).toBe("derived");
-    expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(false);
+    expect(admitActorToken(derivedJwt, actorClaims)).toBe(true);
 
     revokeActorTokensByDevice("guardian-001", hashToken("device-A"));
 
-    expect(isActorTokenRevoked(sourceJwt, actorClaims)).toBe(true);
-    expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(true);
+    expect(admitActorToken(sourceJwt, actorClaims)).toBe(false);
+    expect(admitActorToken(derivedJwt, actorClaims)).toBe(false);
   });
 
   test("fails closed with a repairable 401 when guardian rows are lost over evidence (no divergent mint)", async () => {
@@ -453,5 +514,150 @@ describe("m0004 token-hash index migration", () => {
     // The index now exists and no longer filters on status.
     expect(indexSql()).not.toBe("");
     expect(indexSql().toLowerCase()).not.toContain("where");
+  });
+});
+
+describe("admitActorToken: device last-used stamping", () => {
+  test("stamps last_used_at on the active row for a recorded actor token", () => {
+    insertTokenRecord("token-used", "active");
+    const before = readRow("token-used");
+    expect(before?.lastUsedAt).toBeNull();
+
+    expect(admitActorToken("token-used", actorClaims)).toBe(true);
+
+    const after = readRow("token-used");
+    expect(after?.lastUsedAt).toBeGreaterThan(0);
+    // updatedAt tracks row lifecycle, not activity, so it must not move.
+    expect(after?.updatedAt).toBe(before?.updatedAt ?? 0);
+  });
+
+  test("admitting a recorded token costs exactly one row lookup", () => {
+    insertTokenRecord("token-counted", "active");
+
+    const sql = captureSql(() => {
+      expect(admitActorToken("token-counted", actorClaims)).toBe(true);
+    });
+
+    // The verdict and the stamp share one SELECT; the stamp adds the UPDATE.
+    expect(statementsOn(sql, "select")).toHaveLength(1);
+    expect(statementsOn(sql, "update")).toHaveLength(1);
+  });
+
+  test("does not write again inside the debounce window", () => {
+    insertTokenRecord("token-debounced", "active");
+    admitActorToken("token-debounced", actorClaims);
+
+    const sentinel = 12_345;
+    getGatewayDb()
+      .update(actorTokenRecords)
+      .set({ lastUsedAt: sentinel })
+      .where(eq(actorTokenRecords.tokenHash, hashToken("token-debounced")))
+      .run();
+
+    const sql = captureSql(() => {
+      expect(admitActorToken("token-debounced", actorClaims)).toBe(true);
+    });
+
+    expect(readRow("token-debounced")?.lastUsedAt).toBe(sentinel);
+    // The verdict still costs its lookup: revocation is never debounced.
+    expect(statementsOn(sql, "select")).toHaveLength(1);
+    expect(statementsOn(sql, "update")).toHaveLength(0);
+  });
+
+  test("a derived token stamps the sibling active row for the same device", () => {
+    insertTokenRecord("token-source", "active");
+    insertTokenRecord("token-derived", "derived");
+
+    admitActorToken("token-derived", actorClaims);
+
+    expect(readRow("token-source")?.lastUsedAt).toBeGreaterThan(0);
+    expect(readRow("token-derived")?.lastUsedAt).toBeNull();
+  });
+
+  test("leaves other devices' rows untouched", () => {
+    insertTokenRecord("token-device-a", "active");
+    insertTokenRecord("token-device-b", "active", "device-B");
+
+    admitActorToken("token-device-a", actorClaims);
+
+    expect(readRow("token-device-b")?.lastUsedAt).toBeNull();
+  });
+
+  test("is a no-op for non-actor tokens (svc)", () => {
+    insertTokenRecord("svc-token", "active");
+    const svcClaims = { sub: "svc:gateway:self" } as TokenClaims;
+
+    const sql = captureSql(() => {
+      expect(admitActorToken("svc-token", svcClaims)).toBe(true);
+    });
+
+    expect(readRow("svc-token")?.lastUsedAt).toBeNull();
+    // Not even a lookup: a non-actor sub short-circuits before any DB work.
+    expect(sql).toHaveLength(0);
+  });
+
+  test("is a no-op for an unrecorded token hash", () => {
+    insertTokenRecord("token-recorded", "active");
+
+    expect(admitActorToken("token-unrecorded", actorClaims)).toBe(true);
+    expect(readRow("token-recorded")?.lastUsedAt).toBeNull();
+  });
+
+  test("swallows a DB failure (fail-open)", () => {
+    resetGatewayDb();
+    expect(() => admitActorToken("token-anything", actorClaims)).not.toThrow();
+  });
+
+  test("a failed stamp leaves the next attempt free to retry", () => {
+    insertTokenRecord("token-retry", "active");
+    const rawDb = (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    // Make the stamp UPDATE throw while the record lookup keeps working.
+    rawDb.exec(
+      "CREATE TRIGGER fail_last_used BEFORE UPDATE ON actor_token_records BEGIN SELECT RAISE(ABORT, 'stamp failed'); END",
+    );
+
+    expect(admitActorToken("token-retry", actorClaims)).toBe(true);
+    expect(readRow("token-retry")?.lastUsedAt).toBeNull();
+
+    rawDb.exec("DROP TRIGGER fail_last_used");
+    // Inside the debounce window: only a completed stamp may suppress a retry.
+    admitActorToken("token-retry", actorClaims);
+
+    expect(readRow("token-retry")?.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  test("an unrecorded token hash does not stamp until the window lapses", () => {
+    // Nothing to find: the definitive "no record" answer arms the debounce.
+    admitActorToken("token-late", actorClaims);
+
+    // Seed the row the first call missed. A second call inside the window
+    // finds it (the verdict lookup always runs) but must not stamp it.
+    insertTokenRecord("token-late", "active");
+    admitActorToken("token-late", actorClaims);
+    expect(readRow("token-late")?.lastUsedAt).toBeNull();
+
+    // Once the window lapses the stamp runs.
+    __resetLastUsedDebounceForTests();
+    admitActorToken("token-late", actorClaims);
+    expect(readRow("token-late")?.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  test("a lookup that throws is retried on the next request", () => {
+    // Distinguishes a transient failure from a stable miss: the DB-error path
+    // arms nothing, so the very next call re-queries.
+    const rawDb = (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client;
+    rawDb.exec("ALTER TABLE actor_token_records RENAME TO actor_token_stash");
+
+    expect(admitActorToken("token-transient", actorClaims)).toBe(true);
+
+    rawDb.exec("ALTER TABLE actor_token_stash RENAME TO actor_token_records");
+    insertTokenRecord("token-transient", "active");
+    admitActorToken("token-transient", actorClaims);
+
+    expect(readRow("token-transient")?.lastUsedAt).toBeGreaterThan(0);
   });
 });

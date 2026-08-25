@@ -24,7 +24,9 @@
  * 2. The failed window stays retryable: a later run over the same window
  *    succeeds and advances state.
  * 3. A usable-output control advances state (cursor, remembered log) and
- *    GCs the superseded prior retrospective.
+ *    GCs the superseded prior retrospective, and a pass that reviewed its
+ *    window and had nothing to save advances it too, in whatever words the
+ *    model chose.
  * 4. A run whose checkpoint went live before a later rejection stays
  *    `invoked: true` (its side effects landed and are honored).
  */
@@ -409,9 +411,8 @@ describe("memory retrospective wake state chain (real AgentLoop)", () => {
     expect(listRetroForksOf(fixture.sourceId)).toEqual([fixture.priorRetroId]);
 
     // (2) The window stays retryable: the same slice succeeds on retry.
-    // The finalizer's usable-output gate accepts free text only when it is
-    // exactly the mandated no-findings sentinel; a verified remember write
-    // is the other accepted evidence. Use the sentinel for the control.
+    // The finalizer accepts a text-only reply as a completed empty-handed
+    // review; a verified remember write is the other accepted evidence.
     providerScript = [{ response: textResponse("Nothing new to save.") }];
     providerCallCount = 0;
     const retry = await runForkBasedRetrospective(
@@ -472,6 +473,31 @@ describe("memory retrospective wake state chain (real AgentLoop)", () => {
     ).toBe(fixture.newMessageId);
   });
 
+  test("a paraphrased empty-handed conclusion consumes the window", async () => {
+    const fixture = await stageChainFixture();
+
+    // The instruction asks a pass with nothing to save to say so; it does not
+    // dictate the sentence. The real loop ends this run on `no_tool_calls`,
+    // which is what proves the model reached its own conclusion.
+    providerScript = [
+      { response: textResponse("Nothing further to save, all covered above.") },
+    ];
+
+    const outcome = await runForkBasedRetrospective(
+      fixture.sourceId,
+      chainConfig,
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind === "invoked") {
+      expect(outcome.noFindings).toBe(true);
+    }
+    const state = getRetrospectiveState(fixture.sourceId);
+    expect(state?.lastProcessedMessageId).toBe(fixture.newMessageId);
+    // A pass that saved nothing adds nothing to the dedup baseline.
+    expect(state?.rememberedLog).toEqual([PRIOR_FACT]);
+  });
+
   test("usable-output control: cursor advances, remembered log grows, prior retrospective is GC'd", async () => {
     const fixture = await stageChainFixture();
 
@@ -488,6 +514,7 @@ describe("memory retrospective wake state chain (real AgentLoop)", () => {
     expect(outcome.kind).toBe("invoked");
     if (outcome.kind === "invoked") {
       expect(outcome.cutoffMessageId).toBe(fixture.newMessageId);
+      expect(outcome.noFindings).toBe(false);
     }
 
     // (3) Real finalization against real rows: cursor advanced, this run's

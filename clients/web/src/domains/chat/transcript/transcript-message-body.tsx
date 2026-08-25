@@ -54,7 +54,7 @@ import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-poi
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
-import { t } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
@@ -71,6 +71,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -159,6 +160,9 @@ export function TranscriptMessageBody({
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
+  const { t } = useTranslation("chat");
+  const inlineAssistantIntermediates =
+    useClientFeatureFlagStore.use.inlineAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -529,18 +533,18 @@ export function TranscriptMessageBody({
           }
           await saveFile(data, filename);
         } catch {
-          toast.error(t("chat:fileDownload.failed"), { description: filename });
+          toast.error(t("fileDownload.failed"), { description: filename });
         }
       })();
     } else {
       toast.error(
         pending.isHost
-          ? t("chat:transcriptMessageBody.fileUnavailableHostTimeout")
-          : t("chat:transcriptMessageBody.fileUnavailable"),
+          ? t("transcriptMessageBody.fileUnavailableHostTimeout")
+          : t("transcriptMessageBody.fileUnavailable"),
         { description: pending.filename },
       );
     }
-  }, [pendingVellumFile, assistantId]);
+  }, [pendingVellumFile, assistantId, t]);
 
   const vellumFileModal = (
     <VellumFileActionModal
@@ -663,7 +667,7 @@ export function TranscriptMessageBody({
             id={runId}
             onOpen={onWorkflowClick ? () => onWorkflowClick(runId) : undefined}
             onStop={onStopWorkflow ? () => onStopWorkflow(runId) : undefined}
-            stopAriaLabel="Stop workflow"
+            stopAriaLabel={t("transcriptMessageBody.stopWorkflow")}
             testId="inline-process-card"
           />
         ))}
@@ -695,7 +699,7 @@ export function TranscriptMessageBody({
                 });
               })
             }
-            stopAriaLabel="Stop run"
+            stopAriaLabel={t("transcriptMessageBody.stopRun")}
             testId="inline-process-card"
           />
         ))}
@@ -762,7 +766,7 @@ export function TranscriptMessageBody({
                 });
               })
             }
-            stopAriaLabel="Stop command"
+            stopAriaLabel={t("transcriptMessageBody.stopCommand")}
             testId="inline-process-card"
           />
         ))}
@@ -1140,7 +1144,13 @@ export function TranscriptMessageBody({
   const finalResponseGroupIndex = groups.findLastIndex(
     (group) => group.type === "text" && group.text.trim().length > 0,
   );
+  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
+  // no group is collapsible, so the whole response renders inline at full
+  // size and none of the collapsed styling applies.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
+    if (inlineAssistantIntermediates) {
+      return [];
+    }
     if (groupIndex >= finalResponseGroupIndex) {
       return [];
     }

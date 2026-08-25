@@ -3,14 +3,12 @@ import { useMemo } from "react";
 
 import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useCallSiteDefaultProfile } from "@/hooks/use-call-site-default-profile";
+import { useTranslation } from "@/i18n";
 import { extractUsageProfileMetadata } from "@/utils/profile-metadata";
 
 import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 import type { ResolvableCallSite } from "@/hooks/use-call-site-default-profile";
 import type { UsageProfileMetadataMap } from "@/utils/profile-metadata";
-
-const DEFAULT_MAIN_AGENT_PROFILE_LABEL = "Default (assistant's main model)";
-const CUSTOM_CALL_SITE_MODEL_LABEL = "Custom call-site model";
 
 type CallSiteOverride = NonNullable<
   NonNullable<NonNullable<ConfigGetResponse["llm"]>["callSites"]>[string]
@@ -23,27 +21,11 @@ function profileDisplayName(
   return metadata?.[profileKey]?.displayName ?? profileKey;
 }
 
-function callSiteOverrideLabel(
-  override: CallSiteOverride | null | undefined,
-  metadata: UsageProfileMetadataMap,
-) {
-  if (override == null) {
-    return undefined;
-  }
-  if (override.provider != null || override.model != null) {
-    return CUSTOM_CALL_SITE_MODEL_LABEL;
-  }
-  const profile = override.profile?.trim();
-  return profile
-    ? `Override (${profileDisplayName(profile, metadata)})`
-    : undefined;
-}
-
 export function ModelProfileRow({
   assistantId,
   pinnedProfile,
   defaultCallSite = "mainAgent",
-  fallbackLabel = DEFAULT_MAIN_AGENT_PROFILE_LABEL,
+  fallbackLabel,
   respectCallSiteOverride = false,
 }: {
   assistantId: string;
@@ -52,6 +34,28 @@ export function ModelProfileRow({
   fallbackLabel?: string;
   respectCallSiteOverride?: boolean;
 }) {
+  const { t } = useTranslation("settings");
+  const resolvedFallback =
+    fallbackLabel ?? t("modelProfileRow.defaultMainAgent");
+
+  const callSiteOverrideLabel = (
+    override: CallSiteOverride | null | undefined,
+    metadata: UsageProfileMetadataMap,
+  ) => {
+    if (override == null) {
+      return undefined;
+    }
+    if (override.provider != null || override.model != null) {
+      return t("modelProfileRow.customCallSiteModel");
+    }
+    const profile = override.profile?.trim();
+    return profile
+      ? t("modelProfileRow.override", {
+          name: profileDisplayName(profile, metadata),
+        })
+      : undefined;
+  };
+
   const shouldResolveDefault = pinnedProfile == null;
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
@@ -81,18 +85,13 @@ export function ModelProfileRow({
       : overrideLabel != null
         ? overrideLabel
         : defaultProfileLabel != null
-          ? `Default (${defaultProfileLabel})`
-          : fallbackLabel;
+          ? t("modelProfileRow.defaultNamed", { name: defaultProfileLabel })
+          : resolvedFallback;
 
   return (
-    // `min-h-6` matches the sibling rows in the schedules detail cards. The
-    // value truncates rather than wrapping: the label resolves from a query,
-    // so a wrap would grow the row after mount, and the long forms ("Default
-    // (assistant's main model)") wrap in a sidepanel-width card. `title`
-    // keeps the full text reachable on hover.
     <div className="flex min-h-6 items-center justify-between gap-4">
       <span className="shrink-0 text-[var(--content-secondary)]">
-        Model profile
+        {t("modelProfileRow.label")}
       </span>
       <span className="min-w-0 truncate text-right" title={profileLabel}>
         {profileLabel}

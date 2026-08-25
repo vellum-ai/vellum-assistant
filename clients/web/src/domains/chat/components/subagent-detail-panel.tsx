@@ -33,7 +33,7 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
   deriveStepLabelFromName,
@@ -47,6 +47,7 @@ import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-se
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { useTranslation } from "@/i18n";
 
 /**
  * The icon name for a nested step detail — the same glyph its timeline pill
@@ -115,6 +116,7 @@ export function SubagentDetailPanel({
   onRequestDetail,
   assistantId,
 }: SubagentDetailPanelProps) {
+  const { t } = useTranslation("chat");
   const isRunning = isActiveStatus(entry.status);
   const reduce = useReducedMotion();
   const components = useBundledAvatarComponents();
@@ -318,8 +320,8 @@ export function SubagentDetailPanel({
               variant="outlined"
               iconOnly={<ChevronLeft />}
               onClick={handleBack}
-              aria-label="Back to timeline"
-              tooltip="Back"
+              aria-label={t("subagentDetailPanel.backToTimelineAria")}
+              tooltip={t("subagentDetailPanel.backTooltip")}
               className="shrink-0"
             />
           )}
@@ -344,11 +346,11 @@ export function SubagentDetailPanel({
         isRunning && onStop ? (
           <DetailPanelStopButton
             onStop={() => onStop(entry.subagentId)}
-            ariaLabel="Stop subagent"
+            ariaLabel={t("subagentDetailPanel.stopSubagentAria")}
           />
         ) : undefined
       }
-      closeLabel="Close subagent detail"
+      closeLabel={t("subagentDetailPanel.closeDetail")}
       onClose={onClose}
     >
       {/* Body: swaps to a step's nested detail when one is selected, keeping
@@ -406,7 +408,7 @@ export function SubagentDetailPanel({
                   }
                   target={entry.inputTokens}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Input"
+                  label={t("subagentDetailPanel.input")}
                 />
                 <AnimatedMetricCard
                   icon={
@@ -417,7 +419,7 @@ export function SubagentDetailPanel({
                   }
                   target={entry.outputTokens}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Output"
+                  label={t("subagentDetailPanel.output")}
                 />
               </div>
 
@@ -429,7 +431,7 @@ export function SubagentDetailPanel({
                     as="h3"
                     className="mb-2 text-[var(--content-emphasised)]"
                   >
-                    Objective
+                    {t("subagentDetailPanel.objective")}
                   </Typography>
                   <Typography
                     ref={objectiveBodyRef}
@@ -440,7 +442,7 @@ export function SubagentDetailPanel({
                     // users can't reach the overflowed objective content.
                     tabIndex={objectiveExpanded ? 0 : undefined}
                     role={objectiveExpanded ? "region" : undefined}
-                    aria-label={objectiveExpanded ? "Objective" : undefined}
+                    aria-label={objectiveExpanded ? t("subagentDetailPanel.objective") : undefined}
                     className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
                       objectiveExpanded
                         ? "max-h-[280px] overflow-y-auto"
@@ -467,7 +469,7 @@ export function SubagentDetailPanel({
                       className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
                     >
                       <Typography variant="label-small-default">
-                        {objectiveExpanded ? "Show less" : "Show more"}
+                        {objectiveExpanded ? t("subagentDetailPanel.showLess") : t("subagentDetailPanel.showMore")}
                       </Typography>
                     </Button>
                   )}
@@ -482,7 +484,7 @@ export function SubagentDetailPanel({
                   as="h3"
                   className="mb-4 text-[var(--content-emphasised)]"
                 >
-                  Timeline
+                  {t("subagentDetailPanel.timeline")}
                 </Typography>
                 {/*
                  * Key by subagent id so the timeline remounts on subagent switch,
@@ -518,7 +520,7 @@ export function SubagentDetailPanel({
                     variant="body-small-default"
                     className="py-4 text-center text-[var(--content-tertiary)]"
                   >
-                    No events yet
+                    {t("subagentDetailPanel.noEventsYet")}
                   </Typography>
                 )}
               </div>

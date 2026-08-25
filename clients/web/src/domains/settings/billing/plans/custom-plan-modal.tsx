@@ -20,6 +20,7 @@ import type {
   StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { useTranslation } from "@/i18n";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { Button } from "@vellumai/design-library/components/button";
@@ -147,6 +148,26 @@ export function CustomPlanModal({
   onContinue,
 }: CustomPlanModalProps) {
   const { t } = useTranslation("settings");
+  // Under `obscure-credits` the bundle picker's chrome (label, placeholder,
+  // sentinel row) never names credits. The options themselves need no swap:
+  // the catalog labels are already the usage bundles' Stripe product names.
+  const obscureCredits = useObscureCredits();
+  const noBundleLabel = obscureCredits
+    ? t("customPlanModal.noExtraUsage")
+    : NO_CREDITS_LABEL;
+  const bundlePickerCopy = obscureCredits
+    ? {
+        label: t("customPlanModal.usageBundleLabel"),
+        docsLabel: t("customPlanModal.usageBundleDocsAriaLabel"),
+        ariaLabel: t("customPlanModal.usageBundleAriaLabel"),
+        placeholder: t("customPlanModal.usageBundlePlaceholder"),
+      }
+    : {
+        label: t("customPlanModal.creditsLabel"),
+        docsLabel: t("customPlanModal.creditsDocsAriaLabel"),
+        ariaLabel: t("customPlanModal.creditBundleAriaLabel"),
+        placeholder: t("customPlanModal.creditBundlePlaceholder"),
+      };
 
   // A Pro reconfigure seeds the current tiers so the default is a no-op; base
   // checkout passes none and leaves every dimension empty. A baseline machine
@@ -247,7 +268,7 @@ export function CustomPlanModal({
   const creditOptions: SelectOption<CreditChoice>[] = [
     {
       value: NO_EXTRA_CREDITS,
-      label: NO_CREDITS_LABEL,
+      label: noBundleLabel,
       icon: <Coins className="h-4 w-4" aria-hidden />,
     },
     ...selectableCreditTiers.map((t) => ({
@@ -330,8 +351,16 @@ export function CustomPlanModal({
         machineTier,
         storageTier,
         creditChoice,
+        noBundleLabel,
       }),
-    [proPlan, initialSelection, machineTier, storageTier, creditChoice],
+    [
+      proPlan,
+      initialSelection,
+      machineTier,
+      storageTier,
+      creditChoice,
+      noBundleLabel,
+    ],
   );
 
   const handleContinue = () => {
@@ -419,14 +448,14 @@ export function CustomPlanModal({
 
               <div className="flex flex-col gap-1">
                 <PickerLabel
-                  label={t("customPlanModal.creditsLabel")}
+                  label={bundlePickerCopy.label}
                   docsUrl={CREDIT_DOCS_URL}
-                  docsLabel={t("customPlanModal.creditsDocsAriaLabel")}
+                  docsLabel={bundlePickerCopy.docsLabel}
                   learnMore={t("customPlanModal.learnMore")}
                 />
                 <Select<CreditChoice>
-                  aria-label={t("customPlanModal.creditBundleAriaLabel")}
-                  placeholder={t("customPlanModal.creditBundlePlaceholder")}
+                  aria-label={bundlePickerCopy.ariaLabel}
+                  placeholder={bundlePickerCopy.placeholder}
                   value={creditChoice}
                   onChange={setCreditChoice}
                   options={creditOptions}

@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./seeds": "./src/seeds.ts"
+    "./seeds": "./src/seeds.ts",
+    "./shell": "./src/shell.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

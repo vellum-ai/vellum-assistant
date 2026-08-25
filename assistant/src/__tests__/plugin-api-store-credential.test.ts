@@ -13,9 +13,14 @@ import {
 } from "bun:test";
 
 import { credentialKey } from "@vellumai/credential-storage";
+import { eq } from "drizzle-orm";
 
+import * as conversationStore from "../daemon/conversation-store.js";
 import * as scrub from "../daemon/credential-transcript-scrub.js";
 import * as manualToken from "../oauth/manual-token-connection.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
 import { resolveCredential } from "../plugin-api/resolve-credential.js";
 import {
   CredentialStoreError,
@@ -54,6 +59,9 @@ let setSpy: ReturnType<typeof spyOn>;
 let getSpy: ReturnType<typeof spyOn>;
 let scrubSpy: ReturnType<typeof spyOn>;
 let syncSpy: ReturnType<typeof spyOn>;
+let evictSpy: ReturnType<typeof spyOn>;
+
+await initializeDb();
 
 beforeEach(() => {
   if (existsSync(TEST_DIR)) {
@@ -89,6 +97,14 @@ beforeEach(() => {
   syncSpy = spyOn(manualToken, "syncManualTokenConnection").mockImplementation(
     async () => {},
   );
+  evictSpy = spyOn(
+    conversationStore,
+    "evictConversationsForReload",
+  ).mockImplementation(() => {});
+  getDb()
+    .delete(providerConnections)
+    .where(eq(providerConnections.name, "openrouter-connection"))
+    .run();
 });
 
 afterEach(() => {
@@ -96,6 +112,7 @@ afterEach(() => {
   getSpy.mockRestore();
   scrubSpy.mockRestore();
   syncSpy.mockRestore();
+  evictSpy.mockRestore();
 });
 
 afterAll(() => {
@@ -198,14 +215,65 @@ describe("storeCredential", () => {
     expect(syncSpy).toHaveBeenCalledWith("acme");
   });
 
+  /**
+   * Verifies that storeCredentialValue refreshes providers for dependent connections.
+   */
+  test("refreshes providers when a stored credential backs a connection", async () => {
+    // GIVEN a provider connection references the credential being stored.
+    const now = Date.now();
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "openrouter-connection",
+        provider: "openai",
+        auth: JSON.stringify({
+          type: "api_key",
+          credential: credentialKey("openrouter", "api_key"),
+        }),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // AND the credential is non-managed.
+    // WHEN the credential is stored.
+    await storeCredentialValue({
+      service: "openrouter",
+      field: "api_key",
+      value: "openrouter-key",
+      skipTranscriptScrub: true,
+    });
+
+    // THEN the provider refresh runs once.
+    expect(evictSpy).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Verifies that storeCredentialValue skips refresh for an unused credential.
+   */
+  test("does not refresh providers when a stored credential backs no connection", async () => {
+    // GIVEN no provider connection references the credential being stored.
+    // AND the credential is non-managed.
+    // WHEN the credential is stored.
+    await storeCredentialValue({
+      service: "acme",
+      field: "api_key",
+      value: "acme-key",
+      skipTranscriptScrub: true,
+    });
+
+    // THEN the provider refresh does not run.
+    expect(evictSpy).toHaveBeenCalledTimes(0);
+  });
+
   describe("plugin scoping", () => {
     test("fails closed with no plugin in context", async () => {
       // A plugin's module body is evaluated outside any context. An unscoped
       // branch there would let top-level code overwrite the user's own
       // credentials, so the write is refused instead.
-      await expect(storeCredential("acme/api_key", "sk-secret")).rejects.toThrow(
-        /requires an active plugin execution context/,
-      );
+      await expect(
+        storeCredential("acme/api_key", "sk-secret"),
+      ).rejects.toThrow(/requires an active plugin execution context/);
       expect(setSpy).not.toHaveBeenCalled();
       expect(getCredentialMetadata("acme", "api_key")).toBeUndefined();
     });

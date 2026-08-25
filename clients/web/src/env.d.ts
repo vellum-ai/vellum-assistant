@@ -14,15 +14,18 @@ interface ImportMetaEnv {
    * Sentry DSN for browser error reporting. Injected by CI/CD pipeline.
    *
    * DSN-selection contract: the shared clients/web bundle resolves its Sentry
-   * DSN per host — web → `VITE_SENTRY_DSN` (vellum-assistant-web), Electron →
-   * `VITE_SENTRY_DSN_MACOS` (vellum-assistant-macos), iOS →
+   * DSN per host — web → `VITE_SENTRY_DSN` (vellum-assistant-web), macOS
+   * Electron → `VITE_SENTRY_DSN_MACOS` (vellum-assistant-macos), Windows
+   * Electron → `VITE_SENTRY_DSN_WINDOWS` (vellum-assistant-windows), iOS →
    * `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios), Android →
    * `VITE_SENTRY_DSN_ANDROID` (vellum-assistant-android). The runtime selector
    * (`resolveDsn` in `sentry-init.ts`) reads these per host.
    */
   readonly VITE_SENTRY_DSN?: string;
-  /** Sentry DSN for the Electron renderer (vellum-assistant-macos). See DSN-selection contract above. */
+  /** Sentry DSN for the macOS Electron renderer (vellum-assistant-macos). See DSN-selection contract above. */
   readonly VITE_SENTRY_DSN_MACOS?: string;
+  /** Sentry DSN for the Windows Electron renderer (vellum-assistant-windows). See DSN-selection contract above. */
+  readonly VITE_SENTRY_DSN_WINDOWS?: string;
   /** Sentry DSN for the iOS webview (vellum-assistant-ios). See DSN-selection contract above. */
   readonly VITE_SENTRY_DSN_IOS?: string;
   /** Sentry DSN for the Android webview (vellum-assistant-android). See DSN-selection contract above. */
@@ -81,6 +84,8 @@ interface Window {
     platformUrl?: string;
     /** Serving assistant's display name (remote-web ingress configs only). */
     assistantName?: string;
+    /** Serving assistant's id (remote-web ingress configs only). */
+    assistantId?: string;
     /** Cloud web SPA base for this build's environment (remote-web ingress configs only). */
     hubUrl?: string;
   };

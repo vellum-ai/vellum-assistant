@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import type { Surface } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 interface ChoiceSurfaceProps {
   surface: Surface;
@@ -55,6 +56,7 @@ export function ChoiceSurface({
   onAction,
   assistantId,
 }: ChoiceSurfaceProps) {
+  const { t } = useTranslation("chat");
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -138,7 +140,9 @@ export function ChoiceSurface({
   };
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
+    // No panel chrome or padding around the options: the rows carry their own
+    // raised surface, so an outer inset only nested one box inside another.
+    <div>
       {surface.title && (
         <div className="text-title-small text-[var(--content-strong)]">
           {surface.title}
@@ -152,7 +156,7 @@ export function ChoiceSurface({
         />
       )}
 
-      <div className="mt-3 grid gap-2">
+      <div className="grid gap-2 [&:not(:first-child)]:mt-3">
         {options.map((option) => {
           const selected = selectedIds.has(option.id);
           const optionSubmitting = submitting === option.id;
@@ -164,17 +168,21 @@ export function ChoiceSurface({
               disabled={submitting !== null}
               onClick={() => toggleOption(option)}
               className={[
-                "group flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors",
+                // Borderless: the row reads as a row because it sits one step
+                // up the surface ladder from the chat background
+                // (`--background` == `--surface-base`), not because of an
+                // outline. Hover takes the ladder's next step.
+                "group flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors disabled:cursor-default",
                 option.recommended
-                  ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
-                  : "border-[var(--border-element)] bg-[var(--surface-base)] hover:bg-[var(--surface-hover)]",
+                  ? "bg-[var(--primary-base)]/10"
+                  : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-active)]",
                 selected ? "ring-1 ring-[var(--primary-base)]" : "",
                 submitting !== null ? "opacity-70" : "",
               ].join(" ")}
             >
               <span
                 className={[
-                  "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
                   selected
                     ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
                     : option.recommended
@@ -195,7 +203,7 @@ export function ChoiceSurface({
                   </span>
                   {option.recommended && (
                     <span className="rounded-full bg-[var(--primary-base)] px-2 py-0.5 text-label-small-default text-[var(--content-inset)]">
-                      Recommended
+                      {t("choiceSurface.recommended")}
                     </span>
                   )}
                 </span>
@@ -216,12 +224,12 @@ export function ChoiceSurface({
             type="button"
             disabled={selectedOptions.length === 0 || submitting !== null}
             onClick={handleSubmit}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-50"
           >
             {submitting === "submit" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {data.submitLabel ?? "Continue"}
+            {data.submitLabel ?? t("choiceSurface.continue")}
           </button>
         </div>
       )}

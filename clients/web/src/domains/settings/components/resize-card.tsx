@@ -21,7 +21,7 @@ import {
   machineSizeRank,
   SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
+import { Trans, useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
@@ -51,8 +51,8 @@ export function ResizeCard({
   refetch,
   refetchUntilResized,
 }: ResizeCardProps) {
+  const { t } = useTranslation("settings");
   const navigate = useNavigate();
-  const isNativeAndroid = useIsNativeAndroid();
   const subscriptionQuery = useQuery(
     organizationsBillingSubscriptionRetrieveOptions(),
   );
@@ -76,9 +76,9 @@ export function ResizeCard({
       buildMachineSizeOptions(
         allowedSizes,
         currentSize,
-        <Tag tone="positive">Current</Tag>,
+        <Tag tone="positive">{t("resizeCard.current")}</Tag>,
       ),
-    [allowedSizes, currentSize],
+    [allowedSizes, currentSize, t],
   );
 
   // `selected_storage_gib` is the provisioned storage quota the org has
@@ -105,7 +105,7 @@ export function ResizeCard({
 
   const resizeMutation = useAssistantsResizeMutation({
     onSuccess: (_data, variables) => {
-      toast.success("Resize started. Changes will apply shortly.", {
+      toast.success(t("resizeCard.toastStarted"), {
         id: "assistant-resize",
       });
       setResizeError(null);
@@ -127,7 +127,7 @@ export function ResizeCard({
       setResizeError(
         extractResizeError(
           error,
-          "Failed to resize assistant. Please try again.",
+          t("resizeCard.resizeFailed"),
         ),
       );
     },
@@ -137,11 +137,11 @@ export function ResizeCard({
     return (
       <DetailCard
         id="storage-resources"
-        title="Compute & Resources"
-        subtitle="Monitor resource usage and manage your assistant's compute profile."
+        title={t("resizeCard.title")}
+        subtitle={t("resizeCard.subtitle")}
       >
         <Notice tone="error">
-          Could not load your subscription. Please try again.
+          {t("resizeCard.subscriptionLoadError")}
         </Notice>
       </DetailCard>
     );
@@ -178,7 +178,10 @@ export function ResizeCard({
       ? {
           value: healthz.disk.usedMb,
           max: diskMaxMb,
-          caption: `${formatResourceMb(healthz.disk.usedMb)} of ${formatResourceMb(diskMaxMb)}`,
+          caption: t("resizeCard.usedOf", {
+            used: formatResourceMb(healthz.disk.usedMb),
+            total: formatResourceMb(diskMaxMb),
+          }),
         }
       : null;
 
@@ -194,17 +197,20 @@ export function ResizeCard({
     ? {
         value: healthz.memory.currentMb,
         max: healthz.memory.maxMb,
-        caption: `${formatResourceMb(healthz.memory.currentMb)} of ${formatResourceMb(healthz.memory.maxMb)}`,
+        caption: t("resizeCard.usedOf", {
+          used: formatResourceMb(healthz.memory.currentMb),
+          total: formatResourceMb(healthz.memory.maxMb),
+        }),
       }
     : null;
 
-  const basePlanResizeAction = isNativeAndroid ? null : (
+  const basePlanResizeAction = (
     <Button
       variant="ghost"
       size="compact"
       onClick={() => setUpgradeModalOpen(true)}
     >
-      Resize
+      {t("resizeCard.resize")}
     </Button>
   );
 
@@ -217,7 +223,7 @@ export function ResizeCard({
         className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
       >
         <Sparkles className="h-3.5 w-3.5" />
-        Increase Storage
+        {t("resizeCard.increaseStorage")}
       </button>
     ) : (
       <Button
@@ -226,7 +232,7 @@ export function ResizeCard({
         disabled={isLoading}
         onClick={() => setResizeModalOpen(true)}
       >
-        Resize
+        {t("resizeCard.resize")}
       </Button>
     )
   ) : (
@@ -242,7 +248,7 @@ export function ResizeCard({
         className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-1.5 text-body-small-default font-medium text-amber-400 transition-colors hover:bg-amber-500/25 disabled:opacity-50"
       >
         <Sparkles className="h-3.5 w-3.5" />
-        Increase Size
+        {t("resizeCard.increaseSize")}
       </button>
     ) : (
       <Button
@@ -251,7 +257,7 @@ export function ResizeCard({
         disabled={isLoading}
         onClick={() => setResizeModalOpen(true)}
       >
-        Resize
+        {t("resizeCard.resize")}
       </Button>
     )
   ) : (
@@ -262,8 +268,8 @@ export function ResizeCard({
     <>
       <DetailCard
         id="storage-resources"
-        title="Compute & Resources"
-        subtitle="Monitor resource usage and manage your assistant's compute profile."
+        title={t("resizeCard.title")}
+        subtitle={t("resizeCard.subtitle")}
         compactAccessory
         accessory={
           <Button
@@ -277,9 +283,11 @@ export function ResizeCard({
               )
             }
             tooltip={
-              healthzPolling ? "Applying resize…" : "Refresh resource metrics"
+              healthzPolling
+                ? t("resizeCard.applyingResize")
+                : t("resizeCard.refreshMetrics")
             }
-            aria-label="Refresh resource metrics"
+            aria-label={t("resizeCard.refreshMetrics")}
             disabled={healthzLoading || healthzPolling}
             onClick={() => void refetch()}
           />
@@ -294,14 +302,14 @@ export function ResizeCard({
                   <HardDrive className="h-3.5 w-3.5" />
                 </span>
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
-                  Disk
+                  {t("resizeCard.disk")}
                 </span>
               </div>
               {diskAction}
             </div>
             <div className="mt-auto flex flex-col gap-1 pt-3">
               <span className="text-label-medium-default text-[var(--content-tertiary)]">
-                Storage
+                {t("resizeCard.storage")}
               </span>
               {diskBar ? (
                 <CapacityBar
@@ -315,7 +323,7 @@ export function ResizeCard({
                 </div>
               ) : (
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
-                  Unavailable
+                  {t("resizeCard.unavailable")}
                 </span>
               )}
             </div>
@@ -329,7 +337,7 @@ export function ResizeCard({
                   <Server className="h-3.5 w-3.5" />
                 </span>
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
-                  Machine
+                  {t("resizeCard.machine")}
                 </span>
                 <Tag tone="neutral">{SIZE_LABEL[currentSize]}</Tag>
               </div>
@@ -338,7 +346,7 @@ export function ResizeCard({
             <div className="mt-auto grid grid-cols-2 gap-3 pt-3">
               <div className="flex flex-col gap-1">
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
-                  CPU
+                  {t("resizeCard.cpu")}
                 </span>
                 {cpuBar ? (
                   <CapacityBar
@@ -358,7 +366,7 @@ export function ResizeCard({
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-label-medium-default text-[var(--content-tertiary)]">
-                  Memory
+                  {t("resizeCard.memory")}
                 </span>
                 {memoryBar ? (
                   <CapacityBar
@@ -392,15 +400,14 @@ export function ResizeCard({
       >
         <Modal.Content size="sm">
           <Modal.Header>
-            <Modal.Title>Upgrade your plan</Modal.Title>
+            <Modal.Title>{t("resizeCard.upgradeTitle")}</Modal.Title>
             <Modal.Description>
-              Move to a higher plan for more power, more storage, and a larger
-              credit bundle.
+              {t("resizeCard.upgradeDescription")}
             </Modal.Description>
           </Modal.Header>
           <Modal.Footer>
             <Button variant="ghost" onClick={() => setUpgradeModalOpen(false)}>
-              Cancel
+              {t("resizeCard.cancel")}
             </Button>
             <Button
               onClick={() => {
@@ -408,7 +415,7 @@ export function ResizeCard({
                 void navigate(routes.plans);
               }}
             >
-              Upgrade
+              {t("resizeCard.upgrade")}
             </Button>
           </Modal.Footer>
         </Modal.Content>
@@ -427,28 +434,27 @@ export function ResizeCard({
       >
         <Modal.Content size="sm">
           <Modal.Header icon={Server}>
-            <Modal.Title>Resize Assistant</Modal.Title>
+            <Modal.Title>{t("resizeCard.modalTitle")}</Modal.Title>
             <Modal.Description>
-              Resize your assistant's compute and storage. Your assistant will
-              briefly restart.
+              {t("resizeCard.modalDescription")}
             </Modal.Description>
           </Modal.Header>
           <Modal.Body>
             <div className="flex flex-col gap-3">
               {allowedSizes.length === 0 ? (
                 <Notice tone="warning">
-                  No machine tier configured. Visit the community for help.
+                  {t("resizeCard.noMachineTier")}
                 </Notice>
               ) : (
                 <div className="flex flex-col gap-1.5">
                   <span className="text-label-medium-default text-[var(--content-secondary)]">
-                    Machine Size
+                    {t("resizeCard.machineSize")}
                   </span>
                   <Select
                     options={machineSizeOptions}
                     value={displaySize}
                     onChange={setSelectedSize}
-                    aria-label="Compute machine size"
+                    aria-label={t("resizeCard.machineSizeAriaLabel")}
                     data-testid="resize-machine-size"
                   />
                 </div>
@@ -456,37 +462,44 @@ export function ResizeCard({
               {canGrowStorage ? (
                 <Notice tone="info">
                   {currentGib != null
-                    ? `Storage will be expanded from ${currentGib} GB to ${availableGib} GB.`
-                    : `Storage will be expanded to ${availableGib} GB.`}
+                    ? t("resizeCard.storageExpandFromTo", {
+                        from: currentGib,
+                        to: availableGib,
+                      })
+                    : t("resizeCard.storageExpandTo", {
+                        to: availableGib,
+                      })}
                 </Notice>
               ) : currentGib != null ? (
                 <Notice tone="neutral">
-                  Storage is already at its provisioned size ({currentGib} GB)
-                  and will not change.
+                  {t("resizeCard.storageAlreadyProvisioned", {
+                    size: currentGib,
+                  })}
                 </Notice>
               ) : (
-                <Notice tone="neutral">Storage will not change.</Notice>
+                <Notice tone="neutral">
+                  {t("resizeCard.storageUnchanged")}
+                </Notice>
               )}
               {resizeError && <Notice tone="error">{resizeError}</Notice>}
             </div>
           </Modal.Body>
-          <Modal.Footer
-            className={
-              isNativeAndroid ? "justify-end" : "items-center justify-between"
-            }
-          >
-            {!isNativeAndroid ? (
-              <span className="text-label-small-default text-[var(--content-tertiary)]">
-                Need more?{" "}
-                <Link
-                  to={routes.plans}
-                  className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
-                  onClick={() => setResizeModalOpen(false)}
-                >
-                  Upgrade plan
-                </Link>
-              </span>
-            ) : null}
+          <Modal.Footer className="items-center justify-between">
+            <span className="text-label-small-default text-[var(--content-tertiary)]">
+              <Trans
+                ns="settings"
+                i18nKey="resizeCard.needMore"
+                components={{
+                  upgradeLink: (
+                    <Link
+                      to={routes.plans}
+                      className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+                      onClick={() => setResizeModalOpen(false)}
+                    />
+                  ),
+                }}
+              />
+            </span>
             <div className="flex gap-2">
               <Button
                 variant="ghost"
@@ -496,7 +509,7 @@ export function ResizeCard({
                   setResizeError(null);
                 }}
               >
-                Cancel
+                {t("resizeCard.cancel")}
               </Button>
               <Button
                 disabled={
@@ -524,7 +537,9 @@ export function ResizeCard({
                   });
                 }}
               >
-                {resizeError ? "Retry" : "Apply"}
+                {resizeError
+                  ? t("resizeCard.retry")
+                  : t("resizeCard.apply")}
               </Button>
             </div>
           </Modal.Footer>

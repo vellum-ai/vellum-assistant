@@ -1,0 +1,23 @@
+{
+  "terminalToolbar": {
+    "heading": "Терминал",
+    "recoveryTitle": "Включён режим восстановления, сессия подключена к отладочному терминалу",
+    "recoveryTag": "Восстановление",
+    "clearTitle": "Очистить вывод терминала",
+    "clear": "Очистить",
+    "disconnectTitle": "Отключить сессию терминала",
+    "disconnect": "Отключить",
+    "connectTitle": "Подключить сессию терминала",
+    "connect": "Подключить",
+    "statusAria": "Состояние терминала: {status}"
+  },
+  "terminalStatus": {
+    "idle": "Ожидание",
+    "connecting": "Подключение",
+    "connected": "Подключено",
+    "reconnecting": "Переподключение",
+    "error": "Ошибка",
+    "closed": "Закрыто"
+  },
+  "terminalConsole": { "consoleAria": "Консоль терминала" }
+}

@@ -1,7 +1,10 @@
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
-import type { OpenedDocumentState } from "@/stores/viewer-store";
+import {
+  useViewerStore,
+  type OpenedDocumentState,
+} from "@/stores/viewer-store";
 
 interface MobileDocumentOverlayProps {
   /** When `null`, the overlay renders nothing. */
@@ -64,6 +67,11 @@ export function MobileDocumentOverlay({
         assistantId={assistantId}
         surfaceId={openedDocumentState.surfaceId}
         conversationId={openedDocumentState.conversationId}
+        onRenamed={(documentName) =>
+          useViewerStore
+            .getState()
+            .renameOpenedDocument(openedDocumentState.surfaceId, documentName)
+        }
         onSubmitFeedback={onSubmitFeedback}
       />
     </div>

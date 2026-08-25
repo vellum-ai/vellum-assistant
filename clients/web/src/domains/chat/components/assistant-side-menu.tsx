@@ -75,9 +75,9 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
   /**
-   * Trailing control in the overlay's glyph row, opposite dismiss and search.
-   * A slot rather than a direct render: the control belongs to another
-   * domain, so the page composes it and this menu stays free of the
+   * Trailing control in the overlay's glyph row, beside search and opposite
+   * dismiss. A slot rather than a direct render: the control belongs to
+   * another domain, so the page composes it and this menu stays free of the
    * dependency (and of the router context it needs).
    */
   notificationsAction?: ReactNode;
@@ -92,6 +92,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
   onUnarchiveConversation?: (conversation: Conversation) => void;
+  onDeleteConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
   /**
@@ -140,6 +141,7 @@ const NATIVE_MOBILE_LIST_TOP_FADE =
   "native-mobile:[mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)] native-mobile:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_2.75rem)]";
 
 function SearchButton() {
+  const { t } = useTranslation("chat");
   const toggle = useCommandPaletteStore.use.toggle();
   // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
   // search returns to the menu rather than the chat behind it.
@@ -150,8 +152,8 @@ function SearchButton() {
     <Button
       variant="ghost"
       iconOnly={<Search />}
-      aria-label="Search (⌘K)"
-      title="Search (⌘K)"
+      aria-label={t("assistantSideMenu.searchShortcut")}
+      title={t("assistantSideMenu.searchShortcut")}
       className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
       onClick={handleClick}
     />
@@ -220,6 +222,7 @@ export function AssistantSideMenu({
   onRenameConversation,
   onArchiveConversation,
   onUnarchiveConversation,
+  onDeleteConversation,
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
@@ -240,6 +243,7 @@ export function AssistantSideMenu({
   onCreateGroupInto,
   onRemoveFromGroup,
 }: AssistantSideMenuProps) {
+  const { t } = useTranslation("chat");
   const sidebar = useSidebarState({
     assistantId,
     conversations,
@@ -277,8 +281,6 @@ export function AssistantSideMenu({
   // Reported by SideMenuOverlayBottomColumn; only read while the overlay
   // variant is up, so a stale value from a dismissed overlay is inert.
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
-
-  const { t } = useTranslation("chat");
 
   // Whole-section reordering. Rows themselves do not reorder: every section
   // is recency-sorted (LUM-3108).
@@ -393,6 +395,7 @@ export function AssistantSideMenu({
     onRename: onRenameConversation,
     onArchive: onArchiveConversation,
     onUnarchive: onUnarchiveConversation,
+    onDelete: onDeleteConversation,
     onMarkRead: onMarkConversationRead,
     onMarkUnread: onMarkConversationUnread,
     onOpenInNewWindow,
@@ -495,7 +498,7 @@ export function AssistantSideMenu({
   return (
     <ConversationListProvider value={listContext}>
       <SideMenu
-        ariaLabel="Assistant navigation"
+        ariaLabel={t("assistantSideMenu.navAria")}
         collapsed={collapsed}
         variant={variant}
         width={width}
@@ -519,29 +522,32 @@ export function AssistantSideMenu({
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            /* Dismiss and search lead together on the left, notifications
-               sits alone on the right (Figma 7842-83305). In Capacitor
-               mobile shells the row floats over the scrollport so list
-               content travels beneath the bare glyphs;
-               `pointer-events-none` keeps the gap between the clusters
-               scrollable. */
+            /* Dismiss leads alone on the left; search sits with
+               notifications on the right, mirroring the chat header's
+               right cluster so the glyphs hold one position whether the
+               drawer is open or closed. In Capacitor mobile shells the row
+               floats over the scrollport so list content travels beneath
+               the bare glyphs; `pointer-events-none` keeps the gap between
+               the clusters scrollable. */
             <div
               data-slot="side-menu-glyph-row"
               className="flex items-center justify-between gap-2 native-mobile:pointer-events-none native-mobile:absolute native-mobile:inset-x-3 native-mobile:top-4 native-mobile:z-10"
             >
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  iconOnly={<X />}
-                  aria-label="Close navigation"
-                  className="pointer-events-auto"
-                  onClick={() => onClose?.()}
-                />
+              <Button
+                variant="ghost"
+                iconOnly={<X />}
+                aria-label={t("assistantSideMenu.closeNavAria")}
+                className="pointer-events-auto"
+                onClick={() => onClose?.()}
+              />
+              <div className="flex items-center gap-2">
                 <SearchButton />
+                {notificationsAction ? (
+                  <div className="pointer-events-auto">
+                    {notificationsAction}
+                  </div>
+                ) : null}
               </div>
-              {notificationsAction ? (
-                <div className="pointer-events-auto">{notificationsAction}</div>
-              ) : null}
             </div>
           ) : (
             builtInNav

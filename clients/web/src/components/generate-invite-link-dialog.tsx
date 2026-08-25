@@ -15,6 +15,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
 import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export interface GenerateInviteLinkDialogProps {
@@ -41,6 +42,7 @@ export function GenerateInviteLinkDialog({
   assistantId,
   onClose,
 }: GenerateInviteLinkDialogProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevOpenRef = useRef(false);
@@ -117,7 +119,7 @@ export function GenerateInviteLinkDialog({
     >
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>Share Connection Link</Modal.Title>
+          <Modal.Title>{t("generateInviteLinkDialog.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           {mutation.isPending ? (
@@ -126,7 +128,7 @@ export function GenerateInviteLinkDialog({
               style={{ color: "var(--content-tertiary)" }}
             >
               <Loader2 className="h-4 w-4 animate-spin" />
-              Creating invite link…
+              {t("generateInviteLinkDialog.creating")}
             </div>
           ) : mutation.isError ? (
             <div className="space-y-3">
@@ -135,8 +137,7 @@ export function GenerateInviteLinkDialog({
                 className="!m-0 text-body-medium-lighter"
                 style={{ color: "var(--system-negative-strong)" }}
               >
-                Failed to create invite link. Make sure A2A is enabled for your
-                assistant.
+                {t("generateInviteLinkDialog.createFailed")}
               </p>
               <Button
                 variant="outlined"
@@ -144,7 +145,7 @@ export function GenerateInviteLinkDialog({
                   mutation.mutate({ path: { assistant_id: assistantId } })
                 }
               >
-                Try Again
+                {t("generateInviteLinkDialog.tryAgain")}
               </Button>
             </div>
           ) : mutation.isSuccess ? (
@@ -153,8 +154,7 @@ export function GenerateInviteLinkDialog({
                 variant="body-medium-lighter"
                 style={{ color: "var(--content-secondary)" }}
               >
-                Share this link with another assistant owner to establish a
-                connection.
+                {t("generateInviteLinkDialog.shareHint")}
               </Typography>
               <div className="flex items-center gap-2">
                 <Input
@@ -169,7 +169,7 @@ export function GenerateInviteLinkDialog({
                 <button
                   type="button"
                   onClick={() => handleCopy(inviteUrl)}
-                  aria-label="Copy invite link"
+                  aria-label={t("generateInviteLinkDialog.copyAriaLabel")}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-base)] hover:bg-[var(--surface-hover)]"
                 >
                   {copied ? (
@@ -192,7 +192,7 @@ export function GenerateInviteLinkDialog({
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={handleClose}>
-            Done
+            {t("generateInviteLinkDialog.done")}
           </Button>
         </Modal.Footer>
       </Modal.Content>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useTranslation, type TFunction } from "@/i18n";
 import {
   getUnreadBadgeSurface,
   setDockBadge,
@@ -28,19 +29,12 @@ interface SystemPermissionRowMeta {
   id: SystemPermissionKind;
   type: "system";
   sourceKind: SystemPermissionKind;
-  label: string;
-  description: string;
-  /**
-   * Windows-specific description. Absent means the permission has no
-   * Windows equivalent and the row is hidden on a Windows host.
-   */
-  windowsDescription?: string;
+  availableOnWindows?: boolean;
 }
 
 interface LocalPermissionRowMeta {
   id: LocalPermissionRowId;
   type: "local";
-  label: string;
 }
 
 interface PermissionRowViewModel {
@@ -57,47 +51,30 @@ const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
     id: "accessibility",
     type: "system",
     sourceKind: "accessibility",
-    label: "Accessibility",
-    description:
-      "Allows your assistant to click, type, and control apps on your behalf.",
   },
   {
     id: "screen",
     type: "system",
     sourceKind: "screen",
-    label: "Screen Recording",
-    description:
-      "Allows your assistant to capture screen context during computer-use tasks.",
+    availableOnWindows: true,
   },
   {
     id: "microphone",
     type: "system",
     sourceKind: "microphone",
-    label: "Microphone",
-    description:
-      "Allows your assistant to capture audio for voice input and recordings.",
-    windowsDescription:
-      "Allows your assistant to capture audio for voice input and recordings.",
+    availableOnWindows: true,
   },
   {
     id: "speechRecognition",
     type: "system",
     sourceKind: "speechRecognition",
-    label: "Speech Recognition",
-    description:
-      "Allows your assistant to transcribe your speech into text on-device.",
-    windowsDescription:
-      "Allows your assistant to transcribe your speech into text with Windows speech recognition.",
+    availableOnWindows: true,
   },
   {
     id: "notifications",
     type: "system",
     sourceKind: "notifications",
-    label: "Notifications",
-    description:
-      "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
-    windowsDescription:
-      "Allows your assistant to show Windows notifications for approvals, messages, and task updates.",
+    availableOnWindows: true,
   },
 ];
 
@@ -105,9 +82,53 @@ const LOCAL_PERMISSION_ROWS: LocalPermissionRowMeta[] = [
   {
     id: "notificationBadges",
     type: "local",
-    label: "Notification Badges",
   },
 ];
+
+type SystemPermissionRowId = (typeof SYSTEM_PERMISSION_ROWS)[number]["id"];
+
+function systemPermissionCopy(
+  id: SystemPermissionRowId,
+  t: TFunction,
+  isWindowsHost: boolean,
+): { label: string; description: string } {
+  switch (id) {
+    case "accessibility":
+      return {
+        label: t("systemPermissionsCard.accessibilityLabel"),
+        description: t("systemPermissionsCard.accessibilityDescription"),
+      };
+    case "screen":
+      return {
+        label: t("systemPermissionsCard.screenLabel"),
+        description: t("systemPermissionsCard.screenDescription"),
+      };
+    case "microphone":
+      return {
+        label: t("systemPermissionsCard.microphoneLabel"),
+        description: t("systemPermissionsCard.microphoneDescription"),
+      };
+    case "speechRecognition":
+      return {
+        label: t("systemPermissionsCard.speechRecognitionLabel"),
+        description: isWindowsHost
+          ? t("systemPermissionsCard.speechRecognitionWindowsDescription")
+          : t("systemPermissionsCard.speechRecognitionDescription"),
+      };
+    case "notifications":
+      return {
+        label: t("systemPermissionsCard.notificationsLabel"),
+        description: isWindowsHost
+          ? t("systemPermissionsCard.notificationsWindowsDescription")
+          : t("systemPermissionsCard.notificationsDescription"),
+      };
+    default: {
+      // Rows only use the kinds above; other SystemPermissionKind values
+      // (inputMonitoring, automation) are not shown in this card.
+      throw new Error(`Unsupported system permission row: ${id}`);
+    }
+  }
+}
 
 function usePendingKind() {
   const [pendingKind, setPendingKind] = useState<PermissionRowId | null>(null);
@@ -207,6 +228,7 @@ export function SystemPermissionsCard({
 }: {
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   const { state, loading, error, supported, refresh } =
     useSystemPermissionsState();
   const { pendingKind, run } = usePendingKind();
@@ -217,7 +239,7 @@ export function SystemPermissionsCard({
   const visibleSystemRows = useMemo(
     () =>
       SYSTEM_PERMISSION_ROWS.filter(
-        (meta) => !isWindowsHost || meta.windowsDescription,
+        (meta) => !isWindowsHost || meta.availableOnWindows,
       ),
     [isWindowsHost],
   );
@@ -233,7 +255,7 @@ export function SystemPermissionsCard({
 
     for (const meta of visibleSystemRows) {
       const item = state[meta.sourceKind];
-      if (item) {
+      if (item && item.status !== "not-applicable") {
         rows.set(meta.id, { meta, item });
       }
     }
@@ -249,13 +271,12 @@ export function SystemPermissionsCard({
           return null;
         }
 
+        const copy = systemPermissionCopy(meta.id, t, isWindowsHost);
+
         return {
           id: meta.id,
-          label: meta.label,
-          description:
-            isWindowsHost && meta.windowsDescription
-              ? meta.windowsDescription
-              : meta.description,
+          label: copy.label,
+          description: copy.description,
           checked: item.status === "granted",
           disabled: pendingKind === meta.id || item.status === "restricted",
           ...(item.error ? { error: item.error } : {}),
@@ -263,11 +284,19 @@ export function SystemPermissionsCard({
       })
       .filter(Boolean) as PermissionRowViewModel[];
 
+    const badgeSurface =
+      getUnreadBadgeSurface() === "taskbar icon"
+        ? t("systemPermissionsCard.taskbarIcon")
+        : t("systemPermissionsCard.dockIcon");
+
     const localRows = supportsUnreadBadges()
       ? LOCAL_PERMISSION_ROWS.map((meta) => ({
           id: meta.id,
-          label: meta.label,
-          description: `Allows your assistant to show unseen conversation counts on the ${getUnreadBadgeSurface()}.`,
+          label: t("systemPermissionsCard.notificationBadgesLabel"),
+          description: t(
+            "systemPermissionsCard.notificationBadgesDescription",
+            { surface: badgeSurface },
+          ),
           checked: notificationBadgesEnabled,
           disabled: pendingKind === meta.id,
         }))
@@ -279,6 +308,7 @@ export function SystemPermissionsCard({
     notificationBadgesEnabled,
     pendingKind,
     systemRowsById,
+    t,
     visibleSystemRows,
   ]);
 
@@ -319,12 +349,12 @@ export function SystemPermissionsCard({
   return (
     <section className="w-full rounded-[20px] border border-[var(--border-hover)] bg-[var(--surface-lift)] px-4 pb-3 pt-5">
       <h2 className="text-[18px] font-semibold leading-[22px] text-[var(--content-emphasised)]">
-        System Permissions
+        {t("systemPermissionsCard.title")}
       </h2>
       {loading && rows.length === 0 ? (
         <div className="mt-6 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <LoadingSpinner />
-          Checking permissions...
+          {t("systemPermissionsCard.checking")}
         </div>
       ) : (
         <div className="mt-3 space-y-2">

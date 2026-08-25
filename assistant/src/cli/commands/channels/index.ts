@@ -15,6 +15,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import type { ChannelReadinessSnapshot } from "../../../runtime/channel-readiness-types.js";
 import { applyCommandHelp, subcommand } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
@@ -22,26 +23,16 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 import { channelsHelp } from "./index.help.js";
 
 // ---------------------------------------------------------------------------
-// Snapshot shape (mirrors runtime/routes/channel-readiness-routes.ts)
+// Snapshot shape
 // ---------------------------------------------------------------------------
 
-interface ReadinessCheck {
-  name: string;
-  passed: boolean;
-  message: string;
-}
-
-interface ChannelSnapshot {
-  channel: string;
-  ready: boolean;
-  setupStatus: "not_configured" | "incomplete" | "ready";
-  checkedAt: number;
-  stale: boolean;
-  reasons: Array<{ code: string; text: string }>;
-  localChecks: ReadinessCheck[];
-  remoteChecks?: ReadinessCheck[];
-  channelHandle?: unknown;
-}
+/**
+ * The readiness service's own snapshot type, not a copy of it. A local
+ * mirror is what let this command fall a field behind the contract: it had
+ * no `health`, so a channel whose setup was complete and whose delivery had
+ * stopped rendered as unfinished setup.
+ */
+type ChannelSnapshot = ChannelReadinessSnapshot;
 
 interface ReadinessResponse {
   success: boolean;
@@ -52,24 +43,47 @@ interface ReadinessResponse {
 // Rendering
 // ---------------------------------------------------------------------------
 
-function statusGlyph(s: ChannelSnapshot): string {
-  if (s.ready) {
-    return "✅";
-  }
-  if (s.setupStatus === "not_configured") {
-    return "○ ";
-  }
-  return "⚠️ ";
-}
-
-function statusWord(s: ChannelSnapshot): string {
+/**
+ * Two axes, reported as one line each.
+ *
+ * `setupStatus` says whether setup finished; `health` says whether the
+ * channel is delivering. Collapsing them into setup progress alone is how a
+ * configured channel whose socket had died came to print as `incomplete`,
+ * which tells the reader to go finish a setup that is already complete.
+ * Ordered so the operational answer wins: once setup is done, what remains
+ * to say is whether it works.
+ */
+function statusState(
+  s: ChannelSnapshot,
+):
+  | "ready"
+  | "not configured"
+  | "not delivering"
+  | "state unknown"
+  | "incomplete" {
   if (s.ready) {
     return "ready";
   }
   if (s.setupStatus === "not_configured") {
     return "not configured";
   }
+  if (s.setupStatus === "ready") {
+    return s.health === "unknown" ? "state unknown" : "not delivering";
+  }
   return "incomplete";
+}
+
+const STATE_GLYPHS: Record<ReturnType<typeof statusState>, string> = {
+  ready: "✅",
+  "not configured": "○ ",
+  "not delivering": "⚠️ ",
+  // Neither vouched for nor condemned: the checks ran and settled nothing.
+  "state unknown": "? ",
+  incomplete: "⚠️ ",
+};
+
+function statusGlyph(s: ChannelSnapshot): string {
+  return STATE_GLYPHS[statusState(s)];
 }
 
 function renderList(snapshots: ChannelSnapshot[]): void {
@@ -79,12 +93,12 @@ function renderList(snapshots: ChannelSnapshot[]): void {
   log.info("Channel        Status");
   log.info("-------------  ------");
   for (const s of sorted) {
-    log.info(`${statusGlyph(s)} ${s.channel.padEnd(12)}  ${statusWord(s)}`);
+    log.info(`${statusGlyph(s)} ${s.channel.padEnd(12)}  ${statusState(s)}`);
   }
 }
 
 function renderSnapshot(s: ChannelSnapshot): void {
-  log.info(`${statusGlyph(s)} ${s.channel} — ${s.setupStatus}`);
+  log.info(`${statusGlyph(s)} ${s.channel} — ${statusState(s)}`);
   if (s.reasons.length > 0) {
     log.info("");
     log.info("Reasons:");

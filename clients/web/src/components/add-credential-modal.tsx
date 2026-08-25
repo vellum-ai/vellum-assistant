@@ -10,6 +10,7 @@ import {
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useCredentialsSetPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -63,8 +64,9 @@ export function AddCredentialModal({
   onClose,
   onSaved,
   initialValues,
-  successToastMessage = "Credential saved.",
+  successToastMessage,
 }: AddCredentialModalProps) {
+  const { t } = useTranslation();
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
 
@@ -93,7 +95,7 @@ export function AddCredentialModal({
 
   const setMutation = useCredentialsSetPostMutation({
     onError: (err) => {
-      toast.error(err.message || "Failed to save credential");
+      toast.error(err.message || t("addCredentialModal.saveFailed"));
     },
   });
   const saving = setMutation.isPending;
@@ -134,7 +136,9 @@ export function AddCredentialModal({
           void queryClient.invalidateQueries({
             queryKey: credentialsListQueryKey(assistantId),
           });
-          toast.success(successToastMessage);
+          toast.success(
+            successToastMessage ?? t("addCredentialModal.credentialSaved"),
+          );
           onSaved?.({
             service: trimmedService,
             field: trimmedField,
@@ -163,45 +167,45 @@ export function AddCredentialModal({
       <Modal.Content size="sm">
         <form onSubmit={handleSave}>
           <Modal.Header icon={KeyRound}>
-            <Modal.Title>Add credential</Modal.Title>
+            <Modal.Title>{t("addCredentialModal.title")}</Modal.Title>
             <Modal.Description>
-              Add an API key or token to let tools and integrations use it.
+              {t("addCredentialModal.description")}
             </Modal.Description>
           </Modal.Header>
           <Modal.Body className="flex flex-col gap-3">
             <div className="flex flex-col gap-3 sm:flex-row">
               <Input
-                label="Service"
+                label={t("addCredentialModal.serviceLabel")}
                 type="text"
                 value={service}
                 onChange={(e) => setService(e.target.value)}
-                placeholder="e.g. github"
+                placeholder={t("addCredentialModal.servicePlaceholder")}
                 autoFocus
                 fullWidth
               />
               <Input
-                label="Field"
+                label={t("addCredentialModal.fieldLabel")}
                 type="text"
                 value={field}
                 onChange={(e) => setField(e.target.value)}
-                placeholder="e.g. api_token"
+                placeholder={t("addCredentialModal.fieldPlaceholder")}
                 fullWidth
               />
             </div>
             <Input
-              label="Value"
+              label={t("addCredentialModal.valueLabel")}
               type="password"
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              placeholder="Enter the secret value"
+              placeholder={t("addCredentialModal.valuePlaceholder")}
               fullWidth
             />
             <Input
-              label="Label (optional)"
+              label={t("addCredentialModal.labelOptional")}
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. GitHub personal access token"
+              placeholder={t("addCredentialModal.labelPlaceholder")}
               fullWidth
             />
           </Modal.Body>
@@ -212,7 +216,7 @@ export function AddCredentialModal({
               onClick={resetAndClose}
               disabled={saving}
             >
-              Cancel
+              {t("addCredentialModal.cancel")}
             </Button>
             <Button
               type="submit"
@@ -226,7 +230,7 @@ export function AddCredentialModal({
                 ) : undefined
               }
             >
-              Save
+              {t("addCredentialModal.save")}
             </Button>
           </Modal.Footer>
         </form>

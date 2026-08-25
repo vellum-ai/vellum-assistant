@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "@/i18n";
 
 import { ChatPill } from "@/domains/chat/components/chat-pill";
 
@@ -52,6 +53,7 @@ export function RefreshFeedbackPill({
   onDismiss,
   onRetry,
 }: RefreshFeedbackPillProps) {
+  const { t } = useTranslation("chat");
   // Track the active feedback locally so the pill stays mounted long
   // enough for its fade-out animation. A new feedback resets the timer.
   const [active, setActive] = useState<RefreshFeedback | null>(feedback);
@@ -80,7 +82,7 @@ export function RefreshFeedbackPill({
 
   if (interactive) {
     return (
-      <ChatPill tone={tone} onClick={onRetry} ariaLabel="Retry refresh">
+      <ChatPill tone={tone} onClick={onRetry} ariaLabel={t("refreshFeedbackPill.retryAria")}>
         {label}
       </ChatPill>
     );

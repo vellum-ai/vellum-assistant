@@ -52,6 +52,7 @@ import { getLogger } from "../../util/logger.js";
 import type { FluxEncoding } from "./deepgram-flux-frames.js";
 import {
   buildFluxQueryParams,
+  fluxModelForLanguage,
   parseFluxFrame,
 } from "./deepgram-flux-frames.js";
 
@@ -115,6 +116,43 @@ export interface DeepgramFluxRealtimeOptions {
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
   inactivityTimeoutMs?: number;
+  /**
+   * WebSocket origin to dial. Defaults to Deepgram's own. The managed relay
+   * points this at the gateway, which forwards to velay.
+   */
+  baseUrl?: string;
+  /** Path on {@link baseUrl}. Defaults to Deepgram's `/v2/listen`. */
+  path?: string;
+  /**
+   * Carry the credential in a `key` query param rather than an
+   * `Authorization` header, which is how the gateway relay authenticates.
+   * Turns on URL redaction for logs.
+   */
+  queryAuth?: boolean;
+  /**
+   * Omit `model` from the query. The managed relay derives the Flux model
+   * from the spoken language and prices it before dialing, so it rejects a
+   * client-selected one.
+   */
+  omitModelParam?: boolean;
+  /**
+   * Ask the relay for native Flux frames instead of the v1-shaped Deepgram
+   * translation it serves released assistants by default. Meaningless when
+   * dialing Deepgram directly, which only speaks Flux.
+   */
+  nativeContract?: boolean;
+  /**
+   * Spoken language, forwarded to the relay so it can select the Flux model
+   * and language hint. Deepgram's own endpoint takes no `language`, so this
+   * is only sent when set, which is the managed path.
+   */
+  language?: string;
+  /**
+   * Called with any JSON frame the Flux parser produced no events from. The
+   * managed relay multiplexes its own `velay_error` control frames onto the
+   * same socket; this is how the wrapper sees them.
+   */
+  onUnhandledFrame?: (frame: Record<string, unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +203,15 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
   private readonly sampleRate: number;
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
+  private readonly baseUrl: string;
+  private readonly path: string;
+  private readonly queryAuth: boolean;
+  private readonly omitModelParam: boolean;
+  private readonly nativeContract: boolean;
+  private readonly language: string | undefined;
+  private readonly onUnhandledFrame:
+    | ((frame: Record<string, unknown>) => void)
+    | undefined;
 
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
@@ -211,6 +258,29 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.inactivityTimeoutMs =
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
+    this.baseUrl = (options.baseUrl ?? WS_BASE_URL).replace(/\/+$/, "");
+    this.path = options.path ?? FLUX_PATH;
+    this.queryAuth = options.queryAuth ?? false;
+    this.omitModelParam = options.omitModelParam ?? false;
+    this.nativeContract = options.nativeContract ?? false;
+    this.language = options.language;
+    this.onUnhandledFrame = options.onUnhandledFrame;
+  }
+
+  /**
+   * Blank the credential in text bound for a log. Only query auth puts it in
+   * a URL; the header path never does, so this is a no-op there.
+   */
+  private redact(text: string): string {
+    if (!this.queryAuth || !text) {
+      return text;
+    }
+    return text
+      .split(this.apiKey)
+      .join("***")
+      .split(encodeURIComponent(this.apiKey))
+      .join("***")
+      .replace(/([?&]key=)[^&\s"']*/g, "$1***");
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
@@ -222,7 +292,7 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     this.onEvent = onEvent;
 
     const url = this.buildWebSocketUrl();
-    log.info({ url }, "Opening Deepgram Flux session");
+    log.info({ url: this.redact(url) }, "Opening Deepgram Flux session");
 
     const ws = this.createWebSocket(url);
     this.ws = ws;
@@ -369,6 +439,10 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
     if (typeof WebSocketCtor !== "function") {
       throw new Error("global WebSocket is not available in this runtime");
     }
+    // Query auth carries the credential in the URL instead.
+    if (this.queryAuth) {
+      return new WebSocketCtor(url);
+    }
     return new WebSocketCtor(url, {
       headers: { Authorization: `Token ${this.apiKey}` },
     });
@@ -415,12 +489,39 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    for (const event of parseFluxFrame(raw)) {
+    const events = parseFluxFrame(raw);
+    if (events.length === 0) {
+      this.reportUnhandledFrame(raw);
+      return;
+    }
+
+    for (const event of events) {
       if (event.type === "error") {
         this.fatalErrorReported = true;
       }
       this.emitEvent(event);
     }
+  }
+
+  /**
+   * Hand a frame the Flux parser made nothing of to the transport wrapper.
+   * On the direct Deepgram path nothing listens and this is inert; on the
+   * managed relay it is how `velay_error` reaches the caller.
+   */
+  private reportUnhandledFrame(raw: string): void {
+    if (!this.onUnhandledFrame) {
+      return;
+    }
+    let frame: unknown;
+    try {
+      frame = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof frame !== "object" || frame === null || Array.isArray(frame)) {
+      return;
+    }
+    this.onUnhandledFrame(frame as Record<string, unknown>);
   }
 
   /** Handle provider-side WebSocket close. */
@@ -635,15 +736,42 @@ export class DeepgramFluxRealtimeTranscriber implements StreamingTranscriber {
    * {@link buildFluxQueryParams}.
    */
   private buildWebSocketUrl(): string {
+    // Dialing Deepgram directly means choosing the model here. The relay
+    // derives it from the language instead, which is why the managed path
+    // sends neither.
+    const selection = this.omitModelParam
+      ? null
+      : // An explicit pin is the operator's call and wins; otherwise the
+        // language picks, matching what the relay does server-side.
+        this.flux.model
+        ? { model: this.flux.model }
+        : fluxModelForLanguage(this.language);
     const query = buildFluxQueryParams({
-      model: this.flux.model,
+      ...(selection ? { model: selection.model } : {}),
+      ...(selection?.languageHint !== undefined
+        ? { languageHint: selection.languageHint }
+        : {}),
       encoding: AUDIO_ENCODING,
       sampleRate: this.sampleRate,
       eotThreshold: this.flux.eotThreshold,
       eagerEotThreshold: this.flux.eagerEotThreshold,
       eotTimeoutMs: this.flux.eotTimeoutMs,
     });
-    return `${WS_BASE_URL}${FLUX_PATH}?${query}`;
+
+    // Relay-only params. Deepgram takes neither: `language` is how velay
+    // picks the Flux model and language hint, and `contract` asks it to stop
+    // translating Flux into the v1 Deepgram dialect.
+    const params = new URLSearchParams(query);
+    if (this.language) {
+      params.set("language", this.language);
+    }
+    if (this.nativeContract) {
+      params.set("contract", "flux");
+    }
+    if (this.queryAuth) {
+      params.set("key", this.apiKey);
+    }
+    return `${this.baseUrl}${this.path}?${params.toString()}`;
   }
 }
 

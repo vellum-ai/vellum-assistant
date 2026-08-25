@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Conversation } from "@/types/conversation-types";
 import { Popover, SideMenu } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Indicator state
@@ -135,6 +136,7 @@ export function CollapsedGroupIcon({
   onOpenChange,
   children,
 }: CollapsedGroupIconProps) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const handleOpenChange = useCallback(
@@ -155,7 +157,7 @@ export function CollapsedGroupIcon({
       <SideMenu.Item
         icon={Icon}
         label={label}
-        tooltip="No conversations"
+        tooltip={t("collapsedGroupIcon.noConversations")}
         shape="tile"
         disabled
       />

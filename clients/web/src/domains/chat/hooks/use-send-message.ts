@@ -975,6 +975,16 @@ export function useSendMessage({
             activeConversationId,
             newConversationId,
           );
+          // The companion surface's composer follows the same way, and for
+          // the same reason: it holds a conversation of its own, so an id
+          // re-keyed here and not there is an id that sends the surface's next
+          // message into a thread that does not exist.
+          useConversationStore
+            .getState()
+            .resolveCompanionDraftConversationId(
+              activeConversationId,
+              newConversationId,
+            );
 
           // A profile picked while the mint was in flight is stashed under the
           // draft id after the POST already read the stash — re-key it to the

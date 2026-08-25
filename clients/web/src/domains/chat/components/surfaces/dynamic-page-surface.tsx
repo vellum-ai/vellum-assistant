@@ -1,9 +1,14 @@
 import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useTranslation } from "@/i18n";
+
+const IFRAME_SANDBOX =
+  "allow-scripts allow-popups allow-popups-to-escape-sandbox";
+
 import { AppCard } from "@/components/app-card";
 import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import { useSandboxFetchProxy } from "@/hooks/use-sandbox-fetch-proxy";
 import { injectBridge } from "@/utils/sandbox-bridge";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -97,8 +102,8 @@ export function DynamicPageSurface({
   toolCalls,
   onVellumLinkClick,
 }: DynamicPageSurfaceProps) {
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
-  const togglePin = usePinnedAppsStore.use.togglePin();
+  const { t } = useTranslation("chat");
+  const { pinnedAppIds, togglePin } = usePinnedApps(assistantId);
   const data = surface.data as unknown as DynamicPageSurfaceData;
   const appId = getDynamicPageAppId(surface);
   const isToolCallComplete = useMemo(
@@ -182,14 +187,7 @@ export function DynamicPageSurface({
   if (data.preview && !expanded) {
     const cardName = data.preview.title || surface.title || "App";
     const isPinned = appId ? pinnedAppIds.has(appId) : false;
-    const onPin = appId
-      ? () =>
-          togglePin({
-            id: appId,
-            name: cardName,
-            icon: data.preview?.icon,
-          })
-      : undefined;
+    const onPin = appId ? () => togglePin(appId) : undefined;
     return (
       // `max-md:mt-2` adds breathing room between the activity status line
       // and the app card on mobile; stacks on the transcript column's `gap-2`
@@ -238,9 +236,9 @@ export function DynamicPageSurface({
           ref={iframeRef}
           key={iframeKey}
           srcDoc={srcdoc}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          sandbox={IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
-          title={surface.title || "Dynamic content"}
+          title={surface.title || t("dynamicPageSurface.titleFallback")}
           style={{
             width,
             height,

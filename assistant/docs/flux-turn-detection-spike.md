@@ -59,7 +59,7 @@ If it does not, set the Deepgram key the ordinary way (client Settings, Speech-t
 
 ## 2. Enable Flux
 
-> **Setting `services.stt.provider` to `deepgram-flux` turns off batch transcription for the whole workspace, not just live voice.** `services.stt.provider` is the single source of truth for every STT route, and Flux is the only provider in the catalog with no `daemon-batch` boundary. For as long as it is set, these all stop working: voice-message and inbound-attachment transcription, the `transcribe` skill, the `media-processing` skill's audio segments, `POST /v1/stt/transcribe`, and phone-call transcription. Each reports a message naming Flux as the cause rather than failing silently, but they do not fall back to `deepgram` on their own. **Set `services.stt.provider` back to `deepgram` when the spike is over**, and do not run the spike on an assistant that is also taking calls or handling voice messages.
+> **Putting a provider on the `flux` model family turns off batch transcription for the whole workspace, not just live voice.** `services.stt.provider` plus `services.stt.providers.<provider>.model` is the single source of truth for every STT route, and Flux is the only family in the catalog with no `daemon-batch` boundary. For as long as it is set, these all stop working: voice-message and inbound-attachment transcription, the `transcribe` skill, the `media-processing` skill's audio segments, `POST /v1/stt/transcribe`, and phone-call transcription. Each reports a message naming Flux as the cause rather than failing silently, but they do not fall back to `deepgram` on their own. **Set `services.stt.providers.deepgram.model` back to `nova-3` when the spike is over**, and do not run the spike on an assistant that is also taking calls or handling voice messages.
 
 Two keys in `config.json`, which lives at `$VELLUM_WORKSPACE_DIR/config.json` (default `~/.vellum/workspace/config.json`):
 
@@ -67,7 +67,8 @@ Two keys in `config.json`, which lives at `$VELLUM_WORKSPACE_DIR/config.json` (d
 {
   "services": {
     "stt": {
-      "provider": "deepgram-flux"
+      "provider": "deepgram",
+      "providers": { "deepgram": { "model": "flux" } }
     }
   },
   "liveVoice": {
@@ -93,12 +94,12 @@ The rest of `liveVoice.flux` is optional and defaulted (`config/schemas/live-voi
 
 ## 3. Run the A/B
 
-**Flip `turnEnd.enabled` between runs and leave `services.stt.provider` on `deepgram-flux` in both arms.** That holds the STT engine, the model, the socket, and the transcriber lifecycle constant, so the only thing that changes is which signal commits the turn.
+**Flip `turnEnd.enabled` between runs and leave the `flux` model family selected in both arms.** That holds the STT engine, the model, the socket, and the transcriber lifecycle constant, so the only thing that changes is which signal commits the turn.
 
-- **Arm A (control):** `provider: "deepgram-flux"`, `turnEnd.enabled: false`. Flux transcribes; the four turn-detection events are ignored; the local silence boundary and the front-door hold path run exactly as they do today.
-- **Arm B (treatment):** `provider: "deepgram-flux"`, `turnEnd.enabled: true`.
+- **Arm A (control):** `providers.deepgram.model: "flux"`, `turnEnd.enabled: false`. Flux transcribes; the four turn-detection events are ignored; the local silence boundary and the front-door hold path run exactly as they do today.
+- **Arm B (treatment):** `providers.deepgram.model: "flux"`, `turnEnd.enabled: true`.
 
-**Do not A/B by switching the provider between `deepgram` and `deepgram-flux`.** That confounds two changes at once:
+**Do not A/B by switching the model family between `nova-3` and `flux`.** That confounds two changes at once:
 
 1. It swaps the STT model. `deepgram` runs `nova-2` (`DEFAULT_MODEL`, `deepgram-realtime.ts`), so any transcript-quality or first-partial difference lands in your latency numbers.
 2. It swaps the transcriber lifecycle. `deepgram` implements `finalizeUtterance`, so the session adopts it as a persistent stream shared across the whole session (`sharedTranscriber`) and never tears it down between turns. Flux implements no `finalizeUtterance`, so every utterance owns its own `/v2/listen` socket and every release closes it. That per-turn socket churn is inside `roundTripMs` and `totalMs` on the Flux side and absent on the `deepgram` side, so a naive provider-swap A/B attributes it to turn detection. The next section is what it costs and why it cannot be removed.
@@ -230,7 +231,7 @@ Check these if you port the spike anywhere else, because a run that violates eit
 
 ## 8. Falling back
 
-Set `liveVoice.flux.turnEnd.enabled` back to `false` (or delete the key) and restart. That is the whole rollback: the latch goes down, the turn-detection events become no-ops, and the silence-boundary path runs unchanged. You can leave `services.stt.provider` on `deepgram-flux` or move it back to `deepgram`; either is a working configuration.
+Set `liveVoice.flux.turnEnd.enabled` back to `false` (or delete the key) and restart. That is the whole rollback: the latch goes down, the turn-detection events become no-ops, and the silence-boundary path runs unchanged. You can leave the `flux` family selected or move back to `nova-3`; either is a working configuration.
 
 Runtime fallback needs no action. A Flux stream that never emits `turn-end` is caught by the fail-open deadline and the utterance replays onto the silence path, so an outage degrades to today's behavior rather than to a hung turn.
 

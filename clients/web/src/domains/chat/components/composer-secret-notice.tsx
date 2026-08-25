@@ -2,6 +2,7 @@ import { Button, Notice } from "@vellumai/design-library";
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 
 import { isStorableFromInput } from "@/domains/chat/components/store-credential-dialog";
+import { useTranslation } from "@/i18n";
 
 /** Leading characters of the detected value kept visible in the masked preview. */
 const MASK_VISIBLE_CHARS = 6;
@@ -85,6 +86,7 @@ export function ComposerSecretNotice({
   onSendAnyway,
   onStoreSecurely,
 }: ComposerSecretNoticeProps) {
+  const { t } = useTranslation("chat");
   const first = matches[0];
   if (!first) {
     return null;
@@ -97,7 +99,7 @@ export function ComposerSecretNotice({
   // action — leaving "Send anyway" / "Dismiss" as the deliberate paths.
   const storeSecurelyButton = isStorableFromInput(first, composerInput) ? (
     <Button variant="primary" size="compact" onClick={onStoreSecurely}>
-      Store securely
+      {t("composerSecretNotice.storeSecurely")}
     </Button>
   ) : null;
   return (
@@ -106,8 +108,8 @@ export function ComposerSecretNotice({
         tone="warning"
         title={
           sendBlocked
-            ? "Message not sent. It looks like it contains an API key."
-            : "This looks like an API key"
+            ? t("composerSecretNotice.blockedTitle")
+            : t("composerSecretNotice.warningTitle")
         }
         onDismiss={sendBlocked ? undefined : onDismiss}
         actions={
@@ -115,10 +117,10 @@ export function ComposerSecretNotice({
             <>
               {storeSecurelyButton}
               <Button variant="outlined" size="compact" onClick={onSendAnyway}>
-                Send anyway
+                {t("composerSecretNotice.sendAnyway")}
               </Button>
               <Button variant="ghost" size="compact" onClick={onDismiss}>
-                Dismiss
+                {t("composerSecretNotice.dismiss")}
               </Button>
             </>
           ) : (
@@ -127,10 +129,7 @@ export function ComposerSecretNotice({
         }
       >
         <span className="font-mono">{maskSecretValue(first.value)}</span>
-        <p>
-          Credentials sent in chat are visible in the transcript. Store it
-          securely instead.
-        </p>
+        <p>{t("composerSecretNotice.body")}</p>
       </Notice>
     </div>
   );

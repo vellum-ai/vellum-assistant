@@ -26,8 +26,11 @@ export {
   AttachmentMetadataSchema,
   ChannelDeliveryResultSchema,
   ChannelReplyPayloadSchema,
+  MessageAudienceSchema,
   PermissionRequestDetailsSchema,
-  SlackStreamOpSchema,
+  StreamOpSchema,
+  StreamPlanSchema,
+  StreamPlanStepSchema,
   SlackStreamTaskSchema,
 } from "./outbound-contract.js";
 
@@ -37,8 +40,11 @@ export type {
   AttachmentMetadata,
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  MessageAudience,
   PermissionRequestDetails,
-  SlackStreamOp,
+  StreamOp,
+  StreamPlan,
+  StreamPlanStep,
   SlackStreamTask,
 } from "./outbound-contract.js";
 

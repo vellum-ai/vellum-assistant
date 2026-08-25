@@ -112,6 +112,18 @@ export function getPublicBaseUrl(config: IngressConfig): string {
 }
 
 /**
+ * Resolve the public ingress base URL, or `undefined` when none is configured
+ * or ingress is explicitly disabled.
+ */
+export function tryGetPublicBaseUrl(config: IngressConfig): string | undefined {
+  try {
+    return getPublicBaseUrl(config);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Build the Twilio voice webhook URL.
  *
  * When `callSessionId` is provided (outbound calls), it is included as a

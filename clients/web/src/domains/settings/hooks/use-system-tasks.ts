@@ -32,6 +32,7 @@ import {
   resolveScheduleUsageWindow,
 } from "@/domains/settings/utils/schedule-usage-window";
 import { captureError } from "@/lib/sentry/capture-error";
+import { t } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import type {
@@ -241,14 +242,14 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const heartbeatRunNow = useHeartbeatRunnowPostMutation({
     onSuccess: (data) => {
       if (data.ran) {
-        toast.success("Heartbeat started.");
+        toast.success(t("settings:useSystemTasks.heartbeatStarted"));
       } else {
-        toast.info("Heartbeat skipped.");
+        toast.info(t("settings:useSystemTasks.heartbeatSkipped"));
       }
     },
     onError: (error) => {
       captureError(error, { context: "heartbeat_run_now" });
-      toast.error("Failed to run heartbeat.");
+      toast.error(t("settings:useSystemTasks.heartbeatRunFailed"));
     },
     onSettled: () => invalidateSystemTaskQueries("heartbeat"),
   });
@@ -256,14 +257,14 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const consolidationRunNow = useConsolidationRunnowPostMutation({
     onSuccess: (data) => {
       if (data.ran) {
-        toast.success("Consolidation queued.");
+        toast.success(t("settings:useSystemTasks.consolidationQueued"));
       } else {
-        toast.info("Consolidation already queued or running.");
+        toast.info(t("settings:useSystemTasks.consolidationAlreadyQueued"));
       }
     },
     onError: (error) => {
       captureError(error, { context: "consolidation_run_now" });
-      toast.error("Failed to run consolidation.");
+      toast.error(t("settings:useSystemTasks.consolidationRunFailed"));
     },
     onSettled: () => invalidateSystemTaskQueries("consolidation"),
   });
@@ -272,12 +273,14 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     onSuccess: (data) => {
       heartbeatConfigGetSetQueryData(queryClient, pathOpts, data);
       toast.success(
-        data.enabled ? "Heartbeat enabled." : "Heartbeat disabled.",
+        data.enabled
+          ? t("settings:useSystemTasks.heartbeatEnabled")
+          : t("settings:useSystemTasks.heartbeatDisabled"),
       );
     },
     onError: (error) => {
       captureError(error, { context: "heartbeat_toggle" });
-      toast.error("Failed to toggle heartbeat.");
+      toast.error(t("settings:useSystemTasks.heartbeatToggleFailed"));
     },
   });
 

@@ -1,21 +1,29 @@
+import { useTranslation } from "@/i18n";
 /**
  * "Voice room" — the owning-composer surface for a live-voice session,
  * mounted by `chat-layout.tsx` as a purely additive overlay: the composer's
  * voice bar and display transcript still render underneath, hidden by this
  * layer, so removing the room leaves the old UI intact.
  *
- * Two looks, resolved per session assistant ({@link resolveVoiceRoomLook}):
+ * One look, whatever the assistant wears. Every resolved avatar fills the room
+ * with a color and draws the same voice bands, the same transcript zones and
+ * the same toned chrome ({@link toneForBg}, via the `--room-*` CSS vars); the
+ * only thing avatar type decides is what stands in the middle of it:
  *
- * - Character avatars get the onboarding "full-screen color with eyes"
- *   treatment — entering the room plays the Introduction-step grow (the
- *   avatar's body springs from its on-screen size to BE the screen, the color
- *   fades in behind it, the giant eyes grow into the center; see
- *   {@link VoiceRoomColorLook}), the mic waveform swells behind the eyes while
- *   the user speaks, and the control chrome is toned for contrast against that
- *   color ({@link toneForBg}, via the `--room-*` CSS vars).
- * - Custom-image / no-character avatars fall back to the deep-dark ambient
- *   void with the state-driven avatar at its center and the listening waves —
- *   what this look should become is an open design question.
+ * - Character avatars ({@link resolveVoiceRoomLook}) bring their palette color
+ *   and their eyes, so entering plays the onboarding Introduction-step grow:
+ *   the body springs from its on-screen size to BE the screen, the color fades
+ *   in behind it, the giant eyes grow into the center. See
+ *   {@link VoiceRoomColorLook}.
+ * - Custom-image avatars have no palette color and no eyes, so the room samples
+ *   a field color out of the uploaded image ({@link useCustomAvatarFieldHex})
+ *   and the image itself takes the center. Everything else is the character
+ *   room, which is the point: a session reads the same whichever avatar the
+ *   assistant wears.
+ * - Until the avatar query settles there is no color to paint with, so the room
+ *   holds the deep-dark ambient void and its bands ride the avatar tint (the
+ *   dark voice ink would be invisible on it). That is a loading state, not a
+ *   look.
  *
  * Two placement variants (see `chat-layout.tsx` for the mounts):
  *
@@ -40,8 +48,8 @@
  *   want, and the default.
  *
  * The look is laid out against the ROOM's box, not the window's. See
- * {@link useRoomBox}. As a panel those are different rectangles, so the color
- * look's field, its giant eyes, and the responding rings are all sized to the
+ * {@link useRoomBox}. As a panel those are different rectangles, so the look's
+ * color field, its giant eyes, and its voice bands are all sized to the
  * panel, and the entry origin (published in viewport space by the composer) is
  * converted to room-local space before the entrance grows from it. The sheet
  * reads no origin: it presents the look rather than growing it.
@@ -164,18 +172,19 @@ import {
 } from "./voice-room-entrance";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
-import { VoiceMeshWaves } from "./voice-mesh-waves";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
+import { useCustomAvatarFieldHex } from "./use-custom-avatar-field";
 // Every circular icon control in the room is one of these: the corner
 // minimize, the two mutes, the camera toggle, flip camera and end session. See
 // that module for the toning, and for why the design library's `Button` is not
 // the element here.
 import { VoiceRoomControl } from "./voice-room-control";
 import {
-  VoiceRespondingRings,
   VoiceRoomColorLook,
+  VoiceRoomVoiceBands,
   VoiceStateCaption,
   resolveVoiceRoomLook,
+  voiceRoomImageLook,
 } from "./voice-room-eyes";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
@@ -339,6 +348,7 @@ function VoiceRoomSheet({
   motionProps: MotionProps;
   children: ReactNode;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <MotionBottomSheetContent
@@ -391,7 +401,7 @@ function VoiceRoomSheet({
           }
         }}
         style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
-        aria-label="Voice session"
+        aria-label={t("voiceRoom.ariaLabel")}
         // The room narrates itself through its own live region; a description
         // element would be a second, redundant announcement.
         aria-describedby={undefined}
@@ -408,6 +418,7 @@ function VoiceRoomSheet({
  * exit.
  */
 function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
+  const { t } = useTranslation("chat");
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
@@ -491,15 +502,25 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     useVoiceRoomCamera(assistantId, viewfinderRef);
   const cameraOpen = camera.open;
 
-  // Resolve the assistant's look: color-with-eyes for character avatars, the
-  // ambient void otherwise. The accent var is still published for the
-  // fallback look's listening waves (null for custom-image / "none" /
-  // still-loading avatars, where the waves keep their aurora fallback) — the
-  // same derivation the iOS Live Activity mirrors, so island and room agree.
+  // Resolve the assistant's look. A character avatar hands over its palette
+  // color and its eyes; an uploaded image hands over pixels, so the field color
+  // is sampled out of it and the look carries no eyes (the room's centered
+  // avatar is the centerpiece there). Null only while the avatar query is still
+  // unresolved, which is the ambient-void loading state.
+  //
+  // The sample resolves a frame or more after the query does, and can fail
+  // outright, so the room paints the void until it lands rather than holding
+  // its first frame on a decode.
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
-  const look = resolveVoiceRoomLook(components, traits, customImageUrl);
+  const customFieldHex = useCustomAvatarFieldHex(customImageUrl);
+  const look =
+    resolveVoiceRoomLook(components, traits, customImageUrl) ??
+    (customFieldHex ? voiceRoomImageLook(customFieldHex) : null);
   const tone = look ? toneForBg(look.bgHex) : null;
+  // The accent var, published for the void state's bands and mirrored by the
+  // iOS Live Activity so island and room agree. Null for custom-image / "none"
+  // / still-loading avatars, where those bands keep their own fallback.
   const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
@@ -592,7 +613,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       // the rest of the app is inert would be a lie to assistive tech; the
       // sheet gets real modality from Radix instead of asserting it here.
       aria-modal={fullscreen || undefined}
-      aria-label={sheet ? undefined : "Voice session"}
+      aria-label={sheet ? undefined : t("voiceRoom.ariaLabel")}
       // Fullscreen covers `ChatLayoutHeader`, so it loses the header's
       // safe-area protection — pad the centered avatar inside the
       // notch/home-indicator per docs/CAPACITOR.md. The background layers are
@@ -611,21 +632,18 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
       // On close the chrome and rectangular backgrounds fade, while the avatar
-      // shape itself shrinks back toward the entry origin — the color look's
-      // body + eyes and the void look's centered avatar each own that exit — so
+      // shape itself shrinks back toward the entry origin (the character
+      // look's body + eyes and the centered avatar each own that exit), so
       // the room collapses into the avatar, not a shrinking rectangle. Under
       // the sheet none of that applies: the chrome slides the whole room out in
       // one piece, and this box holds still.
       {...choreography.shell}
     >
-      {/* The color look (body grow entrance + color fade + centered waves +
-          centered eyes) is the entire cast; the void look expresses the
-          session through the centered avatar, but shares the color look's
-          foreground chrome — the listening waves sweep in from the same top edge
-          and the same state caption names the beat below the centerpiece — so
-          the room reads identically for a custom avatar bar the full-screen
-          color + eyes. Both draw the waves only while `listening`, from live mic
-          amplitude. */}
+      {/* The look: a color field plus the room's shared cast (voice bands,
+          state caption, and the eyes when the avatar has any). A custom-image
+          avatar takes the same path with its sampled field color and no eyes,
+          so nothing about the bands or the caption depends on avatar type; the
+          centered avatar below fills the middle in its place. */}
       {!camera.native && look ? (
         // Held back until the box is measured. That is one pre-paint commit, so the
         // entrance still plays from the room's first painted frame, but it
@@ -649,30 +667,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null
       ) : !camera.native ? (
         <>
+          {/* No avatar resolved yet, so there is no field to paint. The bands
+              are the same component at the same edge; only the ink changes,
+              because the dark voice ink cannot be seen on the void. */}
           <VoiceRoomAmbientBackground />
-          {visual === "listening" ? (
-            <VoiceMeshWaves
-              getAmplitude={getLiveVoiceInputAmplitude}
-              palette="accent"
-              // Same top edge as the color look, above the centered avatar —
-              // positional parity, only the aurora/accent color differs from the
-              // color look's avatar-toned band.
-              placement="top"
-            />
-          ) : null}
-          {/* Responding: the same concentric rings the color look radiates from
-              behind the eyes, here behind the centered avatar (both centered, so
-              they emanate from the centerpiece the same way). Rendered before the
-              avatar so it paints them behind it; rides the TTS-output amplitude. */}
-          {visual === "responding" && box ? (
-            <VoiceRespondingRings
-              getAmplitude={getLiveVoiceOutputAmplitude}
-              viewport={box}
-            />
-          ) : null}
-          {/* Same state caption + gating as the color look (stands down while
-              the assistant transcript is on), in the same shared lower zone —
-              both looks name the beat from one baseline. */}
+          <VoiceRoomVoiceBands
+            visual={visual}
+            getAmplitude={getLiveVoiceInputAmplitude}
+            getResponseAmplitude={getLiveVoiceOutputAmplitude}
+            ink="accent"
+            viewport={box ?? undefined}
+          />
           {!showAssistantTranscript ? (
             <VoiceStateCaption visual={visual} />
           ) : null}
@@ -799,8 +804,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         className="absolute z-10 flex items-center gap-1"
       >
         <VoiceRoomControl
-          label="Minimize voice room"
-          tooltip="Minimize (session keeps going)"
+          label={t("voiceRoom.minimizeAria")}
+          tooltip={t("voiceRoom.minimizeTooltip")}
           onClick={minimizeVoiceRoom}
           bare
           overMedia={cameraOpen}
@@ -809,11 +814,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </VoiceRoomControl>
       </div>
 
-      {/* Void look: the avatar springs to center once on entry (the wrapper
-          owns the one-time entry spring); per-state expression is the avatar's
-          own CSS loop, which cross-fades in place without re-popping. The
-          color look has no centered figure — the bottom eyes are the cast. */}
-      {!camera.native && !look ? (
+      {/* The centerpiece for every assistant without eyes: an uploaded image,
+          or none resolved yet. It springs to center once on entry (the wrapper
+          owns the one-time entry spring); the phases that express themselves on
+          the avatar do it through its own CSS loop, cross-fading in place
+          without re-popping, and `responding` holds still while the band at the
+          floor carries the turn. A character look has no centered figure: its
+          eyes are the cast. */}
+      {!camera.native && !look?.art ? (
         <motion.div
           className="relative z-0"
           {...voidAvatarMotion(choreography.entrance)}
@@ -821,11 +829,6 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           <VoiceAvatar
             assistantId={assistantId}
             visual={visual}
-            // Only the `responding` avatar is audio-reactive, and it always
-            // rides TTS output — so the output amplitude is the sole source
-            // here. The user's voice is expressed by the bottom waves in
-            // `listening`, not by the avatar.
-            getAmplitude={getLiveVoiceOutputAmplitude}
             size={AVATAR_SIZE}
           />
         </motion.div>
@@ -976,12 +979,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               reaches for without looking. */}
           {cameraOpen ? (
             <div className="relative flex w-full items-center justify-center">
-              <Tooltip content="Take a photo">
+              <Tooltip content={t("voiceRoom.takePhoto")}>
                 <button
                   type="button"
                   onClick={() => void shutter()}
                   disabled={sending}
-                  aria-label="Take a photo"
+                  aria-label={t("voiceRoom.takePhoto")}
                   data-testid="voice-room-shutter"
                   className={cn(
                     "flex size-16 items-center justify-center rounded-full border-4 transition",
@@ -1013,7 +1016,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               </Tooltip>
 
               <VoiceRoomControl
-                label="Flip camera"
+                label={t("voiceRoom.flipCamera")}
                 onClick={() => void camera.flipCamera()}
                 overMedia={cameraOpen}
                 className="absolute right-8"
@@ -1033,7 +1036,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
         <VoiceRoomControl
-          label={muted ? "Unmute microphone" : "Mute microphone"}
+          label={muted ? t("voiceRoom.unmuteMicrophone") : t("voiceRoom.muteMicrophone")}
           onClick={() => setLiveVoiceMuted(!muted)}
           pressed={muted}
           tone={muted ? "destructive" : "neutral"}
@@ -1044,7 +1047,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </VoiceRoomControl>
 
         <VoiceRoomControl
-          label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          label={outputMuted ? t("voiceRoom.unmuteAssistant") : t("voiceRoom.muteAssistant")}
           onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
           pressed={outputMuted}
           tone={outputMuted ? "destructive" : "neutral"}
@@ -1080,7 +1083,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             self-evident would be worse than nothing. */}
         {cameraSupported ? (
           <VoiceRoomControl
-            label={cameraOpen ? "Close camera" : "Show the camera"}
+            label={cameraOpen ? t("voiceRoom.closeCamera") : t("voiceRoom.showCamera")}
             onClick={() => (cameraOpen ? close() : void open())}
             pressed={cameraOpen}
             overMedia={cameraOpen}
@@ -1095,8 +1098,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null}
 
         <VoiceRoomControl
-          label="End voice session"
-          tooltip="End session"
+          label={t("voiceRoom.endSessionAria")}
+          tooltip={t("voiceRoom.endSessionTooltip")}
           onClick={endLiveVoiceSession}
           tone="destructive"
           isLight={tone?.isLight}
@@ -1112,7 +1115,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         {/* A muted `listening` already reads as "Muted", so prefixing it again
             would announce "Muted — Muted". The assistant's own phases still
             need the prefix: "Thinking…" alone would not say the mic is off. */}
-        {muted && state !== "listening" ? `Muted. ${stateLabel}` : stateLabel}
+        {muted && state !== "listening" ? t("voiceRoom.mutedState", { state: stateLabel }) : stateLabel}
       </div>
     </motion.div>
   );

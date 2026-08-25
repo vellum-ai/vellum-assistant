@@ -137,6 +137,16 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   avatarQueryKey: (id: string) => ["assistantAvatar", id],
 }));
 
+// The field color a custom-image avatar paints the room with is sampled off a
+// canvas, which no test environment decodes. Stubbed with a mutable value so
+// the three states the room actually branches on are all reachable: a resolved
+// sample, a still-pending one, and an image that could not be read.
+let mockCustomFieldHex: string | null = null;
+mock.module("@/domains/chat/voice/voice-room/use-custom-avatar-field", () => ({
+  useCustomAvatarFieldHex: () => mockCustomFieldHex,
+  clearCustomAvatarFieldCache: () => {},
+}));
+
 /** Minimal character components: one body/eye/color of each. */
 const CHARACTER_COMPONENTS = {
   bodyShapes: [
@@ -154,6 +164,23 @@ const CHARACTER_COMPONENTS = {
   ],
   colors: [{ id: "green", hex: "#4C9B50" }],
 };
+
+/**
+ * Point the room at one kind of avatar. `character` brings traits, eyes and a
+ * palette color; `custom` is an uploaded image, whose field color is sampled
+ * (stubbed above) and whose room therefore has no eyes to draw.
+ */
+function seedAvatar(kind: "character" | "custom"): void {
+  mockAvatarData = {
+    components: CHARACTER_COMPONENTS,
+    traits:
+      kind === "character"
+        ? { bodyShape: "sprout", eyeStyle: "curious", color: "green" }
+        : null,
+    customImageUrl: kind === "character" ? null : "blob:custom-avatar",
+  };
+  mockCustomFieldHex = kind === "custom" ? "#3B5C8A" : null;
+}
 
 // Stub the OAuth connect surface (pulls the managed-oauth + generated-SDK
 // graph) so the room-slot tests assert only the wiring: that the room renders
@@ -275,6 +302,7 @@ beforeEach(() => {
   mockMainView = "chat";
   mockIsMobile = false;
   mockAvatarData = { components: null, traits: null, customImageUrl: null };
+  mockCustomFieldHex = null;
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
@@ -844,25 +872,32 @@ describe("VoiceRoom: mobile sheet", () => {
   });
 });
 
-describe("VoiceRoom — listening waves", () => {
+describe("VoiceRoom: voice bands (avatar still unresolved)", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
-  test("mounts the listening waves while listening (energy coming in)", () => {
+  test("mounts the listening band while listening (energy coming in)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(roomDialog()).not.toBeNull();
     expect(waves()).not.toBeNull();
   });
 
-  test("hides the waves while responding — the avatar emanates instead", () => {
+  test("answers with a band while responding, same as every other look", () => {
     startOwnedSession("speaking");
     render(<VoiceRoom />);
-    // Room is still open (an active phase), but there are no incoming waves.
     expect(roomDialog()).not.toBeNull();
-    expect(waves()).toBeNull();
+    expect(waves()).not.toBeNull();
   });
 
-  test("hides the waves while thinking", () => {
+  test("rides the avatar tint here, not the two-ink vocabulary", () => {
+    // No field has been painted yet, so there is nothing for the dark
+    // assistant ink to be seen against; both voices take the accent instead.
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(waves()?.dataset.color).toBeUndefined();
+  });
+
+  test("leaves the floor empty while thinking", () => {
     startOwnedSession("thinking");
     render(<VoiceRoom />);
     expect(waves()).toBeNull();
@@ -1146,11 +1181,7 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   const eyes = () => screen.queryByTestId("voice-room-eyes");
 
   test("a character avatar gets the color-with-eyes look", () => {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
+    seedAvatar("character");
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(eyes()).not.toBeNull();
@@ -1163,11 +1194,7 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 
   function renderCharacterAt(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
+    seedAvatar("character");
     startOwnedSession(state);
     render(<VoiceRoom />);
     return screen.queryByTestId("listening-waves");
@@ -1211,12 +1238,22 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     expect(eyes()).not.toBeNull();
   });
 
-  test("a custom-image avatar keeps the ambient-void look", () => {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: null,
-      customImageUrl: "blob:custom-avatar",
-    };
+  test("a custom-image avatar fills the room with its sampled color", () => {
+    seedAvatar("custom");
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // No eyes to draw, so the uploaded image takes the centerpiece, and
+    // that is the ONLY thing about the room that differs from a character.
+    expect(eyes()).toBeNull();
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
+  });
+
+  test("a custom-image avatar holds the void until its color lands", () => {
+    // The sample is a canvas decode: async, and it can fail outright. Either
+    // way the room paints rather than waiting on it.
+    seedAvatar("custom");
+    mockCustomFieldHex = null;
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(eyes()).toBeNull();
@@ -1232,27 +1269,114 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 });
 
+describe("VoiceRoom: the bands read the same for every avatar", () => {
+  // The bands are the room's account of whose turn it is, so an avatar that
+  // changed where they sit, or what answers the user, would make one session
+  // read as two different rooms.
+  function renderWith(
+    avatar: "character" | "custom",
+    state: LiveVoiceSessionState,
+  ) {
+    seedAvatar(avatar);
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+    const band = screen.queryByTestId("listening-waves");
+    return { placement: band?.dataset.placement, color: band?.dataset.color };
+  }
+
+  test("both voices rise from the floor, whichever avatar is on screen", () => {
+    for (const state of ["listening", "speaking"] as const) {
+      for (const avatar of ["character", "custom"] as const) {
+        expect(renderWith(avatar, state).placement).toBe("bottom");
+        cleanup();
+      }
+    }
+  });
+
+  test("the two-ink vocabulary is the same one in both rooms", () => {
+    const characterListening = renderWith("character", "listening");
+    cleanup();
+    const customListening = renderWith("custom", "listening");
+    cleanup();
+    const characterSpeaking = renderWith("character", "speaking");
+    cleanup();
+    const customSpeaking = renderWith("custom", "speaking");
+    expect(customListening.color).toBe(characterListening.color);
+    expect(customSpeaking.color).toBe(characterSpeaking.color);
+    expect(characterListening.color).not.toBe(characterSpeaking.color);
+  });
+
+  test("no room answers with rings any more", () => {
+    renderWith("custom", "speaking");
+    expect(screen.queryByTestId("voice-responding-rings")).toBeNull();
+    cleanup();
+    renderWith("character", "speaking");
+    expect(screen.queryByTestId("voice-responding-rings")).toBeNull();
+  });
+});
+
+describe("VoiceRoom: live transcript (shared across looks)", () => {
+  // The transcript reads two persisted prefs and nothing about the avatar, so
+  // what is on screen is a property of the account, not of the assistant's
+  // look. These pin that, so a look change cannot make it avatar-dependent.
+  const userHalf = () => screen.queryByTestId("voice-ambient-user");
+  const assistantHalf = () => screen.queryByTestId("voice-ambient-assistant");
+
+  function renderWith(avatar: "character" | "custom") {
+    seedAvatar(avatar);
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({
+      partialTranscript: "what is on my calendar",
+      assistantTranscript: "three meetings today",
+    });
+    render(<VoiceRoom />);
+  }
+
+  test("both prefs default off, so no room shows text", () => {
+    // Read from a fresh store rather than the suite's own seeding, so this
+    // fails if the shipped defaults ever flip.
+    useVoicePrefsStore.persist?.clearStorage?.();
+    const prefs = useVoicePrefsStore.getState();
+    expect(prefs.showUserTranscript).toBe(false);
+    expect(prefs.showAssistantTranscript).toBe(false);
+  });
+
+  test("stays absent for both avatars while the prefs are off", () => {
+    for (const avatar of ["character", "custom"] as const) {
+      renderWith(avatar);
+      expect(userHalf()).toBeNull();
+      expect(assistantHalf()).toBeNull();
+      cleanup();
+    }
+  });
+
+  test("appears in both zones for both avatars once the prefs are on", () => {
+    useVoicePrefsStore.setState({
+      showUserTranscript: true,
+      showAssistantTranscript: true,
+    });
+    for (const avatar of ["character", "custom"] as const) {
+      renderWith(avatar);
+      expect(userHalf()?.textContent).toContain("calendar");
+      expect(assistantHalf()?.textContent).toContain("meetings");
+      cleanup();
+    }
+  });
+});
+
 describe("VoiceRoom — state caption (shared across looks)", () => {
   const caption = () => screen.queryByTestId("voice-state-caption");
 
   function renderCharacterLook(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
+    seedAvatar("character");
     startOwnedSession(state);
     render(<VoiceRoom />);
   }
 
   // The void look (custom-image / unresolved avatar) carries the centered
   // avatar, not the eyes, but shares the same caption beat.
-  function renderVoidLook(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: null,
-      customImageUrl: "blob:custom-avatar",
-    };
+  function renderCustomLook(state: LiveVoiceSessionState) {
+    seedAvatar("custom");
     startOwnedSession(state);
     render(<VoiceRoom />);
   }
@@ -1268,7 +1392,7 @@ describe("VoiceRoom — state caption (shared across looks)", () => {
   });
 
   test("paints no caption in the void look either", () => {
-    renderVoidLook("speaking");
+    renderCustomLook("speaking");
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
     expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
     expect(caption()).toBeNull();
@@ -1309,34 +1433,6 @@ describe("VoiceStateCaption — emphasis", () => {
       render(<VoiceStateCaption visual={visual} emphasis="full" />);
       expect(caption()).toBeNull();
     }
-  });
-});
-
-describe("VoiceRoom — void-look responding rings", () => {
-  const rings = () => screen.queryByTestId("voice-responding-rings");
-
-  function renderVoidLook(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: null,
-      customImageUrl: "blob:custom-avatar",
-    };
-    startOwnedSession(state);
-    render(<VoiceRoom />);
-  }
-
-  test("emits the same concentric rings behind the custom avatar while responding", () => {
-    renderVoidLook("speaking");
-    // The custom avatar (not the eyes) is the centerpiece, but it radiates the
-    // color look's rings — parity with the eyes' responding treatment.
-    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
-    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
-    expect(rings()).toBeTruthy();
-  });
-
-  test("shows no rings outside responding (energy going out only while speaking)", () => {
-    renderVoidLook("listening");
-    expect(rings()).toBeNull();
   });
 });
 

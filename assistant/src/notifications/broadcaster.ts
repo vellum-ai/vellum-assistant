@@ -33,11 +33,10 @@ import {
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
 import {
-  buildQuestionOptionActionId,
+  buildQuestionAnswerActions,
   buildToolApprovalSourceView,
   parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
-  QUESTION_SKIP_ACTION_ID,
   resolveGuardianInstructionModeFromPayload,
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
@@ -188,14 +187,9 @@ function resolveQuestionOptionsContext(
   return {
     approval: {
       requestId,
-      actions: [
-        ...options.map((option, index) => ({
-          id: buildQuestionOptionActionId(index),
-          label: option.label,
-        })),
-        { id: QUESTION_SKIP_ACTION_ID, label: "Skip" },
-      ],
+      actions: buildQuestionAnswerActions(options),
       plainTextFallback: `Reply "${code} <your answer>".`,
+      intent: "question",
     },
   };
 }

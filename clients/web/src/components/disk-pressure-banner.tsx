@@ -2,6 +2,7 @@ import { AlertTriangle, Package } from "lucide-react";
 import { useState } from "react";
 
 import { formatDiskPressureUsage } from "@/assistant/disk-pressure";
+import { useTranslation } from "@/i18n";
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 import { Button, Checkbox, Modal, Notice } from "@vellumai/design-library";
 
@@ -36,6 +37,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     onReviewWorkspaceData,
     onUpgradeStorage,
   } = props;
+  const { t } = useTranslation();
   const [showAcknowledgeModal, setShowAcknowledgeModal] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const formattedUsage = formatDiskPressureUsage(status);
@@ -46,7 +48,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     return (
       <Notice
         tone="warning"
-        title="Your storage is almost full"
+        title={t("diskPressureBanner.warningTitle")}
         icon={<Package className="h-4 w-4" aria-hidden="true" />}
         onDismiss={
           onDismissWarning ? () => onDismissWarning(dontShowAgain) : undefined
@@ -71,8 +73,8 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
           </div>
           <p className="m-0">
             {onUpgradeStorage
-              ? "Free up space or add more storage to avoid interruptions."
-              : "Free up space to avoid interruptions."}
+              ? t("diskPressureBanner.warningBodyWithUpgrade")
+              : t("diskPressureBanner.warningBody")}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {onReviewWorkspaceData && (
@@ -81,7 +83,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onReviewWorkspaceData}
               >
-                Manage Storage
+                {t("diskPressureBanner.manageStorage")}
               </Button>
             )}
             {onUpgradeStorage && (
@@ -90,7 +92,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onUpgradeStorage}
               >
-                Upgrade
+                {t("diskPressureBanner.upgrade")}
               </Button>
             )}
             {onDismissWarning ? (
@@ -98,7 +100,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 className="ml-auto"
                 checked={dontShowAgain}
                 onCheckedChange={(next) => setDontShowAgain(next === true)}
-                label="Don't show again"
+                label={t("diskPressureBanner.dontShowAgain")}
                 data-testid="disk-pressure-banner-dont-show-again"
               />
             ) : null}
@@ -114,7 +116,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     return (
       <Notice
         tone="warning"
-        title="Cleanup mode is active"
+        title={t("diskPressureBanner.cleanupTitle")}
         icon={<Package className="h-4 w-4" aria-hidden="true" />}
         className="p-4"
         data-testid="disk-pressure-banner"
@@ -134,10 +136,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
               {formattedUsage}
             </span>
           </div>
-          <p className="m-0">
-            Prompt your assistant to free up space before it runs out and enters
-            a locked state.
-          </p>
+          <p className="m-0">{t("diskPressureBanner.cleanupBody")}</p>
           <div className="flex flex-wrap gap-2">
             {onReviewWorkspaceData && (
               <Button
@@ -145,7 +144,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onReviewWorkspaceData}
               >
-                Manage Storage
+                {t("diskPressureBanner.manageStorage")}
               </Button>
             )}
             {onUpgradeStorage && (
@@ -154,7 +153,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onUpgradeStorage}
               >
-                Upgrade
+                {t("diskPressureBanner.upgrade")}
               </Button>
             )}
           </div>
@@ -169,7 +168,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     <>
       <Notice
         tone="error"
-        title="Storage is critically low"
+        title={t("diskPressureBanner.criticalTitle")}
         icon={<Package className="h-4 w-4" aria-hidden="true" />}
         className="p-4"
         data-testid="disk-pressure-banner"
@@ -189,9 +188,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
               {formattedUsage}
             </span>
           </div>
-          <p className="m-0">
-            Your assistant will enter a locked state if it runs out of storage.
-          </p>
+          <p className="m-0">{t("diskPressureBanner.criticalBody")}</p>
           {acknowledgeError ? (
             <span className="text-[var(--system-negative-strong)]" role="alert">
               {acknowledgeError}
@@ -203,7 +200,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
               size="compact"
               onClick={() => setShowAcknowledgeModal(true)}
             >
-              Review
+              {t("diskPressureBanner.review")}
             </Button>
           </div>
         </div>
@@ -219,13 +216,11 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
       >
         <Modal.Content size="sm">
           <Modal.Header icon={AlertTriangle}>
-            <Modal.Title>Storage is critically low</Modal.Title>
+            <Modal.Title>{t("diskPressureBanner.criticalTitle")}</Modal.Title>
           </Modal.Header>
           <Modal.Body>
             <Modal.Description>
-              Your assistant will enter a locked state if it runs out of
-              storage. You should either prompt your assistant to free up space
-              or increase your storage.
+              {t("diskPressureBanner.criticalModalDescription")}
             </Modal.Description>
           </Modal.Body>
           <Modal.Footer>
@@ -237,7 +232,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                   onUpgradeStorage();
                 }}
               >
-                Upgrade
+                {t("diskPressureBanner.upgrade")}
               </Button>
             )}
             <Button
@@ -248,7 +243,9 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 setShowAcknowledgeModal(false);
               }}
             >
-              {isAcknowledging ? "Acknowledging..." : "Acknowledge"}
+              {isAcknowledging
+                ? t("diskPressureBanner.acknowledging")
+                : t("diskPressureBanner.acknowledge")}
             </Button>
           </Modal.Footer>
         </Modal.Content>

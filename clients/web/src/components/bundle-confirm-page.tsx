@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useTranslation } from "@/i18n";
 import { formatFileSize } from "@/utils/format-file-size";
 import type { BundleScanData } from "@/runtime/is-electron";
 import { cn } from "@/utils/misc";
@@ -29,6 +30,7 @@ const TRUST_BADGE: Record<
 };
 
 export function BundleConfirmPage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<BundleScanData | null>(null);
   const [warningsOpen, setWarningsOpen] = useState(false);
 
@@ -43,7 +45,7 @@ export function BundleConfirmPage() {
   if (!data) {
     return (
       <div className="flex h-svh w-screen items-center justify-center bg-background text-muted-foreground select-none">
-        Loading...
+        {t("bundleConfirmPage.loading")}
       </div>
     );
   }
@@ -85,20 +87,26 @@ export function BundleConfirmPage() {
         {signatureResult.trustTier === "signed" &&
           signatureResult.signerDisplayName && (
             <span className="text-muted-foreground text-xs">
-              by {signatureResult.signerDisplayName}
+              {t("bundleConfirmPage.bySigner", {
+                name: signatureResult.signerDisplayName,
+              })}
             </span>
           )}
       </div>
 
       {/* Details */}
       <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
-        <dt className="text-muted-foreground">Size</dt>
+        <dt className="text-muted-foreground">{t("bundleConfirmPage.size")}</dt>
         <dd>{formatFileSize(bundleSizeBytes)}</dd>
-        <dt className="text-muted-foreground">Created by</dt>
+        <dt className="text-muted-foreground">
+          {t("bundleConfirmPage.createdBy")}
+        </dt>
         <dd className="truncate">{manifest.created_by}</dd>
         {manifest.capabilities.length > 0 && (
           <>
-            <dt className="text-muted-foreground">Capabilities</dt>
+            <dt className="text-muted-foreground">
+              {t("bundleConfirmPage.capabilities")}
+            </dt>
             <dd className="truncate">{manifest.capabilities.join(", ")}</dd>
           </>
         )}
@@ -112,7 +120,9 @@ export function BundleConfirmPage() {
             className="text-muted-foreground text-xs font-medium hover:underline"
             onClick={() => setWarningsOpen((v) => !v)}
           >
-            {warningsOpen ? "Hide" : "Show"} Warnings ({warnings.length})
+            {warningsOpen
+              ? t("bundleConfirmPage.hideWarnings", { count: warnings.length })
+              : t("bundleConfirmPage.showWarnings", { count: warnings.length })}
           </button>
           {warningsOpen && (
             <ul className="mt-1.5 space-y-1 text-xs">
@@ -136,7 +146,7 @@ export function BundleConfirmPage() {
           className="rounded-md border border-border px-4 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
           onClick={() => window.vellum?.bundleConfirm?.respond(false)}
         >
-          Cancel
+          {t("bundleConfirmPage.cancel")}
         </button>
         <button
           type="button"
@@ -148,7 +158,9 @@ export function BundleConfirmPage() {
           )}
           onClick={() => window.vellum?.bundleConfirm?.respond(true)}
         >
-          {isTampered ? "Install Anyway" : "Install"}
+          {isTampered
+            ? t("bundleConfirmPage.installAnyway")
+            : t("bundleConfirmPage.install")}
         </button>
       </div>
     </div>

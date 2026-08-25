@@ -3,20 +3,22 @@ import { PinOff, Rocket } from "lucide-react";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
 import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
-import type { PinnedAppEntry } from "@/utils/app-pin-storage";
+import { useTranslation } from "@/i18n";
+import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import {
-  ContextMenu,
-  PanelItem,
-  SideMenu,
-} from "@vellumai/design-library";
+import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
-  app: PinnedAppEntry;
+  app: PinnedAppView;
   active: boolean;
   collapsed: boolean;
   onOpen?: (appId: string) => void;
+  /**
+   * Pin actions, owned by the block that lists the pins. It holds the assistant
+   * id the pin is written against, so a row never has to know one.
+   */
+  onUnpin: (appId: string) => void;
+  onSetColor: (appId: string, color: string | null) => void;
 }
 
 /**
@@ -30,9 +32,8 @@ export interface PinnedAppNavItemProps {
  * with the row, because collapsing changes the shape of a thing and not what
  * colour it is.
  *
- * The unpin lives here because it is the only place a stale pin can be
- * cleared: a deleted app never appears in the Library, so its card-level
- * unpin is unreachable, leaving the sidebar entry orphaned.
+ * The unpin lives here as well as on the Library card so a pin can be cleared
+ * from the place it is showing, without first finding the app it points at.
  *
  * Both shapes carry the menu, because the rail changes what a pinned app
  * looks like and not what can be done to it. The collapsed tile depends on it
@@ -55,9 +56,10 @@ export function PinnedAppNavItem({
   active,
   collapsed,
   onOpen,
+  onUnpin,
+  onSetColor,
 }: PinnedAppNavItemProps) {
-  const unpin = usePinnedAppsStore.use.unpin();
-  const setColor = usePinnedAppsStore.use.setColor();
+  const { t } = useTranslation("chat");
 
   /* The pin's colour, as the three custom properties both shapes read, and
      `undefined` on an uncoloured pin so neither shape sees a declaration and
@@ -68,7 +70,7 @@ export function PinnedAppNavItem({
      rail column, and a wrapper would become the thing it centres in. A custom
      property resolves on the element that declares it, so one mechanism
      covers both shapes. */
-  const tintStyle = pinTintStyle(app.color);
+  const tintStyle = pinTintStyle(app.pinColor);
 
   const sideMenuItem = (
     <SideMenu.Item
@@ -82,7 +84,7 @@ export function PinnedAppNavItem({
       shape="tile"
       showCollapsedTooltip
       active={active}
-      onSelect={onOpen ? () => onOpen(app.appId) : undefined}
+      onSelect={onOpen ? () => onOpen(app.id) : undefined}
       className="text-[color:var(--content-default)]"
     />
   );
@@ -94,15 +96,15 @@ export function PinnedAppNavItem({
   const menu = (
     <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
       <PinnedAppColorSwatches
-        value={app.color}
-        onChange={(color) => setColor(app.appId, color)}
+        value={app.pinColor}
+        onChange={(color) => onSetColor(app.id, color)}
       />
       <ContextMenu.Separator />
       <ContextMenu.Item
         leftIcon={<PinOff size={14} />}
-        onSelect={() => unpin(app.appId)}
+        onSelect={() => onUnpin(app.id)}
       >
-        Unpin
+        {t("pinnedAppNavItem.unpin")}
       </ContextMenu.Item>
     </ContextMenu.Content>
   );
@@ -145,14 +147,14 @@ export function PinnedAppNavItem({
       }
       label={app.name}
       active={active}
-      onSelect={onOpen ? () => onOpen(app.appId) : undefined}
+      onSelect={onOpen ? () => onOpen(app.id) : undefined}
       trailingAction={
         <button
           type="button"
-          aria-label={`Unpin ${app.name}`}
+          aria-label={t("pinnedAppNavItem.unpinAria", { name: app.name })}
           onClick={(event) => {
             event.stopPropagation();
-            unpin(app.appId);
+            onUnpin(app.id);
           }}
           className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]"
         >
@@ -167,10 +169,10 @@ export function PinnedAppNavItem({
   const trailingActions: SwipeAction[] = [
     {
       id: "unpin",
-      label: "Unpin",
+      label: t("pinnedAppNavItem.unpin"),
       icon: PinOff,
       variant: "destructive",
-      onSelect: () => unpin(app.appId),
+      onSelect: () => onUnpin(app.id),
     },
   ];
 

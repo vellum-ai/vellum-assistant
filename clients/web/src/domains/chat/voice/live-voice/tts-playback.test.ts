@@ -595,7 +595,7 @@ describe("LiveVoiceAudioPlayer", () => {
     });
   });
 
-  test("reading the output level leaves the avatar's meter untouched", () => {
+  test("reading the output level leaves the band's meter untouched", () => {
     const { player: metered, ctx: meteredCtx } = makeMeteringPlayer();
     meteredCtx.level = 0.05;
     metered.enqueue(chunk(new Array(24000).fill(8000)));
@@ -604,11 +604,11 @@ describe("LiveVoiceAudioPlayer", () => {
     const instant = metered.readOutputLevel();
     expect(instant).toBeGreaterThan(0);
 
-    // Two consumers on different cadences share this player. The avatar's
-    // meter is a stateful EMA advanced by every call, so the measurement path
-    // must not read through it: otherwise the probe would drag the avatar's
-    // level around, and its own numbers would depend on whether the avatar is
-    // mounted at all.
+    // Two consumers on different cadences share this player. The band's meter
+    // is a stateful EMA advanced by every call, so the measurement path must
+    // not read through it: otherwise the probe would drag the band's level
+    // around, and its own numbers would depend on whether the band is mounted
+    // at all.
     const first = metered.getOutputAmplitude();
     metered.readOutputLevel();
     metered.readOutputLevel();

@@ -4,8 +4,8 @@
  *
  * Read: `resolveSelectedAssistantId` validates the one selected id for the
  * active org, falling back to the lockfile `activeAssistant` and finally the
- * first valid assistant. `useGatedSelectedAssistantId` is the reactive,
- * flag-gated wrapper every React consumer goes through.
+ * first valid assistant. `useGatedSelectedAssistantId` is the reactive
+ * wrapper every React consumer goes through.
  *
  * Write: `setSelectedAssistant` records the selection AND mirrors it into the
  * lockfile `activeAssistant`, so the macOS tray, the CLI, and the native
@@ -17,7 +17,6 @@ import {
   getActiveAssistant,
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
 import {
   assistantsValidForOrg,
@@ -66,35 +65,25 @@ export function resolveSelectedAssistantId(
 }
 
 /**
- * Reactive, flag-gated read of the selection, shared by every consumer that
- * must agree with the lifecycle on which assistant is selected. Honors the
- * stored selection when the multi-platform-assistant flag is on, or when the
- * assistant-switcher flag is on (its chooser stores the same selection and
- * runs on local clients and the platform hub alike).
- * Gateway-auth mode and a missing org id return null, as does a closed gate:
- * callers apply their own fallback. The org id comes from the same derivation
- * the `Vellum-Organization-Id` header uses (the resolved selection, or the
+ * Reactive read of the selection, shared by every consumer that must agree
+ * with the lifecycle on which assistant is selected. The chooser runs on
+ * local clients and the platform hub alike, so the stored selection is
+ * honored on every surface.
+ * Gateway-auth mode and a missing org id return null: callers apply their own
+ * fallback. The org id comes from the same derivation the
+ * `Vellum-Organization-Id` header uses (the resolved selection, or the
  * persisted id standing in for it), so a failed organization fetch cannot
- * drop the user's choice. Subscribes to the flags, the org, the selection,
- * the resolved list, and its hydration marker so consumers re-render when
- * any resolution input changes (hydration alone flips an unknown selected id
- * from pass-through to ghost, even when the list itself is unchanged).
+ * drop the user's choice. Subscribes to the org, the selection, the resolved
+ * list, and its hydration marker so consumers re-render when any resolution
+ * input changes (hydration alone flips an unknown selected id from
+ * pass-through to ghost, even when the list itself is unchanged).
  */
 export function useGatedSelectedAssistantId(): string | null {
   const organizationId = useRequestOrganizationId();
-  const multiAssistantEnabled =
-    useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const assistantSwitcherEnabled =
-    useClientFeatureFlagStore.use.assistantSwitcher();
   useResolvedAssistantsStore.use.selectedAssistantId();
   useResolvedAssistantsStore.use.assistants();
   useResolvedAssistantsStore.use.assistantsHydrated();
-  // assistant-switcher opens the gate on every surface that hosts the
-  // chooser (local clients and the platform hub); gateway-auth mode always
-  // resolves null regardless.
-  const gateOpen =
-    (multiAssistantEnabled || assistantSwitcherEnabled) && !isGatewayAuthMode();
-  return gateOpen && organizationId
+  return !isGatewayAuthMode() && organizationId
     ? resolveSelectedAssistantId(organizationId)
     : null;
 }

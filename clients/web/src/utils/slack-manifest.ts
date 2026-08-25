@@ -130,6 +130,7 @@ export function buildSlackManifest(name: string, desc = "") {
           "message.im",
           "message.mpim",
           "reaction_added",
+          "reaction_removed",
         ],
       },
       interactivity: { is_enabled: true },

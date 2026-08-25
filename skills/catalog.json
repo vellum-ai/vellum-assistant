@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T22:31:34.000Z"
+      "updatedAt": "2026-08-25T19:48:41.000Z"
     },
     {
       "id": "doordash",
@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T22:40:25.000Z"
+      "updatedAt": "2026-08-20T22:55:26.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -536,6 +536,9 @@
         "vellum": {
           "category": "system",
           "display-name": "macOS Automation",
+          "platforms": [
+            "macos"
+          ],
           "activation-hints": [
             "Interacting with native macOS apps (Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript"
           ],
@@ -545,7 +548,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -747,6 +750,8 @@
             "User wants to build, scaffold, or author a Vellum plugin",
             "User wants to edit, update, or push changes to an existing plugin's GitHub repo",
             "User wants to package skills, hooks, or tools into an installable plugin",
+            "User wants to ship MCP servers as part of a plugin (mcp.json)",
+            "User wants a plugin to receive public webhooks or become a channel (channels/ingress.json)",
             "User wants to extend their assistant with a new capability shipped as a plugin",
             "User wants to publish a plugin to the Vellum marketplace catalog",
             "User asks how to ship or distribute extensions for Vellum"
@@ -759,7 +764,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-20T18:51:19.000Z"
+      "updatedAt": "2026-08-25T22:55:33.000Z"
     },
     {
       "id": "public-ingress",
@@ -780,7 +785,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-08-25T22:59:59.000Z"
     },
     {
       "id": "resend-setup",
@@ -821,12 +826,15 @@
       "metadata": {
         "emoji": "🎬",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "content",
           "display-name": "Screen Recording"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "self-upgrade",
@@ -897,7 +905,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-24T22:39:12.000Z"
+      "updatedAt": "2026-08-24T14:09:38.000Z"
     },
     {
       "id": "start-the-day",
@@ -993,7 +1001,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T15:54:16.000Z"
+      "updatedAt": "2026-08-24T17:37:48.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1039,6 +1047,27 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-07-07T20:33:02.000Z"
+    },
+    {
+      "id": "vellum-client-capabilities",
+      "name": "vellum-client-capabilities",
+      "description": "Truthful answers about what the Vellum client apps can and cannot do on the user's device. Device location and GPS are unavailable in every client and there is no location permission prompt to approve, so location requests are answered by asking for a typed city or address instead.",
+      "metadata": {
+        "emoji": "📍",
+        "vellum": {
+          "category": "system",
+          "display-name": "Vellum Client Capabilities",
+          "activation-hints": [
+            "asked to use the user's current location, GPS, or device position",
+            "whether the app can access a device sensor, permission, or hardware feature"
+          ],
+          "avoid-when": [
+            "the user already gave a location as text (just use it)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-08-21T21:09:58.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1149,7 +1178,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-07T06:03:32.000Z"
+      "updatedAt": "2026-08-25T22:59:59.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1209,12 +1238,15 @@
       "metadata": {
         "emoji": "🔊",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "content",
           "display-name": "Sounds"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -1241,7 +1273,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-08-07T13:48:02.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "vellum-workspace-theme",
@@ -1283,6 +1315,9 @@
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
         "vellum": {
+          "platforms": [
+            "macos"
+          ],
           "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
@@ -1299,7 +1334,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T16:33:06.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "watch-together",
@@ -1310,10 +1345,14 @@
         "vellum": {
           "category": "content",
           "display-name": "Watch Together",
-          "emoji": "📺"
+          "emoji": "📺",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
         }
       },
-      "updatedAt": "2026-07-15T00:42:43.000Z"
+      "updatedAt": "2026-08-21T02:24:47.000Z"
     },
     {
       "id": "watcher",

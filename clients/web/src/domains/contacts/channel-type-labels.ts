@@ -18,6 +18,8 @@ function channelTypeKey(type: string) {
       return "channelType.slack";
     case "telegram":
       return "channelType.telegram";
+    case "discord":
+      return "channelType.discord";
     case "whatsapp":
       return "channelType.whatsapp";
     case "a2a":

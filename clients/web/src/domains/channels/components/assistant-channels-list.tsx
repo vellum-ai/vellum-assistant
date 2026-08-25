@@ -242,7 +242,12 @@ export function AssistantChannelsList({
           : undefined
       }
       onDisconnect={
-        onDisconnect ? () => setPendingDisconnect(selected!.key) : undefined
+        // Offered only where a delete route exists (`canDisconnect` derives
+        // from the route record), so the confirm can never resolve without
+        // clearing anything.
+        onDisconnect && selected!.canDisconnect
+          ? () => setPendingDisconnect(selected!.key)
+          : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
       telegramSaveStatus={telegramSaveStatus}
@@ -318,7 +323,11 @@ export function AssistantChannelsList({
         title={t("assistantChannelsList.disconnectTitle", {
           channel: disconnectMeta ? t(disconnectMeta.labelKey) : "",
         })}
-        message={disconnectMeta ? t(disconnectMeta.disconnectMessageKey) : ""}
+        message={
+          disconnectMeta?.disconnectMessageKey
+            ? t(disconnectMeta.disconnectMessageKey)
+            : ""
+        }
         confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {

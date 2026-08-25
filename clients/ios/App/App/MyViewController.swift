@@ -6,8 +6,9 @@ import WebKit
 ///
 /// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
 ///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`,
-///    `ApnsEnvironmentPlugin`, `SelfHostedServersPlugin`, and
-///    `RecentChatsPlugin` as local plugin instances at bridge init time.
+///    `ApnsEnvironmentPlugin`, `SelfHostedServersPlugin`,
+///    `RecentChatsPlugin`, and `WidgetSnapshotPlugin` as local plugin
+///    instances at bridge init time.
 ///    These plugins live inside the App target (no SPM module) so the bridge
 ///    won't discover them automatically.
 ///
@@ -81,12 +82,21 @@ class MyViewController: CAPBridgeViewController {
     /// scoped to exactly the baked cloud host plus the configured origin, never a
     /// wildcard — so its pages load as the main document instead of being handed
     /// off to Safari.
+    ///
+    /// This is also where a launch reports the origin it is applying to the
+    /// widget snapshot, which is what makes the origin-change invariant on
+    /// `SelfHostedServer` survive a change made against a terminated app: the
+    /// iOS Settings pane can rewrite the preference with no process to observe
+    /// it, and this is the first point at which the origin for this launch is
+    /// known. The report happens ahead of the early return so a launch back on
+    /// the baked cloud origin is recorded too.
     override open func instanceDescriptor() -> InstanceDescriptor {
         let descriptor = super.instanceDescriptor()
         bakedServerURL = descriptor.serverURL.flatMap { URL(string: $0) }
 
         let configured = SelfHostedServer.configuredURL()
         appliedServerURL = configured ?? bakedServerURL
+        WidgetSnapshotPlugin.recordAppliedOrigin(SelfHostedServer.activeOriginIdentity())
         guard let configured else {
             return descriptor
         }
@@ -169,6 +179,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ApnsEnvironmentPlugin())
         bridge?.registerPluginInstance(SelfHostedServersPlugin())
         bridge?.registerPluginInstance(RecentChatsPlugin())
+        bridge?.registerPluginInstance(WidgetSnapshotPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -198,6 +209,14 @@ class MyViewController: CAPBridgeViewController {
     /// last applied. Comparing the full URL — not just the origin — catches a
     /// same-host path change. A full reload is sufficient; the assistant has no
     /// useful offline state.
+    ///
+    /// This is the running-app half of the one native origin change
+    /// `SelfHostedServer.setActive` cannot see: the iOS Settings pane writes the
+    /// active slot straight to `UserDefaults`. The guard below is the change
+    /// predicate, so the widget snapshot recording that every other path
+    /// inherits from that setter hangs off it here, leaving a foreground with no
+    /// change alone. The same pane can also be used while the app is terminated,
+    /// which `instanceDescriptor()` covers.
     @objc private func reloadIfConfiguredOriginChanged() {
         let destination = SelfHostedServer.configuredURL() ?? bakedServerURL
         guard let destination,
@@ -205,6 +224,7 @@ class MyViewController: CAPBridgeViewController {
         else {
             return
         }
+        WidgetSnapshotPlugin.recordAppliedOrigin(SelfHostedServer.activeOriginIdentity())
         applyConfiguredOrigin()
     }
 

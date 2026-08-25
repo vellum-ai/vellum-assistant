@@ -568,14 +568,6 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "deepseek/deepseek-v3.2-speciale",
-      displayName: "DeepSeek V3.2 Speciale",
-      contextWindowTokens: 163_840,
-      defaultContextWindowTokens: 163_840,
-      maxOutputTokens: 163_840,
-      supportsThinking: true,
-    },
-    {
       id: "qwen/qwen3.5-plus-02-15",
       displayName: "Qwen 3.5 Plus",
       contextWindowTokens: 131_072,
@@ -714,13 +706,6 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 16_000,
     },
     {
-      id: "mistralai/devstral-2512",
-      displayName: "Devstral 2",
-      contextWindowTokens: 131_072,
-      defaultContextWindowTokens: 131_072,
-      maxOutputTokens: 16_000,
-    },
-    {
       id: "meta-llama/llama-4-maverick",
       displayName: "Llama 4 Maverick",
       contextWindowTokens: 1_000_000,
@@ -740,13 +725,6 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 300_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 5_000,
-    },
-    {
-      id: "openrouter/owl-alpha",
-      displayName: "Owl Alpha",
-      contextWindowTokens: 1_048_576,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 262_144,
     },
   ],
   "vercel-ai-gateway": [

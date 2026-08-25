@@ -14,6 +14,7 @@ import { useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
+import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 import {
   BottomSheet,
@@ -64,6 +65,7 @@ export function AppNavBar({
   onToggleFullscreen,
   onClose,
 }: AppNavBarProps) {
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   // While the bar is acting as the minimized strip on mobile, tapping the
   // title is the primary "open app" affordance — same callback as the
@@ -90,11 +92,11 @@ export function AppNavBar({
               variant="outlined"
               iconOnly={<Expand />}
               onClick={onEdit}
-              tooltip="Expand app"
-              aria-label="Expand app"
+              tooltip={t("appNavBar.expandApp")}
+              aria-label={t("appNavBar.expandApp")}
             />
           ) : (
-            <Button onClick={onEdit}>Edit</Button>
+            <Button onClick={onEdit}>{t("appNavBar.edit")}</Button>
           ))}
       </div>
 
@@ -128,8 +130,8 @@ export function AppNavBar({
                   variant="outlined"
                   iconOnly={<Link2 />}
                   onClick={onCopyDeployedLink}
-                  tooltip="Deployed: copy link"
-                  aria-label="Deployed to Vercel, copy link"
+                  tooltip={t("appNavBar.deployedCopyLinkTooltip")}
+                  aria-label={t("appNavBar.deployedCopyLinkAria")}
                 />
               ) : (
                 <Button
@@ -143,8 +145,16 @@ export function AppNavBar({
                   }
                   onClick={onDeploy}
                   disabled={isDeploying}
-                  tooltip={isDeploying ? "Deploying…" : "Deploy"}
-                  aria-label={isDeploying ? "Deploying…" : "Deploy"}
+                  tooltip={
+                    isDeploying
+                      ? t("appNavBar.deploying")
+                      : t("appNavBar.deploy")
+                  }
+                  aria-label={
+                    isDeploying
+                      ? t("appNavBar.deploying")
+                      : t("appNavBar.deploy")
+                  }
                 />
               ))}
             {onShare != null && (
@@ -155,8 +165,12 @@ export function AppNavBar({
                 }
                 onClick={onShare}
                 disabled={isSharing}
-                tooltip={isSharing ? "Sharing…" : "Share"}
-                aria-label={isSharing ? "Sharing…" : "Share"}
+                tooltip={
+                  isSharing ? t("appNavBar.sharing") : t("appNavBar.share")
+                }
+                aria-label={
+                  isSharing ? t("appNavBar.sharing") : t("appNavBar.share")
+                }
               />
             )}
           </>
@@ -166,8 +180,8 @@ export function AppNavBar({
             variant="outlined"
             iconOnly={<Maximize2 />}
             onClick={onToggleFullscreen}
-            tooltip="Fullscreen"
-            aria-label="Fullscreen"
+            tooltip={t("appNavBar.fullscreen")}
+            aria-label={t("appNavBar.fullscreen")}
           />
         )}
         {onEdit != null && (
@@ -175,8 +189,12 @@ export function AppNavBar({
             variant="outlined"
             iconOnly={isEditing ? <ChevronUp /> : <Pencil />}
             onClick={onEdit}
-            tooltip={isEditing ? "Open app" : "Edit"}
-            aria-label={isEditing ? "Open app" : "Edit"}
+            tooltip={
+              isEditing ? t("appNavBar.openApp") : t("appNavBar.edit")
+            }
+            aria-label={
+              isEditing ? t("appNavBar.openApp") : t("appNavBar.edit")
+            }
             active={isEditing}
             className="md:hidden"
           />
@@ -185,8 +203,8 @@ export function AppNavBar({
           variant="outlined"
           iconOnly={<X />}
           onClick={onClose}
-          tooltip="Close"
-          aria-label="Close"
+          tooltip={t("appNavBar.close")}
+          aria-label={t("appNavBar.close")}
         />
       </div>
     </div>
@@ -219,6 +237,7 @@ function ShareDeployMenuTrigger({
   deployedUrl,
   onCopyDeployedLink,
 }: ShareDeployMenuTriggerProps) {
+  const { t } = useTranslation();
   const isTouchMobile = useTouchMobile();
   const [open, setOpen] = useState(false);
   const isDeployed =
@@ -226,10 +245,10 @@ function ShareDeployMenuTrigger({
   const isBusy = isSharing || isDeploying;
   const triggerIcon = isBusy ? <Loader2 className="animate-spin" /> : <Share />;
   const triggerTooltip = isSharing
-    ? "Sharing…"
+    ? t("appNavBar.sharing")
     : isDeploying
-    ? "Deploying…"
-    : "Share & deploy";
+      ? t("appNavBar.deploying")
+      : t("appNavBar.shareAndDeploy");
 
   if (isTouchMobile) {
     return (
@@ -245,16 +264,18 @@ function ShareDeployMenuTrigger({
         </BottomSheet.Trigger>
         <BottomSheet.Content aria-describedby={undefined}>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Share & deploy</BottomSheet.Title>
+            <BottomSheet.Title>
+              {t("appNavBar.shareAndDeploy")}
+            </BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">
             <PanelItem
               icon={Share}
               label={
                 <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                  <span>Share</span>
+                  <span>{t("appNavBar.share")}</span>
                   <span className="text-body-small-default text-[var(--content-tertiary)]">
-                    Export as .vellum file
+                    {t("appNavBar.shareExportSubtitle")}
                   </span>
                 </span>
               }
@@ -269,7 +290,7 @@ function ShareDeployMenuTrigger({
                   icon={Link2}
                   label={
                     <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>Deployed to Vercel</span>
+                      <span>{t("appNavBar.deployedToVercel")}</span>
                       <span className="break-all text-body-small-default text-[var(--content-tertiary)]">
                         {deployedUrl}
                       </span>
@@ -284,9 +305,9 @@ function ShareDeployMenuTrigger({
                   icon={RefreshCw}
                   label={
                     <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                      <span>Redeploy</span>
+                      <span>{t("appNavBar.redeploy")}</span>
                       <span className="text-body-small-default text-[var(--content-tertiary)]">
-                        Publish the current version
+                        {t("appNavBar.redeploySubtitle")}
                       </span>
                     </span>
                   }
@@ -301,9 +322,9 @@ function ShareDeployMenuTrigger({
                 icon={Globe}
                 label={
                   <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Deploy to Vercel</span>
+                    <span>{t("appNavBar.deployToVercel")}</span>
                     <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Publish as a static page
+                      {t("appNavBar.deployToVercelSubtitle")}
                     </span>
                   </span>
                 }
@@ -336,24 +357,24 @@ function ShareDeployMenuTrigger({
           onSelect={() => onShare()}
           className="whitespace-nowrap"
         >
-          Share
+          {t("appNavBar.share")}
         </Menu.Item>
         {isDeployed ? (
           <>
             <Menu.Item
               leftIcon={<Link2 size={14} />}
-              shortcut="Copy link"
+              shortcut={t("appNavBar.copyLink")}
               onSelect={() => onCopyDeployedLink?.()}
               className="whitespace-nowrap"
             >
-              Deployed to Vercel
+              {t("appNavBar.deployedToVercel")}
             </Menu.Item>
             <Menu.Item
               leftIcon={<RefreshCw size={14} />}
               onSelect={() => onDeploy()}
               className="whitespace-nowrap"
             >
-              Redeploy
+              {t("appNavBar.redeploy")}
             </Menu.Item>
           </>
         ) : (
@@ -362,7 +383,7 @@ function ShareDeployMenuTrigger({
             onSelect={() => onDeploy()}
             className="whitespace-nowrap"
           >
-            Deploy to Vercel
+            {t("appNavBar.deployToVercel")}
           </Menu.Item>
         )}
       </Menu.Content>

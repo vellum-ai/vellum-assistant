@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 /**
@@ -44,6 +45,7 @@ export function NudgeChatBanner({
   onAction,
   onDismiss,
 }: NudgeChatBannerProps) {
+  const { t } = useTranslation();
   return (
     <div
       className="mx-auto flex overflow-hidden rounded-[10px]"
@@ -96,7 +98,7 @@ export function NudgeChatBanner({
           size="regular"
           iconOnly={<X />}
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t("nudgeChatBanner.dismissAria")}
         />
       </div>
     </div>

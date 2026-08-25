@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
+import { sweepOrphanedWatchTimelineEntries } from "../watch/watch-timeline.js";
 import { pruneRuns } from "../workflows/journal-store.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getLastInteractiveUserMessageTimestamp } from "./conversation-crud.js";
@@ -79,6 +80,20 @@ async function runDbMaintenance(): Promise<void> {
     }
   } catch (err) {
     log.warn({ err }, "Workflow run pruning failed (non-fatal)");
+  }
+
+  // Reclaim watch-timeline entries whose conversation is gone. Their purge runs
+  // after the conversation row is already deleted and cannot be retried by the
+  // caller, and nothing cascades into the table, so a failed purge or a crash
+  // between the two writes would otherwise keep screenshots of the user's
+  // screen indefinitely. Bounded per pass and best-effort inside the sweep,
+  // which reports zero rather than throwing, so it needs no guard here.
+  const sweptWatchEntries = sweepOrphanedWatchTimelineEntries();
+  if (sweptWatchEntries > 0) {
+    log.info(
+      { sweptWatchEntries },
+      "Swept watch timeline entries for deleted conversations",
+    );
   }
 
   // Refresh the query planner's statistics (see PLANNER_OPTIMIZE_PRAGMA for

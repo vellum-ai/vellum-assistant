@@ -2,11 +2,13 @@ import { Info } from "lucide-react";
 import { useMemo } from "react";
 
 import type { CreditTier, CreditTierEnum } from "@/generated/api/types.gen";
+import { t, useTranslation } from "@/i18n";
 import {
   Select,
   type SelectOption,
 } from "@vellumai/design-library/components/select";
 import { Typography } from "@vellumai/design-library/components/typography";
+
 import { formatMonthly } from "./tier-pricing";
 
 /**
@@ -16,9 +18,12 @@ import { formatMonthly } from "./tier-pricing";
  */
 type CreditOptionValue = string;
 
-/** "50 credits — $50/mo" for a catalog tier. */
+/** "{label} - {price}" for a catalog tier. */
 export function formatBundleOptionLabel(tier: CreditTier): string {
-  return `${tier.label} — ${formatMonthly(tier.price_cents)}`;
+  return t("settings:creditBundlePicker.optionLabel", {
+    label: tier.label,
+    price: formatMonthly(tier.price_cents),
+  });
 }
 
 export interface CreditBundlePickerProps {
@@ -34,17 +39,21 @@ export function CreditBundlePicker({
   onCreditTierChange,
   disabled = false,
 }: CreditBundlePickerProps) {
+  const { t } = useTranslation("settings");
+
   const options: SelectOption<CreditOptionValue>[] = useMemo(() => {
     const noBundle = {
       value: null,
-      label: `No credit bundle — ${formatMonthly(0)}`,
+      label: t("creditBundlePicker.noBundleOption", {
+        price: formatMonthly(0),
+      }),
     };
-    const tierOptions = creditTiers.map((t) => ({
-      value: t.tier,
-      label: formatBundleOptionLabel(t),
+    const tierOptions = creditTiers.map((tier) => ({
+      value: tier.tier,
+      label: formatBundleOptionLabel(tier),
     }));
     return [noBundle, ...tierOptions];
-  }, [creditTiers]);
+  }, [creditTiers, t]);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -54,15 +63,15 @@ export function CreditBundlePicker({
           variant="label-small-default"
           className="text-[var(--content-secondary)]"
         >
-          Credit bundle
+          {t("creditBundlePicker.label")}
         </Typography>
-        <span title="A monthly allotment of credits added to your Pro Plan subscription">
+        <span title={t("creditBundlePicker.tooltip")}>
           <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
         </span>
       </div>
       <Select<CreditOptionValue>
-        aria-label="Credit bundle"
-        placeholder="Select a credit bundle"
+        aria-label={t("creditBundlePicker.ariaLabel")}
+        placeholder={t("creditBundlePicker.placeholder")}
         disabled={disabled}
         value={selectedCreditTier}
         // Narrowing the catalog's `string` back to `CreditTierEnum` is

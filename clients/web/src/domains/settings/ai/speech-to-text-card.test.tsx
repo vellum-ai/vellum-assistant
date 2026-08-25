@@ -20,6 +20,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ElectronHostOS } from "@vellumai/ipc-contract";
 import {
   cleanup,
   fireEvent,
@@ -31,6 +32,10 @@ import {
 let nativeDictationSupported = false;
 mock.module("@/runtime/native-dictation-partials", () => ({
   isNativeDictationSupported: () => nativeDictationSupported,
+}));
+let electronHostOS: ElectronHostOS | null = "macos";
+mock.module("@/runtime/platform-detection", () => ({
+  detectElectronHostOS: () => electronHostOS,
 }));
 
 const ASSISTANT_ID = "asst-test";
@@ -101,6 +106,7 @@ const { SpeechToTextCard } = await import(
   "@/domains/settings/ai/speech-to-text-card"
 );
 const { LS_STT_PROVIDER } = await import("@/utils/local-settings-keys");
+const { changeLocale } = await import("@/i18n");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -113,9 +119,9 @@ function renderCard() {
   );
 }
 
-function openProviderSelect(): void {
+function openProviderSelect(ariaLabel = "STT provider"): void {
   const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="STT provider"]',
+    `button[role="combobox"][aria-label="${ariaLabel}"]`,
   );
   if (!trigger) {
     throw new Error("expected the STT provider dropdown trigger");
@@ -143,9 +149,11 @@ function selectOption(label: string): void {
 }
 
 describe("SpeechToTextCard — macOS Native Dictation option", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await changeLocale("en");
     localStorage.clear();
     nativeDictationSupported = false;
+    electronHostOS = "macos";
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
     daemonConfigData = { services: {} };
@@ -184,6 +192,33 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // macOS native dictation is client-only — Save must not touch the daemon.
     expect(credentialsSetCalls.length).toBe(0);
     expect(configPatchCalls.length).toBe(0);
+  });
+
+  test("Windows uses native provider metadata for its speech stack", () => {
+    nativeDictationSupported = true;
+    electronHostOS = "windows";
+    renderCard();
+
+    openProviderSelect();
+    expect(visibleOptions()).toContain("Windows Native Dictation");
+    expect(visibleOptions()).not.toContain("macOS Native Dictation");
+
+    selectOption("Windows Native Dictation");
+    expect(screen.getByText(/download Basic speech recognition/)).toBeTruthy();
+    expect(screen.queryByText(/System Settings/)).toBeNull();
+  });
+
+  test("Windows native provider metadata follows the active locale", async () => {
+    nativeDictationSupported = true;
+    electronHostOS = "windows";
+    await changeLocale("es");
+    renderCard();
+
+    openProviderSelect("Proveedor de STT");
+    expect(visibleOptions()).toContain("Dictado nativo de Windows");
+
+    selectOption("Dictado nativo de Windows");
+    expect(screen.getByText(/Reconocimiento de voz básico/)).toBeTruthy();
   });
 
   test("selecting Deepgram and saving provisions the daemon (CES key + services.stt)", async () => {

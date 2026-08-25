@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { CalendarClock } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "@/i18n";
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
-import { organizationsBillingAutoTopUpRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useSkipDailyLimitToday } from "@/hooks/use-daily-limit-skip";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
@@ -29,6 +29,7 @@ interface DailyLimitBannerProps {
  * buttons instead of a paragraph.
  */
 export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
+  const { t } = useTranslation("chat");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const { dailyLimit, dailySpend } = useBillingBalanceStatus();
   const skipMutation = useSkipDailyLimitToday();
@@ -37,9 +38,7 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
   // are on. An errored or in-flight query means we do not know, and a
   // confident-but-wrong statement about someone's card is worse than omitting
   // the line. The billing settings page states this authoritatively either way.
-  const autoTopUpQuery = useQuery(
-    organizationsBillingAutoTopUpRetrieveOptions(),
-  );
+  const autoTopUpQuery = useAutoTopUpConfigQuery();
   const autoTopUpOn =
     autoTopUpQuery.data?.enabled === true && !autoTopUpQuery.isError;
 
@@ -82,17 +81,17 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
   return (
     <>
       <BillingErrorBanner
-        ariaLabel="Daily credit limit reached"
+        ariaLabel={t("dailyLimitBanner.title")}
         icon={
           <CalendarClock
             className="size-5"
             style={{ color: "var(--content-tertiary)" }}
           />
         }
-        title="Daily credit limit reached"
-        subtitle={`Vellum credit spend is paused until your limit resets at ${resetPhrase}.`}
+        title={t("dailyLimitBanner.title")}
+        subtitle={t("dailyLimitBanner.subtitle", { resetPhrase })}
         secondaryAction={{
-          label: "Skip for today",
+          label: t("dailyLimitBanner.skipForToday"),
           onClick: handleOpenConfirm,
           disabled: skipMutation.isPending,
         }}
@@ -100,14 +99,14 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
       />
       <ConfirmDialog
         open={confirmOpen}
-        title="Skip today's credit limit?"
+        title={t("dailyLimitBanner.skipConfirmTitle")}
         message={confirmMessage}
         error={
           skipMutation.isError
-            ? "Could not skip today's limit. Please try again."
+            ? t("dailyLimitBanner.skipError")
             : undefined
         }
-        confirmLabel="Skip for today"
+        confirmLabel={t("dailyLimitBanner.skipForToday")}
         isPending={skipMutation.isPending}
         onConfirm={handleConfirmSkip}
         onCancel={handleCancelConfirm}
