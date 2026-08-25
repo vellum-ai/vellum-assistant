@@ -83,11 +83,14 @@ let clearGeneration = 0;
 /** How far one clear moves it: once as it starts, once as it settles. */
 const CLEAR_GENERATION_BUMPS = 2;
 
-/** The retry in flight, so a mount-time retry and a sync share one clear. */
+/**
+ * The clear in flight, so a mount-time retry, a sync and a write's own
+ * correction share one rather than each issuing their own.
+ */
 let pendingClearRetry: Promise<boolean> | null = null;
 
 /**
- * The generation the retry in flight started its clear from.
+ * The generation the clear in flight started from.
  *
  * A write awaits that clear deliberately and must not read it as a clear racing
  * it, and the two look alike in the counter alone. Adding
@@ -301,9 +304,14 @@ export async function syncWidgetSnapshot(
     setLocalSetting(PENDING_CLEAR_KEY, "1");
     // Recorded first, then corrected here rather than at the next use of the
     // module, so the departed session's rows leave a Home Screen that never
-    // reloads on its own. Not awaited: the caller is on its way out, and a
-    // correction that does not land leaves the marker above standing.
-    void clearWidgetSnapshot();
+    // reloads on its own. Registered as the clear in flight rather than fired
+    // and forgotten, so the next session's first write awaits it on entry and
+    // anchors on it: a correction outside that bookkeeping would either land
+    // after that write and wipe it, or move the counter under it and read as a
+    // clear racing it, leaving the widgets empty until the conversation data
+    // changed or the heartbeat came round. Not awaited: the caller is on its way
+    // out, and a correction that does not land leaves the marker above standing.
+    void runSharedClear();
     // Nothing durable came of the write, whichever way that correction goes, so
     // the producer hook must not record this payload as what the App Group
     // holds. Reporting it as landed would arm its dedup key against the very
@@ -419,13 +427,29 @@ async function runPendingClearRetry(): Promise<OwedClearOutcome> {
   if (!isWidgetSnapshotSyncAvailable() || !hasPendingClear()) {
     return { landed: true, anchor: null };
   }
+  return runSharedClear();
+}
+
+/**
+ * Start a clear as the one in flight, or join the one already there.
+ *
+ * The single owner of {@link pendingClearRetry}, so every clear this module
+ * issues on its own behalf is one a write entering {@link syncWidgetSnapshot}
+ * can await and anchor on instead of racing. A clear a caller asks for directly
+ * through {@link clearWidgetSnapshot} stays outside it: those are session seams,
+ * and a write that overlaps one IS contested.
+ *
+ * Registers before its first await, so a caller that enters in the same tick
+ * finds the clear rather than starting a second one.
+ */
+async function runSharedClear(): Promise<OwedClearOutcome> {
   if (pendingClearRetry === null) {
     pendingClearRetryBaseGeneration = clearGeneration;
     pendingClearRetry = clearWidgetSnapshot().finally(() => {
       pendingClearRetry = null;
     });
   }
-  // Read before the wait, since a later retry owns the field by the time this
+  // Read before the wait, since a later clear owns the field by the time this
   // one resolves.
   const base = pendingClearRetryBaseGeneration;
   const landed = await pendingClearRetry;

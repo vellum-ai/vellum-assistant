@@ -419,6 +419,111 @@ describe("a clear that did not land", () => {
     expect(clearCalls).toBe(clearsSoFar + 1);
   });
 
+  it("holds the next session's first write behind a correction in flight", async () => {
+    // The correction is a clear like any other, so what the next session writes
+    // has to wait on it rather than race it: one fired outside the module's
+    // bookkeeping is either overtaken by that write and wipes it, or moves the
+    // counter under it and reads as a clear racing it, and either way the
+    // widgets stay empty until the conversation data changes or the heartbeat
+    // comes round a quarter of an hour later.
+    let openSync = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSync = resolve;
+    });
+    const firstWrite = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await flush();
+
+    await expect(clearWidgetSnapshot()).resolves.toBe(true);
+
+    let openCorrection = (): void => {};
+    clearGate = new Promise<void>((resolve) => {
+      openCorrection = resolve;
+    });
+    syncGate = null;
+    openSync();
+    await expect(firstWrite).resolves.toBe(false);
+    await flush();
+
+    const secondWrite = syncWidgetSnapshot(NEWER_SNAPSHOT, "asst-2");
+    await flush();
+    // Nothing of the new session's is on the bridge while the correction is
+    // open, so the correction cannot land on top of it.
+    expect(bridgeOrder).toEqual(["sync", "clear", "clear"]);
+
+    openCorrection();
+    await expect(secondWrite).resolves.toBe(true);
+    expect(bridgeOrder).toEqual(["sync", "clear", "clear", "sync"]);
+    expect(syncCalls).toEqual([SNAPSHOT, NEWER_SNAPSHOT]);
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-2");
+
+    // The correction discharged the obligation it was fired for, and the write
+    // that followed it is left alone.
+    await expect(retryPendingWidgetSnapshotClear()).resolves.toBe(true);
+    expect(clearCalls).toBe(2);
+  });
+
+  it("serializes a next-session write entered in the correction's own tick", async () => {
+    // The correction is registered as part of the contested write's own turn,
+    // so a write entered right behind it finds it rather than starting a second
+    // clear beside it.
+    let openSync = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSync = resolve;
+    });
+    const firstWrite = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await flush();
+
+    await expect(clearWidgetSnapshot()).resolves.toBe(true);
+
+    let openCorrection = (): void => {};
+    clearGate = new Promise<void>((resolve) => {
+      openCorrection = resolve;
+    });
+    syncGate = null;
+    openSync();
+    await expect(firstWrite).resolves.toBe(false);
+
+    const secondWrite = syncWidgetSnapshot(NEWER_SNAPSHOT, "asst-2");
+    await flush();
+    expect(bridgeOrder).toEqual(["sync", "clear", "clear"]);
+
+    openCorrection();
+    await expect(secondWrite).resolves.toBe(true);
+    expect(bridgeOrder).toEqual(["sync", "clear", "clear", "sync"]);
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-2");
+    expect(clearCalls).toBe(2);
+  });
+
+  it("is discharged by the next session's write when the correction failed", async () => {
+    // A correction that cannot land leaves the obligation standing, and the
+    // next write honors it on entry and then discharges it by landing: the
+    // plugin replaces the App Group record, so nothing of the orphan survives.
+    let openSync = (): void => {};
+    syncGate = new Promise<void>((resolve) => {
+      openSync = resolve;
+    });
+    const firstWrite = syncWidgetSnapshot(SNAPSHOT, "asst-1");
+    await flush();
+
+    await expect(clearWidgetSnapshot()).resolves.toBe(true);
+    clearRejects = true;
+    syncGate = null;
+    openSync();
+    await expect(firstWrite).resolves.toBe(false);
+    await flush();
+
+    const clearsSoFar = clearCalls;
+    await expect(syncWidgetSnapshot(NEWER_SNAPSHOT, "asst-2")).resolves.toBe(
+      true,
+    );
+    expect(clearCalls).toBe(clearsSoFar + 1);
+    expect(readWidgetSnapshotAssistantId()).toBe("asst-2");
+
+    clearRejects = false;
+    await expect(retryPendingWidgetSnapshotClear()).resolves.toBe(true);
+    expect(clearCalls).toBe(clearsSoFar + 1);
+  });
+
   it("degrades to nothing owed when storage refuses the marker", async () => {
     // Best-effort like every other write here: a session seam must not throw
     // because storage is unusable, and what is left is the producer-id
