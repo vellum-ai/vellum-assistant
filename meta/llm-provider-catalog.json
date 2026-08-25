@@ -1364,9 +1364,9 @@
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.0854,
-            "outputPer1mTokens": 0.1708,
-            "cacheReadPer1mTokens": 0.01708
+            "inputPer1mTokens": 0.14,
+            "outputPer1mTokens": 0.28,
+            "cacheReadPer1mTokens": 0.028
           }
         },
         {
