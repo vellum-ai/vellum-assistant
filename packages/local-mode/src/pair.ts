@@ -603,7 +603,9 @@ function approvedCredentials(value: unknown): ApprovedCredentials | null {
 
 /** An ISO instant as epoch ms, or `fallback` when it isn't one. */
 function instantMs(value: unknown, fallback: number): number {
-  if (typeof value !== "string") return fallback;
+  if (typeof value !== "string") {
+    return fallback;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }

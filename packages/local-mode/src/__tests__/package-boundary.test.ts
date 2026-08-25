@@ -110,8 +110,8 @@ describe("package boundary", () => {
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
-      "@vellumai/environments": "file:../environments",
-      "@vellumai/service-contracts": "file:../service-contracts",
+      "@vellumai/environments": "workspace:*",
+      "@vellumai/service-contracts": "workspace:*",
       nanoid: "5.1.7",
       zod: "4.3.6",
     });

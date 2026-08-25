@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildRemoteWebPairingUrl,
+  isLoopbackPublicUrl,
   isPrivateNetworkPublicUrl,
   parsePairingAddress,
   parseRemoteWebPairingParams,
@@ -184,5 +185,52 @@ describe("resolvePublicBaseUrl private-address containment", () => {
     );
     expect(isPrivateNetworkPublicUrl("not a url")).toBe(false);
     expect(isPrivateNetworkPublicUrl("https://192.168.0.1")).toBe(true);
+  });
+});
+
+describe("resolvePublicBaseUrl localhost normalization", () => {
+  // A terminal DNS root dot survives WHATWG parsing, and resolvers read the
+  // absolute name as loopback, so the dot is stripped before every host
+  // comparison. The whole `.localhost` namespace is reserved (RFC 6761) and
+  // resolves to loopback too.
+  test.each([
+    ["https://localhost.", "absolute localhost name"],
+    ["https://localhost.:3000", "absolute localhost name with a port"],
+    ["https://LOCALHOST.", "uppercase absolute localhost name"],
+    ["https://foo.localhost", "reserved .localhost namespace"],
+    ["https://foo.localhost.", "absolute .localhost namespace"],
+    ["https://a.b.localhost.", "nested .localhost namespace"],
+    ["https://127.0.0.1.", "absolute IPv4 loopback literal"],
+  ])("reports %s (%s) as loopback", (raw) => {
+    expect(isLoopbackPublicUrl(raw)).toBe(true);
+    expect(resolvePublicBaseUrl(raw)).toEqual({
+      ok: false,
+      reason: "loopback",
+    });
+  });
+
+  test("reports an absolute private literal as private-address", () => {
+    expect(isPrivateNetworkPublicUrl("https://10.0.0.1.")).toBe(true);
+    expect(resolvePublicBaseUrl("https://10.0.0.1.")).toEqual({
+      ok: false,
+      reason: "private-address",
+    });
+  });
+
+  test("reports an absolute vendor-site name as service-website", () => {
+    expect(resolvePublicBaseUrl("https://login.tailscale.com.")).toEqual({
+      ok: false,
+      reason: "service-website",
+    });
+  });
+
+  test.each([
+    "https://my-box.tail1234.ts.net.",
+    "https://assistant.example.com.",
+    "https://localhostage.example.com",
+    "https://mylocalhost.example.com.",
+  ])("still resolves %s", (raw) => {
+    expect(isLoopbackPublicUrl(raw)).toBe(false);
+    expect(resolvePublicBaseUrl(raw)).toEqual({ ok: true, url: raw });
   });
 });

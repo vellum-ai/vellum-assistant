@@ -254,6 +254,16 @@ export const TUNNEL_PROVIDER_WEBSITE_HOSTS = [
 ] as const;
 
 /**
+ * A hostname with any trailing DNS root dot removed. `example.com.` and
+ * `example.com` name the same host, and a resolver reads `localhost.` as the
+ * loopback name, so every host comparison below runs on the stripped form.
+ * Bracketed IPv6 literals never carry one.
+ */
+function hostnameWithoutRootDot(hostname: string): string {
+  return hostname.replace(/\.+$/, "");
+}
+
+/**
  * A URL whose exact host is a tunnel/ingress vendor's own website (see
  * {@link TUNNEL_PROVIDER_WEBSITE_HOSTS}). Exact-host only: a user's real
  * Tailscale endpoint (`*.ts.net`) or Cloudflare-fronted domain is never a
@@ -263,7 +273,7 @@ export function isTunnelProviderWebsiteUrl(url: string): boolean {
   let hostname: string;
   try {
     // WHATWG URL lowercases the hostname during parsing.
-    hostname = new URL(url).hostname;
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
   } catch {
     return false;
   }
@@ -280,7 +290,7 @@ export function isTunnelProviderWebsiteUrl(url: string): boolean {
 export function tunnelProviderWebsiteName(url: string): string | null {
   let hostname: string;
   try {
-    hostname = new URL(url).hostname;
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
   } catch {
     return null;
   }
@@ -296,15 +306,18 @@ export function tunnelProviderWebsiteName(url: string): string | null {
 }
 
 /**
- * A loopback URL — `localhost`, `[::1]`, or `127.x.x.x`. A pairing link that
- * encodes a loopback address is unreachable from the scanning device.
+ * A loopback URL: the whole reserved `localhost` namespace (RFC 6761, so
+ * `foo.localhost` counts), `[::1]`, or `127.x.x.x`. A pairing link that encodes
+ * a loopback address is unreachable from the scanning device, and a host that
+ * POSTs to one is calling a service on its own machine.
  */
 export function isLoopbackPublicUrl(url: string): boolean {
   try {
     // WHATWG URL canonicalizes hostnames, so IPv6 loopback is always "[::1]".
-    const hostname = new URL(url).hostname;
+    const hostname = hostnameWithoutRootDot(new URL(url).hostname);
     return (
       hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
       hostname === "[::1]" ||
       /^127(?:\.\d{1,3}){3}$/.test(hostname)
     );
@@ -416,7 +429,7 @@ export function isPrivateNetworkPublicUrl(url: string): boolean {
   try {
     // WHATWG URL canonicalizes IP literals: decimal, octal, and hex IPv4 forms
     // collapse to a dotted-quad, and IPv6 to a bracketed lowercase literal.
-    hostname = new URL(url).hostname;
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
   } catch {
     return false;
   }
