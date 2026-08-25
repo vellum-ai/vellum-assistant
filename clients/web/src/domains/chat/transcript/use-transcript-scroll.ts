@@ -32,7 +32,6 @@ import {
 } from "react";
 
 import { recordUpdate } from "@/lib/commit-pressure";
-import { CARET_SURFACE_SELECTOR } from "@/utils/caret-surface";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type AnchorSnapshot,
@@ -60,26 +59,6 @@ export interface UseTranscriptScrollArgs {
 export interface UseTranscriptScrollReturn {
   showScrollToLatest: boolean;
   scrollToLatest: (opts?: { behavior?: "auto" | "smooth" }) => void;
-}
-
-/**
- * The focused text field inside `container`, or `null` when focus is elsewhere.
- *
- * Some transcript rows carry their own input (the inline "Connect Claude Code"
- * paste field, the question-prompt card). Those scroll with the thread, unlike
- * the composer, so a re-pin to the latest message while one holds focus drags
- * the field the user is typing into off the top of the viewport. On a phone the
- * soft keyboard opening is itself a container resize, which means tapping such
- * a field is what triggers the re-pin that hides it.
- */
-export function focusedFieldWithin(
-  container: HTMLElement,
-): HTMLElement | null {
-  const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || !container.contains(active)) {
-    return null;
-  }
-  return active.matches(CARET_SURFACE_SELECTOR) ? active : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,17 +422,17 @@ export function useTranscriptScroll(
     }
 
     const observer = new ResizeObserver(() => {
-      // A row's own input outranks the pin: keep the field the user is in on
-      // screen instead of scrolling past it to the latest message. `nearest`
-      // so a field that is already visible does not move at all.
-      const focusedField = focusedFieldWithin(el);
-      if (focusedField) {
-        focusedField.scrollIntoView({ block: "nearest", behavior: "auto" });
+      if (!latestRef.current.isPinnedToLatest) {
         return;
       }
-      if (latestRef.current.isPinnedToLatest) {
-        transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+      // A row's own text field outranks the pin: keep the field the user is in
+      // on screen rather than scrolling past it to the latest message. Only
+      // reachable where the pin would have fired, so a reader who has scrolled
+      // away keeps the viewport they chose.
+      if (transcriptRef.current?.keepFocusedFieldVisible()) {
+        return;
       }
+      transcriptRef.current?.scrollToLatest({ behavior: "auto" });
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
@@ -502,17 +481,15 @@ export function useTranscriptScroll(
     }
 
     const observer = new ResizeObserver(() => {
-      // Same precedence as the container observer above: a focused row input
-      // outranks the pin. This one fires on the keyboard path too, since the
-      // `LatestTurnRow` spacer is sized from the viewport the keyboard shrank.
-      const focusedField = focusedFieldWithin(el);
-      if (focusedField) {
-        focusedField.scrollIntoView({ block: "nearest", behavior: "auto" });
+      if (!shouldAutoPinRef.current) {
         return;
       }
-      if (shouldAutoPinRef.current) {
-        transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+      // Same precedence as the container observer above, inside this
+      // observer's own auto-pin window.
+      if (transcriptRef.current?.keepFocusedFieldVisible()) {
+        return;
       }
+      transcriptRef.current?.scrollToLatest({ behavior: "auto" });
     });
     observer.observe(el);
     contentObserverRef.current = observer;
