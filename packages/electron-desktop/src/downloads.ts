@@ -82,7 +82,12 @@ const MAX_REVEALABLE = 50;
 
 // Save paths handed to in-flight downloads, held from `will-download` until
 // `done` so a concurrent download of the same filename can't select the same
-// destination. See the "Reserve the name" note above.
+// destination. See the "Reserve the name" note above. Keys are lowercased:
+// both shells target case-insensitive default filesystems (APFS, NTFS),
+// where `existsSync` already matches either case, so the in-flight set must
+// too or `Report.pdf` and `report.pdf` would race one destination. On a
+// case-sensitive volume this over-reserves, which costs a " (1)" suffix,
+// never a clobber.
 const reserved = new Set<string>();
 
 // Opaque id -> saved path for completed downloads, the only paths
@@ -161,7 +166,7 @@ export const installDownloads = ({ handle }: { handle: IpcHandle }): void => {
       // Released on every terminal state: a cancelled or interrupted
       // download leaves the name free for the next one.
       if (reservedPath !== null) {
-        reserved.delete(reservedPath);
+        reserved.delete(reservedPath.toLowerCase());
       }
       const savePath = item.getSavePath();
       // Cancelled covers dismissing the Save panel, where no destination was
@@ -198,13 +203,14 @@ export const installDownloads = ({ handle }: { handle: IpcHandle }): void => {
       const savePath = uniqueDownloadPath(
         dir,
         item.getFilename(),
-        (candidate) => reserved.has(candidate) || existsSync(candidate),
+        (candidate) =>
+          reserved.has(candidate.toLowerCase()) || existsSync(candidate),
       );
       if (!savePath) {
         return;
       }
       item.setSavePath(savePath);
-      reserved.add(savePath);
+      reserved.add(savePath.toLowerCase());
       reservedPath = savePath;
     } catch {
       // Fall through to Electron's default save routine.

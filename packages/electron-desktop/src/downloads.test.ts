@@ -368,6 +368,19 @@ describe("concurrent downloads of the same filename", () => {
     expect(third.savePath()).toBe(inDownloads("report (2).pdf"));
   });
 
+  test("treats names differing only by case as one destination", () => {
+    // Both shells default to case-insensitive filesystems, where these two
+    // would resolve to the same file.
+    const first = new FakeItem("Report.pdf");
+    const second = new FakeItem("report.pdf");
+
+    fire(first);
+    fire(second);
+
+    expect(first.savePath()).toBe(inDownloads("Report.pdf"));
+    expect(second.savePath()).toBe(inDownloads("report (1).pdf"));
+  });
+
   test("frees the name once a download finishes", () => {
     const first = new FakeItem("report.pdf");
     fire(first);
