@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { buildApprovalNotificationBlocks } from "../notifications/adapters/slack.js";
 import type {
   ApprovalCardBlock,
   ApprovalCardFallbackBlock,
@@ -375,5 +376,50 @@ describe("ask_question card", () => {
     const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
     expect(surface.data.title).toBe("What should I dig into?");
     expect(surface.actions).toEqual([]);
+  });
+});
+
+/**
+ * The Slack card heads itself from the approval's stated intent, so a question
+ * is not titled as an approval. Producers resolve the intent; the adapter only
+ * draws it.
+ */
+describe("Slack card intent", () => {
+  const base = {
+    sourceEventName: "guardian.question",
+    copy: { deliveryText: "What should I dig into?" },
+  };
+
+  test("a question card is headed Question", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      {
+        ...base,
+        approvalContext: {
+          requestId: "req-ask-321",
+          actions: [{ id: "answer_0", label: "This Slack thread" }],
+          plainTextFallback: 'Reply "08B619 <your answer>".',
+          intent: "question",
+        },
+      } as never,
+      "What should I dig into?",
+    );
+    const card = blocks[0] as { title?: { text?: string } };
+    expect(card.title?.text).toBe("Question");
+  });
+
+  test("an approval with no tool details keeps its own heading", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      {
+        ...base,
+        approvalContext: {
+          requestId: "req-appr-1",
+          actions: [{ id: "approve_once", label: "Approve" }],
+          plainTextFallback: 'Reply "ABC123 approve".',
+        },
+      } as never,
+      "Approve this",
+    );
+    const card = blocks[0] as { title?: { text?: string } };
+    expect(card.title?.text).toBe("Approval Request");
   });
 });

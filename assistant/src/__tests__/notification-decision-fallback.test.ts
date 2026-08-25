@@ -662,22 +662,26 @@ describe("ask_question copy is pinned to the question", () => {
   });
 
   beforeEach(() => {
-    configuredProvider = { sendMessage: async () => ({}) };
-    // Field names must match `validateDecisionOutput`, or the decision falls
-    // back and the test proves nothing about the composed path it exists to
-    // cover: `selectedChannels` and `reasoningSummary`, not `channels` and
-    // `reasoning`.
+    configuredProvider = { sendMessage: async () => ({ content: [] }) };
+    // The tool-use envelope `classifyWithLLM` reads, not the decision fields
+    // alone: it takes `toolBlock.input`, and the field names inside must be
+    // the ones `validateDecisionOutput` requires. Either mismatch drops the
+    // decision to the fallback path, where this suite's own copy is correct
+    // and the pin under test never runs.
     extractedToolUse = {
-      shouldNotify: true,
-      selectedChannels: ["slack"],
-      reasoningSummary: "guardian needs to answer",
-      dedupeKey: "ask-question-req-ask-1",
-      confidence: 0.9,
-      renderedCopy: {
-        slack: {
-          title: "Guardian question",
-          body: "Guardian wants to know where to focus",
-          deliveryText: "Guardian wants to know where to focus",
+      name: "record_notification_decision",
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["slack"],
+        reasoningSummary: "guardian needs to answer",
+        dedupeKey: "ask-question-req-ask-1",
+        confidence: 0.9,
+        renderedCopy: {
+          slack: {
+            title: "Guardian question",
+            body: "Guardian wants to know where to focus",
+            deliveryText: "Guardian wants to know where to focus",
+          },
         },
       },
     };

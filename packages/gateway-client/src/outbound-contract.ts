@@ -61,6 +61,14 @@ export const ApprovalUIMetadataSchema = z.object({
   actions: z.array(ApprovalActionOptionSchema),
   plainTextFallback: z.string(),
   permissionDetails: PermissionRequestDetailsSchema.optional(),
+  /**
+   * What the recipient is being asked to do, so a renderer can head the card
+   * with the right verb. Resolved once by the producer; a renderer that reads
+   * the actions to work it out would be parsing a payload it is meant only to
+   * draw. Absent means an approval, which is what every existing producer
+   * sends and what a renderer without this field already assumes.
+   */
+  intent: z.enum(["approval", "question"]).optional(),
 });
 
 export type ApprovalUIMetadata = z.infer<typeof ApprovalUIMetadataSchema>;

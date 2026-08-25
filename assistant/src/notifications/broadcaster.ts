@@ -189,6 +189,7 @@ function resolveQuestionOptionsContext(
       requestId,
       actions: buildQuestionAnswerActions(options),
       plainTextFallback: `Reply "${code} <your answer>".`,
+      intent: "question",
     },
   };
 }
