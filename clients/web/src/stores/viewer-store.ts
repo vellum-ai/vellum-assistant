@@ -253,7 +253,28 @@ export function sameDocumentTarget(
   );
 }
 
-export type ChannelSetupType = SetupChannelId;
+/**
+ * Channels the setup drawer can actually render.
+ *
+ * Narrower than {@link SetupChannelId} on purpose: this panel *is* a
+ * credential form, and a channel without one has nothing for it to show. It
+ * was an alias, so adding a channel to the setup list silently promised a
+ * panel that resolves to another channel's connected copy and an empty body.
+ * Derived from the same capability the Channels tab reads, so the two cannot
+ * disagree about which channels have a form.
+ */
+export const CHANNEL_SETUP_TYPES = [
+  "slack",
+  "telegram",
+  "phone",
+] as const satisfies readonly SetupChannelId[];
+
+export type ChannelSetupType = (typeof CHANNEL_SETUP_TYPES)[number];
+
+/** Whether the setup drawer has a credential form for this channel. */
+export function isChannelSetupType(value: string): value is ChannelSetupType {
+  return (CHANNEL_SETUP_TYPES as readonly string[]).includes(value);
+}
 
 export interface ChannelSetupPayload {
   channel: ChannelSetupType;

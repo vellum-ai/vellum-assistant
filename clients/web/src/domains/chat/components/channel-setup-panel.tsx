@@ -27,7 +27,6 @@ interface ChannelSetupPanelProps {
 const CHANNEL_BRAND_LABEL: Record<ChannelSetupType, string | null> = {
   slack: "Slack",
   telegram: "Telegram",
-  discord: "Discord",
   phone: null,
 };
 
@@ -230,7 +229,9 @@ function TwilioCredentialForm({
             !accountSid.trim() || !authToken.trim() || status === "pending"
           }
         >
-          {status === "pending" ? t("channelSetupPanel.saving") : t("channelSetupPanel.save")}
+          {status === "pending"
+            ? t("channelSetupPanel.saving")
+            : t("channelSetupPanel.save")}
         </Button>
       </div>
     </div>

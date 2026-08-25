@@ -15,13 +15,18 @@ import { describe, expect, mock, test } from "bun:test";
 
 const sent: Array<{ channelId: string; text: string }> = [];
 
+// Spread the real module rather than listing the exports this test happens to
+// need. `mock.module` replaces the module wholesale, so a partial stub breaks
+// the transport's import of any export it omits, and would break again the
+// next time `send.ts` grows one.
+const actualSend = await import("../messaging/providers/discord/send.js");
+
 mock.module("../messaging/providers/discord/send.js", () => ({
+  ...actualSend,
   sendDiscordReply: async (target: { channelId: string }, text: string) => {
     sent.push({ channelId: target.channelId, text });
     return { messageId: "1401234567890123456" };
   },
-  sendDiscordAttachments: async () => ({}),
-  editDiscordMessage: async () => ({}),
 }));
 
 const { channelForCallback } =

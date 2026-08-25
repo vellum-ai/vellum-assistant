@@ -40,6 +40,18 @@ interface ChannelMeta {
    */
   hasTrustFloorControl: boolean;
   /**
+   * The credential form "Connect manually" opens, when the channel has one.
+   *
+   * Named rather than inferred. This was a two-way branch that rendered
+   * Telegram's wizard for Telegram and Twilio's credential form for anything
+   * else, so a channel with no manual form at all was offered Twilio's:
+   * Discord asked for an Account SID and saved phone credentials under a
+   * Discord heading. A fallthrough cannot express "no form", so the capability
+   * is data, and a channel added later gets nothing rather than the last
+   * branch of a ternary.
+   */
+  manualEntry?: "telegram-token" | "twilio-credentials";
+  /**
    * Catalog key for the disconnected empty state's pitch, which interpolates
    * `assistant`. Slack has none: its disconnected state is the setup wizard.
    */
@@ -59,6 +71,7 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     labelKey: "channelMeta.telegram.label",
     disconnectMessageKey: "channelMeta.telegram.disconnectMessage",
     hasTrustFloorControl: true,
+    manualEntry: "telegram-token",
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
   },
   discord: {
@@ -70,6 +83,7 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     labelKey: "channelMeta.phone.label",
     disconnectMessageKey: "channelMeta.phone.disconnectMessage",
     hasTrustFloorControl: true,
+    manualEntry: "twilio-credentials",
     disconnectedPitchKey: "channelMeta.phone.disconnectedPitch",
   },
 };

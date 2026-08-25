@@ -172,8 +172,8 @@ export function ChannelPanel({
             />
           ) : null}
         </>
-      ) : manualEntry ? (
-        channel.key === "telegram" ? (
+      ) : manualEntry && meta.manualEntry ? (
+        meta.manualEntry === "telegram-token" ? (
           <TelegramSetupWizard
             assistantName={assistantName}
             saveStatus={telegramSaveStatus}
@@ -225,13 +225,15 @@ export function ChannelPanel({
                     ? t("channelPanel.finishSetup")
                     : t("channelPanel.setUp")}
               </Button>
-              <Button
-                type="button"
-                variant="link"
-                onClick={() => setManualEntry(true)}
-              >
-                {t("channelPanel.connectManually")}
-              </Button>
+              {meta.manualEntry ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  onClick={() => setManualEntry(true)}
+                >
+                  {t("channelPanel.connectManually")}
+                </Button>
+              ) : null}
             </div>
           }
         />
