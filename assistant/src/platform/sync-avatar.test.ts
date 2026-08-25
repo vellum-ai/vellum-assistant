@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -22,7 +22,10 @@ mock.module("./client.js", () => ({
 mock.module("../avatar/avatar-manifest.js", () => ({
   readManifest: () => mockState,
   deriveStateFromLegacyFiles: () => mockState,
-  computeImageMeta: () => ({ updatedAt: "", etag: "stat-etag" }),
+  computeImageMeta: (path: string) => {
+    const stats = statSync(path);
+    return { updatedAt: "", etag: `${stats.size}:${stats.mtimeMs}` };
+  },
 }));
 
 mock.module("../avatar/ensure-raster.js", () => ({
@@ -121,13 +124,26 @@ describe("syncAvatarToPlatform", () => {
     syncAvatarToPlatform();
     await settle();
     mockState = imageState("etag-b");
-    mockRasterPath = writeRaster("b.png", Buffer.from("png-b"));
+    mockRasterPath = writeRaster("b.png", Buffer.from("png-bb"));
     syncAvatarToPlatform();
     await settle();
 
     expect(patches.map((p) => p.body.avatar_base64)).toEqual([
       Buffer.from("png-a").toString("base64"),
-      Buffer.from("png-b").toString("base64"),
+      Buffer.from("png-bb").toString("base64"),
+    ]);
+  });
+
+  test("a raster overwritten in place re-sends without a manifest change", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    writeRaster("a.png", Buffer.from("png-a-rewritten"));
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches.map((p) => p.body.avatar_base64)).toEqual([
+      Buffer.from("png-a").toString("base64"),
+      Buffer.from("png-a-rewritten").toString("base64"),
     ]);
   });
 

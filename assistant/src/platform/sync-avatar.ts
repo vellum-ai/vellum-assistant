@@ -3,8 +3,9 @@
  *
  * Every avatar publish (routes and the fs watcher) and daemon startup enqueue
  * a sync. The current avatar state is read when the request runs, so rapid
- * changes collapse into one PATCH carrying the newest raster. A raster whose
- * etag already synced is skipped. Best-effort: failures are logged, never
+ * changes collapse into one PATCH carrying the newest raster. The dedup key
+ * comes from the raster file itself, not the manifest, so a raster rewritten
+ * in place (fs watcher path) still syncs. Best-effort: failures are logged, never
  * thrown, and leave the dedup key untouched so the next publish retries.
  */
 
@@ -53,7 +54,7 @@ async function readRaster(): Promise<{ key: string; bytes: Buffer | null }> {
   if (!path) {
     return { key: NONE_KEY, bytes: null };
   }
-  const etag = state.image?.etag ?? computeImageMeta(path).etag;
+  const { etag } = computeImageMeta(path);
   return { key: `${state.kind}:${etag}`, bytes: await readFile(path) };
 }
 
