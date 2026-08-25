@@ -338,17 +338,13 @@ describe("manage_workflows", () => {
     );
     expect(res.isError).toBe(false);
     const parsed = JSON.parse(res.content);
-    // The effective view always includes the code-catalog defaults,
-    // managed backup profiles included.
+    // The user-selectable view includes the code-catalog defaults and omits
+    // managed backup routes.
     expect(parsed.profiles).toEqual([
       "balanced",
-      "balanced-backup",
       "cost-optimized",
-      "cost-optimized-backup",
       "latency-optimized",
-      "latency-optimized-backup",
       "quality-optimized",
-      "quality-optimized-backup",
     ]);
     expect(parsed.activeProfile).toBe("balanced");
   });
