@@ -30,7 +30,10 @@ const {
   contacts,
   contactChannels,
 } = await import("../db/schema.js");
-const { hashToken } = await import("../auth/guardian-bootstrap.js");
+const { hashToken, mintAndRecordDeviceBoundTokenPair } =
+  await import("../auth/guardian-bootstrap.js");
+const { MAX_PAIRING_USER_AGENT_CHARS } =
+  await import("../auth/device-identity-text.js");
 const { handleListDevices, handleRevokeDevice } =
   await import("../http/routes/devices.js");
 
@@ -228,6 +231,87 @@ describe("actorTokenRecords device identity columns", () => {
       .get();
     expect(row?.pairingUserAgent).toBeNull();
     expect(row?.clientReportedName).toBeNull();
+  });
+});
+
+describe("mintAndRecordDeviceBoundTokenPair identity persistence", () => {
+  function actorRow(device: string) {
+    return getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.hashedDeviceId, hashToken(device)))
+      .get();
+  }
+
+  function refreshRow(device: string) {
+    return getGatewayDb()
+      .select()
+      .from(actorRefreshTokenRecords)
+      .where(eq(actorRefreshTokenRecords.hashedDeviceId, hashToken(device)))
+      .get();
+  }
+
+  test("writes identity to both the actor-token row and the refresh-token row", () => {
+    mintAndRecordDeviceBoundTokenPair({
+      guardianPrincipalId: GUARDIAN_ID,
+      deviceId: "mint-device-with-identity",
+      platform: "cli",
+      identity: {
+        pairingUserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        clientReportedName: "Noa's MacBook Pro",
+      },
+    });
+
+    const access = actorRow("mint-device-with-identity");
+    expect(access?.pairingUserAgent).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    expect(access?.clientReportedName).toBe("Noa's MacBook Pro");
+
+    const refresh = refreshRow("mint-device-with-identity");
+    expect(refresh?.pairingUserAgent).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    expect(refresh?.clientReportedName).toBe("Noa's MacBook Pro");
+  });
+
+  test("writes null to both columns on both tables when identity is omitted", () => {
+    mintAndRecordDeviceBoundTokenPair({
+      guardianPrincipalId: GUARDIAN_ID,
+      deviceId: "mint-device-without-identity",
+      platform: "cli",
+    });
+
+    const access = actorRow("mint-device-without-identity");
+    expect(access?.pairingUserAgent).toBeNull();
+    expect(access?.clientReportedName).toBeNull();
+
+    const refresh = refreshRow("mint-device-without-identity");
+    expect(refresh?.pairingUserAgent).toBeNull();
+    expect(refresh?.clientReportedName).toBeNull();
+  });
+
+  test("truncates an over-length User-Agent to MAX_PAIRING_USER_AGENT_CHARS", () => {
+    const overLongUserAgent = "A".repeat(600);
+    expect(overLongUserAgent.length).toBe(600);
+
+    mintAndRecordDeviceBoundTokenPair({
+      guardianPrincipalId: GUARDIAN_ID,
+      deviceId: "mint-device-long-user-agent",
+      platform: "cli",
+      identity: { pairingUserAgent: overLongUserAgent },
+    });
+
+    const access = actorRow("mint-device-long-user-agent");
+    expect(access?.pairingUserAgent?.length).toBe(MAX_PAIRING_USER_AGENT_CHARS);
+    expect(access?.pairingUserAgent).toBe(
+      "A".repeat(MAX_PAIRING_USER_AGENT_CHARS),
+    );
+
+    const refresh = refreshRow("mint-device-long-user-agent");
+    expect(refresh?.pairingUserAgent?.length).toBe(
+      MAX_PAIRING_USER_AGENT_CHARS,
+    );
   });
 });
 
