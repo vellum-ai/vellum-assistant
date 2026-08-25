@@ -271,13 +271,15 @@ function lockfileInstanceDir(
 }
 
 /**
- * The persisted instance directory for a lockfile entry, honoring legacy
- * `baseDataDir` entries the parsed contract drops. Undefined when the entry
- * is missing or records no directory.
+ * The instance directory for a lockfile entry: the persisted one (honoring
+ * legacy `baseDataDir` entries the parsed contract drops), else the default
+ * location status also falls back to. Undefined when the entry is missing or
+ * the authoritative lockfile is unreadable.
  */
 export function resolveLockfileInstanceDir(
   lockfilePaths: string[],
   assistantId: string,
+  env: Record<string, string | undefined>,
 ): string | undefined {
   const result = getLockfileData(lockfilePaths);
   if (!result.ok) {
@@ -286,7 +288,18 @@ export function resolveLockfileInstanceDir(
   const entry = result.data.assistants.find(
     (assistant) => assistant.assistantId === assistantId,
   );
-  return lockfileInstanceDir(entry, findRawAssistant(result.raw, assistantId));
+  const rawEntry = findRawAssistant(result.raw, assistantId);
+  if (!entry && !rawEntry) {
+    return undefined;
+  }
+  try {
+    return (
+      lockfileInstanceDir(entry, rawEntry) ??
+      defaultInstanceDir(env, assistantId)
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveStatusResources(

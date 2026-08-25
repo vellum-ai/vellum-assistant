@@ -297,6 +297,16 @@ describe("avatar middleware", () => {
     });
   });
 
+  test("malformed percent-encoding is a 400", async () => {
+    const result = await dispatch("/__local/avatar/%E0%A4%A");
+
+    expect(result.status).toBe(400);
+    expect(JSON.parse(result.body)).toEqual({
+      ok: false,
+      error: "Malformed assistant ID",
+    });
+  });
+
   test("absent avatar and unknown assistant both resolve to null", async () => {
     expect(JSON.parse((await dispatch("/__local/avatar/asst-a")).body)).toEqual(
       { ok: true, avatar: null },

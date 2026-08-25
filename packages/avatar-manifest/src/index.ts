@@ -9,7 +9,6 @@
  * derivation here so they cannot disagree. Leaf package: node builtins only.
  */
 export {
-  AVATAR_DIR_SEGMENTS,
   AVATAR_IMAGE_FILENAME,
   AVATAR_MANIFEST_FILENAME,
   AVATAR_TRAITS_FILENAME,
@@ -17,10 +16,7 @@ export {
 } from "./layout.js";
 export {
   deriveAvatarFromLegacyFiles,
-  isValidAvatarImageMeta,
-  isValidCharacterTraits,
   parseAvatarManifest,
-  resolveAvatarFromFiles,
 } from "./manifest.js";
 export type {
   AvatarImageMeta,
@@ -28,8 +24,6 @@ export type {
   AvatarSource,
   AvatarState,
   CharacterTraits,
-  LegacyAvatarDerivation,
-  ResolvedAvatar,
 } from "./manifest.js";
 export { readWorkspaceAvatar } from "./read.js";
 export type { WorkspaceAvatar } from "./read.js";

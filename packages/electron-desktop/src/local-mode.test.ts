@@ -1377,6 +1377,48 @@ describe("vellum:localMode:readAssistantAvatar handler", () => {
     });
   });
 
+  test("entry without an instanceDir reads the default dir from process.env", () => {
+    const previousDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-data-"));
+    process.env.XDG_DATA_HOME = dataHome;
+    try {
+      fs.writeFileSync(
+        lockfilePath,
+        JSON.stringify({
+          assistants: [{ assistantId: "asst-1", cloud: "local" }],
+          activeAssistant: "asst-1",
+        }),
+      );
+      const avatarDir = path.join(
+        dataHome,
+        "vellum",
+        "assistants",
+        "asst-1",
+        ".vellum",
+        "workspace",
+        "data",
+        "avatar",
+      );
+      fs.mkdirSync(avatarDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(avatarDir, "character-traits.json"),
+        JSON.stringify(traits),
+      );
+
+      expect(readAssistantAvatar("asst-1")).toEqual({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+    } finally {
+      if (previousDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousDataHome;
+      }
+      fs.rmSync(dataHome, { recursive: true, force: true });
+    }
+  });
+
   test("missing assistantId is a structured error", () => {
     expect(readAssistantAvatar(undefined)).toEqual({
       ok: false,
