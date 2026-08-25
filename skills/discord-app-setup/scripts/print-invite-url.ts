@@ -68,7 +68,51 @@ async function revealCredential(
   return stdout.trim();
 }
 
-async function discoverApplicationId(token: string): Promise<string> {
+interface DiscordApplication {
+  id: string;
+  /**
+   * The app's own Default Install Settings, when the developer has configured
+   * them on the portal's Installation page. Discord's current model: scopes
+   * and permissions belong to the app, and the install link carries only the
+   * client id.
+   */
+  install_params?: { scopes?: string[]; permissions?: string };
+}
+
+/**
+ * Narrow Discord's response rather than assert it. This is one hop from the
+ * network and the id it yields goes into an install link someone clicks, so a
+ * shape Discord did not send should stop here loudly instead of producing a
+ * link to nothing.
+ */
+function readApplication(body: unknown): DiscordApplication {
+  if (typeof body !== "object" || body === null) {
+    throw new Error("Discord returned a non-object application");
+  }
+  const id = "id" in body ? body.id : undefined;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("Discord returned an application without a usable id");
+  }
+
+  const params = "install_params" in body ? body.install_params : undefined;
+  const rawScopes =
+    typeof params === "object" &&
+    params !== null &&
+    "scopes" in params &&
+    Array.isArray(params.scopes)
+      ? params.scopes
+      : [];
+  const scopes = rawScopes.filter(
+    (scope): scope is string => typeof scope === "string",
+  );
+
+  return {
+    id,
+    ...(scopes.length > 0 ? { install_params: { scopes } } : {}),
+  };
+}
+
+async function fetchApplication(token: string): Promise<DiscordApplication> {
   const res = await fetch(`${DISCORD_API}/oauth2/applications/@me`, {
     headers: {
       Authorization: `Bot ${token}`,
@@ -78,11 +122,10 @@ async function discoverApplicationId(token: string): Promise<string> {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
-      `Discord /oauth2/applications/@me → ${res.status} ${res.statusText}: ${body}`,
+      `Discord /oauth2/applications/@me returned ${res.status} ${res.statusText}: ${body}`,
     );
   }
-  const json = (await res.json()) as { id: string };
-  return json.id;
+  return readApplication(await res.json());
 }
 
 async function printVellum(): Promise<void> {
@@ -93,16 +136,49 @@ async function printVellum(): Promise<void> {
     );
   }
 
-  const applicationId = await discoverApplicationId(token);
+  const app = await fetchApplication(token);
 
-  // Canonical modern form. The legacy `/api/oauth2/authorize` path still
-  // resolves, but Discord documents this one.
   const url = new URL("https://discord.com/oauth2/authorize");
-  url.searchParams.set("client_id", applicationId);
-  url.searchParams.set("permissions", computeDefaultPermissions());
-  url.searchParams.set("scope", "bot applications.commands");
+  url.searchParams.set("client_id", app.id);
+
+  // Prefer the app's own install link. Discord's current model puts scopes
+  // and permissions in Default Install Settings on the portal's Installation
+  // page and generates a link carrying only the client id, so a person who
+  // edits those settings sees the change. Spelling them into the URL instead
+  // silently overrides what they configured.
+  const configured = Boolean(app.install_params?.scopes?.length);
+  if (!configured) {
+    // No Default Install Settings, so the link has to say what to grant.
+    // `applications.commands` is deliberately absent: Discord includes it
+    // with the `bot` scope, and nothing here registers a command, so asking
+    // for it separately requests a permission that is never exercised.
+    url.searchParams.set("permissions", computeDefaultPermissions());
+    url.searchParams.set("scope", "bot");
+  }
 
   console.log(url.toString());
+  if (configured) {
+    console.error(
+      "Using this app's Default Install Settings from the Installation page.",
+    );
+    // Deferring to the app's settings means this script no longer bounds what
+    // the install grants, so say when those settings ask for more than the
+    // integration uses. `gdm.join` matters most: it lets the bot be added to
+    // group DMs, which arrive guild-less and are admitted by ingress as
+    // private DMs. The ingress gate documents that assumption and must learn
+    // to tell the two apart before that scope is safe to carry.
+    const surplus = (app.install_params?.scopes ?? []).filter(
+      (scope) => scope !== "bot" && scope !== "applications.commands",
+    );
+    if (surplus.length > 0) {
+      console.error(
+        `Warning: the app's Default Install Settings request scopes this ` +
+          `integration never uses: ${surplus.join(", ")}. Remove them on the ` +
+          `portal's Installation page. In particular, gdm.join would let the ` +
+          `bot join group DMs, which inbound handling treats as private DMs.`,
+      );
+    }
+  }
 }
 
 async function main(): Promise<void> {

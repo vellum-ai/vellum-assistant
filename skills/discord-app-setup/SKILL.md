@@ -119,13 +119,20 @@ Run:
 bun skills/discord-app-setup/scripts/print-invite-url.ts
 ```
 
-This calls `GET /oauth2/applications/@me` with the stored bot token to discover the application ID, then prints a URL of the form:
+This calls `GET /oauth2/applications/@me` with the stored bot token to discover the application and prints the invite URL. Which URL depends on the app:
+
+- **The app has Default Install Settings** (configured on the portal's Installation page): the URL carries only the client ID, so the grant is whatever those settings say. This is Discord's current model, and it means a person who edits those settings sees their edit take effect instead of being silently overridden by parameters in the URL. The script warns on stderr if those settings request scopes this integration never uses; `gdm.join` in particular would let the bot join group DMs, which inbound handling treats as private DMs, so have the user remove surplus scopes rather than proceeding.
+- **No Default Install Settings**: the URL spells out the grant itself:
 
 ```
-https://discord.com/oauth2/authorize?client_id=<APP_ID>&permissions=277025770560&scope=bot+applications.commands
+https://discord.com/oauth2/authorize?client_id=<APP_ID>&permissions=277025770560&scope=bot
 ```
+
+The `applications.commands` scope is not requested separately: Discord includes it with the `bot` scope, and nothing here registers a command.
 
 The default permission integer (`277025770560`) covers: View Channels, Send Messages, Send Messages in Threads, Embed Links, Attach Files, Read Message History, Add Reactions, Use External Emojis, and Use Slash Commands. It deliberately **does not** include Administrator, Manage Channels, Manage Roles, Manage Threads, Create Public Threads, Kick/Ban Members, or Mention Everyone — request more only if a downstream feature requires it, and document the reason.
+
+When Default Install Settings exist, the same least-privilege bar applies to what the user configures there.
 
 Direct the user:
 
