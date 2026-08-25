@@ -203,7 +203,7 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
+    TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.browserFill / serverUse"]
     BROKER --> POLICY{"Check policy:<br/>allowedTools + allowedDomains"}
     POLICY -->|denied| REJECT["PolicyDenied error"]
     POLICY -->|allowed| FETCH["getSecureKeyAsync(credential/svc/field)"]
@@ -214,7 +214,7 @@ graph TB
 
 The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send Once" button in the secret prompt UI. When used:
 
-- The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `consume` or `browserFill` call
+- The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `browserFill` or `serverUse` call
 - The value is **not** persisted to the credential store
 - The broker discards the value after a single use
 - The credentials prompt route output confirms delivery without including the secret value — the value is never returned to the model
