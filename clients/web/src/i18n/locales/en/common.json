@@ -393,6 +393,14 @@
     "timeRangePastHour": "Past hour",
     "title": "Share Feedback"
   },
+  "shareFeedbackModalFallback": {
+    "loadingAria": "Loading the feedback form"
+  },
+  "shareFeedbackModalLoadError": {
+    "close": "Close",
+    "message": "Couldn't load the feedback form.",
+    "retry": "Try again"
+  },
   "sideListDrawer": {
     "closeAria": "Close",
     "closeSidebarAria": "Close sidebar",

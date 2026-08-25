@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -20,6 +21,7 @@ import * as motionReact from "motion/react";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -112,7 +114,7 @@ function plansResponse(): PlanListResponse {
         credit_tiers: [
           {
             tier: "credits_50",
-            label: "$50 credits/mo",
+            label: "Mighty Usage",
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
@@ -1385,5 +1387,105 @@ describe("ProvisioningState phase hold", () => {
       timeout: 1000,
     });
     expect(reported).toEqual(["WAITING", "DONE"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// obscure-credits flag: the chips name usage bundles, never a credit amount
+// ---------------------------------------------------------------------------
+
+/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
+function setObscureCredits(value: boolean): void {
+  act(() => {
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ obscureCredits: value }, null);
+  });
+}
+
+describe("obscure-credits flag", () => {
+  beforeEach(() => {
+    setObscureCredits(true);
+  });
+
+  afterEach(() => {
+    setObscureCredits(false);
+  });
+
+  test("the resize credits chip names the bundles, not monthly rates", () => {
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      creditsChange: { fromTier: null, toTier: "credits_50" },
+    });
+
+    const chip = getByTestId("chip-credits");
+    expect(within(chip).getByText("Usage")).toBeTruthy();
+    expect(chip.textContent).toContain("No extra usage");
+    expect(chip.textContent).toContain("Mighty Usage");
+    expect(chip.textContent).not.toContain("$");
+  });
+
+  test("a dropped bundle reads down to the no-extra-usage sentinel", () => {
+    const { getByTestId } = renderState({
+      state: "NOT_APPLICABLE",
+      creditsChange: { fromTier: "credits_50", toTier: null },
+    });
+
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("Mighty Usage");
+    expect(chip.textContent).toContain("No extra usage");
+    expect(chip.textContent).not.toContain("$");
+  });
+
+  test("a checkout credits chip reads as bundles too", () => {
+    const { getByTestId, queryByText } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+    });
+
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("No extra usage");
+    expect(chip.textContent).toContain("Mighty Usage");
+    expect(queryByText("$0/mo")).toBeNull();
+    expect(queryByText("Credits")).toBeNull();
+  });
+
+  test("a from-side the catalog can't label is left unstated", () => {
+    // credits_25 is absent from the fixture catalog: its key still prices the
+    // off-flag rate, but under the flag there is no wording to show for it.
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      creditsChange: { fromTier: "credits_25", toTier: "credits_50" },
+    });
+
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("Mighty Usage");
+    expect(chip.textContent).not.toContain("25");
+    expect(chip.querySelector(".lucide-arrow-right")).toBeNull();
+  });
+
+  test("a to-side the catalog can't label drops the chip, not the disguise", () => {
+    const { queryByTestId } = renderState({
+      state: "WAITING",
+      creditsChange: { fromTier: "credits_50", toTier: "credits_25" },
+    });
+
+    expect(queryByTestId("chip-credits")).toBeNull();
+  });
+
+  test("the confirming custom-intent chip names the bundle, not a count", () => {
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      intent: {
+        kind: "custom",
+        machineTier: "medium",
+        storageTier: "s",
+        creditTier: "credits_50",
+        savedAt: Date.now(),
+      },
+    });
+
+    expect(getByText("Mighty Usage")).toBeTruthy();
+    expect(queryByText("50 credits")).toBeNull();
   });
 });

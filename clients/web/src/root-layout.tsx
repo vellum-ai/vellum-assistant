@@ -1,7 +1,7 @@
-import { lazy, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
+import { ShareFeedbackModalLazy } from "@/components/share-feedback-modal-lazy";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
@@ -95,12 +95,6 @@ import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
-
-const ShareFeedbackModal = lazy(() =>
-  import("@/components/share-feedback-modal").then((m) => ({
-    default: m.ShareFeedbackModal,
-  })),
-);
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -567,15 +561,13 @@ export function RootLayout() {
       <GlobalPushToTalkBridge assistantId={assistantId} />
 
       {feedbackOpen ? (
-        <LazyBoundary>
-          <ShareFeedbackModal
-            open={feedbackOpen}
-            onClose={() => setFeedbackOpen(false)}
-            assistantId={assistantId}
-            assistantVersion={assistantVersion}
-            activeConversationId={activeConversationId}
-          />
-        </LazyBoundary>
+        <ShareFeedbackModalLazy
+          open={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+          assistantId={assistantId}
+          assistantVersion={assistantVersion}
+          activeConversationId={activeConversationId}
+        />
       ) : null}
 
       {/* Destructive confirmation for the tray "Retire <assistant>…" command.

@@ -1651,6 +1651,7 @@
     "dimensionsComplete": "{dimensions} complete",
     "goToBilling": "Go to billing",
     "machineLabel": "Machine",
+    "noExtraUsage": "No extra usage",
     "packageChip": "{name} package",
     "planReadyStatus": "Your plan is ready",
     "retryInBackground": "Retry in the background",
@@ -1661,6 +1662,7 @@
     "storageLabel": "Storage",
     "takingLongerStatus": "This is taking longer than expected",
     "tryAgain": "Try again",
+    "usageLabel": "Usage",
     "waitingCaptionLong": "Still working. This can take a minute or two.",
     "waitingCaptionShort": "This might take a couple seconds."
   },
