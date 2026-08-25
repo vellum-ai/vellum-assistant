@@ -137,6 +137,8 @@ function mintAccessToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  pairingUserAgent: string | null,
+  clientReportedName: string | null,
 ): { token: string; expiresAt: number } {
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
@@ -161,6 +163,8 @@ function mintAccessToken(
       guardianPrincipalId,
       hashedDeviceId,
       platform,
+      pairingUserAgent,
+      clientReportedName,
       status: "active",
       issuedAt: now,
       expiresAt,
@@ -176,6 +180,8 @@ function mintRefreshTokenInFamily(params: {
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
+  pairingUserAgent: string | null;
+  clientReportedName: string | null;
   familyId: string;
   absoluteExpiresAt: number;
   browserRefreshCookiePath?: string;
@@ -198,6 +204,8 @@ function mintRefreshTokenInFamily(params: {
       guardianPrincipalId: params.guardianPrincipalId,
       hashedDeviceId: params.hashedDeviceId,
       platform: params.platform,
+      pairingUserAgent: params.pairingUserAgent,
+      clientReportedName: params.clientReportedName,
       status: "active",
       issuedAt: now,
       absoluteExpiresAt: params.absoluteExpiresAt,
@@ -288,12 +296,16 @@ function rotateRefreshTokenRecord(
       record.guardianPrincipalId,
       record.hashedDeviceId,
       record.platform,
+      record.pairingUserAgent,
+      record.clientReportedName,
     );
 
     const refresh = mintRefreshTokenInFamily({
       guardianPrincipalId: record.guardianPrincipalId,
       hashedDeviceId: record.hashedDeviceId,
       platform: record.platform,
+      pairingUserAgent: record.pairingUserAgent,
+      clientReportedName: record.clientReportedName,
       familyId: record.familyId,
       absoluteExpiresAt: record.absoluteExpiresAt,
       browserRefreshCookiePath: record.browserRefreshCookiePath ?? undefined,
