@@ -120,7 +120,7 @@ export function useAssistantAvatar(
   const activeSupportsManifest = useSupportsAvatarStateManifest();
   const supportsManifest = options?.supportsManifest ?? activeSupportsManifest;
 
-  const { data, isLoading } = useQuery<AvatarData>({
+  const { data, isLoading, isSuccess } = useQuery<AvatarData>({
     queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],
     queryFn: async () => {
       const id = assistantId!;
@@ -174,6 +174,7 @@ export function useAssistantAvatar(
     traits: data?.traits ?? null,
     customImageUrl: data?.customImageUrl ?? null,
     isLoading,
+    isSuccess,
     invalidate,
   };
 }

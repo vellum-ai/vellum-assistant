@@ -1,9 +1,10 @@
 /**
  * Tests for `useChooserRowAvatar`: the transport gate that decides whether a
  * per-row SDK fetch is addressable, connected-row delegation to
- * `useAssistantAvatar`, per-row manifest-vs-legacy path selection, and the
- * failure-to-nulls contract. The resolved-assistants store is real; the
- * environment probes and the avatar API are mocked at the module boundary.
+ * `useAssistantAvatar`, per-row manifest-vs-legacy path selection, the
+ * last-seen cache as the final fallback, and the failure-to-nulls contract.
+ * The resolved-assistants store is real; the environment probes, the avatar
+ * API, and the IndexedDB cache are mocked at the module boundary.
  */
 
 import type { ReactNode } from "react";
@@ -20,6 +21,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type * as AvatarApi from "@/assistant/avatar-api";
+import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 import type {
   AvatarState,
@@ -91,6 +93,19 @@ const avatarApiMock: Partial<typeof AvatarApi> = {
 };
 mock.module("@/assistant/avatar-api", () => avatarApiMock);
 
+type LastSeenAvatar = AvatarLastSeenCache.LastSeenAvatar;
+const readLastSeenAvatar = mock(async () => null as LastSeenAvatar | null);
+const writeLastSeenAvatar = mock(async (_id: string, _v: LastSeenAvatar) => {});
+const deleteLastSeenAvatar = mock(async (_id: string) => {});
+mock.module(
+  "@/lib/avatar-last-seen-cache",
+  (): Partial<typeof AvatarLastSeenCache> => ({
+    readLastSeenAvatar,
+    writeLastSeenAvatar,
+    deleteLastSeenAvatar,
+  }),
+);
+
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { useAssistantIdentityStore } =
@@ -106,6 +121,14 @@ const {
 
 const revokeObjectURL = mock((_url: string) => {});
 URL.revokeObjectURL = revokeObjectURL;
+URL.createObjectURL = () => "blob:cached-image";
+
+const noneState: AvatarState = {
+  kind: "none",
+  traits: null,
+  source: null,
+  image: null,
+};
 
 const platformRow = (
   id: string,
@@ -165,6 +188,10 @@ afterEach(() => {
   fetchAvatarImageUrl.mockReset();
   fetchCharacterTraits.mockReset();
   fetchCharacterComponents.mockReset();
+  readLastSeenAvatar.mockReset();
+  writeLastSeenAvatar.mockReset();
+  deleteLastSeenAvatar.mockReset();
+  readLastSeenAvatar.mockResolvedValue(null);
   fetchAvatarState.mockResolvedValue(characterState);
   fetchAvatarImageUrl.mockResolvedValue(null);
   fetchCharacterTraits.mockResolvedValue(null);
@@ -502,5 +529,160 @@ describe("useChooserRowAvatar", () => {
     expect(fetchAvatarState).toHaveBeenCalledWith("a");
     expect(fetchAvatarState).toHaveBeenCalledWith("b");
     expect(fetchAvatarState).toHaveBeenCalledTimes(2);
+  });
+
+  describe("last-seen cache", () => {
+    test("writes a character entry after a live platform-proxy resolution", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith("other", {
+          kind: "character",
+          traits,
+        });
+      });
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("writes an image entry as a Blob read back from the live blob url", async () => {
+      const blob = new Blob(["png"], { type: "image/png" });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(
+        async () => new Response(blob),
+      ) as unknown as typeof fetch;
+      try {
+        fetchAvatarState.mockResolvedValue(imageState);
+        fetchAvatarImageUrl.mockResolvedValue("blob:row-image");
+        renderHook(() => useChooserRowAvatar(platformRow("other")), {
+          wrapper: createWrapper(),
+        });
+        await waitFor(() => {
+          expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+        });
+        expect(globalThis.fetch).toHaveBeenCalledWith("blob:row-image");
+        const [id, entry] = writeLastSeenAvatar.mock.calls[0]!;
+        expect(id).toBe("other");
+        expect(entry.kind).toBe("image");
+        expect(entry.kind === "image" && (await entry.blob.text())).toBe("png");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    test("writes the connected row's live avatar", async () => {
+      renderHook(() => useChooserRowAvatar(platformRow("active")), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith("active", {
+          kind: "character",
+          traits,
+        });
+      });
+    });
+
+    test("deletes the entry when a live source resolves kind none", async () => {
+      fetchAvatarState.mockResolvedValue(noneState);
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith("other");
+      });
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
+
+    test("reads the cache as the final fallback when no live source applies", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(readLastSeenAvatar).toHaveBeenCalledWith("other");
+      expect(sdkCallCount()).toBe(0);
+    });
+
+    test("re-creates an object url from a cached image Blob", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockResolvedValue({
+        kind: "image",
+        blob: new Blob(["png"]),
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe("blob:cached-image");
+      });
+      expect(result.current.traits).toBeNull();
+    });
+
+    test("falls back to the cache when the live fetch fails", async () => {
+      fetchAvatarState.mockRejectedValue(new Error("boom"));
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+    });
+
+    test("falls back to the cache for an unreachable connected row", async () => {
+      fetchAvatarState.mockRejectedValue(new Error("offline"));
+      fetchCharacterComponents.mockRejectedValue(new Error("offline"));
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("active")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(readLastSeenAvatar).toHaveBeenCalledWith("active");
+    });
+
+    test("never writes back data that came from the cache", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a cache read failure resolves to nulls", async () => {
+      localClient = true;
+      readLastSeenAvatar.mockRejectedValue(new Error("idb"));
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { isPaired: true })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(readLastSeenAvatar).toHaveBeenCalledTimes(1);
+      });
+      await settle();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+    });
   });
 });

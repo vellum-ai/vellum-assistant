@@ -1,4 +1,5 @@
 import { listAssistants, retireAssistantById } from "@/assistant/api";
+import { deleteLastSeenAvatar } from "@/lib/avatar-last-seen-cache";
 import {
   getLockfile,
   isLocalAssistant,
@@ -112,6 +113,7 @@ export async function retireAssistant(
     }
 
     useResolvedAssistantsStore.getState().remove(assistantId);
+    void deleteLastSeenAvatar(assistantId);
     // Retiring ends any in-flight onboarding journey with it: drop the
     // research-onboarding resume snapshot so the next onboarding starts at the
     // form instead of resuming the retired assistant's run deep in the flow
