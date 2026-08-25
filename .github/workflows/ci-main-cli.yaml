@@ -11,6 +11,7 @@ on:
       - 'cli/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-manifest/**'
       - '.github/workflows/ci-main-cli.yaml'
 
 jobs:
