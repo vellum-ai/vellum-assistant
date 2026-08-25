@@ -1,16 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Regression tests for the container-resize re-pin stealing an in-transcript
- * field.
+ * Precedence between the coordinator's layout-driven pins and a text field a
+ * transcript row owns.
  *
- * Bug: the "Connect Claude Code" card renders a paste field inside a
- * transcript row. Tapping it on a phone opens the soft keyboard, which shrinks
- * the app shell, which resizes the transcript's scroll container. The
- * container ResizeObserver then re-pinned to the latest message, scrolling the
- * just-focused field off the top of the viewport, so the field and the
- * keyboard could never be on screen together and the key could not be pasted.
- *
- * Fix: a focused field inside the scroll container outranks the pin.
+ * A pin fires only when its observer would otherwise have pinned: the
+ * container observer while the thread is pinned to latest, the content
+ * observer inside its auto-pin window. Within that, a focused field in the
+ * thread wins, and the coordinator asks the transcript handle to keep it on
+ * screen instead of scrolling to the latest message. A reader who has scrolled
+ * away keeps the viewport they chose, focused field or not.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -26,7 +24,7 @@ import type { TranscriptItem } from "./types";
 // Harness
 // ---------------------------------------------------------------------------
 
-/** Callbacks of every `ResizeObserver` the hook constructs, newest last. */
+/** Callbacks of every `ResizeObserver` the hook constructs. */
 let observerCallbacks: ResizeObserverCallback[] = [];
 let originalResizeObserver: typeof ResizeObserver | undefined;
 
@@ -45,8 +43,8 @@ function installFakeResizeObserver() {
 /**
  * Fire every observer the hook installed. A shell resize moves both the
  * container and the content element on a real phone, and mount leaves the
- * auto-pin window open for 500 ms, so both observers are live here and each
- * contributes one call. The counts below are per observer for that reason.
+ * auto-pin window open, so both are live here and each contributes one call.
+ * Counts below are per observer for that reason.
  */
 function fireResize() {
   act(() => {
@@ -56,9 +54,18 @@ function fireResize() {
   });
 }
 
+/** Scroll element whose geometry the test drives directly. Starts pinned to
+ *  the bottom (`scrollTop` at max). */
 function createScrollElement(): HTMLDivElement {
   const el = document.createElement("div");
-  Object.defineProperty(el, "scrollTop", { configurable: true, value: 4200 });
+  let scrollTop = 4200;
+  Object.defineProperty(el, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (v: number) => {
+      scrollTop = v;
+    },
+  });
   Object.defineProperty(el, "scrollHeight", {
     configurable: true,
     value: 5000,
@@ -81,15 +88,24 @@ function makeMessageItem(key: string): TranscriptItem {
   };
 }
 
-function mountHook(scrollEl: HTMLDivElement, contentEl: HTMLDivElement) {
-  const scrollToLatestCalls: number[] = [];
+/** Mount the coordinator against a stub handle, so these tests exercise the
+ *  `TranscriptHandle` abstraction rather than the DOM behind it.
+ *  `focusedField` is what the transcript reports back from
+ *  `keepFocusedFieldVisible`; the DOM side is covered in
+ *  `focused-field.test.ts`. */
+function mountHook(scrollEl: HTMLDivElement, focusedField: boolean) {
+  const calls = { scrollToLatest: 0, keepFocusedFieldVisible: 0 };
   const transcriptRef = {
     current: {
       scrollToLatest: () => {
-        scrollToLatestCalls.push(1);
+        calls.scrollToLatest += 1;
+      },
+      keepFocusedFieldVisible: () => {
+        calls.keepFocusedFieldVisible += 1;
+        return focusedField;
       },
       getScrollElement: () => scrollEl,
-      getContentElement: () => contentEl,
+      getContentElement: () => scrollEl,
     },
   };
 
@@ -106,23 +122,21 @@ function mountHook(scrollEl: HTMLDivElement, contentEl: HTMLDivElement) {
     initialProps: args,
   });
 
-  // The mount pass pins on its own (conversation-switch reset); the tests
-  // assert on what a later resize does.
-  scrollToLatestCalls.length = 0;
-  return { scrollToLatestCalls };
+  // The mount pass pins on its own (conversation-switch reset); every
+  // assertion below is about what a later resize does.
+  calls.scrollToLatest = 0;
+  calls.keepFocusedFieldVisible = 0;
+  return calls;
 }
 
-/** An `<input>` inside the transcript, standing in for the Connect card's
- *  paste field. Returns the element plus a record of `scrollIntoView` calls,
- *  which happy-dom does not implement. */
-function addFieldTo(parent: HTMLElement) {
-  const input = document.createElement("input");
-  const scrollIntoViewCalls: ScrollIntoViewOptions[] = [];
-  input.scrollIntoView = ((opts?: ScrollIntoViewOptions) => {
-    scrollIntoViewCalls.push(opts ?? {});
-  }) as HTMLElement["scrollIntoView"];
-  parent.appendChild(input);
-  return { input, scrollIntoViewCalls };
+/** Drag the thread away from the bottom, the way a reader taking control
+ *  does: the touch closes the auto-pin window, the scroll unpins. */
+function scrollAwayFromBottom(scrollEl: HTMLDivElement) {
+  act(() => {
+    scrollEl.dispatchEvent(new Event("touchmove"));
+    scrollEl.scrollTop = 1000;
+    scrollEl.dispatchEvent(new Event("scroll"));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -141,50 +155,39 @@ describe("useTranscriptScroll: focused in-transcript field", () => {
     }
   });
 
-  test("keyboard-driven resize keeps a focused transcript field in view instead of re-pinning", () => {
+  test("a focused field keeps the viewport instead of pinning to latest", () => {
     const scrollEl = createScrollElement();
-    const contentEl = document.createElement("div");
-    scrollEl.appendChild(contentEl);
     document.body.appendChild(scrollEl);
-    const { input, scrollIntoViewCalls } = addFieldTo(contentEl);
 
-    const { scrollToLatestCalls } = mountHook(scrollEl, contentEl);
-    input.focus();
+    const calls = mountHook(scrollEl, true);
     fireResize();
 
-    expect(scrollToLatestCalls).toHaveLength(0);
-    // Once per observer: the container's and the content element's.
-    expect(scrollIntoViewCalls).toEqual([
-      { block: "nearest", behavior: "auto" },
-      { block: "nearest", behavior: "auto" },
-    ]);
+    expect(calls.scrollToLatest).toBe(0);
+    expect(calls.keepFocusedFieldVisible).toBe(2);
   });
 
-  test("a focused field outside the transcript (the composer) still re-pins", () => {
+  test("with no focused field the resize pins to latest", () => {
     const scrollEl = createScrollElement();
-    const contentEl = document.createElement("div");
-    scrollEl.appendChild(contentEl);
     document.body.appendChild(scrollEl);
-    const composer = document.createElement("div");
-    document.body.appendChild(composer);
-    const { input } = addFieldTo(composer);
 
-    const { scrollToLatestCalls } = mountHook(scrollEl, contentEl);
-    input.focus();
+    const calls = mountHook(scrollEl, false);
     fireResize();
 
-    expect(scrollToLatestCalls).toHaveLength(2);
+    expect(calls.scrollToLatest).toBe(2);
+    expect(calls.keepFocusedFieldVisible).toBe(2);
   });
 
-  test("with nothing focused the resize re-pins as before", () => {
+  test("a reader scrolled away is left alone, focused field or not", () => {
     const scrollEl = createScrollElement();
-    const contentEl = document.createElement("div");
-    scrollEl.appendChild(contentEl);
     document.body.appendChild(scrollEl);
 
-    const { scrollToLatestCalls } = mountHook(scrollEl, contentEl);
+    const calls = mountHook(scrollEl, true);
+    scrollAwayFromBottom(scrollEl);
     fireResize();
 
-    expect(scrollToLatestCalls).toHaveLength(2);
+    expect(calls.scrollToLatest).toBe(0);
+    // Never consulted: neither observer would have pinned, so there is no
+    // viewport decision for a focused field to win.
+    expect(calls.keepFocusedFieldVisible).toBe(0);
   });
 });
