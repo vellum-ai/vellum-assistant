@@ -653,16 +653,10 @@
     "toolLabel": "Tool:"
   },
   "doctorPanel": {
-    "beta": "Beta",
-    "betaTitle": "Doctor is in beta - use the Settings menu to submit feedback",
     "connecting": "Connecting...",
-    "copied": "Copied!",
-    "copiedAria": "Copied",
-    "copiedTooltip": "Copied!",
+    "copiedToast": "Session copied to clipboard.",
     "copyFailed": "Couldn't copy the session.",
     "copySession": "Copy Session",
-    "copySessionAria": "Copy session to clipboard",
-    "copySessionTooltip": "Copy session to clipboard",
     "endSession": "End Session",
     "goToNewest": "Go to Newest",
     "goToNewestAria": "Go to newest message",
@@ -674,6 +668,7 @@
     "placeholderApproval": "Type \"approve\" or \"deny\", or send a message...",
     "placeholderMessage": "Type a message...",
     "sendMessageAria": "Send message",
+    "sessionMenu": "Session options",
     "shareFeedback": "Share Feedback",
     "startSession": "Start Doctor Session",
     "thinking": "Thinking…",
@@ -2134,6 +2129,10 @@
     "deleteFailedToast": "Failed to delete the provider. Please try again.",
     "deleteInUseToast": "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
     "setDefaultFailedToast": "Failed to set the default provider. Please try again."
+  },
+  "useReactivateSubscription": {
+    "reactivateFailedToast": "Couldn't reactivate your subscription. Please try again.",
+    "reactivatedToast": "Pro plan reactivated."
   },
   "useSystemTasks": {
     "consolidationAlreadyQueued": "Consolidation already queued or running.",

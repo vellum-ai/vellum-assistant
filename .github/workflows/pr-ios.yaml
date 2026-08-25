@@ -8,6 +8,11 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/ios/**'
+      # The launcher and app icon assets embed the quirky eye geometry; the
+      # drift tests in clients/ios/scripts/__tests__ pin them to the avatar
+      # component library.
+      - 'assistant/src/avatar/**'
+      - 'clients/android/app/src/main/res/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
       - '.github/workflows/pr-ios.yaml'
@@ -44,6 +49,13 @@ jobs:
       - name: Install dependencies
         working-directory: clients/web
         run: bun install --frozen-lockfile --filter=@vellumai/web
+
+      - name: Check app icon geometry drift
+        working-directory: clients/ios
+        # Asserts the icon assets still embed the avatar library's eye
+        # geometry verbatim. Runs from `clients/ios` because the repo-root
+        # `test-preload.ts` rejects a root `bun test`.
+        run: bun test scripts/__tests__/
 
       - name: Capacitor sync
         working-directory: clients/web

@@ -755,6 +755,20 @@ export function useLiveVoice(
       });
       session.capture = capture;
       sessionRef.current = session;
+      // Dev-only handle for driving a typed turn from the console while no UI
+      // sends one yet:
+      //
+      //   __vellumVoice.sendText("what is on my calendar")
+      //
+      // Returns false if the session is not active or the assistant predates
+      // typed turns, which is also what a handle left over from an ended
+      // session returns. Stripped from production builds.
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vellumVoice = {
+          sendText: (text: string) => sendTextTurn(session, text),
+          supportsTextInput: () => client.supportsTextInput,
+        };
+      }
       // Mic acquisition overlaps the WS connect below (still inside the
       // mic-button gesture); forwarding stays gated on the `ready` handler.
       beginCaptureStartup(session);
@@ -1541,6 +1555,26 @@ function releasePushToTalk(session: SessionContext): void {
     s.setState("transcribing");
   }
   s.setInputAmplitude(0);
+}
+
+/**
+ * Take a turn by typing it, and stamp the client-side latency anchor the same
+ * way ending speech does.
+ *
+ * `clientHeardLatencyMs` measures from the user finishing their input to the
+ * first audio they hear, and it starts from `speechEndedAtMs`, which only the
+ * `utterance_end` and push-to-talk paths set. A typed turn travels neither, so
+ * sending straight through the client would leave every typed turn without a
+ * client-perceived latency. Stamped only when the frame actually goes out, so
+ * a refused turn does not leave an anchor for the next reply's audio to pair
+ * against.
+ */
+function sendTextTurn(session: SessionContext, text: string): boolean {
+  const sent = session.client.sendText(text);
+  if (sent) {
+    session.speechEndedAtMs = performance.now();
+  }
+  return sent;
 }
 
 /**
