@@ -136,9 +136,12 @@ const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
-const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
+export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
+export type EventbriteOAuthService = z.infer<
+  typeof EventbriteOAuthServiceSchema
+>;
 
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
