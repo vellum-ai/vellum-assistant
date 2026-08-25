@@ -308,14 +308,18 @@ export function readVisibleViewport(): VisibleViewport | null {
   // frame, and the announcement that follows then subtracts the keyboard from
   // that frame a second time, leaving a strip the height of the header. The
   // frame already fits above the keyboard there, so the measurement is the
-  // height and the announcement is the only thing that knows a keyboard is up.
+  // height and the announcement says whether a keyboard is up. Until one has
+  // arrived (a keyboard raised during listener registration, or a shell built
+  // before the plugin) the reference delta still stands in: the rebase above
+  // leaves the reference alone on a native shell that has heard nothing.
   if (isNativeAndroid()) {
-    return {
-      height: vv.height,
-      keyboardHeight: nativeKeyboardVisible ? anticipatedKeyboardHeight : 0,
-      offsetTop: 0,
-      offsetLeft: 0,
-    };
+    let keyboardHeight = 0;
+    if (nativeKeyboardVisible) {
+      keyboardHeight = anticipatedKeyboardHeight;
+    } else if (!sawKeyboardAnnouncement) {
+      keyboardHeight = Math.max(0, referenceInnerHeight - vv.height);
+    }
+    return { height: vv.height, keyboardHeight, offsetTop: 0, offsetLeft: 0 };
   }
 
   // Update the reference whenever the viewport grows (keyboard dismissed,

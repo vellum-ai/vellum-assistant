@@ -530,6 +530,22 @@ describe("window resizes", () => {
     expect(readVisibleViewport()?.keyboardHeight).toBe(0);
   });
 
+  test("falls back to the measurement on Android before any announcement", () => {
+    // GIVEN the Android shell with a keyboard raised before the plugin
+    // listeners could announce it
+    stubIsNativeMobile = true;
+    stubIsNativeAndroid = true;
+    renderHook(() => useVisibleViewport());
+
+    // WHEN the frame shrinks with nothing announced
+    resizeWindowTo(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // THEN the reference delta still reports the keyboard
+    const viewport = readVisibleViewport();
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+  });
+
   test("rebases with the composer focused when no keyboard was announced", () => {
     // GIVEN a composer holding focus with nothing announced, which is what a
     // hardware keyboard on a tablet looks like: focus with no soft keyboard
