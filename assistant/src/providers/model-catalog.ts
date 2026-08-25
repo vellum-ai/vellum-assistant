@@ -1461,9 +1461,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.790308,
-          outputPer1mTokens: 1.580616,
-          cacheReadPer1mTokens: 0.065859,
+          inputPer1mTokens: 0.579072,
+          outputPer1mTokens: 1.158144,
+          cacheReadPer1mTokens: 0.048256,
         },
       },
       {
@@ -1476,9 +1476,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.088606,
-          outputPer1mTokens: 0.177212,
-          cacheReadPer1mTokens: 0.0177212,
+          inputPer1mTokens: 0.0854,
+          outputPer1mTokens: 0.1708,
+          cacheReadPer1mTokens: 0.01708,
         },
       },
       // Qwen
