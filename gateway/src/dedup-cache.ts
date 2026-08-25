@@ -10,6 +10,8 @@ interface CacheEntry {
   expiresAt: number;
   /** When true, the first handler is still processing this update_id. */
   processing?: boolean;
+  /** Which bot generation reserved this; see {@link DedupCache.reset}. */
+  generation: number;
 }
 
 /**
@@ -29,6 +31,14 @@ export class DedupCache {
    * the TTL cache.
    */
   private highWaterMark = -Infinity;
+  /**
+   * Bumped by {@link reset}. A reservation carries the generation it was made
+   * in, and finalizing one from an earlier generation is dropped: an update
+   * for the departed bot can still be in a handler when the credential
+   * rotates, and letting it finalize would restore that bot's high-water mark
+   * into the new bot's cache, silencing the new bot exactly as before.
+   */
+  private generation = 0;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
@@ -99,6 +109,7 @@ export class DedupCache {
       status: 0,
       expiresAt: Date.now() + this.ttlMs,
       processing: true,
+      generation: this.generation,
     });
     return "reserved";
   }
@@ -113,6 +124,14 @@ export class DedupCache {
 
   /** Store a response for the given update_id and advance the high-water mark. */
   set(updateId: number, body: string, status: number): void {
+    const reserved = this.cache.get(updateId);
+    if (reserved && reserved.generation !== this.generation) {
+      // Work that began under a previous bot. Drop it rather than record it:
+      // its update_id belongs to a sequence this cache no longer tracks.
+      this.cache.delete(updateId);
+      return;
+    }
+
     // Advance monotonic high-water mark so this update_id (and all lower
     // ones) are permanently rejected even after the TTL cache evicts them.
     if (updateId > this.highWaterMark) {
@@ -135,6 +154,7 @@ export class DedupCache {
       body,
       status,
       expiresAt: Date.now() + this.ttlMs,
+      generation: this.generation,
     });
   }
 
@@ -156,6 +176,7 @@ export class DedupCache {
   reset(): void {
     this.cache.clear();
     this.highWaterMark = -Infinity;
+    this.generation += 1;
   }
 
   startCleanup(intervalMs = 60_000): void {

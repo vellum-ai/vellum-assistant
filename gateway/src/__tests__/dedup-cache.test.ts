@@ -299,6 +299,23 @@ describe("DedupCache.reset for a changed bot", () => {
     expect(cache.reserve(12)).toBe("reserved");
   });
 
+  test("work from the departed bot cannot restore its watermark", () => {
+    const cache = new DedupCache();
+
+    // The old bot reserves a high id and is still processing it.
+    expect(cache.reserve(900_000)).toBe("reserved");
+
+    // The credential rotates mid-flight.
+    cache.reset();
+
+    // The old handler finishes and tries to record its result.
+    cache.set(900_000, "{}", 200);
+
+    // The new bot's low ids must still be accepted: finalizing that stale
+    // work must not have reinstated the old high-water mark.
+    expect(cache.reserve(12)).toBe("reserved");
+  });
+
   test("reset clears in-flight entries too, not just the mark", () => {
     const cache = new DedupCache();
     cache.reserve(5);
