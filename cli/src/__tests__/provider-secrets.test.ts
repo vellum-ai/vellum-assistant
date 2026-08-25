@@ -334,6 +334,16 @@ function fakeOutput(): { write: (text: string) => boolean; text: string } {
   return state;
 }
 
+// promptProviderChoice only re-registers its "data" listener once the
+// previous promptLine() call's promise settles (a real terminal always
+// delivers separate lines on separate ticks). Tests that emit more than one
+// answer must yield a macrotask between emits so that registration happens
+// before the next one fires, or the later emit is dropped with no listener
+// attached and the test hangs forever.
+function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 describe("promptLine", () => {
   test("resolves on newline", async () => {
     const input = new FakePromptInput();
@@ -396,7 +406,9 @@ describe("promptProviderChoice", () => {
       choices,
     });
     input.emit("data", Buffer.from("nope\n"));
+    await flushAsync();
     input.emit("data", Buffer.from("99\n"));
+    await flushAsync();
     input.emit("data", Buffer.from("3\n"));
 
     await expect(resultPromise).resolves.toBe("gemini");
@@ -429,6 +441,7 @@ describe("promptProviderChoice", () => {
       choices: ["anthropic", "openai"],
     });
     input.emit("data", Buffer.from("3\n"));
+    await flushAsync();
     input.emit("data", Buffer.from("1\n"));
 
     await expect(resultPromise).resolves.toBe("anthropic");
