@@ -1553,7 +1553,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    const blocker = this.sessionTurnFloorBlocker();
+    const blocker = this.sessionTurnFloorBlocker({
+      ignoreManualCapture: true,
+    });
     if (blocker !== null) {
       await this.sendFrame({
         type: "error",
@@ -3252,7 +3254,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * user, or race a capture cycle already in flight, so both ask here rather
    * than growing separate condition sets that could drift apart.
    */
-  private sessionTurnFloorBlocker(): string | null {
+  private sessionTurnFloorBlocker(opts?: {
+    /**
+     * Ignore `manualAudioCaptured` when judging whether an utterance is in
+     * flight. Set only for a typed turn.
+     *
+     * That flag means "manual capture routed at least one chunk into this
+     * cycle", and manual capture forwards from the moment the microphone
+     * opens rather than from a push-to-talk press. So in a manual session it
+     * latches on the first chunk of silence and, because a manual cycle only
+     * completes on release, never clears. Honouring it would refuse every
+     * typed turn a few milliseconds into the session.
+     *
+     * Safe to ignore here and nowhere else. The flag exists because
+     * transcript signals trail the provider, which would leave an
+     * announcement talking over someone who is mid-sentence with no text yet.
+     * A typed turn has evidence an announcement does not: the user is at the
+     * keyboard, and the act of sending is itself the signal that they are not
+     * currently speaking. The transcript-derived conditions still apply, so a
+     * cycle that has actually produced words still blocks.
+     */
+    readonly ignoreManualCapture?: boolean;
+  }): string | null {
     if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
       return "session_unavailable";
     }
@@ -3281,7 +3304,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !utterance.completed &&
       (utterance.released ||
         utterance.assistantTurnStarted ||
-        utterance.manualAudioCaptured ||
+        (utterance.manualAudioCaptured && opts?.ignoreManualCapture !== true) ||
         utterance.finalTranscriptSegments.length > 0 ||
         utterance.latestPartialText !== null)
     ) {

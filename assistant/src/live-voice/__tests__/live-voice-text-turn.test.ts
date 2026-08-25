@@ -193,6 +193,29 @@ describe("typed live-voice turns", () => {
     await session.close("websocket_close");
   });
 
+  test("a manual session takes a typed turn after the microphone has streamed", async () => {
+    // Manual capture forwards from the moment the microphone opens, not from a
+    // push-to-talk press, so the first chunk of silence latches
+    // `manualAudioCaptured` on the armed cycle. A manual cycle only completes
+    // on release, so treating that flag as "user is mid-utterance" would
+    // refuse every typed turn a few milliseconds into the session.
+    const { frames, session, turnOptions } = createHarness();
+    await session.start();
+
+    await session.handleClientFrame({
+      type: "audio",
+      dataBase64: Buffer.alloc(960).toString("base64"),
+    });
+
+    await session.handleClientFrame({ type: "text", text: "typed anyway" });
+
+    await waitFor(() => turnOptions.length === 1);
+    expect(turnOptions[0]?.content).toContain("typed anyway");
+    expect(errorFrames(frames)).toHaveLength(0);
+
+    await session.close("websocket_close");
+  });
+
   test("a typed turn arriving mid-turn is refused recoverably", async () => {
     const { frames, session, startVoiceTurn } = createHarness();
     await session.start();

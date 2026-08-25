@@ -200,6 +200,7 @@ describe("connect", () => {
       {
         type: "start",
         client: "web",
+        textInput: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -213,8 +214,20 @@ describe("connect", () => {
     expect(ws.sentJson[0]).toEqual({
       type: "start",
       client: "web",
+      textInput: true,
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
+  });
+
+  test("the start frame advertises textInput so a text-only session can open", async () => {
+    // The daemon decides whether to degrade a session whose speech-to-text leg
+    // is missing by reading this off the start frame, before `ready`. Without
+    // it that session is refused outright with `credentials_unavailable` and
+    // the text-only fallback is unreachable from this client.
+    const ws = await connectAndGetSocket(makeClient());
+    ws.open();
+
+    expect(ws.sentJson[0]).toMatchObject({ type: "start", textInput: true });
   });
 
   test("reports the detected OS surface as the start frame's client", async () => {
@@ -239,6 +252,7 @@ describe("connect", () => {
       {
         type: "start",
         client: "web",
+        textInput: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
@@ -257,6 +271,7 @@ describe("connect", () => {
       {
         type: "start",
         client: "web",
+        textInput: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
         silenceThresholdMs: 1500,
@@ -564,7 +579,9 @@ describe("server frame dispatch", () => {
     // for the rest of the session.
     const { client, ws } = await ready({ textInput: true });
     const errors: unknown[] = [];
+    const rejections: unknown[] = [];
     client.on("error", (e) => errors.push(e));
+    client.on("textTurnRejected", (r) => rejections.push(r));
 
     ws.receive({
       type: "error",
@@ -577,10 +594,37 @@ describe("server frame dispatch", () => {
 
     // Not surfaced as a session error: the session is fine.
     expect(errors).toEqual([]);
+    // But surfaced as a typed-turn rejection, which is the only signal a
+    // composer gets that the turn it believed it sent will never be answered.
+    expect(rejections).toEqual([
+      {
+        reason: "busy",
+        message: "The assistant is busy with the current turn. Send again.",
+      },
+    ]);
     // And settings still work.
     const sentBefore = ws.sentJson.length;
     client.updateConfig({ silenceThresholdMs: 1400 });
     expect(ws.sentJson.length).toBe(sentBefore + 1);
+  });
+
+  test("an unknown_type text rejection reports unsupported, not busy", async () => {
+    // Reachable only if the sendText gate is bypassed, and the two mean
+    // different things to a caller: busy can simply be resent, unsupported
+    // never will be.
+    const { client, ws } = await ready({ textInput: true });
+    const rejections: { reason: string }[] = [];
+    client.on("textTurnRejected", (r) => rejections.push(r));
+
+    ws.receive({
+      type: "error",
+      seq: 11,
+      code: "unknown_type",
+      message: "Unknown live voice client frame type: text",
+      frameType: "text",
+    });
+
+    expect(rejections.map((r) => r.reason)).toEqual(["unsupported"]);
   });
 
   test("recoverable error frame emits the error but keeps the session alive", async () => {
@@ -706,6 +750,7 @@ describe("sendAudio", () => {
       {
         type: "start",
         client: "web",
+        textInput: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -766,6 +811,7 @@ describe("control frames", () => {
       {
         type: "start",
         client: "web",
+        textInput: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);

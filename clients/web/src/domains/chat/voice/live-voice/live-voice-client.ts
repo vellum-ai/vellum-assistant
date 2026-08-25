@@ -106,6 +106,23 @@ export interface LiveVoiceAttachImageRejected {
 }
 
 /**
+ * A typed turn reached the assistant and was refused, so it will never produce
+ * a reply. Distinct from `sendText` returning false, which is the socket
+ * declining to send at all: this arrives after the caller was told the frame
+ * went out.
+ *
+ * `busy` means the assistant was mid-reply and the same text can simply be
+ * sent again; `unsupported` means this assistant does not take typed turns,
+ * which `sendText`'s gate should already have prevented. A composer must
+ * surface either rather than clearing its input, because nothing else tells
+ * the user their message went nowhere.
+ */
+export interface LiveVoiceTextTurnRejected {
+  readonly reason: "busy" | "unsupported";
+  readonly message: string;
+}
+
+/**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
  * can order or dedupe.
@@ -139,6 +156,12 @@ export interface LiveVoiceClientEventMap {
    * client believed it had succeeded, and is the only signal the room gets.
    */
   attachImageRejected: LiveVoiceAttachImageRejected;
+  /**
+   * A typed turn was accepted by the transport and refused by the assistant.
+   * The only signal a caller gets that the turn it believed it sent will
+   * never be answered.
+   */
+  textTurnRejected: LiveVoiceTextTurnRejected;
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
@@ -231,6 +254,7 @@ export class LiveVoiceChannelClient {
     metrics: new Set(),
     archived: new Set(),
     attachImageRejected: new Set(),
+    textTurnRejected: new Set(),
     busy: new Set(),
     error: new Set(),
     closed: new Set(),
@@ -461,6 +485,12 @@ export class LiveVoiceChannelClient {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
       client: detectClientOs(),
+      // Unconditional: this client can always take a turn without the
+      // microphone (see sendText), so a missing speech-to-text leg is
+      // degradation rather than failure. Without it the daemon refuses the
+      // session outright with `credentials_unavailable`, which is precisely
+      // the outcome the text-only path exists to avoid.
+      textInput: true,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined
@@ -569,11 +599,15 @@ export class LiveVoiceChannelClient {
           // Both shapes land here and neither is a session problem: a refusal
           // because the assistant is mid-reply (recoverable), and an
           // `unknown_type` from an assistant too old to know the frame, which
-          // `sendText`'s gate should already have prevented. Reported and
-          // dropped rather than falling through, where the first would be
-          // filed with the transient transcriber blips and the second would
-          // wrongly latch in-session settings off.
+          // `sendText`'s gate should already have prevented. Emitted rather
+          // than falling through, where the first would be filed with the
+          // transient transcriber blips and the second would wrongly latch
+          // in-session settings off.
           console.warn(`live-voice: typed turn not taken: ${frame.message}`);
+          this.emit("textTurnRejected", {
+            reason: frame.code === "unknown_type" ? "unsupported" : "busy",
+            message: frame.message,
+          });
           return;
         }
         // Daemons predating `frameType` omit it, so an unattributed

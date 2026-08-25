@@ -97,6 +97,16 @@ export interface LiveVoiceClientStartFrame {
    * interface id, which decides what the turn is allowed to do.
    */
   readonly client?: ClientOs;
+  /**
+   * This client can take a turn without the microphone (see the `text` frame),
+   * so a missing speech-to-text leg is degradation rather than failure.
+   *
+   * Load-bearing at startup: without it the daemon refuses a session whose STT
+   * credentials do not resolve, rather than opening one that can still be
+   * typed into and still speaks its replies. The daemon reports the outcome
+   * back on `ready` as `audioInput: false`.
+   */
+  readonly textInput?: boolean;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {
