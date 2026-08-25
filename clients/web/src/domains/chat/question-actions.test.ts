@@ -199,7 +199,7 @@ describe("handleQuestionResponse: stale (404) interaction", () => {
     expect(capturedErrors).toEqual([
       {
         context: "submit_question_response",
-        message: "question-response failed: Internal error",
+        message: "submit_question_response: Internal error",
       },
     ]);
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
