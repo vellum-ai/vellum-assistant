@@ -24,6 +24,9 @@ function detectOS(userAgent: string): string | null {
   if (/iPad/.test(userAgent)) {
     return "iPad";
   }
+  if (/Macintosh/.test(userAgent) && /Mobile/.test(userAgent)) {
+    return "iPad";
+  }
   if (/Android/.test(userAgent)) {
     return "Android";
   }
@@ -49,7 +52,7 @@ function detectBrowser(userAgent: string): string | null {
   if (/OPR\/|OPiOS\//.test(userAgent)) {
     return "Opera";
   }
-  if (/Firefox\//.test(userAgent)) {
+  if (/Firefox\/|FxiOS\//.test(userAgent)) {
     return "Firefox";
   }
   if (/Chrome\/|CriOS\//.test(userAgent)) {
