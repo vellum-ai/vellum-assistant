@@ -406,10 +406,11 @@ export interface LiveVoiceState {
    * Provider for the assistant's TTS *output* amplitude in [0, 1], registered
    * by the controller from the active session's {@link LiveVoiceAudioPlayer}
    * (its output-bus analyser). `null` when there is no session, or on a context
-   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude}; the room
-   * avatar routes between this and the mic amplitude by phase — see
-   * {@link getLiveVoiceAvatarAmplitude}. A registered provider (like `controls`)
-   * so a non-`speaking` read costs nothing and it clears on session reset.
+   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude} by the room's
+   * `responding` band and the output meters on the composer bar and the pill;
+   * the mic amplitude behind `listening` is a separate field. A registered
+   * provider (like `controls`) so a non-`speaking` read costs nothing and it
+   * clears on session reset.
    */
   outputAmplitudeProvider: (() => number) | null;
   /**

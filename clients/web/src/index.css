@@ -1113,11 +1113,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* ─── Live-voice listening waves ─────────────────────────────────────────────
  * The `listening` visual language: layered sine waves along the bottom edge,
- * the user's voice arriving as energy coming *in* — distinct from `responding`,
- * where the avatar itself emits an outward pulse. The waves always drift
- * horizontally; live mic amplitude (`--voice-amp`, written per frame by a rAF
- * loop — never React state) lifts them up the screen and brightens them as the
- * user speaks. Cyan→indigo is a fixed decorative accent, matching the listening
+ * the user's voice arriving as energy coming *in*. `responding` answers from
+ * the same edge in the opposite ink, so the two are told apart by color rather
+ * than by position. The waves always drift horizontally; live amplitude
+ * (`--voice-amp`, written per frame by a rAF loop rather than through React
+ * state) lifts them up the screen and brightens them as the voice carries. Cyan→indigo is a fixed decorative accent, matching the listening
  * sonar, not a theme token. See voice-listening-waves.tsx. */
 .voice-listening-waves {
   --voice-amp: 0;
