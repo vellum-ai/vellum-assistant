@@ -591,10 +591,15 @@ func previewWidgetCard<Content: View, Background: View>(
 /// A snapshot carrying exactly what a preview needs to say: the two counts and
 /// the avatar. Shared with the widgets built out of the kit, none of which
 /// previews a conversation list.
+///
+/// Staleness is a parameter because the cards disagree about what it costs
+/// them: it drops a count and keeps an avatar, so a preview is the only place
+/// the two are visible side by side.
 func previewEntry(
     unread: Int = 0,
     inProgress: Int = 0,
-    avatar: WidgetSnapshotAvatar? = nil
+    avatar: WidgetSnapshotAvatar? = nil,
+    isStale: Bool = false
 ) -> SnapshotEntry {
     SnapshotEntry(
         date: Date(),
@@ -606,7 +611,7 @@ func previewEntry(
             conversations: [],
             avatar: avatar
         ),
-        isStale: false
+        isStale: isStale
     )
 }
 
