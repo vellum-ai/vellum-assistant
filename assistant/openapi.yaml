@@ -4342,6 +4342,15 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         interactionCount:
                           type: number
                         hasInterceptableVerificationSession:
@@ -5223,6 +5232,10 @@ paths:
                     required:
                       - profile
                       - weight
+                fallbackProfile:
+                  readOnly: true
+                  type: string
+                  minLength: 1
       responses:
         "200":
           description: Successful response
@@ -5593,6 +5606,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5757,6 +5779,15 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5889,6 +5920,15 @@ paths:
                       interactionCount:
                         anyOf:
                           - type: number
+                          - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
                           - type: "null"
                       createdAt:
                         type: number
@@ -6294,6 +6334,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -6492,6 +6541,15 @@ paths:
                     interactionCount:
                       anyOf:
                         - type: number
+                        - type: "null"
+                    autoApproveThreshold:
+                      anyOf:
+                        - type: string
+                          enum:
+                            - none
+                            - low
+                            - medium
+                            - high
                         - type: "null"
                     createdAt:
                       type: number
@@ -14988,8 +15046,8 @@ paths:
           description: Profile not found
         "409":
           description:
-            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, or a
-            mix arm
+            Profile is still referenced by activeProfile, advisorProfile, a call site, a default-tier override, a mix
+            arm, or another profile's fallbackProfile
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile
@@ -34758,6 +34816,12 @@ components:
                   - profile
                   - weight
             - type: "null"
+        fallbackProfile:
+          anyOf:
+            - readOnly: true
+              type: string
+              minLength: 1
+            - type: "null"
       additionalProperties: {}
     ProfileStatus:
       type: string
@@ -35529,6 +35593,10 @@ components:
               - profile
               - weight
             additionalProperties: false
+        fallbackProfile:
+          readOnly: true
+          type: string
+          minLength: 1
         supportsVision:
           type: boolean
         invariant:

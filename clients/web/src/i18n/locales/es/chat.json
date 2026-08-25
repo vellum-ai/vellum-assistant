@@ -273,6 +273,8 @@
     "addToChat": "Añadir al chat",
     "askAssistantPlaceholder": "Pregunta a {assistantName}",
     "configureVoice": "Configurar la voz",
+    "endOtherVoiceSession": "Finalizar y empezar aquí",
+    "goToVoiceSession": "Ir a la sesión",
     "recording": "Grabando",
     "sendMessage": "Enviar mensaje",
     "stopGenerating": "Detener la generación",
@@ -553,9 +555,6 @@
     "title": "Eliminar conversación",
     "untitled": "Sin título"
   },
-  "detailPanelStopButton": {
-    "tooltip": "Detener"
-  },
   "documentAssetActions": {
     "pdfDownloadFailed": "No se pudo descargar el PDF"
   },
@@ -726,6 +725,14 @@
     "scopedToOneMessage": "Limitado a un mensaje · ",
     "scopedToTurn": "Limitado al turno {index} de {count} · ",
     "title": "Inspector de contexto LLM"
+  },
+  "liveVoiceBusy": {
+    "android": "La voz ya está activa en la aplicación de Android.",
+    "ios": "La voz ya está activa en la aplicación de iOS.",
+    "macos": "La voz ya está activa en la aplicación de Mac.",
+    "unknown": "La voz ya está activa en otro lugar.",
+    "web": "La voz ya está activa en otra pestaña del navegador.",
+    "windows": "La voz ya está activa en la aplicación de Windows."
   },
   "liveVoiceButton": {
     "startVoiceMode": "Iniciar el modo de voz"

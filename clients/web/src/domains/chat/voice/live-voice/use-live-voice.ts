@@ -93,8 +93,10 @@ import {
   LiveVoiceAudioPlayer,
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
+import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
 import {
   isLiveVoiceSessionActive,
+  type LiveVoiceErrorRecovery,
   minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
@@ -755,6 +757,20 @@ export function useLiveVoice(
       });
       session.capture = capture;
       sessionRef.current = session;
+      // Dev-only handle for driving a typed turn from the console while no UI
+      // sends one yet:
+      //
+      //   __vellumVoice.sendText("what is on my calendar")
+      //
+      // Returns false if the session is not active or the assistant predates
+      // typed turns, which is also what a handle left over from an ended
+      // session returns. Stripped from production builds.
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vellumVoice = {
+          sendText: (text: string) => sendTextTurn(session, text),
+          supportsTextInput: () => client.supportsTextInput,
+        };
+      }
       // Mic acquisition overlaps the WS connect below (still inside the
       // mic-button gesture); forwarding stays gated on the `ready` handler.
       beginCaptureStartup(session);
@@ -1074,15 +1090,18 @@ export function useLiveVoice(
           // room retract the thumbnail it has already shown as sent.
           useLiveVoiceStore.getState().notePhotoRejected(rejected.reason);
         }),
-        client.on("busy", () => {
+        client.on("busy", (frame) => {
           if (!live()) {
             return;
           }
-          finishWithError(
-            session,
-            teardown,
-            "Another live-voice session is active.",
+          // Refused because another session holds the assistant's single
+          // slot. Surfaced with where that session is and a way to end it.
+          const store = useLiveVoiceStore.getState();
+          const failure = describeBusyFailure(
+            frame.holder,
+            store.conversationId ?? store.startedConversationId ?? null,
           );
+          finishWithError(session, teardown, failure.message, failure.recovery);
         }),
         client.on("error", (err: LiveVoiceClientError) => {
           if (!live()) {
@@ -1544,6 +1563,26 @@ function releasePushToTalk(session: SessionContext): void {
 }
 
 /**
+ * Take a turn by typing it, and stamp the client-side latency anchor the same
+ * way ending speech does.
+ *
+ * `clientHeardLatencyMs` measures from the user finishing their input to the
+ * first audio they hear, and it starts from `speechEndedAtMs`, which only the
+ * `utterance_end` and push-to-talk paths set. A typed turn travels neither, so
+ * sending straight through the client would leave every typed turn without a
+ * client-perceived latency. Stamped only when the frame actually goes out, so
+ * a refused turn does not leave an anchor for the next reply's audio to pair
+ * against.
+ */
+function sendTextTurn(session: SessionContext, text: string): boolean {
+  const sent = session.client.sendText(text);
+  if (sent) {
+    session.speechEndedAtMs = performance.now();
+  }
+  return sent;
+}
+
+/**
  * Barge-in (manual mode): stop playback and interrupt the server once per
  * response, then end the session (→ idle). The interrupted MANUAL session is
  * terminal on the runtime — it won't accept more audio — so we can't keep
@@ -1747,7 +1786,8 @@ function finishWithError(
   session: SessionContext,
   teardown: () => void,
   message: string,
+  recovery: LiveVoiceErrorRecovery | null = null,
 ): void {
   teardown();
-  useLiveVoiceStore.getState().fail(message);
+  useLiveVoiceStore.getState().fail(message, recovery);
 }

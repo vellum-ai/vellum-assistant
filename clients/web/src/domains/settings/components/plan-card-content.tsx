@@ -58,7 +58,7 @@ export interface PlanCardContentProps {
   creditChanged: boolean;
   tierChangeError: string | null;
   upgradePending: boolean;
-  portalPending: boolean;
+  billingActionPending: boolean;
   onUpgrade: () => void;
   onApplyTierChange: () => void;
   onDowngradeClick: () => void;
@@ -99,7 +99,7 @@ export function PlanCardContent({
   creditChanged,
   tierChangeError,
   upgradePending,
-  portalPending,
+  billingActionPending,
   onUpgrade,
   onApplyTierChange,
   onDowngradeClick,
@@ -367,7 +367,7 @@ export function PlanCardContent({
                 variant="outlined"
                 className="w-full"
                 onClick={onDowngradeClick}
-                disabled={portalPending}
+                disabled={billingActionPending}
                 data-testid="modal-downgrade-to-base-button"
               >
                 {t("planCardContent.downgradeToBase")}
@@ -381,7 +381,7 @@ export function PlanCardContent({
                 variant="outlined"
                 className="w-full"
                 onClick={onKeepPlan}
-                disabled={portalPending}
+                disabled={billingActionPending}
                 data-testid="modal-keep-plan-button"
               >
                 {t("planCardContent.keepPlan")}

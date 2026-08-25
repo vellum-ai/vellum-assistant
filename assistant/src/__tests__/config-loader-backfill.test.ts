@@ -1411,6 +1411,71 @@ describe("loadConfig startup behavior", () => {
     expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
   });
 
+  test("an active managed backup profile survives a reload", () => {
+    // A managed backup resolves from the code catalog without being
+    // materialized in `llm.profiles`, so selecting one persists nothing but
+    // the reference. If the schema did not treat backup keys as
+    // always-available references, the strip-and-reparse in `loadConfig`
+    // would drop `activeProfile` and the seeder would reset the user's
+    // chat-model selection to `balanced` on the next boot.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum" },
+        profiles: {},
+        activeProfile: "balanced-backup",
+      },
+    });
+
+    const config = loadConfig();
+    expect(config.llm.activeProfile).toBe("balanced-backup");
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced-backup");
+    expect(raw.llm.profiles["balanced-backup"]).toBeUndefined();
+  });
+
+  test("an active managed backup profile is repaired on a BYOK install", () => {
+    // Backups live on the managed column alone, so under a BYOK default
+    // provider the selection names a profile that resolves to nothing. The
+    // schema rejects the reference on load and the seeder, which resolves
+    // availability through the same provider-aware view, repairs the stored
+    // selection instead of preserving a dead pointer.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {},
+        activeProfile: "balanced-backup",
+      },
+    });
+
+    const config = loadConfig();
+    expect(config.llm.activeProfile).toBeUndefined();
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("balanced");
+  });
+
+  test("a call site pinned to a managed backup profile survives a reload", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum" },
+        profiles: {},
+        activeProfile: "balanced",
+        callSites: { recall: { profile: "cost-optimized-backup" } },
+      },
+    });
+
+    const config = loadConfig();
+    expect(config.llm.callSites.recall?.profile).toBe("cost-optimized-backup");
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.callSites.recall.profile).toBe("cost-optimized-backup");
+  });
+
   test("still quarantines corrupt JSON", () => {
     // Corrupt-config quarantine is a recovery path: the broken file is
     // renamed to `config.json.corrupt-<ts>.json` and the daemon proceeds
@@ -1800,6 +1865,10 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
       "quality-optimized",
       "cost-optimized",
       "latency-optimized",
+      "balanced-backup",
+      "quality-optimized-backup",
+      "cost-optimized-backup",
+      "latency-optimized-backup",
       "my-custom",
     ]);
   });

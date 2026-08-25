@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import type { AssistantChannelsListProps } from "@/domains/channels/components/assistant-channels-list";
 import type { SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
 import { useChannelTrustFloors } from "@/domains/channels/hooks/use-channel-trust-floors";
+import { useSupportsDiscordChannel } from "@/lib/backwards-compat/use-supports-discord-channel";
 import {
   SETUP_CHANNEL_IDS,
   type AssistantChannelState,
@@ -28,9 +29,32 @@ import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
+/**
+ * The delete route that clears each channel's stored credentials, undefined
+ * where none exists yet. This record is the disconnect capability in one
+ * place: the state rows derive `canDisconnect` from it, both disconnect
+ * surfaces gate their button on that, and the disconnect copy in
+ * `CHANNEL_META` is pinned to it by test, so a channel cannot gain a button
+ * without a route or a route without its confirm copy.
+ */
+export const DISCONNECT_ROUTES: Record<
+  SetupChannelId,
+  | ((opts: {
+      path: { assistant_id: string };
+      throwOnError: true;
+    }) => Promise<unknown>)
+  | undefined
+> = {
+  slack: integrationsSlackChannelConfigDelete,
+  telegram: integrationsTelegramConfigDelete,
+  discord: undefined,
+  phone: integrationsTwilioCredentialsDelete,
+};
+
 const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
   slack: "I want to reach you on Slack. Let's set it up.",
   telegram: "I want to reach you on Telegram. Let's set it up.",
+  discord: "I want to reach you on Discord. Let's set it up.",
   phone: "I want to be able to call you. Let's set you up with a phone number.",
 };
 
@@ -42,6 +66,7 @@ const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
 const ASSISTANT_FINISH_PROMPTS: Record<SetupChannelId, string> = {
   slack: "Slack is set up but not working. Can you finish it off?",
   telegram: "Telegram is set up but not working. Can you finish it off?",
+  discord: "Discord is set up but not working. Can you finish it off?",
   phone: "My phone number is set up but not working. Can you finish it off?",
 };
 
@@ -91,9 +116,15 @@ export function useAssistantChannels({
     select: (data) => data.snapshots,
   });
 
+  const supportsDiscord = useSupportsDiscordChannel();
+  const setupChannels = useMemo(
+    () => setupChannelsFor(supportsDiscord),
+    [supportsDiscord],
+  );
+
   const channels = useMemo(
-    () => deriveChannelStates(readinessQuery.data ?? []),
-    [readinessQuery.data],
+    () => deriveChannelStates(readinessQuery.data ?? [], setupChannels),
+    [readinessQuery.data, setupChannels],
   );
 
   // Setup, not health: the connection card stays mounted through a socket
@@ -122,17 +153,17 @@ export function useAssistantChannels({
 
   const disconnectMutation = useMutation({
     mutationFn: async (channelKey: SetupChannelId) => {
-      const opts = {
-        path: { assistant_id: assistantId },
-        throwOnError: true as const,
-      };
-      if (channelKey === "slack") {
-        await integrationsSlackChannelConfigDelete(opts);
-      } else if (channelKey === "telegram") {
-        await integrationsTelegramConfigDelete(opts);
-      } else if (channelKey === "phone") {
-        await integrationsTwilioCredentialsDelete(opts);
+      const route = DISCONNECT_ROUTES[channelKey];
+      if (!route) {
+        // Unreachable from the UI: both disconnect surfaces gate their
+        // button on this same record. Loud rather than a resolved promise,
+        // which would read as a successful disconnect that cleared nothing.
+        throw new Error(`No route clears ${channelKey} credentials.`);
       }
+      await route({
+        path: { assistant_id: assistantId },
+        throwOnError: true,
+      });
     },
     onSettled: (_data, _error, channelKey) => {
       invalidateReadiness();
@@ -242,8 +273,21 @@ export function useAssistantChannels({
   };
 }
 
+/**
+ * Channels this assistant version can answer for. A daemon below the Discord
+ * gate has no probe for it, so its readiness service reports the channel
+ * unsupported rather than not-configured, and a row would read as permanently
+ * broken instead of ready to set up.
+ */
+function setupChannelsFor(supportsDiscord: boolean): readonly SetupChannelId[] {
+  return supportsDiscord
+    ? SETUP_CHANNEL_IDS
+    : SETUP_CHANNEL_IDS.filter((key) => key !== "discord");
+}
+
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
+  setupChannels: readonly SetupChannelId[],
 ): AssistantChannelState[] {
   const byChannel = new Map<
     ChannelReadinessSnapshot["channel"],
@@ -253,13 +297,14 @@ function deriveChannelStates(
     byChannel.set(snap.channel, snap);
   }
 
-  return SETUP_CHANNEL_IDS.map((key) => {
+  return setupChannels.map((key) => {
     const snap = byChannel.get(key);
     const status = toChannelStatus(snap);
     return {
       key,
       status,
       configured: snap?.setupStatus === "ready",
+      canDisconnect: DISCONNECT_ROUTES[key] !== undefined,
       health: snap?.health,
       address: snap?.channelHandle ?? undefined,
     };

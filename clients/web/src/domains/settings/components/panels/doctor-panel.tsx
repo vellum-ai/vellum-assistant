@@ -1,18 +1,10 @@
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  ClipboardCopy,
-  Loader2,
-  Play,
-  Square,
-} from "lucide-react";
+import { ArrowUp, ChevronDown, Loader2, Play } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
-import { Tag } from "@vellumai/design-library/components/tag";
 
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
 import type { FeedbackReason } from "@/components/share-feedback-types";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
@@ -29,7 +21,6 @@ import {
 } from "@/domains/settings/components/panels/doctor-chat-blocks";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
-  type ChatEntry,
   type DoctorUserOutcomeAnswer,
   type UserOutcomePromptChatEntry,
   applySessionUserOutcome,
@@ -44,6 +35,7 @@ import {
   serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
+import { DoctorSessionMenu } from "@/domains/settings/components/panels/doctor-session-menu";
 import {
   APPROVAL_RESPONSES,
   DOCTOR_GREETING,
@@ -70,68 +62,6 @@ import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { useTranslation } from "@/i18n";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
-
-// ---------------------------------------------------------------------------
-// CopySessionButton
-// ---------------------------------------------------------------------------
-
-function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
-  const { t } = useTranslation("settings");
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = useCallback(() => {
-    const text = serializeSessionToText(entries);
-    copyToClipboard(text, {
-      errorMessage: t("doctorPanel.copyFailed"),
-      onCopied: () => {
-        setCopied(true);
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => {
-          setCopied(false);
-          timerRef.current = null;
-        }, 1500);
-      },
-    });
-  }, [entries, t]);
-
-  return (
-    <Button
-      variant="ghost"
-      size="compact"
-      leftIcon={
-        copied ? (
-          <Check className="text-[var(--system-positive-strong)]" />
-        ) : (
-          <ClipboardCopy />
-        )
-      }
-      onClick={handleCopy}
-      tooltip={
-        copied
-          ? t("doctorPanel.copiedTooltip")
-          : t("doctorPanel.copySessionTooltip")
-      }
-      aria-label={
-        copied
-          ? t("doctorPanel.copiedAria")
-          : t("doctorPanel.copySessionAria")
-      }
-    >
-      {copied ? t("doctorPanel.copied") : t("doctorPanel.copySession")}
-    </Button>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // UserOutcomePromptEntry
@@ -547,6 +477,15 @@ export function DoctorPanel() {
     [entries],
   );
 
+  // The menu closes on select, so the outcome is a toast rather than a
+  // transient state on the control that launched it.
+  const handleCopySession = useCallback(() => {
+    copyToClipboard(doctorSessionLog, {
+      successMessage: t("doctorPanel.copiedToast"),
+      errorMessage: t("doctorPanel.copyFailed"),
+    });
+  }, [doctorSessionLog, t]);
+
   // The resolution prompt belongs after the Doctor's closing reply, so it
   // renders below the transcript and stays hidden until the turn finishes.
   const { transcript, trailingPrompts } = useMemo(
@@ -733,34 +672,24 @@ export function DoctorPanel() {
           <h2 className="text-title-small text-[var(--content-default)]">
             {t("doctorPanel.title")}
           </h2>
-          <Tag
-            tone="neutral"
-            title={t("doctorPanel.betaTitle")}
-          >
-            {t("doctorPanel.beta")}
-          </Tag>
-          {platformGate === "full" && (
-            <button
-              type="button"
-              onClick={() => handleOpenFeedback()}
-              className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-            >
-              {t("doctorPanel.shareFeedback")}
-            </button>
-          )}
         </div>
 
         <div className="flex items-center gap-2">
-          {entries.length > 0 && <CopySessionButton entries={entries} />}
+          <DoctorSessionMenu
+            onShareFeedback={
+              platformGate === "full"
+                ? () => {
+                    handleOpenFeedback();
+                  }
+                : undefined
+            }
+            onCopySession={entries.length > 0 ? handleCopySession : undefined}
+          />
           {isSessionActive && (
-            <button
-              type="button"
-              onClick={handleEndSession}
-              className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Square className="h-3 w-3" />
-              {t("doctorPanel.endSession")}
-            </button>
+            <DetailPanelStopButton
+              onStop={handleEndSession}
+              ariaLabel={t("doctorPanel.endSession")}
+            />
           )}
         </div>
       </div>

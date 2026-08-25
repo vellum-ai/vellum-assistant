@@ -6,6 +6,7 @@ import {
   type LiveVoiceClientStartFrame,
   type LiveVoiceServerFrame,
   type LiveVoiceServerFramePayload,
+  type LiveVoiceSessionHolder,
 } from "./protocol.js";
 
 type MaybePromise<T> = T | Promise<T>;
@@ -157,6 +158,23 @@ function waitForSlotRelease(
   });
 }
 
+/** {@link LiveVoiceSessionHolder}, as the manager keeps it while filling it in. */
+interface MutableLiveVoiceSessionHolder {
+  client?: LiveVoiceSessionHolder["client"];
+  conversationId?: string;
+}
+
+/** Drop an all-empty holder, so `busy` carries a field or says nothing. */
+function describeHolder(
+  holder: MutableLiveVoiceSessionHolder,
+): LiveVoiceSessionHolder | null {
+  const described: MutableLiveVoiceSessionHolder = {
+    ...(holder.client ? { client: holder.client } : {}),
+    ...(holder.conversationId ? { conversationId: holder.conversationId } : {}),
+  };
+  return Object.keys(described).length > 0 ? described : null;
+}
+
 export class LiveVoiceSessionStartupError extends Error {
   constructor(message: string) {
     super(message);
@@ -208,6 +226,8 @@ interface ActiveLiveVoiceSession {
   sessionId: string;
   session: LiveVoiceSession;
   sink: LiveVoiceServerFrameSink;
+  /** What a refused client is told about who holds the slot. */
+  holder: MutableLiveVoiceSessionHolder;
   closing: boolean;
   silenceTimer: ReturnType<typeof setTimeout> | null;
   /** Resolves once this session has let go of the slot, however it went. */
@@ -272,12 +292,15 @@ export class LiveVoiceSessionManager {
       }
     }
 
-    const existingSessionId = this.activeSessionId;
-    if (existingSessionId !== null) {
+    const existing = this.activeSession;
+    const existingSessionId = existing?.sessionId ?? null;
+    if (existing !== null && existingSessionId !== null) {
       const busySequencer = createLiveVoiceServerFrameSequencer();
+      const holder = describeHolder(existing.holder);
       const frame = busySequencer.next({
         type: "busy",
         activeSessionId: existingSessionId,
+        ...(holder ? { holder } : {}),
       });
       await sink.sendFrame(frame);
       return {
@@ -289,10 +312,23 @@ export class LiveVoiceSessionManager {
 
     const sessionId = this.createSessionId();
     const sequencer = createLiveVoiceServerFrameSequencer();
+    const holder: MutableLiveVoiceSessionHolder = {
+      ...(startFrame.client ? { client: startFrame.client } : {}),
+      ...(startFrame.conversationId
+        ? { conversationId: startFrame.conversationId }
+        : {}),
+    };
     const context: LiveVoiceSessionFactoryContext = {
       sessionId,
       startFrame,
       sendFrame: async (payload) => {
+        // `ready` carries the conversation the session actually landed in,
+        // which is the only source for one it minted itself. Read in passing
+        // rather than through a new session method: every frame already goes
+        // through here.
+        if (payload.type === "ready") {
+          holder.conversationId = payload.conversationId;
+        }
         const frame = sequencer.next(payload);
         await sink.sendFrame(frame);
         return frame;
@@ -310,6 +346,7 @@ export class LiveVoiceSessionManager {
       sessionId,
       session,
       sink,
+      holder,
       closing: false,
       silenceTimer: null,
       released,

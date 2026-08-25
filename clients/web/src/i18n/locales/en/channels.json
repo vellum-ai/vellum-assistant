@@ -102,6 +102,10 @@
       "disconnectMessage": "This clears the stored Telegram bot token for this assistant. You can reconnect later.",
       "disconnectedPitch": "Connect a Telegram bot so {assistant} can send and receive messages on Telegram."
     },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "Connect a Discord bot so {assistant} can read and reply in your server."
+    },
     "phone": {
       "label": "Phone Calling",
       "disconnectMessage": "This clears the stored Twilio credentials for this assistant. You can reconnect later.",

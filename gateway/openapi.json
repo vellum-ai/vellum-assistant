@@ -1047,6 +1047,16 @@
                   "notes": {
                     "anyOf": [{ "type": "string" }, { "type": "null" }]
                   },
+                  "autoApproveThreshold": {
+                    "description": "Per-contact auto-approve ceiling. Omit to preserve; null clears.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["none", "low", "medium", "high"]
+                      },
+                      { "type": "null" }
+                    ]
+                  },
                   "contactType": { "type": "string" },
                   "assistantMetadata": {
                     "description": "Required when contactType is 'assistant'",
@@ -1121,6 +1131,16 @@
                         "interactionCount": { "type": "number" },
                         "lastInteraction": {
                           "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        },
+                        "autoApproveThreshold": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["none", "low", "medium", "high"]
+                            },
+                            { "type": "null" }
+                          ],
+                          "description": "Per-contact auto-approve ceiling. Null means unset (inherit cascade)."
                         },
                         "assistantMetadata": {
                           "anyOf": [
@@ -1270,6 +1290,7 @@
                         "updatedAt",
                         "interactionCount",
                         "lastInteraction",
+                        "autoApproveThreshold",
                         "assistantMetadata",
                         "channels"
                       ],

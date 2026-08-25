@@ -97,6 +97,16 @@ export interface LiveVoiceClientStartFrame {
    * interface id, which decides what the turn is allowed to do.
    */
   readonly client?: ClientOs;
+  /**
+   * This client can take a turn without the microphone (see the `text` frame),
+   * so a missing speech-to-text leg is degradation rather than failure.
+   *
+   * Load-bearing at startup: without it the daemon refuses a session whose STT
+   * credentials do not resolve, rather than opening one that can still be
+   * typed into and still speaks its replies. The daemon reports the outcome
+   * back on `ready` as `audioInput: false`.
+   */
+  readonly textInput?: boolean;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {
@@ -140,13 +150,31 @@ export interface LiveVoiceClientAttachImageFrame {
   readonly attachmentId: string;
 }
 
+/**
+ * A user turn the client already has as text, taken without the microphone.
+ *
+ * The daemon runs it through the same pipeline a spoken turn takes, joining
+ * where the transcript would have arrived, so the reply is spoken exactly as
+ * it would be for speech. Only capture is skipped.
+ *
+ * Gated on the `ready` frame's `textInput` echo. An assistant that predates
+ * the frame rejects it with `unknown_type`, which is indistinguishable on the
+ * wire from the `update_config` rejection and would latch in-session settings
+ * off for the whole session (see the error handling in `live-voice-client`).
+ */
+export interface LiveVoiceClientTextTurnFrame {
+  readonly type: "text";
+  readonly text: string;
+}
+
 export type LiveVoiceClientFrame =
   | LiveVoiceClientStartFrame
   | LiveVoiceClientPttReleaseFrame
   | LiveVoiceClientInterruptFrame
   | LiveVoiceClientEndFrame
   | LiveVoiceClientUpdateConfigFrame
-  | LiveVoiceClientAttachImageFrame;
+  | LiveVoiceClientAttachImageFrame
+  | LiveVoiceClientTextTurnFrame;
 
 // ---------------------------------------------------------------------------
 // Server frames (text/JSON; every frame carries `seq`)
@@ -189,11 +217,44 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
    * "manual" — hands-free callers must fall back accordingly.
    */
   readonly turnDetection?: LiveVoiceTurnDetectionMode;
+  /**
+   * Whether the daemon accepts `text` frames on this session. Absent means no,
+   * which is what an assistant predating typed turns reports, and is the gate
+   * that keeps this client from sending one it would reject.
+   */
+  readonly textInput?: boolean;
+  /**
+   * Whether the session's speech-to-text leg is live. Absent means yes: an
+   * assistant that cannot transcribe refuses the session outright, so every
+   * session it readies can hear.
+   *
+   * False means the session opened text-only because speech-to-text was
+   * unavailable. The microphone will never produce a turn, so a client that
+   * sees this should present the session as typed rather than draw a listening
+   * affordance that cannot work.
+   */
+  readonly audioInput?: boolean;
+}
+
+/**
+ * Where the session holding the assistant's single live-voice slot is
+ * running, as much of it as the assistant knows. Display only: it is what
+ * lets a refused client say where the blocking session is.
+ *
+ * Every field is optional, and the whole object is absent from assistants
+ * that do not send it, so a client must have copy for knowing nothing.
+ */
+export interface LiveVoiceSessionHolder {
+  /** OS surface the holder runs on. Unknown values are ignored, not trusted. */
+  readonly client?: string;
+  /** Conversation the holder is talking in. */
+  readonly conversationId?: string;
 }
 
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "busy";
   readonly activeSessionId: string;
+  readonly holder?: LiveVoiceSessionHolder;
 }
 
 /**

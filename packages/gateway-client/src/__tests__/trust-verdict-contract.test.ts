@@ -31,11 +31,29 @@ const fullVerdict: TrustVerdict = {
   verifiedAt: 1699999999,
   interactionCount: 12,
   memberDisplayName: "Member Name",
+  autoApproveThreshold: "high",
 };
 
 describe("TrustVerdictSchema", () => {
   test("round-trips a fully-populated verdict", () => {
     expect(TrustVerdictSchema.parse(fullVerdict)).toEqual(fullVerdict);
+  });
+
+  test("parses a verdict with a null contact auto-approve threshold", () => {
+    const verdict = {
+      ...fullVerdict,
+      autoApproveThreshold: null,
+    } satisfies TrustVerdict;
+    expect(TrustVerdictSchema.parse(verdict)).toEqual(verdict);
+  });
+
+  test("rejects an unknown contact auto-approve threshold", () => {
+    expect(() =>
+      TrustVerdictSchema.parse({
+        ...fullVerdict,
+        autoApproveThreshold: "full",
+      }),
+    ).toThrow();
   });
 
   test("parses a minimal verdict", () => {

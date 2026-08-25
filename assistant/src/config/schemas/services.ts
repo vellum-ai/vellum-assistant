@@ -143,6 +143,10 @@ export type EventbriteOAuthService = z.infer<
   typeof EventbriteOAuthServiceSchema
 >;
 
+const CalendlyOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -193,6 +197,9 @@ export const ServicesSchema = z.object({
   ),
   "eventbrite-oauth": EventbriteOAuthServiceSchema.default(
     EventbriteOAuthServiceSchema.parse({}),
+  ),
+  "calendly-oauth": CalendlyOAuthServiceSchema.default(
+    CalendlyOAuthServiceSchema.parse({}),
   ),
 });
 export type Services = z.infer<typeof ServicesSchema>;

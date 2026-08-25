@@ -36,6 +36,7 @@ describe("/model list", () => {
     expect(message).toContain("`balanced`");
     expect(message).toContain("`quality-optimized`");
     expect(message).toContain("`cost-optimized`");
+    expect(message).not.toContain("`balanced-backup`");
   });
 
   test("default profile descriptions follow the default provider's column", async () => {
@@ -71,6 +72,14 @@ describe("/model list", () => {
 });
 
 describe("/model switch", () => {
+  test("rejects a managed backup profile as a direct selection", async () => {
+    const result = await resolveSlash("/model balanced-backup");
+    expect(result.kind).toBe("unknown");
+    expect((result as { message: string }).message).toContain(
+      "Profile `balanced-backup` not found",
+    );
+  });
+
   test("rejects an unknown profile with the available set", async () => {
     const result = await resolveSlash("/model nope");
     expect(result.kind).toBe("unknown");

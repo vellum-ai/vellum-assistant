@@ -11,7 +11,7 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { useSupportsActiveProfileRoute } from "@/lib/backwards-compat/use-supports-active-profile-route";
 import { badRequestMessage } from "@/utils/api-errors";
-import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
+import type { ConfigPatchRequestWritable } from "@/generated/daemon/types.gen";
 
 const MAKE_ACTIVE_ERROR_CONTEXT = "settings-ai-profile-make-active";
 const MAKE_ACTIVE_ERROR_MESSAGE =
@@ -34,7 +34,7 @@ export interface ProfileActions {
   ) => Promise<void>;
   /** Arbitrary `llm` patch used by the blocked-delete reassign step. */
   patchLlm: (
-    llm: NonNullable<ConfigPatchRequest["llm"]>,
+    llm: NonNullable<ConfigPatchRequestWritable["llm"]>,
     errorContext: string,
     errorMessage: string,
   ) => Promise<void>;
@@ -74,7 +74,7 @@ export function useProfileActions(assistantId: string): ProfileActions {
   });
 
   async function patchLlm(
-    llm: NonNullable<ConfigPatchRequest["llm"]>,
+    llm: NonNullable<ConfigPatchRequestWritable["llm"]>,
     errorContext: string,
     errorMessage: string,
   ): Promise<void> {

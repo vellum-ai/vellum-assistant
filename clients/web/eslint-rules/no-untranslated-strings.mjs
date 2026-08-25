@@ -6,12 +6,11 @@
  * translators, cannot pluralize outside English, and silently reverts a screen
  * to English-only the moment someone edits it.
  *
- * This rule is scoped, not global. `eslint.config.mjs` enables it only for the
- * paths listed in `i18nEnforcedPaths`, which grows as areas are converted.
- * That is deliberate: switched on repo-wide it would report thousands of
- * pre-existing literals at once, and a rule that noisy gets disabled rather
- * than obeyed. Scoped, a converted area cannot regress, and the list doubles as
- * the record of how far the cutover has reached.
+ * This rule is enabled for all of `src/` (except generated) via
+ * `i18nEnforcedPaths` in `eslint.config.mjs`. A clean lint is not proof
+ * every user-facing string is translated: the rule reads JSX, toast call
+ * sites, and copy-shaped props, not every helper return value. See
+ * `docs/I18N.md`.
  *
  * What it reports:
  * - JSX text children that contain a word character

@@ -721,6 +721,105 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["name", "first_name"],
   },
 
+  calendly: {
+    provider: "calendly",
+    authorizeUrl: "https://auth.calendly.com/oauth/authorize",
+    tokenExchangeUrl: "https://auth.calendly.com/oauth/token",
+    pingUrl: "https://api.calendly.com/users/me",
+    baseUrl: "https://api.calendly.com",
+    displayLabel: "Calendly",
+    description: "Scheduling links and meetings",
+    dashboardUrl: "https://calendly.com/integrations/api_webhooks",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/calendly",
+    // A :write scope implicitly grants the matching :read in the same domain,
+    // so the baseline stays at the six that map to reading schedule data and
+    // creating bookings/links. Organization-wide visibility is opt-in.
+    defaultScopes: [
+      "users:read",
+      "event_types:read",
+      "scheduled_events:read",
+      "availability:read",
+      "scheduled_events:write",
+      "scheduling_links:write",
+    ],
+    availableScopes: [
+      { scope: "users:read", description: "Read the connected user's profile" },
+      {
+        scope: "event_types:read",
+        description: "Read event types and their available times",
+      },
+      {
+        scope: "event_types:write",
+        description: "Create and update event types",
+      },
+      {
+        scope: "scheduled_events:read",
+        description: "Read scheduled events and invitees",
+      },
+      {
+        scope: "scheduled_events:write",
+        description: "Create invitees, cancel events, mark no-shows",
+      },
+      {
+        scope: "availability:read",
+        description: "Read busy times and availability schedules",
+      },
+      {
+        scope: "availability:write",
+        description: "Update event type availability",
+      },
+      {
+        scope: "scheduling_links:write",
+        description: "Create single-use scheduling links",
+      },
+      {
+        scope: "shares:write",
+        description: "Create customized single-use scheduling links",
+      },
+      {
+        scope: "organizations:read",
+        description: "Read organization data and memberships",
+      },
+      {
+        scope: "groups:read",
+        description: "Read group details and relationships",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read webhook subscriptions",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and delete webhook subscriptions",
+      },
+      { scope: "contacts:read", description: "Read contact details" },
+      {
+        scope: "contacts:write",
+        description: "Create, update, and delete contacts",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_basic",
+    // 17337 is taken by eventbrite (both providers landed in parallel and
+    // independently picked the next free port at the time); 17338 is the
+    // real next-free slot once both are seeded together.
+    loopbackPort: 17338,
+    managedServiceConfigKey: "calendly-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.calendly.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    revokeUrl: "https://auth.calendly.com/oauth/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
+    appType: "App",
+    identityUrl: "https://api.calendly.com/users/me",
+    identityResponsePaths: ["resource.email", "resource.name"],
+  },
+
   figma: {
     provider: "figma",
     authorizeUrl: "https://www.figma.com/oauth",

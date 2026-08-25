@@ -27,7 +27,6 @@
  */
 
 import { getLogger } from "./logging.js";
-import { MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT } from "./memory-retrospective-constants.js";
 import { getWorkspaceDir } from "./paths.js";
 import { loadPromptOverride } from "./prompt-override.js";
 
@@ -45,11 +44,13 @@ function neutralizeSentinels(s: string): string {
 }
 
 /**
- * The sentence mandating the exact no-findings reply. Built from
- * {@link MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT} so the instruction and the
- * finalizer's acceptance check can never drift apart.
+ * The sentence asking a pass that found nothing to say so and stop. The
+ * finalizer reads the SHAPE of such a run (a committed reply, no memory-write
+ * attempts, a model-driven stop), so the wording is free; what the sentence
+ * buys is a run that answers at all rather than committing nothing.
  */
-const NO_FINDINGS_MANDATE = `If nothing new is worth saving, reply with exactly "${MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}" and stop.`;
+const NO_FINDINGS_MANDATE =
+  "If nothing new is worth saving, say so briefly and stop.";
 
 /**
  * Bundled fork-instruction template. Exported so tests (and any future
@@ -149,8 +150,8 @@ export interface ForkInstructionArgs {
  * the shared {@link loadPromptOverride}), else the bundled
  * {@link RETROSPECTIVE_INSTRUCTION_TEMPLATE}; both get the same placeholder
  * substitution. An override additionally gets the no-findings mandate
- * appended after its body: the exact-reply sentinel is the finalizer's
- * advancement contract, so it holds regardless of what the override says.
+ * appended after its body: a no-findings pass advances only by replying,
+ * so the ask-for-a-reply holds regardless of what the override says.
  */
 export function buildForkInstruction({
   windowStartTimestamp,
@@ -199,12 +200,11 @@ export function buildForkInstruction({
   if (override == null) {
     return rendered;
   }
-  // The finalizer recognizes a no-findings review only by the exact
-  // MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT reply, so the mandate is part of
-  // the advancement contract, not prompt styling: an override body that
-  // drops it would leave every no-findings window permanently retryable.
-  // Appended outside the override so a custom prompt cannot break the
-  // contract.
+  // A pass that saves nothing advances only on a committed reply, so the
+  // mandate is part of the advancement contract, not prompt styling: an
+  // override body that leaves a no-findings pass free to answer with nothing
+  // at all would leave those windows permanently retryable. Appended outside
+  // the override so a custom prompt cannot break the contract.
   return `${rendered}\n\n${NO_FINDINGS_MANDATE}`;
 }
 

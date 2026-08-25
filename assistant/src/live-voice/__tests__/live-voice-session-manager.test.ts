@@ -122,24 +122,86 @@ describe("LiveVoiceSessionManager", () => {
     const rejected = await manager.startSession(START_FRAME, second.sink);
 
     expect(accepted).toEqual({ status: "accepted", sessionId: "session-1" });
+    const busyFrame = {
+      type: "busy",
+      seq: 1,
+      activeSessionId: "session-1",
+      // Names where the blocking session is, so the refused client has
+      // somewhere to point the user.
+      holder: { conversationId: "conversation-123" },
+    } as const satisfies LiveVoiceServerFrame;
     expect(rejected).toEqual({
       status: "busy",
       activeSessionId: "session-1",
-      frame: {
-        type: "busy",
-        seq: 1,
-        activeSessionId: "session-1",
-      },
+      frame: busyFrame,
     });
-    expect(second.frames).toEqual([
-      {
-        type: "busy",
-        seq: 1,
-        activeSessionId: "session-1",
-      },
-    ]);
+    expect(second.frames).toEqual([busyFrame]);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.start).toHaveBeenCalledTimes(1);
+  });
+
+  test("names the holder's device and the conversation it landed in", async () => {
+    const sessions: TestSession[] = [];
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: mock(() => `session-${sessions.length + 1}`),
+      createSession: (context) => {
+        const session = createTestSession({
+          start: mock(async () => {
+            await context.sendFrame({
+              type: "ready",
+              sessionId: context.sessionId,
+              // The session minted its own conversation, so the start frame's
+              // is not the one to send anybody to.
+              conversationId: "conversation-minted",
+            });
+          }),
+        });
+        sessions.push(session);
+        return session;
+      },
+    });
+    const second = createSink();
+
+    await manager.startSession(
+      { ...START_FRAME, client: "ios" },
+      createSink().sink,
+    );
+    const rejected = await manager.startSession(START_FRAME, second.sink);
+
+    expect(rejected).toMatchObject({
+      status: "busy",
+      frame: {
+        holder: { client: "ios", conversationId: "conversation-minted" },
+      },
+    });
+  });
+
+  test("says nothing about a holder that revealed nothing", async () => {
+    const sessions: TestSession[] = [];
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: mock(() => `session-${sessions.length + 1}`),
+      createSession: () => {
+        const session = createTestSession();
+        sessions.push(session);
+        return session;
+      },
+    });
+    const anonymous = {
+      type: "start",
+      audio: START_FRAME.audio,
+    } as const satisfies LiveVoiceClientStartFrame;
+    const second = createSink();
+
+    await manager.startSession(anonymous, createSink().sink);
+    const rejected = await manager.startSession(anonymous, second.sink);
+
+    // An empty holder would read as "we know where it is" while naming
+    // nothing, so the field is dropped and the client uses its vaguer copy.
+    expect(rejected).toEqual({
+      status: "busy",
+      activeSessionId: "session-1",
+      frame: { type: "busy", seq: 1, activeSessionId: "session-1" },
+    });
   });
 
   test("releases the active session once for repeated close events", async () => {

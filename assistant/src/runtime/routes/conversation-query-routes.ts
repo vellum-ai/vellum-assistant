@@ -48,6 +48,7 @@ import {
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
+  collectFallbackProfileIssues,
   DefaultProviderSchema,
   LLMConfigBase,
   LLMConfigFragment,
@@ -156,6 +157,7 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 import {
   CODE_OWNED_PROFILE_NAMES,
   getEffectiveProfilesForProvider,
+  getUserSelectableProfilesForProvider,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
   resolveDefaultProfileForProvider,
@@ -240,6 +242,13 @@ function replaceInferenceProfileConfig(
   const nextProfile: Record<string, unknown> = { ...existingProfile };
   for (const key of INFERENCE_PROFILE_UI_KEYS) {
     delete nextProfile[key];
+  }
+  // Converting a profile to a mix is an explicit replacement: a mix carries
+  // no model route of its own to fall back from, so an existing
+  // `fallbackProfile` pointer is dropped rather than preserved alongside
+  // `mix` (a combination `LLMSchema` rejects on the next full reload).
+  if (fragment.mix != null) {
+    delete nextProfile.fallbackProfile;
   }
   const fragmentTopLevel = { ...fragment };
   delete fragmentTopLevel.contextWindow;
@@ -891,7 +900,7 @@ function overlayEffectiveProfilesForWire(config: unknown): void {
   if (!existingLlm) {
     root.llm = llm;
   }
-  llm.profiles = getEffectiveProfilesForProvider(
+  llm.profiles = getUserSelectableProfilesForProvider(
     readPlainObject(llm.profiles) as Record<string, ProfileEntry> | undefined,
     getConfig().llm.defaultProvider ?? null,
   );
@@ -1399,6 +1408,28 @@ function assertRoutableIdentityEntries(
   }
 }
 
+/**
+ * Reject writes that would persist unsupported `fallbackProfile` metadata.
+ * Automatic fallbacks are code-owned for managed default profiles. The write
+ * paths save raw config without a full-schema parse, so this check keeps a
+ * custom pointer from reaching disk. It runs unconditionally so an existing
+ * hand-edited pointer blocks unrelated rewrites until the user clears it with
+ * `null`.
+ */
+function assertCodeOwnedFallbackProfiles(raw: Record<string, unknown>): void {
+  const llm = readPlainObject(raw.llm);
+  const profiles = readPlainObject(llm?.profiles);
+  // The sibling `llm.defaultProvider` decides whether the managed backups are
+  // valid fallback targets: they resolve on the managed column alone.
+  const issues = collectFallbackProfileIssues(
+    profiles ?? undefined,
+    llm?.defaultProvider,
+  );
+  if (issues.length > 0) {
+    throw new BadRequestError(issues.map((issue) => issue.message).join(" "));
+  }
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1411,6 +1442,7 @@ export async function commitConfigWrite(
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
   assertRoutableIdentityEntries(preWrite, raw);
+  assertCodeOwnedFallbackProfiles(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1714,6 +1746,18 @@ async function handleReplaceInferenceProfile({
   const isManaged =
     MANAGED_PROFILE_NAMES.has(name) &&
     (existingProfile == null || existingProfile.source === "managed");
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    // A code-owned profile resolves from the catalog whatever the workspace
+    // holds, so even a status re-enable would persist a stub that never
+    // governs anything. Reject the write rather than accept a silent no-op.
+    // Checked ahead of the availability gate below so the code-owned backups,
+    // which are always available yet are not `DEFAULT_PROFILE_KEYS` members,
+    // report why the write is refused rather than claiming they do not exist.
+    throw new BadRequestError(
+      `Profile "${name}" is code-owned and cannot be edited. ` +
+        `Duplicate it to a custom profile to customize.`,
+    );
+  }
   // A flag-gated managed name (`os-beta`) with no materialized entry cannot
   // be patched: it only resolves while the flag reconcile has created its
   // stub, so writing status here would persist an entry that fights the
@@ -1726,15 +1770,6 @@ async function handleReplaceInferenceProfile({
   ) {
     throw new BadRequestError(
       `Profile "${name}" is not currently available and cannot be edited.`,
-    );
-  }
-  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
-    // A code-owned profile resolves from the catalog whatever the workspace
-    // holds, so even a status re-enable would persist a stub that never
-    // governs anything. Reject the write rather than accept a silent no-op.
-    throw new BadRequestError(
-      `Profile "${name}" is code-owned and cannot be edited. ` +
-        `Duplicate it to a custom profile to customize.`,
     );
   }
   if (isManaged) {
@@ -1808,6 +1843,59 @@ async function handleReplaceInferenceProfile({
         );
       }
     });
+    // A fallback target must stay a standard profile: converting one to a
+    // mix would leave another profile's fallbackProfile pointing at a mix,
+    // which `LLMSchema.superRefine` rejects on the next full reparse.
+    for (const [otherName, other] of Object.entries(existingProfiles)) {
+      if (otherName !== name && other?.fallbackProfile === name) {
+        throw new BadRequestError(
+          `Profile "${otherName}" declares profile "${name}" as its fallbackProfile; a fallback must be a standard profile, so "${name}" cannot become a mix.`,
+        );
+      }
+    }
+  }
+
+  // `fallbackProfile` references another profile by name. As with `mix`, the
+  // cross-profile integrity rules `LLMSchema.superRefine` enforces on
+  // full-config load (target exists, no self-reference, target is not a mix,
+  // single hop) must be checked here against the live profile set; otherwise
+  // a dangling or chained pointer would persist and break the next full
+  // config reparse.
+  if (parsed.data.fallbackProfile != null) {
+    const fallback = parsed.data.fallbackProfile;
+    if (fallback === name) {
+      throw new BadRequestError(
+        `Profile "${name}" cannot declare itself as its fallbackProfile.`,
+      );
+    }
+    const { llm: parsedLlm } = getConfig();
+    const existingProfiles = getEffectiveProfilesForProvider(
+      parsedLlm.profiles,
+      parsedLlm.defaultProvider ?? null,
+    );
+    const target = existingProfiles[fallback];
+    if (target == null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which is not defined.`,
+      );
+    }
+    if (target.mix != null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile; a fallback must be a standard profile.`,
+      );
+    }
+    if (target.fallbackProfile != null) {
+      throw new BadRequestError(
+        `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile; fallback is a single hop, chains are not allowed.`,
+      );
+    }
+    for (const [otherName, other] of Object.entries(existingProfiles)) {
+      if (otherName !== name && other?.fallbackProfile === name) {
+        throw new BadRequestError(
+          `Profile "${otherName}" already declares profile "${name}" as its fallbackProfile; fallback is a single hop, chains are not allowed.`,
+        );
+      }
+    }
   }
 
   // When the UI sends provider but no provider_connection, derive the connection

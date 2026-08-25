@@ -169,6 +169,7 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
     case "invoked":
       log.info(
         `Retrospective invoked.\n` +
+          `  outcome:           ${outcome.noFindings ? "reviewed, nothing new to save" : "saved to memory"}\n` +
           `  fork conversation: ${outcome.backgroundConversationId}\n` +
           `  cutoff message:    ${outcome.cutoffMessageId}\n` +
           `  new messages:      ${outcome.newMessageCount}` +

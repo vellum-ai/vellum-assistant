@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import WidgetKit
 
 // Everything a Vellum Home Screen widget needs to draw the user's own
 // assistant rather than a fixed brand mark: the colors derived from its
@@ -131,11 +132,18 @@ struct WidgetAvatarEyes: View {
     /// Gap between the two, as a share of eye height.
     private static let gapRatio: CGFloat = 5.0 / 33.0
 
-    /// Pupil diameter and how far it sits off the bottom of the white, both as
-    /// a share of eye height. Pupils sit low, which is the whole trick:
-    /// centered dots read as punctuation, low ones read as a face looking back.
-    private static let pupilRatio: CGFloat = 0.41
-    private static let pupilInsetRatio: CGFloat = 0.18
+    /// The pupil's box and where it sits in the white, as shares of eye
+    /// height. It fills most of the eye and presses against the right edge,
+    /// which is the whole trick: small centered dots read as punctuation, a
+    /// heavy sideways pair reads as a face caught mid-glance.
+    ///
+    /// Readable to the rest of the file because ``AvatarEyeCutoutShape`` has to
+    /// place the same box, and a hole drawn from a second set of numbers is a
+    /// hole that stops matching the pupil it stands in for.
+    fileprivate static let pupilWidthRatio: CGFloat = 18.0 / 33.0
+    fileprivate static let pupilHeightRatio: CGFloat = 21.5 / 33.0
+    fileprivate static let pupilOffsetXRatio: CGFloat = 9.0 / 33.0
+    fileprivate static let pupilOffsetYRatio: CGFloat = 6.5 / 33.0
 
     /// The height the pair is drawn at where the card has room for it.
     static let defaultEyeHeight: CGFloat = 33
@@ -147,6 +155,13 @@ struct WidgetAvatarEyes: View {
 
     var eyeHeight: CGFloat = WidgetAvatarEyes.defaultEyeHeight
 
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes:
+    /// a themed Home Screen, StandBy, or the lock screen. See the note on
+    /// ``cutoutEye``.
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
     var body: some View {
         HStack(spacing: eyeHeight * Self.gapRatio) {
             eye
@@ -155,16 +170,150 @@ struct WidgetAvatarEyes: View {
         .accessibilityHidden(true)
     }
 
+    /// The face is drawn two different ways for one reason: a dark pupil laid
+    /// over a light white is a pair of colors, and a flattened widget has no
+    /// colors to lay over each other.
+    @ViewBuilder
     private var eye: some View {
-        Ellipse()
+        if isFlattened {
+            cutoutEye
+        } else {
+            layeredEye
+        }
+    }
+
+    /// The eye as one figure with the pupil punched out of it.
+    ///
+    /// WidgetKit's flattened modes redraw every view in one of two monochrome
+    /// groups and keep only its alpha, so the sclera and the pupil come out the
+    /// same white and the face loses its gaze entirely. Filling both paths as a
+    /// single even-odd figure gives the pupil back as a hole, and the dark card
+    /// the system substitutes for the widget's own shows through it, which is
+    /// the one dark the extension is still allowed.
+    private var cutoutEye: some View {
+        AvatarEyeCutoutShape()
+            .fill(WidgetTheme.avatarSclera, style: FillStyle(eoFill: true))
+            .frame(width: eyeHeight * Self.widthRatio, height: eyeHeight)
+    }
+
+    /// The eye as the compositor draws it: a real pupil in its real color, on
+    /// its own layer. A hole would be wrong here, since what shows through is
+    /// the assistant's accent rather than anything a pupil should be.
+    private var layeredEye: some View {
+        AvatarEyeScleraShape()
             .fill(WidgetTheme.avatarSclera)
             .frame(width: eyeHeight * Self.widthRatio, height: eyeHeight)
-            .overlay(alignment: .bottom) {
-                Circle()
+            .overlay(alignment: .topLeading) {
+                AvatarEyePupilShape()
                     .fill(WidgetTheme.avatarPupil)
-                    .frame(width: eyeHeight * Self.pupilRatio, height: eyeHeight * Self.pupilRatio)
-                    .padding(.bottom, eyeHeight * Self.pupilInsetRatio)
+                    .frame(
+                        width: eyeHeight * Self.pupilWidthRatio,
+                        height: eyeHeight * Self.pupilHeightRatio
+                    )
+                    .offset(
+                        x: eyeHeight * Self.pupilOffsetXRatio,
+                        y: eyeHeight * Self.pupilOffsetYRatio
+                    )
             }
+    }
+}
+
+/// The white of one eye: a hand-drawn egg rather than a true ellipse, its long
+/// axis tilted a few degrees, traced from the character mark the product draws
+/// so the widget's stand-in is recognizably the same face. Control points are
+/// in the 28x33 box the mark is designed in and scale with the rect.
+private struct AvatarEyeScleraShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width / 28
+        let h = rect.height / 33
+        var path = Path()
+        path.move(to: CGPoint(x: 13.34 * w, y: 0.02 * h))
+        path.addCurve(
+            to: CGPoint(x: 27.98 * w, y: 15.71 * h),
+            control1: CGPoint(x: 21.06 * w, y: -0.41 * h),
+            control2: CGPoint(x: 27.61 * w, y: 6.61 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 14.69 * w, y: 32.98 * h),
+            control1: CGPoint(x: 28.36 * w, y: 24.80 * h),
+            control2: CGPoint(x: 22.41 * w, y: 32.53 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 0.02 * w, y: 17.30 * h),
+            control1: CGPoint(x: 6.96 * w, y: 33.43 * h),
+            control2: CGPoint(x: 0.39 * w, y: 26.40 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 13.34 * w, y: 0.02 * h),
+            control1: CGPoint(x: -0.36 * w, y: 8.19 * h),
+            control2: CGPoint(x: 5.61 * w, y: 0.45 * h)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The pupil, the same egg at a steeper tilt, in its own 18x21 design box.
+private struct AvatarEyePupilShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width / 18
+        let h = rect.height / 21
+        var path = Path()
+        path.move(to: CGPoint(x: 7.77 * w, y: 0.10 * h))
+        path.addCurve(
+            to: CGPoint(x: 17.92 * w, y: 9.09 * h),
+            control1: CGPoint(x: 12.70 * w, y: -0.70 * h),
+            control2: CGPoint(x: 17.25 * w, y: 3.33 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 10.18 * w, y: 20.91 * h),
+            control1: CGPoint(x: 18.59 * w, y: 14.85 * h),
+            control2: CGPoint(x: 15.12 * w, y: 20.14 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 0.08 * w, y: 11.91 * h),
+            control1: CGPoint(x: 5.27 * w, y: 21.67 * h),
+            control2: CGPoint(x: 0.75 * w, y: 17.64 * h)
+        )
+        path.addCurve(
+            to: CGPoint(x: 7.77 * w, y: 0.10 * h),
+            control1: CGPoint(x: -0.58 * w, y: 6.17 * h),
+            control2: CGPoint(x: 2.85 * w, y: 0.89 * h)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Both eye paths in one figure: the white, and the pupil inside it, for a
+/// caller that fills them even-odd so the pupil comes out as a hole.
+///
+/// It composes the same two shapes rather than redrawing either, and it places
+/// the pupil from ``WidgetAvatarEyes``' own ratios, so the hole lands exactly
+/// where the layered rendering paints the pupil and the two treatments stay the
+/// same face.
+private struct AvatarEyeCutoutShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        // Every ratio is a share of eye height, which is this rect's height:
+        // the pupil is sized and placed against the eye's own scale, the way
+        // the layered rendering sizes and offsets it.
+        let eyeHeight = rect.height
+        let pupilSize = CGSize(
+            width: eyeHeight * WidgetAvatarEyes.pupilWidthRatio,
+            height: eyeHeight * WidgetAvatarEyes.pupilHeightRatio
+        )
+        // Both shapes trace from their box's own top-left and neither reads its
+        // rect's origin, so the pupil is drawn at zero and moved into place
+        // rather than handed an offset rect it would ignore.
+        let pupil = AvatarEyePupilShape()
+            .path(in: CGRect(origin: .zero, size: pupilSize))
+            .offsetBy(
+                dx: rect.minX + eyeHeight * WidgetAvatarEyes.pupilOffsetXRatio,
+                dy: rect.minY + eyeHeight * WidgetAvatarEyes.pupilOffsetYRatio
+            )
+        var path = AvatarEyeScleraShape().path(in: rect)
+        path.addPath(pupil)
+        return path
     }
 }
 
@@ -182,9 +331,34 @@ struct WidgetAvatarImageView: View {
     let size: CGFloat
     var cornerRadius: CGFloat? = nil
 
+    /// The photo is told how to survive a flattened widget before anything else
+    /// is done to it.
+    ///
+    /// Left alone, WidgetKit resolves a bitmap in those modes by its luminance
+    /// and hands back a silhouette: a face becomes a blob. Asking for a
+    /// desaturated accent keeps the picture's own shading and only drains its
+    /// color, which is the difference between a mark someone recognizes and one
+    /// they do not. It changes nothing in full color, where the mode is never
+    /// consulted.
+    ///
+    /// The modifier arrived in iOS 18 and this extension still runs on 17,
+    /// where the plain image is the only option and the silhouette is what that
+    /// OS was always going to draw. The availability branch wraps the whole
+    /// chain rather than the image alone, so `scaledToFill` reads its ratio off
+    /// the photo directly instead of through a conditional in between.
+    @ViewBuilder
     var body: some View {
-        Image(uiImage: image)
-            .resizable()
+        if #available(iOS 18.0, *) {
+            shaped(Image(uiImage: image).resizable().widgetAccentedRenderingMode(.accentedDesaturated))
+        } else {
+            shaped(Image(uiImage: image).resizable())
+        }
+    }
+
+    /// Everything the mark's slot asks of the photo: filled to the slot,
+    /// clipped to its corner, and redacted on a locked device.
+    private func shaped(_ photo: some View) -> some View {
+        photo
             .scaledToFill()
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius ?? size / 2, style: .continuous))
@@ -358,6 +532,32 @@ func previewAppearances<Content: View>(
     .padding()
 }
 
+/// The same content as a flattened widget draws it, for the previews checking
+/// what a themed Home Screen does to a card.
+///
+/// Only half the story, and deliberately so: setting the environment key runs
+/// the flattened code paths, but the canvas cannot perform the recoloring
+/// WidgetKit does afterwards. What a preview like this proves is that the
+/// translucent fills and the cut-out pupils are drawn at all; how they come out
+/// once the system has tinted them takes a device.
+func previewFlattened<Content: View>(
+    @ViewBuilder _ content: @escaping () -> Content
+) -> some View {
+    content()
+        .environment(\.widgetRenderingMode, .accented)
+        .padding(12)
+        .background(Color.black)
+        .padding()
+}
+
+/// The ground a flattened preview stands its card on, in place of the dark
+/// material WidgetKit substitutes for a widget's own background in these modes.
+///
+/// A preview that kept painting the accent would be checking the fills against
+/// a surface the device is not going to draw, and the pupil holes would show
+/// teal rather than the dark they are cut to reveal.
+let previewFlattenedGround = Color(white: 0.13)
+
 /// A stand-in photo, drawn rather than shipped so the previews cost the
 /// extension no asset. Shared with the widgets built out of the kit.
 func previewAvatarPhoto() -> UIImage {
@@ -391,10 +591,15 @@ func previewWidgetCard<Content: View, Background: View>(
 /// A snapshot carrying exactly what a preview needs to say: the two counts and
 /// the avatar. Shared with the widgets built out of the kit, none of which
 /// previews a conversation list.
+///
+/// Staleness is a parameter because the cards disagree about what it costs
+/// them: it drops a count and keeps an avatar, so a preview is the only place
+/// the two are visible side by side.
 func previewEntry(
     unread: Int = 0,
     inProgress: Int = 0,
-    avatar: WidgetSnapshotAvatar? = nil
+    avatar: WidgetSnapshotAvatar? = nil,
+    isStale: Bool = false
 ) -> SnapshotEntry {
     SnapshotEntry(
         date: Date(),
@@ -406,7 +611,7 @@ func previewEntry(
             conversations: [],
             avatar: avatar
         ),
-        isStale: false
+        isStale: isStale
     )
 }
 
@@ -444,6 +649,18 @@ func previewEntry(
             title: "Fallback",
             palette: WidgetAvatarPalette(accentHex: nil)
         )
+    }
+}
+
+#Preview("Flattened") {
+    // The eyes are the thing to look at: the pupils have to be holes the ground
+    // shows through rather than a second white laid on the first.
+    previewFlattened {
+        previewWidgetCard(width: 150, height: 150) {
+            WidgetAvatarEyes(eyeHeight: 42)
+        } background: {
+            previewFlattenedGround
+        }
     }
 }
 

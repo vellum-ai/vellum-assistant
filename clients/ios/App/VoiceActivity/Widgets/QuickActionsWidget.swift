@@ -2,8 +2,8 @@ import SwiftUI
 import WidgetKit
 
 /// The small Home Screen widget: the two most physical ways to start
-/// something, on a card painted in the assistant's own colors, plus a count of
-/// what is waiting.
+/// something, on a card painted in the assistant's own colors, plus the
+/// assistant looking up when something is waiting.
 ///
 /// Small only. Every action here is one tap target and none of them grow with
 /// more room, so a medium instance would be the same buttons with half a card
@@ -36,15 +36,28 @@ struct QuickActionsWidget: Widget {
     }
 }
 
-/// The card: the assistant looking back from the top, the two actions along
-/// the bottom, and the unread count tucked into the corner the mark leaves
-/// empty.
+/// The card: the two actions along the bottom, the assistant across the top,
+/// and the count beside it while something is waiting.
+///
+/// The face is always drawn. It is the account's avatar rather than a
+/// notification, so the card wears it whatever the snapshot says, and the chip
+/// is the piece that arrives with unreads. That is also what decides where the
+/// mark sits: a quiet card rests it near the middle, and a card carrying a
+/// count moves it to the leading margin to leave the chip the other end of the
+/// row.
 ///
 /// There is no empty state and no signed-out state to draw: the buttons are
 /// what the widget is, and they work with nothing synced at all. The chip and
 /// the colors are what read the snapshot, so a missing snapshot costs the
 /// widget its theming and its count and nothing else.
 struct QuickActionsWidgetView: View {
+    /// The card every dimension below is designed on. Widget families render
+    /// at slightly different sizes per device, so the layout multiplies its
+    /// measurements by the ratio between the two and keeps the design's
+    /// proportions everywhere instead of gaining margin on large phones and
+    /// clipping on small ones.
+    private static let designSize = CGSize(width: 160, height: 161)
+
     /// The widget disables the system content margins and draws this one
     /// instead: the controls are laid out flush to the card's own margin, and
     /// the default insets would leave them a card too small to hold them.
@@ -62,15 +75,29 @@ struct QuickActionsWidgetView: View {
     private static let avatarImageSize: CGFloat = 44
     private static let avatarImageCornerRadius: CGFloat = 15
 
-    /// Space above the mark and the chip, inside the card's margin.
+    /// Space above the mark and the chip, inside the card's margin, and the
+    /// nudge the eyes sit in from the leading margin.
     private static let markInset: CGFloat = 13
+    private static let markLeadingInset: CGFloat = 2
+
+    /// How far right of the card's center the quiet mark rests, on the design
+    /// canvas. The design does not sit the pair on the center line: it settles
+    /// it a nudge past, leaning the composition into the rightward glance the
+    /// pupils already have, so the face reads as looking across the card rather
+    /// than as a mark parked in the middle of it.
+    private static let quietMarkCenterOffset: CGFloat = 11.5
 
     private static let chipHeight: CGFloat = 31
 
     /// The chip's fill: a wash of the dark the card is missing, rather than a
     /// pale pill placed on top of it. Same treatment over an accent as over a
     /// blurred photo, since both are surfaces the chip has to sink into.
-    private static let chipFill = Color.black.opacity(0.16)
+    ///
+    /// It has a flattened counterpart because a dark wash stops working once
+    /// the card underneath is the system's own dark material: there is no light
+    /// left to take away, and the chip would read as nothing at all. See
+    /// ``WidgetFlattenedFill``.
+    private static let chipFill = Color.black.opacity(0.10)
 
     /// How strongly a control's fill washes the card, by how bright the color
     /// doing the washing is. A white wash lifts a dark card further than a
@@ -79,116 +106,145 @@ struct QuickActionsWidgetView: View {
     private static let controlFillOnWhite = 0.14
     private static let controlFillOnDark = 0.10
 
+    /// Width the chip needs at this count, from its fixed parts (the bubble,
+    /// the gaps, the padding) plus a digit's worth of count text per glyph.
+    /// Estimated rather than measured so the eyes can be sized in the same
+    /// pass that lays them out; the design draws full-height eyes beside a
+    /// one-digit chip, and only wider counts buy width from the eyes.
+    private static func chipAllowance(for count: Int, scale: CGFloat) -> CGFloat {
+        let glyphs = count > 99 ? 3 : String(count).count
+        return (45 + 9.5 * CGFloat(glyphs)) * scale
+    }
+
+    /// The least space between the mark and the chip before the mark gives
+    /// way.
+    private static let markChipGap: CGFloat = 12
+
     let entry: SnapshotEntry
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of `WidgetActionControls.swift`.
+    private var isFlattened: Bool { renderingMode != .fullColor }
 
     var body: some View {
         GeometryReader { geo in
+            let scale = min(
+                geo.size.width / Self.designSize.width,
+                geo.size.height / Self.designSize.height
+            )
             VStack(spacing: 0) {
-                markRow(width: geo.size.width)
+                if let count = unreadCount {
+                    let contentWidth = geo.size.width - Self.contentMargin * scale * 2
+                    let markWidth = contentWidth - Self.chipAllowance(for: count, scale: scale)
+                        - Self.markChipGap * scale
+                    markRow(count: count, markWidth: markWidth, scale: scale)
+                } else {
+                    quietMarkRow(scale: scale)
+                }
                 Spacer(minLength: 0)
-                controlRow(
-                    diameter: min(
-                        Self.controlDiameter,
-                        (geo.size.width - Self.controlGap) / 2
-                    )
-                )
+                controlRow(diameter: Self.controlDiameter * scale, scale: scale)
             }
+            .padding(Self.contentMargin * scale)
             .frame(width: geo.size.width, height: geo.size.height)
         }
-        .padding(Self.contentMargin)
     }
 
-    /// The mark, and the chip when there is something to count.
-    ///
-    /// The mark sits centered until the chip arrives and then moves to the left
-    /// margin. A chip in the corner over centered eyes reads as two things
-    /// dropped on a card; the two at opposite margins read as one row across
-    /// the top of it.
-    private func markRow(width: CGFloat) -> some View {
+    /// The mark at the leading margin, the chip at the trailing one: one row
+    /// across the top of the card rather than two things dropped on it.
+    private func markRow(count: Int, markWidth: CGFloat, scale: CGFloat) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            if unreadCount == nil {
-                Spacer(minLength: 0)
-            }
-            avatarMark(width: width)
+            avatarMark(
+                eyeHeight: fittedEyeHeight(in: markWidth, scale: scale),
+                imageSize: fittedImageSize(in: markWidth, scale: scale),
+                scale: scale
+            )
+            .padding(.leading, Self.markLeadingInset * scale)
             Spacer(minLength: 0)
-            unreadChip
+            unreadChip(count: count, scale: scale)
         }
-        .padding(.top, Self.markInset)
+        .padding(.top, Self.markInset * scale)
+    }
+
+    /// The mark alone, at the size the design draws it when nothing shares the
+    /// row with it.
+    ///
+    /// Nothing is competing for the width here, so the mark takes its full size
+    /// rather than the fitted one, and it is placed from the card's center
+    /// instead of from a margin: what the design lines the pair up against is
+    /// the card, not the edge the chip layout hangs it off.
+    private func quietMarkRow(scale: CGFloat) -> some View {
+        avatarMark(
+            eyeHeight: WidgetAvatarEyes.defaultEyeHeight * scale,
+            imageSize: Self.avatarImageSize * scale,
+            scale: scale
+        )
+        .frame(maxWidth: .infinity)
+        .offset(x: Self.quietMarkCenterOffset * scale)
+        .padding(.top, Self.markInset * scale)
     }
 
     /// Height the eyes can afford beside the chip. The pair's own width is its
     /// height times ``WidgetAvatarEyes/pairAspect``, so what the chip does not
-    /// take decides how tall they can be; on compact cards the eyes give way so
-    /// the row never compresses either mark.
-    private func fittedEyeHeight(in width: CGFloat) -> CGFloat {
-        guard unreadCount != nil else {
-            return WidgetAvatarEyes.defaultEyeHeight
-        }
-        let available = (width - Self.chipAllowance) / WidgetAvatarEyes.pairAspect
-        return min(WidgetAvatarEyes.defaultEyeHeight, max(24, available))
+    /// take decides how tall they can be; wide counts shrink the eyes rather
+    /// than compress the row.
+    private func fittedEyeHeight(in markWidth: CGFloat, scale: CGFloat) -> CGFloat {
+        let available = markWidth / WidgetAvatarEyes.pairAspect
+        return min(WidgetAvatarEyes.defaultEyeHeight * scale, max(24 * scale, available))
     }
 
     /// The photo mark under the same constraint as the eyes.
-    private func fittedImageSize(in width: CGFloat) -> CGFloat {
-        guard unreadCount != nil else {
-            return Self.avatarImageSize
-        }
-        return min(Self.avatarImageSize, max(24, width - Self.chipAllowance))
+    private func fittedImageSize(in markWidth: CGFloat, scale: CGFloat) -> CGFloat {
+        min(Self.avatarImageSize * scale, max(24 * scale, markWidth))
     }
-
-    /// Width the chip's widest form, the collapsed `99+`, can occupy: the 16pt
-    /// bubble, the 15pt count, and the padding around both.
-    private static let chipAllowance: CGFloat = 73
 
     /// The assistant, however this account's assistant can be drawn: its own
     /// photo where there is one, and the eyes the kit draws where the card is
     /// already wearing its color.
+    ///
+    /// Both sizes are the caller's because the two rows size the mark
+    /// differently, while which of the two marks to draw is a fact about the
+    /// account and belongs in one place.
     @ViewBuilder
-    private func avatarMark(width: CGFloat) -> some View {
+    private func avatarMark(eyeHeight: CGFloat, imageSize: CGFloat, scale: CGFloat) -> some View {
         if entry.avatarKind == .image, let image = entry.avatarImage {
             WidgetAvatarImageView(
                 image: image,
-                size: fittedImageSize(in: width),
-                cornerRadius: Self.avatarImageCornerRadius
+                size: imageSize,
+                cornerRadius: Self.avatarImageCornerRadius * scale
             )
         } else {
-            WidgetAvatarEyes(eyeHeight: fittedEyeHeight(in: width))
+            WidgetAvatarEyes(eyeHeight: eyeHeight)
         }
     }
 
-    /// How many conversations are waiting, when that is worth saying.
+    /// How many conversations are waiting.
     ///
     /// The number is `.privacySensitive()` while the glyph beside it is not, so
     /// a locked device still shows that something arrived without spelling out
     /// how far behind its owner is. Counts above two digits collapse to `99+`:
     /// past that the exact figure stops being information and the chip would
     /// grow into the mark across from it.
-    @ViewBuilder
-    private var unreadChip: some View {
-        if let count = unreadCount {
-            HStack(spacing: 4) {
-                WidgetUnreadMark(isFilled: true, size: 16)
-                Text(count > 99 ? "99+" : "\(count)")
-                    .font(.system(size: 15, weight: .semibold))
-                    .privacySensitive()
-            }
-            .foregroundStyle(palette.onSurface)
-            .padding(.horizontal, 9)
-            .frame(height: Self.chipHeight)
-            .background(Self.chipFill, in: Capsule())
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(count) unread")
+    private func unreadChip(count: Int, scale: CGFloat) -> some View {
+        HStack(spacing: 5 * scale) {
+            WidgetUnreadMark(isFilled: false, size: 16 * scale)
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(.system(size: 16 * scale, weight: .medium))
+                .privacySensitive()
         }
+        .foregroundStyle(palette.onSurface)
+        .padding(.horizontal, 10 * scale)
+        .frame(height: Self.chipHeight * scale)
+        .background(isFlattened ? WidgetFlattenedFill.chip : Self.chipFill, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(count) unread")
     }
 
     /// The pair the card is built around, sized to the margins so they land in
-    /// the same place whatever the avatar above them turns out to be. The
-    /// diameter follows the card's width on compact widgets, where two full
-    /// 61pt circles plus their gap would overrun the margins, and the row's
-    /// own height is the resolved diameter so the column never reserves more
-    /// than it draws.
-    private func controlRow(diameter: CGFloat) -> some View {
-        HStack(spacing: Self.controlGap) {
+    /// the same place whatever sits above them.
+    private func controlRow(diameter: CGFloat, scale: CGFloat) -> some View {
+        HStack(spacing: Self.controlGap * scale) {
             CircleActionButton(
                 intent: OpenCameraIntent(),
                 icon: Image(systemName: "camera.fill"),
@@ -222,6 +278,11 @@ struct QuickActionsWidgetView: View {
     /// The number for the unread chip, or nil when there is no chip to draw:
     /// nothing unread, nothing synced, or a snapshot old enough that the count
     /// is a claim about an inbox from half an hour ago.
+    ///
+    /// It gates the chip and the row layout built around it, and nothing else.
+    /// The mark is drawn either way: the eyes are which assistant this account
+    /// has rather than a claim about right now, so a snapshot too old to count
+    /// with is still new enough to say whose face it is.
     ///
     /// `CatchUpRow` keeps its unread dot past that same threshold, and the two
     /// are consistent rather than in tension. A dot says "this conversation
@@ -293,6 +354,16 @@ private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
     }
 }
 
+#Preview("Stale, was unread") {
+    // The count is a claim about now and drops; the face is not and stays. The
+    // card should be indistinguishable from a quiet one.
+    previewAppearances {
+        previewCard(
+            previewEntry(unread: 3, avatar: previewCharacterAvatar(accentHex: "#0E9B8B"), isStale: true)
+        )
+    }
+}
+
 #Preview("Custom image, unread") {
     let avatar = WidgetSnapshotAvatar(
         kind: "image",
@@ -309,6 +380,20 @@ private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
         HStack(spacing: 12) {
             previewCard(previewEntry(unread: 0, avatar: nil))
             previewCard(previewEntry(unread: 128, avatar: nil))
+        }
+    }
+}
+
+#Preview("Flattened") {
+    // The chip and the two circles have to stay visible as shapes once the card
+    // under them is the system's own material rather than the accent.
+    previewFlattened {
+        previewWidgetCard {
+            QuickActionsWidgetView(
+                entry: previewEntry(unread: 3, avatar: previewCharacterAvatar(accentHex: "#0E9B8B"))
+            )
+        } background: {
+            previewFlattenedGround
         }
     }
 }

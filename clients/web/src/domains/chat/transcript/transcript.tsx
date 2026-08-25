@@ -14,6 +14,7 @@ import { resolveResponseArtifacts } from "@/domains/chat/transcript/resolve-resp
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
+import { keepFocusedFieldVisible } from "@/domains/chat/transcript/focused-field";
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
@@ -136,6 +137,10 @@ export interface TranscriptHandle {
    *  `false` when no element with that message id is currently rendered (e.g.
    *  the message lives in an older history page not yet loaded). */
   scrollToMessage(messageId: string): boolean;
+  /** If a text field inside the transcript holds focus, scroll it just far
+   *  enough to stay visible and report `true`, so a caller can skip a pin that
+   *  would scroll past it. Reports `false` when focus is anywhere else. */
+  keepFocusedFieldVisible(): boolean;
   getScrollElement(): HTMLDivElement | null;
   /** Inner wrapper that surrounds all rendered children. Sized to the
    *  scroll content; observable via `ResizeObserver` to detect when
@@ -254,6 +259,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             highlightTimerRef.current = null;
           }, 2000);
           return true;
+        },
+        keepFocusedFieldVisible() {
+          return keepFocusedFieldVisible(scrollRef.current);
         },
         getScrollElement() {
           return scrollRef.current;

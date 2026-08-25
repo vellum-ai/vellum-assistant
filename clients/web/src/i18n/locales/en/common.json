@@ -63,6 +63,12 @@
   "appViewerContainer": {
     "exitFullscreen": "Exit fullscreen"
   },
+  "assistantConnect": {
+    "failed": "Failed to connect to the assistant."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
+  },
   "avatarManagementModal": {
     "body": "Body",
     "color": "Color",
@@ -188,6 +194,16 @@
     "message": "\"{appName}\" uses backend services that won't work on a static Vercel page. Your assistant can deploy it properly with serverless functions.",
     "messageNamed": "\"{appName}\" uses backend services that won't work on a static Vercel page. {assistantName} can deploy it properly with serverless functions.",
     "title": "This app needs a full deploy"
+  },
+  "deployStore": {
+    "appExported": "App exported",
+    "deployFailed": "Failed to deploy",
+    "deployedToVercel": "Deployed to Vercel",
+    "open": "Open",
+    "shareFailed": "Failed to share app"
+  },
+  "detailPanelStopButton": {
+    "tooltip": "Stop"
   },
   "detailPrimitives": {
     "copied": "Copied",
@@ -316,10 +332,11 @@
     "title": "Remove from this device?"
   },
   "resourcePressureBanner": {
-    "body": "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
-    "bodyNoUpgrade": "Your assistant has been using elevated resources for an extended period.",
+    "body": "Your assistant is working hard and reaching its current resource limits. Upgrade to keep it running smoothly.",
+    "bodyNoUpgrade": "Your assistant is working hard and reaching its current resource limits.",
     "dontShowAgain": "Don't show again",
-    "title": "Resource utilization is high",
+    "title": "Your assistant needs more power",
+    "titleNamed": "{assistantName} needs more power",
     "upgrade": "Upgrade"
   },
   "retireConfirmDialog": {
@@ -329,6 +346,9 @@
   },
   "rootHydrateFallback": {
     "loadingAria": "Loading"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "the assistant"
   },
   "routeErrorBoundary": {
     "chunkFailBody": "This section couldn't load. Likely a network blip or a stale version. Reload the page to try again.",
@@ -629,6 +649,18 @@
     "restartToInstall": "Restart to install",
     "versionFallback": "update"
   },
+  "useAppDelete": {
+    "deleteFailed": "Failed to delete app"
+  },
+  "useAppDeployment": {
+    "copyFailed": "Couldn't copy the link. Open it at {url}",
+    "linkCopied": "Link copied",
+    "open": "Open"
+  },
+  "useBookmarks": {
+    "addFailed": "Failed to bookmark message.",
+    "removeFailed": "Failed to remove bookmark."
+  },
   "useConnectClaude": {
     "exchangeFailed": "Check the pasted key and try again.",
     "failed": "Connecting Claude failed. Please try again.",
@@ -638,8 +670,24 @@
     "startFailed": "Couldn't start Connect Claude. Please try again.",
     "timedOut": "Timed out waiting for Claude to connect. Please try again."
   },
+  "useOauthConnect": {
+    "accountConnected": "{name} account connected.",
+    "authPopupClosed": "{name} connection failed: authorization popup closed.",
+    "authorizationError": "{name} error: {code}",
+    "authorizationFailed": "{name} authorization failed",
+    "popupBlocked": "Popup blocked. Please enable popups and try again.",
+    "popupClosed": "{name} connection failed: popup closed.",
+    "startFailed": "Failed to start {name} authorization."
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "Your browser blocked a page the assistant tried to open.",
+    "openPage": "Open page"
+  },
   "useVoiceSamplePreview": {
     "playFailed": "Could not play the voice sample."
+  },
+  "useWorkspaceTheme": {
+    "updated": "Theme updated"
   },
   "vercelTokenDialog": {
     "body": "Enter your Vercel API token to deploy apps as static pages.",

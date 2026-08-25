@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -72,11 +72,10 @@ import {
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { relaunchDetached } from "../lib/detached-process.js";
 import { probePort } from "../lib/port-probe.js";
 import { openBrowser } from "../lib/open-browser";
-import { isCompiledCli } from "../lib/local.js";
 import { findWebDistDir } from "../lib/web-dist.js";
-import { getLogDir, openLogFile, resetLogFile } from "../lib/xdg-log.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -1140,53 +1139,24 @@ async function spawnBackgroundWebInterface(
   }
   childArgs.push("--port", String(port));
 
-  // A compiled binary re-invokes itself; under plain bun (source tree, npm
-  // install) the entry script is argv[1].
-  const spawnArgs = isCompiledCli()
-    ? childArgs
-    : [process.argv[1], ...childArgs];
-
-  resetLogFile(WEB_BACKGROUND_LOG_FILE);
-  const fd = openLogFile(WEB_BACKGROUND_LOG_FILE);
-  const child = spawn(process.execPath, spawnArgs, {
-    detached: true,
-    stdio: ["ignore", fd, fd],
-  });
-  if (typeof fd === "number") {
-    closeSync(fd);
-  }
-  child.unref();
-
-  const logPath = path.join(getLogDir(), WEB_BACKGROUND_LOG_FILE);
-
   // Don't report success until the child is actually serving: watch for an
   // early exit (e.g. missing @vellumai/web assets, port lost to the TOCTOU
   // window) and poll the port until it accepts connections.
-  let exit: { code: number | null } | undefined;
-  child.on("error", () => {
-    exit = { code: null };
-  });
-  child.on("exit", (code) => {
-    exit = { code };
+  const { child, logPath, ready, exitCode } = await relaunchDetached({
+    args: childArgs,
+    logFile: WEB_BACKGROUND_LOG_FILE,
+    timeoutMs: WEB_BACKGROUND_START_TIMEOUT_MS,
+    isReady: () => probePort(port, "127.0.0.1"),
+    pollIntervalMs: 200,
   });
 
-  const deadline = Date.now() + WEB_BACKGROUND_START_TIMEOUT_MS;
-  let listening = false;
-  while (Date.now() < deadline && !exit) {
-    if (await probePort(port, "127.0.0.1")) {
-      listening = true;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-
-  if (exit) {
+  if (exitCode !== undefined) {
     console.error(
-      `Web interface exited during startup${exit.code !== null ? ` (exit code ${exit.code})` : ""}. Logs: ${logPath}`,
+      `Web interface exited during startup${exitCode !== null ? ` (exit code ${exitCode})` : ""}. Logs: ${logPath}`,
     );
     process.exit(1);
   }
-  if (!listening) {
+  if (!ready) {
     // Kill the detached child (its whole process group — the Vite path spawns
     // grandchildren) so a slow startup can't bind the port and linger after
     // we've reported failure.
