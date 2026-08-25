@@ -7,10 +7,10 @@
  * the panel permanently blank, which is exactly the bug worth catching.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
@@ -18,8 +18,32 @@ import {
   classifyIngressFailure,
   reportableError,
 } from "@/domains/channels/hooks/use-channel-ingress";
-import { assistantChannelIngressListQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
+import {
+  assistantChannelAdmissionPolicyListQueryKey,
+  assistantChannelIngressListQueryKey,
+} from "@/generated/gateway/@tanstack/react-query.gen";
+import * as admissionApi from "@/lib/channel-admission-policy/api";
+import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { PluginChannelSummary } from "@/types/channel-types";
+
+/**
+ * Spy on the floor write so the trust-floor tests can assert what was (not)
+ * persisted; everything else in the module stays real.
+ */
+const setChannelPolicy = mock<(typeof admissionApi)["setChannelPolicy"]>(
+  async () => ({
+    channelType: "plugin",
+    policy: "strangers",
+    note: null,
+    updatedAt: null,
+  }),
+);
+
+mock.module("@/lib/channel-admission-policy/api", (): typeof admissionApi => ({
+  ...admissionApi,
+  setChannelPolicy,
+}));
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -41,6 +65,8 @@ const ROUTES = [
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
+  setChannelPolicy.mockClear();
 });
 
 /** Renders the panel with `sources` already in the ingress cache. */
@@ -139,10 +165,90 @@ describe("PluginChannelPanel", () => {
     renderPanel([]);
 
     expect(
-      document.body.querySelector(
-        '[aria-label="Navigate to plugin page"]',
-      ),
+      document.body.querySelector('[aria-label="Navigate to plugin page"]'),
     ).toBeTruthy();
+  });
+});
+
+describe("PluginChannelPanel trust floor", () => {
+  /**
+   * Renders the panel with the floor surface live: an assistant version past
+   * the trust-floors gate and the admission-policy list already in the cache.
+   * `staleTime: Infinity` keeps the seeded entry from being refetched against
+   * a gateway that isn't there.
+   */
+  function renderPanelWithFloor(policy: AdmissionPolicy) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Ada", "0.10.0", ASSISTANT_ID);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    queryClient.setQueryData(
+      assistantChannelAdmissionPolicyListQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+      }),
+      {
+        policies: [
+          { channelType: "plugin", policy, note: null, updatedAt: null },
+        ],
+      },
+    );
+    return render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PluginChannelPanel
+            channel={CHANNEL}
+            assistantId={ASSISTANT_ID}
+            assistantDisplayName="Ada"
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  function pickFloor(label: string) {
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-slot="select-trigger"]',
+    );
+    if (!trigger) {
+      throw new Error("No trust-floor dropdown rendered");
+    }
+    fireEvent.click(trigger);
+    const option = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((el) => el.textContent?.startsWith(label));
+    if (!option) {
+      throw new Error(`No option labeled "${label}"`);
+    }
+    fireEvent.click(option);
+  }
+
+  test("loosening the floor asks first, parity with built-in channels", async () => {
+    // The floor is workspace-wide (one `plugin` row covers every plugin
+    // channel), so an unconfirmed pick would persist a loosening across
+    // all of them at once.
+    renderPanelWithFloor("guardian_only");
+
+    pickFloor("Strangers");
+    expect(document.body.textContent).toContain("Allow strangers?");
+
+    // `mutate` runs its function a microtask later, so flush before asserting
+    // the pick alone wrote nothing.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(setChannelPolicy).not.toHaveBeenCalled();
+
+    const confirm = document.querySelector<HTMLButtonElement>(
+      "[data-confirm-dialog-confirm]",
+    );
+    expect(confirm).not.toBeNull();
+    fireEvent.click(confirm!);
+
+    await waitFor(() =>
+      expect(setChannelPolicy.mock.calls).toEqual([
+        [ASSISTANT_ID, "plugin", "strangers"],
+      ]),
+    );
   });
 });
 

@@ -2,8 +2,7 @@
   "assistantChannelsList": {
     "drawerTitle": "Каналы",
     "disconnectTitle": "Отключить {channel}?",
-    "disconnectConfirm": "Отключить",
-    "confirmFallback": "Подтвердить"
+    "disconnectConfirm": "Отключить"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, из плагина"
@@ -45,7 +44,8 @@
     "loading": "Загрузка…",
     "loadFailed": "Не удалось загрузить эту настройку. Повторите открытие страницы.",
     "selectAria": "Кто может писать {assistant}",
-    "trustedContactsNotice": "Люди, которых ещё не подтвердили (даже коллеги в том же канале), не проходят: {assistant} сообщает им, что нужна проверка, и присылает уведомление. Подтвердить людей заранее можно в Контактах."
+    "trustedContactsNotice": "Люди, которых ещё не подтвердили (даже коллеги в том же канале), не проходят: {assistant} сообщает им, что нужна проверка, и присылает уведомление. Подтвердить людей заранее можно в Контактах.",
+    "confirmFallback": "Подтвердить"
   },
   "slackChannelTypeDefaults": {
     "heading": "Доступ по умолчанию",

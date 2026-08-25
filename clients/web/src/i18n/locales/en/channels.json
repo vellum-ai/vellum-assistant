@@ -2,8 +2,7 @@
   "assistantChannelsList": {
     "drawerTitle": "Channels",
     "disconnectTitle": "Disconnect {channel}?",
-    "disconnectConfirm": "Disconnect",
-    "confirmFallback": "Confirm"
+    "disconnectConfirm": "Disconnect"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, from a plugin"
@@ -45,7 +44,8 @@
     "loading": "Loading…",
     "loadFailed": "Couldn’t load this setting. Try reopening this page.",
     "selectAria": "Who can message {assistant}",
-    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts."
+    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts.",
+    "confirmFallback": "Confirm"
   },
   "slackChannelTypeDefaults": {
     "heading": "Default access",
