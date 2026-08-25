@@ -13,6 +13,7 @@ import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tans
 import type {
   CreditTierEnum,
   PlanListResponse,
+  ProPlan,
 } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 
@@ -170,7 +171,12 @@ describe("useProvisioningCredits", () => {
         { kind: "package", packageKey: "mighty", savedAt: 0 },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromUsd: 0,
+      toUsd: 50,
+      fromLabel: null,
+      toLabel: "$50 credits/mo",
+    });
   });
 
   test("falls back to the package's credit tier when it carries no credits_usd", () => {
@@ -179,7 +185,28 @@ describe("useProvisioningCredits", () => {
         { kind: "package", packageKey: "tierless", savedAt: 0 },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromUsd: 0,
+      toUsd: 50,
+      fromLabel: null,
+      toLabel: "$50 credits/mo",
+    });
+  });
+
+  test("labels from the package's usage_label when its tier is missing from the catalog", () => {
+    const plans = plansResponse();
+    (plans.plans[0] as ProPlan).credit_tiers = [];
+    expect(
+      renderCredits(
+        { kind: "package", packageKey: "mighty", savedAt: 0 },
+        plans,
+      ),
+    ).toEqual({
+      fromUsd: 0,
+      toUsd: 50,
+      fromLabel: null,
+      toLabel: "Mighty Usage",
+    });
   });
 
   test("returns null for an unknown package key", () => {
@@ -203,7 +230,12 @@ describe("useProvisioningCredits", () => {
         },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromUsd: 0,
+      toUsd: 50,
+      fromLabel: null,
+      toLabel: "$50 credits/mo",
+    });
   });
 
   test("returns null for a custom intent without credits", () => {
@@ -237,14 +269,24 @@ describe("useResizeCreditsChange", () => {
   test("resolves both sides from the catalog", () => {
     expect(
       renderChange({ fromTier: null, toTier: "credits_50" }, plansResponse()),
-    ).toEqual({ fromUsd: 0, toUsd: 50 });
+    ).toEqual({
+      fromUsd: 0,
+      toUsd: 50,
+      fromLabel: null,
+      toLabel: "$50 credits/mo",
+    });
   });
 
   test("reads a dropped bundle as a move down to $0", () => {
     // "No extra credits" is a real endpoint of the change, not a missing side.
     expect(
       renderChange({ fromTier: "credits_50", toTier: null }, plansResponse()),
-    ).toEqual({ fromUsd: 50, toUsd: 0 });
+    ).toEqual({
+      fromUsd: 50,
+      toUsd: 0,
+      fromLabel: "$50 credits/mo",
+      toLabel: null,
+    });
   });
 
   test("reads a held tier the catalog no longer lists off its key", () => {
@@ -255,7 +297,13 @@ describe("useResizeCreditsChange", () => {
         { fromTier: "credits_115", toTier: "credits_50" },
         plansResponse(),
       ),
-    ).toEqual({ fromUsd: 115, toUsd: 50 });
+    ).toEqual({
+      fromUsd: 115,
+      toUsd: 50,
+      // No catalog entry to word the held tier, so its label side is absent.
+      fromLabel: undefined,
+      toLabel: "$50 credits/mo",
+    });
   });
 
   test("omits the chip when a tier carries no resolvable amount", () => {

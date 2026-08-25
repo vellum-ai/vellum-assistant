@@ -13,6 +13,17 @@ export interface ResourceChange {
 }
 
 /**
+ * The credits chip's pre-worded strings: monthly rates by default, bundle
+ * names under `obscure-credits`, which also overrides the row label ("Usage")
+ * and may leave the from-side unstated when the catalog can't word it.
+ */
+export interface CreditsChipContent {
+  label?: string;
+  from?: string;
+  to: string;
+}
+
+/**
  * Flattens the provisioning targets into the ordered list of resource changes
  * the takeover rotates through, each as a current→new pair. Order is fixed at
  * machine → storage → credits to mirror the chip order in provisioning-state.
@@ -46,7 +57,7 @@ export function buildResourceChanges(input: {
   targets: ProvisioningDimensions;
   fromSnapshot: ProvisioningDimensions;
   machineFloor?: MachineSizeEnum | null;
-  credits: { from: string; to: string } | null;
+  credits: CreditsChipContent | null;
 }): ResourceChange[] {
   const { targets, fromSnapshot, machineFloor, credits } = input;
   const changes: ResourceChange[] = [];
@@ -95,7 +106,7 @@ export function buildResourceChanges(input: {
   if (credits != null) {
     changes.push({
       key: "credits",
-      label: "Credits",
+      label: credits.label ?? "Credits",
       from: credits.from,
       to: credits.to,
     });
