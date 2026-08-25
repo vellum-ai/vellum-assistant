@@ -286,11 +286,12 @@ export function resolveLockfileInstanceDir(
   assistantId: string,
 ): string | undefined {
   const result = getLockfileData(lockfilePaths);
-  const entry = result.ok
-    ? result.data.assistants.find(
-        (assistant) => assistant.assistantId === assistantId,
-      )
-    : undefined;
+  if (!result.ok) {
+    return undefined;
+  }
+  const entry = result.data.assistants.find(
+    (assistant) => assistant.assistantId === assistantId,
+  );
   return lockfileInstanceDir(
     entry,
     findRawAssistant(lockfilePaths, assistantId),

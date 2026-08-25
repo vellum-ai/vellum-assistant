@@ -87,6 +87,7 @@
     "test": "bun scripts/run-tests.ts"
   },
   "dependencies": {
+    "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",

@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { getLocalAssistantStatus } from "../status";
+import { getLocalAssistantStatus, resolveLockfileInstanceDir } from "../status";
 
 let tempDir: string;
 let lockfilePath: string;
@@ -225,5 +225,35 @@ describe("getLocalAssistantStatus", () => {
         error: "Local assistant not found",
       },
     );
+  });
+});
+
+describe("resolveLockfileInstanceDir", () => {
+  test("reads the instance dir from the parsed entry", () => {
+    writeLocalLockfile();
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1")).toBe(
+      instanceDir,
+    );
+  });
+
+  test("honors legacy top-level baseDataDir", () => {
+    writeLockfile({ assistantId: "local-1", baseDataDir: instanceDir });
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1")).toBe(
+      instanceDir,
+    );
+  });
+
+  test("stops when the authoritative lockfile is unreadable", () => {
+    const legacyPath = path.join(tempDir, "legacy.json");
+    writeFileSync(lockfilePath, "{ not json");
+    writeFileSync(
+      legacyPath,
+      JSON.stringify({
+        assistants: [{ assistantId: "local-1", baseDataDir: instanceDir }],
+      }),
+    );
+    expect(
+      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1"),
+    ).toBeUndefined();
   });
 });

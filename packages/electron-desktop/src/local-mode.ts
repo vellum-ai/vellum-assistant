@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
+import { readWorkspaceAvatar } from "@vellumai/avatar-manifest";
 import {
   connectImport,
   getGuardianAccessToken,
@@ -324,30 +325,9 @@ export async function getPairedGuardianAccessToken(
   );
 }
 
-// Workspace avatar layout, mirroring `assistant/src/util/platform.ts` and
-// `assistant/src/avatar/`. Read directly off disk so a sleeping sibling
-// assistant still has an avatar in the chooser.
-const AVATAR_MANIFEST_FILENAME = "avatar.json";
-const AVATAR_TRAITS_FILENAME = "character-traits.json";
-const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-const characterTraitsSchema = z.object({
-  bodyShape: z.string().min(1),
-  eyeStyle: z.string().min(1),
-  color: z.string().min(1),
-});
-
-function readJsonFile(filePath: string): unknown {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function readAvatarImage(avatarDir: string): LocalAssistantAvatar | null {
-  const imagePath = path.join(avatarDir, AVATAR_IMAGE_FILENAME);
+function readAvatarImage(imagePath: string): LocalAssistantAvatar | null {
   try {
     const stats = fs.statSync(imagePath);
     if (!stats.isFile() || stats.size > AVATAR_IMAGE_MAX_BYTES) {
@@ -362,51 +342,8 @@ function readAvatarImage(avatarDir: string): LocalAssistantAvatar | null {
   }
 }
 
-// Mirrors the daemon's `readManifest` validation in
-// `assistant/src/avatar/avatar-manifest.ts` (the packages cannot import each
-// other): a valid `kind` with a missing or malformed per-kind payload is
-// rejected as a whole so the legacy fallback still runs.
-const avatarManifestSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("character"), traits: characterTraitsSchema }),
-  z.object({
-    kind: z.literal("image"),
-    image: z.object({ updatedAt: z.string().min(1), etag: z.string().min(1) }),
-  }),
-  z.object({ kind: z.literal("none") }),
-]);
-
-function toCharacterAvatar(traits: unknown): LocalAssistantAvatar | null {
-  const parsed = characterTraitsSchema.safeParse(traits);
-  return parsed.success ? { kind: "character", traits: parsed.data } : null;
-}
-
-/**
- * Manifest first, then the legacy traits-first inference from
- * `deriveStateFromLegacyFiles`: a traits file always wins over the PNG
- * because character builds write the raster too. A corrupt or partial
- * manifest is treated as absent, as the daemon's `readManifest` does.
- */
-function readWorkspaceAvatar(avatarDir: string): LocalAssistantAvatar | null {
-  const manifest = avatarManifestSchema.safeParse(
-    readJsonFile(path.join(avatarDir, AVATAR_MANIFEST_FILENAME)),
-  );
-  if (manifest.success) {
-    switch (manifest.data.kind) {
-      case "character":
-        return { kind: "character", traits: manifest.data.traits };
-      case "image":
-        return readAvatarImage(avatarDir);
-      case "none":
-        return null;
-    }
-  }
-  return (
-    toCharacterAvatar(
-      readJsonFile(path.join(avatarDir, AVATAR_TRAITS_FILENAME)),
-    ) ?? readAvatarImage(avatarDir)
-  );
-}
-
+// Read directly off disk so a sleeping sibling assistant still has an
+// avatar in the chooser.
 function readAssistantAvatar(
   lockfilePaths: string[],
   assistantId: string,
@@ -415,14 +352,17 @@ function readAssistantAvatar(
   if (!instanceDir) {
     return { ok: true, avatar: null };
   }
-  const avatarDir = path.join(
-    instanceDir,
-    ".vellum",
-    "workspace",
-    "data",
-    "avatar",
+  const avatar = readWorkspaceAvatar(
+    path.join(instanceDir, ".vellum", "workspace"),
   );
-  return { ok: true, avatar: readWorkspaceAvatar(avatarDir) };
+  switch (avatar.kind) {
+    case "character":
+      return { ok: true, avatar: { kind: "character", traits: avatar.traits } };
+    case "image":
+      return { ok: true, avatar: readAvatarImage(avatar.imagePath) };
+    case "none":
+      return { ok: true, avatar: null };
+  }
 }
 
 // A persisted assistant entry as it crosses the IPC boundary. The
