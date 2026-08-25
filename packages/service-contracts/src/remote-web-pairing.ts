@@ -10,7 +10,9 @@
  *   - `POST /v1/remote-web/pairing-verification`  approve by user code
  *       (`gateway/src/http/routes/remote-web-pairing-verification.ts`)
  *   - `POST /v1/remote-web/pairing-token`         poll + exchange device code
- *       (`gateway/src/http/routes/remote-web-pairing-token.ts`)
+ *       (`gateway/src/http/routes/remote-web-pairing-token.ts`): a browser
+ *        receives its refresh token as an `HttpOnly` cookie; a request that
+ *        carries a `deviceId` receives a device-bound one in the body instead
  *   - `GET  /v1/remote-web/pairing-requests`          list pending challenges
  *       (loopback-only)
  *   - `POST /v1/remote-web/pairing-requests/approve`  approve by request id
@@ -128,10 +130,37 @@ export interface RemoteWebPairingRequestDenyResponse {
   status: "denied";
 }
 
+/**
+ * Platforms a device-bound pairing exchange may declare for itself. The value
+ * is what the host's `Paired devices` list renders for the new pairing.
+ */
+export const REMOTE_WEB_PAIRING_PLATFORMS = [
+  "cli",
+  "desktop",
+  "ios",
+  "android",
+] as const;
+
+export type RemoteWebPairingPlatform =
+  (typeof REMOTE_WEB_PAIRING_PLATFORMS)[number];
+
+/** Platform recorded when an exchange names none the gateway recognizes. */
+export const DEFAULT_REMOTE_WEB_PAIRING_PLATFORM: RemoteWebPairingPlatform =
+  "desktop";
+
 /** `POST /v1/remote-web/pairing-token` request body. */
 export interface RemoteWebPairingTokenRequest {
   /** The `deviceCode` from the challenge. */
   deviceCode: string;
+  /**
+   * Client-generated device id, sent only by a trusted host completing the
+   * exchange for itself. It switches the gateway to a device-bound, per-device
+   * revocable credential whose refresh token comes back in the response body.
+   * Browsers omit it and keep the cookie delivery.
+   */
+  deviceId?: string;
+  /** Platform to record for the device. Ignored without a `deviceId`. */
+  platform?: RemoteWebPairingPlatform;
 }
 
 /**
@@ -148,8 +177,9 @@ export interface RemoteWebPairingTokenPendingResponse {
 
 /**
  * `POST /v1/remote-web/pairing-token` approved response body (200) — carries
- * the minted browser session credentials. The refresh token is delivered out
- * of band as an `HttpOnly` cookie, not in this body.
+ * the minted session credentials. A browser exchange (no `deviceId`) receives
+ * its refresh token out of band as an `HttpOnly` cookie and so omits the two
+ * refresh fields below; a device-bound exchange receives it here instead.
  */
 export interface RemoteWebPairingTokenApprovedResponse {
   status: "approved";
@@ -160,6 +190,10 @@ export interface RemoteWebPairingTokenApprovedResponse {
   refreshAfter: string;
   guardianId: string;
   assistantId: string;
+  /** Device-bound refresh token, present only for a `deviceId` exchange. */
+  refreshToken?: string;
+  /** ISO-8601 instant the device-bound refresh token expires. */
+  refreshTokenExpiresAt?: string;
 }
 
 /** Union of the two terminal `pairing-token` response bodies. */
