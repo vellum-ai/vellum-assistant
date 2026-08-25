@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { getLogger } from "../util/logger.js";
 import { getAvatarImagePath } from "../util/platform.js";
@@ -28,7 +28,8 @@ function readPng(path: string): Buffer | null {
 }
 
 /**
- * Returns the PNG raster for the current avatar, or null when there is none.
+ * Returns the on-disk path of the current avatar PNG, or null when there is
+ * none. Never reads the raster bytes.
  *
  * Side-effect-free when the PNG already exists. A character whose PNG is
  * missing is re-rendered from its persisted traits (best-effort; null when
@@ -37,17 +38,19 @@ function readPng(path: string): Buffer | null {
  *
  * Callers that already hold the avatar state can pass it to skip the re-read.
  */
-export async function ensureAvatarRaster(
+export async function ensureAvatarRasterPath(
   state: AvatarState = readAvatarState(),
-): Promise<Buffer | null> {
+): Promise<string | null> {
   if (state.kind === "none") {
     return null;
   }
 
   const avatarPath = getAvatarImagePath();
-  const existing = readPng(avatarPath);
-  if (existing || state.kind !== "character" || !state.traits) {
-    return existing;
+  if (existsSync(avatarPath)) {
+    return avatarPath;
+  }
+  if (state.kind !== "character" || !state.traits) {
+    return null;
   }
 
   try {
@@ -61,5 +64,16 @@ export async function ensureAvatarRaster(
     return null;
   }
 
-  return readPng(avatarPath);
+  return existsSync(avatarPath) ? avatarPath : null;
+}
+
+/**
+ * Returns the PNG raster for the current avatar, or null when there is none.
+ * Same existence and regeneration semantics as `ensureAvatarRasterPath`.
+ */
+export async function ensureAvatarRaster(
+  state: AvatarState = readAvatarState(),
+): Promise<Buffer | null> {
+  const avatarPath = await ensureAvatarRasterPath(state);
+  return avatarPath ? readPng(avatarPath) : null;
 }

@@ -16,7 +16,10 @@ import {
   setImage,
 } from "../../avatar/avatar-store.js";
 import { getCharacterComponents } from "../../avatar/character-components.js";
-import { ensureAvatarRaster } from "../../avatar/ensure-raster.js";
+import {
+  ensureAvatarRaster,
+  ensureAvatarRasterPath,
+} from "../../avatar/ensure-raster.js";
 import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
   type CharacterTraits,
@@ -28,11 +31,7 @@ import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { detectMediaType } from "../../tools/shared/filesystem/image-read.js";
 import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getAvatarDir,
-  getAvatarImagePath,
-  getWorkspaceDir,
-} from "../../util/platform.js";
+import { getAvatarDir, getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import {
@@ -281,14 +280,15 @@ async function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
     return { exists: false };
   }
 
-  // Re-renders a character whose PNG is missing (pre-existing GET side effect).
+  // A character whose PNG is missing is regenerated on read. Path mode never
+  // loads the raster bytes.
+  if (format === "path") {
+    const path = await ensureAvatarRasterPath(state);
+    return path ? { exists: true, path } : { exists: false };
+  }
   const raster = await ensureAvatarRaster(state);
   if (!raster) {
     return { exists: false };
-  }
-
-  if (format === "path") {
-    return { exists: true, path: getAvatarImagePath() };
   }
   return { exists: true, base64: raster.toString("base64") };
 }

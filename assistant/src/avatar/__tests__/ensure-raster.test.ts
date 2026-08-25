@@ -1,5 +1,5 @@
 /**
- * Tests for ensureAvatarRaster.
+ * Tests for ensureAvatarRaster and ensureAvatarRasterPath.
  *
  * Character re-render routes through the native @resvg/resvg-js binding. As in
  * avatar-store.test.ts, the re-render case branches on `isResvgAvailable()` so
@@ -16,7 +16,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { ensureAvatarRaster } from "../ensure-raster.js";
+import {
+  ensureAvatarRaster,
+  ensureAvatarRasterPath,
+} from "../ensure-raster.js";
 import {
   __resetResvgCacheForTests,
   __setResvgCacheForTests,
@@ -159,5 +162,79 @@ describe("ensureAvatarRaster", () => {
         image: null,
       }),
     ).toBeNull();
+  });
+
+  describe("ensureAvatarRasterPath", () => {
+    test("returns null for kind none", async () => {
+      writeFileSync(join(avatarDir, IMAGE_FILENAME), FAKE_PNG);
+      writeManifestFile({
+        kind: "none",
+        traits: null,
+        source: null,
+        image: null,
+      });
+      expect(await ensureAvatarRasterPath()).toBeNull();
+    });
+
+    test("returns the path of an existing PNG without reading it", async () => {
+      writeFileSync(join(avatarDir, IMAGE_FILENAME), FAKE_PNG);
+      writeManifestFile({
+        kind: "image",
+        traits: null,
+        source: "upload",
+        image: {
+          updatedAt: new Date().toISOString(),
+          etag: "0123456789abcdef",
+        },
+      });
+      expect(await ensureAvatarRasterPath()).toBe(
+        join(avatarDir, IMAGE_FILENAME),
+      );
+    });
+
+    test("returns null for an image avatar whose PNG is missing", async () => {
+      writeManifestFile({
+        kind: "image",
+        traits: null,
+        source: "upload",
+        image: {
+          updatedAt: new Date().toISOString(),
+          etag: "0123456789abcdef",
+        },
+      });
+      expect(await ensureAvatarRasterPath()).toBeNull();
+    });
+
+    test("returns null for a character when resvg is unavailable", async () => {
+      writeManifestFile({
+        kind: "character",
+        traits: VALID_TRAITS,
+        source: "builder",
+        image: null,
+      });
+      __setResvgCacheForTests({ available: false, error: new Error("nope") });
+      expect(await ensureAvatarRasterPath()).toBeNull();
+      expect(existsSync(join(avatarDir, IMAGE_FILENAME))).toBe(false);
+    });
+
+    test(
+      "re-renders a character whose PNG is missing and returns its path",
+      async () => {
+        writeManifestFile({
+          kind: "character",
+          traits: VALID_TRAITS,
+          source: "builder",
+          image: null,
+        });
+        const path = await ensureAvatarRasterPath();
+        if (!isResvgAvailable()) {
+          expect(path).toBeNull();
+          return;
+        }
+        expect(path).toBe(join(avatarDir, IMAGE_FILENAME));
+        expect(existsSync(path!)).toBe(true);
+      },
+      NATIVE_RENDER_TEST_TIMEOUT_MS,
+    );
   });
 });
