@@ -506,13 +506,15 @@ export function PricingContent() {
               <li>
                 <strong>Upgrade a tier.</strong> Switch to a bigger machine,
                 storage, or credit tier anytime, or to a bigger package.
-                Upgrades take effect immediately: the price difference is
-                charged right away, and a bigger credit bundle grants the
-                extra credits as soon as that charge succeeds. When the
-                difference cannot be charged right away (for example, on a
-                discounted subscription), the bundle change waits for your
-                next renewal instead. Modifying any individual tier on a
-                package converts your plan to Custom.
+                Upgrades bill immediately: the price difference is charged
+                right away, and a bigger credit bundle grants the extra
+                credits as soon as that charge succeeds. New machine or
+                storage capacity then finishes provisioning in the background
+                shortly after checkout. When the difference cannot be charged
+                right away (for example, on a discounted subscription), the
+                bundle change waits for your next renewal instead. Modifying
+                any individual tier on a package converts your plan to
+                Custom.
               </li>
               <li>
                 <strong>Downgrade a tier.</strong> A smaller machine applies
