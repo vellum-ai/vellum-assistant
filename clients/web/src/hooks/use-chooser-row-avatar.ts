@@ -59,8 +59,18 @@ export interface ChooserRowAvatar {
 
 const EMPTY_AVATAR: ChooserRowAvatar = { traits: null, imageUrl: null };
 
+/**
+ * The legacy sidecar path swallows read failures into nulls, so an empty
+ * result may be a transient error rather than a bare avatar. Let it go stale
+ * on a normal clock instead of pinning the glyph fallback forever.
+ */
+export const EMPTY_AVATAR_STALE_TIME_MS = 60_000;
+
 /** Separate from `use-assistant-avatar`'s map so the two caches never revoke each other's URLs. */
 const activeBlobUrls = new Map<string, string>();
+
+/** Latest fetch generation per row; a superseded fetch must not touch the map. */
+const fetchGenerations = new Map<string, number>();
 
 /**
  * Whether a daemon SDK call for `row` actually reaches `row`'s runtime.
@@ -122,6 +132,33 @@ function trackBlobUrl(assistantId: string, imageUrl: string | null): void {
 }
 
 /**
+ * Runs one fetch generation for `assistant`. A re-key (manifest support
+ * flipping) can start a newer fetch while this one is in flight; when the
+ * older one finishes last it must not revoke the URL the newer query renders,
+ * so it drops its own blob instead.
+ */
+async function fetchRowAvatarGeneration(
+  assistant: ResolvedAssistant,
+  manifestSupport: RowManifestSupport,
+): Promise<ChooserRowAvatar> {
+  const generation = (fetchGenerations.get(assistant.id) ?? 0) + 1;
+  fetchGenerations.set(assistant.id, generation);
+  const avatar = await fetchRowAvatar(assistant, manifestSupport);
+  if (fetchGenerations.get(assistant.id) !== generation) {
+    if (avatar.imageUrl) {
+      URL.revokeObjectURL(avatar.imageUrl);
+    }
+    return { traits: avatar.traits, imageUrl: null };
+  }
+  trackBlobUrl(assistant.id, avatar.imageUrl);
+  return avatar;
+}
+
+function isEmptyAvatar(avatar: ChooserRowAvatar | undefined): boolean {
+  return avatar !== undefined && !avatar.traits && !avatar.imageUrl;
+}
+
+/**
  * Avatar data for one chooser row, resolved through a precedence chain:
  * 1. The connected row reuses `useAssistantAvatar`'s cache, correct in every
  *    transport mode and never fetched twice.
@@ -143,16 +180,13 @@ export function useChooserRowAvatar(
   const manifestSupport = rowManifestSupport(assistant);
   const { data } = useQuery<ChooserRowAvatar>({
     queryKey: chooserRowAvatarQueryKey(assistant.id, manifestSupport),
-    queryFn: async () => {
-      const avatar = await fetchRowAvatar(assistant, manifestSupport);
-      trackBlobUrl(assistant.id, avatar.imageUrl);
-      return avatar;
-    },
+    queryFn: () => fetchRowAvatarGeneration(assistant, manifestSupport),
     enabled:
       !isConnectedRow &&
       isOrgReady &&
       canFetchRowAvatarViaPlatformProxy(assistant),
-    staleTime: Infinity,
+    staleTime: (query) =>
+      isEmptyAvatar(query.state.data) ? EMPTY_AVATAR_STALE_TIME_MS : Infinity,
     structuralSharing: false,
     // A rejected query leaves `data` undefined, which reads as nulls below.
     retry: 1,

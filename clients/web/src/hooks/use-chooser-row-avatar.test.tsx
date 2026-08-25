@@ -7,7 +7,15 @@
  */
 
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
@@ -90,10 +98,14 @@ const { useAssistantIdentityStore } =
 const { MIN_VERSION } =
   await import("@/lib/backwards-compat/avatar-state-manifest");
 const {
+  EMPTY_AVATAR_STALE_TIME_MS,
   canFetchRowAvatarViaPlatformProxy,
   chooserRowAvatarQueryKeyPrefix,
   useChooserRowAvatar,
 } = await import("@/hooks/use-chooser-row-avatar");
+
+const revokeObjectURL = mock((_url: string) => {});
+URL.revokeObjectURL = revokeObjectURL;
 
 const platformRow = (
   id: string,
@@ -145,6 +157,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  setSystemTime();
+  revokeObjectURL.mockClear();
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   useAssistantIdentityStore.getState().clearIdentity();
   fetchAvatarState.mockReset();
@@ -400,6 +414,77 @@ describe("useChooserRowAvatar", () => {
       expect(result.current.traits).toEqual(updated);
     });
     expect(fetchAvatarState).toHaveBeenCalledTimes(2);
+  });
+
+  test("an empty legacy result goes stale so a later mount refetches it", async () => {
+    const wrapper = createWrapper();
+    const row = platformRow("other", { runtimeVersion: "0.8.6" });
+    const first = renderHook(() => useChooserRowAvatar(row), { wrapper });
+    await waitFor(() => {
+      expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    });
+    await settle();
+    expect(first.result.current).toEqual({ traits: null, imageUrl: null });
+    first.unmount();
+
+    setSystemTime(new Date(Date.now() + EMPTY_AVATAR_STALE_TIME_MS + 1));
+    fetchCharacterTraits.mockResolvedValue(traits);
+    const second = renderHook(() => useChooserRowAvatar(row), { wrapper });
+    await waitFor(() => {
+      expect(second.result.current.traits).toEqual(traits);
+    });
+    expect(fetchCharacterTraits).toHaveBeenCalledTimes(2);
+  });
+
+  test("a populated legacy result stays cached past the empty stale window", async () => {
+    const wrapper = createWrapper();
+    const row = platformRow("other", { runtimeVersion: "0.8.6" });
+    fetchCharacterTraits.mockResolvedValue(traits);
+    const first = renderHook(() => useChooserRowAvatar(row), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.traits).toEqual(traits);
+    });
+    first.unmount();
+
+    setSystemTime(new Date(Date.now() + EMPTY_AVATAR_STALE_TIME_MS + 1));
+    const second = renderHook(() => useChooserRowAvatar(row), { wrapper });
+    await waitFor(() => {
+      expect(second.result.current.traits).toEqual(traits);
+    });
+    await settle();
+    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+  });
+
+  test("a superseded fetch that finishes last drops its own blob, not the current one", async () => {
+    let resolveOld: (url: string) => void = () => {};
+    const oldImage = new Promise<string | null>((resolve) => {
+      resolveOld = resolve;
+    });
+    fetchAvatarImageUrl.mockImplementationOnce(() => oldImage);
+    fetchAvatarImageUrl.mockResolvedValue("blob:new");
+    fetchAvatarState.mockResolvedValue(imageState);
+
+    const { result, rerender } = renderHook(
+      (version: string) =>
+        useChooserRowAvatar(platformRow("other", { runtimeVersion: version })),
+      { wrapper: createWrapper(), initialProps: "0.8.6" },
+    );
+    await waitFor(() => {
+      expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(MIN_VERSION);
+    await waitFor(() => {
+      expect(result.current.imageUrl).toBe("blob:new");
+    });
+
+    resolveOld("blob:old");
+    await waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:old");
+    });
+    await settle();
+    expect(revokeObjectURL).not.toHaveBeenCalledWith("blob:new");
+    expect(result.current.imageUrl).toBe("blob:new");
   });
 
   test("keys the fetch per row id", async () => {
