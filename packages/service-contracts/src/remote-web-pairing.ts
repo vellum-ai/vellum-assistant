@@ -324,3 +324,89 @@ export function buildRemoteWebPairingUrl(
   }).toString();
   return url.toString();
 }
+
+/**
+ * Base that makes a relative pairing link parseable. Only the query and
+ * fragment are read off the result, so it never reaches a caller.
+ */
+const RELATIVE_PAIRING_LINK_BASE = "https://pairing.invalid";
+
+/** The device/user codes a pairing link can carry. */
+export interface RemoteWebPairingParams {
+  deviceCode: string | null;
+  userCode: string | null;
+}
+
+function firstParam(
+  params: URLSearchParams,
+  ...names: string[]
+): string | null {
+  for (const name of names) {
+    const value = params.get(name)?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Query parameters merged with fragment parameters, query winning on a clash.
+ * Pairing links carry the device code in the fragment so it never reaches the
+ * wire, but hand-assembled links put it in the query.
+ */
+function pairingLinkParams(url: URL): URLSearchParams {
+  const merged = new URLSearchParams(url.search);
+  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+  for (const [key, value] of new URLSearchParams(hash)) {
+    if (!merged.has(key)) {
+      merged.set(key, value);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Read the pairing codes off a link, accepting either casing (`device_code` /
+ * `deviceCode`) from either the query string or the fragment. Relative values
+ * are accepted so a router can pass `pathname + search + hash` straight in.
+ */
+export function parseRemoteWebPairingParams(
+  value: string | URL,
+): RemoteWebPairingParams {
+  const url =
+    typeof value === "string"
+      ? new URL(value, RELATIVE_PAIRING_LINK_BASE)
+      : value;
+  const params = pairingLinkParams(url);
+  return {
+    deviceCode: firstParam(params, "deviceCode", "device_code"),
+    userCode: firstParam(params, "userCode", "user_code"),
+  };
+}
+
+/** Outcome of {@link parsePairingAddress}. */
+export type ParsePairingAddressResult =
+  | { ok: true; publicBaseUrl: string; deviceCode: string | null }
+  | { ok: false; reason: PublicBaseUrlRejection };
+
+/**
+ * The inverse of {@link buildRemoteWebPairingUrl}: what a pasted pairing
+ * address means. A full pairing link yields its base plus the device code it
+ * carries; a bare `https://host` address yields a null device code, leaving
+ * the caller to mint its own challenge. The base goes through
+ * {@link resolvePublicBaseUrl}, so loopback, non-https, and tunnel-vendor
+ * websites are refused with the same reasons every other pairing surface
+ * reports.
+ */
+export function parsePairingAddress(raw: string): ParsePairingAddressResult {
+  const resolved = resolvePublicBaseUrl(raw);
+  if (!resolved.ok) {
+    return resolved;
+  }
+  return {
+    ok: true,
+    publicBaseUrl: resolved.url,
+    deviceCode: parseRemoteWebPairingParams(raw).deviceCode,
+  };
+}
