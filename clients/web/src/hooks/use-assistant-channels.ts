@@ -189,12 +189,14 @@ export function useAssistantChannels({
   // channel-setup panel); they validate, trim, and invalidate readiness.
   const saveTelegramMutation = useSaveTelegramConfig({ assistantId });
   const saveDiscordMutation = useSaveDiscordConfig({ assistantId });
-  // The stored config, so the invite step still has an application to link to
-  // after a reload. A connect result only exists for the life of the mutation,
-  // and setup is routinely finished in a later sitting.
+  // The stored config, so the invite step still has its install link after a
+  // reload. A connect result only exists for the life of the mutation, and
+  // setup is routinely finished in a later sitting.
   const discordConfigQuery = useQuery({
     ...integrationsDiscordConfigGetOptions(pathOpts),
-    enabled: Boolean(assistantId) && supportsDiscord,
+    // Gated on the config routes, not the row: a daemon can show the row
+    // (readiness probe present) while these routes do not exist yet.
+    enabled: Boolean(assistantId) && supportsDiscordConfig,
   });
   const saveSlackMutation = useSaveSlackConfig({ assistantId });
   const saveTwilioMutation = useSaveTwilioCredentials({ assistantId });
@@ -298,9 +300,9 @@ export function useAssistantChannels({
     discordSaveError: saveDiscordMutation.error?.message ?? null,
     // The application the validated token belongs to, which the invite step
     // builds its link from. Present only after a successful connect.
-    discordApplicationId:
-      saveDiscordMutation.data?.data?.applicationId ??
-      discordConfigQuery.data?.applicationId,
+    discordInviteUrl:
+      saveDiscordMutation.data?.data?.inviteUrl ??
+      discordConfigQuery.data?.inviteUrl,
     onSaveSlackConfig,
     slackSaveStatus: saveSlackMutation.status,
     slackSaveError: saveSlackMutation.error?.message ?? null,
@@ -341,10 +343,12 @@ function deriveChannelStates(
       key,
       status,
       configured: snap?.setupStatus === "ready",
-      canDisconnect: DISCONNECT_ROUTES[key] !== undefined,
-      // Discord's config routes are newer than its readiness probe, so its
-      // form is additionally version-gated; the other channels' routes
-      // predate every daemon this client can meet.
+      // Discord's config routes are newer than its readiness probe, so both
+      // per-daemon capabilities carry the same version gate; the other
+      // channels' routes predate every daemon this client can meet.
+      canDisconnect:
+        DISCONNECT_ROUTES[key] !== undefined &&
+        (key !== "discord" || supportsDiscordConfig),
       canManualEntry:
         CHANNEL_META[key].credentialForm !== undefined &&
         (key !== "discord" || supportsDiscordConfig),

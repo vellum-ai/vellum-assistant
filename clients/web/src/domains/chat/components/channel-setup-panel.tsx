@@ -159,8 +159,8 @@ export function ChannelSetupPanel({
           saveStatus={saveDiscord.status}
           saveError={saveDiscord.error?.message ?? null}
           onSave={(botToken) => saveDiscord.mutate(botToken)}
-          {...(saveDiscord.data?.data?.applicationId
-            ? { applicationId: saveDiscord.data.data.applicationId }
+          {...(saveDiscord.data?.data?.inviteUrl
+            ? { inviteUrl: saveDiscord.data.data.inviteUrl }
             : {})}
         />
       ) : payload.channel === "phone" ? (

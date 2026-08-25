@@ -47,8 +47,8 @@ interface ChannelPanelProps {
   onSaveDiscordToken?: (botToken: string) => void;
   discordSaveStatus?: MutationStatus;
   discordSaveError?: string | null;
-  /** Read back when the token validates; the invite link is built from it. */
-  discordApplicationId?: string;
+  /** The install link, read back from the daemon when the token validates. */
+  discordInviteUrl?: string;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
@@ -89,7 +89,7 @@ export function ChannelPanel({
   onSaveDiscordToken,
   discordSaveStatus,
   discordSaveError = null,
-  discordApplicationId,
+  discordInviteUrl,
   onSaveSlackConfig,
   slackSaveStatus,
   slackSaveError,
@@ -188,9 +188,7 @@ export function ChannelPanel({
             saveStatus={discordSaveStatus}
             saveError={discordSaveError}
             onSave={onSaveDiscordToken}
-            {...(discordApplicationId
-              ? { applicationId: discordApplicationId }
-              : {})}
+            {...(discordInviteUrl ? { inviteUrl: discordInviteUrl } : {})}
           />
         );
       case "twilio-credentials":

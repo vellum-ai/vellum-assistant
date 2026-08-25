@@ -2,34 +2,27 @@ import { Button, Notice, Typography } from "@vellumai/design-library";
 import { useTranslation } from "@/i18n";
 
 export interface DiscordSetupInviteStepProps {
-  /** The connected application, when the token has been validated. */
-  applicationId?: string;
+  /**
+   * The install link, computed daemon-side from the application's own
+   * install settings when the token validates. The grant rules live in one
+   * place there; this step only opens what it is handed.
+   */
+  inviteUrl?: string;
   onOpenInvite: (url: string) => void;
 }
 
-/**
- * Invite the bot to a server.
- *
- * The link carries only the client id, which is Discord's current model: the
- * scopes and permissions it asks for come from the application's own Default
- * Install Settings on the portal's Installation page. Spelling them into the
- * URL would override whatever was configured there without saying so.
- */
+/** Invite the bot to a server. */
 export function DiscordSetupInviteStep({
-  applicationId,
+  inviteUrl,
   onOpenInvite,
 }: DiscordSetupInviteStepProps) {
   const { t } = useTranslation();
 
-  if (!applicationId) {
+  if (!inviteUrl) {
     return (
       <Notice tone="warning">{t("discordSetupInviteStep.noAppId")}</Notice>
     );
   }
-
-  const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(
-    applicationId,
-  )}`;
 
   return (
     <div className="flex flex-col gap-4">

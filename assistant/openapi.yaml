@@ -15678,6 +15678,8 @@ paths:
                     type: string
                   applicationId:
                     type: string
+                  inviteUrl:
+                    type: string
                 required:
                   - success
                   - hasBotToken
@@ -15710,6 +15712,8 @@ paths:
                   botUsername:
                     type: string
                   applicationId:
+                    type: string
+                  inviteUrl:
                     type: string
                 required:
                   - success
@@ -15758,6 +15762,8 @@ paths:
                   botUsername:
                     type: string
                   applicationId:
+                    type: string
+                  inviteUrl:
                     type: string
                 required:
                   - success

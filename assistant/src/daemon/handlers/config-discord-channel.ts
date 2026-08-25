@@ -55,7 +55,68 @@ const DiscordBotIdentitySchema = z.object({
   username: z.string().optional(),
 });
 
-const DiscordApplicationSchema = z.object({ id: z.string().optional() });
+/**
+ * The application read, including its own install settings. The portal's
+ * Installation page writes Default Install Settings to
+ * `integration_types_config["0"].oauth2_install_params` (`0` is
+ * GUILD_INSTALL); top-level `install_params` is the older in-app
+ * authorization link, still served for apps that configured it.
+ */
+const DiscordInstallParamsSchema = z.object({
+  scopes: z.array(z.string()).optional(),
+});
+const DiscordApplicationSchema = z.object({
+  id: z.string().optional(),
+  install_params: DiscordInstallParamsSchema.optional(),
+  integration_types_config: z
+    .record(
+      z.string(),
+      z.object({
+        oauth2_install_params: DiscordInstallParamsSchema.optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * The permission integer a parameterized invite link requests: View Channels,
+ * Send Messages, Send Messages in Threads, Embed Links, Attach Files, Read
+ * Message History, Add Reactions, Use External Emojis, Use Slash Commands.
+ * The setup skill's invite script derives the same integer from named bits;
+ * skills are import-isolated from this package, so the value is stated here
+ * and pinned equal by the connect test.
+ */
+const DISCORD_INVITE_PERMISSIONS = "277025770560";
+
+/**
+ * The install link for the application, total over every app state.
+ *
+ * An app whose own install settings grant the `bot` scope gets a link
+ * carrying only the client id, so the grant is whatever the owner configured
+ * and an edit on the portal's Installation page takes effect. Any other app,
+ * including the fresh one the wizard's create step just made, gets the
+ * parameterized link: a client-id-only link installs nothing without
+ * settings, and explicit scope and permission parameters are honored
+ * regardless of them.
+ */
+function buildDiscordInviteUrl(
+  app: z.infer<typeof DiscordApplicationSchema>,
+): string | undefined {
+  if (!app.id) {
+    return undefined;
+  }
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", app.id);
+  const settingsScopes =
+    app.integration_types_config?.["0"]?.oauth2_install_params?.scopes ??
+    app.install_params?.scopes ??
+    [];
+  if (!settingsScopes.includes("bot")) {
+    url.searchParams.set("permissions", DISCORD_INVITE_PERMISSIONS);
+    url.searchParams.set("scope", "bot");
+  }
+  return url.toString();
+}
 
 export const DiscordChannelConfigResultSchema =
   ChannelConfigResultBaseSchema.extend({
@@ -63,12 +124,17 @@ export const DiscordChannelConfigResultSchema =
     botUserId: z.string().optional(),
     botUsername: z.string().optional(),
     /**
-     * The application the bot belongs to, which is what an install link is
-     * built from. Read from Discord rather than assumed equal to the bot user
-     * id: they coincide today, and the install link breaks silently if that
-     * ever stops being true.
+     * The application the bot belongs to. Read from Discord rather than
+     * assumed equal to the bot user id: they coincide today, and anything
+     * built on that assumption breaks silently if it ever stops being true.
      */
     applicationId: z.string().optional(),
+    /**
+     * The install link for the bot's application, computed daemon-side from
+     * the application's own install settings so no client re-derives the
+     * grant rules. Absent until a token has validated.
+     */
+    inviteUrl: z.string().optional(),
   });
 
 export type DiscordChannelConfigResult = z.infer<
@@ -102,6 +168,7 @@ export async function getDiscordChannelConfig(): Promise<DiscordChannelConfigRes
     ...(discord.botUserId ? { botUserId: discord.botUserId } : {}),
     ...(discord.botUsername ? { botUsername: discord.botUsername } : {}),
     ...(discord.applicationId ? { applicationId: discord.applicationId } : {}),
+    ...(discord.inviteUrl ? { inviteUrl: discord.inviteUrl } : {}),
   };
 }
 
@@ -123,6 +190,7 @@ export async function setDiscordChannelConfig(
   let botUserId: string | undefined;
   let botUsername: string | undefined;
   let applicationId: string | undefined;
+  let inviteUrl: string | undefined;
   try {
     // Not `callDiscordApi`: that resolves the stored credential, and this
     // token is not stored yet. Validating first is what keeps an invalid one
@@ -152,7 +220,10 @@ export async function setDiscordChannelConfig(
 
     if (appRes?.ok) {
       const app = DiscordApplicationSchema.safeParse(await appRes.json());
-      applicationId = app.success ? app.data.id : undefined;
+      if (app.success) {
+        applicationId = app.data.id;
+        inviteUrl = buildDiscordInviteUrl(app.data);
+      }
     }
   } catch (err) {
     // The body is not echoed: this path runs with a secret in hand, and the
@@ -176,6 +247,7 @@ export async function setDiscordChannelConfig(
   setNestedValue(raw, "discord.botUserId", botUserId ?? "");
   setNestedValue(raw, "discord.botUsername", botUsername ?? "");
   setNestedValue(raw, "discord.applicationId", applicationId ?? "");
+  setNestedValue(raw, "discord.inviteUrl", inviteUrl ?? "");
   saveRawConfig(raw);
   invalidateConfigCache();
 
@@ -192,6 +264,7 @@ export async function setDiscordChannelConfig(
     ...(botUserId ? { botUserId } : {}),
     ...(botUsername ? { botUsername } : {}),
     ...(applicationId ? { applicationId } : {}),
+    ...(inviteUrl ? { inviteUrl } : {}),
   };
 }
 
@@ -203,7 +276,14 @@ export async function setDiscordChannelConfig(
  * their room choices silently discarded.
  */
 export async function clearDiscordChannelConfig(): Promise<DiscordChannelConfigResult> {
-  await deleteSecureKeyAsync(credentialKey(DISCORD_PROVIDER, "bot_token"));
+  const deleted = await deleteSecureKeyAsync(
+    credentialKey(DISCORD_PROVIDER, "bot_token"),
+  );
+  if (deleted === "error") {
+    // The token is still stored, so the gateway's client stays connected: a
+    // success here would report a disconnect that did not happen.
+    return failure("Failed to delete the bot token from secure storage");
+  }
   deleteCredentialMetadata(DISCORD_PROVIDER, "bot_token");
   await removeManualTokenConnection(DISCORD_PROVIDER);
 
@@ -211,6 +291,7 @@ export async function clearDiscordChannelConfig(): Promise<DiscordChannelConfigR
   setNestedValue(raw, "discord.botUserId", "");
   setNestedValue(raw, "discord.botUsername", "");
   setNestedValue(raw, "discord.applicationId", "");
+  setNestedValue(raw, "discord.inviteUrl", "");
   saveRawConfig(raw);
   invalidateConfigCache();
 

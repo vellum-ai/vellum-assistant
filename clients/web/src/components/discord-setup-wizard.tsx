@@ -22,8 +22,8 @@ export interface DiscordSetupWizardProps {
   onSave?: (botToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
-  /** Read back from Discord once the token validates; builds the invite link. */
-  applicationId?: string;
+  /** The install link, read back from the daemon once the token validates. */
+  inviteUrl?: string;
 }
 
 /**
@@ -37,7 +37,7 @@ export function DiscordSetupWizard({
   onSave,
   saveStatus = "idle",
   saveError = null,
-  applicationId,
+  inviteUrl,
 }: DiscordSetupWizardProps) {
   const { t } = useTranslation();
   const WIZARD_STEPS: StepperStep[] = useMemo(
@@ -103,7 +103,7 @@ export function DiscordSetupWizard({
 
       {stepId === "invite" && (
         <DiscordSetupInviteStep
-          {...(applicationId ? { applicationId } : {})}
+          {...(inviteUrl ? { inviteUrl } : {})}
           onOpenInvite={handleOpenInvite}
         />
       )}

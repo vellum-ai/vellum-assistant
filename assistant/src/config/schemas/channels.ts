@@ -144,6 +144,12 @@ export const DiscordConfigSchema = z
       .string({ error: "discord.applicationId must be a string" })
       .default("")
       .describe("Discord application ID the bot belongs to"),
+    inviteUrl: z
+      .string({ error: "discord.inviteUrl must be a string" })
+      .default("")
+      .describe(
+        "Install link for the bot's application, computed when a token validates",
+      ),
   })
   .describe("Discord channel configuration");
 

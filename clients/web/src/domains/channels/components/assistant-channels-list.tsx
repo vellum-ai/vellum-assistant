@@ -97,7 +97,7 @@ export interface AssistantChannelsListProps {
   onSaveDiscordToken?: (botToken: string) => void;
   discordSaveStatus?: MutationStatus;
   discordSaveError?: string | null;
-  discordApplicationId?: string;
+  discordInviteUrl?: string;
   telegramSaveStatus?: MutationStatus;
   telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
@@ -144,7 +144,7 @@ export function AssistantChannelsList({
   onSaveDiscordToken,
   discordSaveStatus,
   discordSaveError = null,
-  discordApplicationId,
+  discordInviteUrl,
   telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
@@ -262,7 +262,7 @@ export function AssistantChannelsList({
       onSaveDiscordToken={onSaveDiscordToken}
       discordSaveStatus={discordSaveStatus}
       discordSaveError={discordSaveError}
-      {...(discordApplicationId ? { discordApplicationId } : {})}
+      {...(discordInviteUrl ? { discordInviteUrl } : {})}
       telegramSaveError={telegramSaveError}
       onSaveSlackConfig={onSaveSlackConfig}
       slackSaveStatus={slackSaveStatus}
