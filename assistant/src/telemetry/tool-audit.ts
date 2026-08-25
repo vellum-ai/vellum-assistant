@@ -26,7 +26,10 @@
  * are unaffected — `tool_invocations` is a local always-on audit log.
  */
 
-import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
+import {
+  type LifecycleEventAttributes,
+  recordLifecycleEvent,
+} from "../persistence/lifecycle-events-store.js";
 import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
@@ -165,17 +168,13 @@ export type PermissionPromptOutcome = "allow" | "deny" | "abandoned";
 
 /**
  * Grouping dimensions recorded on both halves of a permission-prompt pair.
- * Metadata only: never a file path, a command string, or any tool input.
+ * The tool and its risk are always known at the prompt site, so they tighten
+ * to required; the rest are the lifecycle attributes as declared. Metadata
+ * only: never a file path, a command string, or any tool input.
  */
-export interface PermissionPromptTelemetry {
+export interface PermissionPromptTelemetry extends LifecycleEventAttributes {
   toolName: string;
-  /** Classified risk of the invocation ("low" | "medium" | "high"). */
   riskLevel: string;
-  /** Auto-approve threshold (access preset) resolved for the invocation. */
-  riskThreshold?: string;
-  /** Channel the prompt is delivered on ("vellum", "slack", "telegram", ...). */
-  surface?: string;
-  conversationId?: string;
 }
 
 /**
@@ -202,13 +201,7 @@ function recordPermissionLifecycleEvent(
   failureMessage: string,
 ): void {
   try {
-    recordLifecycleEvent(eventName, {
-      toolName: entry.toolName,
-      riskLevel: entry.riskLevel,
-      riskThreshold: entry.riskThreshold,
-      surface: entry.surface,
-      conversationId: entry.conversationId,
-    });
+    recordLifecycleEvent(eventName, entry);
   } catch (err) {
     log.warn({ err, eventName, toolName: entry.toolName }, failureMessage);
   }
