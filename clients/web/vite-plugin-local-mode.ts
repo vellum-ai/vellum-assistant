@@ -958,11 +958,21 @@ function avatarMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
       return;
     }
 
-    const assistantId = decodeURIComponent(match[1]!);
+    let assistantId: string;
+    try {
+      assistantId = decodeURIComponent(match[1]!);
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Malformed assistant ID" }));
+      return;
+    }
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
     res.end(
-      JSON.stringify(readLockfileAssistantAvatar(lockfilePaths, assistantId)),
+      JSON.stringify(
+        readLockfileAssistantAvatar(lockfilePaths, assistantId, process.env),
+      ),
     );
   };
 }

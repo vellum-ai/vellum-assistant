@@ -231,16 +231,37 @@ describe("getLocalAssistantStatus", () => {
 describe("resolveLockfileInstanceDir", () => {
   test("reads the instance dir from the parsed entry", () => {
     writeLocalLockfile();
-    expect(resolveLockfileInstanceDir([lockfilePath], "local-1")).toBe(
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toBe(
       instanceDir,
     );
   });
 
   test("honors legacy top-level baseDataDir", () => {
     writeLockfile({ assistantId: "local-1", baseDataDir: instanceDir });
-    expect(resolveLockfileInstanceDir([lockfilePath], "local-1")).toBe(
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toBe(
       instanceDir,
     );
+  });
+
+  test("falls back to the default instance dir for an entry without one", () => {
+    writeLockfile({ assistantId: "local-1", cloud: "local" });
+    const dataHome = path.join(tempDir, "data-home");
+    expect(
+      resolveLockfileInstanceDir([lockfilePath], "local-1", {
+        VELLUM_ENVIRONMENT: "production",
+        XDG_DATA_HOME: dataHome,
+      }),
+    ).toBe(path.join(dataHome, "vellum", "assistants", "local-1"));
+  });
+
+  test("is undefined for a missing entry", () => {
+    writeLocalLockfile();
+    expect(
+      resolveLockfileInstanceDir([lockfilePath], "local-2", {
+        VELLUM_ENVIRONMENT: "production",
+        XDG_DATA_HOME: tempDir,
+      }),
+    ).toBeUndefined();
   });
 
   test("stops when the authoritative lockfile is unreadable", () => {
@@ -253,7 +274,7 @@ describe("resolveLockfileInstanceDir", () => {
       }),
     );
     expect(
-      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1"),
+      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1", {}),
     ).toBeUndefined();
   });
 
@@ -267,7 +288,7 @@ describe("resolveLockfileInstanceDir", () => {
       }),
     );
     expect(
-      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1"),
+      resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1", {}),
     ).toBeUndefined();
   });
 });

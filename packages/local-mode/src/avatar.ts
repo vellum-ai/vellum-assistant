@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { readWorkspaceAvatar } from "@vellumai/avatar-manifest";
+import {
+  readWorkspaceAvatar,
+  type CharacterTraits,
+} from "@vellumai/avatar-manifest";
 
 import { resolveLockfileInstanceDir } from "./status";
 
@@ -13,10 +16,7 @@ import { resolveLockfileInstanceDir } from "./status";
  * package cannot depend on; hosts return it straight over IPC/HTTP.
  */
 export type LockfileAssistantAvatar =
-  | {
-      kind: "character";
-      traits: { bodyShape: string; eyeStyle: string; color: string };
-    }
+  | { kind: "character"; traits: CharacterTraits }
   | { kind: "image"; imageBase64: string };
 
 export type LockfileAssistantAvatarResult =
@@ -43,14 +43,19 @@ function readAvatarImage(imagePath: string): LockfileAssistantAvatar | null {
 /**
  * Read an assistant's avatar directly off disk via its lockfile instance dir,
  * so a sleeping sibling assistant still has an avatar in the chooser. Shared
- * by the Electron IPC handler, the Vite dev middleware, and the packaged CLI
- * `client` host so every host applies one size policy and one result shape.
+ * by the Electron IPC handler and the Vite dev middleware so every host
+ * applies one size policy and one result shape.
  */
 export function readLockfileAssistantAvatar(
   lockfilePaths: string[],
   assistantId: string,
+  env: Record<string, string | undefined>,
 ): LockfileAssistantAvatarResult {
-  const instanceDir = resolveLockfileInstanceDir(lockfilePaths, assistantId);
+  const instanceDir = resolveLockfileInstanceDir(
+    lockfilePaths,
+    assistantId,
+    env,
+  );
   if (!instanceDir) {
     return { ok: true, avatar: null };
   }

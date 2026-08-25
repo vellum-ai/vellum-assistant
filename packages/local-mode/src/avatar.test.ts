@@ -14,8 +14,9 @@ describe("readLockfileAssistantAvatar", () => {
   let instanceDir: string;
   let avatarDir: string;
 
+  const env = { VELLUM_ENVIRONMENT: "production", XDG_DATA_HOME: "" };
   const read = (assistantId = "asst-1") =>
-    readLockfileAssistantAvatar([lockfilePath], assistantId);
+    readLockfileAssistantAvatar([lockfilePath], assistantId, env);
 
   const writeLockfileEntry = (
     resources?: Record<string, unknown>,
@@ -44,6 +45,7 @@ describe("readLockfileAssistantAvatar", () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "local-mode-avatar-"));
+    env.XDG_DATA_HOME = path.join(tempDir, "data-home");
     lockfilePath = path.join(tempDir, "lockfile.json");
     instanceDir = path.join(tempDir, "instance");
     avatarDir = path.join(
@@ -129,7 +131,31 @@ describe("readLockfileAssistantAvatar", () => {
     expect(read()).toEqual({ ok: true, avatar: null });
   });
 
-  test("entry without an instanceDir yields null", () => {
+  test("entry without an instanceDir reads the default instance dir", () => {
+    writeLockfileEntry({ gatewayPort: 1, daemonPort: 2 });
+    const defaultAvatarDir = path.join(
+      env.XDG_DATA_HOME,
+      "vellum",
+      "assistants",
+      "asst-1",
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(defaultAvatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(defaultAvatarDir, "character-traits.json"),
+      JSON.stringify(traits),
+    );
+
+    expect(read()).toEqual({
+      ok: true,
+      avatar: { kind: "character", traits },
+    });
+  });
+
+  test("entry without an instanceDir and no default workspace yields null", () => {
     writeLockfileEntry({ gatewayPort: 1, daemonPort: 2 });
 
     expect(read()).toEqual({ ok: true, avatar: null });

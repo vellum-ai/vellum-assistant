@@ -572,7 +572,11 @@ export const installLocalMode = (): void => {
       if (!assistantId) {
         return { ok: false, error: "Missing assistantId" };
       }
-      return readLockfileAssistantAvatar(lockfilePaths, assistantId);
+      return readLockfileAssistantAvatar(
+        lockfilePaths,
+        assistantId,
+        process.env,
+      );
     },
   );
 

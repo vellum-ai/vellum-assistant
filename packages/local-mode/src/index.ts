@@ -72,12 +72,8 @@ export type {
 } from "./devices";
 export { runUpgrade, isValidReleaseVersion } from "./upgrade";
 export type { UpgradeOptions, UpgradeResult } from "./upgrade";
-export { getLocalAssistantStatus, resolveLockfileInstanceDir } from "./status";
-export { AVATAR_IMAGE_MAX_BYTES, readLockfileAssistantAvatar } from "./avatar";
-export type {
-  LockfileAssistantAvatar,
-  LockfileAssistantAvatarResult,
-} from "./avatar";
+export { getLocalAssistantStatus } from "./status";
+export { readLockfileAssistantAvatar } from "./avatar";
 export type {
   LocalAssistantRuntimeState,
   LocalAssistantStatusResult,
