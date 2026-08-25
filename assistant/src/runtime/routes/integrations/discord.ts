@@ -18,7 +18,7 @@ import {
   setDiscordChannelConfig,
 } from "../../../daemon/handlers/config-discord-channel.js";
 import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
-import { BadRequestError } from "../errors.js";
+import { BadRequestError, ServiceUnavailableError } from "../errors.js";
 import { parseBody } from "../parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -52,7 +52,15 @@ async function handleSetDiscordConfig({ body = {} }: RouteHandlerArgs) {
 }
 
 async function handleClearDiscordConfig() {
-  return clearDiscordChannelConfig();
+  const result = await clearDiscordChannelConfig();
+  if (!result.success) {
+    // The token is still stored and the bot still connected; a 200 envelope
+    // here reads as a completed disconnect to every generated client.
+    throw new ServiceUnavailableError(
+      result.error ?? "Failed to clear Discord channel config",
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------

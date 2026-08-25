@@ -40,7 +40,19 @@ The script outputs JSON: `{ "configured": boolean, "details": string, "error"?: 
   - `cli_not_found` means the `assistant` command is missing from this environment's PATH. That is an installation problem. Report it as one, quote `details`, and stop.
   - `cli_failed` or `unparseable_output` means the CLI ran but did not answer usefully. Report `details` verbatim and stop.
 - If `configured` is `true` — Discord is already set up. Offer to verify the connection or reconfigure.
-- If `configured` is `false` with no `error`, the check ran and found no token. Continue to Step 1.
+- If `configured` is `false` with no `error`, the check ran and found no token. Continue to Step 0.5.
+
+## Step 0.5: Prefer the In-Product Wizard
+
+If an interactive client is connected, call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "discord" }`. This opens the Discord setup wizard in the side panel: create the app, connect the token through a masked field, and add the bot to a server, all without the token entering chat. The wizard is non-blocking and auto-notifies you when it is closed.
+
+⚠️ **Tool call first, announcement second, in the same turn.** Do not claim the wizard is open until the `ui_show` call has returned success. After success, tell the user:
+
+> I've opened the Discord setup wizard in the side panel. It walks you through creating the app, connecting its bot token, and adding the bot to a server. It will notify me when you close it; ask me here if you hit a snag.
+
+When the wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored, then continue at Step 6 (identity verification). If a token was stored, Steps 1 through 5 are complete.
+
+If `ui_show` fails (no interactive client, or the surface is rejected), fall back to the chat-guided flow below: it collects the token through the secure credential prompt instead.
 
 ## Step 1: Create the Discord Application
 
@@ -192,7 +204,7 @@ Two things still gate a reply after that, and are worth naming if the bot stays 
 
 ## Implementation Rules
 
-- All token collection goes through the assistant's secure credential prompt via `scripts/store-bot-token.ts`. Do NOT ask the user to paste the token in chat.
+- All token collection goes through a masked secure path: the in-product wizard (`ui_show` with `surface_type: "channel_setup"`), or the secure credential prompt via `scripts/store-bot-token.ts` in the chat-guided fallback. Do NOT ask the user to paste the token in chat.
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn. Wait for the user to confirm completion before moving on.
 - **Do NOT collect the bot token before Step 3.** The token is shown once and cannot be retrieved later, so it must be collected in the same turn the user generates it, with the secure prompt already open.
 - **Do NOT request the `Administrator` permission** on the OAuth invite URL. The default permission integer was chosen with the principle of least privilege — only request more if a downstream feature explicitly requires it, and document why.

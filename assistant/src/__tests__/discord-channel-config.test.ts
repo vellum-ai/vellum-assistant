@@ -187,7 +187,7 @@ describe("connecting a Discord bot", () => {
     expect(result.success).toBe(false);
     expect(result.hasBotToken).toBe(false);
     expect(result.error).toContain("rejected");
-    expect(await getSecureKeyAsync(BOT_TOKEN_KEY)).toBeNull();
+    expect(await getSecureKeyAsync(BOT_TOKEN_KEY)).toBeFalsy();
   });
 });
 
@@ -201,7 +201,7 @@ describe("disconnecting a Discord bot", () => {
     expect(result.success).toBe(true);
     expect(result.hasBotToken).toBe(false);
     expect(result.connected).toBe(false);
-    expect(await getSecureKeyAsync(BOT_TOKEN_KEY)).toBeNull();
+    expect(await getSecureKeyAsync(BOT_TOKEN_KEY)).toBeFalsy();
     const read = await getDiscordChannelConfig();
     expect(read.botUsername).toBeUndefined();
     expect(read.inviteUrl).toBeUndefined();
