@@ -466,7 +466,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
           },
         ] = await Promise.all([
           import("../../security/oauth2.js"),
-          import("../../providers/inference/chatgpt-subscription-auth.js"),
+          import("../../providers/inference/chatgpt-subscription-credentials.js"),
         ]);
         // Step 1: Run browser-based PKCE OAuth flow
         if (!opts.json) {

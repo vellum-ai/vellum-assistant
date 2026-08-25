@@ -22,10 +22,8 @@
 
 import { z } from "zod";
 
-import {
-  OPENAI_OAUTH_CONFIG,
-  storeChatgptSubscriptionTokens,
-} from "../../providers/inference/chatgpt-subscription-auth.js";
+import { storeChatgptSubscriptionTokens } from "../../providers/inference/chatgpt-subscription-auth.js";
+import { OPENAI_OAUTH_CONFIG } from "../../providers/inference/chatgpt-subscription-credentials.js";
 import {
   exchangeCodeForTokens,
   generateCodeChallenge,
