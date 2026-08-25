@@ -194,14 +194,23 @@ struct CatchUpRow: View {
     static let leadingInset: CGFloat = 8
     private static let textTopInset: CGFloat = 6
     private static let glyphSize: CGFloat = 12
-    private static let glyphTopInset: CGFloat = 12.5
     private static let glyphTextGap: CGFloat = 7
+
+    /// Where the glyph hangs, by how much text ends up beside it.
+    ///
+    /// It centers against the lines the row actually draws, which is not one
+    /// number: the design's two-line row puts the glyph's middle between the
+    /// title and the subtitle, and a row carrying no subtitle has only the
+    /// title to center on. Left at the two-line inset, the glyph on a
+    /// title-only row hangs below the words instead of beside them.
+    private static let glyphTwoLineTopInset: CGFloat = 12.5
+    private static let glyphTitleOnlyTopInset: CGFloat = 7
 
     var body: some View {
         HStack(alignment: .top, spacing: Self.glyphTextGap * scale) {
             statusGlyph
                 .frame(width: Self.glyphSize * scale, height: Self.glyphSize * scale)
-                .padding(.top, Self.glyphTopInset * scale)
+                .padding(.top, glyphTopInset * scale)
             VStack(alignment: .leading, spacing: 2 * scale) {
                 Text(conversation.title)
                     .font(.system(size: 12 * scale, weight: .medium))
@@ -209,7 +218,7 @@ struct CatchUpRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .privacySensitive()
-                if let subtitle = conversation.subtitle, !subtitle.isEmpty {
+                if let subtitle = renderedSubtitle {
                     Text(subtitle)
                         .font(.system(size: 7 * scale, weight: .medium))
                         .foregroundStyle(WidgetTheme.textSecondary)
@@ -223,6 +232,25 @@ struct CatchUpRow: View {
         .padding(.leading, Self.leadingInset * scale)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: height, alignment: .top)
+    }
+
+    /// The subtitle this row draws, which is not quite the one the snapshot
+    /// carries: a group the producer sent as an empty string is a subtitle with
+    /// nothing in it to draw.
+    ///
+    /// The one owner of that question, because the glyph's inset asks it too
+    /// and the two cannot be allowed to answer differently: a glyph centered
+    /// for a line the row never drew is exactly the misalignment this avoids.
+    private var renderedSubtitle: String? {
+        guard let subtitle = conversation.subtitle, !subtitle.isEmpty else {
+            return nil
+        }
+        return subtitle
+    }
+
+    /// Where the glyph hangs for the text beside it. See the inset pair above.
+    private var glyphTopInset: CGFloat {
+        renderedSubtitle == nil ? Self.glyphTitleOnlyTopInset : Self.glyphTwoLineTopInset
     }
 
     /// Working beats unread, and staleness beats working.

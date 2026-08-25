@@ -52,7 +52,7 @@ import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/c
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
 import { AcpAgentIcon } from "@/domains/chat/components/acp-run-inline-card/acp-agent-icon";
-import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import {
   AnimatedMetricCard,
   formatNumber,
