@@ -19,7 +19,16 @@ interface ChannelMeta {
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
     | "channelMeta.phone.label";
-  disconnectMessageKey:
+  /**
+   * Catalog key for the disconnect dialog's body.
+   *
+   * Optional, and its absence is what says a channel cannot be disconnected
+   * from here: there is no route that clears Discord's credentials, so an
+   * offered button would open a dialog whose confirm does nothing. Read as a
+   * capability the way the transport reads an absent method, rather than
+   * naming the channel in the component.
+   */
+  disconnectMessageKey?:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
     | "channelMeta.phone.disconnectMessage";
@@ -29,6 +38,21 @@ interface ChannelMeta {
    * conversation type (DMs vs. channels), with no channel-wide knob.
    */
   hasTrustFloorControl: boolean;
+  /**
+   * The credential form this channel is set up through, absent when it has
+   * none.
+   *
+   * One fact for both surfaces. The Channels tab and the assistant's setup
+   * drawer render the same wizards, and differ only in where they are
+   * mounted, so which form a channel has is a property of the channel rather
+   * than of either surface. Whether the tab reaches it inline or behind
+   * "Connect manually" is presentation and stays in the tab.
+   *
+   * Declared per channel rather than inferred from a branch, because a
+   * fallthrough cannot express "no form" and would hand such a channel
+   * whichever form the last arm renders.
+   */
+  credentialForm?: "slack-wizard" | "telegram-token" | "twilio-credentials";
   /**
    * Catalog key for the disconnected empty state's pitch, which interpolates
    * `assistant`. Slack has none: its disconnected state is the setup wizard.
@@ -43,17 +67,20 @@ export const CHANNEL_META: Record<SetupChannelId, ChannelMeta> = {
     labelKey: "channelMeta.slack.label",
     disconnectMessageKey: "channelMeta.slack.disconnectMessage",
     hasTrustFloorControl: false,
+    credentialForm: "slack-wizard",
   },
   telegram: {
     labelKey: "channelMeta.telegram.label",
     disconnectMessageKey: "channelMeta.telegram.disconnectMessage",
     hasTrustFloorControl: true,
+    credentialForm: "telegram-token",
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
   },
   phone: {
     labelKey: "channelMeta.phone.label",
     disconnectMessageKey: "channelMeta.phone.disconnectMessage",
     hasTrustFloorControl: true,
+    credentialForm: "twilio-credentials",
     disconnectedPitchKey: "channelMeta.phone.disconnectedPitch",
   },
 };

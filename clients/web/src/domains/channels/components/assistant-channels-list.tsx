@@ -242,7 +242,12 @@ export function AssistantChannelsList({
           : undefined
       }
       onDisconnect={
-        onDisconnect ? () => setPendingDisconnect(selected!.key) : undefined
+        // A channel with no disconnect copy has no route to clear its
+        // credentials either, so it is offered no button rather than one
+        // whose confirm does nothing.
+        onDisconnect && CHANNEL_META[selected!.key].disconnectMessageKey
+          ? () => setPendingDisconnect(selected!.key)
+          : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
       telegramSaveStatus={telegramSaveStatus}
@@ -318,7 +323,11 @@ export function AssistantChannelsList({
         title={t("assistantChannelsList.disconnectTitle", {
           channel: disconnectMeta ? t(disconnectMeta.labelKey) : "",
         })}
-        message={disconnectMeta ? t(disconnectMeta.disconnectMessageKey) : ""}
+        message={
+          disconnectMeta?.disconnectMessageKey
+            ? t(disconnectMeta.disconnectMessageKey)
+            : ""
+        }
         confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {

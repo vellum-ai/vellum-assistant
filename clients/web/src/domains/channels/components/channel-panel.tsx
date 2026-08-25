@@ -172,8 +172,8 @@ export function ChannelPanel({
             />
           ) : null}
         </>
-      ) : manualEntry ? (
-        channel.key === "telegram" ? (
+      ) : manualEntry && meta.credentialForm ? (
+        meta.credentialForm === "telegram-token" ? (
           <TelegramSetupWizard
             assistantName={assistantName}
             saveStatus={telegramSaveStatus}
@@ -225,13 +225,18 @@ export function ChannelPanel({
                     ? t("channelPanel.finishSetup")
                     : t("channelPanel.setUp")}
               </Button>
-              <Button
-                type="button"
-                variant="link"
-                onClick={() => setManualEntry(true)}
-              >
-                {t("channelPanel.connectManually")}
-              </Button>
+              {/* Slack returns above with its wizard rendered inline, so a
+                  channel reaching here either has a form to open behind the
+                  link or has none at all. */}
+              {meta.credentialForm ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  onClick={() => setManualEntry(true)}
+                >
+                  {t("channelPanel.connectManually")}
+                </Button>
+              ) : null}
             </div>
           }
         />
