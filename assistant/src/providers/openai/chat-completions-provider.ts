@@ -530,22 +530,35 @@ function isUnknownAssistantReasoningFieldRejection(
   );
 }
 
-function messagesCarryContentPartsArrays(params: unknown): boolean {
+function isTextualContentPart(part: { type: string }): boolean {
+  return part.type === "text" || part.type === "refusal";
+}
+
+function messagesCarryFlattenableContentPartsArrays(params: unknown): boolean {
   const messages = paramsMessages(params);
   if (!messages) {
     return false;
   }
-  return messages.some((msg) => Array.isArray(msg.content));
+  const arrays = messages.filter((msg) => Array.isArray(msg.content));
+  if (arrays.length === 0) {
+    return false;
+  }
+  return arrays.every((msg) =>
+    (msg.content as Array<{ type: string }>).every(isTextualContentPart),
+  );
 }
 
 /**
  * True when the endpoint's server-side chat-template renderer rejected the
- * request and the outbound messages carry content-parts arrays that can be
- * flattened to plain strings. Some template engines behind OpenAI-compatible
- * endpoints only render string message content (Together serving MiniMax M3
- * 400s with `Failed to apply chat template: invalid operation: object is not
- * callable`); one retry with flattened content lets the same endpoint succeed
- * instead of surfacing the raw template error.
+ * request and every content-parts array in the outbound messages is purely
+ * textual, so flattening to plain strings loses nothing. Some template
+ * engines behind OpenAI-compatible endpoints only render string message
+ * content (Together serving MiniMax M3 400s with `Failed to apply chat
+ * template: invalid operation: object is not callable`); one retry with
+ * flattened content lets the same endpoint succeed instead of surfacing the
+ * raw template error. Requests carrying media parts are never flattened:
+ * silently dropping an image or audio blob would let the model answer
+ * without it, so those rejections propagate to error classification.
  */
 function isChatTemplateRejection(error: unknown, params: unknown): boolean {
   if (!isClientErrorStatus(error)) {
@@ -554,20 +567,12 @@ function isChatTemplateRejection(error: unknown, params: unknown): boolean {
   if (!isChatTemplateFailureError(openaiCompatErrorHaystack(error))) {
     return false;
   }
-  return messagesCarryContentPartsArrays(params);
+  return messagesCarryFlattenableContentPartsArrays(params);
 }
 
-const NON_TEXT_PART_OMITTED_PLACEHOLDERS: Record<string, string> = {
-  image_url: "[Image omitted: this model's endpoint only accepts plain text]",
-  input_audio: "[Audio omitted: this model's endpoint only accepts plain text]",
-  file: "[File omitted: this model's endpoint only accepts plain text]",
-};
-
 /**
- * Rewrite every content-parts array in `params.messages` into a plain string:
- * text parts are kept verbatim, non-text parts become bracketed placeholders
- * so the model knows an attachment was dropped. Returns whether any message
- * changed.
+ * Rewrite every purely-textual content-parts array in `params.messages` into
+ * a plain string. Returns whether any message changed.
  */
 function flattenContentPartsToStrings(params: unknown): boolean {
   const messages = paramsMessages(params);
@@ -579,20 +584,15 @@ function flattenContentPartsToStrings(params: unknown): boolean {
     if (!Array.isArray(msg.content)) {
       continue;
     }
-    const pieces: string[] = [];
-    for (const part of msg.content) {
-      if (part.type === "text") {
-        pieces.push(part.text);
-      } else if (part.type === "refusal") {
-        pieces.push(part.refusal);
-      } else {
-        pieces.push(
-          NON_TEXT_PART_OMITTED_PLACEHOLDERS[part.type] ??
-            "[Attachment omitted: this model's endpoint only accepts plain text]",
-        );
-      }
+    const parts = msg.content as Array<
+      { type: "text"; text: string } | { type: "refusal"; refusal: string }
+    >;
+    if (!parts.every(isTextualContentPart)) {
+      continue;
     }
-    msg.content = pieces.join("\n\n");
+    msg.content = parts
+      .map((part) => (part.type === "text" ? part.text : part.refusal))
+      .join("\n\n");
     flattened = true;
   }
   return flattened;

@@ -65,14 +65,52 @@ const TINY_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 describe("chat-template rejection flatten fallback", () => {
-  test("retries once with flattened string content when the chat template rejects content-parts arrays", async () => {
+  test("retries once with flattened string content when the chat template rejects a text-only content-parts array", async () => {
     // GIVEN an endpoint whose chat template 400s on structured message content
     const { provider, requests } = stubProviderWithErrors([
       rejection(CHAT_TEMPLATE_400),
     ]);
 
-    // WHEN a multi-block user message (text + image) is sent
+    // WHEN a multi-block user message of purely textual parts is sent
     const response = await provider.sendMessage([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "first paragraph" },
+          { type: "text", text: "second paragraph" },
+        ],
+      },
+    ]);
+
+    // THEN the first request carried a content-parts array
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as {
+      messages: Array<{ content: unknown }>;
+    };
+    expect(Array.isArray(first.messages[0].content)).toBe(true);
+
+    // AND the retry flattened it to a plain string keeping all the text
+    const second = requests[1] as {
+      messages: Array<{ content: unknown }>;
+    };
+    const flattened = second.messages[0].content;
+    expect(flattened).toBe("first paragraph\n\nsecond paragraph");
+
+    // AND the retry succeeded
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
+  test("does not retry when a content-parts array carries media (never silently drop an image)", async () => {
+    // GIVEN an endpoint whose chat template 400s on structured message content
+    const { provider, requests } = stubProviderWithErrors([
+      rejection(CHAT_TEMPLATE_400),
+    ]);
+
+    // WHEN a multi-block user message with an image part is sent
+    const promise = provider.sendMessage([
       {
         role: "user",
         content: [
@@ -89,28 +127,10 @@ describe("chat-template rejection flatten fallback", () => {
       },
     ]);
 
-    // THEN the first request carried a content-parts array
-    expect(requests).toHaveLength(2);
-    const first = requests[0] as {
-      messages: Array<{ content: unknown }>;
-    };
-    expect(Array.isArray(first.messages[0].content)).toBe(true);
-
-    // AND the retry flattened it to a plain string that keeps the text and
-    // marks the dropped image
-    const second = requests[1] as {
-      messages: Array<{ content: unknown }>;
-    };
-    const flattened = second.messages[0].content;
-    expect(typeof flattened).toBe("string");
-    expect(flattened).toContain("what is in this image?");
-    expect(flattened).toContain("[Image omitted");
-
-    // AND the retry succeeded
-    const text = response.content.find((b) => b.type === "text") as
-      | { type: "text"; text: string }
-      | undefined;
-    expect(text?.text).toBe("ok");
+    // THEN the error propagates with no retry, so downstream classification
+    // can surface the capability mismatch instead of answering without the image
+    await expect(promise).rejects.toBeInstanceOf(ProviderError);
+    expect(requests).toHaveLength(1);
   });
 
   test("does not retry when the messages are already plain strings", async () => {
