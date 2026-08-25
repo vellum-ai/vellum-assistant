@@ -334,16 +334,6 @@ function fakeOutput(): { write: (text: string) => boolean; text: string } {
   return state;
 }
 
-// promptProviderChoice only re-registers its "data" listener once the
-// previous promptLine() call's promise settles (a real terminal always
-// delivers separate lines on separate ticks). Tests that emit more than one
-// answer must yield a macrotask between emits so that registration happens
-// before the next one fires, or the later emit is dropped with no listener
-// attached and the test hangs forever.
-function flushAsync(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
-}
-
 describe("promptLine", () => {
   test("resolves on newline", async () => {
     const input = new FakePromptInput();
@@ -406,15 +396,29 @@ describe("promptProviderChoice", () => {
       choices,
     });
     input.emit("data", Buffer.from("nope\n"));
-    await flushAsync();
     input.emit("data", Buffer.from("99\n"));
-    await flushAsync();
     input.emit("data", Buffer.from("3\n"));
 
     await expect(resultPromise).resolves.toBe("gemini");
     expect(output.text).toContain(
       "Please enter a number between 1 and 3, or press Enter to skip.",
     );
+  });
+
+  test("does not lose lines pasted in a single chunk ahead of a retry", async () => {
+    const input = new FakePromptInput();
+    const output = fakeOutput();
+
+    const resultPromise = promptProviderChoice({
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+      choices,
+    });
+    // A paste can deliver several lines in one "data" event, all before the
+    // retry loop has re-registered for the next answer.
+    input.emit("data", Buffer.from("99\n3\n"));
+
+    await expect(resultPromise).resolves.toBe("gemini");
   });
 
   test("resolves null on blank input", async () => {
@@ -441,7 +445,6 @@ describe("promptProviderChoice", () => {
       choices: ["anthropic", "openai"],
     });
     input.emit("data", Buffer.from("3\n"));
-    await flushAsync();
     input.emit("data", Buffer.from("1\n"));
 
     await expect(resultPromise).resolves.toBe("anthropic");

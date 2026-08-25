@@ -465,8 +465,62 @@ export async function promptSecret(
   });
 }
 
-// Unlike promptSecret, never enables raw mode — a numbered choice needs no
+// Unlike promptSecret, never enables raw mode: a numbered choice needs no
 // masking, so canonical-mode line editing (backspace, etc.) comes free.
+//
+// Reads via a shared line buffer rather than a one-off listener so that
+// pasted or piped input containing multiple lines isn't lost: any lines
+// beyond the first stay queued for the next readLine() call on the same
+// reader (see promptProviderChoice, which reuses one reader across retries).
+function createLineReader(input: NodeJS.ReadStream): {
+  readLine(): Promise<string>;
+  dispose(): void;
+} {
+  let buffered = "";
+  const queuedLines: string[] = [];
+  let waitingResolve: ((line: string) => void) | null = null;
+
+  const onData = (chunk: Buffer | string): void => {
+    buffered += chunk.toString();
+    let newlineIndex: number;
+    while ((newlineIndex = buffered.search(/[\r\n]/)) !== -1) {
+      const terminatorLength =
+        buffered[newlineIndex] === "\r" && buffered[newlineIndex + 1] === "\n"
+          ? 2
+          : 1;
+      const line = buffered.slice(0, newlineIndex);
+      buffered = buffered.slice(newlineIndex + terminatorLength);
+
+      if (waitingResolve) {
+        const resolve = waitingResolve;
+        waitingResolve = null;
+        resolve(line);
+      } else {
+        queuedLines.push(line);
+      }
+    }
+  };
+
+  input.resume();
+  input.on("data", onData);
+
+  return {
+    readLine(): Promise<string> {
+      const queued = queuedLines.shift();
+      if (queued !== undefined) {
+        return Promise.resolve(queued);
+      }
+      return new Promise((resolve) => {
+        waitingResolve = resolve;
+      });
+    },
+    dispose(): void {
+      input.removeListener("data", onData);
+      input.pause();
+    },
+  };
+}
+
 export async function promptLine(
   prompt: string,
   streams: {
@@ -479,29 +533,12 @@ export async function promptLine(
 
   output.write(prompt);
 
-  return new Promise((resolve) => {
-    input.resume();
-
-    let buffered = "";
-
-    const cleanup = (): void => {
-      input.removeListener("data", onData);
-      input.pause();
-    };
-
-    const onData = (chunk: Buffer | string): void => {
-      buffered += chunk.toString();
-      const newlineIndex = buffered.search(/[\r\n]/);
-      if (newlineIndex === -1) {
-        return;
-      }
-      const line = buffered.slice(0, newlineIndex);
-      cleanup();
-      resolve(line);
-    };
-
-    input.on("data", onData);
-  });
+  const reader = createLineReader(input);
+  try {
+    return await reader.readLine();
+  } finally {
+    reader.dispose();
+  }
 }
 
 export interface PromptProviderChoiceOptions {
@@ -510,11 +547,12 @@ export interface PromptProviderChoiceOptions {
   choices?: readonly LlmProviderId[];
 }
 
-// Resolves null on blank input — the caller's signal to keep whatever
+// Resolves null on blank input: the caller's signal to keep whatever
 // resolveHatchProvider already picked.
 export async function promptProviderChoice(
   options: PromptProviderChoiceOptions = {},
 ): Promise<LlmProviderId | null> {
+  const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   const choices = options.choices ?? HATCH_PROVIDER_CHOICES;
 
@@ -529,28 +567,31 @@ export async function promptProviderChoice(
   output.write("\n");
 
   const defaultLabel = formatProviderName(choices[0]);
-  for (;;) {
-    const answer = (
-      await promptLine(
+  const reader = createLineReader(input);
+  try {
+    for (;;) {
+      output.write(
         `Enter a number (1-${choices.length}), or press Enter to keep the default (${defaultLabel}): `,
-        { input: options.input, output },
-      )
-    ).trim();
+      );
+      const answer = (await reader.readLine()).trim();
 
-    if (answer === "") {
-      return null;
-    }
-
-    if (/^\d+$/.test(answer)) {
-      const index = Number(answer);
-      if (index >= 1 && index <= choices.length) {
-        return choices[index - 1];
+      if (answer === "") {
+        return null;
       }
-    }
 
-    output.write(
-      `Please enter a number between 1 and ${choices.length}, or press Enter to skip.\n`,
-    );
+      if (/^\d+$/.test(answer)) {
+        const index = Number(answer);
+        if (index >= 1 && index <= choices.length) {
+          return choices[index - 1];
+        }
+      }
+
+      output.write(
+        `Please enter a number between 1 and ${choices.length}, or press Enter to skip.\n`,
+      );
+    }
+  } finally {
+    reader.dispose();
   }
 }
 
