@@ -23,12 +23,18 @@ import type { PollOutcome } from "@/utils/poll-until-settled";
 
 const ASSISTANT_ID = "asst-1";
 
+const actualApi = await import(
+  "@/domains/settings/ai/chatgpt-subscription-api"
+);
+const { CHATGPT_ACCESS_TOKEN_CREDENTIAL, DeviceAuthUnsupportedError } =
+  actualApi;
+
 const STORED_CONNECTION: ProviderConnection = {
   name: "chatgpt-subscription",
   provider: "chatgpt",
   auth: {
     type: "oauth_subscription",
-    credential: "credential/openai/chatgpt-subscription",
+    credential: CHATGPT_ACCESS_TOKEN_CREDENTIAL,
   },
   label: "ChatGPT Subscription",
   baseUrl: null,
@@ -39,6 +45,8 @@ const STORED_CONNECTION: ProviderConnection = {
 };
 
 let startShouldFail = false;
+/** The daemon answers the mint route with a 404. */
+let startUnsupported = false;
 let startCalls = 0;
 /** States the section asked the daemon to stop polling. */
 let cancelledStates: string[] = [];
@@ -46,8 +54,12 @@ let cancelledStates: string[] = [];
 let settle: PollOutcome | "never" = { kind: "connected" };
 
 mock.module("@/domains/settings/ai/chatgpt-subscription-api", () => ({
+  ...actualApi,
   startChatgptDeviceAuth: async () => {
     startCalls++;
+    if (startUnsupported) {
+      throw new DeviceAuthUnsupportedError();
+    }
     if (startShouldFail) {
       throw new Error("start failed");
     }
@@ -90,6 +102,7 @@ function renderSection(onConnected: (c: ProviderConnection) => void = () => {}) 
 describe("ChatgptOAuthSection", () => {
   beforeEach(() => {
     startShouldFail = false;
+    startUnsupported = false;
     startCalls = 0;
     cancelledStates = [];
     settle = { kind: "connected" };
@@ -214,6 +227,20 @@ describe("ChatgptOAuthSection", () => {
     );
     expect(screen.queryByText("ABCD-1234")).toBeNull();
     expect(screen.getByText("Try again")).toBeDefined();
+  });
+
+  test("hands the section to the paste flow on a daemon without the route", async () => {
+    startUnsupported = true;
+    renderSection();
+
+    fireEvent.click(screen.getByText("Sign in with ChatGPT"));
+
+    await screen.findByText("Open ChatGPT sign-in");
+    expect(screen.queryByText("Sign in with ChatGPT")).toBeNull();
+    expect(screen.queryByText("Other sign-in options")).toBeNull();
+    expect(
+      screen.queryByText("Could not start ChatGPT sign-in. Please try again."),
+    ).toBeNull();
   });
 
   test("the paste flow stays reachable behind the disclosure", () => {

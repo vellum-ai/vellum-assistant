@@ -311,4 +311,45 @@ describe("completeDeviceAuth", () => {
     expect(exchangeBody.get("redirect_uri")).toBe(OPENAI_DEVICE_REDIRECT_URI);
     expect(exchangeBody.get("client_id")).toBe(CLIENT_ID);
   });
+
+  test("hands the signal to the exchange and fails a flow cancelled during it", async () => {
+    const controller = new AbortController();
+    const queue = [
+      jsonResponse(200, {
+        authorization_code: "auth-code-4",
+        code_verifier: "verifier-4",
+      }),
+      jsonResponse(200, { access_token: "access-4" }),
+    ];
+    const seenSignals: Array<AbortSignal | null | undefined> = [];
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seenSignals.push(init?.signal);
+      const next = queue.shift();
+      if (!next) {
+        throw new Error("fetch called more times than the test queued");
+      }
+      // The cancel lands while the token request is in flight.
+      if (queue.length === 0) {
+        controller.abort();
+      }
+      return next;
+    }) as unknown as typeof fetch;
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchImpl;
+    try {
+      const err = (await completeDeviceAuth(OAUTH_CONFIG, pendingRequest(), {
+        fetchImpl,
+        sleep: noSleep,
+        signal: controller.signal,
+      }).catch((e: unknown) => e)) as DeviceAuthError;
+
+      expect(err).toBeInstanceOf(DeviceAuthError);
+      expect(err.code).toBe("aborted");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(seenSignals[1]).toBe(controller.signal);
+  });
 });

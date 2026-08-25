@@ -251,6 +251,10 @@ export async function pollForAuthorizationCode(
 /**
  * Run steps 2 and 3: wait for approval, then exchange the device-issued
  * authorization code and its PKCE verifier for OAuth tokens.
+ *
+ * The signal reaches the exchange too, and is checked once more after it
+ * returns: a cancellation that lands while the tokens are in flight must not
+ * hand the caller a set of credentials to store.
  */
 export async function completeDeviceAuth(
   config: OAuth2Config,
@@ -262,12 +266,16 @@ export async function completeDeviceAuth(
     options,
   );
 
-  return exchangeCodeForTokens(
+  const result = await exchangeCodeForTokens(
     config,
     authorizationCode,
     OPENAI_DEVICE_REDIRECT_URI,
     codeVerifier,
+    undefined,
+    { signal: options.signal },
   );
+  assertNotAborted(options.signal);
+  return result;
 }
 
 // ---------------------------------------------------------------------------

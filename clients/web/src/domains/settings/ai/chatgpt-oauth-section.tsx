@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -21,8 +21,9 @@ interface ChatgptOAuthSectionProps {
  * Device code leads: it asks the user for nothing but a code typed into
  * ChatGPT's own page. The redirect-and-paste flow stays reachable behind a
  * disclosure, because device code authorization is an account setting an
- * organization can switch off. Either path reports the same stored connection
- * through `onConnected` for the parent to persist.
+ * organization can switch off, and it takes the section over outright when the
+ * assistant's daemon has no device-auth route at all. Either path reports the
+ * same stored connection through `onConnected` for the parent to persist.
  */
 export function ChatgptOAuthSection({
   assistantId,
@@ -30,6 +31,11 @@ export function ChatgptOAuthSection({
 }: ChatgptOAuthSectionProps) {
   const { t } = useTranslation("settings");
   const [otherOptionsOpen, setOtherOptionsOpen] = useState(false);
+  const [deviceAuthUnsupported, setDeviceAuthUnsupported] = useState(false);
+  const handleDeviceAuthUnsupported = useCallback(
+    () => setDeviceAuthUnsupported(true),
+    [],
+  );
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--border-base)] p-4">
@@ -41,26 +47,31 @@ export function ChatgptOAuthSection({
         {t("chatgptOauthSection.intro")}
       </Typography>
 
-      <ChatgptDeviceAuthFlow
-        assistantId={assistantId}
-        onConnected={onConnected}
-        superseded={otherOptionsOpen}
-      />
+      {deviceAuthUnsupported ? null : (
+        <>
+          <ChatgptDeviceAuthFlow
+            assistantId={assistantId}
+            onConnected={onConnected}
+            superseded={otherOptionsOpen}
+            onUnsupported={handleDeviceAuthUnsupported}
+          />
 
-      <div>
-        <Button
-          variant="ghost"
-          size="compact"
-          aria-expanded={otherOptionsOpen}
-          onClick={() => setOtherOptionsOpen((open) => !open)}
-        >
-          {otherOptionsOpen
-            ? t("chatgptOauthSection.hideOtherOptions")
-            : t("chatgptOauthSection.otherOptions")}
-        </Button>
-      </div>
+          <div>
+            <Button
+              variant="ghost"
+              size="compact"
+              aria-expanded={otherOptionsOpen}
+              onClick={() => setOtherOptionsOpen((open) => !open)}
+            >
+              {otherOptionsOpen
+                ? t("chatgptOauthSection.hideOtherOptions")
+                : t("chatgptOauthSection.otherOptions")}
+            </Button>
+          </div>
+        </>
+      )}
 
-      {otherOptionsOpen ? (
+      {otherOptionsOpen || deviceAuthUnsupported ? (
         <ChatgptPasteAuthFlow
           assistantId={assistantId}
           onConnected={onConnected}

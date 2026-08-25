@@ -20,6 +20,8 @@ interface ChatgptDeviceAuthFlowProps {
   onConnected: (connection: ProviderConnection) => void;
   /** Another sign-in path has taken over, so a live code is dropped. */
   superseded?: boolean;
+  /** The daemon has no device-auth route, so this path cannot be offered. */
+  onUnsupported?: () => void;
 }
 
 /** The security-settings destination named inside the stalled-flow hint. */
@@ -47,6 +49,7 @@ export function ChatgptDeviceAuthFlow({
   assistantId,
   onConnected,
   superseded = false,
+  onUnsupported,
 }: ChatgptDeviceAuthFlowProps) {
   const { t } = useTranslation("settings");
   const auth = useChatgptDeviceAuth({ assistantId, onConnected });
@@ -64,6 +67,15 @@ export function ChatgptDeviceAuthFlow({
       reset();
     }
   }, [dropLiveCode, reset]);
+
+  // An assistant whose daemon predates these routes has only the paste flow,
+  // so the section is told to show that one in place of this.
+  const { unsupported } = auth;
+  useEffect(() => {
+    if (unsupported) {
+      onUnsupported?.();
+    }
+  }, [unsupported, onUnsupported]);
 
   if (auth.phase === "connected") {
     return (

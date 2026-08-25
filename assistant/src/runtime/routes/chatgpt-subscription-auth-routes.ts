@@ -97,6 +97,22 @@ function releaseDeviceFlow(state: string): void {
   }
 }
 
+/**
+ * Whether `state` is still the unsettled flow the daemon is running.
+ *
+ * A cancel or a newer sign-in can land after the poll has returned an
+ * authorization code but before the exchange and the credential writes finish.
+ * Checking this on either side of the store keeps an abandoned flow from
+ * writing tokens the user asked it to drop, or from overwriting the
+ * credentials of the sign-in that replaced it.
+ */
+function isDeviceFlowStillLive(state: string): boolean {
+  return (
+    inFlightDeviceAuthId === state &&
+    pendingDeviceFlows.get(state)?.status === "pending"
+  );
+}
+
 /** Failures the user caused or waited out: expected ends, not defects. */
 function isExpectedDeviceAuthEnd(code: string): boolean {
   return code === "aborted" || code === "expired_token";
@@ -142,7 +158,19 @@ async function handleStartDeviceAuth(
     signal: abort.signal,
   })
     .then(async (result) => {
+      if (!isDeviceFlowStillLive(request.deviceAuthId)) {
+        log.warn(
+          "ChatGPT subscription device auth flow settled after it was dropped; discarding its tokens",
+        );
+        return;
+      }
       await storeChatgptSubscriptionTokens(result.tokens);
+      if (!isDeviceFlowStillLive(request.deviceAuthId)) {
+        log.warn(
+          "ChatGPT subscription device auth flow was dropped while its tokens were stored",
+        );
+        return;
+      }
       pendingDeviceFlows.mark(request.deviceAuthId, "connected");
       log.info("ChatGPT subscription device auth flow connected");
     })

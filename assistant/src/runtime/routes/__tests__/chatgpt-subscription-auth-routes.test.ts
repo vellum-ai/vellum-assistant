@@ -51,6 +51,12 @@ let resolveDeviceAuth: (result: OAuth2FlowResult) => void = () => {};
 let rejectDeviceAuth: (err: unknown) => void = () => {};
 /** Every signal the route handed the poll, in mint order. */
 const pollSignals: AbortSignal[] = [];
+/**
+ * Whether an abort settles the mocked poll. Off for the races where the poll
+ * has already returned an authorization code and the exchange is mid-flight,
+ * which is exactly the window the route has to guard on its own.
+ */
+let rejectPollOnAbort = true;
 
 const completeDeviceAuthMock = mock(
   (
@@ -66,6 +72,9 @@ const completeDeviceAuthMock = mock(
         // The real poll throws once the signal fires; mirroring that keeps the
         // route's own settle path under test.
         options.signal.addEventListener("abort", () => {
+          if (!rejectPollOnAbort) {
+            return;
+          }
           reject(
             new DeviceAuthError(
               "Device authorization was cancelled.",
@@ -85,8 +94,14 @@ mock.module("../../../security/openai-device-auth.js", () => ({
 
 const actualChatgptAuth =
   await import("../../../providers/inference/chatgpt-subscription-auth.js");
+/** When set, the store blocks on it, so a test can interleave a cancel. */
+let storeGate: Promise<void> | null = null;
 const storeChatgptSubscriptionTokensMock = mock(
-  async (_tokens: OAuth2TokenResult) => {},
+  async (_tokens: OAuth2TokenResult) => {
+    if (storeGate) {
+      await storeGate;
+    }
+  },
 );
 mock.module(
   "../../../providers/inference/chatgpt-subscription-auth.js",
@@ -162,6 +177,8 @@ describe("chatgpt subscription device auth routes", () => {
     completeDeviceAuthMock.mockClear();
     storeChatgptSubscriptionTokensMock.mockClear();
     pollSignals.length = 0;
+    rejectPollOnAbort = true;
+    storeGate = null;
   });
 
   test("returns the user code immediately and starts pending", async () => {
@@ -233,6 +250,8 @@ describe("chatgpt subscription device auth cancellation", () => {
     completeDeviceAuthMock.mockClear();
     storeChatgptSubscriptionTokensMock.mockClear();
     pollSignals.length = 0;
+    rejectPollOnAbort = true;
+    storeGate = null;
   });
 
   test("stops the poll and reports the flow aborted", async () => {
@@ -277,6 +296,55 @@ describe("chatgpt subscription device auth cancellation", () => {
     expect(() => cancelDeviceAuth("deviceauth_missing")).toThrow(
       /No active ChatGPT device sign-in/,
     );
+  });
+
+  test("discards tokens from a flow cancelled during the exchange", async () => {
+    rejectPollOnAbort = false;
+    const result = await startDeviceAuth();
+
+    expect(cancelDeviceAuth(result.state)).toEqual({ cancelled: true });
+    resolveDeviceAuth(TOKENS);
+    await flush();
+
+    expect(storeChatgptSubscriptionTokensMock).not.toHaveBeenCalled();
+    const status = readStatus(result.state);
+    expect(status.status).toBe("error");
+    expect(status.error_code).toBe("aborted");
+  });
+
+  test("leaves a flow cancelled mid-store marked aborted", async () => {
+    rejectPollOnAbort = false;
+    let releaseStore = () => {};
+    storeGate = new Promise<void>((resolve) => {
+      releaseStore = resolve;
+    });
+    const result = await startDeviceAuth();
+
+    resolveDeviceAuth(TOKENS);
+    await flush();
+    expect(storeChatgptSubscriptionTokensMock).toHaveBeenCalledTimes(1);
+
+    expect(cancelDeviceAuth(result.state)).toEqual({ cancelled: true });
+    releaseStore();
+    await flush();
+
+    const status = readStatus(result.state);
+    expect(status.status).toBe("error");
+    expect(status.error_code).toBe("aborted");
+  });
+
+  test("a superseded flow cannot store over the one that replaced it", async () => {
+    rejectPollOnAbort = false;
+    const first = await startDeviceAuth();
+    const resolveFirst = resolveDeviceAuth;
+    const second = await startDeviceAuth();
+
+    resolveFirst(TOKENS);
+    await flush();
+
+    expect(storeChatgptSubscriptionTokensMock).not.toHaveBeenCalled();
+    expect(readStatus(first.state).error_code).toBe("aborted");
+    expect(readStatus(second.state)).toEqual({ status: "pending" });
   });
 });
 

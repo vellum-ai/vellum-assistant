@@ -6,6 +6,7 @@ import { pollUntilSettled } from "@/utils/poll-until-settled";
 
 import {
   cancelChatgptDeviceAuth,
+  DeviceAuthUnsupportedError,
   pollChatgptDeviceAuthStatus,
   resolveChatgptConnection,
   startChatgptDeviceAuth,
@@ -79,6 +80,11 @@ export interface UseChatgptDeviceAuthResult {
    * setting explains.
    */
   showAuthorizationHint: boolean;
+  /**
+   * The daemon has no device-auth route, so this flow cannot run at all and
+   * the caller should offer the redirect-and-paste sign-in instead.
+   */
+  unsupported: boolean;
   /** Mint a code and begin polling. */
   start: () => Promise<void>;
   /** Drop the current flow and return to the explainer. */
@@ -95,6 +101,7 @@ export function useChatgptDeviceAuth({
   const [errorState, setErrorState] =
     useState<ChatgptDeviceAuthErrorState | null>(null);
   const [hintDue, setHintDue] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
 
   // Bumped on every reset / new start and on unmount, so a poll loop from an
   // abandoned flow cannot write state after the user has moved on.
@@ -152,8 +159,15 @@ export function useChatgptDeviceAuth({
     let minted;
     try {
       minted = await startChatgptDeviceAuth(assistantId);
-    } catch {
+    } catch (err) {
       if (isStale(flowId)) {
+        return;
+      }
+      // Nothing failed that the user can act on: this assistant simply has no
+      // device-code route, so the caller swaps in the sign-in path it does.
+      if (err instanceof DeviceAuthUnsupportedError) {
+        setUnsupported(true);
+        setPhase("idle");
         return;
       }
       setErrorState({ key: "startFailed" });
@@ -229,6 +243,7 @@ export function useChatgptDeviceAuth({
     code,
     error,
     showAuthorizationHint: hintDue,
+    unsupported,
     start,
     reset,
   };

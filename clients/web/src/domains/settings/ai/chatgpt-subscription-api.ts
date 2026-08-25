@@ -14,6 +14,24 @@ import {
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import type { PollStatusResponse } from "@/utils/poll-until-settled";
 
+/**
+ * Credential the daemon stores the subscription's access token under, and
+ * stamps the `chatgpt-subscription` connection with.
+ */
+export const CHATGPT_ACCESS_TOKEN_CREDENTIAL =
+  "credential/chatgpt/access_token";
+
+/**
+ * The daemon serving this assistant predates the device-code routes, so the
+ * redirect-and-paste sign-in is the only path it offers.
+ */
+export class DeviceAuthUnsupportedError extends Error {
+  constructor() {
+    super("This assistant does not support device-code sign-in.");
+    this.name = "DeviceAuthUnsupportedError";
+  }
+}
+
 export interface ChatgptDeviceAuthStart {
   /** Opaque handle for the pending flow; the status route is keyed by it. */
   state: string;
@@ -27,14 +45,25 @@ export interface ChatgptDeviceAuthStart {
   intervalSeconds: number;
 }
 
-/** Mints a device code. The user authorizes it on OpenAI's own page. */
+/**
+ * Mints a device code. The user authorizes it on OpenAI's own page.
+ *
+ * A 404 means the route itself is absent rather than the mint failing, so it
+ * throws `DeviceAuthUnsupportedError` for the caller to fall back on the paste
+ * flow instead of reporting a failure.
+ */
 export async function startChatgptDeviceAuth(
   assistantId: string,
 ): Promise<ChatgptDeviceAuthStart> {
-  const { data } = await inferenceChatgptsubscriptionDeviceauthPost({
+  const { data, response } = await inferenceChatgptsubscriptionDeviceauthPost({
     path: { assistant_id: assistantId },
-    throwOnError: true,
   });
+  if (response?.status === 404) {
+    throw new DeviceAuthUnsupportedError();
+  }
+  if (!data) {
+    throw new Error("Could not start ChatGPT device sign-in.");
+  }
   return {
     state: data.state,
     userCode: data.user_code,
@@ -110,7 +139,7 @@ export async function resolveChatgptConnection(
     provider: "chatgpt",
     auth: {
       type: "oauth_subscription",
-      credential: "credential/openai/chatgpt-subscription",
+      credential: CHATGPT_ACCESS_TOKEN_CREDENTIAL,
     },
     label: "ChatGPT Subscription",
     createdAt: now,
