@@ -94,7 +94,7 @@ export const ROUTES: RouteDefinition[] = [
           ? (getSchedule(scheduleId)?.inferenceProfile ?? null)
           : null;
 
-      return wakeAgentForOpportunity({
+      const result = await wakeAgentForOpportunity({
         conversationId,
         hint,
         source,
@@ -108,6 +108,13 @@ export const ROUTES: RouteDefinition[] = [
           ? { untrustedOutput: { content: externalContent, source: "webhook" } }
           : {}),
       });
+      // Pin the wire shape to the declared responseBody: WakeResult carries
+      // in-process diagnostics (exitReason) beyond this route's contract.
+      return {
+        invoked: result.invoked,
+        producedToolCalls: result.producedToolCalls,
+        ...(result.reason !== undefined ? { reason: result.reason } : {}),
+      };
     },
   },
 ];
