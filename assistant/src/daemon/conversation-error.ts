@@ -26,6 +26,7 @@ import {
 } from "../util/errors.js";
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
+  isChatTemplateFailureError,
   isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
 
@@ -564,6 +565,9 @@ function classifyCore(
       if (isVisionNotSupportedError(message)) {
         return visionNotSupportedClassification();
       }
+      if (isChatTemplateFailureError(message)) {
+        return requestShapeUnsupportedClassification();
+      }
       // Extract the provider detail after "API error (NNN): " prefix
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
       const detail = detailMatch?.[1];
@@ -654,6 +658,8 @@ function reasonToClassification(
       return contextTooLargeClassification();
     case "vision_unsupported":
       return visionNotSupportedClassification();
+    case "request_shape_unsupported":
+      return requestShapeUnsupportedClassification();
     // Two producers share this reason: SDK transport failures that never got
     // a response (OpenAI APIConnectionError), and Gemini responses whose empty
     // body reveals a proxy/egress filter intercepting the request. The copy
@@ -905,6 +911,25 @@ function visionNotSupportedClassification(): Omit<
       "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
     retryable: false,
     errorCategory: "vision_not_supported",
+  };
+}
+
+/**
+ * Classification for a request rejected by the endpoint's server-side
+ * chat-template renderer. These endpoints choke on richer request shapes
+ * (tool calls, images, structured message content), so the copy points the
+ * user at a capability mismatch instead of the raw template error.
+ */
+function requestShapeUnsupportedClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "This model's provider couldn't process the request format (tool calls or images may not be supported). Switch to a different model in Settings → Models & Services and try again.",
+    retryable: false,
+    errorCategory: "request_shape_unsupported",
   };
 }
 

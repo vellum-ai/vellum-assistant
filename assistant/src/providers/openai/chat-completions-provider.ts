@@ -4,6 +4,7 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { isChatTemplateFailureError } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { escapeXmlAttr } from "../../util/xml.js";
@@ -529,6 +530,74 @@ function isUnknownAssistantReasoningFieldRejection(
   );
 }
 
+function messagesCarryContentPartsArrays(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  return messages.some((msg) => Array.isArray(msg.content));
+}
+
+/**
+ * True when the endpoint's server-side chat-template renderer rejected the
+ * request and the outbound messages carry content-parts arrays that can be
+ * flattened to plain strings. Some template engines behind OpenAI-compatible
+ * endpoints only render string message content (Together serving MiniMax M3
+ * 400s with `Failed to apply chat template: invalid operation: object is not
+ * callable`); one retry with flattened content lets the same endpoint succeed
+ * instead of surfacing the raw template error.
+ */
+function isChatTemplateRejection(error: unknown, params: unknown): boolean {
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  if (!isChatTemplateFailureError(openaiCompatErrorHaystack(error))) {
+    return false;
+  }
+  return messagesCarryContentPartsArrays(params);
+}
+
+const NON_TEXT_PART_OMITTED_PLACEHOLDERS: Record<string, string> = {
+  image_url: "[Image omitted: this model's endpoint only accepts plain text]",
+  input_audio: "[Audio omitted: this model's endpoint only accepts plain text]",
+  file: "[File omitted: this model's endpoint only accepts plain text]",
+};
+
+/**
+ * Rewrite every content-parts array in `params.messages` into a plain string:
+ * text parts are kept verbatim, non-text parts become bracketed placeholders
+ * so the model knows an attachment was dropped. Returns whether any message
+ * changed.
+ */
+function flattenContentPartsToStrings(params: unknown): boolean {
+  const messages = paramsMessages(params);
+  if (!messages) {
+    return false;
+  }
+  let flattened = false;
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) {
+      continue;
+    }
+    const pieces: string[] = [];
+    for (const part of msg.content) {
+      if (part.type === "text") {
+        pieces.push(part.text);
+      } else if (part.type === "refusal") {
+        pieces.push(part.refusal);
+      } else {
+        pieces.push(
+          NON_TEXT_PART_OMITTED_PLACEHOLDERS[part.type] ??
+            "[Attachment omitted: this model's endpoint only accepts plain text]",
+        );
+      }
+    }
+    msg.content = pieces.join("\n\n");
+    flattened = true;
+  }
+  return flattened;
+}
+
 /**
  * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
  * config into the OpenAI chat-completions wire format. Callers express
@@ -900,6 +969,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
               "Upstream rejected assistant reasoning field; retrying without it",
             );
             stripAssistantReasoningFields(params);
+            stream = await createStream();
+          } else if (isChatTemplateRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream chat template rejected structured message content; retrying with flattened plain-text content",
+            );
+            flattenContentPartsToStrings(params);
             stream = await createStream();
           } else {
             throw error;
