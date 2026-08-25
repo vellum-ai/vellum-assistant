@@ -36,16 +36,15 @@ import {
 
 /**
  * Iteration harness for the live-voice room's avatar + state animations. Scrub
- * `visual` through every session phase and drive the audio-reactive visuals
- * with the `amplitude` slider or the `oscillate` "simulated speech" toggle — no
- * live mic / STT / TTS session required.
+ * `visual` through every session phase and drive the bands with the
+ * `amplitude` slider or the `oscillate` "simulated speech" toggle, with no live
+ * mic / STT / TTS session required.
  *
- * `listening` renders the top-edge waves (energy coming *in* from the user)
- * and the avatar stays at rest; `responding` radiates the concentric rings from
- * behind the avatar (energy going *out*, the same treatment the color look's
- * eyes use). Wave `waveStyle` (fill / line) and `palette` (aurora / accent) are
- * the design knobs. `realAvatar` swaps the "V" fallback for a real bundled
- * character.
+ * Both voices are bands at the room's floor: `listening` rides the mic in pale
+ * ink, `responding` rides the TTS in dark. The centerpiece is still through
+ * both, so the ink says whose turn it is. Wave `waveStyle` (fill / line) and
+ * `palette` (aurora / accent) are the design knobs. `realAvatar` swaps the "V"
+ * fallback for a real bundled character.
  *
  * Nothing hits the network: the real avatar is seeded into the query cache
  * below, on the room's own deep-dark `data-theme="dark"` void.
@@ -157,8 +156,8 @@ interface RoomSceneProps {
 /**
  * The room an assistant with an uploaded image gets: the field color sampled
  * out of that image, the same voice bands and caption every look draws, and the
- * image itself in the centerpiece the eyes would otherwise hold. One amplitude
- * source drives the avatar and the bands together.
+ * image itself in the centerpiece the eyes would otherwise hold. The amplitude
+ * source drives the bands; the centerpiece holds still under them.
  *
  * `fieldHex: null` is the other thing this scene shows: the room before the
  * sample lands (or after it fails), which is the deep-dark ambient void with
@@ -229,7 +228,6 @@ function RoomScene({
         <VoiceAvatar
           assistantId={realAvatar ? SAMPLE_ASSISTANT_ID : null}
           visual={visual}
-          getAmplitude={getAmplitude}
           size={size}
         />
       </div>
@@ -277,8 +275,8 @@ interface ColorLookSceneProps {
 
 /**
  * The color-with-eyes look for one avatar: the Introduction-step grow entrance
- * (body springs to fill, color fades in, eyes grow into place), the mic
- * waveform behind the eyes while `listening`, all in a measured box so the
+ * (body springs to fill, color fades in, eyes grow into place), the mic band
+ * rising from the floor while `listening`, all in a measured box so the
  * geometry sizes against the story frame rather than the window. The whole
  * look remounts (replaying the entrance) whenever `replay` or any trait knob
  * changes.

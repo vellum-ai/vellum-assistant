@@ -3,6 +3,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { exitFromIpcResult } from "../../../ipc/cli-client.js";
+import {
+  findContentTypeHeader,
+  parseRequestBodyData,
+} from "../../../util/oauth-request-body.js";
 import { readStdinSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -34,18 +38,6 @@ function parseHeader(raw: string): [string, string] {
 }
 
 /**
- * Attempt to JSON-parse a string. Returns the parsed value on success,
- * or the original string on failure.
- */
-function tryJsonParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
-
-/**
  * Read body data from the `-d` flag value. Supports:
  * - `@-` reads stdin
  * - `@<path>` reads a file
@@ -54,20 +46,28 @@ function tryJsonParse(raw: string): unknown {
  * File/stdin reading must happen on the CLI side (not the daemon)
  * since stdin is attached to the CLI process and file paths are
  * relative to the user's cwd.
+ *
+ * A non-JSON `Content-Type` keeps the payload as the exact string the caller
+ * gave, so multipart, XML, and form-encoded bodies reach the provider
+ * unchanged. Files are read as UTF-8 text, so a body that is not valid UTF-8
+ * (a raw image, an archive) cannot travel through this flag.
  */
-function readBodyData(data: string): unknown {
+export function readBodyData(
+  data: string,
+  headers: Record<string, string>,
+): unknown {
+  const contentType = findContentTypeHeader(headers);
+
   if (data === "@-") {
-    const raw = readStdinSync();
-    return tryJsonParse(raw);
+    return parseRequestBodyData(readStdinSync(), contentType);
   }
 
   if (data.startsWith("@")) {
     const filePath = data.slice(1);
-    const raw = readFileSync(filePath, "utf-8");
-    return tryJsonParse(raw);
+    return parseRequestBodyData(readFileSync(filePath, "utf-8"), contentType);
   }
 
-  return tryJsonParse(data);
+  return parseRequestBodyData(data, contentType);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ export function registerRequestCommand(oauth: Command): void {
     )
     .option(
       "-d, --data <data>",
-      "Request body: inline JSON, @filename, or @- for stdin",
+      "Request body: inline JSON, @filename, or @- for stdin. Sent raw when Content-Type is not JSON",
     )
     .option("-G, --get", "Force GET; body data becomes query params")
     .option("-I, --head", "Send a HEAD request")
@@ -172,7 +172,7 @@ export function registerRequestCommand(oauth: Command): void {
           // Read body data on the CLI side (file/stdin reading must happen here)
           let parsedData: unknown;
           if (opts.data !== undefined) {
-            parsedData = readBodyData(opts.data);
+            parsedData = readBodyData(opts.data, parsedHeaders);
           }
 
           const body: Record<string, unknown> = {
@@ -203,12 +203,10 @@ export function registerRequestCommand(oauth: Command): void {
 
           // Run the route handler in this process so Gmail-sized fetch and
           // JSON parse stay off the assistant event loop.
-          const { handleRequest } = await import(
-            "../../../runtime/routes/oauth-commands-routes.js"
-          );
-          const { RouteError } = await import(
-            "../../../runtime/routes/errors.js"
-          );
+          const { handleRequest } =
+            await import("../../../runtime/routes/oauth-commands-routes.js");
+          const { RouteError } =
+            await import("../../../runtime/routes/errors.js");
 
           let result: {
             ok: boolean;
@@ -268,9 +266,8 @@ export function registerRequestCommand(oauth: Command): void {
 
           // Body output (skip for null bodies: HEAD requests, 204, etc.)
           if (result.body != null || result.bodyEncoding === "base64") {
-            const { materializeOAuthRequestOutput } = await import(
-              "../../../oauth/connection.js"
-            );
+            const { materializeOAuthRequestOutput } =
+              await import("../../../oauth/connection.js");
             const output = materializeOAuthRequestOutput(result);
             if (output) {
               if (opts.output) {

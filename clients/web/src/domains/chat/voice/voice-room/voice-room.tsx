@@ -816,9 +816,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
       {/* The centerpiece for every assistant without eyes: an uploaded image,
           or none resolved yet. It springs to center once on entry (the wrapper
-          owns the one-time entry spring); per-state expression is the avatar's
-          own CSS loop, which cross-fades in place without re-popping. A
-          character look has no centered figure: its eyes are the cast. */}
+          owns the one-time entry spring); the phases that express themselves on
+          the avatar do it through its own CSS loop, cross-fading in place
+          without re-popping, and `responding` holds still while the band at the
+          floor carries the turn. A character look has no centered figure: its
+          eyes are the cast. */}
       {!camera.native && !look?.art ? (
         <motion.div
           className="relative z-0"
@@ -827,11 +829,6 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           <VoiceAvatar
             assistantId={assistantId}
             visual={visual}
-            // Only the `responding` avatar is audio-reactive, and it always
-            // rides TTS output — so the output amplitude is the sole source
-            // here. The user's voice is expressed by the bottom waves in
-            // `listening`, not by the avatar.
-            getAmplitude={getLiveVoiceOutputAmplitude}
             size={AVATAR_SIZE}
           />
         </motion.div>

@@ -173,7 +173,7 @@ export const CurrentPaid: Story = {
     name: MIGHTY.name,
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
-    specs: packageSpecs(MIGHTY),
+    specs: packageSpecs(MIGHTY, { usageIncludedLabel: "Mighty Usage included" }),
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
   },
 };
@@ -254,7 +254,7 @@ export const NextPlan: Story = {
     tierKey: SUPER.key,
     name: SUPER.name,
     tag: NEXT_PLAN_TAG,
-    specs: packageSpecs(SUPER),
+    specs: packageSpecs(SUPER, { usageIncludedLabel: "Super Usage included" }),
     footer: upgradeCta(),
   },
 };
@@ -296,7 +296,9 @@ export const SideBySide: Story = {
           name={MIGHTY.name}
           nameTestId="plan-card-name"
           tag={CURRENT_TAG}
-          specs={packageSpecs(MIGHTY)}
+          specs={packageSpecs(MIGHTY, {
+            usageIncludedLabel: "Mighty Usage included",
+          })}
           footer={priceFooter(priceLabelFromCents(MIGHTY.total_price_cents))}
         />
         <PlanTile
@@ -305,7 +307,9 @@ export const SideBySide: Story = {
           tierKey={SUPER.key}
           name={SUPER.name}
           tag={NEXT_PLAN_TAG}
-          specs={packageSpecs(SUPER)}
+          specs={packageSpecs(SUPER, {
+            usageIncludedLabel: "Super Usage included",
+          })}
           footer={upgradeCta()}
         />
       </div>

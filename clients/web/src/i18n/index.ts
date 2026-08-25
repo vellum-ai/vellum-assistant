@@ -78,6 +78,13 @@ export { t } from "i18next";
 export type { TFunction } from "i18next";
 
 /**
+ * The union of valid key paths, derived from the English catalogs. Type a
+ * parameter as `ParseKeys<"chat">` rather than `string` when it names copy, so
+ * the catalog stays the only place copy can come from.
+ */
+export type { ParseKeys } from "i18next";
+
+/**
  * A `t` bound to one namespace, for call sites outside React that read a
  * single namespace and would otherwise resolve against `common`.
  *

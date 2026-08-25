@@ -23,7 +23,7 @@ import { useCallback, useMemo } from "react";
 
 import { AppCard } from "@/components/app-card";
 import { appsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import type { AppsGetResponse } from "@/generated/daemon/types.gen";
@@ -117,8 +117,7 @@ export function AppReopenCard({
   onOpenApp,
 }: AppReopenCardProps) {
   const summary = useAppDisplaySummary(appId, assistantId, conversationId);
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
-  const togglePin = usePinnedAppsStore.use.togglePin();
+  const { pinnedAppIds, togglePin } = usePinnedApps(assistantId);
 
   // The thumbnail is a live mini-iframe of the app, loaded lazily when the card
   // scrolls into view. Same cache the inline preview read, so a card that
@@ -131,7 +130,7 @@ export function AppReopenCard({
 
   const handlePin = useCallback(() => {
     if (summary) {
-      togglePin({ id: appId, name: summary.name, icon: summary.icon });
+      togglePin(appId);
     }
   }, [togglePin, appId, summary]);
 

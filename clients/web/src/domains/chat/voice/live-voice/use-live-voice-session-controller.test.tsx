@@ -15,6 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import type { VoiceAudioInterruptionEvent } from "@/runtime/native-audio-session";
 
 // The default client factory in use-live-voice statically imports the real
@@ -67,8 +68,11 @@ const actualPlatformDetection = await import("@/runtime/platform-detection");
 
 // Voice entry preflights readiness before a session opens; stub it ready so
 // the controller's drain tests stay about the starter. See `voice-entry-guards`.
+// A mock rather than a literal so a case can hold the round trip open and move
+// the app underneath a drain, which is the only way to reach the repark.
+const preflightLiveVoice = mock(async () => ({ status: "ready" }));
 mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
-  preflightLiveVoice: async () => ({ status: "ready" }),
+  preflightLiveVoice,
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
@@ -108,6 +112,7 @@ const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -123,23 +128,30 @@ function renderPersistentController(
 
   let renderCount = 0;
 
-  const view = renderHook(() => {
-    renderCount += 1;
-    useLiveVoiceSessionController({
-      createClient: () => {
-        const client = new FakeClient();
-        clients.push(client);
-        return client as unknown as LiveVoiceChannelClient;
-      },
-      createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
-      createCapture: (options) => {
-        const capture = new FakeCapture(options);
-        configureCapture?.(capture);
-        captures.push(capture);
-        return capture as unknown as LiveVoiceAudioCapture;
-      },
-    });
-  });
+  // Under a router because the controller lands on the conversation a drained
+  // start-voice request mints for its session, exactly as `ChatLayout` does.
+  const view = renderHook(
+    () => {
+      renderCount += 1;
+      useLiveVoiceSessionController({
+        createClient: () => {
+          const client = new FakeClient();
+          clients.push(client);
+          return client as unknown as LiveVoiceChannelClient;
+        },
+        createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
+        createCapture: (options) => {
+          const capture = new FakeCapture(options);
+          configureCapture?.(capture);
+          captures.push(capture);
+          return capture as unknown as LiveVoiceAudioCapture;
+        },
+      });
+    },
+    {
+      wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+    },
+  );
 
   return {
     view,
@@ -191,11 +203,14 @@ beforeEach(() => {
     firstRunSeen: true,
   });
   __resetPendingDeepLinkForTesting();
+  useConversationStore.getState().reset();
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   interruptionHandlers = [];
   onNativeAndroid = false;
   onNativeIOS = false;
+  preflightLiveVoice.mockClear();
+  preflightLiveVoice.mockImplementation(async () => ({ status: "ready" }));
   activateVoiceAudioSession.mockClear();
   activateVoiceAudioSession.mockImplementation(async () => true);
   deactivateVoiceAudioSession.mockClear();
@@ -271,6 +286,7 @@ describe("starter registration", () => {
       version: "0.10.12",
     });
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    useConversationStore.getState().setActiveConversationId("conv-1");
     usePendingDeepLinkStore.getState().setPendingVoiceStart();
 
     const h = renderPersistentController();
@@ -279,9 +295,17 @@ describe("starter registration", () => {
       await Promise.resolve();
     });
 
+    // The drain mints a conversation for the session and lands on it, so the
+    // composer there can own it and show the room. Not `conv-1`: a start asked
+    // for from outside the chat is a new call, and the selection it finds is
+    // just wherever the user was last.
+    const draftId =
+      useConversationStore.getState().activeConversationId ?? undefined;
+    expect(draftId).toBeDefined();
+    expect(draftId).not.toBe("conv-1");
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
-      conversationId: undefined,
+      conversationId: draftId,
       turnDetection: "server_vad",
     });
     expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
@@ -294,6 +318,156 @@ describe("starter registration", () => {
     });
 
     expect(h.clients).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Re-draining a parked start when the active assistant changes
+// ---------------------------------------------------------------------------
+
+/**
+ * The drain has two triggers, and only the second serves a reparked request.
+ *
+ * `drainPendingVoiceStart` leaves the request parked when the active assistant
+ * changed while its preflight was in flight, because the eligibility gate and
+ * the readiness verdict both answered for the assistant the user has just left.
+ * The starter-registration effect above cannot run that next drain: it is keyed
+ * on the starter's identity, which a switch does not touch. So the switch runs
+ * it, and a press the user really made is served on the assistant they moved to
+ * rather than sitting until its TTL takes it.
+ */
+describe("re-draining on an assistant switch", () => {
+  /** Resolved, active, and new enough to serve live voice. */
+  function activeAssistant(assistantId: string): void {
+    useAssistantIdentityStore.setState({ assistantId, version: "0.10.12" });
+    useResolvedAssistantsStore.setState({ activeAssistantId: assistantId });
+  }
+
+  /**
+   * Let the fire-and-forget drains run out. They cannot be awaited by design,
+   * and each one awaits the version resolution, the preflight, and the start.
+   */
+  async function flushDrains(): Promise<void> {
+    await act(async () => {
+      for (let i = 0; i < 12; i++) {
+        await Promise.resolve();
+      }
+    });
+  }
+
+  test("a request reparked mid-preflight starts on the assistant switched to", async () => {
+    activeAssistant("assistant-1");
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    let releasePreflight: () => void = () => {};
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releasePreflight = () => {
+            resolve({ status: "ready" });
+          };
+        }),
+    );
+
+    // The mount's drain gets as far as the held preflight and no further.
+    const h = renderPersistentController();
+    await flushDrains();
+    expect(h.clients).toHaveLength(0);
+
+    // The user switches assistants with that preflight still open, so the drain
+    // reparks when it resumes.
+    act(() => {
+      activeAssistant("assistant-2");
+      releasePreflight();
+    });
+    await flushDrains();
+
+    const draftId =
+      useConversationStore.getState().activeConversationId ?? undefined;
+    expect(draftId).toBeDefined();
+    expect(h.clients).toHaveLength(1);
+    expect(h.lastClient().connectArgs).toEqual({
+      assistantId: "assistant-2",
+      conversationId: draftId,
+      turnDetection: "server_vad",
+    });
+    // Spent, rather than left parked for the TTL to throw away.
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+  });
+
+  test("a switch waits for the new assistant's identity before deciding", async () => {
+    // The real ordering, which the helper above collapses: the subscription
+    // fires on the resolved-assistants change, and the identity store is still
+    // holding the previous assistant's version at that moment. The eligibility
+    // gate is owner-scoped, so a drain that decides now reads the press as
+    // unsupported and throws it away instead of serving it.
+    activeAssistant("assistant-1");
+    const h = renderPersistentController();
+    await flushDrains();
+
+    // Parked directly, so nothing drains it until the switch does.
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    });
+    await flushDrains();
+
+    expect(h.clients).toHaveLength(0);
+    expect(
+      usePendingDeepLinkStore.getState().pendingVoiceStartAt,
+    ).not.toBeNull();
+
+    // `useAssistantIdentityInit` clears, then hydrates for the assistant the
+    // user moved to. That is what the drain has been waiting on.
+    act(() => {
+      useAssistantIdentityStore.setState({ assistantId: null, version: null });
+      useAssistantIdentityStore.setState({
+        assistantId: "assistant-2",
+        version: "0.10.12",
+      });
+    });
+    await flushDrains();
+
+    const draftId =
+      useConversationStore.getState().activeConversationId ?? undefined;
+    expect(draftId).toBeDefined();
+    expect(h.clients).toHaveLength(1);
+    expect(h.lastClient().connectArgs).toEqual({
+      assistantId: "assistant-2",
+      conversationId: draftId,
+      turnDetection: "server_vad",
+    });
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+  });
+
+  test("a switch with nothing parked starts nothing", async () => {
+    activeAssistant("assistant-1");
+    const h = renderPersistentController();
+    await flushDrains();
+
+    act(() => {
+      activeAssistant("assistant-2");
+    });
+    await flushDrains();
+
+    expect(h.clients).toHaveLength(0);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  test("a switch after the request was served starts no second session", async () => {
+    // The park is one-shot, so the trigger cannot turn every later switch into
+    // a session the user never asked for.
+    activeAssistant("assistant-1");
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    const h = renderPersistentController();
+    await flushDrains();
+    expect(h.clients).toHaveLength(1);
+
+    act(() => {
+      activeAssistant("assistant-2");
+    });
+    await flushDrains();
+
+    expect(h.clients).toHaveLength(1);
   });
 });
 

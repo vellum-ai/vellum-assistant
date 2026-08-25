@@ -73,8 +73,7 @@ import {
   startVoiceActivity,
   updateVoiceActivity,
 } from "@/runtime/desktop-voice-activity";
-import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
-import type { AvatarRender } from "@/utils/avatar-render";
+import { memoizedAvatarEncode } from "@/utils/avatar-island-encode";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 
@@ -131,28 +130,25 @@ function toActivityContent(
 }
 
 /**
- * The last avatar encoded for the island, keyed by the source it came from.
+ * The island avatar for the current assistant, encoding it on first use.
  *
- * Module scope, so a user who starts several sessions pays the canvas draw
- * once. The key is the resolved {@link AvatarRender}, which is a stable object
- * per avatar (republished only when the avatar itself changes), so identity
- * comparison is enough and there is nothing to invalidate.
+ * The memo is shared with the Home Screen widget snapshot, which rasterizes the
+ * same source through the same ladder at a budget of its own. Sharing it buys
+ * one owner of the caching rules and the failure semantics rather than one
+ * draw for both surfaces: the two run separate encodes, since each resolves its
+ * own render and reads at its own budget. What reaches the island is unchanged:
+ * the memo is keyed on the source's identity, exactly as this module's own
+ * cache was, and holds a separate slot per budget so an island can never be
+ * handed the widgets' larger encode and fail to start on it.
  */
-let encodedAvatar: {
-  source: AvatarRender | null;
-  base64: string | null;
-} | null = null;
-
-/** The island avatar for the current assistant, encoding it on first use. */
 async function islandAvatarBase64(): Promise<string | undefined> {
   const source = getIslandAvatarSource();
   if (source === null) {
     return undefined;
   }
-  if (encodedAvatar?.source !== source) {
-    encodedAvatar = { source, base64: await encodeAvatarForIsland(source) };
-  }
-  return encodedAvatar.base64 ?? undefined;
+  const encode = memoizedAvatarEncode(source);
+  const base64 = encode.pending === null ? encode.base64 : await encode.pending;
+  return base64 ?? undefined;
 }
 
 /**

@@ -1,7 +1,7 @@
-import { lazy, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
+import { ShareFeedbackModalLazy } from "@/components/share-feedback-modal-lazy";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
@@ -54,6 +54,7 @@ import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
+import { useLegacyPinMigration } from "@/hooks/use-legacy-pin-migration";
 import { useWorkspaceTheme } from "@/hooks/use-workspace-theme";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
@@ -94,12 +95,6 @@ import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
-
-const ShareFeedbackModal = lazy(() =>
-  import("@/components/share-feedback-modal").then((m) => ({
-    default: m.ShareFeedbackModal,
-  })),
-);
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -171,6 +166,10 @@ export function RootLayout() {
   useConversationSync(assistantId, isAssistantActive);
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useWorkspaceTheme(assistantId, isAssistantActive);
+  // Drains the browser-local pinned-app list this assistant owns into the
+  // daemon. Mounted here rather than on the chat layout because it is a
+  // one-shot per assistant and must run whichever route the user lands on.
+  useLegacyPinMigration(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   useWebPresenceReport(assistantId);
   usePushRegistration(assistantId);
@@ -246,12 +245,6 @@ export function RootLayout() {
   const [removePairedPending, setRemovePairedPending] = useState(false);
   // Whether the tray "New Assistant…" name-prompt dialog is open.
   const [createOpen, setCreateOpen] = useState(false);
-  // The conversation the companion surface's open composer is talking to,
-  // minted by its first message. Held here because the surface never learns the
-  // id: it says only whether it is starting or continuing, and this is the side
-  // that mints one.
-  const companionConversationRef = useRef<string | null>(null);
-
   const { login } = useOnboardingLogin();
 
   useVellumCommands({
@@ -400,15 +393,20 @@ export function RootLayout() {
       // resolved against the selection would land in the thread the user
       // happened to open rather than the one they were typing to.
       //
+      // The id lives in the conversation store because it has to be corrected
+      // from outside this component: the first message goes to a draft id that
+      // the send swaps for the one the server assigns, and a slot left on the
+      // draft would mint a fresh conversation for every follow-up.
+      //
       // The fallback covers the composer outliving this window's memory of it,
       // which a reload does: the active conversation is the best guess left.
       const conversations = useConversationStore.getState();
       const conversationId = command.startsConversation
         ? createDraftConversationId()
-        : (companionConversationRef.current ??
+        : (conversations.companionConversationId ??
           conversations.activeConversationId ??
           createDraftConversationId());
-      companionConversationRef.current = conversationId;
+      conversations.setCompanionConversationId(conversationId);
       conversations.setActiveConversationId(conversationId);
       // The `?prompt=` auto-send pathway (`use-auto-send-effects`), with a
       // relay token so sending the same words twice sends twice instead of
@@ -563,15 +561,13 @@ export function RootLayout() {
       <GlobalPushToTalkBridge assistantId={assistantId} />
 
       {feedbackOpen ? (
-        <LazyBoundary>
-          <ShareFeedbackModal
-            open={feedbackOpen}
-            onClose={() => setFeedbackOpen(false)}
-            assistantId={assistantId}
-            assistantVersion={assistantVersion}
-            activeConversationId={activeConversationId}
-          />
-        </LazyBoundary>
+        <ShareFeedbackModalLazy
+          open={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+          assistantId={assistantId}
+          assistantVersion={assistantVersion}
+          activeConversationId={activeConversationId}
+        />
       ) : null}
 
       {/* Destructive confirmation for the tray "Retire <assistant>…" command.

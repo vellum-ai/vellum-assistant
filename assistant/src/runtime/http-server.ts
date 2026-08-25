@@ -8,6 +8,10 @@
 import type { ServerWebSocket } from "bun";
 
 import {
+  startAppPinReconcileSweep,
+  stopAppPinReconcileSweep,
+} from "../apps/app-pin-reconciler.js";
+import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
@@ -336,6 +340,12 @@ export class RuntimeHttpServer {
                 send: (frame) => {
                   ws.send(JSON.stringify(frame));
                 },
+                // Lets the daemon hang up on a client that stopped answering.
+                // A normal close (not a retryable one) so the client ends the
+                // call rather than reconnecting into a session that is gone.
+                close: () => {
+                  ws.close(1000, "Live voice session released");
+                },
               }),
             );
             log.info("Live voice WebSocket opened");
@@ -608,10 +618,16 @@ export class RuntimeHttpServer {
     // migrations are unready.
     startPluginScheduleReconcileSweep();
     log.info("Plugin schedule reconcile sweep started");
+
+    // Same backstop for sidebar pins: a disabled plugin's app stops existing,
+    // and its id returns intact when the plugin is re-enabled.
+    startAppPinReconcileSweep();
+    log.info("App pin reconcile sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
+    stopAppPinReconcileSweep();
     stopInferenceProfileSessionReaper();
     stopTelegramWebhookHealthSweep();
     stopPluginScheduleReconcileSweep();

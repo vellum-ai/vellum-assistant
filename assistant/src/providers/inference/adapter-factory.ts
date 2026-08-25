@@ -136,10 +136,6 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // Replay thinking as `reasoning_content` so DeepSeek-compatible
       // thinking-mode upstreams accept follow-up requests that include tools.
       assistantReasoningField: "reasoning_content",
-      // Generic OpenAI-compat proxies may front a strict backend (vLLM,
-      // DeepSeek, Portkey). Backfill empty assistant turns so the request
-      // satisfies `content or tool_calls must be set`.
-      backfillEmptyAssistantContent: true,
       ...(baseURL ? { baseURL } : {}),
     }),
   // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
@@ -152,11 +148,6 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // Replay thinking as `reasoning_content` so DeepSeek-compatible
       // thinking-mode endpoints accept follow-up requests that include tools.
       assistantReasoningField: "reasoning_content",
-      // Custom endpoints (Portkey, vLLM, LM Studio, DeepSeek-compat) often
-      // reject `{ role: "assistant", content: null }` after a Stop mid-stream
-      // or a reasoning-only turn. Same guard as OpenRouter and Vercel AI
-      // Gateway.
-      backfillEmptyAssistantContent: true,
       // Custom OpenAI-compatible endpoints may front strict reasoning
       // models (DeepSeek thinking) that 400 on any explicit tool_choice.
       omitToolChoiceWhenReasoning: true,

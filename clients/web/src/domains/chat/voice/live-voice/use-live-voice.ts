@@ -711,10 +711,11 @@ export function useLiveVoice(
       // A reconnect built a new player (or reused the standby one) while the
       // store still carries the user's mute; make the graph agree with it.
       player.setOutputMuted(useLiveVoiceStore.getState().outputMuted);
-      // Route the room avatar's `responding` pulse to real TTS output. The mic
-      // amplitude (the only prior source) is near-silent while the assistant
-      // speaks, so the avatar looked inverted — pulsing on the user's voice, not
-      // the assistant's. Cleared by the store reset in teardown()/stop().
+      // The assistant's own voice, for every surface that draws it: the voice
+      // room's responding band, the composer bar and the title-bar pill. It has
+      // to come off the output bus rather than the mic, which is near-silent
+      // while the assistant speaks. Cleared by the store reset in
+      // teardown()/stop().
       store.setOutputAmplitudeProvider(() => player.getOutputAmplitude());
       // Feed the voice-room transcript's spoken-word cursor: it maps the
       // player's played/total seconds onto the caption's words each animation
@@ -902,6 +903,13 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
+          // No draft bookkeeping here. `thinking` is sent before the turn is
+          // dispatched and the session can still return early on cancellation,
+          // so the row this frame promises may never be written. The draft mark
+          // is cleared where the row is confirmed instead, by
+          // `useMaterializedDraftReconcile` against the fetched conversation
+          // list.
+          //
           // New response: reset the per-response transcript and barge-in flags.
           session.responseEpoch += 1;
           session.responseAudioStarted = false;

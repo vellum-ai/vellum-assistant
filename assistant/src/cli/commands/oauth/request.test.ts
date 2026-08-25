@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -46,7 +46,7 @@ import { Command } from "commander";
 
 import { applyCommandHelp } from "../../lib/cli-command-help.js";
 import { oauthHelp } from "./index.help.js";
-import { registerRequestCommand } from "./request.js";
+import { readBodyData, registerRequestCommand } from "./request.js";
 
 let tempDir: string;
 
@@ -88,7 +88,9 @@ async function runRequestCommand(args: string[]): Promise<{
     const oauth = program.command("oauth").description(oauthHelp.description);
     applyCommandHelp(oauth, oauthHelp);
     registerRequestCommand(oauth);
-    const request = oauth.commands.find((command) => command.name() === "request");
+    const request = oauth.commands.find(
+      (command) => command.name() === "request",
+    );
     if (request) {
       request.option("--json");
     }
@@ -124,6 +126,90 @@ describe("assistant oauth request", () => {
       },
     ]);
     expect(stdout.toString("utf8")).toContain("hello");
+  });
+});
+
+describe("oauth request body encoding", () => {
+  const MULTIPART_BODY = [
+    "--boundary",
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    '{"name":"Sheet"}',
+    "--boundary--",
+    "",
+  ].join("\r\n");
+
+  const MULTIPART_HEADERS = {
+    "Content-Type": "multipart/related; boundary=boundary",
+  };
+
+  test("keeps a multipart body as the exact string it was given", async () => {
+    expect(readBodyData(MULTIPART_BODY, MULTIPART_HEADERS)).toBe(
+      MULTIPART_BODY,
+    );
+  });
+
+  test("parses a JSON body into an object", async () => {
+    expect(
+      readBodyData('{"name":"Sheet"}', {
+        "Content-Type": "application/json",
+      }),
+    ).toEqual({ name: "Sheet" });
+  });
+
+  test("parses a JSON body when no Content-Type is given", async () => {
+    expect(readBodyData('{"name":"Sheet"}', {})).toEqual({
+      name: "Sheet",
+    });
+  });
+
+  test("keeps a JSON-looking body raw under a non-JSON Content-Type", async () => {
+    expect(
+      readBodyData('{"name":"Sheet"}', { "content-type": "text/plain" }),
+    ).toBe('{"name":"Sheet"}');
+  });
+
+  test("keeps unparseable text raw when no Content-Type is given", async () => {
+    expect(readBodyData("not json at all", {})).toBe("not json at all");
+  });
+
+  test("reads a @file body under the caller's Content-Type", async () => {
+    const filePath = join(tempDir, "upload.txt");
+    writeFileSync(filePath, MULTIPART_BODY, "utf-8");
+
+    expect(readBodyData(`@${filePath}`, MULTIPART_HEADERS)).toBe(
+      MULTIPART_BODY,
+    );
+  });
+
+  test("forwards a multipart body to the route handler as a string", async () => {
+    const { exitCode } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "-X",
+      "POST",
+      "-H",
+      "Content-Type: multipart/related; boundary=boundary",
+      "-d",
+      MULTIPART_BODY,
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(handleRequestCalls).toEqual([
+      {
+        body: {
+          provider: "google",
+          url: "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+          method: "POST",
+          headers: {
+            "Content-Type": "multipart/related; boundary=boundary",
+          },
+          parsed_data: MULTIPART_BODY,
+        },
+      },
+    ]);
   });
 });
 

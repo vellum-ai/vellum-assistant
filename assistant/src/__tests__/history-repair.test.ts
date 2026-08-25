@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { deepRepairHistory } from "../agent/history-repair/history-repair.js";
-import { isRepairableOrderingError } from "../agent/history-repair/history-repair.js";
-import { repairHistory } from "../agent/history-repair/history-repair.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+  isUserTerminalHistoryError,
+  repairHistory,
+} from "../agent/history-repair/history-repair.js";
 import type { Message } from "../providers/types.js";
 
 describe("repairHistory", () => {
@@ -1172,6 +1175,88 @@ describe("deepRepairHistory", () => {
     expect(repaired[1].content[0]).toEqual({ type: "text", text: "Hi" });
   });
 
+  test("removes blank text messages so blank assistant tails become user-terminal", () => {
+    /** Blank-text assistant turns carry nothing a provider can serialize. */
+
+    // GIVEN a history whose assistant turns hold only whitespace text
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "  \n" }] },
+      { role: "user", content: [{ type: "text", text: "Continue" }] },
+      { role: "assistant", content: [{ type: "text", text: "" }] },
+    ];
+
+    // WHEN it is deep-repaired
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    // THEN only the merged user turn survives
+    expect(repaired).toHaveLength(1);
+    expect(repaired[0].role).toBe("user");
+    expect(repaired[0].content).toEqual([
+      { type: "text", text: "Hello" },
+      { type: "text", text: "Continue" },
+    ]);
+  });
+
+  test("preserves a non-empty assistant tail by default", () => {
+    /** Providers that accept an assistant-terminal history keep the reply. */
+
+    // GIVEN a history ending with a real assistant reply
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+    ];
+
+    // WHEN it is deep-repaired without a user-terminal requirement
+    const { messages: repaired } = deepRepairHistory(messages);
+
+    // THEN the reply is kept
+    expect(repaired).toEqual(messages);
+  });
+
+  test("drops a non-empty assistant tail when user-terminal history is required", () => {
+    /** Providers rejecting a model-terminal request get a user-terminal history. */
+
+    // GIVEN a history ending with a real assistant reply
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "Hi" }] },
+    ];
+
+    // WHEN it is deep-repaired for a provider requiring a user-terminal history
+    const { messages: repaired } = deepRepairHistory(messages, {
+      requireUserTerminal: true,
+    });
+
+    // THEN the trailing reply is dropped
+    expect(repaired).toEqual([messages[0]]);
+  });
+
+  test("drops multiple trailing assistant messages and allows an assistant-only history to empty", () => {
+    /** The whole assistant tail is dropped, even when nothing is left. */
+
+    // GIVEN a history ending with several assistant turns
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      { role: "assistant", content: [{ type: "text", text: "One" }] },
+      { role: "assistant", content: [{ type: "text", text: "Two" }] },
+    ];
+
+    // WHEN it is deep-repaired for a provider requiring a user-terminal history
+    const { messages: repaired } = deepRepairHistory(messages, {
+      requireUserTerminal: true,
+    });
+
+    // THEN every trailing assistant turn is gone
+    expect(repaired).toEqual([messages[0]]);
+
+    // AND an assistant-only history repairs to an empty history
+    expect(
+      deepRepairHistory(messages.slice(1), { requireUserTerminal: true })
+        .messages,
+    ).toEqual([]);
+  });
+
   test("applies standard repair after deep pass", () => {
     // Consecutive assistant messages with tool_use but missing tool_result
     const messages: Message[] = [
@@ -1240,6 +1325,23 @@ describe("isRepairableOrderingError", () => {
         "Invalid parameter: 'tool_call_id' of 'call_abc123' not found in 'tool_calls' of previous message.",
       ),
     ).toBe(true);
+  });
+
+  test("matches user-terminal history rejections", () => {
+    /** A model-terminal rejection is recognized as repairable. */
+
+    // GIVEN Gemini's rejection of a request ending with a model turn
+    const message = "Requests ending with a model turn are not supported.";
+
+    // WHEN the message is classified
+    // THEN it is repairable and identified as a user-terminal requirement
+    expect(isRepairableOrderingError(message)).toBe(true);
+    expect(isUserTerminalHistoryError(message)).toBe(true);
+
+    // AND an unrelated provider error is not
+    expect(
+      isUserTerminalHistoryError("The provider returned an unrelated error"),
+    ).toBe(false);
   });
 
   test("does not match unrelated provider errors", () => {

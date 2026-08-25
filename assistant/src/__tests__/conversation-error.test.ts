@@ -582,6 +582,23 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("tool_ordering");
     });
+
+    it("classifies user-terminal history rejections separately", () => {
+      /** User-terminal provider rejections receive a dedicated category. */
+
+      // GIVEN a provider error whose history ends with a model turn
+      const error = new Error(
+        "Requests ending with a model turn are not supported.",
+      );
+
+      // WHEN the conversation error is classified
+      const result = classifyConversationError(error, baseCtx);
+
+      // THEN it is a retryable ordering error in the user-terminal category
+      expect(result.code).toBe("PROVIDER_ORDERING");
+      expect(result.retryable).toBe(true);
+      expect(result.errorCategory).toBe("history_user_terminal");
+    });
   });
 
   describe("web search ordering errors", () => {

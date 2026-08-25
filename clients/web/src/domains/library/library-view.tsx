@@ -21,7 +21,7 @@ import { useLibraryData } from "@/domains/library/use-library-data";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
@@ -47,8 +47,7 @@ export function LibraryView({
 }: LibraryViewProps) {
   const { t } = useTranslation("library");
   const queryClient = useQueryClient();
-  const togglePin = usePinnedAppsStore.use.togglePin();
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isDeploying = useDeployStore.use.isDeploying();
 
   const {
@@ -137,7 +136,7 @@ export function LibraryView({
   );
 
   const handlePinToggle = useCallback(
-    (app: AppSummary) => togglePin(app),
+    (app: AppSummary) => togglePin(app.id),
     [togglePin],
   );
 

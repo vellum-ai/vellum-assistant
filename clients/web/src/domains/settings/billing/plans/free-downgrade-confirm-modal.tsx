@@ -13,7 +13,12 @@ export interface FreeDowngradeConfirmModalProps {
    * omitted and the dialog shows just the cancellation note.
    */
   lostFeatures: string[];
-  /** A billing-portal session is being created — disable the actions. */
+  /**
+   * Confirming hands off to the Stripe billing portal instead of cancelling
+   * in-app (a Pro sub the cancel endpoint rejects); the body copy says so.
+   */
+  viaPortal: boolean;
+  /** The cancellation request is in flight; the actions are disabled. */
   pending: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -22,13 +27,14 @@ export interface FreeDowngradeConfirmModalProps {
 /**
  * Reconfirm dialog for cancelling Pro ("Downgrade to Base") from the plans
  * takeover. Mirrors the adjust-plan modal's step of the same name: it lists
- * the Pro features that will be lost before handing off to the Stripe billing
- * portal, where the actual cancellation happens. Layout-only — the parent owns
- * the portal mutation.
+ * the Pro features that will be lost before the cancellation is scheduled via
+ * the subscription-cancel endpoint. Layout-only; the parent owns the cancel
+ * mutation.
  */
 export function FreeDowngradeConfirmModal({
   open,
   lostFeatures,
+  viaPortal,
   pending,
   onCancel,
   onConfirm,
@@ -54,9 +60,13 @@ export function FreeDowngradeConfirmModal({
             variant="body-medium-default"
             className="text-(--content-secondary)"
           >
-            {hasLostFeatures
-              ? t("freeDowngradeConfirmModal.bodyWithFeatures")
-              : t("freeDowngradeConfirmModal.bodyCancelOnly")}
+            {viaPortal
+              ? hasLostFeatures
+                ? t("freeDowngradeConfirmModal.bodyWithFeaturesPortal")
+                : t("freeDowngradeConfirmModal.bodyCancelOnlyPortal")
+              : hasLostFeatures
+                ? t("freeDowngradeConfirmModal.bodyWithFeatures")
+                : t("freeDowngradeConfirmModal.bodyCancelOnly")}
           </Typography>
           {hasLostFeatures ? (
             <ul className="mt-4 list-disc space-y-2 pl-5">

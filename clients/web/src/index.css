@@ -946,22 +946,19 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* ─── Live-voice room avatar ─────────────────────────────────────────────────
  * State-driven animation for the enlarged assistant avatar in the voice room.
- * Each live-voice visual (idle / listening / thinking / responding /
- * reconnecting) gets one continuous CSS loop here; the discrete enter/scale
- * transition when the visual changes is a motion spring at the call site. Only
- * the `responding` visual rides live amplitude (the assistant's TTS output),
- * fed imperatively through the `--voice-amp` custom property by a
- * requestAnimationFrame loop — never React state. `listening` stays at rest;
- * the user's voice is expressed by the top-edge waves coming in (see
- * voice-listening-waves.tsx). See voice-avatar.tsx.
+ * Each live-voice visual (idle / listening / thinking / reconnecting) gets one
+ * continuous CSS loop here; the discrete enter/scale transition when the visual
+ * changes is a motion spring at the call site. See voice-avatar.tsx.
  *
- * The sonar ripple's cyan→indigo gradient is a deliberate decorative accent
- * that stays constant across all themes (like a data-viz series or annotation
+ * No loop rides audio. Both voices are drawn as bands at the room's floor (see
+ * voice-listening-waves.tsx), so an avatar that answered the same signal would
+ * say the same thing twice; `responding` holds the avatar still and lets the
+ * band carry the turn.
+ *
+ * The idle ring's cyan→indigo gradient is a deliberate decorative accent that
+ * stays constant across all themes (like a data-viz series or annotation
  * overlay), so it is expressed as fixed rgba rather than a theme token. */
 .voice-avatar {
-  /* Live amplitude (0–1) written per frame on this outer node for `responding`
-   * only, so the ::after emanation ring can read it. Defaults to 0. */
-  --voice-amp: 0;
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -969,15 +966,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   transform-origin: center;
 }
 
-/* Passive wrapper around the avatar. Body motion now lives on the state class
- * (a slight constant pulse); amplitude drives the ::after emanation, not this
- * layer, so the avatar body no longer scales with audio. */
-.voice-avatar__amp {
-  display: inline-flex;
-}
-
-/* Decorative ring layer: idle (invitation pulse) and responding (color
- * emanating outward). Inert until a visual class animates it. */
+/* Decorative ring layer for the idle invitation pulse. Inert until a visual
+ * class animates it. */
 .voice-avatar::after {
   content: "";
   position: absolute;
@@ -1034,36 +1024,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: voice-avatar-think-glow 2.6s ease-in-out infinite;
 }
 
-/* Responding — the avatar is speaking: a slight baseline bounce (the "pulse")
- * plus color emanating outward from it (the ::after ring), whose intensity
- * rides live TTS-output amplitude via `--voice-amp`. Energy going *out*, the
- * counterpart to listening's waves coming in. */
-@keyframes voice-avatar-respond-bounce {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
-}
-
-.voice-avatar--responding {
-  animation: voice-avatar-respond-bounce 1.4s ease-in-out infinite;
-}
-
-/* The emanation itself: a ring continuously swelling out and fading (the
- * "emanating" motion); its color intensity scales with `--voice-amp` so louder
- * speech radiates more strongly, and it fades to nothing in the gaps. */
-@keyframes voice-avatar-emanate {
-  0% { opacity: 0.75; transform: scale(0.92); }
-  100% { opacity: 0; transform: scale(1.55); }
-}
-
-.voice-avatar--responding::after {
-  background: radial-gradient(
-    circle,
-    rgba(34, 211, 238, calc(0.12 + var(--voice-amp) * 0.5)) 0%,
-    rgba(99, 102, 241, calc(0.08 + var(--voice-amp) * 0.34)) 58%,
-    rgba(99, 102, 241, 0) 72%
-  );
-  animation: voice-avatar-emanate 1.6s ease-out infinite;
-}
+/* Responding has no loop of its own: the band at the floor is the assistant's
+ * voice, so the avatar holds still under it. */
 
 /* Reconnecting — dimmed, slow pulse, distinct from idle-breathe (full opacity)
  * and think-glow (brightens rather than dims). */
@@ -1080,12 +1042,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   .voice-avatar--idle,
   .voice-avatar--listening,
   .voice-avatar--thinking,
-  .voice-avatar--responding,
   .voice-avatar--reconnecting {
     animation: none;
   }
-  .voice-avatar--idle::after,
-  .voice-avatar--responding::after {
+  .voice-avatar--idle::after {
     animation: none;
     opacity: 0;
   }
@@ -1153,11 +1113,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* ─── Live-voice listening waves ─────────────────────────────────────────────
  * The `listening` visual language: layered sine waves along the bottom edge,
- * the user's voice arriving as energy coming *in* — distinct from `responding`,
- * where the avatar itself emits an outward pulse. The waves always drift
- * horizontally; live mic amplitude (`--voice-amp`, written per frame by a rAF
- * loop — never React state) lifts them up the screen and brightens them as the
- * user speaks. Cyan→indigo is a fixed decorative accent, matching the listening
+ * the user's voice arriving as energy coming *in*. `responding` answers from
+ * the same edge in the opposite ink, so the two are told apart by color rather
+ * than by position. The waves always drift horizontally; live amplitude
+ * (`--voice-amp`, written per frame by a rAF loop rather than through React
+ * state) lifts them up the screen and brightens them as the voice carries. Cyan→indigo is a fixed decorative accent, matching the listening
  * sonar, not a theme token. See voice-listening-waves.tsx. */
 .voice-listening-waves {
   --voice-amp: 0;

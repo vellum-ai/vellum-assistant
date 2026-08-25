@@ -1,6 +1,7 @@
 /**
- * The card that stands for a document in the transcript: a bordered row naming
- * the document, with an "opens it" affordance.
+ * The affordance that stands for a document in the transcript: a primary
+ * button naming it, a document glyph on the left and a chevron on the right,
+ * held in its active state while that document is the one on screen.
  *
  * A document reaches the transcript two ways: the daemon's inline
  * `document_preview` surface (`DocumentPreviewSurface`) and the
@@ -9,8 +10,8 @@
  * the two cannot drift into looking like different kinds of thing.
  */
 
-import { ArrowUpRight, FileText } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { Button } from "@vellumai/design-library";
+import { ChevronRight, FileText } from "lucide-react";
 
 export interface DocumentCardProps {
   /** Title to show for the document. */
@@ -21,6 +22,8 @@ export interface DocumentCardProps {
   content?: string;
   /** Opens the document. Omitted for a card that is not actionable. */
   onOpen?: () => void;
+  /** The document is the one the viewer is currently showing. */
+  isOpen?: boolean;
   /** Accessible name for the open gesture. */
   ariaLabel?: string;
   testId?: string;
@@ -31,50 +34,42 @@ export function DocumentCard({
   mimeType,
   content,
   onOpen,
+  isOpen = false,
   ariaLabel,
   testId,
 }: DocumentCardProps) {
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onOpen?.();
-    }
-  };
-
   return (
-    <div className="max-w-sm">
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
-        <div
-          role={onOpen ? "button" : undefined}
-          tabIndex={onOpen ? 0 : undefined}
+    <div className="flex max-w-sm flex-col gap-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <Button
+          variant="primary"
+          active={isOpen}
+          aria-pressed={onOpen ? isOpen : undefined}
           aria-label={onOpen ? ariaLabel : undefined}
           data-testid={testId}
+          disabled={!onOpen}
           onClick={onOpen}
-          onKeyDown={onOpen ? handleKeyDown : undefined}
-          className={onOpen ? "-m-2 cursor-pointer rounded-lg p-2" : undefined}
+          leftIcon={<FileText />}
+          rightIcon={<ChevronRight />}
+          className="min-w-0 max-w-full"
         >
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 shrink-0 text-[var(--content-quiet)]" />
-            <h3 className="min-w-0 truncate text-title-small text-[var(--content-strong)]">
-              {documentName}
-            </h3>
-            {mimeType && (
-              <span className="rounded-full bg-[var(--tag-bg-neutral)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-                {mimeType}
-              </span>
-            )}
-            {onOpen && (
-              <ArrowUpRight className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--content-faint)]" />
-            )}
-          </div>
-
-          {content && (
-            <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
-              {content}
-            </pre>
-          )}
-        </div>
+          {/* The button lays its label out as a flex item that will not
+              shrink on its own, so a long document name would push the
+              chevron out of the row rather than ellipsing. */}
+          <span className="min-w-0 truncate">{documentName}</span>
+        </Button>
+        {mimeType && (
+          <span className="shrink-0 rounded-full bg-[var(--tag-bg-neutral)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
+            {mimeType}
+          </span>
+        )}
       </div>
+
+      {content && (
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
+          {content}
+        </pre>
+      )}
     </div>
   );
 }

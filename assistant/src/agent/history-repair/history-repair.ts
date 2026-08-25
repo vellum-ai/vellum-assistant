@@ -15,6 +15,7 @@
  * recover — so detection and repair of ordering drift live together as one unit.
  */
 
+import { isEffectivelyEmptyContent } from "../../providers/content-blocks.js";
 import { analyzeServerToolPairing } from "../../providers/server-tool-pairing.js";
 import type {
   ContentBlock,
@@ -391,7 +392,7 @@ function formatWebSearchContent(content: unknown): string {
 
 /**
  * Provider rejection messages indicating a tool_use/tool_result pairing or
- * message-ordering violation — the structural drift `deepRepairHistory`
+ * message-ordering violation. The structural drift `deepRepairHistory`
  * re-normalizes.
  */
 export const ORDERING_ERROR_PATTERNS: readonly RegExp[] = [
@@ -420,6 +421,19 @@ export const WEB_SEARCH_ORDERING_PATTERNS: readonly RegExp[] = [
   /web_search.*tool_result/i,
 ];
 
+/** Provider rejections for APIs that require the last history turn to be a user or function turn. */
+export const USER_TERMINAL_HISTORY_PATTERNS: readonly RegExp[] = [
+  /ending with a model turn/i,
+  /must end with a user (turn|message)/i,
+];
+
+/** Whether a provider error message requires history to end with a user turn. */
+export function isUserTerminalHistoryError(message: string): boolean {
+  return USER_TERMINAL_HISTORY_PATTERNS.some((pattern) =>
+    pattern.test(message),
+  );
+}
+
 /**
  * Whether a provider error message denotes an ordering/pairing violation that
  * `deepRepairHistory` can recover by re-normalizing the history. Detection and
@@ -429,21 +443,22 @@ export const WEB_SEARCH_ORDERING_PATTERNS: readonly RegExp[] = [
 export function isRepairableOrderingError(message: string): boolean {
   return (
     ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message)) ||
-    WEB_SEARCH_ORDERING_PATTERNS.some((pattern) => pattern.test(message))
+    WEB_SEARCH_ORDERING_PATTERNS.some((pattern) => pattern.test(message)) ||
+    isUserTerminalHistoryError(message)
   );
 }
 
 /**
- * Aggressive repair pass that handles edge cases beyond repairHistory:
- * - Removes empty messages
- * - Ensures the first message is from the user
- * - Merges consecutive same-role messages (before tool-use/result repair)
- * Then applies the standard repairHistory on top (which also merges any
- * consecutive same-role messages introduced by tool-use/result repair).
+ * Removes effectively empty messages, ensures the first message is from the
+ * user, merges consecutive same-role messages, optionally ensures the history
+ * ends with a user message, and applies standard tool-use/result repair.
  */
-export function deepRepairHistory(messages: Message[]): RepairResult {
-  // 1. Remove messages with no content blocks
-  let cleaned = messages.filter((m) => m.content.length > 0);
+export function deepRepairHistory(
+  messages: Message[],
+  options: { requireUserTerminal?: boolean } = {},
+): RepairResult {
+  // 1. Remove messages with no serializable content
+  let cleaned = messages.filter((m) => !isEffectivelyEmptyContent(m.content));
 
   // 2. Strip leading assistant messages (provider requires user-first)
   while (cleaned.length > 0 && cleaned[0].role === "assistant") {
@@ -461,9 +476,25 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
     }
   }
 
-  // 4. Apply standard tool-use/tool-result repair on top. The inner mapping
-  // is keyed to `merged`'s indices, not the caller's input — steps 1–3 drop
-  // and merge messages untracked — so it is not returned.
+  if (options.requireUserTerminal) {
+    let droppedCount = 0;
+    while (
+      merged.length > 0 &&
+      merged[merged.length - 1]?.role === "assistant"
+    ) {
+      merged.pop();
+      droppedCount++;
+    }
+    if (droppedCount > 0) {
+      log.warn(
+        { droppedCount },
+        "Dropped trailing assistant turns because the provider requires history to end with a user turn",
+      );
+    }
+  }
+
+  // Apply standard tool-use/tool-result repair on top. The inner mapping is
+  // keyed to `merged`'s indices, not the caller's input, so it is not returned.
   const { messages: repaired, stats } = repairHistory(merged);
   return { messages: repaired, stats };
 }

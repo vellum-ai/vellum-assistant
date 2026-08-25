@@ -11,9 +11,12 @@
 
 import { createRequire } from "node:module";
 
+import { getLogger } from "../util/logger.js";
 import { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
 
 const require = createRequire(import.meta.url);
+
+const log = getLogger("live-voice-manager");
 
 type LiveVoiceSessionFactory =
   typeof import("./live-voice-session.js").createLiveVoiceSession;
@@ -48,6 +51,28 @@ export function getLiveVoiceSessionManager(): LiveVoiceSessionManager {
             require("./live-voice-session.js") as typeof import("./live-voice-session.js")
           ).createLiveVoiceSession;
         return createSession(context);
+      },
+      // The manager reclaims a slot on its own only when a session stopped
+      // behaving: either its teardown overran the close budget, or its client
+      // went silent on a mode that streams continuously. Both end somebody's
+      // call without them asking, and neither leaves a trace anywhere else, so
+      // they are logged at warn.
+      onSlotEvent: (event) => {
+        if (event.kind === "close_timed_out") {
+          log.warn(
+            {
+              sessionId: event.sessionId,
+              reason: event.reason,
+              timeoutMs: event.timeoutMs,
+            },
+            "Live voice session close overran its budget, freeing the slot anyway",
+          );
+          return;
+        }
+        log.warn(
+          { sessionId: event.sessionId, timeoutMs: event.timeoutMs },
+          "Live voice client went silent, releasing the session",
+        );
       },
     });
   }

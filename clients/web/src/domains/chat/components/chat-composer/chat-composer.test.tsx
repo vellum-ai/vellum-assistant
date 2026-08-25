@@ -261,7 +261,10 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateSpy,
   // The composer captures pop-out mode once at mount from the URL search
   // string; a plain window (no `?popout=1`) is the default test context.
-  useLocation: () => ({ search: "" }),
+  // `pathname` is what the camera deep link's drain reads to know which
+  // conversation it is bound to; the assistant index names none, which is the
+  // honest stand-in for a composer rendered outside the route tree.
+  useLocation: () => ({ pathname: "/assistant", search: "" }),
 }));
 
 // "Add to chat" sheet, kept for the Android shell. Stubbed to a probe that

@@ -155,6 +155,19 @@ const buttonVariants = cva(
         class: "touch-mobile:h-10 touch-mobile:w-10",
       },
       {
+        // A primary button that stands for something currently open or
+        // selected holds its own pressed tone instead of springing back to
+        // the resting fill, which is the same move `ghost` and `outlined`
+        // make one step further out.
+        variant: "primary",
+        active: true,
+        class: [
+          "bg-[var(--primary-active)]",
+          "hover:bg-[var(--primary-active)]",
+          "active:bg-[var(--primary-active)]",
+        ].join(" "),
+      },
+      {
         variant: "ghost",
         active: true,
         class: [
@@ -244,6 +257,12 @@ export interface ButtonProps
    */
   iconOnly?: Exclude<ReactNode, boolean> | false;
   fullWidth?: boolean;
+  /**
+   * Paints the button as the thing currently open or selected: `primary`,
+   * `ghost`, and `outlined` each hold their own pressed tone rather than
+   * springing back on mouse-out. Pair it with `aria-pressed` so the state is
+   * announced and not only drawn.
+   */
   active?: boolean;
   /**
    * When `true` (default), icon-only buttons grow to a larger circular tap

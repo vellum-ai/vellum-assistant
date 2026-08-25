@@ -19,6 +19,10 @@ interface LazyBoundaryProps {
    * weather card showing the markdown body when the rich chart chunk
    * fails to arrive). Must be a `ReactElement` (wrap bare strings in a
    * `<span>`/`<div>`).
+   *
+   * An in-place retry is possible, but only by minting a fresh lazy
+   * component and remounting this boundary with a new `key`; see
+   * `share-feedback-modal-lazy.tsx`.
    */
   errorFallback?: ReactElement;
 }

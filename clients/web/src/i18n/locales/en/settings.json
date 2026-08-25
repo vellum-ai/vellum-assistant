@@ -560,6 +560,7 @@
     "machineSizeDocsAriaLabel": "Learn more about machine sizes",
     "machineSizeLabel": "Select a machine size:",
     "machineSizePlaceholder": "Select a machine size",
+    "noExtraUsage": "No extra usage",
     "recap": "Recap",
     "storageAriaLabel": "Storage",
     "storageDocsAriaLabel": "Learn more about storage",
@@ -568,6 +569,10 @@
     "subtitle": "Just better.",
     "title": "Create a custom plan",
     "totalBilledMonthly": "Total · Billed monthly",
+    "usageBundleAriaLabel": "Usage bundle",
+    "usageBundleDocsAriaLabel": "Learn more about usage bundles",
+    "usageBundleLabel": "Add a usage bundle:",
+    "usageBundlePlaceholder": "Select a usage bundle",
     "yourSelection": "Your selection:"
   },
   "customPlanRow": {
@@ -823,8 +828,10 @@
     "valueAriaLabel": "{label} value"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "You'll be taken to Stripe to cancel your subscription.",
-    "bodyWithFeatures": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
+    "bodyCancelOnly": "Your subscription will be canceled at the end of your current billing period. You'll keep Pro access until then.",
+    "bodyCancelOnlyPortal": "You'll be taken to Stripe to cancel your subscription.",
+    "bodyWithFeatures": "Downgrading removes the following Pro features. Your subscription will be canceled at the end of your current billing period.",
+    "bodyWithFeaturesPortal": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
     "cancel": "Cancel",
     "confirm": "Downgrade to Base",
     "title": "Downgrade to Base?"
@@ -1300,6 +1307,7 @@
     "heading": "Plan",
     "loadError": "Failed to load plan.",
     "loading": "Loading plan...",
+    "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",
     "powerUpFor": "Power Up for +{amount}/month",
@@ -1310,6 +1318,7 @@
     "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly",
+    "usageIncludedChip": "{label} included",
     "viewAllPlans": "View All Plans"
   },
   "planCardContent": {
@@ -1346,6 +1355,8 @@
     "featureComputer": "{machine} Computer",
     "featureCreditsIncluded": "{amount} in credits included",
     "featureStorage": "{gib} GB Storage",
+    "featureUsage": "{name} usage, reset monthly",
+    "featureUsageIncluded": "{label} included",
     "foreverCaption": "Forever",
     "freeFeaturePayAsYouGo": "Pay-as-you-go credits",
     "freeFeatureSmallComputer": "Small Computer",
@@ -2112,6 +2123,11 @@
   },
   "useBillingPortalSession": {
     "openError": "Couldn't open the billing portal. Please try again."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "Couldn't cancel your subscription. Please try again.",
+    "canceledToast": "Pro plan canceled. You'll have access until {date}.",
+    "endOfBillingPeriod": "the end of your billing period"
   },
   "useChatgptDeviceAuth": {
     "expired": "This code expired. Start again to get a new one.",

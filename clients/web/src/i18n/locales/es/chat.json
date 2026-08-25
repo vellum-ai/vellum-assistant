@@ -422,6 +422,10 @@
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
     "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
   },
+  "confirmationActions": {
+    "submitFailed": "No se pudo enviar la confirmación. Inténtalo de nuevo.",
+    "submitFailedRuleAvailable": "No se pudo enviar la confirmación, pero aún puedes crear una regla."
+  },
   "confirmationPromptCard": {
     "allow": "Permitir",
     "deny": "Denegar",
@@ -429,6 +433,9 @@
     "showDetails": "Mostrar detalles",
     "titleFallback": "Confirmación necesaria",
     "toolLabel": "Herramienta:"
+  },
+  "contactActions": {
+    "saveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo."
   },
   "contactPromptCard": {
     "addContact": "Añadir un contacto",
@@ -585,13 +592,18 @@
   },
   "documentViewerContainer": {
     "close": "Cerrar",
-    "closeCommentsAria": "Cerrar comentarios",
     "closeDocumentAria": "Cerrar documento",
     "comments": "Comentarios",
     "export": "Exportar",
-    "openCommentsAria": "Abrir comentarios",
+    "hideComments": "Ocultar comentarios",
+    "menuAria": "Opciones del documento",
+    "rename": "Cambiar nombre",
+    "renameFailed": "No se pudo cambiar el nombre del documento.",
+    "renameSave": "Guardar",
+    "renameTitle": "Cambiar el nombre del documento",
     "saved": "Guardado",
-    "saving": "Guardando…"
+    "saving": "Guardando…",
+    "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
   },
   "documentViewerPage": {
     "notFound": "Documento no encontrado."
@@ -1109,6 +1121,9 @@
     "downloadFile": "Descargar archivo",
     "goToFile": "Ir al archivo"
   },
+  "promptSubmission": {
+    "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
+  },
   "promptTab": {
     "availableTools": "Herramientas disponibles",
     "bannerNoSections": "Esta llamada aún no tiene secciones de prompt normalizadas.",
@@ -1131,6 +1146,9 @@
   },
   "pullRefreshSpinner": {
     "refreshing": "Actualizando"
+  },
+  "questionActions": {
+    "submitFailed": "No se pudo enviar tu respuesta. Inténtalo de nuevo."
   },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
@@ -1248,9 +1266,15 @@
     "stopReasonChip": "Motivo de parada: {reason}",
     "toolChip": "Herramienta: {name}"
   },
+  "ruleEditorActions": {
+    "saveFailed": "No se pudo guardar la regla de confianza. Inténtalo de nuevo."
+  },
   "scrollToLatestButton": {
     "aria": "Ir al mensaje más reciente",
     "label": "Ir al más reciente"
+  },
+  "secretActions": {
+    "submitFailed": "No se pudo enviar el secreto. Inténtalo de nuevo."
   },
   "secretPromptCard": {
     "cancel": "Cancelar",
@@ -1387,6 +1411,9 @@
   },
   "suggestionLibrary": {
     "scrollForMore": "Desplázate hacia abajo para ver más"
+  },
+  "surfaceActions": {
+    "submitFailed": "No se pudo enviar. Inténtalo de nuevo."
   },
   "surfaceRouter": {
     "cancelled": "Cancelado",

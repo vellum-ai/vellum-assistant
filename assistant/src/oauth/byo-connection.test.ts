@@ -358,6 +358,43 @@ describe("BYOOAuthConnection", () => {
       expect(headers.get("Content-Type")).toBe("application/json");
     });
 
+    test("sends a string body verbatim under the caller's Content-Type", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const multipart =
+        "--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--\r\n";
+
+      await conn.request({
+        method: "POST",
+        path: "/upload/drive/v3/files",
+        headers: { "Content-Type": "multipart/related; boundary=boundary" },
+        body: multipart,
+      });
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect((init as RequestInit).body).toBe(multipart);
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Content-Type")).toBe(
+        "multipart/related; boundary=boundary",
+      );
+    });
+
+    test("does not force a JSON Content-Type onto a string body", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "POST",
+        path: "/upload",
+        body: "name=sheet&kind=grid",
+      });
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect((init as RequestInit).body).toBe("name=sheet&kind=grid");
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.has("Content-Type")).toBe(false);
+    });
+
     test("retries once on 401 response", async () => {
       await setupCredential("google");
       const conn = createConnection();

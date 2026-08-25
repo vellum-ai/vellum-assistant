@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon,
   Shield,
 } from "lucide-react";
-import { lazy, useState } from "react";
+import { lazy, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -19,6 +19,10 @@ import {
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import {
+  prefetchShareFeedbackModal,
+  ShareFeedbackModalLazy,
+} from "@/components/share-feedback-modal-lazy";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
@@ -36,17 +40,8 @@ import { CreditsCard } from "./credits-card";
 import { PreferencesUsagePanel } from "./preferences-usage-panel";
 import { useTranslation } from "@/i18n";
 
-// Modal only opens when the user clicks "Share Feedback" — defer loading
-// until then to keep the modal's form deps (markdown editor, etc.) out of
-// the initial bundle.
-const ShareFeedbackModal = lazy(() =>
-  import("@/components/share-feedback-modal").then((m) => ({
-    default: m.ShareFeedbackModal,
-  })),
-);
-
-// Same treatment for the top-up checkout, which only the usage panel's
-// exhausted strip opens.
+// The top-up checkout only opens from the usage panel's exhausted strip, so
+// its chunk stays out of the initial bundle until then.
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
     default: m.AddCreditsModal,
@@ -116,6 +111,18 @@ export function PreferencesMenu({
      both unmount their content on close, and the strip closes the menu as it
      opens the checkout. */
   const [isAddCreditsOpen, setIsAddCreditsOpen] = useState(false);
+
+  /* Warm the feedback chunk as the menu opens rather than on the click that
+     needs it, so the dialog is usually already there by the time it is asked
+     for. Once per mount: the chunk is cached after the first fetch. */
+  const hasPrefetchedFeedback = useRef(false);
+  useEffect(() => {
+    if (!isOpen || hasPrefetchedFeedback.current) {
+      return;
+    }
+    hasPrefetchedFeedback.current = true;
+    prefetchShareFeedbackModal();
+  }, [isOpen]);
 
   if (!isAuthenticated) {
     return null;
@@ -224,15 +231,13 @@ export function PreferencesMenu({
       )}
 
       {isFeedbackOpen ? (
-        <LazyBoundary>
-          <ShareFeedbackModal
-            open={isFeedbackOpen}
-            onClose={() => setIsFeedbackOpen(false)}
-            assistantId={assistantId}
-            assistantVersion={assistantVersion}
-            activeConversationId={activeConversationId}
-          />
-        </LazyBoundary>
+        <ShareFeedbackModalLazy
+          open={isFeedbackOpen}
+          onClose={() => setIsFeedbackOpen(false)}
+          assistantId={assistantId}
+          assistantVersion={assistantVersion}
+          activeConversationId={activeConversationId}
+        />
       ) : null}
 
       {isAddCreditsOpen ? (

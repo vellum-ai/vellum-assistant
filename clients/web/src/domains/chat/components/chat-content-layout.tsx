@@ -454,6 +454,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
+            onRenamed={(documentName) =>
+              useViewerStore
+                .getState()
+                .renameOpenedDocument(
+                  openedDocumentState.surfaceId,
+                  documentName,
+                )
+            }
             onSubmitFeedback={() => {
               const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
               navigate(

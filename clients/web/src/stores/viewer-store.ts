@@ -571,6 +571,13 @@ export interface ViewerActions {
     content: string,
     mode: string,
   ) => void;
+  /**
+   * Retitle the open document. The viewer writes the new title through the
+   * documents API and calls this so the drawer, the autosave target, and the
+   * mobile overlay all read the name the user just gave it, rather than
+   * waiting for the next load.
+   */
+  renameOpenedDocument: (surfaceId: string, documentName: string) => void;
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
@@ -1120,6 +1127,16 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     }
     const newContent = mode === "append" ? prev.content + content : content;
     set({ openedDocumentState: { ...prev, content: newContent } });
+  },
+
+  renameOpenedDocument: (surfaceId, documentName) => {
+    const prev = get().openedDocumentState;
+    // A workspace-file preview is named by its path, which nothing renames
+    // from here, so only a document surface answers to this.
+    if (!prev || prev.source !== "document" || prev.surfaceId !== surfaceId) {
+      return;
+    }
+    set({ openedDocumentState: { ...prev, documentName } });
   },
 
   handleDocumentLoadFailed: () => {

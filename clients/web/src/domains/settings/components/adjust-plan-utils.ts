@@ -49,6 +49,22 @@ export function isPackageSwitchEligible(
 }
 
 /**
+ * Whether the sub can be cancelled in-app via the subscription-cancel
+ * endpoint, which 403s without an active Pro subscription (the backend's
+ * `is_pro_active` gate, mirrored by TIER_CHANGE_ELIGIBLE_STATUSES). A Pro sub
+ * in any other status (`unpaid`, `incomplete`, `paused`, ...) falls back to
+ * cancelling through the Stripe billing portal, which still accepts it.
+ */
+export function isDirectCancelEligible(
+  subscription: SubscriptionResponse | undefined,
+): boolean {
+  return (
+    subscription?.status != null &&
+    TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status)
+  );
+}
+
+/**
  * Extract a user-facing message from a subscription mutation error.
  *
  * DRF field errors arrive as `{ field_name: [message, ...] }`; we probe the

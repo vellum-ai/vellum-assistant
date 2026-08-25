@@ -132,8 +132,17 @@ mock.module("react-router", () => ({
   },
 }));
 
-mock.module("@/components/share-feedback-modal", () => ({
-  ShareFeedbackModal: () => null,
+// The menu owns when the chunk is warmed and when the dialog is mounted; the
+// dialog's own lazy wiring is covered by `share-feedback-modal-lazy.test.tsx`.
+const feedbackRef = { prefetches: 0 };
+mock.module("@/components/share-feedback-modal-lazy", () => ({
+  ShareFeedbackModalLazy: ({ open }: { open: boolean }) =>
+    open
+      ? createElement("div", { "data-testid": "share-feedback-modal" })
+      : null,
+  prefetchShareFeedbackModal: () => {
+    feedbackRef.prefetches += 1;
+  },
 }));
 
 // The panel owns its own reads (subscription, plan catalog, usage totals),
@@ -248,6 +257,7 @@ beforeEach(() => {
   usageRef.value = null;
   usageRef.opts = undefined;
   panelPropsRef.conversationId = undefined;
+  feedbackRef.prefetches = 0;
 });
 
 afterEach(() => {
@@ -422,6 +432,21 @@ describe("PreferencesMenu", () => {
     // was opened from.
     expect(await screen.findByTestId("add-credits-modal")).toBeTruthy();
     expect(screen.queryByTestId("preferences-usage")).toBeNull();
+  });
+
+  test("opening the menu warms the feedback chunk, once", async () => {
+    expect(feedbackRef.prefetches).toBe(0);
+
+    await openMenu();
+    expect(feedbackRef.prefetches).toBe(1);
+
+    // The menu closes here, which re-renders the component. The chunk is
+    // cached after the first fetch, so a second warm buys nothing.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Usage settings" }));
+      await Promise.resolve();
+    });
+    expect(feedbackRef.prefetches).toBe(1);
   });
 
   test("native Android keeps the panel's add-credits action, same as iOS", async () => {

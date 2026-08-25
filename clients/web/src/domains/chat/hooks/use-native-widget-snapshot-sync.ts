@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   useCanQueryDaemon,
   useUnreadConversationCount,
 } from "@/hooks/conversation-queries";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { resolveRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import {
   clearWidgetSnapshot,
@@ -12,6 +14,7 @@ import {
   retryPendingWidgetSnapshotClear,
   syncWidgetSnapshot,
   WIDGET_SNAPSHOT_SCHEMA_VERSION,
+  type WidgetSnapshotAvatar,
   type WidgetSnapshotConversation,
   type WidgetSnapshotPayload,
 } from "@/runtime/widget-snapshot";
@@ -20,6 +23,11 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
+import {
+  memoizedAvatarEncode,
+  type AvatarEncodeMemo,
+} from "@/utils/avatar-island-encode";
+import { resolveAvatarRender, type AvatarRender } from "@/utils/avatar-render";
 import { activeConversationsByRecency } from "@/utils/conversation-order";
 
 /**
@@ -46,13 +54,100 @@ const MAX_SNAPSHOT_CONVERSATIONS = 3;
  */
 export const WIDGET_SNAPSHOT_HEARTBEAT_MS = 15 * 60 * 1000;
 
-/** A snapshot before it is stamped, which is also the dedup key's shape. */
-type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
+/**
+ * Byte ceiling for the avatar image a snapshot carries.
+ *
+ * Deliberately not the Live Activity's ceiling, which the shared encoder takes
+ * as its default: that one is ActivityKit's attribute budget, where going over
+ * costs the whole activity, so it is measured in single kilobytes. The two
+ * budgets are why {@link memoizedAvatarEncode} caches per budget rather than
+ * per avatar alone. This payload is a UserDefaults write into an App Group, and
+ * a widget draws the avatar far larger than an island does, so the budget is
+ * set by what is worth writing rather than by what will start. The shell
+ * rejects anything past its own cap, which sits above this one.
+ */
+const WIDGET_AVATAR_MAX_BYTES = 64_000;
+
+/**
+ * Size the character avatar is composited at before it is rasterized.
+ *
+ * The composited SVG is resolution-independent, so this only caps the top of
+ * the encoder's ladder rather than setting the size a widget draws. Matches
+ * what `useIslandAvatarSource` composites for the Live Activity, so the two
+ * native surfaces rasterize the same source.
+ */
+const AVATAR_SOURCE_SIZE = 128;
+
+/** A snapshot before it is stamped and before its avatar bytes are attached. */
+type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt" | "avatar">;
+
+/**
+ * The avatar as the dedup key sees it.
+ *
+ * `image` is the identity of the encoded bytes rather than the bytes
+ * themselves: a widget-sized avatar is tens of kilobytes of base64, and
+ * re-serializing that on every list re-render is exactly the cost the key
+ * exists to avoid. It has to be in the key at all because a photo swapped for
+ * another photo changes neither the kind nor the accent, and would otherwise
+ * never reach the Home Screen.
+ */
+interface SnapshotAvatarFingerprint {
+  kind: WidgetSnapshotAvatar["kind"];
+  accentHex: string | null;
+  image: number;
+}
+
+/**
+ * The avatar the next snapshot should carry, starting its encode if this is
+ * the first read since it changed.
+ *
+ * The encode is a canvas draw memoized at module scope by
+ * {@link memoizedAvatarEncode}, shared with the Live Activity mirror for one
+ * owner of the caching and failure rules rather than one draw across both: the
+ * mirror resolves its own render and reads at its own budget, so each surface
+ * encodes separately. An encode that fails or fits nothing is an avatar-less
+ * snapshot, never a missing one: the counts and the rows are what the widgets
+ * are for. Only a failure is retried, and the memo owns that distinction.
+ *
+ * `source` and `accentHex` are resolved reactively by the hook rather than read
+ * back from the two imperative publishers in `RootLayout`. Those are written by
+ * a parent's effect, and React runs a child's effects first, so a sync that
+ * read them would be a render behind whenever the avatar and the conversation
+ * data move in the same commit. An in-SPA assistant switch into an already
+ * cached destination is exactly that commit, and the stale face would then be
+ * pinned by the dedup key until the heartbeat.
+ */
+function snapshotAvatar(
+  source: AvatarRender,
+  accentHex: string | null,
+): {
+  fingerprint: SnapshotAvatarFingerprint;
+  encode: AvatarEncodeMemo;
+} {
+  const encode = memoizedAvatarEncode(source, WIDGET_AVATAR_MAX_BYTES);
+  return {
+    fingerprint: {
+      kind: source.kind,
+      accentHex,
+      image: encode.revision,
+    },
+    encode,
+  };
+}
+
+/** The dedup key: everything a snapshot says, with the avatar as an identity. */
+function snapshotKey(
+  content: SnapshotContent,
+  avatar: SnapshotAvatarFingerprint,
+): string {
+  return JSON.stringify({ ...content, avatar });
+}
 
 /**
  * Mirror the conversation list into the iOS shell's `WidgetSnapshot` plugin
- * so the Home Screen widgets can draw unread and in-progress counts and the
- * three most recent chats. No-ops everywhere but Capacitor iOS.
+ * so the Home Screen widgets can draw unread and in-progress counts, the three
+ * most recent chats, and the assistant's own avatar. No-ops everywhere but
+ * Capacitor iOS.
  *
  * Mount once at a layout that already holds the conversation list (currently
  * `ChatLayout`, beside `useNativeRecentChatsSync`, its Shortcuts sibling).
@@ -74,7 +169,20 @@ type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
  * Syncs are deduped on the serialized snapshot with `generatedAt` excluded.
  * Including it would make every render a fresh payload and the dedup dead,
  * so the shell would take bridge traffic and a widget timeline reload on
- * every re-render of the layout.
+ * every re-render of the layout. The avatar is in that key as an identity
+ * rather than as its bytes (see {@link SnapshotAvatarFingerprint}), and the
+ * bytes are attached as the payload is sent.
+ *
+ * The avatar is a reactive input rather than a read taken as the payload is
+ * built, so an avatar that changes with nothing else re-runs the sync instead
+ * of waiting for whatever re-renders the layout next. It is resolved here from
+ * the same query `RootLayout` derives its published copies from, not read back
+ * through those publishers: they are written by a parent's effect, which React
+ * runs after this layout's, so a read would be a render behind whenever an
+ * avatar change and a conversation change land in one commit. That is precisely
+ * an in-SPA assistant switch whose destination is already cached, and the dedup
+ * key would then hold the previous assistant's face on the Home Screen until
+ * the heartbeat.
  *
  * That leaves the timestamp to a heartbeat
  * ({@link WIDGET_SNAPSHOT_HEARTBEAT_MS}), because the widget reads it as
@@ -142,6 +250,17 @@ type SnapshotContent = Omit<WidgetSnapshotPayload, "generatedAt">;
  * a terminal groups error would leave it that way. An empty list from
  * *successful* queries does sync: genuinely having no conversations should
  * empty the widgets.
+ *
+ * The avatar query is held to the same standard, and it is not the caller's to
+ * pass: this hook subscribes to it directly, so it applies that half itself.
+ * A first load in flight serves the null avatar, and it routinely settles after
+ * the conversation list does, so a gate that watched only the conversations
+ * would ship `kind: "none"` as the run's first snapshot. The plugin replaces
+ * the App Group record whole, so that write wipes the themed avatar a previous
+ * run left behind and every widget flashes to the brand palette until a second
+ * sync repaints it. Only the FIRST load holds: an errored avatar query, a
+ * gated-off one, and a background refetch all report resolved, because none of
+ * them has an avatar arriving that waiting would find.
  *
  * That preservation is scoped to ONE assistant. A snapshot describes the
  * assistant it was built from, so an in-SPA switch
@@ -235,11 +354,52 @@ export function useNativeWidgetSnapshotSync(
   const canQueryDaemon = useCanQueryDaemon(assistantId);
   const inputsAreLive = isAssistantActive && canQueryDaemon;
 
+  // The active assistant's avatar, off the same query and through the same
+  // resolvers `RootLayout` publishes from, so the widget can never draw a
+  // different face than the app does. Subscribed rather than read back from
+  // those publishers: see {@link snapshotAvatar}. The query is already mounted
+  // at root scope, so this is another observer on a cached entry rather than a
+  // second fetch.
+  const avatar = useAssistantAvatar(assistantId);
+  const avatarSource = useMemo(
+    () =>
+      resolveAvatarRender(
+        avatar.customImageUrl,
+        avatar.components,
+        avatar.traits,
+        AVATAR_SOURCE_SIZE,
+      ),
+    [avatar.customImageUrl, avatar.components, avatar.traits],
+  );
+  const avatarAccentHex = resolveRenderedAvatarAccentHex(
+    avatar.components,
+    avatar.traits,
+    avatar.customImageUrl,
+  );
+  // The avatar query is in the resolution guard alongside the conversation
+  // queries the caller passes, and holds a sync the same way they do. It serves
+  // the null avatar while it loads and settles after them often enough to be
+  // the ordinary cold launch, so a gate without it would blank the widgets'
+  // avatar on the first write of every run.
+  //
+  // `isLoading` is the first load alone. An errored query, one gated off for
+  // want of an active assistant, and a background refetch all report false,
+  // which is right for each: none has an avatar arriving that waiting would
+  // find, and the last still has the one the app is drawing.
+  const avatarResolved = assistantId === null || !avatar.isLoading;
+  const snapshotResolved = inputsResolved && avatarResolved;
+
   // The one way to the bridge, shared by data syncs and the heartbeat so a
   // heartbeat cannot corrupt the bookkeeping a data sync depends on.
   const sendSnapshot = useCallback(
-    (content: SnapshotContent, ownerId: string | null): void => {
-      const serialized = JSON.stringify(content);
+    (
+      content: SnapshotContent,
+      ownerId: string | null,
+      source: AvatarRender,
+      accentHex: string | null,
+    ): void => {
+      const { fingerprint, encode } = snapshotAvatar(source, accentHex);
+      const serialized = snapshotKey(content, fingerprint);
       // The producer is recorded as the call is fired rather than when it
       // lands. A write already on the bridge can land at any moment, so a
       // switch that happens in between has to see this assistant as an owner.
@@ -249,22 +409,48 @@ export function useNativeWidgetSnapshotSync(
       syncedAssistantIdRef.current = ownerId;
       inFlightPayloadRef.current = serialized;
       const attempt = (syncAttemptRef.current += 1);
-      void syncWidgetSnapshot(
-        {
-          ...content,
-          generatedAt: new Date().toISOString(),
-        },
-        ownerId,
-      ).then((landed) => {
+      const write = (imageBase64: string | null): void => {
+        // Retires a write the wait below outlived: an assistant switch clears
+        // the App Group, and a snapshot landing after it would put the
+        // departed assistant's rows straight back on the Home Screen.
         if (attempt !== syncAttemptRef.current) {
           return;
         }
-        inFlightPayloadRef.current = null;
-        if (!landed) {
-          return;
-        }
-        lastPayloadRef.current = serialized;
-      });
+        void syncWidgetSnapshot(
+          {
+            ...content,
+            avatar: {
+              kind: fingerprint.kind,
+              accentHex: fingerprint.accentHex,
+              imageBase64,
+            },
+            generatedAt: new Date().toISOString(),
+          },
+          ownerId,
+          // The same retirement, read from inside the call. The check above
+          // only covers the wait on the draw, and an unmount or a switch lands
+          // just as readily while the module is honoring an owed clear, where
+          // this is what keeps a payload nothing wants any more off the bridge.
+          () => attempt !== syncAttemptRef.current,
+        ).then((landed) => {
+          if (attempt !== syncAttemptRef.current) {
+            return;
+          }
+          inFlightPayloadRef.current = null;
+          if (!landed) {
+            return;
+          }
+          lastPayloadRef.current = serialized;
+        });
+      };
+      // Only the first snapshot after an avatar change waits on the canvas
+      // draw; every later one reads the bytes it left behind and stays
+      // synchronous with the render that fired it.
+      if (encode.pending === null) {
+        write(encode.base64);
+        return;
+      }
+      void encode.pending.then(write);
     },
     [],
   );
@@ -280,6 +466,24 @@ export function useNativeWidgetSnapshotSync(
       return;
     }
     void retryPendingWidgetSnapshotClear();
+  }, []);
+
+  // A write must not outlive the hook. Signing out clears the App Group and
+  // unmounts this layout while a first avatar encode can still be in flight;
+  // retiring every attempt here makes that write's own re-check drop it
+  // instead of putting the departed account's rows back on the Home Screen.
+  // The retirement is also handed to `syncWidgetSnapshot`, so an unmount that
+  // arrives once the payload is past that check still holds the write back for
+  // as long as it has not reached the plugin. A write already on the bridge by
+  // then is left where it lands: an unmount on its own is an app closing or a
+  // layout swapping out, and the snapshot should survive both. The sign-out
+  // that empties the App Group does so through its own clear, and that is what
+  // such a write is corrected against.
+  useEffect(() => {
+    const attempts = syncAttemptRef;
+    return () => {
+      attempts.current += 1;
+    };
   }, []);
 
   useEffect(() => {
@@ -318,7 +522,7 @@ export function useNativeWidgetSnapshotSync(
       syncAttemptRef.current += 1;
     }
 
-    if (!inputsResolved) {
+    if (!snapshotResolved) {
       // Only on a switch: a pending or errored query for the SAME assistant
       // still keeps its last-known-good snapshot.
       if (switchedAssistant) {
@@ -349,14 +553,18 @@ export function useNativeWidgetSnapshotSync(
         isProcessing: isProcessing(conversation),
       }));
 
-    // Built without `generatedAt` so the serialized form is the dedup key.
+    // Built without `generatedAt` and without the avatar's bytes, so the
+    // serialized form is the dedup key.
     const content: SnapshotContent = {
       schemaVersion: WIDGET_SNAPSHOT_SCHEMA_VERSION,
       unreadCount,
       inProgressCount,
       conversations: rows,
     };
-    const serialized = JSON.stringify(content);
+    const serialized = snapshotKey(
+      content,
+      snapshotAvatar(avatarSource, avatarAccentHex).fingerprint,
+    );
     // Recorded whether or not this run sends it, since it describes what the
     // App Group should hold rather than what reached it.
     desiredContentRef.current = content;
@@ -366,14 +574,16 @@ export function useNativeWidgetSnapshotSync(
     ) {
       return;
     }
-    sendSnapshot(content, assistantId);
+    sendSnapshot(content, assistantId, avatarSource, avatarAccentHex);
   }, [
     assistantId,
     conversations,
     conversationGroups,
     processingConversationIds,
     unreadCount,
-    inputsResolved,
+    snapshotResolved,
+    avatarSource,
+    avatarAccentHex,
     sendSnapshot,
     t,
   ]);
@@ -386,8 +596,17 @@ export function useNativeWidgetSnapshotSync(
   // Current means both resolved and still being refetched: cached rows from an
   // assistant that stopped serving are resolved forever, and re-stamping them
   // would defeat the native staleness degradation exactly when it applies.
+  //
+  // The avatar is a dependency, so a change re-arms the interval. That is the
+  // wanted behavior rather than a cost: the same change syncs a fresh
+  // `generatedAt` through the effect above, so restarting the window from that
+  // write is what the timer would be counting from anyway.
   useEffect(() => {
-    if (!isWidgetSnapshotSyncAvailable() || !inputsResolved || !inputsAreLive) {
+    if (
+      !isWidgetSnapshotSyncAvailable() ||
+      !snapshotResolved ||
+      !inputsAreLive
+    ) {
       return;
     }
     const heartbeat = setInterval(() => {
@@ -400,10 +619,17 @@ export function useNativeWidgetSnapshotSync(
       if (desired === null || inFlightPayloadRef.current !== null) {
         return;
       }
-      sendSnapshot(desired, assistantId);
+      sendSnapshot(desired, assistantId, avatarSource, avatarAccentHex);
     }, WIDGET_SNAPSHOT_HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
     };
-  }, [assistantId, inputsResolved, inputsAreLive, sendSnapshot]);
+  }, [
+    assistantId,
+    snapshotResolved,
+    inputsAreLive,
+    avatarSource,
+    avatarAccentHex,
+    sendSnapshot,
+  ]);
 }
