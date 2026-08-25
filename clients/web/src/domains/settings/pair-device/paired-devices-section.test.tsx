@@ -324,9 +324,9 @@ describe("PairedDevicesSection", () => {
   });
 
   test("a device with a client-reported name shows it verbatim, hash hidden but kept in the title", async () => {
-    await renderExpanded([device({ clientReportedName: "Noa's Laptop" })]);
+    await renderExpanded([device({ clientReportedName: "Alice's Laptop" })]);
 
-    const name = screen.getByText("Noa's Laptop");
+    const name = screen.getByText("Alice's Laptop");
     expect(name.getAttribute("title")).toBe(HASH_A);
     expect(screen.queryByText(HASH_A.slice(0, 12))).toBeNull();
   });
@@ -353,13 +353,13 @@ describe("PairedDevicesSection", () => {
   });
 
   test("the revoke confirmation leads with a client-reported name", async () => {
-    await renderExpanded([device({ clientReportedName: "Noa's Laptop" })]);
+    await renderExpanded([device({ clientReportedName: "Alice's Laptop" })]);
 
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
 
     expect(
       screen.getByText(
-        new RegExp(`Noa's Laptop \\(${HASH_A.slice(0, 12)}\\)`),
+        new RegExp(`Alice's Laptop \\(${HASH_A.slice(0, 12)}\\)`),
       ),
     ).toBeTruthy();
   });

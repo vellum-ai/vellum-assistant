@@ -216,38 +216,20 @@ describe("actorTokenRecords device identity columns", () => {
     seedActor({
       device: "device-identity-populated",
       pairingUserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-      clientReportedName: "Noa's MacBook Pro",
+      clientReportedName: "Alice's MacBook Pro",
     });
 
-    const row = getGatewayDb()
-      .select()
-      .from(actorTokenRecords)
-      .where(
-        eq(
-          actorTokenRecords.hashedDeviceId,
-          hashToken("device-identity-populated"),
-        ),
-      )
-      .get();
+    const row = actorRow("device-identity-populated");
     expect(row?.pairingUserAgent).toBe(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     );
-    expect(row?.clientReportedName).toBe("Noa's MacBook Pro");
+    expect(row?.clientReportedName).toBe("Alice's MacBook Pro");
   });
 
   test("leaves pairingUserAgent and clientReportedName null when omitted", () => {
     seedActor({ device: "device-identity-omitted" });
 
-    const row = getGatewayDb()
-      .select()
-      .from(actorTokenRecords)
-      .where(
-        eq(
-          actorTokenRecords.hashedDeviceId,
-          hashToken("device-identity-omitted"),
-        ),
-      )
-      .get();
+    const row = actorRow("device-identity-omitted");
     expect(row?.pairingUserAgent).toBeNull();
     expect(row?.clientReportedName).toBeNull();
   });
@@ -261,7 +243,7 @@ describe("mintAndRecordDeviceBoundTokenPair identity persistence", () => {
       platform: "cli",
       identity: {
         pairingUserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-        clientReportedName: "Noa's MacBook Pro",
+        clientReportedName: "Alice's MacBook Pro",
       },
     });
 
@@ -269,13 +251,13 @@ describe("mintAndRecordDeviceBoundTokenPair identity persistence", () => {
     expect(access?.pairingUserAgent).toBe(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     );
-    expect(access?.clientReportedName).toBe("Noa's MacBook Pro");
+    expect(access?.clientReportedName).toBe("Alice's MacBook Pro");
 
     const refresh = refreshRow("mint-device-with-identity");
     expect(refresh?.pairingUserAgent).toBe(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     );
-    expect(refresh?.clientReportedName).toBe("Noa's MacBook Pro");
+    expect(refresh?.clientReportedName).toBe("Alice's MacBook Pro");
   });
 
   test("writes null to both columns on both tables when identity is omitted", () => {
@@ -395,17 +377,17 @@ describe("/v1/pair clientReportedName", () => {
     const res = await handlePair(
       makeExtensionPairRequest({
         deviceId: "device-ext-name",
-        clientReportedName: "Noa's Chromebook",
+        clientReportedName: "Alice's Chromebook",
       }),
       LOOPBACK_IP,
     );
     expect(res.status).toBe(200);
 
     expect(actorRow("device-ext-name")?.clientReportedName).toBe(
-      "Noa's Chromebook",
+      "Alice's Chromebook",
     );
     expect(refreshRow("device-ext-name")?.clientReportedName).toBe(
-      "Noa's Chromebook",
+      "Alice's Chromebook",
     );
   });
 
@@ -413,17 +395,17 @@ describe("/v1/pair clientReportedName", () => {
     const res = await handlePair(
       makeCliPairRequest({
         deviceId: "device-cli-name",
-        clientReportedName: "Noa's MacBook Pro",
+        clientReportedName: "Alice's MacBook Pro",
       }),
       LOOPBACK_IP,
     );
     expect(res.status).toBe(200);
 
     expect(actorRow("device-cli-name")?.clientReportedName).toBe(
-      "Noa's MacBook Pro",
+      "Alice's MacBook Pro",
     );
     expect(refreshRow("device-cli-name")?.clientReportedName).toBe(
-      "Noa's MacBook Pro",
+      "Alice's MacBook Pro",
     );
   });
 
@@ -497,7 +479,7 @@ describe("GET /v1/devices", () => {
     seedActor({
       device: "device-A",
       pairingUserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-      clientReportedName: "Noa's MacBook Pro",
+      clientReportedName: "Alice's MacBook Pro",
       lastUsedAt: 1_700_000_000_000,
     });
     seedActor({ device: "device-B" });
@@ -518,7 +500,7 @@ describe("GET /v1/devices", () => {
     expect(a?.pairingUserAgent).toBe(
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
     );
-    expect(a?.clientReportedName).toBe("Noa's MacBook Pro");
+    expect(a?.clientReportedName).toBe("Alice's MacBook Pro");
     expect(a?.lastUsedAt).toBe(1_700_000_000_000);
 
     const b = body.devices.find(

@@ -752,7 +752,7 @@ describe("remote web pairing token exchange", () => {
 
   test("a missing deviceCode returns the deviceCode is required 400", async () => {
     const res = await handleRemoteWebPairingToken(
-      makeTokenRequest({ clientReportedName: "Noa's iPhone" }),
+      makeTokenRequest({ clientReportedName: "Alice's iPhone" }),
     );
 
     expect(res.status).toBe(400);
@@ -826,13 +826,13 @@ describe("remote web pairing token exchange", () => {
     const res = await handleRemoteWebPairingToken(
       makeTokenRequest({
         deviceCode: challenge.deviceCode,
-        clientReportedName: "Noa's iPhone",
+        clientReportedName: "Alice's iPhone",
       }),
     );
 
     expect(res.status).toBe(200);
-    expect(activeTokens()[0].clientReportedName).toBe("Noa's iPhone");
-    expect(activeRefreshTokens()[0].clientReportedName).toBe("Noa's iPhone");
+    expect(activeTokens()[0].clientReportedName).toBe("Alice's iPhone");
+    expect(activeRefreshTokens()[0].clientReportedName).toBe("Alice's iPhone");
   });
 
   test("a non-string clientReportedName still exchanges with the field null", async () => {
