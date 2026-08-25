@@ -2705,13 +2705,6 @@ async function main() {
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
-    if (changed.has("telegram")) {
-      // The bot may have changed, and `update_id` is a per-bot sequence: a new
-      // token starts low, below the previous bot's high-water mark, and every
-      // inbound would be rejected as an already-processed replay and answered
-      // 200. Unconditional because a token being removed is a bot change too.
-      telegramDedupCache.reset();
-    }
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
