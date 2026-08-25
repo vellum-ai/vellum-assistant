@@ -532,15 +532,15 @@ export class Conversation {
   currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /**
-   * The inference profile the turn's next provider call routes to, resolved
-   * through the same winner selection the call itself uses. Stamped at turn
-   * start and re-stamped when a confirmed profile session changes the override
-   * mid-turn. The per-turn tool gate reads it so a plugin tool's `isActive`
-   * predicate can keep itself off the wire on calls whose model makes it
-   * irrelevant.
+   * The concrete model id the turn's next provider call routes to, resolved
+   * through the same winner selection the call itself uses and expanded past a
+   * weighted mix to the arm that runs. Stamped at turn start and re-stamped
+   * when a confirmed profile session changes the override mid-turn. The
+   * per-turn tool gate reads it so a plugin tool's `isActive` predicate can
+   * keep itself off the wire on calls whose model makes it irrelevant.
    * @internal
    */
-  currentTurnModelProfileKey?: string;
+  currentTurnModel?: string;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;

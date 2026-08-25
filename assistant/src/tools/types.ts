@@ -470,13 +470,14 @@ export interface ToolContext {
  */
 export interface ToolActivationContext {
   /**
-   * The inference profile the provider call being built routes to (the key
-   * the resolver's winning profile is named by). It tracks a mid-turn profile
-   * switch, so a predicate reading it always sees the model the call it is
-   * being gated for will actually use. Empty string outside a turn, or when
-   * the call resolved no profile key.
+   * The model id the provider call being built runs on, resolved the way
+   * dispatch resolves it: a weighted mix profile is already expanded to the
+   * arm that runs, so this names a concrete model and never a profile. It
+   * tracks a mid-turn profile switch, so a predicate reading it always sees
+   * the model the call it is being gated for will actually use. Empty string
+   * outside a turn.
    */
-  modelProfileKey: string;
+  model: string;
 }
 
 /**

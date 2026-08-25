@@ -1,12 +1,12 @@
 /**
  * Per-turn activation gate for plugin-owned tools.
  *
- * A plugin tool may declare `isActive({ modelProfileKey })`. The tool surface
- * is rebuilt on every provider call, so the predicate decides per call whether
+ * A plugin tool may declare `isActive({ model })`. The tool surface is
+ * rebuilt on every provider call, so the predicate decides per call whether
  * the tool reaches the wire. These tests pin the contract: absent means always
- * active, throwing means inactive, the predicate sees the turn's resolved
- * profile key, it can only subtract from the surface, and it is honored for
- * plugin-owned tools only.
+ * active, throwing means inactive, the predicate sees the model the turn's
+ * next call runs on, it can only subtract from the surface, and it is honored
+ * for plugin-owned tools only.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -60,26 +60,26 @@ describe("plugin tool isActive gate", () => {
     expect(getTool(TOOL_NAME)?.isActive).toBe(predicate);
   });
 
-  test("gates on the turn's model profile key", () => {
+  test("gates on the model the turn's next call runs on", () => {
     registerPluginTool({
-      isActive: ({ modelProfileKey }) => modelProfileKey === "text-only",
+      isActive: ({ model }) => model === "text-only-model",
     });
 
     expect(
       isToolActiveForContext(
         TOOL_NAME,
-        conversation({ currentTurnModelProfileKey: "text-only" }),
+        conversation({ currentTurnModel: "text-only-model" }),
       ),
     ).toBe(true);
     expect(
       isToolActiveForContext(
         TOOL_NAME,
-        conversation({ currentTurnModelProfileKey: "vision" }),
+        conversation({ currentTurnModel: "vision-model" }),
       ),
     ).toBe(false);
   });
 
-  test("an unresolved profile key reaches the predicate as an empty string", () => {
+  test("an unresolved model reaches the predicate as an empty string", () => {
     const seen: ToolActivationContext[] = [];
     registerPluginTool({
       isActive: (ctx) => {
@@ -89,7 +89,7 @@ describe("plugin tool isActive gate", () => {
     });
 
     expect(isToolActiveForContext(TOOL_NAME, conversation())).toBe(true);
-    expect(seen).toEqual([{ modelProfileKey: "" }]);
+    expect(seen).toEqual([{ model: "" }]);
   });
 
   test("a predicate that throws counts as inactive", () => {

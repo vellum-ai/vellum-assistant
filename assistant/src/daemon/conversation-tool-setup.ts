@@ -777,9 +777,7 @@ export function isToolActiveForContext(
     const isActive = getTool(name)?.isActive;
     if (typeof isActive === "function") {
       try {
-        if (
-          !isActive({ modelProfileKey: ctx.currentTurnModelProfileKey ?? "" })
-        ) {
+        if (!isActive({ model: ctx.currentTurnModel ?? "" })) {
           return false;
         }
       } catch {

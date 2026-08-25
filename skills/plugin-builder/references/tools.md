@@ -6,20 +6,22 @@ A tool is a default-exported object from `tools/<name>.ts`. The loader derives t
 
 **Always-on cost — prefer skill-scoped tools.** A `tools/<name>.ts` tool is offered to the model on every turn of every conversation, whether or not the plugin is relevant, so each one adds permanent prompt weight for every user of the plugin. When a tool only matters while one of the plugin's skills is active, declare it in that skill's `TOOLS.json` instead — it registers only while the skill is loaded and costs nothing the rest of the time. See "Skill-scoped tools" in [skills.md](skills.md). Reserve `tools/` for actions the model must be able to reach without any skill in play.
 
-**Turn-scoped tools.** When a `tools/` tool is only useful on some turns, add an `isActive` predicate. The Assistant rebuilds the tool list before every model call and drops the tools whose predicate returns false, so the model never sees their name, description, or schema on the turns they cannot help with. Today the predicate gets the turn's inference profile:
+**Turn-scoped tools.** When a `tools/` tool is only useful on some turns, add an `isActive` predicate. The Assistant rebuilds the tool list before every model call and drops the tools whose predicate returns false, so the model never sees their name, description, or schema on the turns they cannot help with. Today the predicate gets the model the next call runs on:
 
 ```ts
 // tools/image_ask.ts
 import type { ToolActivationContext } from "@vellumai/plugin-api";
+import { doesSupportVision } from "@vellumai/plugin-api";
 
 export default {
   description:
     "Ask a vision model a question about an image in this conversation.",
-  isActive: ({ modelProfileKey }: ToolActivationContext) =>
-    modelProfileKey === "text-only",
+  isActive: ({ model }: ToolActivationContext) => !doesSupportVision(model),
   // ...
 };
 ```
+
+`model` is a concrete model id, never a profile name: a weighted mix profile has already been expanded to the arm the call runs on. Gate on what the model can do rather than on a name you match by hand, so a config change that swaps the model keeps working.
 
 The predicate runs once per tool per model call, so keep it cheap and synchronous: no `await`, no file or network reads. Throwing counts as inactive, and omitting the field keeps the tool always on. It can only take a tool off the list, never put one back: the Assistant's own rules (a subagent's allowed-tool list, disabled tools, storage cleanup mode) still apply on top of it.
 
@@ -133,7 +135,7 @@ These are the tool-related exports from [`@vellumai/plugin-api`](https://github.
 | ----------------------- | ---- | ------------------------------------------------------------------------------- |
 | `ToolDefinition`        | type | Author-facing tool spec, the default-export shape for a `tools/<name>.ts` file. |
 | `ToolContext`           | type | Runtime context passed as the second argument to a tool's execute.              |
-| `ToolActivationContext` | type | Context passed to a tool's `isActive` predicate: `{ modelProfileKey }`.         |
+| `ToolActivationContext` | type | Context passed to a tool's `isActive` predicate: `{ model }`.                   |
 | `ToolExecutionResult`   | type | Return shape of a tool's execute: `{ content, isError }`.                       |
 | `RiskLevel`             | enum | Risk bands (low, medium, high) that drive default permission gating for a tool. |
 

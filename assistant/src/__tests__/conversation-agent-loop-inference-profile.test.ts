@@ -338,12 +338,12 @@ interface CapturedAgentLoopRun {
   resolvedOverrideProfile: string | undefined;
   resolvedMaxInputTokens: number | undefined;
   /**
-   * `Conversation.currentTurnModelProfileKey` sampled either side of the
-   * loop's live override resolution, so a test can see the per-turn tool
-   * gate's view of the model track a mid-turn profile switch.
+   * `Conversation.currentTurnModel` sampled either side of the loop's live
+   * override resolution, so a test can see the per-turn tool gate's view of
+   * the model track a mid-turn profile switch.
    */
-  modelProfileKeyBeforeResolve: string | undefined;
-  modelProfileKeyAfterResolve: string | undefined;
+  modelBeforeResolve: string | undefined;
+  modelAfterResolve: string | undefined;
 }
 
 let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
@@ -359,8 +359,7 @@ function makeCtx(
     options: AgentLoopRunOptions,
   ): Promise<Message[]> => {
     mutateBeforeResolveOverrideProfile?.();
-    const modelProfileKeyBeforeResolve =
-      built.conversation?.currentTurnModelProfileKey;
+    const modelBeforeResolve = built.conversation?.currentTurnModel;
     const resolvedOverrideProfile = options.resolveOverrideProfile?.();
     captured.push({
       callSite: options.callSite,
@@ -368,9 +367,8 @@ function makeCtx(
       forceOverrideProfile: options.forceOverrideProfile,
       resolvedOverrideProfile,
       resolvedMaxInputTokens: options.resolveContextWindow?.().maxInputTokens,
-      modelProfileKeyBeforeResolve,
-      modelProfileKeyAfterResolve:
-        built.conversation?.currentTurnModelProfileKey,
+      modelBeforeResolve,
+      modelAfterResolve: built.conversation?.currentTurnModel,
     });
     return [
       ...options.messages,
@@ -648,7 +646,7 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
   });
 
-  test("re-stamps the tool gate's model profile key when the profile changes mid-turn", async () => {
+  test("re-stamps the tool gate's model when the profile changes mid-turn", async () => {
     const captured: CapturedAgentLoopRun[] = [];
     const ctx = makeCtx(captured, {
       conversationType: "standard",
@@ -661,14 +659,12 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 
     expect(captured.length).toBeGreaterThan(0);
-    // Turn start resolved the workspace default, not the profile the tool
-    // switched to.
-    expect(captured[0].modelProfileKeyBeforeResolve).not.toBe(
-      "quality-optimized",
-    );
-    // The next provider call routes to the switched profile, so the key the
+    // Turn start resolved the workspace default, not the model the profile
+    // the tool switched to runs on.
+    expect(captured[0].modelBeforeResolve).not.toBe("claude-opus-4-8");
+    // The next provider call routes to the switched profile, so the model the
     // tool gate hands a plugin's `isActive` predicate follows it.
-    expect(captured[0].modelProfileKeyAfterResolve).toBe("quality-optimized");
+    expect(captured[0].modelAfterResolve).toBe("claude-opus-4-8");
   });
 });
 

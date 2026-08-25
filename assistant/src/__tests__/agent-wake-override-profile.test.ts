@@ -65,10 +65,10 @@ interface RunArgs {
   messages: Message[];
   options: AgentLoopRunOptions | undefined;
   /**
-   * `conversation.currentTurnModelProfileKey` as it stands mid-run, which is
-   * what the per-turn tool gate hands a plugin tool's `isActive` predicate.
+   * `conversation.currentTurnModel` as it stands mid-run, which is what the
+   * per-turn tool gate hands a plugin tool's `isActive` predicate.
    */
-  stampedModelProfileKey: string | undefined;
+  stampedModel: string | undefined;
 }
 
 function makeTarget(): {
@@ -91,8 +91,7 @@ function makeTarget(): {
         runArgs.push({
           messages: [...options.messages],
           options,
-          stampedModelProfileKey:
-            built.conversation?.currentTurnModelProfileKey,
+          stampedModel: built.conversation?.currentTurnModel,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
         // Wake never yields at a checkpoint, so the pause-reason is null.
@@ -172,7 +171,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
   });
 
-  test("stamps the resolved model profile key for the tool gate, and restores it after", async () => {
+  test("stamps the resolved model for the tool gate, and restores it after", async () => {
     mockOverrideProfile = "frontier";
     setLlmConfig({
       profiles: {
@@ -197,13 +196,15 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
 
     expect(result.invoked).toBe(true);
     expect(runArgs).toHaveLength(1);
-    // A wake bypasses `runAgentLoopImpl`, so it has to stamp the key itself.
-    // Without the stamp a profile-gated plugin tool reads "" on every wake and
-    // decides against a profile the wake is not running on.
-    expect(runArgs[0]!.stampedModelProfileKey).toBe("frontier");
+    // A wake bypasses `runAgentLoopImpl`, so it has to stamp the model itself.
+    // Without the stamp a model-gated plugin tool reads "" on every wake and
+    // decides against a model the wake is not running on.
+    expect(runArgs[0]!.stampedModel).toBe("claude-sonnet-4-6");
+    // The profile key the loop is handed still names the profile, not the
+    // model: it drives the user-facing profile-change notice.
     expect(runArgs[0]!.options?.modelProfileKey).toBe("frontier");
     // Per-turn state: a queued user turn must not inherit the wake's stamp.
-    expect(target.currentTurnModelProfileKey).toBeUndefined();
+    expect(target.currentTurnModel).toBeUndefined();
   });
 
   test("forceOverrideProfile replaces the pinned-profile lookup and forwards the force flag to agentLoop.run", async () => {

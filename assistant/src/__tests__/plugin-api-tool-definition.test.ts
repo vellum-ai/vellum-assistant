@@ -52,12 +52,12 @@ describe("ToolDefinition (public author-facing tool spec) ", () => {
   test("isActive is an optional synchronous predicate over the activation context", () => {
     const tool = {
       description: "Only useful when the turn runs on a text-only model.",
-      isActive: ({ modelProfileKey }: ToolActivationContext): boolean =>
-        modelProfileKey === "text-only",
+      isActive: ({ model }: ToolActivationContext): boolean =>
+        model === "text-only-model",
     } as const satisfies ToolDefinition;
 
-    expect(tool.isActive({ modelProfileKey: "text-only" })).toBe(true);
-    expect(tool.isActive({ modelProfileKey: "vision" })).toBe(false);
+    expect(tool.isActive({ model: "text-only-model" })).toBe(true);
+    expect(tool.isActive({ model: "vision-model" })).toBe(false);
   });
 
   test("every field is optional — empty literal satisfies the interface", () => {
