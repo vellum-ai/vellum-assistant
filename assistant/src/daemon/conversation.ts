@@ -531,6 +531,14 @@ export class Conversation {
    */
   currentTurnCronRunId?: string | null;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /**
+   * The inference profile this turn resolved to, frozen at turn start from the
+   * same winner selection the provider calls use. The per-turn tool gate reads
+   * it so a plugin tool's `isActive` predicate can keep itself off the wire on
+   * turns whose model makes it irrelevant.
+   * @internal
+   */
+  currentTurnModelProfileKey?: string;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;

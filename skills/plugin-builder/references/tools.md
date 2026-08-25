@@ -6,6 +6,23 @@ A tool is a default-exported object from `tools/<name>.ts`. The loader derives t
 
 **Always-on cost — prefer skill-scoped tools.** A `tools/<name>.ts` tool is offered to the model on every turn of every conversation, whether or not the plugin is relevant, so each one adds permanent prompt weight for every user of the plugin. When a tool only matters while one of the plugin's skills is active, declare it in that skill's `TOOLS.json` instead — it registers only while the skill is loaded and costs nothing the rest of the time. See "Skill-scoped tools" in [skills.md](skills.md). Reserve `tools/` for actions the model must be able to reach without any skill in play.
 
+**Turn-scoped tools.** When a `tools/` tool is only useful on some turns, add an `isActive` predicate. The Assistant rebuilds the tool list before every model call and drops the tools whose predicate returns false, so the model never sees their name, description, or schema on the turns they cannot help with. Today the predicate gets the turn's inference profile:
+
+```ts
+// tools/image_ask.ts
+import type { ToolActivationContext } from "@vellumai/plugin-api";
+
+export default {
+  description:
+    "Ask a vision model a question about an image in this conversation.",
+  isActive: ({ modelProfileKey }: ToolActivationContext) =>
+    modelProfileKey === "text-only",
+  // ...
+};
+```
+
+The predicate runs once per tool per model call, so keep it cheap and synchronous — no `await`, no file or network reads. Throwing counts as inactive, and omitting the field keeps the tool always on. It can only take a tool off the list, never put one back: the Assistant's own rules (a subagent's allowed-tool list, disabled tools, storage cleanup mode) still apply on top of it.
+
 ## What a tool is
 
 A tool is something the model chooses to call. You describe what it does and what arguments it takes, and the model decides when to invoke it. When it does, the Assistant runs your `execute` function and feeds the result back into the turn.
@@ -16,15 +33,16 @@ Every field on a tool definition is optional. The loader fills documented defaul
 
 These are the fields a tool definition can set. Names and types come from `ToolDefinition` in [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api).
 
-| Field              | Type                                           | Default                | Description                                                                                                                                                                                                                 |
-| ------------------ | ---------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`             | `string`                                       | File basename          | Name the model sees when calling the tool. Loaders default to the source file basename, so `tools/example.ts` becomes `example`. Only set this to override the file-derived name.                                           |
-| `description`      | `string`                                       | `""`                   | Human-readable description shown to the model in the tool catalog. This is how the model decides when to call the tool, so write it for the model.                                                                          |
-| `input_schema`     | `object (JSON Schema)`                         | Empty object schema    | JSON Schema describing the tool's input arguments. The model is constrained to this shape when it calls the tool.                                                                                                           |
-| `defaultRiskLevel` | `"low" \| "medium" \| "high"`                  | `"medium"`             | Author-asserted risk band that drives default permission gating. The medium default prompts the user, then allows on first invocation.                                                                                      |
-| `category`         | `string`                                       | None                   | Tool category used for channel-scoped `allowedToolCategories` enforcement.                                                                                                                                                  |
-| `executionTarget`  | `"sandbox" \| "host"`                          | Resolved automatically | Where the tool runs: the sandbox (assistant container) or the host (guardian device, via proxy). When omitted, resolved by name prefix: `host_*` and `computer_use_*` default to host, everything else defaults to sandbox. |
-| `execute`          | `(input, ctx) => Promise<ToolExecutionResult>` | Unimplemented error    | Implementation invoked when the model calls the tool. When omitted, the loader synthesizes a result that reports the tool as unimplemented.                                                                                 |
+| Field              | Type                                           | Default                | Description                                                                                                                                                                                                                  |
+| ------------------ | ---------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`             | `string`                                       | File basename          | Name the model sees when calling the tool. Loaders default to the source file basename, so `tools/example.ts` becomes `example`. Only set this to override the file-derived name.                                            |
+| `description`      | `string`                                       | `""`                   | Human-readable description shown to the model in the tool catalog. This is how the model decides when to call the tool, so write it for the model.                                                                           |
+| `input_schema`     | `object (JSON Schema)`                         | Empty object schema    | JSON Schema describing the tool's input arguments. The model is constrained to this shape when it calls the tool.                                                                                                            |
+| `defaultRiskLevel` | `"low" \| "medium" \| "high"`                  | `"medium"`             | Author-asserted risk band that drives default permission gating. The medium default prompts the user, then allows on first invocation.                                                                                       |
+| `category`         | `string`                                       | None                   | Tool category used for channel-scoped `allowedToolCategories` enforcement.                                                                                                                                                   |
+| `executionTarget`  | `"sandbox" \| "host"`                          | Resolved automatically | Where the tool runs: the sandbox (assistant container) or the host (guardian device, via proxy). When omitted, resolved by name prefix: `host_*` and `computer_use_*` default to host, everything else defaults to sandbox.  |
+| `execute`          | `(input, ctx) => Promise<ToolExecutionResult>` | Unimplemented error    | Implementation invoked when the model calls the tool. When omitted, the loader synthesizes a result that reports the tool as unimplemented.                                                                                  |
+| `isActive`         | `(ctx: ToolActivationContext) => boolean`      | Always active          | Per-turn activation predicate. Evaluated before every model call: return false and the tool is left out of that call's tool list. Must be cheap and synchronous; throwing counts as inactive. See "Turn-scoped tools" above. |
 
 **Execution target naming.** When `executionTarget` is omitted, the runtime resolves it by tool name: names starting with `host_` or `computer_use_` run on the host; everything else runs in the sandbox. This means `host_my_thing` executes on the guardian's device, while `my_host_thing` executes in the assistant container. To run on the host without a `host_` prefix, set `executionTarget: "host"` explicitly.
 
@@ -111,12 +129,13 @@ The model sees the full catalog regardless of source. Pick distinctive tool name
 
 These are the tool-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). The full field contracts are documented in the sections above.
 
-| Export                | Kind | Purpose                                                                         |
-| --------------------- | ---- | ------------------------------------------------------------------------------- |
-| `ToolDefinition`      | type | Author-facing tool spec, the default-export shape for a `tools/<name>.ts` file. |
-| `ToolContext`         | type | Runtime context passed as the second argument to a tool's execute.              |
-| `ToolExecutionResult` | type | Return shape of a tool's execute: `{ content, isError }`.                       |
-| `RiskLevel`           | enum | Risk bands (low, medium, high) that drive default permission gating for a tool. |
+| Export                  | Kind | Purpose                                                                         |
+| ----------------------- | ---- | ------------------------------------------------------------------------------- |
+| `ToolDefinition`        | type | Author-facing tool spec, the default-export shape for a `tools/<name>.ts` file. |
+| `ToolContext`           | type | Runtime context passed as the second argument to a tool's execute.              |
+| `ToolActivationContext` | type | Context passed to a tool's `isActive` predicate: `{ modelProfileKey }`.         |
+| `ToolExecutionResult`   | type | Return shape of a tool's execute: `{ content, isError }`.                       |
+| `RiskLevel`             | enum | Risk bands (low, medium, high) that drive default permission gating for a tool. |
 
 ## Anatomy of a tool
 

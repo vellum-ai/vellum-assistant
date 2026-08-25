@@ -460,6 +460,24 @@ export interface ToolContext {
 }
 
 /**
+ * Context handed to a tool's {@link ToolDefinition.isActive} predicate on
+ * every provider call of a turn.
+ *
+ * Deliberately minimal: it carries only what a tool needs to decide whether
+ * it is relevant to the model that is about to be called. Add a field only
+ * when a concrete tool needs it, so this does not grow into a second
+ * {@link ToolContext}.
+ */
+export interface ToolActivationContext {
+  /**
+   * The inference profile the turn resolved to (the key the resolver's
+   * winning profile is named by). Empty string when the turn ran without a
+   * resolved profile key.
+   */
+  modelProfileKey: string;
+}
+
+/**
  * Schema describing the shape of a {@link ToolDefinition}. All fields are
  * optional — loaders fill documented defaults for omitted fields via
  * `finalizeTool` in `tool-defaults.ts`. The IPC layer parses incoming
@@ -534,6 +552,27 @@ export const ToolDefinitionSchema = z.object({
    * a path. Default false (the loop runs sibling calls concurrently as usual).
    */
   exclusive: z.boolean().optional(),
+  /**
+   * Per-turn activation predicate for a plugin-owned tool. Evaluated on
+   * every provider call (the tool list is rebuilt each call), so it must be
+   * cheap and synchronous — no I/O, no awaits. Returning false keeps the
+   * tool off the wire for that call, which is how a plugin tool that only
+   * matters for some models avoids charging every conversation for its
+   * schema. Throwing counts as inactive; omitting the field means always
+   * active.
+   *
+   * The predicate can only remove a tool from the surface, never add one:
+   * it runs alongside the host's own gates (subagent allowlist, disabled
+   * tools, disk pressure), and every one of those still applies.
+   *
+   * Honored for plugin-owned tools only. Core, skill, MCP, and workspace
+   * tools are gated by the host's own rules in `isToolActiveForContext`.
+   */
+  isActive: z
+    .custom<
+      (ctx: ToolActivationContext) => boolean
+    >((val) => typeof val === "function", { message: "isActive must be a function" })
+    .optional(),
 });
 
 /**
@@ -547,12 +586,13 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
 /**
  * Tool after the loader has derived its name and filled defaults. Every field
- * is required except `exclusive`, which stays optional — most tools never set
- * it, and the agent loop reads it as `?.exclusive === true`, so forcing every
- * hand-built `Tool` (MCP/meet/test fixtures) to carry it would be noise.
+ * is required except `exclusive` and `isActive`, which stay optional — most
+ * tools never set either, and both are read defensively (`?.exclusive ===
+ * true`, `typeof isActive === "function"`), so forcing every hand-built
+ * `Tool` (MCP/meet/test fixtures) to carry them would be noise.
  */
-export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
-  Pick<ToolDefinition, "exclusive">;
+export type Tool = Required<Omit<ToolDefinition, "exclusive" | "isActive">> &
+  Pick<ToolDefinition, "exclusive" | "isActive">;
 
 /**
  * The kind of entity that owns a tool. `"default"` is the built-in tool set

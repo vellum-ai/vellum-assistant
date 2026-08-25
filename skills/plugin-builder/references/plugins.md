@@ -160,6 +160,7 @@ one produces a registration that silently receives nothing.
 | ------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `resolveMediaSourceData` | value | Resolve an image or file content block's `source` to inline base64 bytes, whether the source is inline base64 or a persisted workspace reference (attachment-store row or a file on disk). Returns null when a reference can no longer be resolved. Use this to normalize media before passing it to a provider call. |
 | `isMaxTokensStopReason`  | value | Classify a provider stop reason: true when the turn was truncated at the output token cap (vs. a natural stop or a tool call). A `post-model-call` hook reads it off `PostModelCallContext.stopReason` to decide whether to continue a cut-off reply. See `references/hooks.md` for the post-model-call context.      |
+| `getAttachmentFilePath`  | value | Canonical on-disk path of a persisted attachment, from the `attachmentId` a media block's `workspace_ref` source carries. Returns null when the id is unknown or the attachment is not file-backed. Use it to name the file the way the model sees it, or to read the bytes yourself.                                 |
 
 #### Identity
 

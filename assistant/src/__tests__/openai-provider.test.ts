@@ -672,6 +672,47 @@ describe("OpenAIProvider", () => {
     });
   });
 
+  test("host-only tool fields never reach the wire", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    // A plugin tool's per-turn activation predicate is host bookkeeping. The
+    // adapter picks the three wire fields by name, so the closure must stay
+    // out of the request body.
+    const tools = [
+      {
+        name: "image_ask",
+        description: "Ask about an image",
+        input_schema: {
+          type: "object",
+          properties: { question: { type: "string" } },
+        },
+        isActive: () => true,
+        execute: async () => ({ content: "", isError: false }),
+      },
+    ] as unknown as ToolDefinition[];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Look" }] }],
+      { tools },
+    );
+
+    const sentTools = lastCreateParams!.tools as Array<Record<string, unknown>>;
+    expect(sentTools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "image_ask",
+          description: "Ask about an image",
+          parameters: {
+            type: "object",
+            properties: { question: { type: "string" } },
+          },
+        },
+      },
+    ]);
+    expect(JSON.stringify(sentTools)).not.toContain("isActive");
+  });
+
   // -----------------------------------------------------------------------
   // Tool call response
   // -----------------------------------------------------------------------

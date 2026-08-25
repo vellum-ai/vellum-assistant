@@ -13,6 +13,12 @@ import type {
 // ---------------------------------------------------------------------------
 
 let lastStreamParams: Record<string, unknown> | null = null;
+/**
+ * The params object as handed to the SDK, without the JSON round-trip
+ * {@link lastStreamParams} applies. Assertions about fields that JSON drops
+ * (closures) have to read this copy.
+ */
+let lastRawStreamParams: Record<string, unknown> | null = null;
 let _lastStreamOptions: Record<string, unknown> | null = null;
 let lastConstructorArgs: Record<string, unknown> | null = null;
 
@@ -57,6 +63,7 @@ mock.module("@anthropic-ai/sdk", () => ({
       options?: Record<string, unknown>,
     ) => {
       lastStreamParams = JSON.parse(JSON.stringify(params));
+      lastRawStreamParams = params;
       _lastStreamOptions = options ?? null;
       const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
       return {
@@ -200,6 +207,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   beforeEach(() => {
     lastStreamParams = null;
+    lastRawStreamParams = null;
     _lastStreamOptions = null;
     lastConstructorArgs = null;
     scriptedStream = null;
@@ -425,6 +433,36 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // Last tool: cache_control ephemeral
     expect(tools[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("host-only tool fields never reach the wire", async () => {
+    // A plugin tool's per-turn activation predicate is host bookkeeping. The
+    // adapter picks the three wire fields by name, so the closure must stay
+    // out of the request body.
+    const tools = [
+      {
+        name: "image_ask",
+        description: "Ask about an image",
+        input_schema: {
+          type: "object",
+          properties: { question: { type: "string" } },
+        },
+        isActive: () => true,
+        execute: async () => ({ content: "", isError: false }),
+      },
+    ] as unknown as ToolDefinition[];
+
+    await provider.sendMessage([userMsg("Hi")], { tools });
+
+    const sent = lastRawStreamParams!.tools as Array<Record<string, unknown>>;
+    expect(sent).toHaveLength(1);
+    expect(Object.keys(sent[0]).sort()).toEqual([
+      "cache_control",
+      "description",
+      "input_schema",
+      "name",
+    ]);
+    expect(sent[0].isActive).toBeUndefined();
   });
 
   test("single tool gets cache_control", async () => {
@@ -2899,6 +2937,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 describe("AnthropicProvider — Managed Proxy Fallback", () => {
   beforeEach(() => {
     lastStreamParams = null;
+    lastRawStreamParams = null;
     _lastStreamOptions = null;
     lastConstructorArgs = null;
   });
@@ -3045,6 +3084,7 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
 
   beforeEach(() => {
     lastStreamParams = null;
+    lastRawStreamParams = null;
     _lastStreamOptions = null;
     lastConstructorArgs = null;
     provider = new AnthropicProvider(
@@ -3147,6 +3187,7 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
 describe("OpenRouterProvider — Anthropic dispatch", () => {
   beforeEach(() => {
     lastStreamParams = null;
+    lastRawStreamParams = null;
     _lastStreamOptions = null;
     lastConstructorArgs = null;
   });
@@ -3273,6 +3314,7 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
 
   beforeEach(() => {
     lastStreamParams = null;
+    lastRawStreamParams = null;
     _lastStreamOptions = null;
     lastConstructorArgs = null;
     scriptedStream = null;

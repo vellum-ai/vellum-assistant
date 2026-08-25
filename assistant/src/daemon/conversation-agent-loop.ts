@@ -803,6 +803,7 @@ export async function runAgentLoopImpl(
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
     ctx.currentTurnCronRunId = undefined;
+    ctx.currentTurnModelProfileKey = undefined;
     ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop
     // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit
@@ -1171,6 +1172,9 @@ export async function runAgentLoopImpl(
       });
     const lastNotified = ctx.lastNotifiedInferenceProfile;
     const modelProfileKey = effectiveProfileKey;
+    // Mirrored onto the live conversation so the per-turn tool gate can hand
+    // it to a plugin tool's `isActive` predicate on every provider call.
+    ctx.currentTurnModelProfileKey = modelProfileKey;
     const modelProfileNoticeKey =
       modelProfileKey !== lastNotified ? modelProfileKey : null;
     ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;
