@@ -80,12 +80,11 @@ const schedule: (fn: () => void, delayMs: number) => CancelTimer =
   () => () => {};
 
 /** A started client whose session is established, with the given allow-list. */
-async function connectedClient(allowed: string[]): Promise<FakeSocket> {
+async function connectedClient(_allowed: string[]): Promise<FakeSocket> {
   let socket: FakeSocket | undefined;
   const client = new DiscordGatewayClient(
     {
       botToken: "token-abc",
-      readAllowedChannelIds: () => new Set(allowed),
       fetchFn: (async () =>
         new Response(JSON.stringify({ url: "wss://gateway.test" }), {
           status: 200,
@@ -151,7 +150,7 @@ describe("admission drop visibility", () => {
     );
 
     expect(dropped).toHaveLength(1);
-    expect(dropped[0]?.["reason"]).toBe("channel_not_allowed");
+    expect(dropped[0]?.["reason"]).toBe("bot_not_mentioned");
     expect(dropped[0]?.["channelId"]).toBe(UNLISTED_CHANNEL);
     // pino: warn is 40, info is 30, debug is 20. The file streams start at
     // info, so a debug record would be absent above rather than present here.

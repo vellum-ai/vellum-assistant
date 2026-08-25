@@ -31,10 +31,9 @@ export type AdmissionDropLogLevel = "warn" | "info" | "debug";
 /**
  * The level a reason logs at on its first occurrence for a channel.
  *
- * `channel_not_allowed` is the only operator-actionable denial. It fires when
- * a channel is missing from the allow-list, when the setting holds a shape the
- * reader cannot use, or when a snowflake is malformed. In each case a human
- * intends the bot to work somewhere and it silently does not, so it warns.
+ * Every remaining reason is ordinary traffic rather than a misconfiguration:
+ * which rooms the bot can see is Discord's decision, expressed as channel
+ * permissions, so a message it never receives produces no denial here to log.
  *
  * `bot_not_mentioned` is a person making a channel remark that does not
  * address the bot. It is not a fault, but it is evidence that events reach the
@@ -45,7 +44,6 @@ export type AdmissionDropLogLevel = "warn" | "info" | "debug";
  * no misconfiguration produces them, so a visible line would carry no signal.
  */
 const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
-  channel_not_allowed: "warn",
   bot_not_mentioned: "info",
   self_authored: "debug",
   bot_authored: "debug",
