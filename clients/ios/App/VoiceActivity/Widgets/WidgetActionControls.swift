@@ -16,12 +16,13 @@ import UIKit
 /// `openAppWhenRun`, so the system performs them in the app process; the appex
 /// only needs the types to exist.
 struct WidgetActionTile<ActionIntent: AppIntent>: View {
-    /// Close to the squircle the system clips the widget itself with, so a tile
-    /// reads as a smaller instance of the card it sits on rather than as a chip
-    /// placed on top of it.
-    private static var cornerRadius: CGFloat { 19 }
+    /// A corner tighter than the widget's own squircle, so the tile reads as a
+    /// control on the card rather than as a second card.
+    private static var cornerRadius: CGFloat { 12 }
 
-    private static var iconSize: CGFloat { 22 }
+    private static var iconSize: CGFloat { 24 }
+
+    private static var labelSize: CGFloat { 8 }
 
     let intent: ActionIntent
     let icon: Image
@@ -35,17 +36,22 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     /// fresh install.
     var avatarImage: UIImage? = nil
 
+    /// The owning card's ratio to the size it was designed at, so the tile
+    /// keeps its share of a card that renders larger or smaller than the
+    /// design. See the design-size note on each widget view.
+    var scale: CGFloat = 1
+
     var body: some View {
         Button(intent: intent) {
-            VStack(spacing: 4) {
+            VStack(spacing: 4 * scale) {
                 glyph
                 Text(title)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.system(size: Self.labelSize * scale, weight: .medium))
                     .foregroundStyle(WidgetTheme.textPrimary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius * scale))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -56,10 +62,10 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     @ViewBuilder
     private var glyph: some View {
         if let avatarImage {
-            WidgetAvatarImageView(image: avatarImage, size: Self.iconSize)
+            WidgetAvatarImageView(image: avatarImage, size: Self.iconSize * scale)
         } else {
             icon
-                .font(.system(size: Self.iconSize))
+                .font(.system(size: Self.iconSize * scale))
                 .foregroundStyle(tint)
         }
     }
@@ -73,14 +79,15 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
     /// The accent themes the tile and the avatar replaces its mark, both from
     /// the snapshot, so the tile that starts a chat with the assistant looks
     /// like that assistant.
-    static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil) -> Self {
+    static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil, scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
             icon: Image("VellumV"),
             title: "New Chat",
             fill: accent.fill,
             tint: accent.onFill,
-            avatarImage: avatarImage
+            avatarImage: avatarImage,
+            scale: scale
         )
     }
 }
@@ -89,13 +96,14 @@ extension WidgetActionTile where ActionIntent == StartNewVoiceConversationIntent
     /// The Voice tile, the secondary half of the pair. Neutral fill against
     /// ``newChat``'s tinted one, so the two read as a primary action and a
     /// secondary one rather than as two peers.
-    static var voice: Self {
+    static func voice(scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: StartNewVoiceConversationIntent(),
             icon: Image(systemName: "waveform"),
             title: "Voice",
             fill: WidgetTheme.voiceFill,
-            tint: WidgetTheme.textPrimary
+            tint: WidgetTheme.textPrimary,
+            scale: scale
         )
     }
 }
@@ -136,12 +144,16 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     /// See ``WidgetActionTile/avatarImage``.
     var avatarImage: UIImage? = nil
 
+    /// See ``WidgetActionTile/scale``. The glyph already follows the height;
+    /// this scales the word beside it.
+    var scale: CGFloat = 1
+
     var body: some View {
         Button(intent: intent) {
-            HStack(spacing: 6) {
+            HStack(spacing: 6 * scale) {
                 glyph
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15 * scale, weight: .semibold))
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
@@ -180,12 +192,14 @@ struct WidgetUnreadMark: View {
     /// wants the filled one; a white card wants the outline its rows draw.
     let isFilled: Bool
 
-    /// Point size of the bubble. The dot rides its corner at a fixed size
-    /// rather than scaling with it, so the alert stays the same alert whichever
-    /// card carries it.
+    /// Point size of the bubble. The dot rides its corner at the design's
+    /// share of it, so the mark scales as one piece: every card draws the
+    /// bubble at the same 16pt design size, and a dot fixed in points would
+    /// drift off the corner on the devices that render a card larger.
     let size: CGFloat
 
-    private static let dotDiameter: CGFloat = 6
+    private var dotDiameter: CGFloat { size * 0.375 }
+    private var dotNudge: CGFloat { size * 0.0625 }
 
     var body: some View {
         Image(systemName: isFilled ? "bubble.left.fill" : "bubble.left")
@@ -193,8 +207,8 @@ struct WidgetUnreadMark: View {
             .overlay(alignment: .topTrailing) {
                 Circle()
                     .fill(WidgetTheme.unseenIndicator)
-                    .frame(width: Self.dotDiameter, height: Self.dotDiameter)
-                    .offset(x: 2, y: -2)
+                    .frame(width: dotDiameter, height: dotDiameter)
+                    .offset(x: dotNudge, y: -dotNudge)
             }
     }
 }

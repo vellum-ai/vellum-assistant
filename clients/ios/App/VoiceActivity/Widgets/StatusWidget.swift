@@ -45,15 +45,21 @@ struct StatusWidget: Widget {
 struct StatusWidgetView: View {
     let entry: SnapshotEntry
 
+    /// The card every dimension below is designed on. Widget families render
+    /// at slightly different sizes per device, so the layout multiplies its
+    /// measurements by the ratio between the two and keeps the design's
+    /// proportions everywhere instead of gaining margin on large phones and
+    /// clipping on small ones.
+    private static let designSize = CGSize(width: 160, height: 161)
+
     /// The widget disables the system content margins and draws this one
     /// instead: the layout is drawn at these margins, and the system's own
     /// inset would leave the controls short of the size they are specified at.
     private static let contentMargin: CGFloat = 16
 
-    /// The height a control is drawn at where the family has room for it, and
-    /// the gap between the card's two bands. A shorter widget splits what it
-    /// has between the bands rather than overflowing its margins.
-    private static let preferredControlHeight: CGFloat = 61
+    /// The height of a control band, and the minimum gap between the card's
+    /// two bands.
+    private static let controlHeight: CGFloat = 61
     private static let bandGap: CGFloat = 7
 
     /// Gap inside a band: between the two circles, and between the two tiles.
@@ -63,26 +69,32 @@ struct StatusWidgetView: View {
     /// Gap between the two count lines, and the column their glyphs sit in.
     /// The column is wide enough for the wider of the two, so the counts start
     /// at the same place whichever lines are drawn.
-    private static let countGap: CGFloat = 12
-    private static let glyphColumnWidth: CGFloat = 20
+    private static let countGap: CGFloat = 16
+    private static let glyphColumnWidth: CGFloat = 17
+    private static let countGlyphGap: CGFloat = 7
+    private static let countTextSize: CGFloat = 14
 
     var body: some View {
         GeometryReader { proxy in
-            let control = Self.controlHeight(fitting: proxy.size)
+            let scale = min(
+                proxy.size.width / Self.designSize.width,
+                proxy.size.height / Self.designSize.height
+            )
+            let control = Self.controlHeight * scale
             VStack(spacing: 0) {
                 if isActive {
-                    counts
-                    Spacer(minLength: Self.bandGap)
-                    actionTiles(height: control)
+                    counts(scale: scale)
+                    Spacer(minLength: Self.bandGap * scale)
+                    actionTiles(height: control, scale: scale)
                 } else {
-                    circles(diameter: control)
-                    Spacer(minLength: Self.bandGap)
-                    chatPill(height: control)
+                    circles(diameter: control, scale: scale)
+                    Spacer(minLength: Self.bandGap * scale)
+                    chatPill(height: control, scale: scale)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(Self.contentMargin * scale)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .padding(Self.contentMargin)
     }
 
     /// Whether there is anything to report.
@@ -99,22 +111,10 @@ struct StatusWidgetView: View {
         return snapshot.unreadCount > 0 || snapshot.inProgressCount > 0
     }
 
-    /// The height of one control, capped at the size the card is laid out for
-    /// and otherwise cut to whichever dimension runs out first.
-    ///
-    /// Both states stack two bands of controls, or one band under the counts,
-    /// so the same number sizes the circles, the pill and the tiles. Deriving
-    /// it rather than fixing it is what keeps the card inside its margins on
-    /// the smaller phones, where a small widget is a good deal short of the
-    /// size this is drawn at.
-    private static func controlHeight(fitting size: CGSize) -> CGFloat {
-        min(preferredControlHeight, (size.height - bandGap) / 2, (size.width - circleGap) / 2)
-    }
-
     /// The two most physical actions, as circles: a shape the eye separates
     /// from the wide pill under them before it reads either one.
-    private func circles(diameter: CGFloat) -> some View {
-        HStack(spacing: Self.circleGap) {
+    private func circles(diameter: CGFloat, scale: CGFloat) -> some View {
+        HStack(spacing: Self.circleGap * scale) {
             CircleActionButton(
                 intent: OpenCameraIntent(),
                 icon: Image(systemName: "camera.fill"),
@@ -137,7 +137,7 @@ struct StatusWidgetView: View {
     /// Chat, given the whole width because it is the action most people want
     /// most often, and the pill is the only shape on a small widget that can
     /// say so.
-    private func chatPill(height: CGFloat) -> some View {
+    private func chatPill(height: CGFloat, scale: CGFloat) -> some View {
         PillActionButton(
             intent: OpenNewChatIntent(),
             icon: Image("VellumV"),
@@ -145,28 +145,29 @@ struct StatusWidgetView: View {
             fill: entry.softAccent.fill,
             tint: entry.softAccent.onFill,
             height: height,
-            avatarImage: entry.avatarImage
+            avatarImage: entry.avatarImage,
+            scale: scale
         )
     }
 
     /// The pair the readout state ends on. Voice keeps the neutral fill, so the
     /// two read as a primary action and a secondary one.
-    private func actionTiles(height: CGFloat) -> some View {
-        HStack(spacing: Self.tileGap) {
-            WidgetActionTile.newChat(accent: entry.softAccent, avatarImage: entry.avatarImage)
-            WidgetActionTile.voice
+    private func actionTiles(height: CGFloat, scale: CGFloat) -> some View {
+        HStack(spacing: Self.tileGap * scale) {
+            WidgetActionTile.newChat(accent: entry.softAccent, avatarImage: entry.avatarImage, scale: scale)
+            WidgetActionTile.voice(scale: scale)
         }
         .frame(height: height)
     }
 
     /// The counts, each dropping its line rather than printing "0".
-    private var counts: some View {
-        VStack(alignment: .leading, spacing: Self.countGap) {
+    private func counts(scale: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: Self.countGap * scale) {
             if let count = entry.snapshot?.unreadCount, count > 0 {
-                countLine(glyph: unreadGlyph, text: "\(count) unread")
+                countLine(glyph: unreadGlyph(scale: scale), text: "\(count) unread", scale: scale)
             }
             if let count = entry.snapshot?.inProgressCount, count > 0 {
-                countLine(glyph: inProgressGlyph, text: "\(count) in progress")
+                countLine(glyph: inProgressGlyph(scale: scale), text: "\(count) in progress", scale: scale)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,13 +179,13 @@ struct StatusWidgetView: View {
     /// The line is `.privacySensitive()` while the glyph beside it is not,
     /// matching the Quick Actions chip: a locked device still shows that
     /// something is waiting without spelling out how far behind its owner is.
-    private func countLine(glyph: some View, text: String) -> some View {
-        HStack(spacing: 7) {
+    private func countLine(glyph: some View, text: String, scale: CGFloat) -> some View {
+        HStack(spacing: Self.countGlyphGap * scale) {
             glyph
-                .frame(width: Self.glyphColumnWidth, alignment: .leading)
+                .frame(width: Self.glyphColumnWidth * scale, alignment: .leading)
                 .accessibilityHidden(true)
             Text(text)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: Self.countTextSize * scale, weight: .medium))
                 .foregroundStyle(WidgetTheme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -194,16 +195,16 @@ struct StatusWidgetView: View {
 
     /// The outline bubble, since this card is the white one, in the primary
     /// text color the line beside it is drawn in.
-    private var unreadGlyph: some View {
-        WidgetUnreadMark(isFilled: false, size: 16)
+    private func unreadGlyph(scale: CGFloat) -> some View {
+        WidgetUnreadMark(isFilled: false, size: 16 * scale)
             .foregroundStyle(WidgetTheme.textPrimary)
     }
 
     /// The dots a Catch Up row marks a turn in flight with, at the size this
     /// card's lines are drawn at.
-    private var inProgressGlyph: some View {
+    private func inProgressGlyph(scale: CGFloat) -> some View {
         Image(systemName: "ellipsis")
-            .font(.system(size: 16, weight: .bold))
+            .font(.system(size: 16 * scale, weight: .bold))
             .foregroundStyle(WidgetTheme.textSecondary)
     }
 }
