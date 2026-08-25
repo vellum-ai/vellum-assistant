@@ -148,6 +148,20 @@ export type RemoteWebPairingPlatform =
 export const DEFAULT_REMOTE_WEB_PAIRING_PLATFORM: RemoteWebPairingPlatform =
   "desktop";
 
+/**
+ * A requested platform coerced to a known value. The pairing-token route is
+ * publicly reachable and the platform renders verbatim in the host's
+ * paired-devices list, so an unrecognized value never reaches the DB.
+ */
+export function resolveRemoteWebPairingPlatform(
+  raw: unknown,
+): RemoteWebPairingPlatform {
+  return (
+    REMOTE_WEB_PAIRING_PLATFORMS.find((platform) => platform === raw) ??
+    DEFAULT_REMOTE_WEB_PAIRING_PLATFORM
+  );
+}
+
 /** `POST /v1/remote-web/pairing-token` request body. */
 export interface RemoteWebPairingTokenRequest {
   /** The `deviceCode` from the challenge. */
@@ -212,6 +226,7 @@ export type RemoteWebPairingTokenResponse =
 export type PublicBaseUrlRejection =
   | "unparseable"
   | "loopback"
+  | "private-address"
   | "non-https"
   | "service-website";
 
@@ -239,6 +254,16 @@ export const TUNNEL_PROVIDER_WEBSITE_HOSTS = [
 ] as const;
 
 /**
+ * A hostname with any trailing DNS root dot removed. `example.com.` and
+ * `example.com` name the same host, and a resolver reads `localhost.` as the
+ * loopback name, so every host comparison below runs on the stripped form.
+ * Bracketed IPv6 literals never carry one.
+ */
+function hostnameWithoutRootDot(hostname: string): string {
+  return hostname.replace(/\.+$/, "");
+}
+
+/**
  * A URL whose exact host is a tunnel/ingress vendor's own website (see
  * {@link TUNNEL_PROVIDER_WEBSITE_HOSTS}). Exact-host only: a user's real
  * Tailscale endpoint (`*.ts.net`) or Cloudflare-fronted domain is never a
@@ -248,7 +273,7 @@ export function isTunnelProviderWebsiteUrl(url: string): boolean {
   let hostname: string;
   try {
     // WHATWG URL lowercases the hostname during parsing.
-    hostname = new URL(url).hostname;
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
   } catch {
     return false;
   }
@@ -265,7 +290,7 @@ export function isTunnelProviderWebsiteUrl(url: string): boolean {
 export function tunnelProviderWebsiteName(url: string): string | null {
   let hostname: string;
   try {
-    hostname = new URL(url).hostname;
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
   } catch {
     return null;
   }
@@ -281,21 +306,163 @@ export function tunnelProviderWebsiteName(url: string): string | null {
 }
 
 /**
- * A loopback URL — `localhost`, `[::1]`, or `127.x.x.x`. A pairing link that
- * encodes a loopback address is unreachable from the scanning device.
+ * A loopback URL: the whole reserved `localhost` namespace (RFC 6761, so
+ * `foo.localhost` counts), `[::1]`, or `127.x.x.x`. A pairing link that encodes
+ * a loopback address is unreachable from the scanning device, and a host that
+ * POSTs to one is calling a service on its own machine.
  */
 export function isLoopbackPublicUrl(url: string): boolean {
   try {
     // WHATWG URL canonicalizes hostnames, so IPv6 loopback is always "[::1]".
-    const hostname = new URL(url).hostname;
+    const hostname = hostnameWithoutRootDot(new URL(url).hostname);
     return (
       hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
       hostname === "[::1]" ||
       /^127(?:\.\d{1,3}){3}$/.test(hostname)
     );
   } catch {
     return false;
   }
+}
+
+/** Canonical dotted-quad as its four octets, or null when it is not one. */
+function parseIpv4Literal(hostname: string): number[] | null {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) {
+    return null;
+  }
+  const octets = match.slice(1).map(Number);
+  return octets.every((octet) => octet <= 255) ? octets : null;
+}
+
+/** Bracketed IPv6 literal as its eight 16-bit pieces, or null. */
+function parseIpv6Literal(hostname: string): number[] | null {
+  if (!hostname.startsWith("[") || !hostname.endsWith("]")) {
+    return null;
+  }
+  const halves = hostname.slice(1, -1).split("::");
+  if (halves.length > 2) {
+    return null;
+  }
+  const toPieces = (part: string): number[] | null => {
+    if (!part) {
+      return [];
+    }
+    const pieces: number[] = [];
+    const labels = part.split(":");
+    for (const [index, label] of labels.entries()) {
+      // A trailing dotted-quad is legal IPv6 text. The WHATWG serializer never
+      // emits one, but a hand-built literal can still reach this parser.
+      if (index === labels.length - 1 && label.includes(".")) {
+        const octets = parseIpv4Literal(label);
+        if (!octets) {
+          return null;
+        }
+        pieces.push(
+          ((octets[0] ?? 0) << 8) | (octets[1] ?? 0),
+          ((octets[2] ?? 0) << 8) | (octets[3] ?? 0),
+        );
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/i.test(label)) {
+        return null;
+      }
+      pieces.push(Number.parseInt(label, 16));
+    }
+    return pieces;
+  };
+  const head = toPieces(halves[0] ?? "");
+  const tail = halves.length === 2 ? toPieces(halves[1] ?? "") : [];
+  if (!head || !tail) {
+    return null;
+  }
+  if (halves.length === 1) {
+    return head.length === 8 ? head : null;
+  }
+  const gap = 8 - head.length - tail.length;
+  return gap >= 1 ? [...head, ...Array<number>(gap).fill(0), ...tail] : null;
+}
+
+/**
+ * IPv4 ranges that are not publicly routable, judged from the four octets of a
+ * canonical dotted-quad. Loopback (127/8) is included so the predicate is
+ * complete on its own; `resolvePublicBaseUrl` still reports it as `loopback`
+ * because it checks that first.
+ *
+ * 100.64.0.0/10 is DELIBERATELY ABSENT. Tailscale hands out CGNAT addresses
+ * from that range and a Tailscale endpoint is a supported pairing target.
+ */
+function isPrivateIpv4(octets: readonly number[]): boolean {
+  const a = octets[0] ?? 0;
+  const b = octets[1] ?? 0;
+  const c = octets[2] ?? 0;
+  return (
+    a === 0 || // 0/8 "this network"
+    a === 10 || // 10/8 private
+    a === 127 || // 127/8 loopback
+    (a === 169 && b === 254) || // 169.254/16 link-local, incl. cloud metadata
+    (a === 172 && b >= 16 && b <= 31) || // 172.16/12 private
+    (a === 192 && b === 0 && c === 0) || // 192.0.0/24 protocol assignments
+    (a === 192 && b === 168) || // 192.168/16 private
+    (a === 198 && (b === 18 || b === 19)) || // 198.18/15 benchmarking
+    a >= 224 // 224/4 multicast, 240/4 reserved, 255.255.255.255 broadcast
+  );
+}
+
+/**
+ * A URL whose hostname is an IP literal outside publicly routable space:
+ * private, loopback, link-local (which is where the cloud instance metadata
+ * endpoint 169.254.169.254 lives), multicast, or reserved, in either address
+ * family. Pairing POSTs to whatever address the user pasted, so a literal
+ * aimed at the host's own network is refused before any request is made.
+ *
+ * Only literals written directly in the address are checked. Hostnames are
+ * NEVER resolved and resolved addresses are NEVER filtered, deliberately:
+ * Tailscale endpoints (`*.ts.net`) are a supported pairing target and resolve
+ * into the 100.64.0.0/10 CGNAT range, so post-DNS filtering would refuse them
+ * outright. It would also be TOCTOU-prone, since a name can resolve
+ * differently between the check and the connection.
+ */
+export function isPrivateNetworkPublicUrl(url: string): boolean {
+  let hostname: string;
+  try {
+    // WHATWG URL canonicalizes IP literals: decimal, octal, and hex IPv4 forms
+    // collapse to a dotted-quad, and IPv6 to a bracketed lowercase literal.
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+  const ipv4 = parseIpv4Literal(hostname);
+  if (ipv4) {
+    return isPrivateIpv4(ipv4);
+  }
+  const ipv6 = parseIpv6Literal(hostname);
+  if (!ipv6) {
+    return false;
+  }
+  // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d) literals carry
+  // an IPv4 destination, so they are unwrapped and judged as IPv4.
+  const low = ipv6[5] ?? 0;
+  if (
+    ipv6.slice(0, 5).every((piece) => piece === 0) &&
+    (low === 0xffff || low === 0)
+  ) {
+    const mapped = ipv6[6] ?? 0;
+    const trailing = ipv6[7] ?? 0;
+    return isPrivateIpv4([
+      mapped >> 8,
+      mapped & 0xff,
+      trailing >> 8,
+      trailing & 0xff,
+    ]);
+  }
+  const top = ipv6[0] ?? 0;
+  return (
+    (top & 0xfe00) === 0xfc00 || // fc00::/7 unique-local
+    (top & 0xffc0) === 0xfe80 || // fe80::/10 link-local
+    (top & 0xff00) === 0xff00 // ff00::/8 multicast
+  );
 }
 
 /**
@@ -319,8 +486,13 @@ export function normalizePairingBaseUrl(value: string): string {
 
 /**
  * Resolve an address to the public https base URL to advertise in a pairing
- * challenge, or report why it can't be used. Loopback and non-https links are
- * refused with a specific reason callers turn into their own guidance.
+ * challenge, or report why it can't be used. Loopback, private-network IP
+ * literals, and non-https links are refused with a specific reason callers
+ * turn into their own guidance.
+ *
+ * Hosts POST to this address during pairing, so the refusals are the SSRF
+ * containment for every pairing surface. See
+ * {@link isPrivateNetworkPublicUrl} for why resolved addresses are left alone.
  */
 export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
   let normalized: string;
@@ -331,6 +503,9 @@ export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
   }
   if (isLoopbackPublicUrl(normalized)) {
     return { ok: false, reason: "loopback" };
+  }
+  if (isPrivateNetworkPublicUrl(normalized)) {
+    return { ok: false, reason: "private-address" };
   }
   if (isTunnelProviderWebsiteUrl(normalized)) {
     return { ok: false, reason: "service-website" };
@@ -429,9 +604,9 @@ export type ParsePairingAddressResult =
  * address means. A full pairing link yields its base plus the device code it
  * carries; a bare `https://host` address yields a null device code, leaving
  * the caller to mint its own challenge. The base goes through
- * {@link resolvePublicBaseUrl}, so loopback, non-https, and tunnel-vendor
- * websites are refused with the same reasons every other pairing surface
- * reports.
+ * {@link resolvePublicBaseUrl}, so loopback, private-network literals,
+ * non-https, and tunnel-vendor websites are refused with the same reasons
+ * every other pairing surface reports.
  */
 export function parsePairingAddress(raw: string): ParsePairingAddressResult {
   const resolved = resolvePublicBaseUrl(raw);

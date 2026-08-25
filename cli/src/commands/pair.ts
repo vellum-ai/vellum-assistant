@@ -497,6 +497,7 @@ export async function pair(): Promise<void> {
       const detailByReason: Record<PublicBaseUrlRejection, string> = {
         unparseable: `${advertisedUrl} isn't a valid URL`,
         loopback: `${advertisedUrl} is a loopback address`,
+        "private-address": `${advertisedUrl} is a private-network address the scanning device can't reach`,
         "non-https": `${advertisedUrl} is not https`,
         "service-website": `${advertisedUrl} is ${
           tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"

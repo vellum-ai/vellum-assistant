@@ -35,6 +35,8 @@ export function publicBaseUrlRejectionMessage(
       return t("settings:pairDeviceUrl.unparseable");
     case "loopback":
       return t("settings:pairDeviceUrl.loopback");
+    case "private-address":
+      return t("settings:pairDeviceUrl.privateAddress");
     case "non-https":
       return t("settings:pairDeviceUrl.nonHttps");
     case "service-website": {

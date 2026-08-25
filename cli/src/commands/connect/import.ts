@@ -4,13 +4,12 @@
  * Import a pairing bundle printed by `vellum pair` on another machine and
  * register it locally so `vellum client`/`message`/`events <name>` work against
  * the remote assistant. Decoding, id derivation, and the lockfile/token writes
- * live in `pairAssistant` (`@vellumai/local-mode`); this command owns only the
+ * live in `connectImport` (`@vellumai/local-mode`); this command owns only the
  * argv parsing and output copy.
  */
 
 import {
-  decodePairBundle,
-  pairAssistant,
+  connectImport as importPairingBundle,
   resolveConfigDir,
 } from "@vellumai/local-mode";
 
@@ -53,32 +52,17 @@ export async function connectImport(): Promise<void> {
     process.exit(1);
   }
 
-  const decoded = decodePairBundle(blob);
-  if (!decoded.ok) {
-    console.error(
-      "Error: invalid pairing bundle. Paste the full base64 string printed by `vellum pair`.",
-    );
-    process.exit(1);
-  }
-
-  const result = pairAssistant(
+  const result = importPairingBundle(
     getLockfilePaths(getCurrentEnvironment()),
     resolveConfigDir(process.env),
-    { bundle: decoded.bundle, name: nameFlag },
+    { bundle: blob, name: nameFlag },
   );
   if (!result.ok) {
-    if (result.status === 400) {
-      console.error(
-        "Error: --name must contain at least one alphanumeric character.",
-      );
-    } else if (result.status === 409) {
-      console.error(
-        `Error: an assistant named '${result.assistantId}' already exists locally. ` +
-          "Choose a different --name to avoid overwriting it.",
-      );
-    } else {
-      console.error(`Error: ${result.error}`);
-    }
+    console.error(
+      result.status === 409
+        ? `Error: ${result.error} locally. Choose a different --name to avoid overwriting it.`
+        : `Error: ${result.error}`,
+    );
     process.exit(1);
   }
 
