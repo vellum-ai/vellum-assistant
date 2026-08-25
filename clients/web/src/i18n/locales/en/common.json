@@ -189,6 +189,9 @@
     "messageNamed": "\"{appName}\" uses backend services that won't work on a static Vercel page. {assistantName} can deploy it properly with serverless functions.",
     "title": "This app needs a full deploy"
   },
+  "detailPanelStopButton": {
+    "tooltip": "Stop"
+  },
   "detailPrimitives": {
     "copied": "Copied",
     "copy": "Copy"
