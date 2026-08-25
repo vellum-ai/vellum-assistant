@@ -32,7 +32,12 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 const { useProvisioningCredits, useResizeCreditsChange } =
   await import("./use-provisioning-credits");
 
-/** A pro-plan catalog with a `credits_50` tier and a Mighty package on it. */
+/**
+ * A pro-plan catalog with a `credits_50` tier and a Mighty package on it. The
+ * tier label is a usage bundle's Stripe product name, amount-free like the
+ * real catalog's, and deliberately distinct from the package's `usage_label`
+ * so the label-precedence assertions can tell the two apart.
+ */
 function plansResponse(): PlanListResponse {
   return {
     plans: [
@@ -48,7 +53,7 @@ function plansResponse(): PlanListResponse {
         credit_tiers: [
           {
             tier: "credits_50",
-            label: "$50 credits/mo",
+            label: "Mighty Usage Monthly",
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
@@ -175,7 +180,7 @@ describe("useProvisioningCredits", () => {
       fromUsd: 0,
       toUsd: 50,
       fromLabel: null,
-      // The customer-facing usage_label wins over the dollar-y tier label.
+      // The customer-facing usage_label wins over the tier label.
       toLabel: "Mighty Usage",
     });
   });
@@ -190,7 +195,7 @@ describe("useProvisioningCredits", () => {
       fromUsd: 0,
       toUsd: 50,
       fromLabel: null,
-      toLabel: "$50 credits/mo",
+      toLabel: "Mighty Usage Monthly",
     });
   });
 
@@ -235,7 +240,7 @@ describe("useProvisioningCredits", () => {
       fromUsd: 0,
       toUsd: 50,
       fromLabel: null,
-      toLabel: "$50 credits/mo",
+      toLabel: "Mighty Usage Monthly",
     });
   });
 
@@ -274,7 +279,7 @@ describe("useResizeCreditsChange", () => {
       fromUsd: 0,
       toUsd: 50,
       fromLabel: null,
-      toLabel: "$50 credits/mo",
+      toLabel: "Mighty Usage Monthly",
     });
   });
 
@@ -285,7 +290,7 @@ describe("useResizeCreditsChange", () => {
     ).toEqual({
       fromUsd: 50,
       toUsd: 0,
-      fromLabel: "$50 credits/mo",
+      fromLabel: "Mighty Usage Monthly",
       toLabel: null,
     });
   });
@@ -303,7 +308,7 @@ describe("useResizeCreditsChange", () => {
       toUsd: 50,
       // No catalog entry to word the held tier, so its label side is absent.
       fromLabel: undefined,
-      toLabel: "$50 credits/mo",
+      toLabel: "Mighty Usage Monthly",
     });
   });
 
