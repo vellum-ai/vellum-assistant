@@ -42,6 +42,7 @@
 
 import {
   addMessage,
+  type AgentLoopExitReason,
   type ContentBlock,
   type ConversationRow,
   deleteConversation,
@@ -88,7 +89,6 @@ import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
-  MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT,
   MEMORY_RETROSPECTIVE_ORIGIN,
   MEMORY_RETROSPECTIVE_SOURCE,
   SKILL_MANAGEMENT_SKILL_ID,
@@ -128,6 +128,14 @@ export const STALE_SOURCE_PROCESSING_OVERRIDE_MS = 6 * 60 * 60 * 1000;
 /** Watchdog check_name for the per-run retrospective outcome counter. */
 const MEMORY_RETROSPECTIVE_RUN_CHECK_NAME = "memory_retrospective_run";
 
+/**
+ * The agent-loop exit that means the MODEL ended the run: it answered without
+ * asking for another tool. Under every other exit something ended the run for
+ * it, so whatever it had said by then is a fragment of a review rather than a
+ * verdict on the window.
+ */
+const MODEL_DRIVEN_STOP_EXIT_REASON: AgentLoopExitReason = "no_tool_calls";
+
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
@@ -142,6 +150,12 @@ export type MemoryRetrospectiveOutcome =
       cutoffMessageId: string;
       newMessageCount: number;
       followUpJobIds: string[];
+      /**
+       * The pass reviewed its window and had nothing durable to save, so it
+       * advanced the cursor without writing a memory. Separates the two
+       * shapes a healthy run takes, which the outcome kind alone conflates.
+       */
+      noFindings: boolean;
     };
 
 export async function memoryRetrospectiveJob(
@@ -176,14 +190,20 @@ export async function memoryRetrospectiveJob(
   // resolved model) is visible without log access. The emitter itself
   // never throws — the run's outcome must reach the jobs worker
   // regardless.
-  const emitRunOutcome = (outcome: string, reason?: string): void => {
+  const emitRunOutcome = (
+    outcome: string,
+    detail?: { reason?: string; noFindings?: boolean },
+  ): void => {
     try {
       recordWatchdogEvent({
         checkName: MEMORY_RETROSPECTIVE_RUN_CHECK_NAME,
         value: 1,
         detail: {
           outcome,
-          ...(reason ? { reason: reason.slice(0, 200) } : {}),
+          ...(detail?.reason ? { reason: detail.reason.slice(0, 200) } : {}),
+          ...(detail?.noFindings !== undefined
+            ? { noFindings: detail.noFindings }
+            : {}),
         },
       });
     } catch {
@@ -199,15 +219,17 @@ export async function memoryRetrospectiveJob(
       enforceUserActivityGate: true,
     });
   } catch (err) {
-    emitRunOutcome("error", err instanceof Error ? err.message : String(err));
+    emitRunOutcome("error", {
+      reason: err instanceof Error ? err.message : String(err),
+    });
     throw err;
   }
-  emitRunOutcome(
-    outcome.kind,
-    outcome.kind === "wake_failed" || outcome.kind === "no_usable_output"
-      ? outcome.reason
-      : undefined,
-  );
+  emitRunOutcome(outcome.kind, {
+    ...(outcome.kind === "wake_failed" || outcome.kind === "no_usable_output"
+      ? { reason: outcome.reason }
+      : {}),
+    ...(outcome.kind === "invoked" ? { noFindings: outcome.noFindings } : {}),
+  });
   return outcome;
 }
 
@@ -493,6 +515,7 @@ export async function runForkBasedRetrospective(
   // persisted message — the wake's hint sandwich would only duplicate it.
   let wakeSucceeded = false;
   let failureReason: string | undefined;
+  let wakeExitReason: AgentLoopExitReason | undefined;
   let threw: unknown;
   try {
     const result = await wakeAgentForOpportunity({
@@ -562,6 +585,7 @@ export async function runForkBasedRetrospective(
     });
     wakeSucceeded = result.invoked;
     failureReason = result.reason;
+    wakeExitReason = result.exitReason;
   } catch (err) {
     threw = err;
     failureReason = err instanceof Error ? err.message : String(err);
@@ -576,15 +600,20 @@ export async function runForkBasedRetrospective(
     // went live, not that the run produced anything. The agent loop swallows
     // provider rejections into a normal no-output return, an exhausted output
     // budget can stop a run before any visible text or tool call, and a
-    // model may reply with analysis (or nothing) without saving. Advancement
-    // past the window therefore requires POSITIVE evidence from THIS run,
-    // one of:
+    // model may stop mid-review without saving. Advancement past the window
+    // therefore requires POSITIVE evidence from THIS run, one of:
     //   - a memory-writing tool call on the fork's post-boundary tail whose
     //     execution verifiably succeeded (matching non-error tool_result), or
-    //   - the explicit no-findings reply the instruction mandates (an
-    //     assistant text block that is exactly the sentinel phrase), with no
-    //     memory-writing tool attempts at all; a run that attempted a save
-    //     and failed cannot advance by also claiming no findings.
+    //   - a reviewed-and-nothing-to-save pass: the model answered in its own
+    //     words (a committed assistant text block), attempted no memory
+    //     write at all, and the loop ended because IT stopped asking for
+    //     tools rather than because something cut the run short. A run that
+    //     attempted a save and failed cannot advance by talking instead, and
+    //     a run the provider or the output ceiling ended mid-review has not
+    //     reviewed its window.
+    // The proof of an empty-handed review is the shape of the run, never the
+    // wording of the reply: a model that reaches its own end with nothing to
+    // write has reviewed the window, in whatever words it says so.
     // The evidence read is run-specific by construction
     // (`loadRetrospectiveRunMessages` scopes to rows after the fork
     // boundary), so a prior run's persisted saves can never satisfy it, and
@@ -596,8 +625,9 @@ export async function runForkBasedRetrospective(
     // remains retryable.
     const runEvidence = await collectRetrospectiveRunEvidence(forkId);
     const reviewedNoFindings =
-      runEvidence.explicitNoFindings &&
-      runEvidence.durableToolAttemptCount === 0;
+      runEvidence.committedTextReply &&
+      runEvidence.durableToolAttemptCount === 0 &&
+      wakeExitReason === MODEL_DRIVEN_STOP_EXIT_REASON;
     if (runEvidence.durableToolCallCount === 0 && !reviewedNoFindings) {
       log.warn(
         {
@@ -605,9 +635,12 @@ export async function runForkBasedRetrospective(
           forkId,
           newMessageCount: newMessages.length,
           durableToolAttempts: runEvidence.durableToolAttemptCount,
+          committedTextReply: runEvidence.committedTextReply,
+          exitReason: wakeExitReason ?? null,
         },
-        "memory-retrospective (fork): run produced neither a verified durable write nor an explicit no-findings reply; leaving window retryable",
+        "memory-retrospective (fork): run produced neither a verified durable write nor a completed empty-handed review; leaving window retryable",
       );
+      failureReason = describeUnusableRun(runEvidence, wakeExitReason);
     } else {
       return await finalizeSuccessfulRetrospective({
         config,
@@ -618,11 +651,11 @@ export async function runForkBasedRetrospective(
         prior,
         priorRemembers,
         runRemembers: runEvidence.remembers,
+        noFindings: reviewedNoFindings,
         logFields: {
           kind: "fork",
           windowStartTimestamp,
           durationMs: Date.now() - startedAtMs,
-          noFindings: reviewedNoFindings,
         },
       });
     }
@@ -642,17 +675,40 @@ export async function runForkBasedRetrospective(
   }
 
   if (wakeSucceeded) {
+    // Reached only through the evidence gate above, which set `failureReason`
+    // to why the run could not consume its window.
     return {
       kind: "no_usable_output",
-      reason: failureReason ?? "run persisted no memory-writing tool call",
+      reason: failureReason,
       conversationId: forkId,
     };
   }
+
   return {
     kind: "wake_failed",
     reason: failureReason,
     conversationId: forkId,
   };
+}
+
+/**
+ * Why a run that went live still could not consume its window, phrased for
+ * the job row's `last_error` and the CLI. The distinction it draws is the one
+ * an operator needs: a lost memory write reads differently from a review that
+ * never reached a conclusion, and the fork is deleted on failure, so this
+ * string is what survives the run.
+ */
+function describeUnusableRun(
+  evidence: { durableToolAttemptCount: number; committedTextReply: boolean },
+  exitReason: AgentLoopExitReason | undefined,
+): string {
+  if (evidence.durableToolAttemptCount > 0) {
+    return `run attempted ${evidence.durableToolAttemptCount} memory write(s), none of which persisted a successful result`;
+  }
+  if (!evidence.committedTextReply) {
+    return "run committed neither a memory write nor a reply";
+  }
+  return `run replied without saving anything, but ended on ${exitReason ?? "no terminal exit"} rather than a completed review`;
 }
 
 function enqueueFollowUpJobs(): string[] {
@@ -862,6 +918,8 @@ async function finalizeSuccessfulRetrospective(args: {
    * advancement is exactly the evidence folded into the log.
    */
   runRemembers: string[];
+  /** Whether the run advanced on a reviewed-and-nothing-to-save pass. */
+  noFindings: boolean;
   /** Per-kind extras for the success log line (e.g. `kind`, fork anchor). */
   logFields: Record<string, unknown>;
 }): Promise<MemoryRetrospectiveOutcome> {
@@ -874,6 +932,7 @@ async function finalizeSuccessfulRetrospective(args: {
     prior,
     priorRemembers,
     runRemembers,
+    noFindings,
     logFields,
   } = args;
 
@@ -901,6 +960,7 @@ async function finalizeSuccessfulRetrospective(args: {
       cutoffMessageId,
       newMessageCount,
       priorRememberCount: priorRemembers.length,
+      noFindings,
       ...logFields,
     },
     "memory-retrospective invoked",
@@ -911,6 +971,7 @@ async function finalizeSuccessfulRetrospective(args: {
     cutoffMessageId,
     newMessageCount,
     followUpJobIds,
+    noFindings,
   };
 }
 
@@ -1119,12 +1180,12 @@ async function collectRetrospectiveRunEvidence(
   /** Memory-writing tool calls the run attempted, regardless of outcome. */
   durableToolAttemptCount: number;
   /**
-   * The run replied with exactly the mandated no-findings sentinel text
-   * ({@link MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT}) in a persisted assistant
-   * text block. Strict whole-block equality: prose that merely mentions the
-   * phrase does not qualify, so an analysis-only reply stays unusable.
+   * The run answered in its own words: a persisted assistant text block with
+   * non-whitespace content. Any wording qualifies, so a pass that found
+   * nothing durable proves it reviewed the window by replying at all, not by
+   * reproducing a phrase.
    */
-  explicitNoFindings: boolean;
+  committedTextReply: boolean;
 }> {
   const conv = await getConversation(conversationId);
   const runMessages = await loadRetrospectiveRunMessages(
@@ -1136,7 +1197,7 @@ async function collectRetrospectiveRunEvidence(
       remembers: [],
       durableToolCallCount: 0,
       durableToolAttemptCount: 0,
-      explicitNoFindings: false,
+      committedTextReply: false,
     };
   }
   const succeededIds = collectSuccessfulToolResultIds(runMessages);
@@ -1144,18 +1205,19 @@ async function collectRetrospectiveRunEvidence(
     remembers: extractRememberContents(runMessages, succeededIds),
     durableToolCallCount: countDurableToolUses(runMessages, succeededIds),
     durableToolAttemptCount: countDurableToolUses(runMessages, null),
-    explicitNoFindings: hasExplicitNoFindingsReply(runMessages),
+    committedTextReply: hasCommittedTextReply(runMessages),
   };
 }
 
 /**
  * Whether any persisted assistant row on the run's tail carries a text block
- * that is exactly the no-findings sentinel (after trimming). The instruction
- * template mandates this exact reply for a reviewed-and-nothing-to-save
- * pass, making it the positive persisted artifact that distinguishes a
- * legitimate no-findings review from an empty or unusable response.
+ * with non-whitespace content. Paired with a model-driven stop and zero
+ * memory-write attempts, that reply is the persisted artifact of a pass that
+ * read its window and had nothing to save: the model spoke and then chose to
+ * end the run. It separates such a pass from a response that committed
+ * nothing at all (thinking-only output, an empty content array).
  */
-function hasExplicitNoFindingsReply(messages: MessageLike[]): boolean {
+function hasCommittedTextReply(messages: MessageLike[]): boolean {
   for (const msg of messages) {
     if (msg.role !== "assistant") {
       continue;
@@ -1179,7 +1241,7 @@ function hasExplicitNoFindingsReply(messages: MessageLike[]): boolean {
       if (
         b.type === "text" &&
         typeof b.text === "string" &&
-        b.text.trim() === MEMORY_RETROSPECTIVE_NO_FINDINGS_TEXT
+        b.text.trim() !== ""
       ) {
         return true;
       }
