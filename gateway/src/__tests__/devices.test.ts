@@ -252,6 +252,41 @@ describe("GET /v1/devices", () => {
     expect(a?.platform).toBe("cli");
   });
 
+  test("surfaces pairingUserAgent and clientReportedName, alongside a correct lastUsedAt", async () => {
+    seedActor({
+      device: "device-A",
+      pairingUserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      clientReportedName: "Noa's MacBook Pro",
+      lastUsedAt: 1_700_000_000_000,
+    });
+    seedActor({ device: "device-B" });
+
+    const res = await handleListDevices(listRequest(), LOOPBACK_IP);
+    const body = (await res.json()) as {
+      devices: {
+        hashedDeviceId: string;
+        pairingUserAgent: string | null;
+        clientReportedName: string | null;
+        lastUsedAt: number | null;
+      }[];
+    };
+
+    const a = body.devices.find(
+      (d) => d.hashedDeviceId === hashToken("device-A"),
+    );
+    expect(a?.pairingUserAgent).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    expect(a?.clientReportedName).toBe("Noa's MacBook Pro");
+    expect(a?.lastUsedAt).toBe(1_700_000_000_000);
+
+    const b = body.devices.find(
+      (d) => d.hashedDeviceId === hashToken("device-B"),
+    );
+    expect(b).toHaveProperty("pairingUserAgent", null);
+    expect(b).toHaveProperty("clientReportedName", null);
+  });
+
   test("surfaces lastUsedAt from the actor token row", async () => {
     seedActor({ device: "device-A", lastUsedAt: 1_700_000_000_000 });
 
