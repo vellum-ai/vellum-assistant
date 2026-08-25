@@ -1327,7 +1327,7 @@
           ],
           "activation-hints": [
             "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)",
-            "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
+            "Simple voice setting changes (legacy macOS PTT key, wake word) -> use voice_config_update directly"
           ],
           "avoid-when": [
             "If \"voice\" is in a Twilio/phone context, load phone-calls instead"

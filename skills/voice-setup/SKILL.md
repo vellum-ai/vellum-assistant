@@ -14,21 +14,26 @@ metadata:
     includes: ["elevenlabs-voice", "deepgram-voice"]
     activation-hints:
       - "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)"
-      - "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
+      - "Simple voice setting changes (legacy macOS PTT key, wake word) -> use voice_config_update directly"
     avoid-when:
       - 'If "voice" is in a Twilio/phone context, load phone-calls instead'
 ---
 
 You are helping the user set up and troubleshoot voice features entirely within this conversation. Use the `client_os:` line in `<turn_context>` to choose the macOS or Windows instructions below. Do not give macOS commands or key names to a Windows user, or Windows guidance to a macOS user.
 
+Before using a desktop tool, check `client_os`:
+
+- If it is `macos` or `windows`, follow that platform's branch.
+- If it is `web`, `ios`, `android`, or absent, do not call `open_system_settings` or give desktop shortcut instructions. Explain that permissions and the Talk shortcut must be configured from the Mac or Windows desktop app. You can still complete provider, voice, language, and timeout configuration in the current conversation.
+
 ## Available Tools
 
-- `voice_config_update` changes shared voice settings such as the legacy PTT activation key, conversation timeout, speech providers, and TTS voice ID.
-- `open_system_settings` opens the correct macOS System Settings or Windows Settings privacy page. Always pass `platform` from the current `client_os` context.
+- `voice_config_update` changes shared voice settings such as the legacy macOS PTT activation key, conversation timeout, speech providers, and TTS voice ID.
+- `open_system_settings` opens the correct macOS System Settings or Windows Settings privacy page. Call it only when `client_os` is `macos` or `windows`, and pass that value as `platform`.
 - `navigate_settings_tab` opens Vellum settings. Use it for review, or when the desktop-owned Talk shortcut must be recorded in the app.
 - `assistant credentials prompt` collects API keys securely for ElevenLabs or Deepgram.
 
-The desktop Talk shortcut is client-owned. On current desktop clients, configure it in the Voice settings shortcut control instead of treating `voice_config_update setting="activation_key"` as a global shortcut editor. Use `voice_config_update` for the shared settings it owns. Use `activation_key` only when the user explicitly wants the legacy PTT activation setting, whose supported values are `fn`, `ctrl`, `fn_shift`, and `none`.
+The desktop Talk shortcut is client-owned. On current desktop clients, configure it in the Voice settings shortcut control instead of treating `voice_config_update setting="activation_key"` as a global shortcut editor. Use `voice_config_update` for the shared settings it owns. Use `activation_key` only for the legacy macOS PTT activation setting.
 
 ## Setup Flow
 
@@ -51,7 +56,7 @@ If it is `true`, confirm that microphone access is already granted and continue.
 
 ### 2. Talk and Push-to-Talk Shortcut
 
-First determine whether the user means the current desktop **Talk** shortcut or the legacy PTT activation setting.
+On macOS, first determine whether the user means the current desktop **Talk** shortcut or the legacy PTT activation setting. Windows supports the desktop Talk shortcut only.
 
 #### Desktop Talk shortcut
 
@@ -64,12 +69,16 @@ Ask which behavior they want, then use `navigate_settings_tab` with `tab: "Voice
 
 #### Legacy PTT activation setting
 
-If the user explicitly wants the legacy hold-to-talk setting, offer only values accepted by `voice_config_update`:
+This setting is macOS-only. If a Mac user explicitly wants the legacy hold-to-talk setting, offer only values accepted by `voice_config_update`:
 
-- **macOS:** `fn`, `fn_shift`, `ctrl`, or `none`
-- **Windows:** `ctrl` or `none`; do not offer Fn
+- `fn`
+- `fn_shift`
+- `ctrl`
+- `none`
 
 After the user chooses, call `voice_config_update` with `setting: "activation_key"` and the matching canonical value.
+
+On Windows, do not offer or call the legacy activation setting. It has no Windows client consumer. Use the desktop Talk shortcut flow instead.
 
 ### 3. Text-to-Speech Voice (Optional)
 
@@ -102,7 +111,7 @@ On Windows, the native helper provides local dictation partials and final transc
 ### "PTT isn't working" or "Can't record"
 
 1. Check `microphone_permission_granted`. If it is false, follow the microphone permission flow.
-2. Confirm whether the user configured desktop Talk or legacy PTT, and verify the selected shortcut in the Voice tab.
+2. Confirm which shortcut the user configured. Legacy PTT applies only on macOS. Verify desktop Talk in the Voice tab.
 3. Apply the platform-specific checks:
    - **macOS:** Fn requires the native helper and may require Input Monitoring. The Globe key can also be assigned to macOS Dictation or the emoji picker, so suggest a custom chord if both actions fire.
    - **Windows:** Fn cannot work. A Ctrl+Shift or Alt tap requires Vellum to be focused. For use from another app, record a custom global chord and make sure no other app owns it.
