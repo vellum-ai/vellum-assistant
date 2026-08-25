@@ -41,18 +41,18 @@ Walk through each relevant section in order. Skip sections the user does not nee
 
 ### 1. Microphone Permission
 
-Check `<channel_capabilities>` for `microphone_permission_granted`.
+Microphone permission is not reported in `<channel_capabilities>`. Ask whether Vellum shows a microphone permission warning or whether the user already granted access.
 
-If it is `false` or missing:
+If access is denied or the user is unsure:
 
 1. Explain that the desktop app needs microphone permission for dictation and voice conversations.
 2. Call `open_system_settings` with `pane: "microphone"` and the current `platform`.
 3. Give the matching instruction:
    - **macOS:** In **System Settings > Privacy & Security > Microphone**, turn on **Vellum** or **Vellum Assistant**.
    - **Windows:** In **Settings > Privacy & security > Microphone**, turn on **Microphone access** and **Let desktop apps access your microphone**. Windows groups non-packaged desktop apps under the desktop-app toggle rather than always showing an individual Vellum switch.
-4. Ask the user to return after changing it. Verify capabilities again on the next turn.
+4. Ask the user to return after changing it, then verify with the short recording test in section 4.
 
-If it is `true`, confirm that microphone access is already granted and continue.
+If the user confirms access is granted, continue without opening system settings.
 
 ### 2. Talk and Push-to-Talk Shortcut
 
@@ -110,17 +110,17 @@ On Windows, the native helper provides local dictation partials and final transc
 
 ### "PTT isn't working" or "Can't record"
 
-1. Check `microphone_permission_granted`. If it is false, follow the microphone permission flow.
+1. Ask whether Vellum shows a microphone permission warning and whether the recording indicator appears. If access is denied or capture does not start, follow the microphone permission flow.
 2. Confirm which shortcut the user configured. Legacy PTT applies only on macOS. Verify desktop Talk in the Voice tab.
 3. Apply the platform-specific checks:
    - **macOS:** Fn requires the native helper and may require Input Monitoring. The Globe key can also be assigned to macOS Dictation or the emoji picker, so suggest a custom chord if both actions fire.
    - **Windows:** Fn cannot work. A Ctrl+Shift or Alt tap requires Vellum to be focused. For use from another app, record a custom global chord and make sure no other app owns it.
-4. Check Speech Recognition permission. Call `open_system_settings` with `pane: "speech_recognition"` and the current `platform` when it is denied or not determined.
+4. If the user reports Speech Recognition permission as denied or not determined, call `open_system_settings` with `pane: "speech_recognition"` and the current `platform`.
 5. If the Windows shortcut fires but capture does not start, restart the Windows helper from the Vellum tray menu and retry.
 
 ### "Recording but no text" or "Transcription not working"
 
-1. Open the platform's Speech Recognition privacy page with `open_system_settings` if permission is denied or unknown.
+1. If the user reports Speech Recognition permission as denied or unknown, open the platform's privacy page with `open_system_settings`.
 2. Ask whether the recording indicator appears. If it does, microphone capture is active and the failure is downstream.
 3. Check the spoken language:
    - **macOS:** Speech recognition works best when the system recognition language matches the speaker.
