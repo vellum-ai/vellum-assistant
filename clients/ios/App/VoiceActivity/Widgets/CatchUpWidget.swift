@@ -98,15 +98,32 @@ struct CatchUpWidgetView: View {
         }
     }
 
+    /// The number of rows the card is laid out for. The producer sends at most
+    /// this many; a snapshot carrying more is malformed, and drawing its
+    /// overflow would push rows off the card.
+    private static let maxRows = 3
+
     /// The rows, flush against each other: the space between one title and the
     /// next belongs to the row that owns it, so the list keeps one rhythm
     /// whether or not a row carries a subtitle.
+    ///
+    /// Each row is drawn at its design height, except that the full count of
+    /// rows must fit in what the header leaves: the design's own three rows
+    /// overrun the content box by two points, so the rows give that sliver
+    /// back rather than lean into the margin the card cannot spare on every
+    /// device.
     private func rowList(scale: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(entry.conversations, id: \.id) { conversation in
-                linkedRow(for: conversation, scale: scale)
+        GeometryReader { proxy in
+            let rows = Array(entry.conversations.prefix(Self.maxRows))
+            let height = min(
+                CatchUpRow.designHeight * scale,
+                proxy.size.height / CGFloat(max(1, rows.count))
+            )
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(rows, id: \.id) { conversation in
+                    linkedRow(for: conversation, height: height, scale: scale)
+                }
             }
-            Spacer(minLength: 0)
         }
     }
 
@@ -117,8 +134,17 @@ struct CatchUpWidgetView: View {
     /// production app), and the titles are still true, so the widget loses a
     /// tap target rather than its content.
     @ViewBuilder
-    private func linkedRow(for conversation: WidgetSnapshotConversation, scale: CGFloat) -> some View {
-        let row = CatchUpRow(conversation: conversation, isStale: entry.isStale, scale: scale)
+    private func linkedRow(
+        for conversation: WidgetSnapshotConversation,
+        height: CGFloat,
+        scale: CGFloat
+    ) -> some View {
+        let row = CatchUpRow(
+            conversation: conversation,
+            isStale: entry.isStale,
+            height: height,
+            scale: scale
+        )
         if let url = ThreadDeepLink(threadId: conversation.id).url() {
             Link(destination: url) { row }
         } else {
@@ -151,13 +177,19 @@ struct CatchUpRow: View {
     /// about work in flight. See ``SnapshotProvider/staleAfter``.
     let isStale: Bool
 
+    /// The height the owner resolved for this row: the design height, shaved
+    /// by up to a point when the full list has to fit the space under the
+    /// header.
+    let height: CGFloat
+
     /// The owning card's ratio to the size it was designed at. Every dimension
     /// below is a design value multiplied by it.
     let scale: CGFloat
 
-    /// The row's height, and where its pieces sit in it. The text block hangs
-    /// from a fixed top inset rather than centering, so a row without a
-    /// subtitle keeps its title on the same line as its neighbors'.
+    /// The row's height when nothing constrains it, and where its pieces sit
+    /// in it. The text block hangs from a fixed top inset rather than
+    /// centering, so a row without a subtitle keeps its title on the same
+    /// line as its neighbors'.
     static let designHeight: CGFloat = 37
     static let leadingInset: CGFloat = 8
     private static let textTopInset: CGFloat = 6
@@ -190,7 +222,7 @@ struct CatchUpRow: View {
         }
         .padding(.leading, Self.leadingInset * scale)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .frame(height: Self.designHeight * scale, alignment: .top)
+        .frame(height: height, alignment: .top)
     }
 
     /// Working beats unread, and staleness beats working.
