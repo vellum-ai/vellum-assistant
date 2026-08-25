@@ -1209,6 +1209,7 @@
     "generateButtonMinting": "Generating…",
     "generateButtonRegenerate": "Generate new code",
     "generateButtonWarned": "Generate anyway",
+    "learnMore": "Learn more about pairing",
     "noTunnelMore": "Other providers and options: <code>{command}</code>",
     "noTunnelNext": "The tunnel prints an https address. Paste it into Public URL below, and leave the tunnel running while you pair and use other devices.",
     "noTunnelTitle": "Open a tunnel first",

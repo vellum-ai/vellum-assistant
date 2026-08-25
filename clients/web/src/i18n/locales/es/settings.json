@@ -1209,6 +1209,7 @@
     "generateButtonMinting": "Generando…",
     "generateButtonRegenerate": "Generar nuevo código",
     "generateButtonWarned": "Generar de todos modos",
+    "learnMore": "Más información sobre la vinculación",
     "noTunnelMore": "Otros proveedores y opciones: <code>{command}</code>",
     "noTunnelNext": "El túnel imprime una dirección https. Pégala en URL pública más abajo y deja el túnel en marcha mientras vinculas y usas otros dispositivos.",
     "noTunnelTitle": "Abre primero un túnel",
