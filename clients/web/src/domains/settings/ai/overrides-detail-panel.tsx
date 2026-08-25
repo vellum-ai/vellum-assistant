@@ -31,8 +31,8 @@ import {
 import {
   configGetOptions,
   configLlmCallsitesGetOptions,
-  inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -114,12 +114,7 @@ export function OverridesDetailPanel({
   // Custom-override rows limit their model picker to what the provider's
   // connections can dispatch; shared TanStack cache with the sections and
   // sidepanels.
-  const { data: connectionsData } = useQuery({
-    ...inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-    enabled: !!assistantId,
-  });
+  const { data: connectionsData } = useProviderConnections(assistantId);
 
   const gatedCallSites = useMemo(
     () => (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent"),

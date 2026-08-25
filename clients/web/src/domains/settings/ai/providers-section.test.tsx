@@ -7,6 +7,10 @@
  * assistants without the default-provider routes get no marker UI and no
  * status query; the managed Vellum row pins first with a Managed chip and
  * no edit affordance; delete guards (409) surface as user-facing toasts.
+ *
+ * The bounded request lifecycle is covered here too: a stalled request leaves
+ * the skeletons for a retryable error state, Retry issues a fresh request, and
+ * every stage lands in the diagnostics ring without credentials or bodies.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -25,6 +29,15 @@ import type {
 // ---------------------------------------------------------------------------
 
 let connectionsState: ProviderConnection[] = [];
+/**
+ * Answers one `inferenceProviderconnectionsGet` call. Tests that need a
+ * stalled or failing request replace it; the default resolves
+ * `connectionsState`.
+ */
+let connectionsResponder: () => Promise<{
+  data: { connections: ProviderConnection[] };
+}> = async () => ({ data: { connections: connectionsState } });
+let connectionsRequestCount = 0;
 let defaultProviderState: DefaultProviderStatus = {
   provider: null,
   resolvedConnectionName: null,
@@ -55,9 +68,10 @@ const actualSdk = await import("@/generated/daemon/sdk.gen");
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...actualSdk,
-  inferenceProviderconnectionsGet: async () => ({
-    data: { connections: connectionsState },
-  }),
+  inferenceProviderconnectionsGet: async () => {
+    connectionsRequestCount += 1;
+    return connectionsResponder();
+  },
   configLlmDefaultproviderGet: async () => {
     defaultProviderGetCalls += 1;
     return { data: defaultProviderState };
@@ -80,12 +94,51 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { ProvidersSection } = await import(
-  "@/domains/settings/ai/providers-section"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+/**
+ * The shipped bound is 15s, which no component test can wait out, so the
+ * request runner is stubbed with a short one. Its own race, abort forwarding,
+ * and error type are covered by `utils/request-timeout.test.ts`; what matters
+ * here is what the section renders and records when the bound is reached.
+ */
+const STUB_TIMEOUT_MS = 30;
+
+class StubRequestTimeoutError extends Error {
+  readonly timeoutMs = STUB_TIMEOUT_MS;
+
+  constructor() {
+    super(`Request timed out after ${STUB_TIMEOUT_MS}ms`);
+    this.name = "RequestTimeoutError";
+  }
+}
+
+mock.module("@/utils/request-timeout", () => ({
+  RequestTimeoutError: StubRequestTimeoutError,
+  runWithRequestTimeout: <T,>({
+    run,
+  }: {
+    run: (signal: AbortSignal) => Promise<T>;
+  }) => {
+    const controller = new AbortController();
+    const running = run(controller.signal);
+    running.catch(() => {});
+    return Promise.race([
+      running,
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => {
+          const error = new StubRequestTimeoutError();
+          controller.abort(error);
+          reject(error);
+        }, STUB_TIMEOUT_MS);
+      }),
+    ]);
+  },
+}));
+
+const { ProvidersSection } =
+  await import("@/domains/settings/ai/providers-section");
+const { getDiagnosticsEvents } = await import("@/lib/diagnostics");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -121,6 +174,32 @@ function renderSection() {
         onConnectionDeleted={() => {}}
       />
     </Wrapper>,
+  );
+}
+
+function skeletons(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="skeleton"]'),
+  );
+}
+
+function retryButton(): HTMLButtonElement | undefined {
+  return Array.from(document.querySelectorAll("button")).find(
+    (button) => button.textContent?.trim() === "Retry",
+  );
+}
+
+/** Provider-connections diagnostics recorded since `from`, in order. */
+function providerDiagnostics(from: number) {
+  return getDiagnosticsEvents()
+    .slice(from)
+    .filter((event) => event.kind.startsWith("provider_connections_"));
+}
+
+/** Everything the diagnostics carry beyond their stage names. */
+function providerDiagnosticsDetails(from: number): string {
+  return JSON.stringify(
+    providerDiagnostics(from).map((event) => event.details),
   );
 }
 
@@ -192,6 +271,10 @@ function seedConnections() {
 
 beforeEach(() => {
   seedConnections();
+  connectionsResponder = async () => ({
+    data: { connections: connectionsState },
+  });
+  connectionsRequestCount = 0;
   defaultProviderState = {
     provider: "anthropic",
     resolvedConnectionName: "anthropic-personal",
@@ -255,6 +338,137 @@ describe("ProvidersSection - rows and chips", () => {
     expect(defaultProviderGetCalls).toBe(0);
     const menu = await openKebab("Anthropic");
     expect(menuItems(menu)).not.toContain("Set as default");
+  });
+});
+
+describe("ProvidersSection - bounded request lifecycle", () => {
+  test("a stalled request leaves the skeletons for a retryable error state", async () => {
+    /**
+     * Tests that a provider-connections request that never settles reaches a
+     * terminal, actionable UI state instead of rendering skeletons forever.
+     */
+
+    // GIVEN a request that never resolves
+    connectionsResponder = () => new Promise(() => {});
+
+    // WHEN the Providers section mounts and the request bound elapses
+    renderSection();
+    expect(skeletons().length).toBe(3);
+
+    // THEN the skeletons give way to the load error and a Retry control
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Failed to load providers");
+    });
+    expect(skeletons().length).toBe(0);
+    expect(retryButton()).toBeDefined();
+  });
+
+  test("Retry after a stall renders the connections the fresh request returns", async () => {
+    /**
+     * Tests that the Retry control issues a new request and that its result
+     * replaces the error state with the returned provider rows.
+     */
+
+    // GIVEN a first request that stalls past the bound
+    connectionsResponder = () => new Promise(() => {});
+    renderSection();
+    await waitFor(() => {
+      expect(retryButton()).toBeDefined();
+    });
+
+    // AND a second request that returns the managed Vellum and OpenRouter
+    // connections
+    connectionsState = [
+      connection({ name: "openrouter-key", provider: "openrouter" }),
+      connection({
+        name: "vellum",
+        provider: "vellum",
+        isManaged: true,
+        auth: { type: "platform" } as ProviderConnection["auth"],
+      }),
+    ];
+    connectionsResponder = async () => ({
+      data: { connections: connectionsState },
+    });
+
+    // WHEN the user retries
+    act(() => {
+      retryButton()?.click();
+    });
+
+    // THEN both connections render and the error state is gone
+    await waitFor(() => {
+      expect(rows().length).toBe(2);
+    });
+    expect(rows()[0]?.textContent).toContain("Vellum");
+    expect(rows()[1]?.textContent).toContain("OpenRouter");
+    expect(document.body.textContent).not.toContain("Failed to load providers");
+    expect(connectionsRequestCount).toBe(2);
+  });
+
+  test("a stalled request records the client timeout as its terminal stage", async () => {
+    /**
+     * Tests that diagnostics distinguish a client-side timeout from a route
+     * error, and that they carry no credentials or response bodies.
+     */
+
+    // GIVEN a request that never resolves
+    connectionsResponder = () => new Promise(() => {});
+    const from = getDiagnosticsEvents().length;
+
+    // WHEN the section mounts and the bound elapses
+    renderSection();
+    await waitFor(() => {
+      expect(retryButton()).toBeDefined();
+    });
+
+    // THEN the recorded stages end at the client timeout
+    const kinds = providerDiagnostics(from).map((event) => event.kind);
+    expect(kinds[0]).toBe("provider_connections_query_invoked");
+    expect(kinds).toContain("provider_connections_request_dispatched");
+    expect(kinds.at(-1)).toBe("provider_connections_client_timeout");
+
+    // AND the timeout carries the assistant, elapsed time, and the bound
+    const timeout = providerDiagnostics(from).at(-1);
+    expect(timeout?.details.assistantId).toBe("asst-1");
+    expect(typeof timeout?.details.elapsedMs).toBe("number");
+    expect(timeout?.details.timeoutMs).toBe(STUB_TIMEOUT_MS);
+    const details = providerDiagnosticsDetails(from);
+    expect(details).not.toContain("credential");
+    expect(details).not.toContain("auth");
+    expect(details).not.toContain("anthropic-personal");
+  });
+
+  test("a rejected request records the error path, not a timeout", async () => {
+    /**
+     * Tests that a request the route rejects is recorded on the error stage
+     * with no credentials or response bodies attached.
+     */
+
+    // GIVEN a request the route rejects
+    connectionsResponder = () =>
+      Promise.reject(new Error("provider connections unavailable"));
+    const from = getDiagnosticsEvents().length;
+
+    // WHEN the section mounts
+    renderSection();
+
+    // THEN the error stage is the terminal one
+    await waitFor(() => {
+      expect(providerDiagnostics(from).map((event) => event.kind)).toContain(
+        "provider_connections_error_received",
+      );
+    });
+    const kinds = providerDiagnostics(from).map((event) => event.kind);
+    expect(kinds).not.toContain("provider_connections_client_timeout");
+
+    // AND the record names the error without leaking payload data
+    const failure = providerDiagnostics(from).at(-1);
+    expect(failure?.details.errorName).toBe("Error");
+    const details = providerDiagnosticsDetails(from);
+    expect(details).not.toContain("credential");
+    expect(details).not.toContain("auth");
+    expect(details).not.toContain("unavailable");
   });
 });
 

@@ -27,7 +27,7 @@
  * `assistantId` and feature flags are read from top-level stores rather than
  * threaded through props, so the provider stays decoupled from any one domain.
  */
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -42,10 +42,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
-import {
-  configGetSetQueryData,
-  inferenceProviderconnectionsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useProviderConnections } from "@/hooks/use-provider-connections";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -114,11 +112,8 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // Provider connections feed the modal's Provider picker. Gated on `isOpen`
   // (and a known assistant) so the query doesn't fire until the user actually
   // starts creating a profile.
-  const { data: connectionsData } = useQuery({
-    ...inferenceProviderconnectionsGetOptions({
-      path: { assistant_id: assistantId ?? "" },
-    }),
-    enabled: isOpen && !!assistantId,
+  const { data: connectionsData } = useProviderConnections(assistantId, {
+    enabled: isOpen,
   });
   const connections = connectionsData?.connections;
 
