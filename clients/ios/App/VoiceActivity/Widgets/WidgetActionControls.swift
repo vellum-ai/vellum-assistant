@@ -1,12 +1,40 @@
 import AppIntents
 import SwiftUI
 import UIKit
+import WidgetKit
 
 // The pieces every Vellum Home Screen widget builds itself out of: a tile, a
 // circle, a pill, the unread mark, and the secondary line of text that stands
 // in when there is nothing to list. They live here rather than beside whichever
 // widget reached for them first, because a control that lives in one widget's
 // file is a control the next widget copies.
+//
+// Each control that carries a fill also knows what to do when the system
+// flattens the widget: a themed Home Screen, StandBy, or the lock screen. In
+// those modes WidgetKit throws away every color a widget sets and redraws it in
+// two monochrome groups, keeping only each view's alpha, so a fill picked to
+// sit on a white card comes out either as an opaque block that swallows the
+// glyph on it or as a wash too faint to see. The controls answer by swapping to
+// a translucent white, which survives the flattening as the same soft ground it
+// was drawn as.
+
+/// The grounds a control draws on once WidgetKit flattens the widget.
+///
+/// White rather than the control's own color because only alpha survives the
+/// flattening: a translucent white is the one way to ask for the soft ground
+/// the full-color card gets and be given it. The weights differ by shape rather
+/// than by accident, since a small round ground has less area to make the same
+/// wash felt with than a tile does.
+///
+/// Collected here rather than spelled at each use for the reason
+/// ``WidgetTheme`` collects the full-color palette: four controls picking their
+/// own number is four controls drifting apart.
+enum WidgetFlattenedFill {
+    static let tile = Color.white.opacity(0.12)
+    static let circle = Color.white.opacity(0.14)
+    static let pill = Color.white.opacity(0.12)
+    static let chip = Color.white.opacity(0.12)
+}
 
 /// One tile in an action column: a glyph over a word, filling a rounded
 /// square, wired to an App Intent.
@@ -30,6 +58,12 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     let fill: Color
     let tint: Color
 
+    /// Whether this tile is the one that wears the user's own tint on a themed
+    /// Home Screen. At most one tile per card claims it, so the pair keeps the
+    /// primary-and-secondary reading it has in full color instead of coming out
+    /// as two identical blocks.
+    var carriesAccent: Bool = false
+
     /// The user's avatar, drawn in place of ``icon`` when the snapshot carries
     /// one. Optional because the tiles standing for an action rather than for
     /// the assistant keep their symbol, and because nothing has synced yet on a
@@ -41,6 +75,12 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     /// design. See the design-size note on each widget view.
     var scale: CGFloat = 1
 
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of this file.
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
     var body: some View {
         Button(intent: intent) {
             VStack(spacing: 4 * scale) {
@@ -51,10 +91,30 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(fill, in: RoundedRectangle(cornerRadius: Self.cornerRadius * scale))
+            .background { ground }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// The tile's ground, drawn as its own shape view rather than handed to
+    /// `background(_:in:)`, because that is what lets `widgetAccentable()` be
+    /// scoped to it. The modifier tints everything beneath it, so a tile that
+    /// marked its button would hand the glyph and the word the same tint as the
+    /// ground behind them and leave the reader a blank square.
+    ///
+    /// Marking the shape is harmless in full color, where nothing consults it,
+    /// so the accent-carrying tile claims it in every mode rather than only in
+    /// the one where it matters.
+    @ViewBuilder
+    private var ground: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius * scale)
+            .fill(isFlattened ? WidgetFlattenedFill.tile : fill)
+        if carriesAccent {
+            shape.widgetAccentable()
+        } else {
+            shape
+        }
     }
 
     /// A symbol takes its size from the font and its color from the tile's
@@ -78,7 +138,9 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
     ///
     /// The accent themes the tile and the avatar replaces its mark, both from
     /// the snapshot, so the tile that starts a chat with the assistant looks
-    /// like that assistant.
+    /// like that assistant. On a themed Home Screen there is no accent to read,
+    /// so this is also the tile that carries the user's own tint, which is the
+    /// same job by the only means that mode leaves.
     static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil, scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
@@ -86,6 +148,7 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
             title: "New Chat",
             fill: accent.fill,
             tint: accent.onFill,
+            carriesAccent: true,
             avatarImage: avatarImage,
             scale: scale
         )
@@ -119,13 +182,19 @@ struct CircleActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let diameter: CGFloat
 
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of this file.
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
     var body: some View {
         Button(intent: intent) {
             icon
                 .font(.system(size: diameter * 0.4))
                 .foregroundStyle(tint)
                 .frame(width: diameter, height: diameter)
-                .background(fill, in: Circle())
+                .background(isFlattened ? WidgetFlattenedFill.circle : fill, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -141,12 +210,24 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     let tint: Color
     let height: CGFloat
 
+    /// See ``WidgetActionTile/carriesAccent``. The pill is the idle card's
+    /// primary action the way the New Chat tile is the active card's, so both
+    /// states hand the tint to the control doing that job and the flip between
+    /// them does not move the user's own color onto something else.
+    var carriesAccent: Bool = false
+
     /// See ``WidgetActionTile/avatarImage``.
     var avatarImage: UIImage? = nil
 
     /// See ``WidgetActionTile/scale``. The glyph already follows the height;
     /// this scales the word beside it.
     var scale: CGFloat = 1
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of this file.
+    private var isFlattened: Bool { renderingMode != .fullColor }
 
     var body: some View {
         Button(intent: intent) {
@@ -158,10 +239,25 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity)
             .frame(height: height)
-            .background(fill, in: Capsule())
+            .background { ground }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+
+    /// The pill's ground, its own shape view for the reason the tile's is:
+    /// `widgetAccentable()` tints everything beneath it, so a pill that marked
+    /// its button would sink the glyph and the word into the ground behind
+    /// them. Marking the shape alone leaves them in the default group, legible
+    /// against the tint.
+    @ViewBuilder
+    private var ground: some View {
+        let shape = Capsule().fill(isFlattened ? WidgetFlattenedFill.pill : fill)
+        if carriesAccent {
+            shape.widgetAccentable()
+        } else {
+            shape
+        }
     }
 
     /// The glyph is sized off the pill's height either way, so swapping the
@@ -187,6 +283,12 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
 /// color of whatever it is drawn on, while the dot keeps
 /// ``WidgetTheme/unseenIndicator`` on every surface, which is what makes it
 /// read as an alert rather than as more chrome.
+///
+/// The dot is the mark's one accentable piece, so on a themed Home Screen it
+/// comes out in the user's tint while the bubble around it stays white. Amber
+/// is what the alert reading wants and what the flattening will not grant, but
+/// the dot's real job is to separate from the bubble it rides, and a tint the
+/// bubble does not share does that as well as amber did.
 struct WidgetUnreadMark: View {
     /// Whether the bubble is solid. A card painted in the assistant's own color
     /// wants the filled one; a white card wants the outline its rows draw.
@@ -209,6 +311,7 @@ struct WidgetUnreadMark: View {
                     .fill(WidgetTheme.unseenIndicator)
                     .frame(width: dotDiameter, height: dotDiameter)
                     .offset(x: dotNudge, y: -dotNudge)
+                    .widgetAccentable()
             }
     }
 }

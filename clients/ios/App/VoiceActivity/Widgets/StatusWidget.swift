@@ -136,7 +136,9 @@ struct StatusWidgetView: View {
 
     /// Chat, given the whole width because it is the action most people want
     /// most often, and the pill is the only shape on a small widget that can
-    /// say so.
+    /// say so. It carries the accent for the same reason it gets the width, and
+    /// on a themed Home Screen it carries the user's tint in the accent's
+    /// place, so the circles above it keep reading as the secondary pair.
     private func chatPill(height: CGFloat, scale: CGFloat) -> some View {
         PillActionButton(
             intent: OpenNewChatIntent(),
@@ -145,6 +147,7 @@ struct StatusWidgetView: View {
             fill: entry.softAccent.fill,
             tint: entry.softAccent.onFill,
             height: height,
+            carriesAccent: true,
             avatarImage: entry.avatarImage,
             scale: scale
         )
@@ -249,6 +252,26 @@ private func statusPreviewCard(_ entry: SnapshotEntry) -> some View {
         HStack(spacing: 12) {
             statusPreviewCard(previewEntry(avatar: avatar))
             statusPreviewCard(previewEntry(unread: 3, inProgress: 2, avatar: avatar))
+        }
+    }
+}
+
+#Preview("Flattened") {
+    // The only card that draws all four controls, so it is where the flattened
+    // fills are worth looking at: both states, since the tiles and the pill are
+    // on opposite sides of the flip.
+    previewFlattened {
+        HStack(spacing: 12) {
+            previewWidgetCard {
+                StatusWidgetView(entry: previewEntry())
+            } background: {
+                previewFlattenedGround
+            }
+            previewWidgetCard {
+                StatusWidgetView(entry: previewEntry(unread: 3, inProgress: 2))
+            } background: {
+                previewFlattenedGround
+            }
         }
     }
 }

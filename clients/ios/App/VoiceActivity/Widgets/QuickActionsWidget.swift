@@ -83,6 +83,11 @@ struct QuickActionsWidgetView: View {
     /// The chip's fill: a wash of the dark the card is missing, rather than a
     /// pale pill placed on top of it. Same treatment over an accent as over a
     /// blurred photo, since both are surfaces the chip has to sink into.
+    ///
+    /// It has a flattened counterpart because a dark wash stops working once
+    /// the card underneath is the system's own dark material: there is no light
+    /// left to take away, and the chip would read as nothing at all. See
+    /// ``WidgetFlattenedFill``.
     private static let chipFill = Color.black.opacity(0.10)
 
     /// How strongly a control's fill washes the card, by how bright the color
@@ -107,6 +112,12 @@ struct QuickActionsWidgetView: View {
     private static let markChipGap: CGFloat = 12
 
     let entry: SnapshotEntry
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// Whether the system is drawing the widget in one of its monochrome modes.
+    /// See the note at the top of `WidgetActionControls.swift`.
+    private var isFlattened: Bool { renderingMode != .fullColor }
 
     var body: some View {
         GeometryReader { geo in
@@ -188,7 +199,7 @@ struct QuickActionsWidgetView: View {
         .foregroundStyle(palette.onSurface)
         .padding(.horizontal, 10 * scale)
         .frame(height: Self.chipHeight * scale)
-        .background(Self.chipFill, in: Capsule())
+        .background(isFlattened ? WidgetFlattenedFill.chip : Self.chipFill, in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(count) unread")
     }
@@ -317,6 +328,20 @@ private func previewCharacterAvatar(accentHex: String) -> WidgetSnapshotAvatar {
         HStack(spacing: 12) {
             previewCard(previewEntry(unread: 0, avatar: nil))
             previewCard(previewEntry(unread: 128, avatar: nil))
+        }
+    }
+}
+
+#Preview("Flattened") {
+    // The chip and the two circles have to stay visible as shapes once the card
+    // under them is the system's own material rather than the accent.
+    previewFlattened {
+        previewWidgetCard {
+            QuickActionsWidgetView(
+                entry: previewEntry(unread: 3, avatar: previewCharacterAvatar(accentHex: "#0E9B8B"))
+            )
+        } background: {
+            previewFlattenedGround
         }
     }
 }
