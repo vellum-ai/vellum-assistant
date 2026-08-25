@@ -37,6 +37,7 @@ import * as platformGateMod from "@/hooks/use-platform-gate";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as toastMod from "@vellumai/design-library/components/toast";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { routes } from "@/utils/routes";
@@ -72,11 +73,17 @@ const PORTAL_URL = "https://stripe.test/portal/session";
 type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
-// Captures the billing-portal session create — the Pro → Free cancel path.
+// Captures the billing-portal session create, the cancel fallback for Pro
+// subs the cancel endpoint rejects (non-entitlement statuses).
 let portalSessionCall: Captured | null = null;
-// When false, the portal-session promise never settles — used to observe the
-// in-flight (pending) state after confirming the Free downgrade.
-let portalSessionResolves = true;
+// Captures the subscription-cancel call, the Pro → Free cancel path.
+let cancelSubscriptionCall: Captured | null = null;
+// When false, the cancel promise never settles, which observes the in-flight
+// (pending) state after confirming the Free downgrade.
+let cancelSubscriptionResolves = true;
+// When non-null the cancel call rejects with this, driving the error path
+// (the hook toasts and resolves null, so the confirm dialog stays open).
+let cancelSubscriptionError: unknown = null;
 let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
@@ -84,9 +91,10 @@ let openedUrl: string | null = null;
 let nativeAndroid = false;
 // When non-null, the change-machine-tier call rejects — drives the failure path.
 let machineTierError: unknown = null;
-// Success-toast messages captured from the mocked toast module, so a path can
-// assert exactly which confirmations fired without rendering the Toaster.
+// Success/info-toast messages captured from the mocked toast module, so a path
+// can assert exactly which confirmations fired without rendering the Toaster.
 const toastSuccessCalls: string[] = [];
+const toastInfoCalls: string[] = [];
 // When false, the change-package promise never settles — used to observe the
 // in-flight (pending) disabled state.
 let changePackageAutoResolve = true;
@@ -138,11 +146,21 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
   organizationsBillingPortalSessionCreate: (opts: Captured) => {
     portalSessionCall = opts;
-    if (!portalSessionResolves) {
-      return new Promise(() => {});
-    }
     return Promise.resolve({
       data: { portal_url: PORTAL_URL },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingSubscriptionCancelCreate: (opts: Captured) => {
+    cancelSubscriptionCall = opts;
+    if (!cancelSubscriptionResolves) {
+      return new Promise(() => {});
+    }
+    if (cancelSubscriptionError !== null) {
+      return Promise.reject(cancelSubscriptionError);
+    }
+    return Promise.resolve({
+      data: { status: "ok", cancel_at: "2026-09-24T00:00:00Z" },
       response: { ok: true },
     });
   },
@@ -248,14 +266,18 @@ mock.module(
   }),
 );
 
-// Capture success toasts so the downgrade path can assert its confirmation
-// message; keep the real module's other methods (error, etc.) intact.
+// Capture success/info toasts so the switch and downgrade paths can assert
+// their confirmation messages; keep the real module's other methods (error,
+// etc.) intact.
 mock.module("@vellumai/design-library/components/toast", () => ({
   ...toastMod,
   toast: {
     ...toastMod.toast,
     success: (message: string) => {
       toastSuccessCalls.push(message);
+    },
+    info: (message: string) => {
+      toastInfoCalls.push(message);
     },
   },
 }));
@@ -607,7 +629,9 @@ beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
   portalSessionCall = null;
-  portalSessionResolves = true;
+  cancelSubscriptionCall = null;
+  cancelSubscriptionResolves = true;
+  cancelSubscriptionError = null;
   machineTierCall = null;
   storageTierCall = null;
   creditTierCall = null;
@@ -629,6 +653,7 @@ beforeEach(() => {
   assistantByIdCalls.length = 0;
   activeAssistantCalls = 0;
   toastSuccessCalls.length = 0;
+  toastInfoCalls.length = 0;
   takeoverResizeContext = undefined;
   // The stash and the assistants store are module-level globals, so reset both.
   clearTakeoverAvatarStash();
@@ -929,42 +954,84 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(takeoverResizeContext?.fromSnapshot.machineSize).toBe("large");
   });
 
-  test("Pro → Free downgrade confirms first, then opens the Stripe billing portal", async () => {
-    const { findByRole, findByText, findByTestId, getByTestId } =
+  test("Pro → Free downgrade confirms first, then cancels via the cancel endpoint", async () => {
+    const { findByRole, findByText, findByTestId, getByTestId, queryByText } =
       renderInteractive(proSuperSubscription());
 
     // Below Super, Base reads "Downgrade to Base". Clicking it opens the confirm
-    // dialog — not an immediate portal redirect.
+    // dialog, not an immediate cancellation.
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
     await findByText("Downgrade to Base?");
+    expect(cancelSubscriptionCall).toBeNull();
+
+    // Confirming posts the subscription-cancel endpoint (the same action as the
+    // adjust-plan modal's Downgrade to Base) and closes the confirm.
+    // Cancellation can't go through the package-only change-package endpoint.
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
+    // The confirmation toast names the scheduled end date.
+    expect(
+      toastInfoCalls.some((m) => m.startsWith("Pro plan canceled")),
+    ).toBe(true);
+    // Stays on the plans page with no Stripe redirect, and never touches the
+    // portal/package/checkout endpoints.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(openedUrl).toBeNull();
     expect(portalSessionCall).toBeNull();
-
-    // Confirming opens the Stripe billing portal (the same destination as the
-    // adjust-plan modal's Downgrade to Base). Cancellation can't go through the
-    // package-only change-package endpoint.
-    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
-    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
-    expect(portalSessionCall).not.toBeNull();
-    // Stays on the plans page (no navigation to the manage surface) and never
-    // touches the package/checkout endpoints.
-    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 
-  test("dismissing the Free downgrade confirm doesn't open the portal", async () => {
+  test("a non-entitlement Pro status falls back to the Stripe billing portal", async () => {
+    // The cancel endpoint 403s a sub `is_pro_active` rejects, so an unpaid
+    // Pro sub keeps the old portal handoff, where Stripe can still cancel it.
+    const { findByRole, findByText, findByTestId } = renderInteractive({
+      ...proSuperSubscription(),
+      status: "unpaid",
+    });
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    // The confirm's body copy states the handoff instead of promising an
+    // in-app cancellation.
+    await findByText("You'll be taken to Stripe to cancel your subscription.", {
+      exact: false,
+    });
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+
+    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
+    expect(portalSessionCall).not.toBeNull();
+    expect(cancelSubscriptionCall).toBeNull();
+  });
+
+  test("dismissing the Free downgrade confirm doesn't cancel the sub", async () => {
     const { findByRole, findByText, getByRole, queryByText } =
       renderInteractive(proSuperSubscription());
 
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
     await findByText("Downgrade to Base?");
 
-    // The confirm dialog's Cancel closes it without creating a portal session.
+    // The confirm dialog's Cancel closes it without posting the cancellation.
     fireEvent.click(getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
-    expect(portalSessionCall).toBeNull();
+    expect(cancelSubscriptionCall).toBeNull();
     expect(openedUrl).toBeNull();
+  });
+
+  test("a failed cancellation keeps the confirm open for a retry", async () => {
+    cancelSubscriptionError = { detail: "Cancellation failed." };
+    const { findByRole, findByText, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+
+    // The hook toasted the error and resolved null, so the dialog stays open
+    // for a retry instead of closing on a cancellation that didn't happen.
+    await findByText("Downgrade to Base?");
+    expect(toastInfoCalls).toEqual([]);
   });
 
   test("the Free downgrade confirm lists the Pro features being lost", async () => {
@@ -983,33 +1050,41 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await findByText("Custom domain");
   });
 
-  test("while the portal is opening, the other plan CTAs and Configure are disabled", async () => {
-    // Hold the portal-session request in flight so `portalMutation.isPending`
+  test("while the cancellation is in flight, the other plan CTAs and Configure are disabled", async () => {
+    // Hold the cancel request in flight so the cancel mutation's pending state
     // stays true after the Free downgrade is confirmed.
-    portalSessionResolves = false;
+    cancelSubscriptionResolves = false;
     const { findByRole, findByTestId } = renderInteractive(
       proMightySubscription(),
     );
 
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
-    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    const confirm = (await findByTestId(
+      "confirm-free-downgrade-button",
+    )) as HTMLButtonElement;
+    fireEvent.click(confirm);
 
-    // The portal request is in flight and never settles: every other plan
-    // action is disabled so a second click can't start a competing billing
-    // operation before the redirect lands.
+    // The cancel request is in flight and never settles: the confirm dialog
+    // stays open with its actions disabled, and every background plan CTA is
+    // disabled too (queried with hidden, because the open dialog marks the
+    // page behind it aria-hidden), so a second click can't start a competing
+    // billing operation before it resolves.
     const goSuper = (await findByRole("button", {
       name: "Go Super",
+      hidden: true,
     })) as HTMLButtonElement;
     const configure = (await findByRole("button", {
       name: "Configure",
+      hidden: true,
     })) as HTMLButtonElement;
     await waitFor(() => {
+      expect(confirm.disabled).toBe(true);
       expect(goSuper.disabled).toBe(true);
       expect(configure.disabled).toBe(true);
     });
 
-    // The portal was actually initiated, and no competing action started.
-    expect(portalSessionCall).not.toBeNull();
+    // The cancellation was actually initiated, and no competing action started.
+    expect(cancelSubscriptionCall).not.toBeNull();
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
@@ -1637,5 +1712,49 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// obscure-credits flag: the package rows never name a credit amount
+// ---------------------------------------------------------------------------
+
+/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
+function setObscureCredits(value: boolean): void {
+  act(() => {
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ obscureCredits: value }, null);
+  });
+}
+
+describe("PlansPage: obscure-credits flag", () => {
+  afterEach(() => {
+    setObscureCredits(false);
+  });
+
+  test("flag on: every package row reads as the package's usage, never as credits", async () => {
+    setObscureCredits(true);
+    const { findByText, getByText, queryByText, container } =
+      renderInteractive(freeSubscription());
+
+    // The name-derived usage rows, matching the plan card's obscured chip.
+    await findByText("Mighty usage, reset monthly");
+    getByText("Super usage, reset monthly");
+    getByText("Ultra usage, reset monthly");
+    // The obscured wording wins even though the fixtures carry a usage_label.
+    expect(queryByText("Mighty Usage included")).toBeNull();
+    // No card names a credit amount.
+    expect(container.textContent).not.toContain("in credits included");
+  });
+
+  test("flag on: a package with no usage_label still never falls back to credits", async () => {
+    setObscureCredits(true);
+    const { findByText, container } = renderInteractive(freeSubscription(), {
+      plans: plansWith([makeProPackage({ usage_label: null })]),
+    });
+
+    await findByText("Mighty usage, reset monthly");
+    expect(container.textContent).not.toContain("in credits included");
   });
 });

@@ -81,8 +81,15 @@ export function computeCustomPlanDiff(input: {
   machineTier: MachineChoice | "";
   storageTier: StorageTierEnum | "";
   creditChoice: CreditChoice | "";
+  /**
+   * Wording for the no-bundle sentinel's recap row (and its struck-through
+   * previous value). Defaults to the credits wording; the `obscure-credits`
+   * surfaces pass the localized `customPlanModal.noExtraUsage` copy instead.
+   */
+  noBundleLabel?: string;
 }): CustomPlanDiff {
   const { proPlan, seed, machineTier, storageTier, creditChoice } = input;
+  const noBundleLabel = input.noBundleLabel ?? NO_CREDITS_LABEL;
 
   // Resolve against the full catalog, legacy tiers included: a tier a
   // subscriber still holds has to price and label even where the modal no
@@ -177,7 +184,7 @@ export function computeCustomPlanDiff(input: {
   // "No extra credits" would be affirmatively false for a sub paying for one.
   const selectedCreditLabel =
     creditChoice === NO_EXTRA_CREDITS
-      ? NO_CREDITS_LABEL
+      ? noBundleLabel
       : selectedCredit != null
         ? // The catalog label ("Mighty Usage") is the bundle's Stripe product
           // name, so the row matches the invoice line.
@@ -191,7 +198,7 @@ export function computeCustomPlanDiff(input: {
       seed != null && (seed.creditTier ?? NO_EXTRA_CREDITS) !== creditChoice;
     const previousCreditLabel =
       seed?.creditTier == null
-        ? NO_CREDITS_LABEL
+        ? noBundleLabel
         : seedCredit != null
           ? seedCredit.label
           : undefined;

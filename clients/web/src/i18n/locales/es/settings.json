@@ -542,6 +542,7 @@
     "machineSizeDocsAriaLabel": "Más información sobre tamaños de máquina",
     "machineSizeLabel": "Selecciona un tamaño de máquina:",
     "machineSizePlaceholder": "Selecciona un tamaño de máquina",
+    "noExtraUsage": "Sin uso adicional",
     "recap": "Resumen",
     "storageAriaLabel": "Almacenamiento",
     "storageDocsAriaLabel": "Más información sobre almacenamiento",
@@ -550,6 +551,10 @@
     "subtitle": "Simplemente mejor.",
     "title": "Crear un plan personalizado",
     "totalBilledMonthly": "Total · Facturación mensual",
+    "usageBundleAriaLabel": "Paquete de uso",
+    "usageBundleDocsAriaLabel": "Más información sobre paquetes de uso",
+    "usageBundleLabel": "Añade un paquete de uso:",
+    "usageBundlePlaceholder": "Selecciona un paquete de uso",
     "yourSelection": "Tu selección:"
   },
   "customPlanRow": {
@@ -805,8 +810,10 @@
     "valueAriaLabel": "Valor de {label}"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "Se te llevará a Stripe para cancelar tu suscripción.",
-    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
+    "bodyCancelOnly": "Tu suscripción se cancelará al final de tu período de facturación actual. Mantendrás el acceso Pro hasta entonces.",
+    "bodyCancelOnlyPortal": "Se te llevará a Stripe para cancelar tu suscripción.",
+    "bodyWithFeatures": "Al bajar de plan se eliminan las siguientes funciones Pro. Tu suscripción se cancelará al final de tu período de facturación actual.",
+    "bodyWithFeaturesPortal": "Al bajar de plan se eliminan las siguientes funciones Pro. Se te llevará a Stripe para cancelar tu suscripción.",
     "cancel": "Cancelar",
     "confirm": "Bajar a Base",
     "title": "¿Bajar a Base?"
@@ -1330,6 +1337,7 @@
     "featureComputer": "Ordenador {machine}",
     "featureCreditsIncluded": "{amount} en créditos incluidos",
     "featureStorage": "{gib} GB de almacenamiento",
+    "featureUsage": "Uso de {name}, se restablece cada mes",
     "featureUsageIncluded": "{label} incluido",
     "foreverCaption": "Para siempre",
     "freeFeaturePayAsYouGo": "Créditos de pago por uso",
@@ -2097,6 +2105,11 @@
   },
   "useBillingPortalSession": {
     "openError": "No se pudo abrir el portal de facturación. Inténtalo de nuevo."
+  },
+  "useCancelSubscription": {
+    "cancelFailedToast": "No se pudo cancelar tu suscripción. Inténtalo de nuevo.",
+    "canceledToast": "Plan Pro cancelado. Tendrás acceso hasta {date}.",
+    "endOfBillingPeriod": "el final de tu período de facturación"
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",

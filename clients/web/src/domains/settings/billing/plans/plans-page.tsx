@@ -30,9 +30,7 @@ import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
-import {
-  getPlanTierCopy,
-} from "@/domains/settings/billing/plans/plans-copy";
+import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { Trans, useTranslation } from "@/i18n";
 import {
   BillingOnboardingModal,
@@ -46,12 +44,14 @@ import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   extractMutationError,
+  isDirectCancelEligible,
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
 import {
   formatDollars,
   priceLabelFromCents,
 } from "@/domains/settings/components/tier-pricing";
+import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
 import {
   buildPortalReturnSnapshot,
   useBillingPortalSession,
@@ -69,6 +69,7 @@ import type {
   SubscriptionUpgradeRequestRequest,
 } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
@@ -124,19 +125,27 @@ function packageFeatures(
   pkg: ProPackage,
   extra: readonly string[],
   translate: SettingsTranslate,
+  obscureCredits: boolean,
 ): string[] {
   const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   return [
     machineComputerLabel(pkg, translate),
     translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
-    // The catalog's `usage_label` ("Mighty Usage") matches the bundle's
-    // Stripe product and thus the invoice; the amount wording covers a
-    // package with no usage label.
-    pkg.usage_label != null
-      ? translate("plansPage.featureUsageIncluded", { label: pkg.usage_label })
-      : translate("plansPage.featureCreditsIncluded", {
-          amount: formatDollars(credits * 100),
-        }),
+    // Under `obscure-credits` the bundle row never names a credit amount: it
+    // reads as the package's own usage allowance, derived from the package
+    // name the way the plan card's chip is, so it holds even when the catalog
+    // carries no `usage_label`. Otherwise the catalog's `usage_label`
+    // ("Mighty Usage") matches the bundle's Stripe product and thus the
+    // invoice; the amount wording covers a package with no usage label.
+    obscureCredits
+      ? translate("plansPage.featureUsage", { name: pkg.name })
+      : pkg.usage_label != null
+        ? translate("plansPage.featureUsageIncluded", {
+            label: pkg.usage_label,
+          })
+        : translate("plansPage.featureCreditsIncluded", {
+            amount: formatDollars(credits * 100),
+          }),
     ...extra,
   ];
 }
@@ -163,6 +172,7 @@ function PlansPageContent() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const electron = isElectron();
+  const obscureCredits = useObscureCredits();
 
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
@@ -274,10 +284,16 @@ function PlansPageContent() {
         ? subscription.package.key
         : null;
 
-  // Pro → Free is a cancellation: after a confirm step it opens the Stripe
-  // billing portal (the same destination as the adjust-plan modal's "Downgrade
-  // to Base") so the user can cancel there. Snapshot the pre-redirect state for
-  // the post-return toast.
+  // Pro to Free is a cancellation: after a confirm step it posts the
+  // subscription-cancel endpoint (the same action as the adjust-plan modal's
+  // "Downgrade to Base"), which schedules the sub to end at the period
+  // boundary. No Stripe portal round-trip for an active Pro sub.
+  const { cancelSubscription, isPending: cancelPending } =
+    useCancelSubscription();
+  // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps the
+  // Stripe portal handoff, which can still cancel it. Snapshot the
+  // pre-redirect state for the post-return toast.
+  const canCancelDirectly = isDirectCancelEligible(subscription);
   const portalMutation = useBillingPortalSession(
     buildPortalReturnSnapshot(subscription),
   );
@@ -296,11 +312,11 @@ function PlansPageContent() {
     (f) => !baseFeatureSet.has(f),
   );
 
-  // Any billing action in flight — a checkout, a package switch, or the Stripe
-  // portal opening — disables every plan CTA (and Configure) so a second click
+  // Any billing action in flight (a checkout, a package switch, or a
+  // cancellation) disables every plan CTA (and Configure) so a second click
   // can't start a competing billing operation before the first resolves.
   const billingActionPending =
-    pending || changePackagePending || portalMutation.isPending;
+    pending || changePackagePending || cancelPending || portalMutation.isPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -391,10 +407,7 @@ function PlansPageContent() {
       }
     } catch (error) {
       toast.error(
-        extractMutationError(
-          error,
-          t("plansPage.checkoutFailedToast"),
-        ),
+        extractMutationError(error, t("plansPage.checkoutFailedToast")),
       );
     } finally {
       setPending(false);
@@ -412,7 +425,7 @@ function PlansPageContent() {
       return;
     }
     // A billing action is already in flight (checkout / package switch /
-    // portal opening) — ignore the click. The CTAs are also disabled; this
+    // cancellation): ignore the click. The CTAs are also disabled; this
     // guards against a race between the click and the disabled re-render.
     if (billingActionPending) {
       return;
@@ -423,11 +436,11 @@ function PlansPageContent() {
     }
     if (isProUser) {
       if (tierKey === "free") {
-        // Pro → Free is a subscription cancellation, not a package switch.
-        // Confirm first (which Pro features are lost), then open the Stripe
-        // billing portal — the same destination as the adjust-plan modal's
-        // "Downgrade to Base" — where the user actually cancels. The
-        // package-only change-package endpoint 400s on non-package keys.
+        // Pro to Free is a subscription cancellation, not a package switch.
+        // Confirm first (which Pro features are lost), then post the
+        // subscription-cancel endpoint, the same action as the adjust-plan
+        // modal's "Downgrade to Base". The package-only change-package
+        // endpoint 400s on non-package keys.
         setFreeDowngradeOpen(true);
         return;
       }
@@ -581,11 +594,20 @@ function PlansPageContent() {
       ? customCurrentSummary(current, proPlan)
       : undefined;
 
-    // Confirmed Pro → Free cancellation: close the confirm and hand off to the
-    // Stripe billing portal, where the actual cancellation happens.
-    const confirmFreeDowngrade = () => {
-      setFreeDowngradeOpen(false);
-      portalMutation.mutate({});
+    // Confirmed Pro → Free cancellation: schedule it server-side. Success
+    // closes the confirm (the hook's toast names the end date); failure keeps
+    // it open for a retry (the hook already toasted the error). A sub the
+    // endpoint would reject hands off to the Stripe portal instead.
+    const confirmFreeDowngrade = async () => {
+      if (!canCancelDirectly) {
+        setFreeDowngradeOpen(false);
+        portalMutation.mutate({});
+        return;
+      }
+      const result = await cancelSubscription();
+      if (result) {
+        setFreeDowngradeOpen(false);
+      }
     };
 
     /**
@@ -788,7 +810,9 @@ function PlansPageContent() {
             name="Base"
             tagline={freeCopy?.tagline ?? ""}
             priceLabel={t("plansPage.freePriceLabel")}
-            priceCaption={freeCopy?.priceCaption ?? t("plansPage.foreverCaption")}
+            priceCaption={
+              freeCopy?.priceCaption ?? t("plansPage.foreverCaption")
+            }
             ctaLabel={
               freeRelation === "downgrade"
                 ? t("plansPage.downgradeTo", { name: "Base" })
@@ -819,7 +843,12 @@ function PlansPageContent() {
                     ? t("plansPage.downgradeTo", { name: pkg.name })
                     : (copy?.cta ?? pkg.name)
                 }
-                features={packageFeatures(pkg, copy?.extraFeatures ?? [], t)}
+                features={packageFeatures(
+                  pkg,
+                  copy?.extraFeatures ?? [],
+                  t,
+                  obscureCredits,
+                )}
                 recommended={copy?.recommended}
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
@@ -870,9 +899,10 @@ function PlansPageContent() {
         <FreeDowngradeConfirmModal
           open={freeDowngradeOpen}
           lostFeatures={freeDowngradeLostFeatures}
-          pending={portalMutation.isPending}
+          viaPortal={!canCancelDirectly}
+          pending={cancelPending || portalMutation.isPending}
           onCancel={() => setFreeDowngradeOpen(false)}
-          onConfirm={confirmFreeDowngrade}
+          onConfirm={() => void confirmFreeDowngrade()}
         />
 
         <BillingOnboardingModal
