@@ -29,7 +29,6 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
-  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -52,8 +51,6 @@ import type {
 } from "@vellumai/ipc-contract";
 import {
   DIAGNOSTICS_SET_SHARE,
-  DOWNLOADS_DONE_EVENT,
-  DOWNLOADS_REVEAL,
   FEATURE_FLAGS_SET,
   FEEDBACK_DIAGNOSTICS,
   FEEDBACK_LOGS,
@@ -66,6 +63,7 @@ import {
 import {
   createBundleConfirmBridge,
   createDeepLinksBridge,
+  createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
@@ -301,22 +299,7 @@ const bridge: VellumBridge = {
     shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
       ipcRenderer.invoke("vellum:share:file", bytes, filename),
   },
-  downloads: {
-    onDone: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        payload: DownloadDoneEvent,
-      ) => {
-        callback(payload);
-      };
-      ipcRenderer.on(DOWNLOADS_DONE_EVENT, handler);
-      return () => {
-        ipcRenderer.off(DOWNLOADS_DONE_EVENT, handler);
-      };
-    },
-    reveal: (id: string): Promise<void> =>
-      ipcRenderer.invoke(DOWNLOADS_REVEAL, id) as Promise<void>,
-  },
+  downloads: createDownloadsBridge(ipcRenderer),
   localMode: createLocalModeBridge(ipcRenderer),
   menu: {
     setPlatformSession: (has: boolean): Promise<void> =>
