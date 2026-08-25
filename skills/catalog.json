@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-25T19:42:26.000Z"
+      "updatedAt": "2026-08-25T19:48:41.000Z"
     },
     {
       "id": "doordash",
@@ -764,7 +764,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-24T18:33:37.000Z"
+      "updatedAt": "2026-08-25T22:55:33.000Z"
     },
     {
       "id": "public-ingress",
@@ -785,7 +785,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T02:35:04.000Z"
+      "updatedAt": "2026-08-25T22:59:59.000Z"
     },
     {
       "id": "resend-setup",
@@ -1178,7 +1178,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T22:59:59.000Z"
     },
     {
       "id": "vellum-self-knowledge",
