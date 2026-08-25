@@ -72,6 +72,12 @@ export interface LocalUpgradeOptions {
 
 export type ElectronHostOS = "macos" | "windows";
 
+export interface ScreenRecordingSourceOptions {
+  captureScope?: "display" | "window";
+  displayId?: string;
+  windowId?: number;
+}
+
 /**
  * Result of `localMode.connectImport`. On success `assistantId` is the unique
  * local id the pairing was registered under, and `accessOnly` is true when the
@@ -219,6 +225,15 @@ export interface VellumBridge {
   };
   share: {
     shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+  };
+  screenRecording: {
+    begin(recordingId: string): Promise<void>;
+    append(recordingId: string, chunk: Uint8Array): Promise<void>;
+    finish(recordingId: string): Promise<{ filePath: string }>;
+    abort(recordingId: string): Promise<void>;
+    resolveSource(
+      options: ScreenRecordingSourceOptions,
+    ): Promise<string | null>;
   };
   localMode: {
     hatch(
@@ -534,6 +549,7 @@ export const VELLUM_BRIDGE_KEYS = [
   "icon",
   "dock",
   "share",
+  "screenRecording",
   "localMode",
   "menu",
   "mainWindow",

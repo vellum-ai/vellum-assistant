@@ -51,6 +51,7 @@ import type {
   PowerEvent,
   PowerEventKind,
   ResolvedHotkey,
+  ScreenRecordingSourceOptions,
   ShowNotificationPayload,
   SystemPermissionKind,
   SystemPermissionStateItem,
@@ -94,6 +95,7 @@ export type {
   PowerEvent,
   PowerEventKind,
   ResolvedHotkey,
+  ScreenRecordingSourceOptions,
   SystemPermissionKind,
   SystemPermissionStateItem,
   SystemPermissionStatus,
@@ -202,6 +204,15 @@ declare global {
       };
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+      };
+      screenRecording?: {
+        begin(recordingId: string): Promise<void>;
+        append(recordingId: string, chunk: Uint8Array): Promise<void>;
+        finish(recordingId: string): Promise<{ filePath: string }>;
+        abort(recordingId: string): Promise<void>;
+        resolveSource(
+          options: ScreenRecordingSourceOptions,
+        ): Promise<string | null>;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;

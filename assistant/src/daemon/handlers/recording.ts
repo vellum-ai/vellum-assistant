@@ -10,6 +10,10 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import {
+  getCanonicalRecordingDirectories,
+  isPathWithinDirectory,
+} from "../../util/recording-paths.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import { log } from "./shared.js";
 
@@ -393,22 +397,10 @@ async function finalizeAndPublishRecording(params: {
     // as fallback; the existsSync check below will handle the missing file.
     resolvedPath = path.resolve(filePath);
   }
-  const allowedDir = path.join(
-    process.env.HOME ?? "",
-    "Library/Application Support/vellum-assistant/recordings",
-  );
-  let resolvedAllowedDir: string;
-  try {
-    resolvedAllowedDir = realpathSync(allowedDir);
-  } catch {
-    resolvedAllowedDir = allowedDir;
-  }
-  if (
-    !resolvedPath.startsWith(resolvedAllowedDir + path.sep) &&
-    resolvedPath !== resolvedAllowedDir
-  ) {
+  const allowedDirs = getCanonicalRecordingDirectories();
+  if (!allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))) {
     log.warn(
-      { recordingId, filePath, allowedDir, resolvedAllowedDir },
+      { recordingId, filePath, allowedDirs },
       "Recording file path outside allowed directory — rejecting",
     );
     const errorText = "Recording file is unavailable or expired.";

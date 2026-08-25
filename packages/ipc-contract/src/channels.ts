@@ -119,6 +119,13 @@ export const FILE_OPEN_SUBSCRIBE = "vellum:fileOpen:subscribe";
 export const FILE_OPEN_UNSUBSCRIBE = "vellum:fileOpen:unsubscribe";
 export const FILE_OPEN_EVENT = "vellum:fileOpen:event";
 
+export const SCREEN_RECORDING_BEGIN = "vellum:screenRecording:begin";
+export const SCREEN_RECORDING_APPEND = "vellum:screenRecording:append";
+export const SCREEN_RECORDING_FINISH = "vellum:screenRecording:finish";
+export const SCREEN_RECORDING_ABORT = "vellum:screenRecording:abort";
+export const SCREEN_RECORDING_RESOLVE_SOURCE =
+  "vellum:screenRecording:resolveSource";
+
 // Feedback
 export const FEEDBACK_DIAGNOSTICS = "vellum:feedback:diagnostics";
 export const FEEDBACK_LOGS = "vellum:feedback:logs";
