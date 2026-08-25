@@ -2,6 +2,12 @@
   "addCreditsModal": {
     "configureAutoReload": "Настроить автопополнение"
   },
+  "assistantConnect": {
+    "failed": "Не удалось подключиться к ассистенту."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "Не удалось обновить «{label}». Изменение отменено."
+  },
   "companionIntro": {
     "ariaLabel": "Знакомство с компаньоном",
     "meet": {
@@ -25,6 +31,13 @@
     "next": "Далее",
     "done": "Понятно"
   },
+  "deployStore": {
+    "appExported": "Приложение экспортировано",
+    "deployFailed": "Не удалось опубликовать",
+    "deployedToVercel": "Опубликовано на Vercel",
+    "open": "Открыть",
+    "shareFailed": "Не удалось поделиться приложением"
+  },
   "detailPanelStopButton": {
     "tooltip": "Стоп"
   },
@@ -42,6 +55,9 @@
     "bodyNoUpgrade": "Ассистент усердно работает и приближается к пределу доступных ресурсов.",
     "upgrade": "Обновить план",
     "dontShowAgain": "Больше не показывать"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "ассистент"
   },
   "sectionActionsButton": {
     "ariaLabel": "Действия: {name}"

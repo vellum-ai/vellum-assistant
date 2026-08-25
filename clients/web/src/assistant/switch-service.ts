@@ -7,6 +7,7 @@ import {
   loadLockfile,
   removePairedAssistantFromLockfile,
 } from "@/lib/local-mode";
+import { t } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   useResolvedAssistantsStore,
@@ -46,7 +47,7 @@ export async function switchToAssistant(
       await useAuthStore.getState().connectPairedAssistant(assistantId);
     } catch (err) {
       console.error("switchToAssistant.connectPairedAssistant failed", err);
-      return { ok: false, error: "Failed to connect to the assistant." };
+      return { ok: false, error: t("assistantConnect.failed") };
     }
     return { ok: true };
   }

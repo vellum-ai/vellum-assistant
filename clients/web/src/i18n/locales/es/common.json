@@ -63,6 +63,12 @@
   "appViewerContainer": {
     "exitFullscreen": "Salir de pantalla completa"
   },
+  "assistantConnect": {
+    "failed": "No se pudo conectar con el asistente."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "No se pudo actualizar \"{label}\". Se revirtió el cambio."
+  },
   "avatarManagementModal": {
     "body": "Cuerpo",
     "color": "Color",
@@ -188,6 +194,13 @@
     "message": "\"{appName}\" usa servicios de backend que no funcionarán en una página estática de Vercel. Tu asistente puede desplegarla correctamente con funciones serverless.",
     "messageNamed": "\"{appName}\" usa servicios de backend que no funcionarán en una página estática de Vercel. {assistantName} puede desplegarla correctamente con funciones serverless.",
     "title": "Esta app necesita un despliegue completo"
+  },
+  "deployStore": {
+    "appExported": "Aplicación exportada",
+    "deployFailed": "No se pudo desplegar",
+    "deployedToVercel": "Desplegada en Vercel",
+    "open": "Abrir",
+    "shareFailed": "No se pudo compartir la aplicación"
   },
   "detailPanelStopButton": {
     "tooltip": "Detener"
@@ -333,6 +346,9 @@
   },
   "rootHydrateFallback": {
     "loadingAria": "Cargando"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "el asistente"
   },
   "routeErrorBoundary": {
     "chunkFailBody": "Esta sección no se pudo cargar. Probablemente un fallo de red o una versión antigua. Recarga la página para intentarlo de nuevo.",
