@@ -1065,6 +1065,10 @@ export async function wakeAgentForOpportunity(
     // catch turns provider rejections and unhandled throws into a graceful
     // no-output stop instead of rethrowing).
     let terminalExitReason: AgentLoopExitReason | null = null;
+    // The `exitReason` field for an `invoked: true` result: present exactly
+    // when the loop reported a terminal exit.
+    const exitReasonField = (): { exitReason?: AgentLoopExitReason } =>
+      terminalExitReason !== null ? { exitReason: terminalExitReason } : {};
     const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
@@ -1575,9 +1579,7 @@ export async function wakeAgentForOpportunity(
         return {
           invoked: true,
           producedToolCalls: false,
-          ...(terminalExitReason !== null
-            ? { exitReason: terminalExitReason }
-            : {}),
+          ...exitReasonField(),
         };
       } finally {
         // Restore the pre-wake values so a queued user turn or background read
@@ -1678,9 +1680,7 @@ export async function wakeAgentForOpportunity(
         return {
           invoked: true,
           producedToolCalls: false,
-          ...(terminalExitReason !== null
-            ? { exitReason: terminalExitReason }
-            : {}),
+          ...exitReasonField(),
         };
       }
 
@@ -1716,13 +1716,7 @@ export async function wakeAgentForOpportunity(
       });
       drainedInTry = true;
 
-      return {
-        invoked: true,
-        producedToolCalls,
-        ...(terminalExitReason !== null
-          ? { exitReason: terminalExitReason }
-          : {}),
-      };
+      return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
       // Put the conversation's resting trust back on every exit path.
       restorePersistentWakeTrust();
