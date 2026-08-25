@@ -1475,10 +1475,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: false,
         supportsToolUse: true,
+        // Reseller list rate, matching the `vercel-ai-gateway` entry for this
+        // model. DeepSeek serves no OpenRouter endpoint of its own, so the
+        // card carries whichever reseller holds the default route rather than
+        // a first-party rate. An estimate, not a quote.
         pricing: {
-          inputPer1mTokens: 0.0854,
-          outputPer1mTokens: 0.1708,
-          cacheReadPer1mTokens: 0.01708,
+          inputPer1mTokens: 0.14,
+          outputPer1mTokens: 0.28,
+          cacheReadPer1mTokens: 0.028,
         },
       },
       // Qwen
