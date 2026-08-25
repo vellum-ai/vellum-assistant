@@ -1254,7 +1254,7 @@ describe("deeplink.connect", () => {
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
-    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
+    expect(dialog.initialAddress).toBe("eyJnYXRld2F5");
     expect(dialog.guidanceMessage).toBeNull();
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
@@ -1272,9 +1272,9 @@ describe("deeplink.connect", () => {
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
-    expect(dialog.initialBundle).toBeNull();
+    expect(dialog.initialAddress).toBeNull();
     expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine at office-mac.example:8443 and paste the bundle here.",
+      "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine at office-mac.example:8443 here.",
     );
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
@@ -1290,7 +1290,7 @@ describe("deeplink.connect", () => {
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
     expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine and paste the bundle here.",
+      "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine here.",
     );
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
   });
@@ -1306,7 +1306,7 @@ describe("deeplink.connect", () => {
     });
 
     const dialog = useConnectDialogStore.getState();
-    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
+    expect(dialog.initialAddress).toBe("eyJnYXRld2F5");
     expect(dialog.guidanceMessage).toBeNull();
   });
 });

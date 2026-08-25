@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import {
-  connectImport,
   getGuardianAccessToken,
   getPairedGuardianAccessToken as getStoredPairedGuardianAccessToken,
   isActiveAssistant,
@@ -18,6 +17,9 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  pairingCancel,
+  pairingPoll,
+  pairingStart,
   unpairAssistant,
   upsertRendererLockfileAssistant,
   type CliInvocation,
@@ -28,8 +30,9 @@ import {
   type WakeOptions,
 } from "@vellumai/local-mode";
 import type {
-  LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
   LocalRevokeDeviceResult,
 } from "@vellumai/ipc-contract";
 import { capabilityToken } from "./capability-registry";
@@ -331,7 +334,12 @@ const assistantRecord = z.record(z.string(), z.unknown());
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
 
-// `connectImport` (pairing bundle + optional local name) and `revokeDevice`
+// `pairingStart` (a pasted address) and `pairingCancel` (a session handle)
+// each take one untrusted string the package validates, optional on the wire
+// for the same never-reject reason.
+const oneOptionalStringArgs = z.tuple([z.string().optional()]);
+
+// `pairingPoll` (session handle + optional local name) and `revokeDevice`
 // (assistant id + hashed device id) each take two strings, optional on the
 // wire and validated in the body (never-reject contract).
 const twoOptionalStringArgs = z.tuple([
@@ -494,22 +502,59 @@ export const installLocalMode = (): void => {
     },
   );
 
+  // Pairing runs host-side across three channels: the pasted address goes out
+  // on `pairingStart`, the renderer polls the returned handle, and the device
+  // code plus the credentials it buys never cross the boundary.
   ipc(
-    "vellum:localMode:connectImport",
-    twoOptionalStringArgs,
-    ([bundle, name]): LocalConnectImportResult => {
-      const result = connectImport(lockfilePaths, configDir, { bundle, name });
+    "vellum:localMode:pairingStart",
+    oneOptionalStringArgs,
+    async ([address]): Promise<LocalPairingStartResult> => {
+      const result = await pairingStart(address);
       if (!result.ok) {
-        return { ok: false, error: result.error };
+        return { ok: false, reason: result.reason, error: result.error };
+      }
+      return {
+        ok: true,
+        handle: result.handle,
+        userCode: result.userCode,
+        expiresAt: result.expiresAt,
+        intervalSeconds: result.intervalSeconds,
+      };
+    },
+  );
+
+  ipc(
+    "vellum:localMode:pairingPoll",
+    twoOptionalStringArgs,
+    async ([handle, name]): Promise<LocalPairingPollResult> => {
+      const result = await pairingPoll(lockfilePaths, configDir, {
+        handle,
+        name,
+      });
+      if (!result.ok) {
+        return { ok: false, reason: result.reason, error: result.error };
+      }
+      if (result.status === "pending") {
+        return {
+          ok: true,
+          status: "pending",
+          expiresAt: result.expiresAt,
+          intervalSeconds: result.intervalSeconds,
+        };
       }
       refreshLockfile();
       return {
         ok: true,
+        status: "imported",
         assistantId: result.assistantId,
         accessOnly: result.accessOnly,
       };
     },
   );
+
+  ipc("vellum:localMode:pairingCancel", oneOptionalStringArgs, ([handle]) => ({
+    ok: pairingCancel(handle),
+  }));
 
   ipc("vellum:localMode:sleep", assistantIdArgs, ([assistantId]) => {
     if (!assistantId) {

@@ -1218,7 +1218,7 @@
     "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
     "publicUrlLabel": "URL pública",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Escanéalo con la cámara de otro dispositivo, o abre el enlace en él, para usar {name} allí.",
+    "subtitle": "Escanéalo con la cámara de un teléfono, o pega el enlace en otro ordenador, para usar {name} allí.",
     "subtitleFallbackName": "este asistente",
     "title": "Vincular un dispositivo"
   },

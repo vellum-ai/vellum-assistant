@@ -7,9 +7,10 @@
  *     deep link, which can fire while the chooser is not mounted; the
  *     request parks here and the chooser picks it up on mount.
  *
- * Why a store instead of a query param: `initialBundle` is a pairing
- * bundle (secret material). Carrying it in the URL would place it in
- * browser history and in navigation breadcrumbs captured by telemetry.
+ * Why a store instead of a query param: `initialAddress` can carry a
+ * pairing link, whose device code is secret material. Carrying it in the
+ * URL would place it in browser history and in navigation breadcrumbs
+ * captured by telemetry.
  *
  * `closeConnectDialog` clears the deep-link payload along with the open
  * flag, so a later manual open starts empty. Renderer reloads blow this
@@ -31,9 +32,9 @@ import { createSelectors } from "@/utils/create-selectors";
 
 export interface ConnectDialogState {
   open: boolean;
-  /** Prefill for the bundle paste field (deep-link entry), or `null`. */
-  initialBundle: string | null;
-  /** Guidance shown above the form (bundle-less deep-link entry), or `null`. */
+  /** Prefill for the dialog's address field (deep-link entry), or `null`. */
+  initialAddress: string | null;
+  /** Guidance shown above the form (address-less deep-link entry), or `null`. */
   guidanceMessage: string | null;
   /** Whether the Electron cold-start deep-link drain has settled. */
   deepLinkDrainSettled: boolean;
@@ -45,7 +46,7 @@ export interface ConnectDialogActions {
    * so a manual open never resurfaces a stale deep-link prefill.
    */
   openConnectDialog: (options?: {
-    initialBundle?: string;
+    initialAddress?: string;
     guidanceMessage?: string;
   }) => void;
   /** Close the dialog and clear any parked deep-link payload. */
@@ -58,17 +59,17 @@ export type ConnectDialogStore = ConnectDialogState & ConnectDialogActions;
 
 const useConnectDialogStoreBase = create<ConnectDialogStore>()((set) => ({
   open: false,
-  initialBundle: null,
+  initialAddress: null,
   guidanceMessage: null,
   deepLinkDrainSettled: false,
   openConnectDialog: (options) =>
     set({
       open: true,
-      initialBundle: options?.initialBundle ?? null,
+      initialAddress: options?.initialAddress ?? null,
       guidanceMessage: options?.guidanceMessage ?? null,
     }),
   closeConnectDialog: () =>
-    set({ open: false, initialBundle: null, guidanceMessage: null }),
+    set({ open: false, initialAddress: null, guidanceMessage: null }),
   markDeepLinkDrainSettled: () => set({ deepLinkDrainSettled: true }),
 }));
 
@@ -80,7 +81,7 @@ export const useConnectDialogStore = createSelectors(useConnectDialogStoreBase);
 export function __resetConnectDialogForTesting(): void {
   useConnectDialogStoreBase.setState({
     open: false,
-    initialBundle: null,
+    initialAddress: null,
     guidanceMessage: null,
     deepLinkDrainSettled: false,
   });

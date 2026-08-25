@@ -70,9 +70,7 @@ const addOriginMock = mock(
   async (input: {
     url: string;
     name?: string;
-  }): Promise<
-    { ok: true; origin: RememberedOrigin } | { ok: false }
-  > => ({
+  }): Promise<{ ok: true; origin: RememberedOrigin } | { ok: false }> => ({
     ok: true,
     origin: {
       url: input.url,
@@ -151,9 +149,8 @@ mock.module("@/lib/local-mode", () => ({
 // The real normalizer, captured before the module mock below replaces the
 // registry entry, so the screen's register-param validation runs with
 // production semantics.
-const { normalizeOriginUrl } = await import(
-  "@/stores/remembered-origins-store"
-);
+const { normalizeOriginUrl } =
+  await import("@/stores/remembered-origins-store");
 
 mock.module("@/stores/remembered-origins-store", () => ({
   normalizeOriginUrl,
@@ -197,13 +194,13 @@ mock.module("@/domains/onboarding/components/connect-recovery-dialog", () => ({
 mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
   ConnectAssistantDialog: ({
     open,
-    initialBundle,
+    initialAddress,
     guidanceMessage,
     onClose,
     onImported,
   }: {
     open: boolean;
-    initialBundle?: string;
+    initialAddress?: string;
     guidanceMessage?: string;
     onClose: () => void;
     onImported: (assistantId: string) => void;
@@ -211,7 +208,7 @@ mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
     open ? (
       <div>
         Connect dialog open
-        {initialBundle && <div>{`bundle:${initialBundle}`}</div>}
+        {initialAddress && <div>{`address:${initialAddress}`}</div>}
         {guidanceMessage && <div>{guidanceMessage}</div>}
         <button onClick={onClose}>Close dialog</button>
         <button onClick={() => onImported("paired-new")}>
@@ -338,7 +335,11 @@ mock.module("@vellumai/design-library/components/button", () => ({
     disabled?: boolean;
     "aria-label"?: string;
   }) => (
-    <button onClick={onClick} disabled={disabled} aria-label={rest["aria-label"]}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={rest["aria-label"]}
+    >
       {children}
     </button>
   ),
@@ -379,13 +380,11 @@ mock.module("@vellumai/design-library/components/menu", () => ({
 
 // The real (unmocked) store: the screen reads its dialog state from it so a
 // deep link parked by the global consumer opens the dialog on mount.
-const { __resetConnectDialogForTesting, useConnectDialogStore } = await import(
-  "@/stores/connect-dialog-store"
-);
+const { __resetConnectDialogForTesting, useConnectDialogStore } =
+  await import("@/stores/connect-dialog-store");
 
-const { SelectAssistantScreen } = await import(
-  "@/domains/onboarding/pages/select-assistant-screen"
-);
+const { SelectAssistantScreen } =
+  await import("@/domains/onboarding/pages/select-assistant-screen");
 
 // --- Helpers ------------------------------------------------------------------
 
@@ -740,11 +739,13 @@ describe("SelectAssistantScreen paired assistants", () => {
 
     const radios = screen.getAllByRole("radio");
     expect(
-      radios.find((r) => r.textContent?.includes("Office Mac"))
+      radios
+        .find((r) => r.textContent?.includes("Office Mac"))
         ?.getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      radios.find((r) => r.textContent?.includes("Second Mac"))
+      radios
+        .find((r) => r.textContent?.includes("Second Mac"))
         ?.getAttribute("aria-checked"),
     ).toBe("false");
   });
@@ -791,24 +792,24 @@ describe("SelectAssistantScreen paired assistants", () => {
     expect(screen.queryByText("Connect dialog open")).toBeNull();
   });
 
-  test("a connect deep link parked in the store opens the dialog on mount with the bundle prefilled", () => {
-    // What `useGlobalDeepLinkConsumer` does for a `<scheme>://connect?bundle=`
-    // link before navigating here.
+  test("a connect deep link parked in the store opens the dialog on mount with the address prefilled", () => {
+    // What `useGlobalDeepLinkConsumer` does for a `<scheme>://connect` link
+    // carrying a pairing address before navigating here.
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
     expect(screen.getByText("Connect dialog open")).toBeTruthy();
-    expect(screen.getByText("bundle:eyJnYXRld2F5")).toBeTruthy();
+    expect(screen.getByText("address:https://gw.example.com")).toBeTruthy();
   });
 
-  test("a bundle-less connect deep link opens the dialog with its guidance copy", () => {
+  test("an address-less connect deep link opens the dialog with its guidance copy", () => {
     useConnectDialogStore.getState().openConnectDialog({
-      guidanceMessage: "Run vellum pair on the assistant's machine.",
+      guidanceMessage: "Paste the pairing link from the assistant's machine.",
     });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
@@ -816,14 +817,14 @@ describe("SelectAssistantScreen paired assistants", () => {
     render(<SelectAssistantScreen />);
 
     expect(
-      screen.getByText("Run vellum pair on the assistant's machine."),
+      screen.getByText("Paste the pairing link from the assistant's machine."),
     ).toBeTruthy();
   });
 
   test("closing the dialog clears the parked deep-link payload", () => {
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -833,13 +834,13 @@ describe("SelectAssistantScreen paired assistants", () => {
 
     expect(screen.queryByText("Connect dialog open")).toBeNull();
     expect(useConnectDialogStore.getState().open).toBe(false);
-    expect(useConnectDialogStore.getState().initialBundle).toBeNull();
+    expect(useConnectDialogStore.getState().initialAddress).toBeNull();
   });
 
   test("a manual open after a deep-link close starts empty", () => {
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -849,13 +850,13 @@ describe("SelectAssistantScreen paired assistants", () => {
     fireEvent.click(screen.getByText("Connect a remote assistant"));
 
     expect(screen.getByText("Connect dialog open")).toBeTruthy();
-    expect(screen.queryByText("bundle:eyJnYXRld2F5")).toBeNull();
+    expect(screen.queryByText("address:https://gw.example.com")).toBeNull();
   });
 
   test("a parked connect deep link suppresses the sole-assistant auto-skip", async () => {
     useConnectDialogStore
       .getState()
-      .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+      .openConnectDialog({ initialAddress: "https://gw.example.com" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant()];
 
@@ -903,7 +904,7 @@ describe("SelectAssistantScreen paired assistants", () => {
     act(() => {
       useConnectDialogStore
         .getState()
-        .openConnectDialog({ initialBundle: "eyJnYXRld2F5" });
+        .openConnectDialog({ initialAddress: "https://gw.example.com" });
       useConnectDialogStore.getState().markDeepLinkDrainSettled();
     });
 
@@ -961,9 +962,7 @@ describe("SelectAssistantScreen remembered origins", () => {
     render(<SelectAssistantScreen />);
 
     expect(screen.getByText("Home Server")).toBeTruthy();
-    expect(
-      screen.getByText("Remote · assistant.example.com"),
-    ).toBeTruthy();
+    expect(screen.getByText("Remote · assistant.example.com")).toBeTruthy();
     expect(hydrateOriginsMock).toHaveBeenCalled();
   });
 
@@ -1001,9 +1000,7 @@ describe("SelectAssistantScreen remembered origins", () => {
 
     render(<SelectAssistantScreen />);
 
-    expect(
-      screen.getByText("Current · assistant.example.com"),
-    ).toBeTruthy();
+    expect(screen.getByText("Current · assistant.example.com")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Home Server"));
     fireEvent.click(screen.getByText("Continue"));
@@ -1190,9 +1187,9 @@ describe("SelectAssistantScreen native mobile", () => {
           ?.getAttribute("aria-checked"),
       ).toBe("true"),
     );
-    expect(
-      (screen.getByText("Continue") as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
 
     fireEvent.click(screen.getByText("Continue"));
 
@@ -1210,9 +1207,9 @@ describe("SelectAssistantScreen native mobile", () => {
     // The default selection commits in an effect after the card renders, so
     // clicking on render alone hits a disabled Continue and does nothing.
     await waitFor(() =>
-      expect(
-        (screen.getByText("Continue") as HTMLButtonElement).disabled,
-      ).toBe(false),
+      expect((screen.getByText("Continue") as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
     );
     fireEvent.click(screen.getByText("Continue"));
 
@@ -1253,7 +1250,7 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     render(<SelectAssistantScreen />);
 
     expect(screen.queryByText("Add origin dialog open")).toBeNull();
-    // The local bundle-paste affordance needs a local-mode host.
+    // The local connect affordance needs a local-mode host.
     expect(screen.queryByText("Connect a remote assistant")).toBeNull();
 
     fireEvent.click(screen.getByText("Add a remote assistant"));
@@ -1271,7 +1268,7 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     expect(screen.getByText("Add a remote assistant")).toBeTruthy();
   });
 
-  test("is hidden where a local-mode host offers the bundle-paste connect instead", () => {
+  test("is hidden where a local-mode host offers the pairing connect instead", () => {
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
@@ -1420,7 +1417,9 @@ describe("SelectAssistantScreen platform hub", () => {
 
     fireEvent.click(screen.getByText("Back"));
 
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/assistant"));
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/assistant"),
+    );
   });
 
   test("hides the local-only create action on non-local clients", async () => {

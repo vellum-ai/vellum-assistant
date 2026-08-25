@@ -27,7 +27,7 @@
   "startScreen": {
     "createAssistant": "Crear tu asistente"
   },
-    "privacyScreen": {
+  "privacyScreen": {
     "title": "Antes de empezar",
     "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes.",
     "skipToChat": "Ir al chat"
@@ -90,12 +90,17 @@
     "addressLabel": "Dirección del asistente"
   },
   "connectAssistantDialog": {
-    "importedTitle": "Emparejamiento importado",
-    "importedBody": "Este emparejamiento es solo de acceso: su acceso caduca y no puede renovarse por sí solo. Vuelve a ejecutar vellum pair en la máquina del asistente e importa el nuevo paquete cuando caduque.",
     "title": "Conectar un asistente remoto",
-    "bundleLabel": "Paquete de emparejamiento",
+    "instruction": "Pega el enlace de vinculación de los ajustes «Vincular un dispositivo» del asistente, o solo su dirección, y aprueba allí la solicitud.",
+    "addressLabel": "Dirección o enlace de vinculación",
+    "addressPlaceholder": "https://your-assistant.ts.net",
     "nameLabel": "Nombre (opcional)",
-    "instruction": "En la máquina del asistente, ejecuta <code>vellum pair --url https://...</code> y pega aquí el paquete."
+    "approveOnHost": "Aprueba este código en la máquina del asistente para terminar de conectar.",
+    "waitingForApproval": "Esperando la aprobación…",
+    "expiresIn": "Caduca en {time}",
+    "submitError": "No se pudo conectar con ese asistente. Inténtalo de nuevo.",
+    "importedTitle": "Emparejamiento importado",
+    "importedBody": "Este emparejamiento es solo de acceso: su acceso caduca y no puede renovarse por sí solo. Vuelve a ejecutar vellum pair en la máquina del asistente e importa el nuevo paquete cuando caduque."
   },
   "connectRecoveryDialog": {
     "repairTitle": "¿Reparar el asistente?",

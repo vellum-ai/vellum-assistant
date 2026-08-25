@@ -144,7 +144,7 @@ function connectGuidanceMessage(url: string | null): string {
     host === null
       ? "the assistant's machine"
       : `the assistant's machine at ${host}`;
-  return `This link came from a pairing QR code. To connect this Mac, run vellum pair on ${machine} and paste the bundle here.`;
+  return `This link came from a pairing QR code. To connect this Mac, paste the pairing link from ${machine} here.`;
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -384,7 +384,7 @@ export function useGlobalDeepLinkConsumer(): void {
       .getState()
       .openConnectDialog(
         bundle !== null
-          ? { initialBundle: bundle }
+          ? { initialAddress: bundle }
           : { guidanceMessage: connectGuidanceMessage(url) },
       );
     navigateRef.current(routes.selectAssistant);
