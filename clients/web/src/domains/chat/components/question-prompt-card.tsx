@@ -396,18 +396,27 @@ export function QuestionPromptBody({
             isMinimized && "cursor-pointer",
           )}
           // A minimized card carries no chevron of its own, so the summary is
-          // what reopens it, by tap and by keyboard alike. Role and tabindex
-          // rather than a real button because the close X sits in the same row
-          // and must not end up nested inside one. Left off while expanded so
-          // the header's own buttons aren't shadowed by a handler that would
-          // undo them on the way up.
+          // what reopens it, by tap and by keyboard alike. Left off while
+          // expanded, so the header's own buttons aren't shadowed by a handler
+          // that would undo them on the way up.
+          //
+          // Deliberately not `Button`, and deliberately unlabelled:
+          //
+          // - A real button would have to swap in at the state flip, and
+          //   changing the element type at this position remounts everything
+          //   under it. The two crossfading rows below are in there, and they
+          //   ease on `grid-template-rows`, which a fresh mount has no previous
+          //   value to interpolate from. The collapse would jump instead of
+          //   running.
+          // - A button's accessible name comes from its contents, and here the
+          //   contents are exactly what a reader should hear in place of the
+          //   body: the question, and the count of options behind it. An
+          //   `aria-label` would replace both with a generic phrase, since
+          //   descendants of `role="button"` are flattened into the name.
           role={isMinimized ? "button" : undefined}
           tabIndex={isMinimized ? 0 : undefined}
           aria-expanded={isMinimized ? false : undefined}
           aria-controls={isMinimized ? collapsibleId : undefined}
-          aria-label={
-            isMinimized ? t("questionPromptCard.expandAria") : undefined
-          }
           onClick={isMinimized ? expand : undefined}
           onKeyDown={isMinimized ? handleReopenKeyDown : undefined}
         >

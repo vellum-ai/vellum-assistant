@@ -100,10 +100,18 @@ function renderCard(
   );
 }
 
+/**
+ * Whichever control currently carries the collapse state. Expanded that is the
+ * header chevron; minimized it is the summary itself, which is named by its own
+ * contents rather than a label, so `aria-expanded` is what identifies it in
+ * both states.
+ */
 function toggleButton(): HTMLElement {
-  return screen.getByRole("button", {
-    name: /Minimize question|Reopen question/,
-  });
+  const control = document.querySelector<HTMLElement>("[aria-expanded]");
+  if (!control) {
+    throw new Error("the card rendered no collapse control");
+  }
+  return control;
 }
 
 /**
@@ -162,7 +170,6 @@ describe("QuestionPromptCard minimize", () => {
     fireEvent.click(toggleButton());
 
     expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
-    expect(toggleButton().getAttribute("aria-label")).toBe("Reopen question");
     // The question itself stays: it is what the summary row is a summary of.
     expect(
       screen.getByText("What should we build first for MarkOne?"),
@@ -281,6 +288,22 @@ describe("QuestionPromptCard minimize", () => {
     // What reopens the card is the summary itself, not a second chevron
     // pointing the other way.
     expect(toggleButton().tagName).not.toBe("BUTTON");
+  });
+
+  test("a minimized card is announced as the question it stands for", () => {
+    renderCard();
+
+    fireEvent.click(toggleButton());
+
+    // Descendants of a `role="button"` are flattened into its accessible name,
+    // so an `aria-label` here would trade the question and the option count for
+    // a generic phrase and a reader would lose both. Name-from-content is what
+    // keeps them, and it is the whole reason the label is absent.
+    expect(
+      screen.getByRole("button", {
+        name: /What should we build first for MarkOne\?.*4 options/,
+      }),
+    ).toBeDefined();
   });
 
   test("the keyboard reopens a minimized card", () => {
