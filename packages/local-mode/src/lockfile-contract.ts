@@ -190,7 +190,7 @@ export const LockfileAssistantSchema = z.object({
   /**
    * Public https URL a `vellum tunnel` provider recorded for this assistant
    * (mirrored from the workspace ingress config). A public address, so it is
-   * renderer-safe: remote-web pairing surfaces (the CLI `--qr` flow, the web
+   * renderer-safe: remote-web pairing surfaces (the `vellum pair` flow, the web
    * "Pair a device" card) default to it instead of asking the user to retype it.
    */
   ingressUrl: z.string().optional(),

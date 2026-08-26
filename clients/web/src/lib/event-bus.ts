@@ -241,7 +241,7 @@ export interface BusEventMap {
   };
   /**
    * Electron host only: inbound `<scheme>://connect` URL from the pair
-   * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
+   * page's "Open in the Vellum app" button or a `vellum pair --app`
    * QR code. `bundle` is a pairing bundle that prefills the connect
    * dialog's paste field; it is secret material, so consumers must never
    * log or breadcrumb it. `url` is the https server base a url+code link

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { guardianTokenPath } from "../config";
 import {
+  checkPairedAssistantName,
   connectImport,
   pairAssistant,
   pairingCancel,
@@ -513,6 +514,55 @@ describe("pairAssistant", () => {
       return;
     }
     expect(result.status).toBe(422);
+  });
+});
+
+describe("checkPairedAssistantName", () => {
+  test("mirrors pairAssistant's refusal for a colliding name", () => {
+    writeLockfile({
+      assistants: [
+        {
+          assistantId: "desk",
+          cloud: "local",
+          runtimeUrl: "http://127.0.0.1:7830",
+        },
+      ],
+      activeAssistant: "desk",
+    });
+
+    // Same derivation as the real check: the raw name is slugified first.
+    const refusal = checkPairedAssistantName([lockfilePath], "Desk");
+    expect(refusal).not.toBeNull();
+    expect(refusal!.status).toBe(409);
+    expect(refusal!.assistantId).toBe("desk");
+
+    const real = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials(),
+      name: "Desk",
+    });
+    expect(real.ok).toBe(false);
+    if (real.ok) {
+      return;
+    }
+    expect(real.status).toBe(refusal!.status);
+    expect(real.error).toBe(refusal!.error);
+  });
+
+  test("a name with no alphanumerics is refused with a 400", () => {
+    const refusal = checkPairedAssistantName([lockfilePath], "///");
+    expect(refusal?.status).toBe(400);
+  });
+
+  test("a free name and an existing paired entry both pass", () => {
+    expect(checkPairedAssistantName([lockfilePath], "fresh")).toBeNull();
+
+    const imported = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials(),
+      name: "fresh",
+    });
+    expect(imported.ok).toBe(true);
+    // A re-import updates in place, so the name is still usable.
+    expect(checkPairedAssistantName([lockfilePath], "fresh")).toBeNull();
   });
 });
 

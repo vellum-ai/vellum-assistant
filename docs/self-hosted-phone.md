@@ -17,11 +17,11 @@ this; sign in and your devices are already connected.
 
 > **Check your version first.** This flow uses recent additions to the `vellum`
 > CLI and the assistant it runs: `vellum tunnel`
-> providers (Step 3), `vellum pair --qr` (Step 4), and the iOS app's connect
+> providers (Step 3), the `vellum pair` link and QR (Step 4), and the iOS app's connect
 > handler (Step 5). They ship in the next release; until then they're available
 > on builds from source. Check what you have with `vellum --version` (it prints
 > `@vellumai/cli v<version>`). If `vellum tunnel --provider tailscale` reports
-> `not yet implemented` or `vellum pair --qr` isn't recognized, your CLI
+> `not yet implemented` or `vellum pair` doesn't print a QR, your CLI
 > predates this flow — update it once the release lands, or build from source
 > (the web app in [Step 2](#2-the-web-app-ships-with-the-cli) and the iOS shell
 > in [Step 6](#6-native-ios-shell-optional-for-developers) both note how).
@@ -200,21 +200,21 @@ keeps the edge visible only to devices on your own tailnet.
 
 ## 4. Pair your devices
 
-On the host, generate a single-scan pairing QR:
+On the host, generate a single-scan pairing link and its QR:
 
 ```bash
-vellum pair --qr
+vellum pair
 ```
 
 If you put the HTTPS front in place with `vellum tunnel` (Step 3),
-`vellum pair --qr` reuses that saved address automatically and prints
+`vellum pair` reuses that saved address automatically and prints
 `Using saved ingress URL … (from vellum tunnel; override with --url)` — so you
 don't need to know or retype your URL. Pass `--url` to advertise a different
 address, or when using the manual `tailscale serve` fallback, which doesn't
 save one:
 
 ```bash
-vellum pair --qr --url https://your-machine.your-tailnet.ts.net
+vellum pair --url https://your-machine.your-tailnet.ts.net
 ```
 
 The advertised URL must be public HTTPS — e.g.
@@ -231,7 +231,8 @@ On the device you're pairing:
 2. On a phone or tablet, open the **system camera** and point it at the QR
    code, then tap the notification to open the pairing page. On a device
    without a camera (another computer), open the URL printed under the QR in
-   its browser instead. The result is the same. On iOS and Android the page
+   its browser instead, or run `vellum connect import "<that URL>"` there to
+   pair the CLI itself. The result is the same. On iOS and Android the page
    first offers
    **Open in the Vellum app** or **Continue in this browser**; tap
    **Open in the Vellum app** to finish pairing in the native app, or
@@ -245,7 +246,7 @@ already approved, so there's nothing to confirm — and your assistant loads.
 
 The pairing session survives assistant restarts via a refresh cookie, so you
 stay signed in. Pairing codes are **single-use and expire after 10 minutes**;
-run `vellum pair --qr` again to add another device or replace a lapsed code.
+run `vellum pair` again to add another device or replace a lapsed code.
 
 **Prefer a UI over the terminal?** The desktop app has the same flow as a
 card: **Settings → General → Pair a device**. Generate the QR there and scan
@@ -284,7 +285,7 @@ connects changes.
 > produces a build that carries it today.
 
 **Recommended: scan the Step 4 QR, then tap "Open in the Vellum app."** You
-don't need a different command: the QR from `vellum pair --qr` (Step 4)
+don't need a different command: the QR from `vellum pair` (Step 4)
 already works for the app:
 
 1. Point the phone's **system camera** at the QR and open the pairing page in
@@ -307,25 +308,25 @@ one (`vellum ps` shows the active one).
 installed (this QR opens the app directly and has no browser fallback):
 
 ```bash
-vellum pair --qr --app
+vellum pair --app
 ```
 
 This encodes the pairing as a `vellum-assistant://connect` link; the plain
 https pairing URL is printed beneath it. Point the **system camera** at it and
 the app opens (cold-launching if it was closed), saves your server, and
-completes pairing in a single scan. Like plain `--qr`, it reuses the
+completes pairing in a single scan. Like the default form, it reuses the
 `vellum tunnel` address; pass `--url` to override. Target a non-production
 build with `--app-scheme` (`vellum-assistant-dev` for a dev build,
 `vellum-assistant-staging` for staging):
 
 ```bash
-vellum pair --qr --app --app-scheme vellum-assistant-dev
+vellum pair --app --app-scheme vellum-assistant-dev
 ```
 
 **Enter the server by hand** — use when you'd rather not scan. Open the iOS
 **Settings** app, tap **Vellum**, and use the **Self-Hosted Server** section:
 enter your assistant's HTTPS URL, the same `https://<machine>.<tailnet>.ts.net`
-address `vellum pair --qr` prints. Leaving the field empty keeps the app on
+address `vellum pair` prints. Leaving the field empty keeps the app on
 Vellum Cloud; the app reloads on next launch. You still pair the device once —
 by any method above, or a browser sign-in — for the app to have access. If the
 app can't reach the configured server, it shows **Can't reach `<host>`.** with
@@ -368,4 +369,4 @@ URL — you reach your own assistant, not Vellum Cloud.
   ([Step 3](#3-put-an-https-address-in-front)) only if you accept
   the privacy trade-off.
 - **Pairing codes are single-use and expire in 10 minutes.** Re-run
-  `vellum pair --qr` whenever you need a fresh one.
+  `vellum pair` whenever you need a fresh one.

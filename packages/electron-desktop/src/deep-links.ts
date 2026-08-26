@@ -133,7 +133,7 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *     `threadId` is the first non-empty path segment.
  *   - `vellum://connect?url=…` / `vellum://connect?bundle=…` →
  *     `{ kind: "connect", … }`. The pair page's "Open in the Vellum
- *     app" button and `vellum pair --qr --app` QR codes. `url` must
+ *     app" button and `vellum pair --app` QR codes. `url` must
  *     parse as https (dropped otherwise); `bundle` must look like
  *     base64/base64url. A `code` query param (device code) is
  *     accepted but never carried: the renderer cannot complete a
