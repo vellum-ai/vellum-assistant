@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import { OpenAIChatCompletionsProvider } from "../../openai/chat-completions-provider.js";
 import {
   OPENCODE_GO_BASE_URL,
   OPENCODE_ZEN_BASE_URL,
   OpenCodeProvider,
 } from "../../opencode/client.js";
-import { OpenAIChatCompletionsProvider } from "../../openai/chat-completions-provider.js";
 import {
   buildProviderAdapter,
   createAdapterFromConnection,

@@ -38,11 +38,11 @@ import {
   tryAcquireRecoveryProbe,
 } from "./fallback-breaker.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { buildOpenCodeRequestHeaders } from "./opencode/client.js";
 import {
   isAdaptiveThinkingOnlyModel,
   isAdaptiveThinkingUnsupportedModel,
 } from "./model-catalog.js";
+import { buildOpenCodeRequestHeaders } from "./opencode/client.js";
 import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import {
   isThinkingConfigAdaptive,
