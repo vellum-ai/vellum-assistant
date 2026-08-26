@@ -1221,7 +1221,7 @@ describe("vellum wake — tunnel edge restore", () => {
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Run `vellum tunnel --provider cloudflare` to rebuild the edge.",
+        "Run `vellum tunnel local-assistant --provider cloudflare` to rebuild the edge.",
       ),
     );
   });
@@ -1248,7 +1248,7 @@ describe("vellum wake — tunnel edge restore", () => {
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Run `vellum tunnel --provider tailscale` to rebuild the edge.",
+        "Run `vellum tunnel local-assistant --provider tailscale` to rebuild the edge.",
       ),
     );
   });
