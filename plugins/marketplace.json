@@ -544,7 +544,7 @@
       "source": {
         "source": "github",
         "repo": "jsfranklin221/vellum-outcome-gate",
-        "ref": "d94a6ea1dcbd9ce36decda7cd90afa485c6abb0d"
+        "ref": "ed5104d8bed5636e56990aee4ec830378f93b9da"
       },
       "description": "Check delivered work against explicit acceptance criteria before payment or another consequential action. Returns what passed, what failed, what was earned, and a signed Outcome Receipt through the Spoolis API, with a keyless sandbox for demos.",
       "category": "finance",
