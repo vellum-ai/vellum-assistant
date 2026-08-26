@@ -4,6 +4,7 @@ using System.Speech.Recognition;
 using System.Text.Json;
 using Vellum.WindowsHelper.Rpc;
 using Windows.Media.SpeechRecognition;
+using WinRtSpeechRecognizer = Windows.Media.SpeechRecognition.SpeechRecognizer;
 
 namespace Vellum.WindowsHelper.Modules;
 
@@ -552,7 +553,7 @@ internal sealed class SystemSpeechEngine : IDictationEngine
 /// </summary>
 internal sealed class OnlineSpeechEngine : IDictationEngine
 {
-    private readonly SpeechRecognizer _recognizer;
+    private readonly WinRtSpeechRecognizer _recognizer;
     private readonly object _gate = new();
     private string _committed = "";
     private bool _finishing;
@@ -567,7 +568,7 @@ internal sealed class OnlineSpeechEngine : IDictationEngine
         }
         try
         {
-            _recognizer = new SpeechRecognizer();
+            _recognizer = new WinRtSpeechRecognizer();
             _recognizer.Constraints.Add(new SpeechRecognitionTopicConstraint(
                 SpeechRecognitionScenario.Dictation, "dictation"));
             var compiled = _recognizer.CompileConstraintsAsync()
