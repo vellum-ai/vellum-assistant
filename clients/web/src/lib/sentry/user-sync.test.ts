@@ -89,6 +89,19 @@ describe("installSentryUserSync", () => {
     expect(setUserMock).toHaveBeenLastCalledWith({ id: "gateway-local" });
   });
 
+  test("never identifies by the email or username fallback ids", () => {
+    useAuthStore.setState({
+      user: { ...PLATFORM_USER, id: PLATFORM_USER.email },
+    });
+    cleanup = installSentryUserSync();
+    expect(setUserMock).toHaveBeenLastCalledWith(null);
+
+    useAuthStore.setState({
+      user: { ...PLATFORM_USER, id: PLATFORM_USER.username },
+    });
+    expect(setUserMock).toHaveBeenLastCalledWith(null);
+  });
+
   test("stops following after cleanup", () => {
     cleanup = installSentryUserSync();
     setUserMock.mockClear();

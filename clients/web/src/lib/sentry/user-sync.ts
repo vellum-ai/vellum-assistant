@@ -30,7 +30,15 @@ function toSentryUser(user: AuthUser | null): { id: string } | null {
     const id = deviceId ?? user.id;
     return id ? { id } : null;
   }
-  return user.id ? { id: user.id } : null;
+  // `resolveUserId` in the auth store falls back `id ?? email ?? username`
+  // when the session payload omits the account id. An identifier equal to
+  // either of those is PII whatever its provenance, so the session goes
+  // unidentified rather than identified by an email address.
+  const { id } = user;
+  if (!id || id === user.email || id === user.username) {
+    return null;
+  }
+  return { id };
 }
 
 /**
