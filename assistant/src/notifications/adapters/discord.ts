@@ -30,7 +30,7 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
-import { resolveMessageText } from "./shared.js";
+import { appendPlainTextFallback, resolveMessageText } from "./shared.js";
 
 const log = getLogger("notif-adapter-discord");
 
@@ -53,13 +53,10 @@ export class DiscordAdapter implements ChannelAdapter {
       };
     }
 
-    const messageText = resolveMessageText(payload);
-    const approval = payload.approvalContext;
-    const text =
-      approval?.plainTextFallback &&
-      !messageText.includes(approval.plainTextFallback)
-        ? `${messageText}\n\n${approval.plainTextFallback}`
-        : messageText;
+    const text = appendPlainTextFallback(
+      resolveMessageText(payload),
+      payload.approvalContext,
+    );
 
     try {
       const channelId = await openDiscordDmChannel(guardianUserId);
