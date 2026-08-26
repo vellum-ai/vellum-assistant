@@ -117,15 +117,43 @@ describe("raiseAcpConnectFromSnapshot: retiring a prompt the daemon dropped", ()
     // A client disconnected when the token landed never heard the
     // invalidation, and this prompt skips the connected-state self-heal, so
     // the reconnect snapshot is its only way to learn the card is stale.
-    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })]);
+    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-1");
 
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 
   test("clears the prompt on an empty snapshot", () => {
-    raiseAcpConnectFromSnapshot([]);
+    raiseAcpConnectFromSnapshot([], "conv-1");
 
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("leaves a missing-token prompt alone, which the snapshot cannot speak for", () => {
+    // Missing-token failures are not represented in ACP session history, so an
+    // absent marker says nothing about them. Dismissing also records the
+    // tool-use id, which would stop the transcript reseed from restoring the
+    // card while the model's guidance still points at it.
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-missing",
+        reason: "missing",
+        conversationId: "conv-1",
+      },
+    });
+
+    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-1");
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
+    ).toBe("tool-missing");
+  });
+
+  test("leaves a prompt owned by another conversation alone", () => {
+    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-2");
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
+    ).toBe("tool-1");
   });
 
   test("leaves the prompt alone while this tab owns a live Connect flow", () => {
@@ -134,7 +162,7 @@ describe("raiseAcpConnectFromSnapshot: retiring a prompt the daemon dropped", ()
     // to request.
     useInteractionStore.setState({ acpConnectFlowActive: true });
 
-    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })]);
+    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-1");
 
     expect(
       useInteractionStore.getState().pendingAcpConnect?.toolUseId,

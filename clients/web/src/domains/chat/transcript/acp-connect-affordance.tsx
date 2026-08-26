@@ -128,7 +128,17 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // Publish that this tab owns a live flow, so the invalidation its own token
   // write triggers does not dismiss the card before it can auto-continue.
   // Cleared on unmount so a tab that navigates away stops claiming it.
-  const flowActive = connection.phase !== "idle";
+  // Only phases that can still produce this tab's own successful write. A
+  // terminal `error` cannot, so leaving it "active" would let a failed attempt
+  // pin a stale card in place after another client repaired the token, with
+  // nothing to clear it: `auth_required` prompts skip the connected-state
+  // self-heal.
+  const flowActive =
+    connection.phase === "starting" ||
+    connection.phase === "awaiting_capture" ||
+    connection.phase === "awaiting_paste" ||
+    connection.phase === "exchanging" ||
+    connection.phase === "connected";
   useEffect(() => {
     useInteractionStore.getState().setAcpConnectFlowActive(flowActive);
     return () => {

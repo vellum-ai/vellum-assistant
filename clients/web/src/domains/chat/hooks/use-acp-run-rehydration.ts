@@ -210,7 +210,10 @@ export async function fetchAcpSessions(
  * overwrite it. `showAcpConnect` no-ops a prompt already retired this session,
  * so a reconcile cannot resurrect one the user dismissed.
  */
-export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
+export function raiseAcpConnectFromSnapshot(
+  entries: AcpRunEntry[],
+  snapshotConversationId: string | null = null,
+): void {
   for (const entry of entries) {
     if (
       entry.authErrorCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE ||
@@ -230,8 +233,8 @@ export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
   // a client that was disconnected when the token landed never heard. Its
   // prompt skips the connected-state self-heal and survives conversation
   // resets, so without this the stale card outlives the reconnect that should
-  // have cleared it.
-  retireStaleAcpConnectPrompt();
+  // have cleared it. Scoped to the conversation the snapshot covers.
+  retireStaleAcpConnectPrompt(snapshotConversationId);
 }
 
 /**
@@ -242,9 +245,23 @@ export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
  * loses both the success confirmation and the auto-continue it is about to
  * request.
  */
-function retireStaleAcpConnectPrompt(): void {
+function retireStaleAcpConnectPrompt(conversationId: string | null): void {
   const state = useInteractionStore.getState();
-  if (state.acpConnectFlowActive || !state.pendingAcpConnect) {
+  const prompt = state.pendingAcpConnect;
+  if (state.acpConnectFlowActive || !prompt) {
+    return;
+  }
+  // Only the prompt this snapshot can speak for. A missing-token failure is
+  // not represented in ACP session history at all, so an absent marker says
+  // nothing about it, and dismissing records the tool-use id, which would stop
+  // the transcript reseed from ever restoring that card while the model's
+  // guidance still points at it. Likewise a prompt owned by another
+  // conversation, which this snapshot did not cover.
+  if (
+    prompt.reason !== "auth_required" ||
+    (prompt.conversationId != null &&
+      prompt.conversationId !== conversationId)
+  ) {
     return;
   }
   state.dismissAcpConnect();
@@ -278,6 +295,7 @@ function activeRunIdsFor(conversationId: string): string[] {
 function applyAcpSnapshot(
   entries: AcpRunEntry[] | null,
   priorActiveIds: string[],
+  snapshotConversationId: string | null = null,
 ): void {
   if (entries === null) {
     return;
@@ -285,8 +303,11 @@ function applyAcpSnapshot(
   const store = useAcpRunStore.getState();
   if (entries.length > 0) {
     store.seedFromHistory(entries);
-    raiseAcpConnectFromSnapshot(entries);
   }
+  // Outside the length check: a conversation whose only marked run was cleared
+  // can come back empty, and that emptiness is exactly the signal that the
+  // prompt is stale.
+  raiseAcpConnectFromSnapshot(entries, snapshotConversationId);
   if (entries.length >= ACP_SNAPSHOT_LIMIT) {
     return;
   }
@@ -314,7 +335,7 @@ export function useAcpRunRehydration(
       if (cancelled) {
         return;
       }
-      applyAcpSnapshot(entries, priorActiveIds);
+      applyAcpSnapshot(entries, priorActiveIds, conversationId ?? null);
     });
     return () => {
       cancelled = true;
@@ -347,13 +368,13 @@ export function useAcpRunRehydration(
     // no request context), so the writer receives its own echo, and dismissing
     // here would unmount the card before it reaches `connected` and asks for
     // the auto-continue. That flow clears the card itself.
-    retireStaleAcpConnectPrompt();
+    retireStaleAcpConnectPrompt(conversationId ?? null);
     if (!assistantId || !conversationId) {
       return;
     }
     const priorActiveIds = activeRunIdsFor(conversationId);
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      applyAcpSnapshot(entries, priorActiveIds);
+      applyAcpSnapshot(entries, priorActiveIds, conversationId ?? null);
     });
   });
 
@@ -372,7 +393,7 @@ export function useAcpRunRehydration(
       }
       const priorActiveIds = activeRunIdsFor(conversationId);
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-        applyAcpSnapshot(entries, priorActiveIds);
+        applyAcpSnapshot(entries, priorActiveIds, conversationId ?? null);
       });
     },
   );
