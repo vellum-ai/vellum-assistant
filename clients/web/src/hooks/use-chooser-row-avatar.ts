@@ -96,12 +96,14 @@ const fetchGenerations = createGenerationGuard();
  * Revoke every object URL held for a removed assistant, across this module's
  * maps and the live hook's, and drop the query entries that hold those
  * (now dead) `blob:` strings, or re-pairing the same id within gcTime would
- * render a revoked image.
+ * render a revoked image. Supersedes any in-flight row fetch so it drops its
+ * own blob instead of re-registering one and re-persisting the entry.
  */
-export function releaseRowAvatarUrls(
+function releaseRowAvatarUrls(
   queryClient: QueryClient,
   assistantId: string,
 ): void {
+  fetchGenerations.invalidate(assistantId);
   trackBlobUrl(activeBlobUrls, assistantId, null);
   trackBlobUrl(cachedBlobUrls, assistantId, null);
   releaseAssistantAvatarUrl(assistantId);
