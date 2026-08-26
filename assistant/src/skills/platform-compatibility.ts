@@ -1,3 +1,5 @@
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+
 export const SKILL_PLATFORM_VALUES = ["macos", "windows", "linux"] as const;
 
 export type SkillPlatform = (typeof SKILL_PLATFORM_VALUES)[number];
@@ -44,6 +46,14 @@ export function skillPlatformForClientOs(value: unknown): SkillPlatform | null {
     : null;
 }
 
+function connectedHostPlatforms(): SkillPlatform[] {
+  const platforms = assistantEventHub
+    .listClientsByCapability("host_bash")
+    .map((client) => skillPlatformForClientOs(client.interfaceId))
+    .filter((platform): platform is SkillPlatform => platform !== null);
+  return [...new Set(platforms)];
+}
+
 export function isSkillCompatibleWithPlatform(
   skill: PlatformScopedSkill,
   platform: NodeJS.Platform = process.platform,
@@ -59,6 +69,7 @@ export function isSkillCompatibleWithClientPlatform(
   skill: PlatformScopedSkill,
   clientOs: unknown,
   platform: NodeJS.Platform = process.platform,
+  hostPlatforms: readonly unknown[] = connectedHostPlatforms(),
 ): boolean {
   if (isSkillCompatibleWithPlatform(skill, platform)) {
     return true;
@@ -66,6 +77,7 @@ export function isSkillCompatibleWithClientPlatform(
   const clientPlatform = skillPlatformForClientOs(clientOs);
   return (
     clientPlatform !== null &&
+    hostPlatforms.includes(clientPlatform) &&
     skill.platforms?.includes(clientPlatform) === true
   );
 }
@@ -83,9 +95,15 @@ export function filterSkillsByClientPlatform<T extends PlatformScopedSkill>(
   skills: readonly T[],
   clientOs: unknown,
   platform: NodeJS.Platform = process.platform,
+  hostPlatforms: readonly unknown[] = connectedHostPlatforms(),
 ): T[] {
   return skills.filter((skill) =>
-    isSkillCompatibleWithClientPlatform(skill, clientOs, platform),
+    isSkillCompatibleWithClientPlatform(
+      skill,
+      clientOs,
+      platform,
+      hostPlatforms,
+    ),
   );
 }
 

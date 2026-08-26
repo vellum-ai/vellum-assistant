@@ -24,6 +24,7 @@ mock.module("../skills/catalog-install.js", () => ({
 }));
 
 const { skillLoadTool } = await import("../tools/skills/load.js");
+const { assistantEventHub } = await import("../runtime/assistant-event-hub.js");
 
 function writeSkill(
   skillId: string,
@@ -158,12 +159,23 @@ describe("skill_load tool", () => {
     });
     expect(withoutClient.isError).toBe(true);
 
-    const withClient = await executeSkillLoad(
-      { skill: "client-platform-skill" },
-      clientPlatform,
-    );
-    expect(withClient.isError).toBe(false);
-    expect(withClient.content).toContain("Body.");
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "client-platform-skill-host",
+      interfaceId: clientPlatform,
+      capabilities: ["host_bash"],
+      callback: () => {},
+    });
+    try {
+      const withClient = await executeSkillLoad(
+        { skill: "client-platform-skill" },
+        clientPlatform,
+      );
+      expect(withClient.isError).toBe(false);
+      expect(withClient.content).toContain("Body.");
+    } finally {
+      hostClient.dispose();
+    }
   });
 
   test("loads a skill by exact name (case-insensitive)", async () => {

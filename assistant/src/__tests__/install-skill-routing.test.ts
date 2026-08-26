@@ -172,6 +172,7 @@ setConfig("memory", { v2: { enabled: false } });
 
 // Import after mocking
 import { installSkill } from "../daemon/handlers/skills.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -420,19 +421,30 @@ Body.
       },
     ]);
 
-    const result = await installSkill({
-      slug: "client-platform-skill",
-      clientOs: clientPlatform,
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "install-skill-routing-host",
+      interfaceId: clientPlatform,
+      capabilities: ["host_bash"],
+      callback: () => {},
     });
+    try {
+      const result = await installSkill({
+        slug: "client-platform-skill",
+        clientOs: clientPlatform,
+      });
 
-    expect(result).toEqual({
-      success: true,
-      skillId: "client-platform-skill",
-    });
-    expect(mockEnsureSkillEntry).toHaveBeenCalledWith(
-      expect.anything(),
-      "client-platform-skill",
-    );
+      expect(result).toEqual({
+        success: true,
+        skillId: "client-platform-skill",
+      });
+      expect(mockEnsureSkillEntry).toHaveBeenCalledWith(
+        expect.anything(),
+        "client-platform-skill",
+      );
+    } finally {
+      hostClient.dispose();
+    }
   });
 
   test("skills.sh install failure propagates error", async () => {

@@ -36,14 +36,19 @@ describe("skill platform compatibility", () => {
     expect(isSkillCompatibleWithPlatform(skill, "win32")).toBe(false);
   });
 
-  test("matches the connected client when the assistant host differs", () => {
+  test("matches a capable connected host when the assistant host differs", () => {
     const skill = { platforms: ["windows"] as const };
-    expect(isSkillCompatibleWithClientPlatform(skill, "windows", "linux")).toBe(
-      true,
-    );
-    expect(isSkillCompatibleWithClientPlatform(skill, "macos", "linux")).toBe(
-      false,
-    );
+    expect(
+      isSkillCompatibleWithClientPlatform(skill, "windows", "linux", [
+        "windows",
+      ]),
+    ).toBe(true);
+    expect(
+      isSkillCompatibleWithClientPlatform(skill, "windows", "linux", []),
+    ).toBe(false);
+    expect(
+      isSkillCompatibleWithClientPlatform(skill, "macos", "linux", ["windows"]),
+    ).toBe(false);
   });
 
   test("filters incompatible skills from offer surfaces", () => {
@@ -66,7 +71,7 @@ describe("skill platform compatibility", () => {
     ];
 
     expect(
-      filterSkillsByClientPlatform(skills, "windows", "linux").map(
+      filterSkillsByClientPlatform(skills, "windows", "linux", ["windows"]).map(
         (skill) => skill.id,
       ),
     ).toEqual(["linux-only", "windows-only"]);

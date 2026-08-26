@@ -4,6 +4,7 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
@@ -236,12 +237,24 @@ describe("resolveSkillStates with feature flags", () => {
     const config = makeConfig();
 
     expect(resolveSkillStates([skill], config)).toEqual([]);
-    expect(resolveSkillStates([skill], config, clientPlatform)).toEqual([
-      expect.objectContaining({
-        summary: expect.objectContaining({ id: "client-platform-skill" }),
-        state: "enabled",
-      }),
-    ]);
+
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "skill-state-client-platform-host",
+      interfaceId: clientPlatform,
+      capabilities: ["host_bash"],
+      callback: () => {},
+    });
+    try {
+      expect(resolveSkillStates([skill], config, clientPlatform)).toEqual([
+        expect.objectContaining({
+          summary: expect.objectContaining({ id: "client-platform-skill" }),
+          state: "enabled",
+        }),
+      ]);
+    } finally {
+      hostClient.dispose();
+    }
   });
 
   test("feature flag OFF takes precedence over user-enabled config entry", () => {
