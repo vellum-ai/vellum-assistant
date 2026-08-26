@@ -64,9 +64,12 @@ export function stripSuppressedSkillCards(
     return inner;
   }
   const { preamble, pieces, framed } = parseCardSections(inner);
-  const kept = pieces.filter((piece) => {
+  const firstConceptIndex = pieces.findIndex((piece) => piece.kind === "card");
+  const kept = pieces.filter((piece, index) => {
     const skillId = extractSkillIdFromV3Card(piece.text);
-    return !skillId || !suppressedIds.has(skillId);
+    const isUnambiguousLegacySkill =
+      framed || firstConceptIndex < 0 || index < firstConceptIndex;
+    return !isUnambiguousLegacySkill || !skillId || !suppressedIds.has(skillId);
   });
   const withoutV3 =
     kept.length === pieces.length
