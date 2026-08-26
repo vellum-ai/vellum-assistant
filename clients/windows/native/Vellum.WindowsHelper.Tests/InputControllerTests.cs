@@ -76,11 +76,27 @@ public static class InputControllerTests
 
         // App names resolve through aliases and Start Menu shortcut stems.
         Check(AppLauncher.Resolve("vscode") == "Visual Studio Code", "app alias");
-        var shortcuts = new[] { @"C:\sm\Google Chrome.lnk", @"C:\sm\Slack Beta.lnk", @"C:\sm\Slack.lnk" };
-        Check(AppLauncher.FindShortcut(shortcuts, "chrome", "Google Chrome") == shortcuts[0], "shortcut alias");
-        Check(AppLauncher.FindShortcut(shortcuts, "slack", "slack") == shortcuts[2], "shortcut exact beats prefix");
-        Check(AppLauncher.FindShortcut(shortcuts, "sla", "sla") == shortcuts[1], "shortcut prefix");
-        Check(AppLauncher.FindShortcut(shortcuts, "zoom", "zoom") is null, "shortcut missing");
+        var apps = new[]
+        {
+            new AppLauncher.AppEntry("Google Chrome", "chrome.lnk"),
+            new AppLauncher.AppEntry("Slack Beta", "slack-beta.lnk"),
+            new AppLauncher.AppEntry("Slack", "slack.lnk"),
+            new AppLauncher.AppEntry("Visual Studio Code", "code.lnk"),
+            new AppLauncher.AppEntry("Visual Studio Installer", "vsi.lnk"),
+        };
+        Check(AppLauncher.FindMatch(apps, "chrome", "Google Chrome") == "chrome.lnk", "app alias match");
+        Check(AppLauncher.FindMatch(apps, "slack", "slack") == "slack.lnk", "app exact beats prefix");
+        Check(AppLauncher.FindMatch(apps, "sla", "sla") == "slack-beta.lnk", "app unique prefix");
+        Check(AppLauncher.FindMatch(apps, "zoom", "zoom") is null, "app missing");
+        try
+        {
+            AppLauncher.FindMatch(apps, "Visual Studio", "Visual Studio");
+            throw new Exception("Ambiguous prefix was accepted");
+        }
+        catch (InvalidOperationException err)
+        {
+            Check(err.Message.Contains("Visual Studio Installer", StringComparison.Ordinal), "app ambiguous prefix");
+        }
 
         var module = new InputController();
 

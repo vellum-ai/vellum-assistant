@@ -24,25 +24,35 @@ public static partial class AppLauncher
 
     public static string Resolve(string name) => Aliases.TryGetValue(name.Trim(), out var alias) ? alias : name.Trim();
 
-    // Case-insensitive match on a shortcut's file name, trying the resolved
-    // name and the raw name; an exact match beats a prefix match.
-    public static string? FindShortcut(IEnumerable<string> shortcutPaths, string name, string resolved)
+    public sealed record AppEntry(string Name, string Target);
+
+    // Exact match on the resolved or raw name wins; otherwise a unique prefix
+    // match. Several prefix matches are ambiguous and reported, never guessed.
+    public static string? FindMatch(IEnumerable<AppEntry> entries, string name, string resolved)
     {
-        string? prefix = null;
-        foreach (var path in shortcutPaths)
+        var prefixes = new List<AppEntry>();
+        foreach (var entry in entries)
         {
-            var stem = Path.GetFileNameWithoutExtension(path);
-            if (stem.Equals(resolved, StringComparison.OrdinalIgnoreCase) ||
-                stem.Equals(name, StringComparison.OrdinalIgnoreCase))
+            if (entry.Name.Equals(resolved, StringComparison.OrdinalIgnoreCase) ||
+                entry.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
             {
-                return path;
+                return entry.Target;
             }
-            prefix ??= stem.StartsWith(resolved, StringComparison.OrdinalIgnoreCase) ? path : null;
+            if (entry.Name.StartsWith(resolved, StringComparison.OrdinalIgnoreCase))
+            {
+                prefixes.Add(entry);
+            }
         }
-        return prefix;
+        return prefixes switch
+        {
+            [] => null,
+            [var only] => only.Target,
+            _ => throw new InvalidOperationException(
+                $"Ambiguous app name '{name}'; candidates: {string.Join(", ", prefixes.Select(e => e.Name).Distinct())}"),
+        };
     }
 
-    public static IEnumerable<string> StartMenuShortcuts()
+    public static IEnumerable<AppEntry> StartMenuShortcuts()
     {
         var roots = new[]
         {
@@ -50,7 +60,35 @@ public static partial class AppLauncher
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
         };
         var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
-        return roots.Where(Directory.Exists).SelectMany(root => Directory.EnumerateFiles(root, "*.lnk", options));
+        return roots.Where(Directory.Exists)
+            .SelectMany(root => Directory.EnumerateFiles(root, "*.lnk", options))
+            .Select(path => new AppEntry(Path.GetFileNameWithoutExtension(path), path));
+    }
+
+    // Every Start-registered app, including MSIX/AppX packages that have no
+    // .lnk on disk. Item paths are AppUserModelIDs launchable via shell:AppsFolder.
+    public static IEnumerable<AppEntry> AppsFolderEntries()
+    {
+        var entries = new List<AppEntry>();
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null)
+            {
+                return entries;
+            }
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            dynamic items = shell.NameSpace("shell:AppsFolder").Items();
+            for (var i = 0; i < (int)items.Count; i++)
+            {
+                dynamic item = items.Item(i);
+                entries.Add(new AppEntry((string)item.Name, $@"shell:AppsFolder\{(string)item.Path}"));
+            }
+        }
+        catch (Exception err) when (err is COMException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+        {
+        }
+        return entries;
     }
 
     public static async Task<string> OpenAsync(string name, CancellationToken cancellationToken)
@@ -67,7 +105,8 @@ public static partial class AppLauncher
             return $"switched to {resolved}";
         }
 
-        var target = FindShortcut(StartMenuShortcuts(), name, resolved)
+        var target = FindMatch(StartMenuShortcuts(), name, resolved)
+            ?? FindMatch(AppsFolderEntries(), name, resolved)
             ?? (ShellCommands.TryGetValue(resolved, out var command) ? command : resolved);
         try
         {
