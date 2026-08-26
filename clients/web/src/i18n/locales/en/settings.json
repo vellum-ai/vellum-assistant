@@ -1224,7 +1224,7 @@
     "title": "Pair a device"
   },
   "pairDeviceClient": {
-    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.",
+    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel --help` lists the providers) and the public URL points at it, then generate a new code.",
     "httpError": "Pairing failed (HTTP {status}).",
     "networkError": "Couldn't reach the assistant. Make sure it's running and try again.",
     "unexpectedResponse": "The assistant returned an unexpected response."
@@ -1242,7 +1242,7 @@
     "loopback": "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
     "nonHttps": "The URL must use https so your devices can connect securely.",
     "serviceFallbackName": "the tunnel provider",
-    "serviceWebsite": "This is {service}'s website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+    "serviceWebsite": "This is {service}'s website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
     "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {

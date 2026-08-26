@@ -1224,7 +1224,7 @@
     "title": "Vincular un dispositivo"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel`) y de que la URL pública apunte a él; después genera un nuevo código.",
+    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel --help` lista los proveedores) y de que la URL pública apunte a él; después genera un nuevo código.",
     "httpError": "La vinculación falló (HTTP {status}).",
     "networkError": "No se pudo conectar con el asistente. Asegúrate de que esté en ejecución e inténtalo de nuevo.",
     "unexpectedResponse": "El asistente devolvió una respuesta inesperada."
@@ -1242,7 +1242,7 @@
     "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
     "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
     "serviceFallbackName": "el proveedor del túnel",
-    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Ejecuta `vellum tunnel` en el host para obtener una.",
+    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Inicia un túnel en el host para obtener una; `vellum tunnel --help` lista los proveedores.",
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {

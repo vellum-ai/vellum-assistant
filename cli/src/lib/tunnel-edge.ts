@@ -1,6 +1,11 @@
 import type { ChildProcess } from "child_process";
 
 import {
+  INGRESS_LAST_TUNNEL_KEY,
+  parseTunnelRecord,
+} from "@vellumai/service-contracts/ingress";
+
+import {
   loadAllAssistants,
   loadAllAssistantsAcrossEnvs,
   type AssistantEntry,
@@ -52,6 +57,27 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The `vellum tunnel` invocation that rebuilds this workspace's edge. That
+ * command requires `--provider`, and a `<provider>` placeholder would be shell
+ * redirection rather than something to paste, so name the provider that last
+ * tunneled here; with none recorded, point at the help that lists them.
+ */
+function tunnelRestartCommand(workspaceDir: string): string {
+  try {
+    const ingress = loadRawConfig(workspaceDir).ingress as
+      | Record<string, unknown>
+      | undefined;
+    const record = parseTunnelRecord(ingress?.[INGRESS_LAST_TUNNEL_KEY]);
+    if (record) {
+      return `vellum tunnel --provider ${record.provider}`;
+    }
+  } catch {
+    // An unreadable config names no provider; the help pointer still holds.
+  }
+  return "vellum tunnel --help";
 }
 
 /**
@@ -123,7 +149,7 @@ export async function restoreTunnelEdge(
           ? "Webhooks still work, but the web app is not being served."
           : "The web app and webhook delivery are unavailable until it is rebuilt.";
     console.warn(
-      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`vellum tunnel --provider <provider>\` to rebuild the edge.`,
+      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`${tunnelRestartCommand(workspaceDir)}\` to rebuild the edge.`,
     );
     return survivingPort;
   }
@@ -226,7 +252,7 @@ export async function restoreContainerTunnelEdge(
     !(await waitForDaemonReady(gatewayPort, gatewayReadyTimeoutMs))
   ) {
     console.warn(
-      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`vellum tunnel --provider <provider>\` once it is running.`,
+      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`${tunnelRestartCommand(workspaceDir)}\` once it is running.`,
     );
     return;
   }
