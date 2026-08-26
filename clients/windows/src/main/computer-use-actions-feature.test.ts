@@ -17,6 +17,7 @@ const { DesktopCapabilityRegistry } =
   await import("@vellumai/electron-desktop/capability-registry");
 const {
   COMPUTER_USE_ACTION_EXECUTORS,
+  createWindowsHostAppControlExecutor,
   createWindowsHostCuExecutor,
   default: computerUseActionsFeature,
   protectComputerUseCapture,
@@ -29,7 +30,82 @@ test("provides the host_cu executor through the capability registry", () => {
   computerUseActionsFeature.install(registry);
   const provided = registry.require(COMPUTER_USE_ACTION_EXECUTORS);
   expect(typeof provided.host_cu.handleRequest).toBe("function");
+  expect(typeof provided.host_app_control.handleRequest).toBe("function");
   expect(typeof provided.teardown).toBe("function");
+});
+
+test("forwards app-control requests to appControl.perform and posts the result", async () => {
+  let seen: { method: string; params: unknown } | null = null;
+  const executor = createWindowsHostAppControlExecutor({
+    helper: {
+      call: async (method, params) => {
+        seen = { method, params };
+        return {
+          state: "running",
+          pngBase64: "PNG",
+          windowBounds: { x: 0, y: 0, width: 800, height: 600 },
+          executionResult: "observed",
+        };
+      },
+    },
+  });
+  const postAppControlResult = mock(async (_payload: unknown) => true);
+
+  executor.handleRequest(
+    {
+      type: "host_app_control_request",
+      requestId: "req-ac-1",
+      conversationId: "conv-1",
+      toolName: "app_control_observe",
+      input: { tool: "observe", app: "notepad" },
+    } satisfies HostProxySseMessage,
+    { postAppControlResult } as unknown as HostProxyPoster,
+  );
+  await tick();
+
+  expect(seen).toMatchObject({
+    method: "appControl.perform",
+    params: {
+      requestId: "req-ac-1",
+      toolName: "app_control_observe",
+      input: { tool: "observe", app: "notepad" },
+    },
+  });
+  expect(postAppControlResult).toHaveBeenCalledWith({
+    requestId: "req-ac-1",
+    state: "running",
+    pngBase64: "PNG",
+    windowBounds: { x: 0, y: 0, width: 800, height: 600 },
+    executionResult: "observed",
+  });
+});
+
+test("reports app-control helper failures as a missing-state error", async () => {
+  const executor = createWindowsHostAppControlExecutor({
+    helper: {
+      call: async () => {
+        throw new Error("helper exploded");
+      },
+    },
+  });
+  const postAppControlResult = mock(async (_payload: unknown) => true);
+
+  executor.handleRequest(
+    {
+      type: "host_app_control_request",
+      requestId: "req-ac-2",
+      toolName: "app_control_press",
+      input: { tool: "press", app: "notepad", key: "a" },
+    },
+    { postAppControlResult } as unknown as HostProxyPoster,
+  );
+  await tick();
+
+  expect(postAppControlResult).toHaveBeenCalledWith({
+    requestId: "req-ac-2",
+    state: "missing",
+    executionError: "helper exploded",
+  });
 });
 
 test("forwards cu requests to cu.perform and posts the result", async () => {

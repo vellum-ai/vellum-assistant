@@ -345,15 +345,12 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // macOS supports every host proxy capability including host_browser
-  // and host_app_control. The host_browser proxy is provisioned via the
-  // assistant event hub. When no extension is connected, browser tools fall
-  // through to cdp-inspect/local via the CDP factory's candidate chain.
-  if (id === "macos") {
+  // The desktop clients support every host proxy capability including
+  // host_browser and host_app_control. The host_browser proxy is provisioned
+  // via the assistant event hub. When no extension is connected, browser tools
+  // fall through to cdp-inspect/local via the CDP factory's candidate chain.
+  if (id === "macos" || id === "windows") {
     return true;
-  }
-  if (id === "windows") {
-    return capability == null || capability !== "host_app_control";
   }
   if (id === "chrome-extension" && capability === "host_browser") {
     return true;

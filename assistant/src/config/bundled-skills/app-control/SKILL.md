@@ -1,6 +1,6 @@
 ---
 name: app-control
-description: Drive a specific named macOS app via raw input bypassing the Accessibility tree
+description: Drive a specific named desktop app via raw input bypassing the Accessibility tree
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎯"
@@ -10,21 +10,21 @@ metadata:
     feature-flag: "app-control"
     activation-hints:
       - "User explicitly directs the assistant to drive a specific named app via raw input (emulator, game, OpenGL canvas, custom-rendered Electron app)"
-      - "User says the macOS Accessibility tree is unhelpful or empty for the target app"
+      - "User says the Accessibility / UI Automation tree is unhelpful or empty for the target app"
     avoid-when:
-      - "Task can be done via the computer-use skill (general macOS UI navigation)"
+      - "Task can be done via the computer-use skill (general desktop UI navigation)"
       - "Task can be done via a CLI / API alternative"
 ---
 
 This skill exposes the `app_control_*` proxy tools for driving a single
-named macOS application via raw input — keyboard, mouse, screenshot — that
-bypasses the system Accessibility tree. Use it only when explicitly directed
-to a specific app where the AX tree is unhelpful (emulators, games, OpenGL
-canvases, custom-rendered Electron apps). For general macOS UI navigation
-prefer the `computer-use` skill.
+named desktop application (macOS or Windows) via raw input (keyboard, mouse,
+screenshot) that bypasses the system Accessibility tree. Use it only when
+explicitly directed to a specific app where the AX tree is unhelpful
+(emulators, games, OpenGL canvases, custom-rendered Electron apps). For
+general desktop UI navigation prefer the `computer-use` skill.
 
 Tools in this skill are proxy tools — execution is forwarded to the connected
-macOS client, never handled locally by the assistant.
+macOS or Windows client, never handled locally by the assistant.
 
 ## Cadence
 
@@ -39,7 +39,7 @@ or whether the app is even running). Re-observe after actions that may have
 moved the window or changed visibility.
 
 `observe` waits a short settle delay (default ~200ms) before capturing so the
-target app and the WindowServer can flush pending input and composite a fresh
+target app and the compositor can flush pending input and composite a fresh
 frame. If the captured screenshot looks one input behind the latest state
 (common with emulators or other slow-feedback apps), pass a larger
 `settle_ms`. For static UIs where you just want a quick snapshot, pass
@@ -55,7 +55,8 @@ frame. If the captured screenshot looks one input behind the latest state
   may carry its own `duration_ms` (hold) and `gap_ms` (pause after).
 - Prefer `app_control_combo` over rapid sequential `app_control_press` for
   simultaneous inputs (e.g. cmd+shift+4). `combo` holds every key at once;
-  sequential presses interleave key-down and key-up events.
+  sequential presses interleave key-down and key-up events. On Windows `cmd`
+  maps to Ctrl and `option` to Alt.
 - Use `app_control_type` for literal text into a focused field.
 
 ## Coordinate caveat
@@ -66,9 +67,11 @@ uncertain whether the window has shifted, re-observe first.
 
 ## App targeting
 
-Use bundle IDs (e.g. `com.example.app`) when possible — they are the most
-reliable identifier. Fall back to localized process names if a bundle ID is
-unavailable.
+On macOS use bundle IDs (e.g. `com.example.app`) when possible; they are the
+most reliable identifier. Fall back to localized process names if a bundle ID
+is unavailable. On Windows use the process name (e.g. `notepad`, with or
+without `.exe`), a main window title, or `hwnd:<handle>`; `app_control_start`
+also accepts a full executable path to launch.
 
 ## Ending the session
 

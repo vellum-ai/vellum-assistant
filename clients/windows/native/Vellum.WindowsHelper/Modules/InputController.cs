@@ -41,6 +41,9 @@ public static class KeyPlanner
         return codes;
     }
 
+    public static bool TryResolveModifier(string name, out ushort vk) =>
+        Modifiers.TryGetValue(name, out vk);
+
     public static ushort ResolveKey(string key)
     {
         if (NamedKeys.TryGetValue(key, out var named))

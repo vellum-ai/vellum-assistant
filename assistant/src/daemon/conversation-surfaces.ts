@@ -3074,7 +3074,7 @@ export async function surfaceProxyResolver(
     if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
       return {
         content:
-          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
+          "App control is not available: enable the `app-control` feature flag and connect a macOS or Windows client.",
         isError: true,
       };
     }
@@ -3082,7 +3082,7 @@ export async function surfaceProxyResolver(
     // Resolve target client. Mirrors the host_cu block above: validate
     // explicit target_client_id (existence, capability, same-actor), then
     // multi-client guard when no target is supplied. App-control is
-    // single-client-only at the host (one active session per macOS
+    // single-client-only at the host (one active session per desktop
     // machine), so a broadcast across multiple capable clients would fire
     // the same input on every machine.
     let targetClientId: string | undefined =

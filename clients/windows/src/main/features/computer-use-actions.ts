@@ -1,8 +1,10 @@
 /**
- * Computer-use action executor backed by the Windows native helper. `host_cu`
- * proxies `cu.perform`; the helper owns the verify, execute, settle, observe
- * cycle natively, preserving the committed computer-use result shape. The
- * executor is provided through the capability registry for final composition.
+ * Computer-use and app-control executors backed by the Windows native helper.
+ * `host_cu` proxies `cu.perform`; the helper owns the verify, execute, settle,
+ * observe cycle natively, preserving the committed computer-use result shape.
+ * `host_app_control` proxies `appControl.perform` for per-window raw input and
+ * capture. Both are provided through the capability registry for final
+ * composition.
  */
 
 import { join } from "node:path";
@@ -14,6 +16,7 @@ import {
   type CapabilityModule,
   type DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
+import { createAppControlHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/app-control-executor";
 import { createCuHelperProxyExecutor } from "@vellumai/electron-desktop/host-proxy/cu-executor";
 import type { CuHelperClient } from "@vellumai/electron-desktop/host-proxy/helper-proxy-executor";
 import type { HostProxyExecutor } from "@vellumai/electron-desktop/host-proxy/router";
@@ -23,6 +26,7 @@ import log from "../logger";
 
 export interface ComputerUseActionExecutors {
   host_cu: HostProxyExecutor;
+  host_app_control: HostProxyExecutor;
   teardown: () => void;
 }
 
@@ -137,11 +141,24 @@ export const createWindowsHostCuExecutor = (
   });
 };
 
+// App control captures one target window, so the Vellum windows need no
+// content protection here.
+export const createWindowsHostAppControlExecutor = (
+  deps: WindowsCuExecutorDeps = {},
+): HostProxyExecutor => {
+  const { helper } = deps;
+  return createAppControlHelperProxyExecutor({
+    logger: log,
+    resolveHelper: helper ? () => helper : getSharedCuHelper,
+  });
+};
+
 const computerUseActionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
   id: "computer-use-actions",
   install: (capabilities) => {
     capabilities.provide(COMPUTER_USE_ACTION_EXECUTORS, {
       host_cu: createWindowsHostCuExecutor(),
+      host_app_control: createWindowsHostAppControlExecutor(),
       teardown: shutdownSharedCuHelper,
     });
   },

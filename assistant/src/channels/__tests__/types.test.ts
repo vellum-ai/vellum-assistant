@@ -114,7 +114,7 @@ describe("supportsHostProxy", () => {
     expect(supportsHostProxy("windows", "host_cu")).toBe(true);
     expect(supportsHostProxy("windows", "host_browser")).toBe(true);
     expect(supportsHostProxy("windows", "host_ui_snapshot")).toBe(true);
-    expect(supportsHostProxy("windows", "host_app_control")).toBe(false);
+    expect(supportsHostProxy("windows", "host_app_control")).toBe(true);
   });
 
   // ── chrome-extension: only host_browser. ──
