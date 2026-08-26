@@ -394,7 +394,6 @@ export function createToolExecutor(
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
       conversationId: ctx.conversationId,
-      clientOs: ctx.currentTurnClientOs,
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,

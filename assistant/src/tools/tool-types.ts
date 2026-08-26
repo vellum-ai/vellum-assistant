@@ -212,8 +212,6 @@ export interface ToolContext {
   conversationId: string;
   /** Logical assistant scope for multi-assistant routing. */
   assistantId?: string;
-  /** Operating system reported by the client driving the current turn. */
-  clientOs?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
   /** Per-message request ID for log correlation across conversation/connection boundaries. */
