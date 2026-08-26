@@ -289,7 +289,7 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Server-side switch for per-channel admission-floor enforcement: the gateway kill switch, the runtime floor stage, and the admission-policy reads all gate on it. On by default. Client UI visibility is version-gated, not flag-gated.",
+      "description": "Server-side switch for admission-floor enforcement: the gateway kill switch, the runtime floor stage, and enforcement-time policy resolution gate on it. Configuration reads and writes stay available while it is off. On by default. Client UI visibility is version-gated, not flag-gated.",
       "defaultEnabled": true
     },
     {

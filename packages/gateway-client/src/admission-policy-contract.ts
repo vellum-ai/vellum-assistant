@@ -3,9 +3,8 @@
  *
  * Both the gateway (channel admission policy storage + kill switch) and the
  * runtime (admission-policy stage) consume these values. Keeping the type
- * here avoids the runtime importing from `gateway/src` and keeps the
- * vocabulary from drifting the way the verification-purpose `trustClass`
- * enum once did.
+ * here avoids the runtime importing from `gateway/src` and keeps both
+ * sides on a single shared vocabulary.
  */
 
 import { z } from "zod";

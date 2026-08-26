@@ -109,8 +109,10 @@ export interface AclEnforcementParams {
    * - `any_contact`: inactive `pending`/`unverified` members are passed
    *   through.
    *
-   * Passing this in avoids having ACL fire guardian notifications and canned
-   * replies for senders who will be admitted by the floor stage anyway.
+   * Passing this in keeps ACL from firing guardian notifications and canned
+   * replies for senders whose final answer belongs to the floor stage:
+   * admission under the permissive floors, or a `guardian_only` denial
+   * delivered without a misleading verification challenge.
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
   /**
