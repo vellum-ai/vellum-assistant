@@ -1203,8 +1203,9 @@ describe("PlanCard with obscure-credits on", () => {
     }
   });
 
-  test("shows neither the bar nor the price without grant figures", async () => {
-    // An older platform reports neither usage-grant figure on the summary.
+  test("keeps the price row when the summary reports no grant figures", async () => {
+    // An older platform omits both usage-grant fields, so there is no honest
+    // reading. The tile keeps its price rather than an empty footer.
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
@@ -1214,13 +1215,12 @@ describe("PlanCard with obscure-credits on", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    // No honest number to draw, and the price it replaced must not come back.
     expect(
       container.querySelector('[data-testid="plan-usage-balance"]'),
     ).toBeNull();
     expect(
-      container.querySelector('[data-testid="plan-card-price"]'),
-    ).toBeNull();
+      within(currentTile(container)).getByTestId("plan-card-price").textContent,
+    ).toBe("$30/month");
   });
 
   test("a Custom sub reads the same summary and still shows no chips", async () => {

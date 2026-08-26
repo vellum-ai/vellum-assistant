@@ -25,6 +25,7 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   CreditTierEnum,
@@ -132,6 +133,9 @@ function AdjustPlanModalContent({
       });
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: organizationsBillingSummaryRetrieveQueryKey(),
       });
       onClose();
     });
@@ -365,6 +369,11 @@ function AdjustPlanModalContent({
     });
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingPlansRetrieveQueryKey(),
+    });
+    // An immediate upgrade grants the credit difference right away, and the
+    // Usage Balance bar reads off the summary's grant figures.
+    void queryClient.invalidateQueries({
+      queryKey: organizationsBillingSummaryRetrieveQueryKey(),
     });
   };
 

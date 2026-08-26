@@ -529,11 +529,12 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     />
   ) : null;
   // A tile under the flag trades its price for the usage balance, so the two
-  // never state the same allowance twice. A free account that was never granted
-  // any usage has no bar to trade for, so "Free Forever" stays as its footer
-  // rather than leaving the tile with an empty bottom slot.
+  // never state the same allowance twice. With no bar to trade for (a free
+  // account that was never granted usage, or a platform whose summary reports
+  // no grant figures), the price row stays as the footer rather than leaving
+  // the tile with an empty bottom slot.
   let currentFooter: ReactNode = priceRow;
-  if (obscureCredits && (!isFreePlan || usagePanel != null)) {
+  if (obscureCredits && usagePanel != null) {
     currentFooter = usagePanel;
   }
 

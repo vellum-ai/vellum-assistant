@@ -6,6 +6,7 @@ import {
   organizationsBillingSubscriptionChangePackageCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { PackageChangeResponse } from "@/generated/api/types.gen";
 
@@ -13,7 +14,7 @@ import { extractMutationError } from "@/domains/settings/components/adjust-plan-
 
 /**
  * Shared wiring for the change-package CTAs (plan-card banner, plans page).
- * Posts `{ package }` to the change-package endpoint, invalidates the three
+ * Posts `{ package }` to the change-package endpoint, invalidates the
  * billing queries on success (mirrors `adjust-plan-modal`'s
  * `invalidateBillingQueries`), and surfaces the extracted error — including a
  * 402 declined-card message — as a toast on failure.
@@ -41,6 +42,11 @@ export function useChangePackage() {
         queryClient.invalidateQueries({
           queryKey:
             organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+        }),
+        // An immediate upgrade grants the credit difference right away, and
+        // the Usage Balance bar reads off the summary's grant figures.
+        queryClient.invalidateQueries({
+          queryKey: organizationsBillingSummaryRetrieveQueryKey(),
         }),
       ]);
       return result;

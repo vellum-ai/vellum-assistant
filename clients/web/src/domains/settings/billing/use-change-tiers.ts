@@ -15,6 +15,7 @@ import {
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   CreditTierEnum,
@@ -233,6 +234,11 @@ export function useChangeTiers({
       }),
       queryClient.invalidateQueries({
         queryKey: organizationsBillingPlansRetrieveQueryKey(),
+      }),
+      // An immediate tier change grants the credit difference right away, and
+      // the Usage Balance bar reads off the summary's grant figures.
+      queryClient.invalidateQueries({
+        queryKey: organizationsBillingSummaryRetrieveQueryKey(),
       }),
     ]);
 
