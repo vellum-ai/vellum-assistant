@@ -31,6 +31,17 @@ import org.json.JSONException;
 public class MainActivity extends BridgeActivity {
     private static final long LAUNCH_SCREEN_LOAD_FALLBACK_MS = 2_000;
     private static final long LAUNCH_SCREEN_TIMEOUT_MS = 15_000;
+
+    /**
+     * The way out of an origin that cannot be reached, as a route under the app
+     * entry: the baked Vellum Cloud origin serves the chooser whether or not
+     * the configured one is up, and the chooser lists every remembered origin,
+     * so the unreachable one is still one tap away once it recovers.
+     * {@code noAutoSkip} keeps it from connecting straight through a lone
+     * assistant. Mirrors the pairing page's cancel route.
+     */
+    private static final String CHOOSER_ROUTE_PATH = "select-assistant?noAutoSkip=1";
+
     private static ConnectDeepLink recreationConnect;
     private static String recreationRoutePath;
 
@@ -351,11 +362,24 @@ public class MainActivity extends BridgeActivity {
             return;
         }
 
+        // A dead tunnel answers with its provider's own error page, which
+        // offers no way back into the app; blanking it leaves this dialog as
+        // the whole error state, matching the iOS response cancellation. Sits
+        // below the guards so an unrelated failure keeps the WebView's own
+        // error page.
+        if (bridge != null) {
+            bridge.getWebView().loadUrl("about:blank");
+        }
+
         String host = effectiveServer.getHost();
         unreachableDialog = new AlertDialog.Builder(this)
-            .setMessage("Can't load " + host + ".")
+            .setTitle("Can't reach " + host)
+            .setMessage("The assistant may be offline or unreachable from this device.")
             .setPositiveButton("Retry", (dialog, which) -> retryServer())
-            .setNegativeButton("Use Vellum Cloud", (dialog, which) -> useVellumCloud())
+            .setNegativeButton("Choose Assistant", (dialog, which) -> openAssistantChooser())
+            // Dismissing without choosing would leave a blank page and no way
+            // out, which is the state this dialog exists to end.
+            .setCancelable(false)
             .setOnDismissListener(dialog -> unreachableDialog = null)
             .create();
         unreachableDialog.show();
@@ -371,10 +395,16 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().loadUrl(destination);
     }
 
-    private void useVellumCloud() {
+    /**
+     * Leave the unreachable origin for the chooser on the baked Vellum Cloud
+     * origin, which is up whether or not the configured one is. Clearing unsets
+     * only the active slot, so the remembered list keeps the origin and the
+     * chooser offers it back once it recovers.
+     */
+    private void openAssistantChooser() {
         SelfHostedServer.clear(this);
         effectiveServer = null;
-        recreateForServerChange(null);
+        recreateForServerChange(CHOOSER_ROUTE_PATH);
     }
 
     /**

@@ -10,6 +10,7 @@ export type ChannelReadinessSnapshot =
 export const SETUP_CHANNEL_IDS = [
   "slack",
   "telegram",
+  "discord",
   "phone",
 ] as const satisfies readonly ChannelReadinessSnapshot["channel"][];
 export type SetupChannelId = (typeof SETUP_CHANNEL_IDS)[number];
@@ -38,6 +39,13 @@ export interface AssistantChannelState {
    * by omission: which one a decision wants has to be stated.
    */
   configured: boolean;
+  /**
+   * Whether a route exists that clears this channel's credentials, read off
+   * the channel's declared disconnect copy. Carried on the state row because
+   * surfaces outside the channels domain render disconnect actions and may
+   * not read that domain's metadata directly.
+   */
+  canDisconnect: boolean;
   /** Absent when the channel measures nothing operational. */
   health?: ChannelReadinessSnapshot["health"];
   address?: string;

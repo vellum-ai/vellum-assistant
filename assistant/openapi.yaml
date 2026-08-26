@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.5
+  version: 0.11.6
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2766,8 +2766,8 @@ paths:
       operationId: backup_destinations_get
       summary: List configured offsite backup destinations
       description:
-        Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit
-        array is configured.
+        Returns the current offsite destinations array. When no explicit array is configured, macOS materializes
+        its encrypted iCloud Drive default while Windows and Linux return no implicit destination.
       tags:
         - backups
       responses:
@@ -2799,8 +2799,8 @@ paths:
       operationId: backup_destinations_add_post
       summary: Add an offsite backup destination
       description:
-        Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors
-        if the path already exists.
+        Appends a new destination. Materializes the platform default first if destinations is currently null.
+        Errors if the path already exists.
       tags:
         - backups
       requestBody:
@@ -4342,6 +4342,15 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         interactionCount:
                           type: number
                         hasInterceptableVerificationSession:
@@ -5597,6 +5606,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5761,6 +5779,15 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5893,6 +5920,15 @@ paths:
                       interactionCount:
                         anyOf:
                           - type: number
+                          - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
                           - type: "null"
                       createdAt:
                         type: number
@@ -6298,6 +6334,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -6496,6 +6541,15 @@ paths:
                     interactionCount:
                       anyOf:
                         - type: number
+                        - type: "null"
+                    autoApproveThreshold:
+                      anyOf:
+                        - type: string
+                          enum:
+                            - none
+                            - low
+                            - medium
+                            - high
                         - type: "null"
                     createdAt:
                       type: number

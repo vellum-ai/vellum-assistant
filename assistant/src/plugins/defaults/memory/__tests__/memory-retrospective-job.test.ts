@@ -1827,6 +1827,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: false,
       transportInterface: "web",
+      clientOs: "web",
       requestOrigin: "memory_retrospective",
     });
   });
@@ -1863,7 +1864,11 @@ describe("memoryRetrospectiveJob", () => {
         id: "m2",
         createdAt: Date.parse("2026-05-11T10:05:00Z"),
         role: "user",
-        metadata: JSON.stringify({ userMessageInterface: "macos" }),
+        metadata: JSON.stringify({
+          userMessageInterface: "macos",
+          client: { os: "macos" },
+          clientOsFromRequest: true,
+        }),
       },
       {
         id: "m3",
@@ -1884,6 +1889,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: false,
       transportInterface: "macos",
+      clientOs: "macos",
       requestOrigin: "memory_retrospective",
     });
   });
@@ -1907,6 +1913,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
       hasNoClient: false,
       transportInterface: "macos",
+      clientOs: "macos",
       requestOrigin: "memory_retrospective",
     });
   });

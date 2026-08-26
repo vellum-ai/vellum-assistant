@@ -19,6 +19,12 @@ import { loadSkillCatalog } from "../config/skills.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
+import {
+  isSkillCompatibleWithPlatform,
+  normalizeSkillPlatforms,
+  type SkillPlatform,
+  skillPlatformUnavailableMessage,
+} from "./platform-compatibility.js";
 
 const log = getLogger("catalog-install");
 
@@ -33,6 +39,7 @@ export interface CatalogSkill {
   includes?: string[];
   version?: string;
   updatedAt?: string;
+  platforms?: SkillPlatform[];
   metadata?: {
     icon?: string;
     emoji?: string;
@@ -42,6 +49,7 @@ export interface CatalogSkill {
       "avoid-when"?: string[];
       "feature-flag"?: string;
       category?: string;
+      platforms?: SkillPlatform[];
     };
   };
 }
@@ -111,6 +119,7 @@ interface RawCatalogEntry {
   updatedAt?: unknown;
   display_name?: unknown;
   category?: unknown;
+  platforms?: unknown;
   updated_at?: unknown;
   metadata?: CatalogSkill["metadata"];
 }
@@ -144,6 +153,9 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
   const displayName = nested?.["display-name"] ?? asStr(entry.display_name);
   const icon = asStr(entry.icon) ?? asStr(entry.metadata?.icon);
   const updatedAt = asStr(entry.updatedAt) ?? asStr(entry.updated_at);
+  const platforms = normalizeSkillPlatforms(
+    nested?.platforms ?? entry.platforms,
+  );
 
   return {
     id,
@@ -154,6 +166,7 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
     ...(entry.includes ? { includes: entry.includes } : {}),
     ...(entry.version ? { version: entry.version } : {}),
     ...(updatedAt ? { updatedAt } : {}),
+    ...(platforms ? { platforms } : {}),
     metadata: {
       ...entry.metadata,
       ...(icon ? { icon } : {}),
@@ -161,6 +174,7 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
         ...nested,
         ...(displayName ? { "display-name": displayName } : {}),
         ...(category ? { category } : {}),
+        ...(platforms ? { platforms } : {}),
       },
     },
   };
@@ -610,7 +624,8 @@ export async function resolveCatalog(
 /**
  * Attempt to find and install a skill from the first-party catalog.
  * Returns true if the skill was installed, false if not found in catalog.
- * Throws on install failures (network, filesystem, etc).
+ * Throws when the skill is unsupported on this host or on install failures
+ * (network, filesystem, etc).
  *
  * When `catalog` is provided it is used directly, avoiding a redundant
  * network fetch — pass a pre-resolved catalog when calling in a loop.
@@ -638,6 +653,9 @@ export async function autoInstallFromCatalog(
   const entry = skills.find((s) => s.id === skillId);
   if (!entry) {
     return false;
+  }
+  if (!isSkillCompatibleWithPlatform(entry)) {
+    throw new Error(skillPlatformUnavailableMessage(skillId, entry));
   }
 
   // If the skill already exists on disk, reuse it instead of attempting a

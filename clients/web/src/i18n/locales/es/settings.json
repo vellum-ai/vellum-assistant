@@ -1209,6 +1209,7 @@
     "generateButtonMinting": "Generando…",
     "generateButtonRegenerate": "Generar nuevo código",
     "generateButtonWarned": "Generar de todos modos",
+    "learnMore": "Más información sobre la vinculación",
     "noTunnelMore": "Otros proveedores y opciones: <code>{command}</code>",
     "noTunnelNext": "El túnel imprime una dirección https. Pégala en URL pública más abajo y deja el túnel en marcha mientras vinculas y usas otros dispositivos.",
     "noTunnelTitle": "Abre primero un túnel",
@@ -1245,7 +1246,8 @@
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
-    "confirmMessage": "El dispositivo {platform} {hash} pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
+    "browserOnOs": "{browser} en {os}",
+    "confirmMessageNamed": "{name} ({hash}) pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
     "confirmTitle": "¿Revocar este dispositivo?",
     "dateUnknown": "desconocido",
     "hostRevokeDisabledTitle": "Esta es la credencial de este mismo equipo; revocarla dejaría al host sin acceso al asistente.",

@@ -316,6 +316,7 @@ const nativeGatewayRead = {
   contactType: "human",
   lastInteraction: 9200,
   interactionCount: 11,
+  autoApproveThreshold: "high",
   createdAt: 1000,
   updatedAt: 1500,
   channels: [
@@ -376,6 +377,9 @@ describe("filtered/native contact reads: daemon filters, gateway hydrates teleme
     // (4/4200/4100).
     expect(contact.interactionCount).toBe(11);
     expect(contact.lastInteraction).toBe(9200);
+    expect(
+      (contact as { autoApproveThreshold?: string | null }).autoApproveThreshold,
+    ).toBe("high");
     const channel = contact.channels[0] as Record<string, unknown>;
     expect(channel.interactionCount).toBe(11);
     expect(channel.lastSeenAt).toBe(9100);
@@ -404,6 +408,9 @@ describe("filtered/native contact reads: daemon filters, gateway hydrates teleme
     const [contact] = result.contacts;
     expect(contact.interactionCount).toBe(0);
     expect(contact.lastInteraction).toBeNull();
+    expect(
+      (contact as { autoApproveThreshold?: string | null }).autoApproveThreshold,
+    ).toBeNull();
     const channel = contact.channels[0] as Record<string, unknown>;
     expect(channel.interactionCount).toBe(0);
     expect(channel.lastSeenAt).toBeNull();

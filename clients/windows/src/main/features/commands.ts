@@ -19,6 +19,8 @@ import { installImageContextMenu } from "@vellumai/electron-desktop/image-contex
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 
 import { getRendererBase } from "../app-config";
+import { checkForUpdates } from "../auto-update";
+import { runInstallCliCommandFlow } from "../cli-path-flow";
 import { handle } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
@@ -62,7 +64,14 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
       },
       logger: log,
     });
-    installWindowsMenu({ handle, openAbout: openAboutWindow });
+    installWindowsMenu({
+      handle,
+      openAbout: openAboutWindow,
+      checkForUpdates,
+      installCli: () => {
+        void runInstallCliCommandFlow();
+      },
+    });
 
     app.on("web-contents-created", (_event, contents) => {
       installImageContextMenu(contents);

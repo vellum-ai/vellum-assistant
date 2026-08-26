@@ -6,9 +6,25 @@ import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant
 import type { AssistantChannelState } from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
-  { key: "slack", status: "ready", configured: true, address: "@vex" },
-  { key: "telegram", status: "not_configured", configured: false },
-  { key: "phone", status: "not_configured", configured: false },
+  {
+    key: "slack",
+    status: "ready",
+    configured: true,
+    canDisconnect: true,
+    address: "@vex",
+  },
+  {
+    key: "telegram",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+  },
+  {
+    key: "phone",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+  },
 ];
 
 afterEach(() => {
@@ -66,6 +82,7 @@ describe("assistant channels detail (contact card)", () => {
             key: "slack",
             status: "incomplete",
             configured: true,
+            canDisconnect: true,
             health: "failing",
             address: "@vex",
           },

@@ -35,15 +35,18 @@ mock.module("electron", () => ({
 
 const { buildWindowsMenu, installWindowsMenu } = await import("./menu");
 
-const submenu = (label: string): Array<Record<string, unknown>> => {
-  const item = buildWindowsMenu({ openAbout: () => undefined }).find(
-    (entry) => entry.label === label,
-  );
+type MenuOptions = Parameters<typeof buildWindowsMenu>[0];
+
+const submenu = (
+  label: string,
+  options: MenuOptions = { openAbout: () => undefined },
+): Array<Record<string, unknown>> => {
+  const item = buildWindowsMenu(options).find((entry) => entry.label === label);
   return item?.submenu as Array<Record<string, unknown>>;
 };
 
-const enabled = (menu: string, label: string): unknown =>
-  submenu(menu).find((item) => item.label === label)?.enabled;
+const enabled = (menu: string, label: string, options?: MenuOptions): unknown =>
+  submenu(menu, options).find((item) => item.label === label)?.enabled;
 
 describe("buildWindowsMenu", () => {
   test("uses Windows roles and disables unavailable providers", () => {
@@ -51,6 +54,16 @@ describe("buildWindowsMenu", () => {
     expect(enabled("Help", "Check for Updates...")).toBe(false);
     expect(enabled("File", "Install vellum Command...")).toBe(false);
     expect(enabled("Window", "Pop Out Conversation")).toBe(false);
+  });
+
+  test("enables update and CLI items when handlers are provided", () => {
+    const options = {
+      openAbout: () => undefined,
+      checkForUpdates: () => undefined,
+      installCli: () => undefined,
+    };
+    expect(enabled("Help", "Check for Updates...", options)).toBe(true);
+    expect(enabled("File", "Install vellum Command...", options)).toBe(true);
   });
 
   test("dispatches committed commands to the focused window", () => {

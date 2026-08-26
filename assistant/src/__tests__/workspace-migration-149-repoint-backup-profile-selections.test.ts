@@ -79,11 +79,13 @@ afterEach(() => {
 });
 
 describe("149-repoint-backup-profile-selections migration", () => {
-  test("is registered as the current migration", () => {
+  test("is registered", () => {
     expect(repointBackupProfileSelectionsMigration.id).toBe(
       "149-repoint-backup-profile-selections",
     );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
+    // The "newest migration" assertion lives with whichever migration is
+    // actually last; this one only has to stay in the ordered list.
+    expect(WORKSPACE_MIGRATIONS.map((m) => m.id)).toContain(
       "149-repoint-backup-profile-selections",
     );
   });

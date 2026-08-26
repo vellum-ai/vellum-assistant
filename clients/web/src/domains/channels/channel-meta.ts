@@ -24,16 +24,16 @@ interface ChannelMeta {
   labelKey:
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
+    | "channelMeta.discord.label"
     | "channelMeta.phone.label";
   /**
    * Catalog key for the disconnect dialog's body.
    *
-   * Undefined when a channel cannot be disconnected from here: there is no
-   * route that clears Discord's credentials, so an offered button would open
-   * a dialog whose confirm does nothing. Read as a capability the way the
-   * transport reads an absent method, rather than naming the channel in the
-   * component. Required, not optional, so a new channel states the answer
-   * instead of inheriting one by omission.
+   * Undefined when a channel cannot be disconnected from here. The
+   * capability itself is the delete-route record (`DISCONNECT_ROUTES`); this
+   * key is its confirm dialog's copy, and a test holds the two equal so
+   * neither can drift. Required, not optional, so a new channel states the
+   * answer instead of inheriting one by omission.
    */
   disconnectMessageKey:
     | "channelMeta.slack.disconnectMessage"
@@ -68,6 +68,7 @@ interface ChannelMeta {
    */
   disconnectedPitchKey:
     | "channelMeta.telegram.disconnectedPitch"
+    | "channelMeta.discord.disconnectedPitch"
     | "channelMeta.phone.disconnectedPitch"
     | undefined;
 }
@@ -91,6 +92,16 @@ export const CHANNEL_META = {
     hasTrustFloorControl: true,
     credentialForm: "telegram-token",
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
+  },
+  discord: {
+    labelKey: "channelMeta.discord.label",
+    // No route clears Discord's credentials yet, so no disconnect copy: the
+    // absence is what keeps the button unoffered. The in-product credential
+    // form arrives with the config API; until then setup is the guided flow.
+    disconnectMessageKey: undefined,
+    hasTrustFloorControl: true,
+    credentialForm: undefined,
+    disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
   },
   phone: {
     labelKey: "channelMeta.phone.label",

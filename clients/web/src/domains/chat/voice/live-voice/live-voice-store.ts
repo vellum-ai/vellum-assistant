@@ -425,6 +425,22 @@ export interface LiveVoiceState {
   playbackProgressProvider: (() => LiveVoicePlaybackProgress | null) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
+  /**
+   * What the user can do about the current failure, beyond dismissing it.
+   * `null` for a failure with no way out but trying again later.
+   *
+   * `reclaim` means another live-voice session holds the daemon's single
+   * slot, and it can be ended from here. `holderConversationId` is where that
+   * session is, when the daemon named it, so a surface can offer to go there
+   * instead of ending it.
+   */
+  errorRecovery: LiveVoiceErrorRecovery | null;
+}
+
+/** See {@link LiveVoiceState.errorRecovery}. */
+export interface LiveVoiceErrorRecovery {
+  kind: "reclaim";
+  holderConversationId: string | null;
 }
 
 export interface LiveVoiceActions {
@@ -507,7 +523,7 @@ export interface LiveVoiceActions {
     provider: (() => LiveVoicePlaybackProgress | null) | null,
   ) => void;
   /** Transition to `failed` with a message. */
-  fail: (message: string) => void;
+  fail: (message: string, recovery?: LiveVoiceErrorRecovery | null) => void;
   /**
    * Reset every session field back to the idle defaults. Deliberately leaves
    * `starter` registered — it belongs to the controller's mount lifecycle,
@@ -633,6 +649,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   outputAmplitudeProvider: null,
   playbackProgressProvider: null,
   error: null,
+  errorRecovery: null,
 };
 
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
@@ -684,7 +701,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ outputAmplitudeProvider }),
   setPlaybackProgressProvider: (playbackProgressProvider) =>
     set({ playbackProgressProvider }),
-  fail: (message) => set({ state: "failed", error: message }),
+  fail: (message, recovery = null) =>
+    set({ state: "failed", error: message, errorRecovery: recovery }),
   reset: () => set({ ...INITIAL_SESSION_STATE }),
 }));
 

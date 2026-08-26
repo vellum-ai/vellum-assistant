@@ -749,10 +749,26 @@ describe("credentials routes", () => {
       expect(entry.service).toBe("vercel");
       expect(entry.field).toBe("api_token");
       expect(entry.hasSecret).toBe(true);
-      expect(entry.scrubbedValue).toBe("****alue");
+      expect(entry.scrubbedValue).toBe("supe****");
 
       // AND the raw secret never appears anywhere in the response
       expect(JSON.stringify(result)).not.toContain(SECRET_VALUE);
+    });
+
+    test("masked preview keeps a vendor token prefix", async () => {
+      const token = "cfat_000000000000000000000000000000000000abcd";
+      await setRoute!.handler({
+        body: {
+          service: "cloudflare",
+          field: "api_token",
+          value: token,
+        },
+      });
+
+      const result = (await listRoute!.handler({ body: {} })) as ListResponse;
+      expect(result.credentials).toHaveLength(1);
+      expect(result.credentials[0].scrubbedValue).toBe("cfat****");
+      expect(JSON.stringify(result)).not.toContain(token);
     });
 
     test("filters credentials by search substring", async () => {

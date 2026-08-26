@@ -1,6 +1,6 @@
 /**
  * "Create my personality" — five trait sliders the user nudges to shape the
- * assistant's voice, shown between the pitch and the free-credits step.
+ * assistant's voice, shown between the pitch and the initial-usage step.
  *
  * SPIKE — research-onboarding flow.
  *

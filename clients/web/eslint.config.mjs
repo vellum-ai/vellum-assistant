@@ -185,15 +185,12 @@ const authBoundaryAllowedPaths = [
 /**
  * Paths where user-facing copy must come from a translation catalog.
  *
- * Append to this list as each area is converted. Entries are globs relative to
- * `clients/web/`. Keep them as narrow as the conversion actually was: a
- * directory glob added before its files are converted turns the ratchet into
- * noise, which is how these rules die.
+ * Covers all of `src/` (generated excluded via `globalIgnores`). Entries are
+ * globs relative to `clients/web/`. Never shrink this list to silence a
+ * violation; fix the copy or add an eslint-disable with a reason.
  */
 const i18nEnforcedPaths = [
-  "src/components/**/*.{ts,tsx}",
-  "src/hooks/**/*.{ts,tsx}",
-  "src/domains/**/*.{ts,tsx}",
+  "src/**/*.{ts,tsx}",
 ];
 
 /**
@@ -292,18 +289,15 @@ const eslintConfig = defineConfig([
   // -----------------------------------------------------------------------
   // i18n cutover ratchet
   //
-  // `local/no-untranslated-strings` is enabled only for the paths below, and
-  // the list grows as areas are converted. Repo-wide it would report thousands
-  // of pre-existing literals in one go, and a rule that noisy gets disabled
-  // rather than obeyed. Scoped, an area that has been converted cannot
-  // regress, and this list is the record of how far the cutover has reached.
+  // `local/no-untranslated-strings` covers all of `src/` (except generated).
+  // Domains, hooks, and components were converted first; the remaining
+  // stores/root routes followed so this glob could widen without a flood of
+  // pre-existing literals. A clean lint here is not proof every user-facing
+  // string is translated: the rule reads JSX, toast call sites, and
+  // copy-shaped props, not every helper return value. See `docs/I18N.md`.
   //
-  // To convert an area: move its copy into the namespace that owns it (see
-  // `src/i18n/namespaces.ts`), read it with `t()`, add the glob here, and run
-  // `bun run lint` until it is quiet. Never add a path with violations still
-  // in it, and never widen a glob to make an error go away.
-  //
-  // See `clients/web/docs/I18N.md`.
+  // Never shrink this glob to silence a violation. Fix the copy, or add an
+  // eslint-disable with a reason for brand names / protocol tokens.
   {
     files: i18nEnforcedPaths,
     rules: {

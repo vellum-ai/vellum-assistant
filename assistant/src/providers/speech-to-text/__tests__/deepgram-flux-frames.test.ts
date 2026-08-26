@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildFluxQueryParams,
+  fluxModelForLanguage,
   parseFluxFrame,
 } from "../deepgram-flux-frames.js";
 
@@ -428,6 +429,47 @@ describe("buildFluxQueryParams", () => {
       });
       expect(query).not.toContain("eager_eot_threshold");
       expect(new URLSearchParams(query).has("eager_eot_threshold")).toBe(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fluxModelForLanguage
+// ---------------------------------------------------------------------------
+
+describe("fluxModelForLanguage", () => {
+  test("unset and English select the English model with no hint", () => {
+    for (const language of [undefined, "", "en", "en-US", "EN"]) {
+      expect(fluxModelForLanguage(language)).toEqual({
+        model: "flux-general-en",
+      });
+    }
+  });
+
+  test("multi selects code-switching, which takes no hint", () => {
+    // A hint would tell Flux the answer; omitting it is what asks it to
+    // detect and follow a speaker between languages.
+    expect(fluxModelForLanguage("multi")).toEqual({
+      model: "flux-general-multi",
+    });
+  });
+
+  test("a supported non-English language hints the multilingual model", () => {
+    expect(fluxModelForLanguage("es")).toEqual({
+      model: "flux-general-multi",
+      languageHint: "es",
+    });
+    expect(fluxModelForLanguage("pt-BR")).toEqual({
+      model: "flux-general-multi",
+      languageHint: "pt",
+    });
+  });
+
+  test("a language Flux cannot serve resolves to nothing", () => {
+    // The caller refuses instead: the English model would return fluent
+    // nonsense that the transcript gives no sign of.
+    for (const language of ["ko", "zh", "ta", "sw"]) {
+      expect(fluxModelForLanguage(language)).toBeNull();
     }
   });
 });

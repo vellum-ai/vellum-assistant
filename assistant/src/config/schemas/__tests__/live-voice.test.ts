@@ -26,10 +26,11 @@ const FRONT_MODEL_DEFAULTS = {
 };
 
 // `eagerEotThreshold` is deliberately absent: it has no default, and leaving it
-// unset is what keeps Deepgram from emitting speculative turn events.
+// unset is what keeps Deepgram from emitting speculative turn events. `model`
+// is absent for a related reason: unset means the spoken language selects the
+// model, and pinning one overrides that.
 const FLUX_DEFAULTS = {
   turnEnd: { enabled: false },
-  model: "flux-general-en",
   eotThreshold: 0.7,
   eotTimeoutMs: 5_000,
 };
@@ -258,7 +259,7 @@ describe("LiveVoiceFluxConfigSchema", () => {
     const parsed = LiveVoiceFluxConfigSchema.parse({ eotThreshold: 0.6 });
     expect(parsed.eotThreshold).toBe(0.6);
     expect(parsed.turnEnd.enabled).toBe(false);
-    expect(parsed.model).toBe("flux-general-en");
+    expect(parsed.model).toBeUndefined();
     expect(parsed.eotTimeoutMs).toBe(5_000);
   });
 

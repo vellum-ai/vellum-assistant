@@ -1,6 +1,5 @@
 import {
   existsSync,
-  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -14,6 +13,10 @@ import {
   getEmbeddingModelsDir,
   getEmbedWorkerPidPath,
 } from "../../util/platform.js";
+import {
+  listProcessTable,
+  readRawProcessCommand,
+} from "../../util/process-table.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
 import { workerComputeEnv } from "../../util/worker-compute.js";
 import { workerMemoryEnv } from "../../util/worker-memory.js";
@@ -155,77 +158,7 @@ function pid1OwnsEmbedWorkers(): boolean {
   if (process.pid === 1) {
     return true;
   }
-  let cmd: string;
-  try {
-    cmd = readFileSync("/proc/1/cmdline", "utf8").split("\0").join(" ");
-  } catch {
-    const result = Bun.spawnSync({
-      cmd: ["ps", "-ww", "-p", "1", "-o", "command="],
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (result.exitCode !== 0) {
-      return false;
-    }
-    cmd = new TextDecoder().decode(result.stdout);
-  }
-  return cmd.includes(DAEMON_ENTRYPOINT_MARKER);
-}
-
-/** Enumerate `(pid, ppid, rawCommand)` rows from Linux `/proc`. */
-function listProcessRowsFromProc(): {
-  pid: number;
-  ppid: number;
-  cmd: string;
-}[] {
-  const rows: { pid: number; ppid: number; cmd: string }[] = [];
-  for (const entry of readdirSync("/proc")) {
-    const pid = Number(entry);
-    if (!Number.isInteger(pid) || pid <= 0) {
-      continue;
-    }
-    try {
-      // `stat` field 4 is ppid, but `comm` (field 2) may contain spaces or
-      // parens, so parse from the last ')' and a weird comm cannot shift fields.
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      const ppid = Number(after[1]);
-      const cmd = readFileSync(`/proc/${pid}/cmdline`, "utf8")
-        .split("\0")
-        .filter(Boolean)
-        .join(" ");
-      if (Number.isInteger(ppid)) {
-        rows.push({ pid, ppid, cmd });
-      }
-    } catch {
-      // Process exited between readdir and read, so skip it.
-    }
-  }
-  return rows;
-}
-
-/** Enumerate `(pid, ppid, rawCommand)` rows via `ps` (macOS / no `/proc`). */
-function listProcessRowsFromPs(): { pid: number; ppid: number; cmd: string }[] {
-  // `-ww` disables column-width truncation. Without it, macOS `ps` clips the
-  // command field to the terminal width, which can cut off the workerPath
-  // argument and hide a genuine match. Same flag is used by
-  // daemon-control.ts:123 for exactly this reason.
-  const result = Bun.spawnSync({
-    cmd: ["ps", "-A", "-ww", "-o", "pid=,ppid=,command="],
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  if (result.exitCode !== 0) {
-    return [];
-  }
-  const rows: { pid: number; ppid: number; cmd: string }[] = [];
-  for (const line of new TextDecoder().decode(result.stdout).split("\n")) {
-    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-    if (m) {
-      rows.push({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3].trim() });
-    }
-  }
-  return rows;
+  return readRawProcessCommand(1)?.includes(DAEMON_ENTRYPOINT_MARKER) ?? false;
 }
 
 /**
@@ -248,22 +181,17 @@ export function listWorkerProcesses(
   workerPath: string,
   model?: string,
 ): WorkerProcess[] {
-  let rows: { pid: number; ppid: number; cmd: string }[];
   try {
-    rows = listProcessRowsFromProc();
+    return listProcessTable()
+      .filter(
+        (row) =>
+          row.command.includes(workerPath) &&
+          (!model || row.command.split(/\s+/).includes(model)),
+      )
+      .map(({ pid, ppid }) => ({ pid, ppid }));
   } catch {
-    rows = listProcessRowsFromPs();
+    return [];
   }
-  return rows
-    .filter(
-      (r) =>
-        r.cmd.includes(workerPath) &&
-        // An argv token, not a substring: `foo/bar-small` must not match a
-        // `foo/bar-small-v2` worker, or a backend for the shorter name would
-        // reclaim the longer one's live worker. Model names carry no spaces.
-        (!model || r.cmd.split(/\s+/).includes(model)),
-    )
-    .map((r) => ({ pid: r.pid, ppid: r.ppid }));
 }
 
 /**
@@ -510,6 +438,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
     const proc = Bun.spawn({
       cmd: [bunPath, "--smol", workerPath, this.model, modelCacheDir],
+      windowsHide: true,
       env: { ...workerMemoryEnv(), ...workerComputeEnv() },
       stdin: "pipe",
       stdout: "pipe",

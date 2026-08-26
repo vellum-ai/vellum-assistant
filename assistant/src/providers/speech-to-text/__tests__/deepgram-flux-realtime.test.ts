@@ -622,4 +622,140 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
     expect(transcriber.providerId).toBe("deepgram-flux");
     expect(transcriber.boundaryId).toBe("daemon-streaming");
   });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Relay transport seams
+  // ─────────────────────────────────────────────────────────────────
+
+  describe("relay transport", () => {
+    const RELAY_OPTIONS = {
+      baseUrl: "wss://gateway.test",
+      path: "/v2/speech/stt/stream",
+      queryAuth: true,
+      omitModelParam: true,
+      nativeContract: true,
+      language: "multi",
+    };
+
+    test("dials the relay path with query auth and the native contract", async () => {
+      await startSession(RELAY_OPTIONS);
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.origin).toBe("wss://gateway.test");
+      expect(url.pathname).toBe("/v2/speech/stt/stream");
+      expect(url.searchParams.get("contract")).toBe("flux");
+      expect(url.searchParams.get("key")).toBe(TEST_API_KEY);
+      expect(url.searchParams.get("language")).toBe("multi");
+
+      // The relay derives and prices the Flux model itself, and rejects a
+      // client-selected one.
+      expect(url.searchParams.has("model")).toBe(false);
+
+      // Query auth carries the credential, so no Authorization header.
+      expect(dialedOptions[0]).toBeUndefined();
+    });
+
+    test("still sends the turn-detection tuning to the relay", async () => {
+      // Without eager_eot_threshold reaching Deepgram there are no eager
+      // turn ends at all, which is the whole point of the native contract.
+      await startSession({
+        ...RELAY_OPTIONS,
+        // eot tuning comes from liveVoice.flux, not the options.
+      });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.has("eot_threshold")).toBe(true);
+      expect(url.searchParams.get("encoding")).toBe("linear16");
+      expect(url.searchParams.get("sample_rate")).toBe("16000");
+    });
+
+    test("derives the model from the language when none is pinned", async () => {
+      // The relay does this mapping server-side; the direct path has to do it
+      // here, or a non-English session silently runs the English model.
+      await startSession({ language: "es" });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.get("model")).toBe("flux-general-multi");
+      expect(url.searchParams.get("language_hint")).toBe("es");
+    });
+
+    test("code-switching takes the multilingual model and no hint", async () => {
+      await startSession({ language: "multi" });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.get("model")).toBe("flux-general-multi");
+      expect(url.searchParams.has("language_hint")).toBe(false);
+    });
+
+    test("the relay path sends neither model nor hint", async () => {
+      // velay derives both from the language it is sent, and rejects a
+      // client-selected model.
+      await startSession({ ...RELAY_OPTIONS, language: "es" });
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.searchParams.has("model")).toBe(false);
+      expect(url.searchParams.has("language_hint")).toBe(false);
+      expect(url.searchParams.get("language")).toBe("es");
+    });
+
+    test("keeps the direct Deepgram dial unchanged", async () => {
+      await startSession();
+
+      const url = new URL(dialedUrls[0]!);
+      expect(url.origin).toBe("wss://api.deepgram.com");
+      expect(url.pathname).toBe("/v2/listen");
+      expect(url.searchParams.has("contract")).toBe(false);
+      expect(url.searchParams.has("key")).toBe(false);
+      expect(url.searchParams.has("language")).toBe(false);
+      expect(url.searchParams.get("model")).toBe("flux-general-en");
+      expect(dialedOptions[0]?.headers?.Authorization).toBe(
+        `Token ${TEST_API_KEY}`,
+      );
+    });
+
+    test("redacts the query-auth credential from the dial log", async () => {
+      await startSession(RELAY_OPTIONS);
+
+      const opened = infoLogs.find((entry) =>
+        entry.message.includes("Opening Deepgram Flux session"),
+      );
+      const logged = String((opened?.data as { url?: string })?.url ?? "");
+      expect(logged).not.toContain(TEST_API_KEY);
+      expect(logged).toContain("key=***");
+    });
+
+    test("hands frames the Flux parser makes nothing of to the wrapper", async () => {
+      // This is how velay_error reaches the managed wrapper: it rides the
+      // same socket but is not a Flux frame.
+      const unhandled: Record<string, unknown>[] = [];
+      await startSession({
+        ...RELAY_OPTIONS,
+        onUnhandledFrame: (frame) => unhandled.push(frame),
+      });
+
+      mockWs.simulateMessage(
+        JSON.stringify({
+          type: "velay_error",
+          code: "insufficient_credits",
+          detail: "top up",
+        }),
+      );
+
+      expect(unhandled).toEqual([
+        { type: "velay_error", code: "insufficient_credits", detail: "top up" },
+      ]);
+    });
+
+    test("does not report real Flux frames as unhandled", async () => {
+      const unhandled: Record<string, unknown>[] = [];
+      await startSession({
+        ...RELAY_OPTIONS,
+        onUnhandledFrame: (frame) => unhandled.push(frame),
+      });
+
+      mockWs.simulateMessage(turnInfoFrame("EndOfTurn", { transcript: "hi" }));
+
+      expect(unhandled).toEqual([]);
+    });
+  });
 });

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
-import { CHANNEL_SETUP_TYPES } from "@/stores/viewer-store";
+import { DISCONNECT_ROUTES } from "@/hooks/use-assistant-channels";
+import {
+  CHANNEL_SETUP_TYPES,
+  type ChannelSetupType,
+} from "@/stores/viewer-store";
 import { SETUP_CHANNEL_IDS } from "@/types/channel-types";
 
 /**
@@ -17,6 +21,9 @@ describe("channel capabilities are declared, not inferred", () => {
     expect(CHANNEL_META.slack.credentialForm).toBe("slack-wizard");
     expect(CHANNEL_META.telegram.credentialForm).toBe("telegram-token");
     expect(CHANNEL_META.phone.credentialForm).toBe("twilio-credentials");
+    // Discord's in-product form arrives with its config API; until then the
+    // declared absence is what routes its setup to the guided flow.
+    expect(CHANNEL_META.discord.credentialForm).toBeUndefined();
   });
 
   test("only the phone channel can reach the Twilio form", () => {
@@ -26,9 +33,14 @@ describe("channel capabilities are declared, not inferred", () => {
     expect(twilio).toEqual(["phone"]);
   });
 
-  test("a channel that can be disconnected declares the copy for it", () => {
+  test("disconnect copy exists exactly where a delete route exists", () => {
+    // The route record is the capability; the copy is its confirm dialog.
+    // Holding them equal means a channel cannot gain a button without a
+    // route behind it, or a route whose confirm has nothing to say.
     for (const id of SETUP_CHANNEL_IDS) {
-      expect(CHANNEL_META[id].disconnectMessageKey).toBeDefined();
+      expect(CHANNEL_META[id].disconnectMessageKey !== undefined).toBe(
+        DISCONNECT_ROUTES[id] !== undefined,
+      );
     }
   });
 });
@@ -41,7 +53,8 @@ describe("channel capabilities are declared, not inferred", () => {
 describe("the setup drawer derives from the same fact as the tab", () => {
   test("it accepts exactly the channels that declare a form", () => {
     const withForm = SETUP_CHANNEL_IDS.filter(
-      (id) => CHANNEL_META[id].credentialForm !== undefined,
+      (id): id is ChannelSetupType =>
+        CHANNEL_META[id].credentialForm !== undefined,
     );
     expect([...CHANNEL_SETUP_TYPES]).toEqual(withForm);
   });
