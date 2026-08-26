@@ -5,6 +5,7 @@ import {
   normalizePublicBaseUrl,
   parseRecordedAssistantId,
   parseTunnelRecord,
+  selectRestartTunnelRecord,
   type TunnelRecord,
 } from "@vellumai/service-contracts/ingress";
 
@@ -58,6 +59,14 @@ export function loadLastTunnelRecord(): TunnelRecord | null {
  */
 export function loadPairingTunnelRecord(): TunnelRecord | null {
   return parseTunnelRecord(readIngressSection()[INGRESS_PAIRING_TUNNEL_KEY]);
+}
+
+/**
+ * Read the tunnel a reader should offer to restart: the pairing-only record
+ * when one exists, else the last that ran.
+ */
+export function loadRestartTunnelRecord(): TunnelRecord | null {
+  return selectRestartTunnelRecord(readIngressSection());
 }
 
 /**

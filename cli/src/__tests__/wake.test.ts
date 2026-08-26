@@ -1226,6 +1226,33 @@ describe("vellum wake — tunnel edge restore", () => {
     );
   });
 
+  test("a failed rebuild prefers the pairing tunnel over the public one beside it", async () => {
+    // A tailnet pairing tunnel leaves the older public record in place, so the
+    // advice has to name the tunnel actually in front of this assistant.
+    loadRawConfigMock.mockReturnValue({
+      ...webhookConfig,
+      ingress: {
+        lastTunnel: {
+          provider: "cloudflare",
+          publicBaseUrl: "https://assistant.example.com",
+        },
+        pairingTunnel: {
+          provider: "tailscale",
+          publicBaseUrl: "https://assistant.example.ts.net",
+        },
+      },
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(new Error("edge rebuild failed"));
+
+    await wake();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Run `vellum tunnel --provider tailscale` to rebuild the edge.",
+      ),
+    );
+  });
+
   test("a reused edge still points the tunnel at its listen port", async () => {
     loadRawConfigMock.mockReturnValue(enabledConfig);
     ensureTunnelEdgeMock.mockResolvedValue({

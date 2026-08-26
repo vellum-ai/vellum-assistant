@@ -1,9 +1,6 @@
 import type { ChildProcess } from "child_process";
 
-import {
-  INGRESS_LAST_TUNNEL_KEY,
-  parseTunnelRecord,
-} from "@vellumai/service-contracts/ingress";
+import { selectRestartTunnelRecord } from "@vellumai/service-contracts/ingress";
 
 import {
   loadAllAssistants,
@@ -62,15 +59,14 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
 /**
  * The `vellum tunnel` invocation that rebuilds this workspace's edge. That
  * command requires `--provider`, and a `<provider>` placeholder would be shell
- * redirection rather than something to paste, so name the provider that last
- * tunneled here; with none recorded, point at the help that lists them.
+ * redirection rather than something to paste, so name the provider recorded
+ * here; with none recorded, point at the help that lists them.
  */
 function tunnelRestartCommand(workspaceDir: string): string {
   try {
-    const ingress = loadRawConfig(workspaceDir).ingress as
-      | Record<string, unknown>
-      | undefined;
-    const record = parseTunnelRecord(ingress?.[INGRESS_LAST_TUNNEL_KEY]);
+    const record = selectRestartTunnelRecord(
+      loadRawConfig(workspaceDir).ingress,
+    );
     if (record) {
       return `vellum tunnel --provider ${record.provider}`;
     }
