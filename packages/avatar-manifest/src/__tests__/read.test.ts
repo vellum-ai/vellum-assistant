@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readWorkspaceAvatar } from "../read.js";
+import { AVATAR_SIDECAR_MAX_BYTES, readWorkspaceAvatar } from "../read.js";
 
 const traits = { bodyShape: "round", eyeStyle: "dot", color: "#abc" };
 
@@ -55,6 +55,32 @@ describe("readWorkspaceAvatar", () => {
   test("corrupt manifest falls back to the traits sidecar", () => {
     write("avatar.json", "{ not json");
     write("character-traits.json", JSON.stringify(traits));
+    expect(readWorkspaceAvatar(workspaceDir)).toEqual({
+      kind: "character",
+      traits,
+    });
+  });
+
+  test("oversized sidecars are treated as absent", () => {
+    const padded = JSON.stringify({
+      kind: "character",
+      traits,
+      pad: "x".repeat(AVATAR_SIDECAR_MAX_BYTES),
+    });
+    write("avatar.json", padded);
+    write("character-traits.json", JSON.stringify({ ...traits, pad: padded }));
+    expect(readWorkspaceAvatar(workspaceDir)).toEqual({ kind: "none" });
+  });
+
+  test("a sidecar at the cap still reads", () => {
+    const body = JSON.stringify({ kind: "character", traits, pad: "" });
+    write(
+      "avatar.json",
+      body.replace(
+        '"pad":""',
+        `"pad":"${"x".repeat(AVATAR_SIDECAR_MAX_BYTES - body.length)}"`,
+      ),
+    );
     expect(readWorkspaceAvatar(workspaceDir)).toEqual({
       kind: "character",
       traits,

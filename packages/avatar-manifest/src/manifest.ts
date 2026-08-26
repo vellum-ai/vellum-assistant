@@ -36,26 +36,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
+/** Longest string any manifest field may carry (trait ids, etags, timestamps). */
+export const AVATAR_FIELD_MAX_LENGTH = 256;
 
-/** Narrows an unknown value to valid CharacterTraits (presence check only). */
-function isValidCharacterTraits(value: unknown): value is CharacterTraits {
+function isBoundedString(value: unknown): value is string {
   return (
-    isRecord(value) &&
-    isNonEmptyString(value.bodyShape) &&
-    isNonEmptyString(value.eyeStyle) &&
-    isNonEmptyString(value.color)
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= AVATAR_FIELD_MAX_LENGTH
   );
 }
 
-/** Narrows an unknown value to valid AvatarImageMeta (presence check only). */
+/** Narrows an unknown value to valid CharacterTraits (presence and length only). */
+function isValidCharacterTraits(value: unknown): value is CharacterTraits {
+  return (
+    isRecord(value) &&
+    isBoundedString(value.bodyShape) &&
+    isBoundedString(value.eyeStyle) &&
+    isBoundedString(value.color)
+  );
+}
+
+/** Narrows an unknown value to valid AvatarImageMeta (presence and length only). */
 function isValidAvatarImageMeta(value: unknown): value is AvatarImageMeta {
   return (
     isRecord(value) &&
-    isNonEmptyString(value.updatedAt) &&
-    isNonEmptyString(value.etag)
+    isBoundedString(value.updatedAt) &&
+    isBoundedString(value.etag)
   );
 }
 

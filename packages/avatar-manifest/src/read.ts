@@ -14,10 +14,18 @@ export type WorkspaceAvatar =
   | { kind: "image"; imagePath: string }
   | { kind: "none" };
 
-/** Symlinked sidecars are treated as absent so a workspace cannot point them at host files. */
+/** Largest sidecar a host parses; a bigger one counts as absent. */
+export const AVATAR_SIDECAR_MAX_BYTES = 64 * 1024;
+
+/**
+ * Symlinked sidecars are treated as absent so a workspace cannot point them
+ * at host files; oversized ones are absent so a host never parses an
+ * unbounded file just to render a row.
+ */
 function readJsonFile(filePath: string): unknown {
   try {
-    if (!lstatSync(filePath).isFile()) {
+    const stats = lstatSync(filePath);
+    if (!stats.isFile() || stats.size > AVATAR_SIDECAR_MAX_BYTES) {
       return undefined;
     }
     return JSON.parse(readFileSync(filePath, "utf-8")) as unknown;

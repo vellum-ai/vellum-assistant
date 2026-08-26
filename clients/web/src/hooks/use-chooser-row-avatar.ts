@@ -87,7 +87,8 @@ const EMPTY_AVATAR_STALE_TIME_MS = 60_000;
 /**
  * A host read is a disk snapshot with no invalidation signal for a sibling
  * assistant (only the active one broadcasts resource changes), so let it age
- * out on a clock and re-read when the chooser is shown again.
+ * out on a clock: re-read when the chooser is shown again, and poll at the
+ * same cadence while it stays mounted in the foreground.
  */
 const HOST_AVATAR_STALE_TIME_MS = 60_000;
 
@@ -337,6 +338,10 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
       canReadRowAvatarViaHost(assistant) &&
       (!isConnectedRow || liveSettledEmpty),
     staleTime: HOST_AVATAR_STALE_TIME_MS,
+    // staleTime alone never refetches a chooser that stays mounted; the
+    // disk read is cheap, so poll it while the window is in the foreground.
+    refetchInterval: HOST_AVATAR_STALE_TIME_MS,
+    refetchIntervalInBackground: false,
     retry: false,
   });
   const hostConclusive = hostQuery.isSuccess && hostQuery.data.conclusive;

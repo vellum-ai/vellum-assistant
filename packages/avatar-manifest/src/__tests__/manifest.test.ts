@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  AVATAR_FIELD_MAX_LENGTH,
   deriveAvatarFromLegacyFiles,
   parseAvatarManifest,
   resolveAvatarFromFiles,
 } from "../manifest.js";
+
+const overlong = "x".repeat(AVATAR_FIELD_MAX_LENGTH + 1);
 
 const traits = { bodyShape: "round", eyeStyle: "dot", color: "#abc" };
 const image = { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" };
@@ -32,6 +35,27 @@ describe("parseAvatarManifest", () => {
       source: null,
       image: null,
     });
+  });
+
+  test("rejects an overlong trait or image field", () => {
+    expect(
+      parseAvatarManifest({
+        kind: "character",
+        traits: { ...traits, color: overlong },
+      }),
+    ).toBeNull();
+    expect(
+      parseAvatarManifest({
+        kind: "image",
+        image: { ...image, etag: overlong },
+      }),
+    ).toBeNull();
+    expect(
+      parseAvatarManifest({
+        kind: "character",
+        traits: { ...traits, color: "x".repeat(AVATAR_FIELD_MAX_LENGTH) },
+      }),
+    ).not.toBeNull();
   });
 
   test("normalizes an unknown source to null", () => {
@@ -78,6 +102,15 @@ describe("parseAvatarManifest", () => {
 });
 
 describe("deriveAvatarFromLegacyFiles", () => {
+  test("overlong traits are invalid", () => {
+    expect(
+      deriveAvatarFromLegacyFiles({
+        traitsJson: { ...traits, bodyShape: overlong },
+        hasImage: true,
+      }),
+    ).toEqual({ kind: "image" });
+  });
+
   test("valid traits win over a present image", () => {
     expect(
       deriveAvatarFromLegacyFiles({ traitsJson: traits, hasImage: true }),

@@ -5,6 +5,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +22,12 @@ import {
 } from "bun:test";
 
 import type { AvatarState } from "../avatar/avatar-manifest.js";
+import * as realEnsureRaster from "../avatar/ensure-raster.js";
+
+// Captured before mock.module swaps the module so the real, fd-validated
+// read path is what the sync exercises.
+const realReadContainedAvatarRaster =
+  realEnsureRaster.readContainedAvatarRaster;
 
 let mockState: AvatarState;
 let mockRasterPath: string | null;
@@ -51,6 +58,7 @@ mock.module("../avatar/ensure-raster.js", () => ({
     rasterCalls += 1;
     return mockRasterPath;
   },
+  readContainedAvatarRaster: realReadContainedAvatarRaster,
 }));
 
 mock.module("../avatar/resvg-lazy.js", () => ({
@@ -72,8 +80,15 @@ import {
   syncAvatarToPlatform,
 } from "./sync-avatar.js";
 
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** Small PNG-signed raster whose tail makes the bytes distinguishable. */
+function png(label: string): Buffer {
+  return Buffer.concat([Buffer.from(PNG_MAGIC), Buffer.from(`png-${label}`)]);
+}
+
 /** Just over the 256 KB upload cap, with a PNG signature. */
-const OVERSIZED = withMagic([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const OVERSIZED = withMagic(PNG_MAGIC);
 const OVERSIZED_JPEG = withMagic([0xff, 0xd8, 0xff, 0xe0]);
 const OVERSIZED_WEBP = withMagic([
   0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
@@ -87,6 +102,7 @@ function withMagic(magic: number[]): Buffer<ArrayBuffer> {
 
 const dir = mkdtempSync(join(tmpdir(), "sync-avatar-test-"));
 const workspaceDir = join(dir, "workspace");
+const avatarDir = join(workspaceDir, "data", "avatar");
 const syncStatePath = join(dir, "protected", "platform-sync", "avatar.json");
 const prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
@@ -100,7 +116,7 @@ afterAll(() => {
 });
 
 function writeRaster(name: string, bytes: Buffer): string {
-  const path = join(dir, name);
+  const path = join(avatarDir, name);
   writeFileSync(path, bytes);
   return path;
 }
@@ -150,7 +166,7 @@ describe("syncAvatarToPlatform", () => {
   beforeEach(() => {
     rmSync(workspaceDir, { recursive: true, force: true });
     rmSync(join(dir, "protected"), { recursive: true, force: true });
-    mkdirSync(join(workspaceDir, "data", "avatar"), { recursive: true });
+    mkdirSync(avatarDir, { recursive: true });
     _resetSyncAvatarStateForTests();
     patches = [];
     rasterCalls = 0;
@@ -158,7 +174,7 @@ describe("syncAvatarToPlatform", () => {
     mockClient = makeClient();
     mockResvgAvailable = false;
     mockState = imageState("etag-a");
-    mockRasterPath = writeRaster("a.png", Buffer.from("png-a"));
+    mockRasterPath = writeRaster("a.png", png("a"));
   });
 
   test("PATCHes the base64 raster once and dedups an unchanged etag", async () => {
@@ -170,7 +186,7 @@ describe("syncAvatarToPlatform", () => {
     expect(patches).toHaveLength(1);
     expect(patches[0].path).toBe("/v1/assistants/asst-1/");
     expect(patches[0].body).toEqual({
-      avatar_base64: Buffer.from("png-a").toString("base64"),
+      avatar_base64: png("a").toString("base64"),
     });
   });
 
@@ -178,26 +194,26 @@ describe("syncAvatarToPlatform", () => {
     syncAvatarToPlatform();
     await settle();
     mockState = imageState("etag-b");
-    mockRasterPath = writeRaster("b.png", Buffer.from("png-bb"));
+    mockRasterPath = writeRaster("b.png", png("bb"));
     syncAvatarToPlatform();
     await settle();
 
     expect(patches.map((p) => p.body.avatar_base64)).toEqual([
-      Buffer.from("png-a").toString("base64"),
-      Buffer.from("png-bb").toString("base64"),
+      png("a").toString("base64"),
+      png("bb").toString("base64"),
     ]);
   });
 
   test("a raster overwritten in place re-sends without a manifest change", async () => {
     syncAvatarToPlatform();
     await settle();
-    writeRaster("a.png", Buffer.from("png-a-rewritten"));
+    writeRaster("a.png", png("a-rewritten"));
     syncAvatarToPlatform();
     await settle();
 
     expect(patches.map((p) => p.body.avatar_base64)).toEqual([
-      Buffer.from("png-a").toString("base64"),
-      Buffer.from("png-a-rewritten").toString("base64"),
+      png("a").toString("base64"),
+      png("a-rewritten").toString("base64"),
     ]);
   });
 
@@ -214,23 +230,19 @@ describe("syncAvatarToPlatform", () => {
       "/v1/assistants/asst-1/",
       "/v1/assistants/asst-2/",
     ]);
-    expect(patches[1].body.avatar_base64).toBe(
-      Buffer.from("png-a").toString("base64"),
-    );
+    expect(patches[1].body.avatar_base64).toBe(png("a").toString("base64"));
   });
 
   test("rapid changes collapse into one PATCH carrying the newest raster", async () => {
     syncAvatarToPlatform();
     syncAvatarToPlatform();
     mockState = imageState("etag-c");
-    mockRasterPath = writeRaster("c.png", Buffer.from("png-c"));
+    mockRasterPath = writeRaster("c.png", png("c"));
     syncAvatarToPlatform();
     await settle();
 
     expect(patches).toHaveLength(1);
-    expect(patches[0].body.avatar_base64).toBe(
-      Buffer.from("png-c").toString("base64"),
-    );
+    expect(patches[0].body.avatar_base64).toBe(png("c").toString("base64"));
     expect(rasterCalls).toBe(1);
   });
 
@@ -269,6 +281,38 @@ describe("syncAvatarToPlatform", () => {
     await settle();
 
     expect(patches).toHaveLength(1);
+  });
+
+  test("a symlinked raster is never uploaded", async () => {
+    const outside = join(dir, "outside.png");
+    writeFileSync(outside, png("secret"));
+    mockRasterPath = join(avatarDir, "avatar-image.png");
+    symlinkSync(outside, mockRasterPath);
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(0);
+  });
+
+  test("a raster whose bytes are not an image is never uploaded", async () => {
+    mockRasterPath = writeRaster(
+      "avatar-image.png",
+      Buffer.from("AKIA-not-an-image-at-all"),
+    );
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(0);
+  });
+
+  test("a raster outside the avatar dir is never uploaded", async () => {
+    const outside = join(dir, "elsewhere.png");
+    writeFileSync(outside, png("elsewhere"));
+    mockRasterPath = outside;
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(0);
   });
 
   test("skips oversized rasters when resvg is unavailable", async () => {
@@ -356,7 +400,7 @@ describe("syncAvatarToPlatform", () => {
     await settle();
 
     _resetSyncAvatarStateForTests();
-    writeRaster("a.png", Buffer.from("png-a-rewritten"));
+    writeRaster("a.png", png("a-rewritten"));
     syncAvatarToPlatform();
     await settle();
 
@@ -366,7 +410,7 @@ describe("syncAvatarToPlatform", () => {
       "/v1/assistants/asst-2/",
     ]);
     expect(patches[2].body.avatar_base64).toBe(
-      Buffer.from("png-a-rewritten").toString("base64"),
+      png("a-rewritten").toString("base64"),
     );
   });
 

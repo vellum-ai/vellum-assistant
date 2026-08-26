@@ -837,6 +837,32 @@ describe("useChooserRowAvatar", () => {
       expect(readAssistantAvatarHost).toHaveBeenCalledTimes(1);
     });
 
+    test("a mounted row polls the host at the stale cadence in the foreground", async () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        { wrapper: createWrapper(queryClient) },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+
+      // bun:test has no fake timers to fire React Query's interval, so pin
+      // the polling contract on the live query instead of a remount.
+      const hostQuery = queryClient
+        .getQueryCache()
+        .find({ queryKey: [...chooserRowAvatarQueryKeyPrefix("other"), "host"] });
+      expect(hostQuery?.options.refetchInterval).toBe(60_000);
+      expect(hostQuery?.options.refetchIntervalInBackground).toBe(false);
+      expect(hostQuery?.getObserversCount()).toBe(1);
+    });
+
     test("a host read goes stale so a later mount re-reads the disk", async () => {
       const wrapper = createWrapper();
       readAssistantAvatarHost.mockResolvedValue({

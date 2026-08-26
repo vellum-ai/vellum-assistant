@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,6 +104,22 @@ describe("ensureAvatarRaster", () => {
     expect(raster!.equals(FAKE_PNG)).toBe(true);
   });
 
+  test("returns null for a symlinked PNG but still reports its path", async () => {
+    const outside = join(workspaceDir, "outside.png");
+    writeFileSync(outside, FAKE_PNG);
+    symlinkSync(outside, join(avatarDir, IMAGE_FILENAME));
+    writeManifestFile({
+      kind: "image",
+      traits: null,
+      source: "upload",
+      image: { updatedAt: new Date().toISOString(), etag: "0123456789abcdef" },
+    });
+    expect(await ensureAvatarRasterPath()).toBe(
+      join(avatarDir, IMAGE_FILENAME),
+    );
+    expect(await ensureAvatarRaster()).toBeNull();
+  });
+
   test("returns null for an image avatar whose PNG is missing", async () => {
     writeManifestFile({
       kind: "image",
@@ -190,6 +207,25 @@ describe("ensureAvatarRaster", () => {
       expect(await ensureAvatarRasterPath()).toBe(
         join(avatarDir, IMAGE_FILENAME),
       );
+    });
+
+    test("returns null for a symlinked PNG but still reports its path", async () => {
+      const outside = join(workspaceDir, "outside.png");
+      writeFileSync(outside, FAKE_PNG);
+      symlinkSync(outside, join(avatarDir, IMAGE_FILENAME));
+      writeManifestFile({
+        kind: "image",
+        traits: null,
+        source: "upload",
+        image: {
+          updatedAt: new Date().toISOString(),
+          etag: "0123456789abcdef",
+        },
+      });
+      expect(await ensureAvatarRasterPath()).toBe(
+        join(avatarDir, IMAGE_FILENAME),
+      );
+      expect(await ensureAvatarRaster()).toBeNull();
     });
 
     test("returns null for an image avatar whose PNG is missing", async () => {

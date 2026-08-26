@@ -21,14 +21,16 @@
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
   computeImageMeta,
   readAvatarState,
 } from "../avatar/avatar-manifest.js";
-import { ensureAvatarRasterPath } from "../avatar/ensure-raster.js";
+import {
+  ensureAvatarRasterPath,
+  readContainedAvatarRaster,
+} from "../avatar/ensure-raster.js";
 import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
 import { detectMediaType } from "../tools/shared/filesystem/image-read.js";
 import { getLogger } from "../util/logger.js";
@@ -51,6 +53,11 @@ const RESVG_DECODABLE_TYPES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/gif",
+]);
+/** Only bytes that sniff as a raster image are ever uploaded. */
+const UPLOADABLE_TYPES: ReadonlySet<string> = new Set([
+  ...RESVG_DECODABLE_TYPES,
+  "image/webp",
 ]);
 const SYNC_STATE_SUBPATH = ["platform-sync", "avatar.json"];
 export const AVATAR_SYNC_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -127,7 +134,10 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   return {
     key: `${state.kind}:${etag}`,
     body: async () => {
-      const bytes = await readFile(path);
+      const bytes = readRaster(path);
+      if (!bytes) {
+        return undefined;
+      }
       const encoded = encodeForUpload(bytes);
       if (encoded === undefined) {
         log.warn(
@@ -139,6 +149,28 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
       return { avatar_base64: encoded };
     },
   };
+}
+
+/**
+ * Reads the raster through the fd-validated, avatar-dir-contained path and
+ * refuses anything that does not sniff as an image, so a symlinked or
+ * swapped `avatar-image.png` never ships host bytes to the platform.
+ */
+function readRaster(path: string): Buffer | undefined {
+  const bytes = readContainedAvatarRaster(path);
+  if (!bytes) {
+    log.warn(
+      { path },
+      "Avatar raster unreadable or not contained; skipping sync",
+    );
+    return undefined;
+  }
+  const mediaType = detectMediaType(bytes);
+  if (mediaType === null || !UPLOADABLE_TYPES.has(mediaType)) {
+    log.warn({ mediaType }, "Avatar raster is not an image; skipping sync");
+    return undefined;
+  }
+  return bytes;
 }
 
 function downscaleRaster(bytes: Buffer): Buffer | null {
