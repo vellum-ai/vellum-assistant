@@ -62,8 +62,8 @@ export function currentClaudeCredentialGeneration(): number {
 }
 
 /**
- * Digest of the Claude token believed to be in secure storage, or `undefined`
- * before any write in this process has told us.
+ * Digest of the Claude token a write has actually published, or `undefined`
+ * before any write in this process has succeeded.
  *
  * Identity rather than a version counter. A counter only answers "is this the
  * token stored now" by proxy, and that proxy needs the read and the write
@@ -71,8 +71,30 @@ export function currentClaudeCredentialGeneration(): number {
  * in between captures the new token under the old number, which then reads as
  * superseded and suppresses a real rejection. Comparing the token itself has
  * no such window, because the answer travels with the thing it describes.
+ *
+ * Only a write that succeeded lands here. One still in flight is a pending
+ * claim below instead, because a write that fails leaves the old token in
+ * storage and must not have suppressed anything on its way to failing.
  */
-let storedClaudeTokenDigest: string | undefined;
+let publishedClaudeTokenDigest: string | undefined;
+
+/**
+ * Tokens whose writes have started and not yet returned, counted so two
+ * writers of the same value cannot drop each other's claim.
+ *
+ * A write is not a fact until `set()` returns. In between, storage holds
+ * either the outgoing token or the incoming one and this process cannot tell
+ * which, so both read as current: the outgoing one matches
+ * `publishedClaudeTokenDigest`, the incoming one matches a pending claim.
+ *
+ * Deliberately the permissive answer, because the two mistakes are not
+ * symmetric. Suppressing recovery during a write that then fails leaves the
+ * user holding a rejected token with no Connect card, and no later event to
+ * raise one, since the rejection that would have raised it has already been
+ * consumed. Allowing it costs at most a card offering to connect auth that
+ * already works, which the next successful write retires.
+ */
+const pendingClaudeTokenDigests = new Map<string, number>();
 
 /** Digest a Claude token for identity comparison. Never stores the token. */
 export function claudeTokenDigest(token: string): string {
@@ -80,54 +102,74 @@ export function claudeTokenDigest(token: string): string {
 }
 
 /**
- * Record the token now believed to be stored, returning the previous value so
- * a failed write can put it back.
+ * Register a Claude token whose write has started but not yet returned.
  *
- * Set *before* the backing write, so a read landing between the two compares
- * against the token it will actually get. A write that then fails restores the
- * previous digest rather than leaving the cache describing a token that was
- * never published.
+ * Claimed *before* the backing write, so a read landing between the two is
+ * covered whichever of the two tokens it gets.
  */
-export function setStoredClaudeTokenDigest(
-  digest: string | undefined,
-): string | undefined {
-  const previous = storedClaudeTokenDigest;
-  storedClaudeTokenDigest = digest;
-  return previous;
+export function claimPendingClaudeTokenDigest(digest: string): void {
+  pendingClaudeTokenDigests.set(
+    digest,
+    (pendingClaudeTokenDigests.get(digest) ?? 0) + 1,
+  );
 }
 
-/**
- * Undo a claim, but only if it is still the standing one.
- *
- * Two writes can overlap: A claims, B claims and publishes successfully, then
- * A fails. An unconditional restore would put back the digest from before A
- * and leave the cache describing a token older than what storage now holds, so
- * a run using B's token would read as superseded and lose its recovery. The
- * conditional makes a late rollback a no-op against a newer claim.
- */
-export function rollbackStoredClaudeTokenDigest(
-  claimed: string | undefined,
-  previous: string | undefined,
-): void {
-  if (storedClaudeTokenDigest === claimed) {
-    storedClaudeTokenDigest = previous;
+function releasePendingClaudeTokenDigest(digest: string): void {
+  const outstanding = pendingClaudeTokenDigests.get(digest);
+  if (outstanding === undefined) {
+    return;
   }
+  if (outstanding <= 1) {
+    pendingClaudeTokenDigests.delete(digest);
+    return;
+  }
+  pendingClaudeTokenDigests.set(digest, outstanding - 1);
 }
 
 /**
- * Whether a run holding `digest` is still holding the stored credential.
+ * Record that this token is the one a write actually published.
  *
- * Unknown answers `true`: nothing in this process has written a token, so
- * there is no evidence the run's was replaced, and this path must fail toward
- * leaving the user a route back to auth rather than suppressing one.
+ * Called in the continuation of the `set()` that published it, so overlapping
+ * writes settle in the order they resolved rather than the order they started,
+ * and the one that landed last owns the answer.
+ */
+export function publishClaudeTokenDigest(digest: string): void {
+  publishedClaudeTokenDigest = digest;
+  releasePendingClaudeTokenDigest(digest);
+}
+
+/**
+ * Drop a claim whose write never landed.
+ *
+ * Nothing to undo beyond the claim itself. A pending claim never displaced the
+ * published digest, so a failed write leaves the answer exactly as the last
+ * successful one left it, and a late drop cannot clobber a newer claim.
+ */
+export function dropPendingClaudeTokenDigest(digest: string): void {
+  releasePendingClaudeTokenDigest(digest);
+}
+
+/**
+ * Whether a run holding `digest` is still holding a credential worth
+ * recovering.
+ *
+ * Suppress only on positive evidence of supersession: some write succeeded,
+ * and what it published is neither what this run holds nor anything still in
+ * flight. Unknown answers `true`, because nothing in this process has written
+ * a token, so there is no evidence the run's was replaced and this path must
+ * fail toward leaving the user a route back to auth rather than suppressing
+ * one.
  */
 export function claudeCredentialStillCurrent(
   digest: string | undefined,
 ): boolean {
-  if (digest === undefined || storedClaudeTokenDigest === undefined) {
+  if (digest === undefined || publishedClaudeTokenDigest === undefined) {
     return true;
   }
-  return digest === storedClaudeTokenDigest;
+  if (pendingClaudeTokenDigests.has(digest)) {
+    return true;
+  }
+  return digest === publishedClaudeTokenDigest;
 }
 
 /**

@@ -664,18 +664,23 @@ export async function getSecureKeyAsync(
  */
 interface AcpClaudeTokenClaim {
   /**
-   * Re-assert the claim now that the write has landed.
+   * Promote the claim to published, now that the write has landed.
    *
    * Two writes can overlap, and the claims alone only record the order they
    * *started*: A claims, B claims, then B publishes before A, leaving storage
-   * holding A while the cache still describes B. A run carrying A would read
-   * as superseded and lose its recovery. Re-asserting here runs in the
+   * holding A while the answer still describes B. A run carrying A would read
+   * as superseded and lose its recovery. Publishing here runs in the
    * continuation of `set()`, so the claims settle in the order the writes
-   * actually resolved, and the last one to land owns the cache.
+   * actually resolved, and the one that landed last owns the answer.
    */
   confirm: () => Promise<void>;
-  /** Undo the claim, but only if it is still the standing one. */
-  rollback: () => Promise<void>;
+  /**
+   * Drop the claim, because the write never landed.
+   *
+   * Storage still holds whatever it held before, and the claim never displaced
+   * that, so there is nothing to put back.
+   */
+  discard: () => Promise<void>;
 }
 
 /**
@@ -695,20 +700,20 @@ async function claimAcpClaudeTokenDigest(
     return undefined;
   }
   try {
-    const { claudeTokenDigest, setStoredClaudeTokenDigest } =
+    const { claudeTokenDigest, claimPendingClaudeTokenDigest } =
       await import("../acp/acp-auth-marker-store.js");
     const claimed = claudeTokenDigest(entry.value);
-    const previous = setStoredClaudeTokenDigest(claimed);
+    claimPendingClaudeTokenDigest(claimed);
     return {
       confirm: async () => {
-        const { setStoredClaudeTokenDigest: reassert } =
+        const { publishClaudeTokenDigest } =
           await import("../acp/acp-auth-marker-store.js");
-        reassert(claimed);
+        publishClaudeTokenDigest(claimed);
       },
-      rollback: async () => {
-        const { rollbackStoredClaudeTokenDigest } =
+      discard: async () => {
+        const { dropPendingClaudeTokenDigest } =
           await import("../acp/acp-auth-marker-store.js");
-        rollbackStoredClaudeTokenDigest(claimed, previous);
+        dropPendingClaudeTokenDigest(claimed);
       },
     };
   } catch (err) {
@@ -754,23 +759,19 @@ export async function setSecureKeyAsync(
 ): Promise<boolean> {
   return withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync({ forceReconnect: true });
-    // Claim the new token's identity before publishing it. A run reading the
-    // credential between the publish and this claim would otherwise hold the
-    // new token while the recovery check still described the old one, and its
-    // later rejection would read as superseded and suppress recovery. Claiming
-    // first makes the window harmless in both directions: a read before the
-    // publish gets the old token, which genuinely is superseded, and a read
-    // after gets the new one, which matches.
+    // Claim the new token's identity before publishing it. While the write is
+    // in flight, storage holds either the outgoing token or this one, so the
+    // claim is what keeps a run that read either of them from being mistaken
+    // for one carrying a credential that has been replaced.
     const digestClaim = await claimAcpClaudeTokenDigest([{ account, value }]);
     const ok = await backend.set(account, value);
     if (ok) {
-      // Settle the claim in resolution order, so a write that overlapped this
-      // one cannot leave the cache describing the token that landed first.
+      // Settle in resolution order, so a write that overlapped this one cannot
+      // leave the answer describing the token that landed first.
       await digestClaim?.confirm();
     } else {
-      // Nothing was published, so the claim described a token that never
-      // existed. Put back what the cache said before.
-      await digestClaim?.rollback();
+      // Nothing was published, so storage still holds what it held before.
+      await digestClaim?.discard();
     }
     if (!ok) {
       log.warn(
@@ -820,9 +821,9 @@ export async function bulkSetSecureKeysAsync(
     async () => {
       const backend = await resolveBackendAsync({ forceReconnect: true });
       // Same claim as the single-write path: a bundle carrying the Claude
-      // token publishes a new credential, and a cache still describing the old
-      // one would classify a run using the imported token as superseded and
-      // suppress its recovery.
+      // token publishes a new credential, and a run that read the imported
+      // token while the bundle was still in flight would otherwise be
+      // classified as superseded and lose its recovery.
       const digestClaim = await claimAcpClaudeTokenDigest(credentials);
       let results: Array<{ account: string; ok: boolean }>;
       if (backend.bulkSet) {
@@ -849,9 +850,9 @@ export async function bulkSetSecureKeysAsync(
         // token, so this claim is the one that resolved last.
         await digestClaim?.confirm();
       } else {
-        // The bundle carried it but the write did not land, so the claim
-        // describes a token that was never published.
-        await digestClaim?.rollback();
+        // The bundle carried it but the write did not land, so storage still
+        // holds what it held before.
+        await digestClaim?.discard();
       }
       await onCredentialsWritten(written);
       const succeeded = results.filter((r) => r.ok).length;

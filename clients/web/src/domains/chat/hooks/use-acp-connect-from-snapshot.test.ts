@@ -266,3 +266,40 @@ describe("raiseAcpConnectFromSnapshot: stale marked snapshots", () => {
     ).toBe("tool-newest");
   });
 });
+
+describe("raiseAcpConnectFromSnapshot: a conversation switch mid-fetch", () => {
+  test("a switch between the fetch and its response does not make an older snapshot look current", () => {
+    // `resetAll` carries `pendingAcpConnect` across a conversation switch, so
+    // the revision has to be carried with it. Restarting the counter at zero
+    // lets a snapshot requested before the switch compare equal to the state
+    // after it, which retires the live prompt and records its tool-use id, so
+    // no later snapshot can restore the card either.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-live",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+    useInteractionStore.getState().resetAll();
+
+    raiseAcpConnectFromSnapshot(
+      [run({ authErrorCode: undefined })],
+      "conv-1",
+      revisionAtFetch,
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-live",
+    );
+    expect(
+      useInteractionStore.getState().dismissedAcpConnectToolUseIds.size,
+    ).toBe(0);
+  });
+});

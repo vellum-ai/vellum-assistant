@@ -12,20 +12,21 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  claimPendingClaudeTokenDigest,
   claudeCredentialStillCurrent,
   claudeTokenDigest,
   configClaudeCredentialStillCurrent,
   configClaudeTokenSuperseded,
   currentClaudeCredentialGeneration,
+  dropPendingClaudeTokenDigest,
   noteConfigClaudeTokenRejected,
+  publishClaudeTokenDigest,
   retireAcpAuthRecovery,
-  rollbackStoredClaudeTokenDigest,
-  setStoredClaudeTokenDigest,
 } from "../acp-auth-marker-store.js";
 
 describe("claudeCredentialStillCurrent", () => {
-  test("a run holding the stored token is current", () => {
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
+  test("a run holding the published token is current", () => {
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
 
     expect(
       claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-live")),
@@ -33,7 +34,7 @@ describe("claudeCredentialStillCurrent", () => {
   });
 
   test("a run holding a replaced token is superseded", () => {
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-new"));
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-new"));
 
     expect(
       claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-old")),
@@ -43,31 +44,57 @@ describe("claudeCredentialStillCurrent", () => {
   test("a run with no recorded identity is treated as current", () => {
     // Proves nothing about supersession, and this path must fail toward
     // leaving the user a route back to auth.
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
 
     expect(claudeCredentialStillCurrent(undefined)).toBe(true);
   });
+});
 
-  test("nothing written in this process means nothing is superseded", () => {
-    setStoredClaudeTokenDigest(undefined);
+describe("claudeCredentialStillCurrent while a write is in flight", () => {
+  test("a run that read the incoming token is current before the write returns", () => {
+    // The claim is what covers this. Storage may already hold the incoming
+    // token, and without the claim the run carrying it would not match the
+    // published digest and would read as superseded.
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-outgoing"));
+    const incoming = claudeTokenDigest("sk-ant-oat-incoming");
+    claimPendingClaudeTokenDigest(incoming);
 
-    expect(
-      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-any")),
-    ).toBe(true);
+    expect(claudeCredentialStillCurrent(incoming)).toBe(true);
   });
 
-  test("a restored digest describes the token that is actually published", () => {
-    // A failed write puts back what the cache said before, so a run holding
-    // the still-stored token is not misread as superseded.
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
-    const previous = setStoredClaudeTokenDigest(
-      claudeTokenDigest("sk-ant-oat-never-published"),
-    );
-    setStoredClaudeTokenDigest(previous);
+  test("a run holding the outgoing token is current until the write lands", () => {
+    // The write has not returned, so storage may still hold the outgoing
+    // token. Suppressing here and then failing the write would leave the user
+    // holding a rejected credential with no card and no later event to raise
+    // one.
+    const outgoing = claudeTokenDigest("sk-ant-oat-outgoing");
+    publishClaudeTokenDigest(outgoing);
+    claimPendingClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-incoming"));
 
-    expect(
-      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-live")),
-    ).toBe(true);
+    expect(claudeCredentialStillCurrent(outgoing)).toBe(true);
+  });
+
+  test("a failed write leaves the published answer untouched", () => {
+    const outgoing = claudeTokenDigest("sk-ant-oat-outgoing");
+    publishClaudeTokenDigest(outgoing);
+    const neverLanded = claudeTokenDigest("sk-ant-oat-never-landed");
+    claimPendingClaudeTokenDigest(neverLanded);
+
+    dropPendingClaudeTokenDigest(neverLanded);
+
+    expect(claudeCredentialStillCurrent(outgoing)).toBe(true);
+    expect(claudeCredentialStillCurrent(neverLanded)).toBe(false);
+  });
+
+  test("two writers of the same token do not drop each other's claim", () => {
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-outgoing"));
+    const shared = claudeTokenDigest("sk-ant-oat-shared");
+    claimPendingClaudeTokenDigest(shared);
+    claimPendingClaudeTokenDigest(shared);
+
+    dropPendingClaudeTokenDigest(shared);
+
+    expect(claudeCredentialStillCurrent(shared)).toBe(true);
   });
 });
 
@@ -140,34 +167,38 @@ describe("config rejection recorded against the injection generation", () => {
   });
 });
 
-describe("rollbackStoredClaudeTokenDigest", () => {
-  test("undoes a claim whose write never landed", () => {
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
-    const claimed = claudeTokenDigest("sk-ant-oat-failed");
-    const previous = setStoredClaudeTokenDigest(claimed);
+describe("a claim never displaces the published answer", () => {
+  test("a write still in flight cannot suppress a rejection of the stored token", () => {
+    // The window this closes: the claim used to overwrite the answer outright,
+    // so a run rejecting the token storage still held read as superseded. If
+    // the write then failed there was no second rejection to raise the card
+    // from, and rolling the answer back afterwards could not recreate it.
+    const stored = claudeTokenDigest("sk-ant-oat-stored");
+    publishClaudeTokenDigest(stored);
+    const inFlight = claudeTokenDigest("sk-ant-oat-in-flight");
+    claimPendingClaudeTokenDigest(inFlight);
 
-    rollbackStoredClaudeTokenDigest(claimed, previous);
+    expect(claudeCredentialStillCurrent(stored)).toBe(true);
 
-    expect(
-      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-live")),
-    ).toBe(true);
+    dropPendingClaudeTokenDigest(inFlight);
+
+    expect(claudeCredentialStillCurrent(stored)).toBe(true);
   });
 
-  test("a late rollback cannot clobber a newer successful claim", () => {
-    // Write A claims, write B claims and publishes, then A fails. An
-    // unconditional restore would leave the cache describing a token older
-    // than what storage holds, so a run using B's token would read as
-    // superseded and lose its recovery.
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-original"));
+  test("a late discard cannot clobber a newer successful write", () => {
+    // Write A claims, write B claims and publishes, then A fails. A discard
+    // has nothing to restore, so B's published answer stands and a run using
+    // B's token keeps its recovery.
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-original"));
     const claimedA = claudeTokenDigest("sk-ant-oat-a");
-    const previousA = setStoredClaudeTokenDigest(claimedA);
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-b"));
+    const claimedB = claudeTokenDigest("sk-ant-oat-b");
+    claimPendingClaudeTokenDigest(claimedA);
+    claimPendingClaudeTokenDigest(claimedB);
+    publishClaudeTokenDigest(claimedB);
 
-    rollbackStoredClaudeTokenDigest(claimedA, previousA);
+    dropPendingClaudeTokenDigest(claimedA);
 
-    expect(
-      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-b")),
-    ).toBe(true);
+    expect(claudeCredentialStillCurrent(claimedB)).toBe(true);
     expect(
       claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-original")),
     ).toBe(false);
@@ -213,30 +244,21 @@ describe("configClaudeCredentialStillCurrent", () => {
 });
 
 describe("overlapping writes settle in resolution order", () => {
-  /**
-   * The claim-then-confirm pair `secure-keys` wraps each write in: the claim
-   * runs before the token is published, the confirm in the continuation of the
-   * `set()` that published it.
-   */
-  function claim(token: string) {
-    const digest = claudeTokenDigest(token);
-    setStoredClaudeTokenDigest(digest);
-    return { digest, confirm: () => setStoredClaudeTokenDigest(digest) };
-  }
-
-  test("the write that lands last owns the cache", () => {
+  test("the write that lands last owns the answer", () => {
     // Both writes start, then B publishes before A. Storage ends up holding
     // A, so a run carrying A must not read as superseded. The claims record
     // only the order the writes started, which here is the reverse of the
-    // order they landed; the confirms are what put the cache back in landing
-    // order.
-    const a = claim("sk-ant-oat-slow");
-    const b = claim("sk-ant-oat-fast");
+    // order they landed; publishing in the continuation of each `set()` is
+    // what puts the answer back in landing order.
+    const slow = claudeTokenDigest("sk-ant-oat-slow");
+    const fast = claudeTokenDigest("sk-ant-oat-fast");
+    claimPendingClaudeTokenDigest(slow);
+    claimPendingClaudeTokenDigest(fast);
 
-    b.confirm();
-    a.confirm();
+    publishClaudeTokenDigest(fast);
+    publishClaudeTokenDigest(slow);
 
-    expect(claudeCredentialStillCurrent(a.digest)).toBe(true);
-    expect(claudeCredentialStillCurrent(b.digest)).toBe(false);
+    expect(claudeCredentialStillCurrent(slow)).toBe(true);
+    expect(claudeCredentialStillCurrent(fast)).toBe(false);
   });
 });

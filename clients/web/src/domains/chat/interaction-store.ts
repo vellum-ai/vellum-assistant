@@ -474,10 +474,17 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
       // A conversation switch drops the card, which is a change like any other:
-      // carry the counter forward and advance it rather than restarting from
-      // the initial zero. Restarting would let a read issued before the switch
-      // compare equal to the state after it.
+      // carry the counters forward and advance them rather than restarting
+      // from the initial zero. Restarting would let a read issued before the
+      // switch compare equal to the state after it.
+      //
+      // The ACP counter needs this more than the question one does, because
+      // `pendingAcpConnect` is carried across the switch: a snapshot fetched
+      // before it, comparing equal against a restarted counter, would retire a
+      // prompt raised in the meantime and record its tool-use id as dismissed,
+      // which stops any later snapshot from restoring the card at all.
       questionRevision: state.questionRevision + 1,
+      acpConnectRevision: state.acpConnectRevision + 1,
     })),
 }));
 

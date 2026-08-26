@@ -7,7 +7,7 @@ import {
 } from "../daemon/conversation-registry.js";
 import {
   claudeTokenDigest,
-  setStoredClaudeTokenDigest,
+  publishClaudeTokenDigest,
 } from "./acp-auth-marker-store.js";
 import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
@@ -379,7 +379,7 @@ describe("AcpSessionManager auth-required recovery surface", () => {
   }
 
   test("a rejection under a superseded credential raises no recovery surface", async () => {
-    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-current"));
+    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-current"));
     // A token replacement completing mid-prompt clears every marker and takes
     // the registry with it. This run's rejection describes the credential that
     // replacement retired, so raising the event or re-marking the registry
