@@ -35,6 +35,10 @@ mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 const { useAcpRunRehydration } =
   await import("@/domains/chat/hooks/use-acp-run-rehydration");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
+const { useInteractionStore } = await import(
+  "@/domains/chat/interaction-store"
+);
+const { SYNC_TAGS } = await import("@/lib/sync/types");
 
 function mount(
   assistantId: string | null = "asst-1",
@@ -168,5 +172,86 @@ describe("useAcpRunRehydration — reconcile stale runs against the snapshot", (
 
     await flush();
     expect(useAcpRunStore.getState().byId["run-B"]!.status).toBe("running");
+  });
+});
+
+describe("useAcpRunRehydration: the auth-recovery tag is a refetch trigger", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  function publishRecoveryTag() {
+    publish("sse.event", {
+      assistantId: "asst-1",
+      message: {
+        type: "sync_changed",
+        tags: [SYNC_TAGS.acpAuthRecovery],
+      },
+    } as never);
+  }
+
+  function seedRestoredPrompt() {
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-anchor",
+        reason: "auth_required",
+        conversationId: "conv-A",
+      },
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+    });
+  }
+
+  const markedRun = {
+    id: "run-marked",
+    agentId: "claude",
+    acpSessionId: "run-marked",
+    parentConversationId: "conv-A",
+    status: "failed",
+    startedAt: 1,
+    parentToolUseId: "tool-anchor",
+    authErrorCode: "acp_claude_auth_required",
+  };
+
+  test("keeps the prompt when the snapshot still carries the marker", async () => {
+    // The tag says a Claude token was written, not that the failure is
+    // repaired: the write may have stored a value a spawn cannot use, and the
+    // daemon goes on serving the marker for that reason. Dismissing on the tag
+    // records the tool-use id, and the marked snapshot could then no longer
+    // restore the card.
+    seedRestoredPrompt();
+    mockSessions = [markedRun];
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+
+    publishRecoveryTag();
+    await flush();
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-anchor",
+    );
+    expect(
+      useInteractionStore.getState().dismissedAcpConnectToolUseIds.size,
+    ).toBe(0);
+  });
+
+  test("retires the prompt once the snapshot comes back unmarked", async () => {
+    // The authoritative answer, and the only thing that retires the card.
+    seedRestoredPrompt();
+    mockSessions = [{ ...markedRun, authErrorCode: undefined }];
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+
+    publishRecoveryTag();
+    await flush();
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("still refetches on the tag", async () => {
+    seedRestoredPrompt();
+    mockSessions = [markedRun];
+    mount("asst-1", "conv-A");
+
+    publishRecoveryTag();
+    await flush();
+
+    expect(getCalls).toBeGreaterThan(0);
   });
 });

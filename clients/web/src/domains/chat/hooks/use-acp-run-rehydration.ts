@@ -378,13 +378,20 @@ export function useAcpRunRehydration(
   // stuck `running`. `fresh`/`anchor` opens are skipped — the conversation
   // effect above already owns the initial load. Seeding merges by `seq` and is
   // idempotent against events already streamed.
-  // A token write on any client retires the daemon's auth markers and
-  // publishes this tag. Another client holding a restored `auth_required`
-  // prompt cannot discover that on its own: the prompt deliberately skips the
-  // connected-state self-heal, and nothing refetches the snapshot until
-  // navigation or reconnect, so it would keep offering Connect for the token
-  // that was just replaced. Retire the prompt and re-read the snapshot, which
-  // now carries no marker.
+  // A token write on any client publishes this tag. Another client holding a
+  // restored `auth_required` prompt cannot discover that on its own: the
+  // prompt deliberately skips the connected-state self-heal, and nothing
+  // refetches the snapshot until navigation or reconnect, so it would keep
+  // offering Connect for the token that was just replaced.
+  //
+  // A refetch trigger and nothing more. The tag says a Claude token was
+  // written, not that the failure it would retire is repaired: the write may
+  // have stored a value a spawn cannot use, an api-key-shaped one or one whose
+  // policy blocks the `acp_spawn` read, and the daemon goes on serving the
+  // marker for exactly that reason. Retiring here would record the tool-use id
+  // as dismissed before the answer arrived, and the marked snapshot that
+  // follows could no longer restore the card. The snapshot itself retires the
+  // prompt when it comes back unmarked, which is the authoritative answer.
   useBusSubscription("sse.event", (envelope) => {
     const message = envelope.message;
     if (
@@ -393,16 +400,6 @@ export function useAcpRunRehydration(
     ) {
       return;
     }
-    // Not while this tab is the one connecting. The daemon cannot tag the
-    // origin (the retirement fires from the credential-write seam, which has
-    // no request context), so the writer receives its own echo, and dismissing
-    // here would unmount the card before it reaches `connected` and asks for
-    // the auto-continue. That flow clears the card itself.
-    const state = useInteractionStore.getState();
-    retireStaleAcpConnectPrompt(
-      conversationId ?? null,
-      state.acpConnectRevision,
-    );
     if (!assistantId || !conversationId) {
       return;
     }
