@@ -65,6 +65,10 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  *   anywhere else, and park the request in `usePendingDeepLinkStore` addressed
  *   to whichever conversation that was, for its composer's attachment layer to
  *   drain (`useCameraDeepLink`).
+ * - `deeplink.openConversations` → `ensureMainWindowVisible()`, then land on
+ *   the chat if the current route is not already a conversation, and park the
+ *   request for `ChatLayout` to drain into the conversation list (the mobile
+ *   drawer, or the sidebar on a wider window).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
  *   which opens its Connect a Remote Assistant dialog off that store: a
@@ -346,6 +350,23 @@ export function useGlobalDeepLinkConsumer(): void {
     // mounted and would otherwise spend this one-shot park on a viewfinder the
     // navigation takes down with it, leaving the draft's composer nothing.
     usePendingDeepLinkStore.getState().setPendingCamera(targetId);
+  });
+
+  // The Home Screen widgets' unread chip and unread line. The list they point
+  // at is owned by `ChatLayout`, which is not mounted on a cold launch and
+  // never mounts on settings / logs / account routes, so the request is parked
+  // the way the camera's is and the layout drains it (`chat-layout.tsx`).
+  //
+  // The navigation is skipped on a settled conversation route: the layout is
+  // already mounted there, and re-navigating would push a history entry for no
+  // change on screen. Everywhere else lands on the chat, and the drain holds
+  // the park across the replace-navigation that landing runs on arrival.
+  useBusSubscription("deeplink.openConversations", () => {
+    void ensureMainWindowVisible();
+    if (conversationIdForPath(pathname) === null) {
+      navigateRef.current(routes.assistant);
+    }
+    usePendingDeepLinkStore.getState().setPendingConversationList();
   });
 
   useBusSubscription(

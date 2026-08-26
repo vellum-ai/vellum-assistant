@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import UIKit
 import WidgetKit
@@ -167,13 +168,36 @@ struct StatusWidgetView: View {
     private func counts(scale: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: Self.countGap * scale) {
             if let count = entry.snapshot?.unreadCount, count > 0 {
-                countLine(glyph: unreadGlyph(scale: scale), text: "\(count) unread", scale: scale)
+                unreadCountLine(count: count, scale: scale)
             }
             if let count = entry.snapshot?.inProgressCount, count > 0 {
                 countLine(glyph: inProgressGlyph(scale: scale), text: "\(count) in progress", scale: scale)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The unread line, which is also the way to the conversations it counts.
+    ///
+    /// A tap target rather than a readout: the line reports the inbox, so
+    /// following it has to land on the inbox. Without a button of its own the
+    /// tap falls through to the widget's default open, which parks the user
+    /// wherever they left off and reads as the count doing nothing.
+    ///
+    /// The in-progress line beside it gets no such button. It counts turns the
+    /// assistant is still working on rather than replies waiting to be read, so
+    /// the list is not where following it would go, and there is no destination
+    /// worth minting a second command for.
+    ///
+    /// The label takes the full width so the target is the row rather than the
+    /// few points the text happens to occupy.
+    private func unreadCountLine(count: Int, scale: CGFloat) -> some View {
+        Button(intent: OpenConversationsIntent()) {
+            countLine(glyph: unreadGlyph(scale: scale), text: "\(count) unread", scale: scale)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens your conversations")
     }
 
     /// The glyph is decorative: the text beside it already says everything

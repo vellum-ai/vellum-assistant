@@ -240,6 +240,17 @@ export interface BusEventMap {
     provenance: CommandUrlProvenance;
   };
   /**
+   * A Home Screen widget's unread affordance was tapped:
+   * `<scheme>://conversations`. `useGlobalDeepLinkConsumer` parks the request
+   * in `usePendingDeepLinkStore` and lands on the chat; `ChatLayout` drains it
+   * and brings up the conversation list, which on mobile is the drawer and on
+   * a wider window is the sidebar.
+   */
+  "deeplink.openConversations": {
+    /** As on `deeplink.startVoice`; no consumer gates on it today. */
+    provenance: CommandUrlProvenance;
+  };
+  /**
    * Electron host only: inbound `<scheme>://connect` URL from the pair
    * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
    * QR code. `bundle` is a pairing bundle that prefills the connect
