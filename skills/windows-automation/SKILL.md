@@ -62,46 +62,11 @@ $worksheet.Cells.Item(1, 1).Value2 = "Example"
 
 Close temporary documents and call `[System.Runtime.InteropServices.Marshal]::ReleaseComObject(...)` for COM objects that are no longer needed.
 
-## Gate consequential actions
+## Consequential actions are unsupported
 
-Every PowerShell command sequence that saves, sends, deletes, or overwrites content must call `assistant ui confirm` and check its exit code before performing the action. Keep the confirmation and the action in the same `host_bash` invocation. This is the only `assistant` CLI command that may run through `host_bash`. Describe the exact action and target in the confirmation message.
+Do not use this skill to save, send, delete, or overwrite content. The Windows host executor does not provide an in-process confirmation gate that works for both local and remote assistants. Limit automation to reversible inspection, launching, navigation, and changes that remain unsaved.
 
-Run the invocation with `host_bash.timeout_seconds` set to at least `330`. The confirmation waits up to five minutes, so the host process needs additional time to branch and finish.
-
-```powershell
-$assistantCli = $env:VELLUM_ASSISTANT_CLI_PATH
-if ([string]::IsNullOrWhiteSpace($assistantCli)) {
-  $assistantCommand = Get-Command assistant -CommandType Application -ErrorAction SilentlyContinue
-  if ($null -ne $assistantCommand) {
-    $assistantCli = $assistantCommand.Source
-  }
-}
-
-if ([string]::IsNullOrWhiteSpace($assistantCli) -or -not (Test-Path -LiteralPath $assistantCli -PathType Leaf)) {
-  throw "The assistant confirmation command is unavailable. No changes were saved."
-}
-
-& $assistantCli ui confirm `
-  --title "Save workbook" `
-  --message "Save the new workbook to C:\Users\Public\Documents\example.xlsx?" `
-  --confirm-label "Save" `
-  --deny-label "Cancel" `
-  --timeout 300000
-
-$confirmationStarted = $?
-$confirmationExitCode = $LASTEXITCODE
-if (-not $confirmationStarted) {
-  throw "The confirmation command failed. No changes were saved."
-}
-if ($confirmationExitCode -ne 0) {
-  Write-Output "Save cancelled."
-  exit 0
-}
-
-$workbook.SaveAs("C:\Users\Public\Documents\example.xlsx")
-```
-
-Use the same blocking pattern immediately before sending messages, deleting data, or overwriting existing content. A prose-only confirmation is not sufficient.
+If the user requests a consequential action, use a dedicated skill or product workflow with its own hard confirmation gate. If none is available, explain the limitation and ask the user to perform that final action manually.
 
 ## Inspect native UI
 
@@ -140,7 +105,7 @@ if (-not $shell.AppActivate($process.Id)) {
 }
 ```
 
-Use keyboard input only after activation succeeds. Re-check the foreground app before a destructive or irreversible action.
+Use keyboard input only after activation succeeds. Never use keyboard input to trigger a consequential action prohibited above.
 
 ## Troubleshooting
 
