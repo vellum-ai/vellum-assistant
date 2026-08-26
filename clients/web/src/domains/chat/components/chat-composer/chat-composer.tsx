@@ -27,6 +27,7 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
@@ -767,9 +768,17 @@ export function ChatComposer({
   // stays a working composer underneath, so the user can type and send
   // mid-session.
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
+  // Staged context is anything that makes an empty input sendable: staged
+  // quotes, or the one channel reference pinned above this composer. Both are
+  // read from their stores here, the same way attachments are, so the send
+  // button, the Enter policy, and `useComposerSubmit`'s own guard all answer
+  // "is there something to send" from the same state.
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
+  const hasStagedChannelReference =
+    useChannelReferenceStore.use.reference() !== null;
+  const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
-    Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
+    Boolean(input.trim()) || canSendAttachments || hasStagedContext;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -1424,7 +1433,7 @@ export function ChatComposer({
               sendDisabled,
               attachmentsUploadingCount,
               cmdEnterMode,
-              hasStagedQuotes,
+              hasStagedContext,
             },
           );
           if (decision === "ignore") {

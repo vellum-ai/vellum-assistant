@@ -388,6 +388,14 @@
       "label": "Obscure Credits",
       "description": "Obscures raw credit dollar amounts across the web billing surfaces in favor of a usage-relative view. The Plan section's current-plan tile trades its price footer for a Usage Balance bar and its credits spec chip reads \"<Package> usage, reset monthly\"; the plans takeover, custom-plan modal, and Pro provisioning takeover swap dollar credit wording for the catalog's usage labels; the Credits balance tile and the chat preferences menu show only credit bought or earned beyond the plan's included grants. Chat low-balance and daily-limit banners still name credits. Off leaves every surface exactly as it ships today.",
       "defaultEnabled": false
+    },
+    {
+      "id": "channel-conversation-sidecar",
+      "scope": "client",
+      "key": "channel-conversation-sidecar",
+      "label": "Channel Conversation Sidecar",
+      "description": "Renders a conversation bound to an external channel (Slack, Telegram, Discord, phone, email, and any other channel adapter) as two lanes in web chat: Vellum stays the primary full-width lane, and the canonical external-channel transcript moves into the existing read-only right drawer, opened from a channel-thread control in the chat header. Rows the client can attribute to the external channel are drawn once, in the drawer, instead of being blended into the Vellum lane. The drawer offers an Open in <channel> secondary action and a per-message Reference in Vellum action that stages one quoted reference above the Vellum composer. The Vellum composer stays the only input; nothing about delivery, routing, or permissions changes. Off leaves the header deep-link pill and the blended transcript unchanged.",
+      "defaultEnabled": false
     }
   ]
 }
