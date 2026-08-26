@@ -6,6 +6,7 @@ const realEverInjectedStore = await import("../../v3/ever-injected-store.js");
 
 let mockActive = true;
 let mockPrunedSlugs = new Set<string>();
+let mockPrunedSlugsError: Error | null = null;
 const WINDOWS_CARD =
   '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates native Windows applications.';
 const persistedRow = {
@@ -62,10 +63,15 @@ mock.module("../skill-store.js", () => ({
 
 mock.module("../../v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
-  getPrunedSlugs: (conversationId: string) =>
-    mockActive
-      ? mockPrunedSlugs
-      : realEverInjectedStore.getPrunedSlugs(conversationId),
+  getPrunedSlugs: (conversationId: string) => {
+    if (!mockActive) {
+      return realEverInjectedStore.getPrunedSlugs(conversationId);
+    }
+    if (mockPrunedSlugsError) {
+      throw mockPrunedSlugsError;
+    }
+    return mockPrunedSlugs;
+  },
 }));
 
 const { stripIncompatibleSkillCardsFromMessages } =
@@ -75,6 +81,7 @@ const { filterPrunedCardSections } = await import("../../v3/prune.js");
 beforeEach(() => {
   persistedRows = [persistedRow];
   mockPrunedSlugs = new Set();
+  mockPrunedSlugsError = null;
   getMessagesMock.mockClear();
   updateMessageMetadataMock.mockClear();
 });
@@ -162,6 +169,41 @@ test("matches a metadata-less legacy block after concept pruning", async () => {
 
   expect(updateMessageMetadataMock).toHaveBeenCalledWith("row-pruned-legacy", {
     memoryV3LegacyBlockSuppressions: ["conv-1"],
+  });
+});
+
+test("continues without prune state when the store read fails", async () => {
+  mockPrunedSlugsError = new Error("prune store unavailable");
+  const messages = [
+    {
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text: `<memory>\n${WINDOWS_CARD}\n</memory>`,
+        },
+      ],
+    },
+  ];
+
+  await expect(
+    stripIncompatibleSkillCardsFromMessages(
+      messages,
+      {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: [],
+      },
+      { conversationId: "conv-1" },
+    ),
+  ).resolves.toBe(1);
+  expect(messages[0]!.content).toEqual([]);
+  expect(updateMessageMetadataMock).toHaveBeenCalledWith("row-old", {
+    memorySkillCardSuppressions: {
+      "conv-other": ["other-skill"],
+      "conv-1": ["windows-automation"],
+    },
   });
 });
 
