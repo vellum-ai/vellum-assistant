@@ -107,6 +107,9 @@
     "alt": "Avatar del asistente",
     "fallbackLetter": "V"
   },
+  "chooserAvatarChip": {
+    "alt": "Avatar del asistente"
+  },
   "collapsibleNavSection": {
     "actionsTitle": "Acciones de {title}"
   },
@@ -302,10 +305,13 @@
   },
   "nativeAppBanner": {
     "bannerAria": "Descargar la app de {appName}",
+    "bannerAriaGeneric": "Descargar la app móvil de Vellum",
     "download": "Descargar",
     "downloadAppAria": "Descargar la app de {appName}",
+    "downloadAppAriaGeneric": "Descargar la app móvil de Vellum",
     "subtitle": "Notificaciones push · inicio biométrico · háptica",
-    "title": "Obtén la app de {appName}"
+    "title": "Obtén la app de {appName}",
+    "titleGeneric": "Obtén la app de Vellum"
   },
   "nativeSplash": {
     "logoAlt": "Vellum"
@@ -690,6 +696,22 @@
     "linkCopied": "Enlace copiado",
     "open": "Abrir"
   },
+  "useAssistantChannels": {
+    "setupPrompt": {
+      "slack": "Quiero comunicarme contigo por Slack. Vamos a configurarlo.",
+      "telegram": "Quiero comunicarme contigo por Telegram. Vamos a configurarlo.",
+      "discord": "Quiero comunicarme contigo por Discord. Vamos a configurarlo.",
+      "email": "Quiero enviarte correos. Vamos a configurar tu dirección de correo.",
+      "phone": "Quiero poder llamarte. Vamos a conseguirte un número de teléfono."
+    },
+    "finishPrompt": {
+      "slack": "Slack está configurado pero no funciona. ¿Puedes terminarlo?",
+      "telegram": "Telegram está configurado pero no funciona. ¿Puedes terminarlo?",
+      "discord": "Discord está configurado pero no funciona. ¿Puedes terminarlo?",
+      "email": "Mi dirección de correo está configurada pero no funciona. ¿Puedes terminarla?",
+      "phone": "Mi número de teléfono está configurado pero no funciona. ¿Puedes terminarlo?"
+    }
+  },
   "useBookmarks": {
     "addFailed": "No se pudo marcar el mensaje.",
     "removeFailed": "No se pudo quitar el marcador."
@@ -759,5 +781,24 @@
     "file": "Archivo",
     "help": "Ayuda",
     "view": "Ver"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "Comprobando dominio…",
+    "domainVerified": "Dominio verificado",
+    "failedTitle": "La verificación del dominio falló. Es posible que los registros DNS no se hayan propagado correctamente. Puedes intentar liberar y volver a registrar el dominio.",
+    "unknownStatus": "Estado desconocido",
+    "unknownStatusTitle": "No se pudo obtener el estado de verificación del dominio.",
+    "verificationFailed": "Verificación fallida",
+    "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
+    "verifyingDomain": "Verificando dominio…",
+    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos."
+  },
+  "managedServicesBanner": {
+    "body": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>"
+  },
+  "serviceCard": {
+    "managedLabel": "Administrado",
+    "modeToggleAriaLabel": "Modo de servicio",
+    "yourOwnLabel": "Propio"
   }
 }

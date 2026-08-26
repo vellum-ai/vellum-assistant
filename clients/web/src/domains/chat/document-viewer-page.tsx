@@ -10,6 +10,7 @@ import { useTranslation } from "@/i18n";
  */
 
 import { Typography } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
@@ -20,8 +21,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   documentsByIdConversationsPost,
   documentsByIdGet,
-  documentsByIdPdfGet,
 } from "@/generated/daemon/sdk.gen";
+import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -177,22 +178,12 @@ export function DocumentViewerPage() {
     if (!doc || !assistantId) {
       return;
     }
-    const { data: blob, response: pdfResponse } = await documentsByIdPdfGet({
-      path: { assistant_id: assistantId, id: doc.surfaceId },
-      throwOnError: false,
-      parseAs: "blob",
-    });
-    if (!pdfResponse?.ok || !blob) {
-      return;
+    try {
+      await downloadDocumentPdf(assistantId, doc.surfaceId, doc.title);
+    } catch {
+      toast.error(t("documentViewerPage.exportFailed"));
     }
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), {
-      href: url,
-      download: `${doc.title || "document"}.pdf`,
-    });
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [doc, assistantId]);
+  }, [doc, assistantId, t]);
 
   // -------------------------------------------------------------------------
   // Render

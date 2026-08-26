@@ -689,69 +689,15 @@
     "registerSubdomainFailed": "Не удалось зарегистрировать этот поддомен. Выбор другого.",
     "skip": "Пропустить",
     "subtitle": "Настройка почты для ассистента.",
-    "title": "Почта ассистента"
+    "title": "Почта ассистента",
+    "emailUsernamePlaceholder": "hi",
+    "subdomainExamplePlaceholder": "my-assistant"
   },
   "downgradeReconfirmModal": {
     "body": "При понижении пропадут эти функции Pro:",
     "confirm": "Подтвердить понижение",
     "keepPro": "Оставить Pro",
     "title": "Перейти на Base?"
-  },
-  "emailManagedContent": {
-    "addressLabel": "Адрес",
-    "checkingSubscription": "Проверка подписки…",
-    "confirm": "Подтвердить",
-    "create": "Создать",
-    "createEmailFailedFallback": "Не удалось создать адрес почты.",
-    "creating": "Создание…",
-    "domainLabel": "Домен",
-    "domainRegisteredToast": "Домен {domain} зарегистрирован.",
-    "domainReleaseFailedToast": "Не удалось освободить домен.",
-    "domainReleasedToast": "Домен освобождён.",
-    "emailAddressLabel": "Адрес почты",
-    "emailCreatedToast": "Адрес почты создан.",
-    "emailRemoveFailedToast": "Не удалось удалить адрес почты.",
-    "emailRemovedToast": "Адрес почты удалён.",
-    "emailUsernameAriaLabel": "Имя пользователя почты",
-    "emailUsernamePlaceholder": "hi",
-    "enterSubdomainError": "Ввод поддомена.",
-    "enterUsernameError": "Ввод имени пользователя почты.",
-    "register": "Зарегистрировать",
-    "registerDomainFailedFallback": "Не удалось зарегистрировать домен.",
-    "registering": "Регистрация…",
-    "releaseConfirm": "Освободить",
-    "releaseDomainAriaLabel": "Освободить домен",
-    "releaseDomainConfirmMessage": "Точно освободить <code>{domain}</code>? Поддомен станет доступен другим.",
-    "releaseDomainTitle": "Освободить домен",
-    "removeAddressFirstToast": "Сначала удаление адреса почты.",
-    "removeConfirm": "Удалить",
-    "removeEmailAriaLabel": "Удалить адрес почты",
-    "removeEmailConfirmMessage": "Точно удалить <code>{address}</code>? Ассистент больше не сможет отправлять и получать почту на этот адрес.",
-    "removeEmailTitle": "Удалить адрес почты",
-    "retry": "Повторить",
-    "setSubdomainConfirmMessage": "<code>{subdomain}</code> также станет публичным идентификатором ассистента. После установки его нельзя сменить.",
-    "setSubdomainTitle": "Задать поддомен",
-    "subdomainExamplePlaceholder": "my-assistant",
-    "subdomainFallback": "поддомен",
-    "subdomainHint": "У каждого ассистента свой поддомен. Только строчные латинские буквы, цифры и дефисы.",
-    "subdomainLabel": "Поддомен",
-    "subscriptionWarningBody": "Не удалось связаться со службой оплаты. Форма ниже считает, что управляемая почта включена для организации. Если это не так, регистрация домена не сработает.",
-    "subscriptionWarningTitle": "Не удалось проверить статус подписки",
-    "upgradeButton": "Повысить план",
-    "upgradeNoticeBody": "Переход на план, в котором у ассистента есть свой адрес почты. Настраивать провайдера не нужно.",
-    "upgradeNoticeTitle": "Адрес почты для ассистента",
-    "usageSummary": "сегодня отправлено {sent} / {limit} · получено {received}"
-  },
-  "emailServiceCard": {
-    "apiKeyConfigured": "API-ключ {providerName} настроен. Повторная настройка: запуск навыка <code>{setupSkill}</code>.",
-    "connecting": "Подключение к платформе Vellum…",
-    "openProvider": "Открыть {providerName}",
-    "platformLoginNotice": "Вход на платформу Vellum для управления настройками почты.",
-    "providerLabel": "Провайдер",
-    "saveSuccessToast": "Настройки почты сохранены.",
-    "setupInstructions": "Настройка {providerName} через CLI ассистента: запрос ассистенту запустить навык <code>{setupSkill}</code>. Он поможет сохранить API-ключ, определить домен и (по желанию) подключить входящий webhook.",
-    "subtitle": "Настройка отправки и получения почты ассистентом",
-    "title": "Почта"
   },
   "enrollTotpModal": {
     "cancel": "Отмена",
@@ -1170,7 +1116,9 @@
     "benefitPush": "Push-уведомления",
     "download": "Скачать",
     "subtitle": "Приложение Vellum для {appName} даёт нативный опыт.",
-    "title": "Скачать приложение {appName}"
+    "subtitleGeneric": "Мобильное приложение Vellum даёт нативный опыт.",
+    "title": "Скачать приложение {appName}",
+    "titleGeneric": "Скачать мобильное приложение Vellum"
   },
   "notificationsPage": {
     "description": "Настройка уведомлений Vellum на этом устройстве Android.",
@@ -1223,7 +1171,7 @@
     "title": "Привязать устройство"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Если сканирование не подключается: на хосте должен быть запущен туннель (`vellum tunnel`), публичный URL должен указывать на него, затем создание нового кода.",
+    "connectivityHint": "Если сканирование не подключается: на хосте должен быть запущен туннель (список провайдеров: `vellum tunnel --help`), публичный URL должен указывать на него, затем создание нового кода.",
     "httpError": "Привязка не удалась (HTTP {status}).",
     "networkError": "Не удалось достучаться до ассистента. Проверьте, что он запущен, и повторите попытку.",
     "unexpectedResponse": "Ассистент вернул неожиданный ответ."
@@ -1241,7 +1189,7 @@
     "loopback": "Это loopback-адрес, до которого другие устройства не достучатся. Нужен публичный https URL ассистента.",
     "nonHttps": "URL должен использовать https, чтобы устройства подключались безопасно.",
     "serviceFallbackName": "провайдер туннеля",
-    "serviceWebsite": "Это сайт {service}, а не адрес ассистента. Команда `vellum tunnel` на хосте даёт адрес.",
+    "serviceWebsite": "Это сайт {service}, а не адрес ассистента. Запустите туннель на хосте, чтобы получить адрес; список провайдеров: `vellum tunnel --help`.",
     "unparseable": "Нужен корректный URL, например https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
@@ -1295,7 +1243,6 @@
     "usageBalanceAddCredits": "Добавить",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
-    "usageBalanceResets": "Сброс {date}",
     "usageBalanceTitle": "Баланс использования",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "usageIncludedChip": "Входит {label}",
@@ -1801,21 +1748,6 @@
     "warningDescription": "Отправить сообщение уровня warning.",
     "warningLabel": "Событие Warning",
     "warningSentToast": "Событие warning Sentry отправлено."
-  },
-  "sharedUi": {
-    "checkingDomain": "Проверка домена…",
-    "domainVerified": "Домен подтверждён",
-    "failedTitle": "Не удалось подтвердить домен. Записи DNS могли ещё не распространиться. Освободите домен и зарегистрируйте его снова.",
-    "managedLabel": "Управляемые",
-    "managedServicesBanner": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>",
-    "modeToggleAriaLabel": "Режим сервиса",
-    "unknownStatus": "Неизвестный статус",
-    "unknownStatusTitle": "Не удалось получить статус проверки домена.",
-    "verificationFailed": "Проверка не прошла",
-    "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
-    "verifyingDomain": "Проверка домена…",
-    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут.",
-    "yourOwnLabel": "Свои"
   },
   "shortcutsSections": {
     "alreadyUsedBy": "Уже занято: {label}",

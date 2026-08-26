@@ -73,6 +73,18 @@
     "unsupportedDescription": "Los ajustes de notificaciones no están disponibles en esta versión de la app.",
     "unsupportedLabel": "No disponible"
   },
+  "appIcon": {
+    "apply": "Establecer icono",
+    "change": "Cambiar",
+    "color": "Color",
+    "description": "Elige el icono que Vellum muestra en tu pantalla de inicio.",
+    "error": "iOS no cambió el icono de tu pantalla de inicio. Puedes intentarlo de nuevo.",
+    "eyes": "Ojos",
+    "matchAvatar": "Usar el avatar",
+    "note": "Los iconos alternativos vienen incluidos en la app, e iOS confirma cada cambio con su propio aviso.",
+    "reset": "Volver al predeterminado",
+    "title": "Icono de la app"
+  },
   "assistantBackups": {
     "columnCreated": "Creada",
     "columnReady": "Lista",
@@ -689,69 +701,15 @@
     "registerSubdomainFailed": "No se pudo registrar ese subdominio. Prueba con otro.",
     "skip": "Omitir",
     "subtitle": "Configura un correo para tu asistente.",
-    "title": "Correo del asistente"
+    "title": "Correo del asistente",
+    "emailUsernamePlaceholder": "hola",
+    "subdomainExamplePlaceholder": "mi-asistente"
   },
   "downgradeReconfirmModal": {
     "body": "Al bajar de plan se eliminan las siguientes funciones Pro:",
     "confirm": "Confirmar bajada de plan",
     "keepPro": "Mantener Pro",
     "title": "¿Bajar a Base?"
-  },
-  "emailManagedContent": {
-    "addressLabel": "Dirección",
-    "checkingSubscription": "Comprobando suscripción…",
-    "confirm": "Confirmar",
-    "create": "Crear",
-    "createEmailFailedFallback": "No se pudo crear la dirección de correo.",
-    "creating": "Creando…",
-    "domainLabel": "Dominio",
-    "domainRegisteredToast": "Dominio {domain} registrado.",
-    "domainReleaseFailedToast": "No se pudo liberar el dominio.",
-    "domainReleasedToast": "Dominio liberado.",
-    "emailAddressLabel": "Dirección de correo",
-    "emailCreatedToast": "Dirección de correo creada.",
-    "emailRemoveFailedToast": "No se pudo eliminar la dirección de correo.",
-    "emailRemovedToast": "Dirección de correo eliminada.",
-    "emailUsernameAriaLabel": "Nombre de usuario del correo",
-    "emailUsernamePlaceholder": "hola",
-    "enterSubdomainError": "Introduce un subdominio.",
-    "enterUsernameError": "Introduce un nombre de usuario de correo.",
-    "register": "Registrar",
-    "registerDomainFailedFallback": "No se pudo registrar el dominio.",
-    "registering": "Registrando…",
-    "releaseConfirm": "Liberar",
-    "releaseDomainAriaLabel": "Liberar dominio",
-    "releaseDomainConfirmMessage": "¿Seguro que quieres liberar <code>{domain}</code>? El subdominio quedará disponible para que otros lo reclamen.",
-    "releaseDomainTitle": "Liberar dominio",
-    "removeAddressFirstToast": "Elimina primero la dirección de correo.",
-    "removeConfirm": "Eliminar",
-    "removeEmailAriaLabel": "Eliminar dirección de correo",
-    "removeEmailConfirmMessage": "¿Seguro que quieres eliminar <code>{address}</code>? Tu asistente ya no podrá enviar ni recibir correo en esta dirección.",
-    "removeEmailTitle": "Eliminar dirección de correo",
-    "retry": "Reintentar",
-    "setSubdomainConfirmMessage": "<code>{subdomain}</code> también será el identificador público de tu asistente. No podrás cambiarlo una vez establecido.",
-    "setSubdomainTitle": "Establecer subdominio",
-    "subdomainExamplePlaceholder": "mi-asistente",
-    "subdomainFallback": "subdominio",
-    "subdomainHint": "Cada asistente tiene su propio subdominio. Solo letras minúsculas, números y guiones.",
-    "subdomainLabel": "Subdominio",
-    "subscriptionWarningBody": "No pudimos contactar con el servicio de facturación. El formulario siguiente asume que el correo gestionado está habilitado para tu organización. Si no lo está, registrar un dominio fallará.",
-    "subscriptionWarningTitle": "No se pudo verificar el estado de la suscripción",
-    "upgradeButton": "Mejorar plan",
-    "upgradeNoticeBody": "Mejora a un plan que incluya una dirección de correo para tu asistente. No hace falta configurar un proveedor.",
-    "upgradeNoticeTitle": "Dale a tu asistente su propia dirección de correo",
-    "usageSummary": "{sent} / {limit} enviados hoy · {received} recibidos"
-  },
-  "emailServiceCard": {
-    "apiKeyConfigured": "Clave API de {providerName} configurada. Para reconfigurar, ejecuta la habilidad <code>{setupSkill}</code>.",
-    "connecting": "Conectando con la plataforma Vellum…",
-    "openProvider": "Abrir {providerName}",
-    "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la configuración de correo.",
-    "providerLabel": "Proveedor",
-    "saveSuccessToast": "Configuración de correo guardada.",
-    "setupInstructions": "Configura {providerName} mediante la CLI del asistente: pídele al asistente que ejecute la habilidad <code>{setupSkill}</code>. Te guiará para guardar la clave API, detectar el dominio y (opcionalmente) configurar un webhook entrante.",
-    "subtitle": "Configura cómo tu asistente envía y recibe correo",
-    "title": "Correo"
   },
   "enrollTotpModal": {
     "cancel": "Cancelar",
@@ -1170,7 +1128,9 @@
     "benefitPush": "Notificaciones push",
     "download": "Descargar",
     "subtitle": "La app de Vellum para {appName} te ofrece una experiencia nativa.",
-    "title": "Obtén la app de {appName}"
+    "subtitleGeneric": "La app móvil de Vellum te ofrece una experiencia nativa.",
+    "title": "Obtén la app de {appName}",
+    "titleGeneric": "Obtén la app móvil de Vellum"
   },
   "notificationsPage": {
     "description": "Administra cómo Vellum te notifica en este dispositivo Android.",
@@ -1224,7 +1184,7 @@
     "title": "Vincular un dispositivo"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel`) y de que la URL pública apunte a él; después genera un nuevo código.",
+    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel --help` lista los proveedores) y de que la URL pública apunte a él; después genera un nuevo código.",
     "httpError": "La vinculación falló (HTTP {status}).",
     "networkError": "No se pudo conectar con el asistente. Asegúrate de que esté en ejecución e inténtalo de nuevo.",
     "unexpectedResponse": "El asistente devolvió una respuesta inesperada."
@@ -1242,7 +1202,7 @@
     "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
     "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
     "serviceFallbackName": "el proveedor del túnel",
-    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Ejecuta `vellum tunnel` en el host para obtener una.",
+    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Inicia un túnel en el host para obtener una; `vellum tunnel --help` lista los proveedores.",
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
@@ -1296,7 +1256,6 @@
     "usageBalanceAddCredits": "Añadir",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
-    "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes",
     "usageIncludedChip": "{label} incluido",
@@ -1802,21 +1761,6 @@
     "warningDescription": "Envía un mensaje de nivel warning.",
     "warningLabel": "Evento de advertencia",
     "warningSentToast": "Evento de advertencia de Sentry enviado."
-  },
-  "sharedUi": {
-    "checkingDomain": "Comprobando dominio…",
-    "domainVerified": "Dominio verificado",
-    "failedTitle": "La verificación del dominio falló. Es posible que los registros DNS no se hayan propagado correctamente. Puedes intentar liberar y volver a registrar el dominio.",
-    "managedLabel": "Administrado",
-    "managedServicesBanner": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>",
-    "modeToggleAriaLabel": "Modo de servicio",
-    "unknownStatus": "Estado desconocido",
-    "unknownStatusTitle": "No se pudo obtener el estado de verificación del dominio.",
-    "verificationFailed": "Verificación fallida",
-    "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
-    "verifyingDomain": "Verificando dominio…",
-    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
-    "yourOwnLabel": "Propio"
   },
   "shortcutsSections": {
     "alreadyUsedBy": "Ya está en uso por {label}",

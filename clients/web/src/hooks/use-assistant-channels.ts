@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import type { AssistantChannelsListProps } from "@/domains/channels/components/assistant-channels-list";
 import type { SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
 import { useChannelTrustFloors } from "@/domains/channels/hooks/use-channel-trust-floors";
+import { useTranslation } from "@/i18n";
 import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { useSupportsDiscordChannel } from "@/lib/backwards-compat/use-supports-discord-channel";
 import { useSupportsDiscordConfig } from "@/lib/backwards-compat/use-supports-discord-config";
@@ -53,27 +54,30 @@ export const DISCONNECT_ROUTES: Record<
   slack: integrationsSlackChannelConfigDelete,
   telegram: integrationsTelegramConfigDelete,
   discord: integrationsDiscordConfigDelete,
+  email: undefined,
   phone: integrationsTwilioCredentialsDelete,
 };
 
-const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
-  slack: "I want to reach you on Slack. Let's set it up.",
-  telegram: "I want to reach you on Telegram. Let's set it up.",
-  discord: "I want to reach you on Discord. Let's set it up.",
-  phone: "I want to be able to call you. Let's set you up with a phone number.",
-};
+const ASSISTANT_SETUP_PROMPT_KEYS = {
+  slack: "useAssistantChannels.setupPrompt.slack",
+  telegram: "useAssistantChannels.setupPrompt.telegram",
+  discord: "useAssistantChannels.setupPrompt.discord",
+  email: "useAssistantChannels.setupPrompt.email",
+  phone: "useAssistantChannels.setupPrompt.phone",
+} as const satisfies Record<SetupChannelId, string>;
 
 /**
  * Sent instead when a channel holds credentials but is not working. Setup got
  * part way, so asking to start over describes the wrong problem and tells the
  * assistant to do the wrong thing.
  */
-const ASSISTANT_FINISH_PROMPTS: Record<SetupChannelId, string> = {
-  slack: "Slack is set up but not working. Can you finish it off?",
-  telegram: "Telegram is set up but not working. Can you finish it off?",
-  discord: "Discord is set up but not working. Can you finish it off?",
-  phone: "My phone number is set up but not working. Can you finish it off?",
-};
+const ASSISTANT_FINISH_PROMPT_KEYS = {
+  slack: "useAssistantChannels.finishPrompt.slack",
+  telegram: "useAssistantChannels.finishPrompt.telegram",
+  discord: "useAssistantChannels.finishPrompt.discord",
+  email: "useAssistantChannels.finishPrompt.email",
+  phone: "useAssistantChannels.finishPrompt.phone",
+} as const satisfies Record<SetupChannelId, string>;
 
 const READINESS_REFETCH_MS = 15000;
 
@@ -104,6 +108,7 @@ export function useAssistantChannels({
   assistantId,
   onStartSetupConversation,
 }: UseAssistantChannelsOptions): AssistantChannelsController {
+  const { t } = useTranslation("common");
   const queryClient = useQueryClient();
 
   const pathOpts = useMemo(
@@ -262,12 +267,14 @@ export function useAssistantChannels({
         return;
       }
       onStartSetupConversation(
-        incomplete
-          ? ASSISTANT_FINISH_PROMPTS[channelKey]
-          : ASSISTANT_SETUP_PROMPTS[channelKey],
+        t(
+          incomplete
+            ? ASSISTANT_FINISH_PROMPT_KEYS[channelKey]
+            : ASSISTANT_SETUP_PROMPT_KEYS[channelKey],
+        ),
       );
     },
-    [onStartSetupConversation],
+    [onStartSetupConversation, t],
   );
 
   const disconnectMutate = disconnectMutation.mutate;

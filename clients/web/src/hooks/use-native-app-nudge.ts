@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 import {
   getLocalBool,
   getLocalNumber,
@@ -9,9 +10,11 @@ import {
 
 export type NativeAppPlatform = "ios" | "android";
 
+export type NudgeTarget = NativeAppPlatform | "generic";
+
 export interface NativeAppPromotion {
-  platform: NativeAppPlatform;
-  appName: string;
+  target: NudgeTarget;
+  appName: string | null;
   storeUrl: string;
 }
 
@@ -22,11 +25,17 @@ export const IOS_APP_STORE_URL =
   "https://apps.apple.com/us/app/vellum-assistant/id6759934423";
 
 const ANDROID_PACKAGE_ID = "ai.vellum.assistant";
-const ANDROID_PLAY_STORE_URL =
-  `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE_ID}`;
+
+/** Verbatim value Android's `getInstallReferrer()` returns after install. */
+const ANDROID_INSTALL_REFERRER =
+  "utm_source=vellum-app&utm_medium=in-app-nudge";
+
+export const ANDROID_PLAY_STORE_URL =
+  `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE_ID}` +
+  `&referrer=${encodeURIComponent(ANDROID_INSTALL_REFERRER)}`;
 
 const STORAGE_KEYS: Record<
-  NativeAppPlatform,
+  NudgeTarget,
   { downloaded: string; bannerDismissed: string; assistantTurnsSeen: string }
 > = {
   ios: {
@@ -39,7 +48,14 @@ const STORAGE_KEYS: Record<
     bannerDismissed: "app.androidNudge.bannerDismissed",
     assistantTurnsSeen: "app.androidNudge.assistantTurnsSeen",
   },
+  generic: {
+    downloaded: "app.mobileNudge.downloaded",
+    bannerDismissed: "app.mobileNudge.bannerDismissed",
+    assistantTurnsSeen: "app.mobileNudge.assistantTurnsSeen",
+  },
 };
+
+const NUDGE_TARGETS: readonly NudgeTarget[] = ["ios", "android", "generic"];
 
 function resolveAndroidPlayStoreUrl(): string | null {
   const configuredUrl = import.meta.env.VITE_ANDROID_PLAY_STORE_URL?.trim();
@@ -67,125 +83,124 @@ export function getNativeAppName(platform: NativeAppPlatform): string {
   return platform === "ios" ? "iOS" : "Android";
 }
 
-export function getNativeAppPromotion(
-  platform: NativeAppPlatform,
-): NativeAppPromotion | null {
+export function resolveMobilePromotion(
+  platform: NativeAppPlatform | null,
+): NativeAppPromotion {
   if (platform === "ios") {
     return {
-      platform,
-      appName: getNativeAppName(platform),
+      target: "ios",
+      appName: getNativeAppName("ios"),
       storeUrl: IOS_APP_STORE_URL,
     };
   }
 
-  const storeUrl = resolveAndroidPlayStoreUrl();
-  return storeUrl
-    ? {
-        platform,
-        appName: getNativeAppName(platform),
+  if (platform === "android") {
+    const storeUrl = resolveAndroidPlayStoreUrl();
+    if (storeUrl) {
+      return {
+        target: "android",
+        appName: getNativeAppName("android"),
         storeUrl,
-      }
-    : null;
+      };
+    }
+  }
+
+  return {
+    target: "generic",
+    appName: null,
+    storeUrl: VELLUM_DOWNLOADS_URL,
+  };
 }
 
-export function readNativeAppDownloaded(
-  platform: NativeAppPlatform,
-): boolean {
-  return getLocalBool(STORAGE_KEYS[platform].downloaded, false);
+function targetPlatform(target: NudgeTarget): NativeAppPlatform | null {
+  return target === "generic" ? null : target;
 }
 
-export function writeNativeAppDownloaded(
-  platform: NativeAppPlatform,
-): void {
-  setLocalBool(STORAGE_KEYS[platform].downloaded, true);
+// One person can change target mid-session (Android's "Request desktop site"
+// hides the OS from the user agent), so reads fan out across every target
+// while writes stay target-specific: a fresh key set would re-nudge someone
+// who already said no.
+export function readNativeAppDownloaded(_target: NudgeTarget): boolean {
+  return NUDGE_TARGETS.some((candidate) =>
+    getLocalBool(STORAGE_KEYS[candidate].downloaded, false),
+  );
 }
 
-function readNativeAppBannerDismissed(
-  platform: NativeAppPlatform,
-): boolean {
-  return getLocalBool(STORAGE_KEYS[platform].bannerDismissed, false);
+export function writeNativeAppDownloaded(target: NudgeTarget): void {
+  setLocalBool(STORAGE_KEYS[target].downloaded, true);
 }
 
-function writeNativeAppBannerDismissed(
-  platform: NativeAppPlatform,
-): void {
-  setLocalBool(STORAGE_KEYS[platform].bannerDismissed, true);
+function readNativeAppBannerDismissed(_target: NudgeTarget): boolean {
+  return NUDGE_TARGETS.some((candidate) =>
+    getLocalBool(STORAGE_KEYS[candidate].bannerDismissed, false),
+  );
 }
 
-export function readNativeAppAssistantTurnsSeen(
-  platform: NativeAppPlatform,
-): number {
+function writeNativeAppBannerDismissed(target: NudgeTarget): void {
+  setLocalBool(STORAGE_KEYS[target].bannerDismissed, true);
+}
+
+export function readNativeAppAssistantTurnsSeen(_target: NudgeTarget): number {
   return Math.max(
     0,
-    getLocalNumber(STORAGE_KEYS[platform].assistantTurnsSeen, 0),
+    ...NUDGE_TARGETS.map((candidate) =>
+      getLocalNumber(STORAGE_KEYS[candidate].assistantTurnsSeen, 0),
+    ),
   );
 }
 
 export function incrementNativeAppAssistantTurnsSeen(
-  platform: NativeAppPlatform,
+  target: NudgeTarget,
   delta = 1,
 ): void {
   if (delta <= 0) {
     return;
   }
   setLocalNumber(
-    STORAGE_KEYS[platform].assistantTurnsSeen,
-    readNativeAppAssistantTurnsSeen(platform) + delta,
+    STORAGE_KEYS[target].assistantTurnsSeen,
+    readNativeAppAssistantTurnsSeen(target) + delta,
   );
 }
 
-export function openNativeAppStore(platform: NativeAppPlatform): boolean {
-  const promotion = getNativeAppPromotion(platform);
-  if (!promotion) {
-    return false;
-  }
+export function openNativeAppStore(target: NudgeTarget): void {
+  const promotion = resolveMobilePromotion(targetPlatform(target));
   window.open(promotion.storeUrl, "_blank", "noopener,noreferrer");
-  return true;
 }
 
-export function useNativeAppNudgeState(platform: NativeAppPlatform): {
+export function useNativeAppNudgeState(target: NudgeTarget): {
   bannerShouldShow: boolean;
   handleDownload: () => void;
   handleBannerDismiss: () => void;
 } {
   const [downloaded, setDownloaded] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const promotionAvailable = getNativeAppPromotion(platform) !== null;
 
   useEffect(() => {
-    setDownloaded(readNativeAppDownloaded(platform));
-    setBannerDismissed(readNativeAppBannerDismissed(platform));
-  }, [platform]);
+    setDownloaded(readNativeAppDownloaded(target));
+    setBannerDismissed(readNativeAppBannerDismissed(target));
+  }, [target]);
 
   const handleDownload = useCallback(() => {
-    if (!openNativeAppStore(platform)) {
-      return;
-    }
-    writeNativeAppDownloaded(platform);
+    openNativeAppStore(target);
+    writeNativeAppDownloaded(target);
     setDownloaded(true);
-  }, [platform]);
+  }, [target]);
 
   const handleBannerDismiss = useCallback(() => {
-    writeNativeAppBannerDismissed(platform);
+    writeNativeAppBannerDismissed(target);
     setBannerDismissed(true);
-  }, [platform]);
+  }, [target]);
 
   // Stable identity: consumers feed this into `useMemo` deps that build
   // banner elements. See docs/CONVENTIONS.md, "Never key an effect on a
   // ReactNode prop".
   return useMemo(
     () => ({
-      bannerShouldShow: promotionAvailable && !downloaded && !bannerDismissed,
+      bannerShouldShow: !downloaded && !bannerDismissed,
       handleDownload,
       handleBannerDismiss,
     }),
-    [
-      promotionAvailable,
-      downloaded,
-      bannerDismissed,
-      handleDownload,
-      handleBannerDismiss,
-    ],
+    [downloaded, bannerDismissed, handleDownload, handleBannerDismiss],
   );
 }
 

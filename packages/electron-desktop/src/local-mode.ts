@@ -10,6 +10,7 @@ import {
   PAIRED_GUARDIAN_TOKEN_HOST_ONLY_ERROR,
   getLockfileData,
   getLocalAssistantStatus,
+  readLockfileAssistantAvatar,
   replacePlatformAssistants,
   runDevicesList,
   runDevicesRevoke,
@@ -30,6 +31,7 @@ import {
 import type {
   LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
 } from "@vellumai/ipc-contract";
 import { capabilityToken } from "./capability-registry";
@@ -562,6 +564,21 @@ export const installLocalMode = (): void => {
     }
     return getLocalAssistantStatus(lockfilePaths, assistantId);
   });
+
+  ipc(
+    "vellum:localMode:readAssistantAvatar",
+    assistantIdArgs,
+    ([assistantId]): LocalReadAssistantAvatarResult => {
+      if (!assistantId) {
+        return { ok: false, error: "Missing assistantId" };
+      }
+      return readLockfileAssistantAvatar(
+        lockfilePaths,
+        assistantId,
+        process.env,
+      );
+    },
+  );
 
   ipc(
     "vellum:localMode:guardianToken",

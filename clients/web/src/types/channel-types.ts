@@ -11,6 +11,7 @@ export const SETUP_CHANNEL_IDS = [
   "slack",
   "telegram",
   "discord",
+  "email",
   "phone",
 ] as const satisfies readonly ChannelReadinessSnapshot["channel"][];
 export type SetupChannelId = (typeof SETUP_CHANNEL_IDS)[number];

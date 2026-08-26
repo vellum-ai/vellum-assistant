@@ -714,8 +714,6 @@ export const PROVIDER_SEED_DATA: Record<
       "workspaces:read",
       "boards:read",
       "boards:write",
-      "items:read",
-      "items:write",
       "docs:read",
       "updates:read",
       "updates:write",
@@ -752,8 +750,6 @@ export const PROVIDER_SEED_DATA: Record<
       },
       { scope: "boards:read", description: "Read a user's board data" },
       { scope: "boards:write", description: "Modify a user's board data" },
-      { scope: "items:read", description: "Read a user's item data" },
-      { scope: "items:write", description: "Modify a user's item data" },
       { scope: "docs:read", description: "Read a user's docs" },
       { scope: "docs:write", description: "Modify a user's docs" },
       {

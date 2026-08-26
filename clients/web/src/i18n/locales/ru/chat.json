@@ -262,6 +262,9 @@
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
   },
+  "documentViewerPage": {
+    "exportFailed": "Не удалось экспортировать PDF"
+  },
   "exportProgressModal": {
     "cancel": "Отмена",
     "close": "Закрыть",
@@ -589,8 +592,8 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Добавить кредиты",
     "exhausted": "Добавление кредитов для продолжения.",
+    "extraCredits": "Используются дополнительные кредиты",
     "pctUsed": "использовано {pct}%",
-    "resets": "Сброс {date}",
     "settingsAriaLabel": "Настройки использования и оплаты",
     "title": "Использование"
   },

@@ -993,7 +993,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "STT stream WebSocket",
           description:
-            "Accepts a WebSocket upgrade for real-time speech-to-text streaming. Authenticates the client using an edge JWT (actor principal) and proxies audio frames bidirectionally to the assistant runtime's /v1/stt/stream endpoint using a gateway service token. Requires mimeType query parameter. The runtime is config-authoritative: the streaming transcriber is always resolved from `services.stt.provider` in the assistant config, not from the optional `provider` query parameter.",
+            "Accepts a WebSocket upgrade for real-time speech-to-text streaming. Authenticates the client using an edge JWT (actor principal) and proxies audio frames bidirectionally to the assistant runtime's /v1/stt/stream endpoint using a gateway service token. Requires mimeType query parameter. The runtime is config-authoritative: the streaming transcriber is always resolved from the assistant config, not from the optional `provider` query parameter. Dictation resolves `services.stt.roles.dictation` when set and `services.stt.provider` otherwise.",
           operationId: "sttStreamWebsocket",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -1003,7 +1003,7 @@ export function buildSchema(): Record<string, unknown> {
               required: false,
               schema: { type: "string" },
               description:
-                "Optional STT provider identifier (e.g. 'deepgram', 'google-gemini'). Forwarded as compatibility metadata — the runtime resolves the transcriber from config (`services.stt.provider`), not from this parameter. When supplied and it disagrees with the configured provider, the runtime logs a mismatch warning.",
+                "Optional STT provider identifier (e.g. 'deepgram', 'google-gemini'). Forwarded as compatibility metadata: the runtime resolves the transcriber from config (`services.stt.roles.dictation`, else `services.stt.provider`), not from this parameter. When supplied and it disagrees with the provider that resolves to, the runtime logs a mismatch warning.",
             },
             {
               name: "mimeType",

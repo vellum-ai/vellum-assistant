@@ -1315,3 +1315,151 @@ describe("vellum:localMode:guardianToken handler", () => {
     expect(spawnArgs).toHaveLength(0);
   });
 });
+
+describe("vellum:localMode:readAssistantAvatar handler", () => {
+  // Disk-read semantics (manifest precedence, legacy fallbacks, size cap)
+  // live with `readLockfileAssistantAvatar` in @vellumai/local-mode; this
+  // covers only the IPC wiring around it.
+  type AvatarResult =
+    | { ok: true; avatar: Record<string, unknown> | null }
+    | { ok: false; error: string };
+  const readAssistantAvatar = (assistantId?: unknown): AvatarResult =>
+    handlers["vellum:localMode:readAssistantAvatar"](
+      allowedEvent,
+      assistantId,
+    ) as AvatarResult;
+
+  const traits = { bodyShape: "round", eyeStyle: "dot", color: "#abc" };
+  let instanceDir: string;
+
+  beforeEach(() => {
+    instanceDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-instance-"));
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "asst-1",
+            cloud: "local",
+            runtimeUrl: "http://127.0.0.1:1",
+            resources: { instanceDir, gatewayPort: 1, daemonPort: 2 },
+          },
+        ],
+        activeAssistant: "asst-1",
+      }),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(instanceDir, { recursive: true, force: true });
+    fs.rmSync(lockfilePath, { force: true });
+  });
+
+  test("reads the avatar off the lockfile entry's instance dir", () => {
+    const avatarDir = path.join(
+      instanceDir,
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(avatarDir, "avatar.json"),
+      JSON.stringify({ kind: "character", traits }),
+    );
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: true,
+      avatar: { kind: "character", traits },
+    });
+  });
+
+  test("missing lockfile entry yields null", () => {
+    expect(readAssistantAvatar("asst-gone")).toEqual({
+      ok: true,
+      avatar: null,
+    });
+  });
+
+  test("reports a corrupt lockfile as a failure, not a conclusive none", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: false,
+      error: "lockfile unreadable",
+    });
+  });
+
+  test("entry without an instanceDir reads the default dir from process.env", () => {
+    const previousDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-data-"));
+    process.env.XDG_DATA_HOME = dataHome;
+    try {
+      fs.writeFileSync(
+        lockfilePath,
+        JSON.stringify({
+          assistants: [{ assistantId: "asst-1", cloud: "local" }],
+          activeAssistant: "asst-1",
+        }),
+      );
+      const avatarDir = path.join(
+        dataHome,
+        "vellum",
+        "assistants",
+        "asst-1",
+        ".vellum",
+        "workspace",
+        "data",
+        "avatar",
+      );
+      fs.mkdirSync(avatarDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(avatarDir, "character-traits.json"),
+        JSON.stringify(traits),
+      );
+
+      expect(readAssistantAvatar("asst-1")).toEqual({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+    } finally {
+      if (previousDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousDataHome;
+      }
+      fs.rmSync(dataHome, { recursive: true, force: true });
+    }
+  });
+
+  test("an unreadable manifest image surfaces as a failure over IPC", () => {
+    const avatarDir = path.join(
+      instanceDir,
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(avatarDir, "avatar.json"),
+      JSON.stringify({
+        kind: "image",
+        image: { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" },
+      }),
+    );
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: false,
+      error: "avatar image unreadable",
+    });
+  });
+
+  test("missing assistantId is a structured error", () => {
+    expect(readAssistantAvatar(undefined)).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
+  });
+});

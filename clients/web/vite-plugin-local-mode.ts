@@ -14,6 +14,7 @@ import {
   connectImport,
   getLockfileData,
   getLocalAssistantStatus,
+  readLockfileAssistantAvatar,
   renameLockfileAssistantIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
@@ -41,6 +42,7 @@ import {
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
+const LOCAL_AVATAR_PATTERN = /^(?:\/assistant)?\/__local\/avatar\/([^/]+)$/;
 const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
 const PLATFORM_SESSION_PATTERN =
   /^(?:\/assistant)?\/__local\/platform-session$/;
@@ -118,6 +120,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(
         statusMiddleware(config.lockfilePaths, upgradingLocalAssistantIds),
       );
+      server.middlewares.use(avatarMiddleware(config.lockfilePaths, env));
       server.middlewares.use(
         guardianTokenMiddleware(
           config.lockfilePaths,
@@ -935,6 +938,45 @@ function statusMiddleware(
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(result));
     });
+  };
+}
+
+function avatarMiddleware(
+  lockfilePaths: string[],
+  env: Record<string, string>,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const match = req.url?.match(LOCAL_AVATAR_PATTERN);
+    if (!match) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "GET") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    let assistantId: string;
+    try {
+      assistantId = decodeURIComponent(match[1]!);
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Malformed assistant ID" }));
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify(
+        readLockfileAssistantAvatar(lockfilePaths, assistantId, env),
+      ),
+    );
   };
 }
 

@@ -1138,7 +1138,7 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
       ok: false,
       error: new Error("provider refused"),
       errorKind: "model_provider",
-      ...(failureCode !== undefined ? { failureCode } : {}),
+      ...(failureCode !== undefined ? { turnFailure: { failureCode } } : {}),
     });
   }
 

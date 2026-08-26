@@ -171,7 +171,7 @@ References:
 
 Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **eight app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
+The shell registers **nine app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
@@ -183,6 +183,7 @@ The shell registers **eight app-local** Capacitor plugins in [`MyViewController.
 | `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads without leaving the app. See the section below |
 | `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 | `WidgetSnapshot` | [`src/runtime/widget-snapshot.ts`](../src/runtime/widget-snapshot.ts) | Mirrors a conversation summary (unread and in-progress counts plus the three most recent threads) into App Group UserDefaults for the Home Screen widgets, reloading their timelines after each write. `sync` replaces the whole snapshot; `clear` drops it, so a signed-out account's titles do not outlive the session on a surface that renders without unlocking the app |
+| `AppIcon` | [`src/runtime/app-icon.ts`](../src/runtime/app-icon.ts) | Reads the alternate home-screen icons the build ships (`CFBundleAlternateIcons`) and swaps between them. Backs the App icon picker in Settings -> General, where a user cycles eyes and color, with a Match avatar shortcut that seeds the selection from the assistant's avatar. iOS shows a system alert on every icon change, so `set` runs only from a press and never on its own |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 
@@ -347,6 +348,53 @@ on any surface. Every method call sits behind `isNativeMobile()` or the
 flag-gated install. The inline-destructure rule at the top of this document
 applies to every call: only results cross an `async` boundary, never the plugin
 Proxy.
+
+---
+
+## Install referrer (`InstallReferrer`)
+
+A user who taps a campaign link, lands in Play, and installs arrives with no
+URL params, so the Play install referrer is the only attribution that install
+carries. The Android shell exposes it as the `InstallReferrer` plugin
+([`InstallReferrerPlugin.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/InstallReferrerPlugin.java));
+the web side is
+[`src/runtime/install-referrer.ts`](../src/runtime/install-referrer.ts). There
+is no iOS counterpart.
+
+- **`read()` never rejects, and always answers.** It resolves `{ referrer }`
+  when Play answers with a referrer, and `{}` for every other outcome: no Play
+  Store on the device, a Play Store that declines the bind, or a Play install
+  with no campaign. A bind that connects but never calls back is answered empty
+  by the plugin's own `BIND_TIMEOUT_MS`, the only bound on this read: the auth
+  path that spends the value awaits the call, and a shorter bound in the web
+  layer would abandon a referrer the shell goes on to cache forever. A
+  rejection or a hang here would surface as an error or a stuck sign-in
+  button.
+- **The empty result is the answer.** There is no availability probe, for the
+  same reason the voice bridge has none (§ "The skew rule"): a probe can itself
+  be absent on an older shell, and `{}` is the only answer a caller could act
+  on anyway. The `dev` and `staging` flavors carry an `applicationIdSuffix` and
+  are never Play-installed, so `{}` is the normal result in development.
+- **The shell caches the resolution, not its consumption.** A successful read
+  and a status meaning this device's Play Store will never answer both land in
+  the `install_referrer_state` preferences, so later launches skip the service
+  bind. A transient failure, a timed-out bind included, is left uncached, so a
+  later launch retries.
+- **Consumption state belongs to the web layer.** The shell keeps answering
+  `read()` with the same value forever, so the spend is recorded where the
+  value is spent, under `device:install_referrer`; `markInstallReferrerSpent`
+  in `install-referrer.ts` carries the rules. Do not add a "mark consumed"
+  method to the bridge.
+- **Failures are logged, not reported.** The plugin logs through
+  `com.getcapacitor.Logger`, not `NativeFailureGuard`, whose reports the web
+  layer forwards to Sentry. A Play Store that is absent or declines the bind is
+  the normal path on every sideloaded, `dev`, and `staging` build, so a report
+  there is noise, not signal.
+- **No manifest permission.** The Play Install Referrer Library declares its
+  own service binding, so `AndroidManifest.xml` needs no entry for this.
+
+References:
+- Google Play: [Play Install Referrer Library](https://developer.android.com/google/play/installreferrer/library).
 
 ---
 

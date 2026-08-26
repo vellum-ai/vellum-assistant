@@ -16,6 +16,7 @@ import { z } from "zod";
 import { listProviderEntries } from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
+import type { SttRole } from "../../stt/roles.js";
 import type { BatchTranscriber, SttErrorCategory } from "../../stt/types.js";
 import { SttError } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -232,10 +233,12 @@ const STT_ERROR_MAP: Record<SttErrorCategory, () => RouteError> = {
  * surfaced verbatim. `null` means nothing is configured at all, and any other
  * throw is an unexpected resolver failure.
  */
-async function resolveBatchTranscriberOrUnavailable(): Promise<BatchTranscriber> {
+async function resolveBatchTranscriberOrUnavailable(
+  role: SttRole,
+): Promise<BatchTranscriber> {
   let transcriber: BatchTranscriber | null;
   try {
-    transcriber = await resolveBatchTranscriber();
+    transcriber = await resolveBatchTranscriber({ role });
   } catch (err) {
     if (err instanceof SttError) {
       throw new ServiceUnavailableError(err.message);
@@ -322,7 +325,7 @@ async function handleTranscribe({ body }: RouteHandlerArgs) {
   }
 
   // -- Resolve transcriber --------------------------------------------------
-  const transcriber = await resolveBatchTranscriberOrUnavailable();
+  const transcriber = await resolveBatchTranscriberOrUnavailable("dictation");
 
   // -- Transcribe with timeout ----------------------------------------------
   const abortController = new AbortController();
@@ -380,7 +383,7 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
     );
   }
 
-  const transcriber = await resolveBatchTranscriberOrUnavailable();
+  const transcriber = await resolveBatchTranscriberOrUnavailable("batch");
 
   const startTime = Date.now();
   let wavPath: string | null = null;
