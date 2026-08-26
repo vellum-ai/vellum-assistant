@@ -1701,6 +1701,7 @@ test("preserves the complete local file when remote retries are exhausted", asyn
   ).rejects.toThrow("tunnel unavailable");
 
   expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+  expect(window.vellum!.screenRecording!.release).not.toHaveBeenCalled();
   expect(window.vellum!.screenRecording!.abort).not.toHaveBeenCalled();
   expect(window.vellum!.screenRecording!.append).toHaveBeenCalledTimes(1);
   expect(

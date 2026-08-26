@@ -647,11 +647,13 @@ export class ScreenRecordingController {
       recorder.onstop = () => {
         void (async () => {
           let localFinished = false;
+          let shouldDeleteCompletedFile = false;
           try {
             await localWrites;
             const { filePath } = await bridge.finish(event.recordingId);
             localFinished = true;
             if (active.ownershipLost) {
+              shouldDeleteCompletedFile = true;
               void transferWrites.catch(() => undefined);
               this.release(active);
               resolveStopped();
@@ -699,6 +701,7 @@ export class ScreenRecordingController {
               ...(attachmentId ? { attachmentId } : { filePath }),
               durationMs: this.dependencies.now() - active.startedAt,
             });
+            shouldDeleteCompletedFile = true;
             resolveStopped();
           } catch (error) {
             if (!localFinished) {
@@ -729,7 +732,7 @@ export class ScreenRecordingController {
               .catch(() => undefined);
             rejectStopped(error);
           } finally {
-            if (localFinished) {
+            if (localFinished && shouldDeleteCompletedFile) {
               await bridge.release(event.recordingId).catch(() => undefined);
             }
             this.release(active);
