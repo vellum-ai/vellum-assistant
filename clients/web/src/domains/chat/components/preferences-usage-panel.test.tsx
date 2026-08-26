@@ -67,6 +67,15 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
   },
 }));
 
+// The real BYOK gate classifies through five daemon queries and the
+// resolved-assistants store, none of which these tests stand up; what the
+// hook owns is only how the verdict gates the extra-credits claim.
+let byokRoute = false;
+mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
+  useSuppressCreditBannersForByok: (candidate: boolean) =>
+    candidate && byokRoute,
+}));
+
 const { PreferencesUsagePanel } = await import("./preferences-usage-panel");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
@@ -166,6 +175,7 @@ beforeEach(() => {
   effectiveBalance = null;
   availableUsageBalance = null;
   totalUsageBalance = null;
+  byokRoute = false;
   balanceStatusOpts = undefined;
   setObscureCredits(true);
 });
@@ -359,6 +369,22 @@ describe("PreferencesUsagePanel", () => {
     ).toContain("--system-negative-strong");
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
+  });
+
+  test("a BYOK route with a positive wallet keeps the red reading", async () => {
+    // The classifier proves the next turn dispatches on the user's own key,
+    // so whatever the wallet holds is not what gets spent.
+    usageTotalUsd = "25";
+    effectiveBalance = "18.00";
+    byokRoute = true;
+    const { findByTestId, queryByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    await waitFor(() => {
+      expect(panel.textContent).toContain("100% used");
+    });
+    expect(queryByText("Now using extra usage credits")).toBeNull();
+    expect(queryByText("Add credits to continue.")).toBeNull();
   });
 
   test("an unknown wallet withholds the extra-credits claim", async () => {

@@ -17,6 +17,7 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
+import { useSuppressCreditBannersForByok } from "@/hooks/use-byok-credit-banner-gate";
 import {
   includedMonthlyCreditsUsdFromPlans,
   usePlanUsageBalance,
@@ -36,11 +37,12 @@ export interface PreferencesUsage {
   /** The bundle is spent and the wallet behind it is empty too. */
   exhausted: boolean;
   /**
-   * The bundle is spent while the wallet behind it still holds credit, so
-   * the next managed turn draws on extra usage credits. Reads the raw
-   * balance rather than {@link exhausted}: a BYOK route suppresses
-   * `exhausted` to keep the credit wall down, and a turn that dispatches on
-   * the user's own key must not be described as spending extra credits.
+   * The bundle is spent, the wallet behind it provably holds credit, and the
+   * active route actually burns managed credits, so the next turn draws on
+   * extra usage credits. Reads the raw balance rather than {@link exhausted}
+   * and asks the BYOK route classifier itself: a turn that dispatches on the
+   * user's own key must not be described as spending extra credits, whatever
+   * the wallet holds.
    */
   usingExtraCredits: boolean;
 }
@@ -88,21 +90,30 @@ export function usePreferencesUsage(
     totalUsageBalance,
   });
 
-  if (!enabled || !usage) {
-    return null;
-  }
-  const spent = usage.ratio >= 1;
+  const spent = usage != null && usage.ratio >= 1;
   // The raw balance rather than `isExhausted`, which stays down on a
   // provably-BYOK route: right for the credit wall, wrong for claiming the
   // next turn spends extra credits. A null balance is unknown, not credit,
   // so the claim also waits for a summary proving the wallet holds something.
   const hasWalletCredit = balance != null && Number(balance) > 0;
+  // A wallet with credit is still not proof it gets spent: a BYOK route
+  // dispatches the next turn on the user's own key. The classifier's queries
+  // stay idle until the claim is otherwise live, and while it classifies (or
+  // when it proves BYOK with no recent managed burn) the claim is withheld.
+  const routeSkipsWallet = useSuppressCreditBannersForByok(
+    enabled && spent && hasWalletCredit,
+    opts.conversationId ?? null,
+  );
+
+  if (!enabled || !usage) {
+    return null;
+  }
   return {
     ratio: usage.ratio,
     resetsAt: usage.resetsAt,
     spent,
     // Spending the bundle only alarms once the wallet behind it is empty too.
     exhausted: spent && isExhausted,
-    usingExtraCredits: spent && hasWalletCredit,
+    usingExtraCredits: spent && hasWalletCredit && !routeSkipsWallet,
   };
 }
