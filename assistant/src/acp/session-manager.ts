@@ -15,6 +15,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
+import { currentClaudeCredentialGeneration } from "./acp-claude-oauth.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
@@ -113,6 +114,10 @@ interface SessionEntry {
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
   command: string;
+  /** Claude credential generation this session read its token under. A
+   *  rejection reported after a newer token landed describes a credential
+   *  that has already been replaced, so it must not re-mark the row. */
+  credentialGeneration: number;
 }
 
 /**
@@ -374,6 +379,7 @@ export class AcpSessionManager {
       parentToolUseId: opts.parentToolUseId,
       task: opts.task,
       command: basename(opts.agentConfig.command),
+      credentialGeneration: currentClaudeCredentialGeneration(),
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -1175,7 +1181,19 @@ export class AcpSessionManager {
             // code goes on the state so `persistTerminal` (called just below)
             // carries it to the history row, which is what a client that
             // reopens the conversation re-raises the card from.
-            current.state.authErrorCode = errorCode;
+            //
+            // Unless the credential has already been replaced. A run that read
+            // its token under an older generation and only now reports it
+            // rejected is describing auth that has since been repaired, and
+            // the bulk clear that would have retired the mark has already run.
+            // Marking anyway would raise a Connect card for a working token
+            // with nothing left to clear it.
+            if (
+              current.credentialGeneration ===
+              currentClaudeCredentialGeneration()
+            ) {
+              current.state.authErrorCode = errorCode;
+            }
           }
 
           // Persist the terminal row before teardown clears the buffer.

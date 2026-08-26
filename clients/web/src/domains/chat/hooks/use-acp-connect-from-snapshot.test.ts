@@ -74,13 +74,27 @@ describe("raiseAcpConnectFromSnapshot", () => {
   });
 
   test("the newest failure wins when the snapshot holds several", () => {
+    // The snapshot arrives newest-first, so the newest marked run is the one
+    // the loop must stop on. Ordered the way the route actually returns it.
     raiseAcpConnectFromSnapshot([
-      run({ acpSessionId: "acp-1", parentToolUseId: "tool-old" }),
       run({ acpSessionId: "acp-2", parentToolUseId: "tool-new" }),
+      run({ acpSessionId: "acp-1", parentToolUseId: "tool-old" }),
     ]);
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-new");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-new",
+    );
+  });
+
+  test("skips ineligible newer rows to reach the newest marked one", () => {
+    raiseAcpConnectFromSnapshot([
+      run({ acpSessionId: "acp-3", authErrorCode: undefined }),
+      run({ acpSessionId: "acp-2", parentToolUseId: "tool-new" }),
+      run({ acpSessionId: "acp-1", parentToolUseId: "tool-old" }),
+    ]);
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-new",
+    );
   });
 });

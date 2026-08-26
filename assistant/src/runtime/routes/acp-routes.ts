@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
@@ -757,7 +757,28 @@ function listMergedSessions(opts: {
     .limit(opts.limit + merged.size)
     .all();
 
-  for (const row of historyRows) {
+  // Rows still carrying a credential failure ride along regardless of the
+  // page. The inline Connect card is restored from this marker, so paging it
+  // out is the difference between a user having a way back to auth and not:
+  // a conversation with more recent runs than the page holds would otherwise
+  // hide the one row that matters. Bounded by the marker itself, which the
+  // daemon clears on the next successful token write, so this adds a row only
+  // while auth is actually broken.
+  const markedRows = opts.conversationId
+    ? db
+        .select()
+        .from(acpSessionHistory)
+        .where(
+          and(
+            eq(acpSessionHistory.parentConversationId, opts.conversationId),
+            isNotNull(acpSessionHistory.authErrorCode),
+          ),
+        )
+        .orderBy(desc(acpSessionHistory.startedAt))
+        .all()
+    : [];
+
+  for (const row of [...historyRows, ...markedRows]) {
     if (merged.has(row.id)) {
       continue;
     }

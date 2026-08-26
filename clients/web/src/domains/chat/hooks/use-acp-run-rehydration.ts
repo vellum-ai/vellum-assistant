@@ -203,9 +203,11 @@ export async function fetchAcpSessions(
  * own. The live `acp_auth_required` event covers the session that watched the
  * failure happen; this covers every reopen after it.
  *
- * Newest last so the most recent failure wins when several are in the
- * snapshot. `showAcpConnect` no-ops a prompt already retired this session, so
- * a reconcile cannot resurrect one the user dismissed.
+ * Stops at the first eligible row. The snapshot arrives newest-first
+ * (`listMergedSessions` orders by descending `startedAt`), so the first match
+ * is the most recent failure; carrying on would let each later, older row
+ * overwrite it. `showAcpConnect` no-ops a prompt already retired this session,
+ * so a reconcile cannot resurrect one the user dismissed.
  */
 export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
   for (const entry of entries) {
@@ -221,6 +223,7 @@ export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
       reason: "auth_required",
       conversationId: entry.parentConversationId || null,
     });
+    return;
   }
 }
 
