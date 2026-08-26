@@ -10,7 +10,6 @@
 import { z } from "zod";
 
 import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
-import { ipcCall } from "../gateway-client.js";
 import { invalidateContactThresholdCache } from "../../permissions/gateway-threshold-reader.js";
 import {
   BadRequestError,
@@ -18,6 +17,7 @@ import {
   NotFoundError,
 } from "../../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
+import { ipcCall } from "../gateway-client.js";
 
 export const SET_CONTACT_THRESHOLD_IPC_METHOD = "set_contact_threshold";
 

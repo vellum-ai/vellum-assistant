@@ -15,20 +15,32 @@ let gatewayResult: unknown = {
 const notified: string[] = [];
 const invalidated: string[] = [];
 
+// Snapshot-spread the real module so untouched exports (used by the
+// contact-routes import below) stay intact.
+const actualGatewayClient = await import("../../gateway-client.js");
 mock.module("../../gateway-client.js", () => ({
+  ...actualGatewayClient,
   ipcCall: async (method: string, params?: Record<string, unknown>) => {
     lastIpcCall = { method, params };
     return gatewayResult;
   },
 }));
 
+const actualNotifyContactsChanged = await import(
+  "../../../contacts/notify-contacts-changed.js"
+);
 mock.module("../../../contacts/notify-contacts-changed.js", () => ({
+  ...actualNotifyContactsChanged,
   notifyContactsChanged: () => {
     notified.push("contacts_changed");
   },
 }));
 
+const actualThresholdReader = await import(
+  "../../../permissions/gateway-threshold-reader.js"
+);
 mock.module("../../../permissions/gateway-threshold-reader.js", () => ({
+  ...actualThresholdReader,
   invalidateContactThresholdCache: (contactId: string) => {
     invalidated.push(contactId);
   },
