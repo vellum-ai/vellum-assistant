@@ -121,6 +121,18 @@ export interface InteractionState {
    */
   acpConnectFlowActive: boolean;
 
+  /**
+   * Bumped every time a Connect prompt is raised.
+   *
+   * An ACP snapshot fetch that was issued before a live `acp_auth_required`
+   * event can land after it, and its unmarked rows would then retire a prompt
+   * the daemon raised in the meantime. Because dismissal records the tool-use
+   * id, that would also stop any later snapshot from restoring the card.
+   * Callers capture this when they issue a fetch and only retire if it is
+   * still current when the response is applied.
+   */
+  acpConnectRevision: number;
+
   /** Tool call IDs whose risk level was "unknown" when the user approved
    *  them — triggers the "command not recognized" nudge below their chip. */
   unknownNudgeToolCallIds: Set<string>;
@@ -219,6 +231,7 @@ const INITIAL_STATE: InteractionState = {
   pendingAcpConnect: null,
   dismissedAcpConnectToolUseIds: new Set<string>(),
   acpConnectFlowActive: false,
+  acpConnectRevision: 0,
   pendingAcpContinue: false,
 
   unknownNudgeToolCallIds: new Set<string>(),
@@ -407,7 +420,10 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) =>
       state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)
         ? state
-        : { pendingAcpConnect: payload },
+        : {
+            pendingAcpConnect: payload,
+            acpConnectRevision: state.acpConnectRevision + 1,
+          },
     ),
 
   // Remember which failed spawn was dismissed so a later reseed can't resurrect

@@ -62,6 +62,57 @@ export function currentClaudeCredentialGeneration(): number {
 }
 
 /**
+ * Digest of the Claude token believed to be in secure storage, or `undefined`
+ * before any write in this process has told us.
+ *
+ * Identity rather than a version counter. A counter only answers "is this the
+ * token stored now" by proxy, and that proxy needs the read and the write
+ * serialized to stay true: publish the token before bumping and a read landing
+ * in between captures the new token under the old number, which then reads as
+ * superseded and suppresses a real rejection. Comparing the token itself has
+ * no such window, because the answer travels with the thing it describes.
+ */
+let storedClaudeTokenDigest: string | undefined;
+
+/** Digest a Claude token for identity comparison. Never stores the token. */
+export function claudeTokenDigest(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 32);
+}
+
+/**
+ * Record the token now believed to be stored, returning the previous value so
+ * a failed write can put it back.
+ *
+ * Set *before* the backing write, so a read landing between the two compares
+ * against the token it will actually get. A write that then fails restores the
+ * previous digest rather than leaving the cache describing a token that was
+ * never published.
+ */
+export function setStoredClaudeTokenDigest(
+  digest: string | undefined,
+): string | undefined {
+  const previous = storedClaudeTokenDigest;
+  storedClaudeTokenDigest = digest;
+  return previous;
+}
+
+/**
+ * Whether a run holding `digest` is still holding the stored credential.
+ *
+ * Unknown answers `true`: nothing in this process has written a token, so
+ * there is no evidence the run's was replaced, and this path must fail toward
+ * leaving the user a route back to auth rather than suppressing one.
+ */
+export function claudeCredentialStillCurrent(
+  digest: string | undefined,
+): boolean {
+  if (digest === undefined || storedClaudeTokenDigest === undefined) {
+    return true;
+  }
+  return digest === storedClaudeTokenDigest;
+}
+
+/**
  * Retire everything a past Claude auth failure left behind, because a new
  * token has just been written.
  *
@@ -116,16 +167,22 @@ export function retireAcpAuthRecovery(): void {
  */
 const rejectedConfigTokens = new Map<string, number>();
 
-function configTokenDigest(token: string): string {
-  return createHash("sha256").update(token).digest("hex").slice(0, 32);
-}
+const configTokenDigest = claudeTokenDigest;
 
-/** Record that this configured Claude token was the one Claude rejected. */
-export function noteConfigClaudeTokenRejected(token: string): void {
-  rejectedConfigTokens.set(
-    configTokenDigest(token),
-    claudeCredentialGeneration,
-  );
+/**
+ * Record that this configured Claude token was the one Claude rejected.
+ *
+ * `generationAtInjection` is the generation current when the run took the
+ * value, not when it failed. A token write landing between those two moments
+ * would otherwise be recorded as the rejection's own generation, leaving
+ * `configClaudeTokenSuperseded` comparing a number against itself and
+ * reporting the revoked value as still trustworthy.
+ */
+export function noteConfigClaudeTokenRejected(
+  token: string,
+  generationAtInjection: number,
+): void {
+  rejectedConfigTokens.set(configTokenDigest(token), generationAtInjection);
 }
 
 /**

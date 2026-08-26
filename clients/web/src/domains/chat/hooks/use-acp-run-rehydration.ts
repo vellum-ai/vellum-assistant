@@ -213,6 +213,7 @@ export async function fetchAcpSessions(
 export function raiseAcpConnectFromSnapshot(
   entries: AcpRunEntry[],
   snapshotConversationId: string | null = null,
+  revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
 ): void {
   for (const entry of entries) {
     if (
@@ -234,7 +235,7 @@ export function raiseAcpConnectFromSnapshot(
   // prompt skips the connected-state self-heal and survives conversation
   // resets, so without this the stale card outlives the reconnect that should
   // have cleared it. Scoped to the conversation the snapshot covers.
-  retireStaleAcpConnectPrompt(snapshotConversationId);
+  retireStaleAcpConnectPrompt(snapshotConversationId, revisionAtFetch);
 }
 
 /**
@@ -245,10 +246,20 @@ export function raiseAcpConnectFromSnapshot(
  * loses both the success confirmation and the auto-continue it is about to
  * request.
  */
-function retireStaleAcpConnectPrompt(conversationId: string | null): void {
+function retireStaleAcpConnectPrompt(
+  conversationId: string | null,
+  revisionAtFetch: number,
+): void {
   const state = useInteractionStore.getState();
   const prompt = state.pendingAcpConnect;
   if (state.acpConnectFlowActive || !prompt) {
+    return;
+  }
+  // A snapshot only speaks for the prompt that existed when it was requested.
+  // A fetch issued before a live `acp_auth_required` can land after it, and
+  // retiring on that would dismiss a prompt the daemon just raised, recording
+  // its tool-use id and stopping any later snapshot from restoring the card.
+  if (state.acpConnectRevision !== revisionAtFetch) {
     return;
   }
   // Only the prompt this snapshot can speak for. A missing-token failure is
@@ -296,6 +307,7 @@ function applyAcpSnapshot(
   entries: AcpRunEntry[] | null,
   priorActiveIds: string[],
   snapshotConversationId: string | null = null,
+  revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
 ): void {
   if (entries === null) {
     return;
@@ -307,7 +319,7 @@ function applyAcpSnapshot(
   // Outside the length check: a conversation whose only marked run was cleared
   // can come back empty, and that emptiness is exactly the signal that the
   // prompt is stale.
-  raiseAcpConnectFromSnapshot(entries, snapshotConversationId);
+  raiseAcpConnectFromSnapshot(entries, snapshotConversationId, revisionAtFetch);
   if (entries.length >= ACP_SNAPSHOT_LIMIT) {
     return;
   }
@@ -368,13 +380,23 @@ export function useAcpRunRehydration(
     // no request context), so the writer receives its own echo, and dismissing
     // here would unmount the card before it reaches `connected` and asks for
     // the auto-continue. That flow clears the card itself.
-    retireStaleAcpConnectPrompt(conversationId ?? null);
+    const state = useInteractionStore.getState();
+    retireStaleAcpConnectPrompt(
+      conversationId ?? null,
+      state.acpConnectRevision,
+    );
     if (!assistantId || !conversationId) {
       return;
     }
     const priorActiveIds = activeRunIdsFor(conversationId);
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      applyAcpSnapshot(entries, priorActiveIds, conversationId ?? null);
+      applyAcpSnapshot(
+        entries,
+        priorActiveIds,
+        conversationId ?? null,
+        revisionAtFetch,
+      );
     });
   });
 
@@ -392,8 +414,15 @@ export function useAcpRunRehydration(
         return;
       }
       const priorActiveIds = activeRunIdsFor(conversationId);
+      const revisionAtFetch =
+        useInteractionStore.getState().acpConnectRevision;
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-        applyAcpSnapshot(entries, priorActiveIds, conversationId ?? null);
+        applyAcpSnapshot(
+          entries,
+          priorActiveIds,
+          conversationId ?? null,
+          revisionAtFetch,
+        );
       });
     },
   );

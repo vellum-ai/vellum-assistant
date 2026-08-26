@@ -177,3 +177,61 @@ describe("raiseAcpConnectFromSnapshot: retiring a prompt the daemon dropped", ()
     ).toBe("tool-1");
   });
 });
+
+describe("raiseAcpConnectFromSnapshot: snapshots older than the prompt", () => {
+  test("does not retire a prompt raised after the fetch was issued", () => {
+    // A snapshot requested before a live `acp_auth_required` can land after
+    // it. Retiring on that would dismiss the prompt the daemon just raised and
+    // record its tool-use id, so no later snapshot could restore the card.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+    });
+    const revisionAtFetch =
+      useInteractionStore.getState().acpConnectRevision;
+
+    // The live event lands while the fetch is in flight.
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-live",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    raiseAcpConnectFromSnapshot(
+      [run({ authErrorCode: undefined })],
+      "conv-1",
+      revisionAtFetch,
+    );
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
+    ).toBe("tool-live");
+    expect(
+      useInteractionStore.getState().dismissedAcpConnectToolUseIds.size,
+    ).toBe(0);
+  });
+
+  test("retires when the prompt has not changed since the fetch", () => {
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+    });
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+    const revisionAtFetch =
+      useInteractionStore.getState().acpConnectRevision;
+
+    raiseAcpConnectFromSnapshot(
+      [run({ authErrorCode: undefined })],
+      "conv-1",
+      revisionAtFetch,
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+});

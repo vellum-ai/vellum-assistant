@@ -16,6 +16,7 @@ import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import {
+  claudeCredentialStillCurrent,
   currentClaudeCredentialGeneration,
   noteConfigClaudeTokenRejected,
 } from "./acp-auth-marker-store.js";
@@ -125,12 +126,16 @@ interface SessionEntry {
    *  config. A rejection marks exactly this value superseded, so one alias's
    *  bad token cannot stand down another alias's good one. */
   configClaudeToken?: string;
-  /** Claude credential generation this session read its token under, from the
-   *  config `prepareAgentEnv` returned. A rejection reported after a newer
-   *  token landed describes a credential that has already been replaced, so it
-   *  must not re-raise recovery. Absent for agents that read no Claude
-   *  credential, which never reach the auth-failure path. */
-  credentialGeneration?: number;
+  /** Identity of the Claude token this session read from the vault. Compared
+   *  against the token believed stored when the run reports its credential
+   *  rejected, which is how an already-replaced token's rejection is told
+   *  apart from a real one. Absent for a configured token and for agents that
+   *  read no Claude credential. */
+  credentialDigest?: string;
+  /** Credential generation the configured token was taken under, when this
+   *  session used one. The rejection is recorded against this rather than the
+   *  generation at failure. */
+  configCredentialGeneration?: number;
 }
 
 /**
@@ -392,7 +397,8 @@ export class AcpSessionManager {
       parentToolUseId: opts.parentToolUseId,
       task: opts.task,
       command: basename(opts.agentConfig.command),
-      credentialGeneration: opts.agentConfig.credentialGeneration,
+      credentialDigest: opts.agentConfig.credentialDigest,
+      configCredentialGeneration: opts.agentConfig.configCredentialGeneration,
       credentialFromConfig: opts.agentConfig.credentialFromConfig === true,
       configClaudeToken:
         opts.agentConfig.credentialFromConfig === true
@@ -1183,33 +1189,37 @@ export class AcpSessionManager {
             errorCode !== undefined && current.state.status !== "cancelled"
               ? current.parentToolUseId
               : undefined;
-          // A run that read its token under an older generation and only now
-          // reports it rejected is describing auth that has since been
-          // repaired, and the bulk clear that would have retired its mark has
-          // already run. The whole recovery surface turns on this, not just
-          // the persisted mark: the live event raises a card that deliberately
-          // skips connected-state self-healing, and the registry entry
-          // redirects the secure-prompt fallback at that card. Raising either
-          // for a superseded rejection leaves the user with a card for a
-          // working token and nothing left to clear it.
-          // Suppress only on positive evidence of supersession. An entry
-          // carrying no generation is not proof of anything, and recovery is
-          // the user's only route back to auth, so the unknown case raises it.
           // A configured token Claude rejected is recorded as such, so the
           // next read stands it down in favour of whatever Connect writes.
           // Without this the retry resolves the same revoked config value and
-          // raises the card again, forever.
+          // raises the card again, forever. Recorded against the generation
+          // the value was injected under, so a replacement written while this
+          // run was still going counts as superseding it.
           const rejectedConfigToken =
             current.credentialFromConfig === true
               ? current.configClaudeToken
               : undefined;
           if (errorCode !== undefined && rejectedConfigToken !== undefined) {
-            noteConfigClaudeTokenRejected(rejectedConfigToken);
+            noteConfigClaudeTokenRejected(
+              rejectedConfigToken,
+              current.configCredentialGeneration ??
+                currentClaudeCredentialGeneration(),
+            );
           }
-          const credentialStillCurrent =
-            typeof current.credentialGeneration !== "number" ||
-            current.credentialGeneration ===
-              currentClaudeCredentialGeneration();
+          // The whole recovery surface turns on this, not just the persisted
+          // mark: the live event raises a card that deliberately skips
+          // connected-state self-healing, and the registry entry redirects the
+          // secure-prompt fallback at that card. Raising either for a
+          // superseded rejection leaves the user with a card for a working
+          // token and nothing left to clear it.
+          //
+          // Suppress only on positive evidence of supersession: the run's
+          // token is not the one storage holds. A run with no recorded
+          // identity, or a process that has written no token, proves nothing,
+          // and recovery is the user's only route back to auth.
+          const credentialStillCurrent = claudeCredentialStillCurrent(
+            current.credentialDigest,
+          );
           if (
             errorCode !== undefined &&
             recoveryAnchor !== undefined &&

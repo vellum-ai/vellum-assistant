@@ -13,19 +13,20 @@ export interface AcpAgentConfig {
   description?: string;
   env?: Record<string, string>;
   /**
-   * Claude credential generation current when `prepareAgentEnv` read the token
-   * into `env`. Sampling it later, at session registration, would miss a
-   * replacement that landed in between and let a rejection of the older token
-   * pass for current. Absent for agents that read no Claude credential.
+   * Identity of the Claude token `prepareAgentEnv` read from the vault into
+   * `env`. Compared against the token believed stored when a run reports its
+   * credential rejected, which is how a rejection of an already-replaced token
+   * is told apart from a real one. Absent for agents that read no Claude
+   * credential, and for a configured token, which carries no vault identity.
    */
-  credentialGeneration?: number;
-  /**
-   * Whether the Claude token in `env` came from agent config rather than the
-   * vault. Config wins over the vault, so a rejection of a configured token is
-   * not something writing secure storage can repair on its own: the rejection
-   * marks it superseded so the next read stands it down.
-   */
+  credentialDigest?: string;
   credentialFromConfig?: boolean;
+  /**
+   * Credential generation current when a configured Claude token was taken.
+   * A rejection is recorded against this, not against the generation at
+   * failure, so a replacement written in between counts as superseding it.
+   */
+  configCredentialGeneration?: number;
 }
 
 /**

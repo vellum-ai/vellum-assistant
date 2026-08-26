@@ -32,6 +32,7 @@ import {
 import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
 import {
+  claudeTokenDigest,
   configClaudeTokenSuperseded,
   currentClaudeCredentialGeneration,
 } from "./acp-auth-marker-store.js";
@@ -245,16 +246,6 @@ async function injectOptionalCredential(
 }
 
 /**
- * How many times the vault read is retried when a token write races it.
- *
- * Each retry costs one broker read and only happens when a write actually
- * landed mid-read, which is rare. Three is a ceiling rather than an
- * expectation: a run of consecutive races means writes are arriving faster
- * than reads complete, and the unversioned fallback is the right answer there.
- */
-const CREDENTIAL_READ_ATTEMPTS = 3;
-
-/**
  * Returns a NEW config with any required credentials merged into `env`.
  * Does NOT mutate the input. Throws `FailedDependencyError` if a required
  * credential is missing from both the user-supplied env override and the
@@ -295,8 +286,9 @@ export async function prepareAgentEnv(
   // limitations on the optional `AcpAgentConfig.env` field.
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
   const adapterCommand = basename(agentConfig.command);
-  let credentialGeneration: number | undefined;
+  let credentialDigest: string | undefined;
   let credentialFromConfig = false;
+  let configCredentialGeneration: number | undefined;
 
   if (adapterCommand === "claude-agent-acp") {
     // A config `env` override or a legacy vault entry can hold an Anthropic API
@@ -330,29 +322,25 @@ export async function prepareAgentEnv(
     }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      // Read the generation on both sides of the vault read, and read again
-      // when it moved. A replacement landing inside that await leaves no way
-      // to tell which token came back, and neither answer is safe to assume:
-      // labelling the old one with the new generation lets a rejection of it
-      // pass for current, while leaving it unversioned lets that same
-      // rejection raise a card the replacement just cleared. Re-reading is
-      // what resolves it, rather than picking a side.
-      for (let attempt = 0; attempt < CREDENTIAL_READ_ATTEMPTS; attempt++) {
-        const before = currentClaudeCredentialGeneration();
-        delete env.CLAUDE_CODE_OAUTH_TOKEN;
-        missReason = await injectCredential(
-          env,
-          ACP_OAUTH_TOKEN_FIELD,
-          "CLAUDE_CODE_OAUTH_TOKEN",
-          ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
-        );
-        if (before === currentClaudeCredentialGeneration()) {
-          credentialGeneration = before;
-          break;
-        }
+      missReason = await injectCredential(
+        env,
+        ACP_OAUTH_TOKEN_FIELD,
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
+      );
+      // The identity of the token actually injected. No before/after dance and
+      // no retry: a digest describes the value in hand, so a write racing this
+      // read cannot mislabel it.
+      if (env.CLAUDE_CODE_OAUTH_TOKEN) {
+        credentialDigest = claudeTokenDigest(env.CLAUDE_CODE_OAUTH_TOKEN);
       }
     } else {
       credentialFromConfig = true;
+      // The generation the configured value was taken under. Recording the
+      // rejection against this, rather than against whatever the generation is
+      // when the run fails, is what lets a write landing in between count as
+      // the replacement that supersedes it.
+      configCredentialGeneration = currentClaudeCredentialGeneration();
     }
     // Any api-key-shaped value still standing here came from the vault read:
     // the config override was already dropped above, and the read only runs
@@ -431,11 +419,14 @@ export async function prepareAgentEnv(
     ]);
   }
 
-  // `credentialGeneration` is set only when the token came from the vault read
-  // above and no replacement raced it. A configured `CLAUDE_CODE_OAUTH_TOKEN`
-  // skips that read entirely, and versioning an unrelated config override
-  // would let an unrelated token write suppress this run's recovery.
-  // `credentialFromConfig` records that provenance so a rejection can mark the
-  // configured value superseded rather than looping the card against it.
-  return { ...agentConfig, env, credentialGeneration, credentialFromConfig };
+  // `credentialDigest` identifies the token that came from the vault read; a
+  // configured `CLAUDE_CODE_OAUTH_TOKEN` skips that read and carries none, and
+  // `configCredentialGeneration` covers that source instead.
+  return {
+    ...agentConfig,
+    env,
+    credentialDigest,
+    credentialFromConfig,
+    configCredentialGeneration,
+  };
 }

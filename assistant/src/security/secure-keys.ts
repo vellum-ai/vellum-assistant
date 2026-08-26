@@ -665,6 +665,36 @@ export async function getSecureKeyAsync(
  * failed write.
  */
 /**
+ * Record the identity of a Claude OAuth token about to be published, returning
+ * an undo for a write that then fails.
+ *
+ * `undefined` for every other credential, so the cost on the common path is
+ * one string comparison. Imported on demand and only on a match, so the ACP
+ * module graph stays out of this module's load path.
+ */
+async function claimAcpClaudeTokenDigest(
+  account: string,
+  value: string,
+): Promise<(() => Promise<void>) | undefined> {
+  if (account !== credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)) {
+    return undefined;
+  }
+  try {
+    const { claudeTokenDigest, setStoredClaudeTokenDigest } =
+      await import("../acp/acp-auth-marker-store.js");
+    const previous = setStoredClaudeTokenDigest(claudeTokenDigest(value));
+    return async () => {
+      const { setStoredClaudeTokenDigest: restore } =
+        await import("../acp/acp-auth-marker-store.js");
+      restore(previous);
+    };
+  } catch (err) {
+    log.warn({ err }, "failed to claim the Claude token digest before a write");
+    return undefined;
+  }
+}
+
+/**
  * Post-write side effects keyed on which credential was actually stored.
  *
  * Every path that lands a credential runs through this, single writes and bulk
@@ -695,7 +725,20 @@ export async function setSecureKeyAsync(
 ): Promise<boolean> {
   return withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync({ forceReconnect: true });
+    // Claim the new token's identity before publishing it. A run reading the
+    // credential between the publish and this claim would otherwise hold the
+    // new token while the recovery check still described the old one, and its
+    // later rejection would read as superseded and suppress recovery. Claiming
+    // first makes the window harmless in both directions: a read before the
+    // publish gets the old token, which genuinely is superseded, and a read
+    // after gets the new one, which matches.
+    const restoreDigest = await claimAcpClaudeTokenDigest(account, value);
     const ok = await backend.set(account, value);
+    if (!ok) {
+      // Nothing was published, so the claim described a token that never
+      // existed. Put back what the cache said before.
+      await restoreDigest?.();
+    }
     if (!ok) {
       log.warn(
         { account, backend: backend.name },
