@@ -66,6 +66,17 @@
     "stepConnect": "Подключить",
     "stepInvite": "Добавить на сервер"
   },
+  "domainVerificationChip": {
+    "checkingDomain": "Проверка домена…",
+    "domainVerified": "Домен подтверждён",
+    "failedTitle": "Не удалось подтвердить домен. Записи DNS могли ещё не распространиться. Освободите домен и зарегистрируйте его снова.",
+    "unknownStatus": "Неизвестный статус",
+    "unknownStatusTitle": "Не удалось получить статус проверки домена.",
+    "verificationFailed": "Проверка не прошла",
+    "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
+    "verifyingDomain": "Проверка домена…",
+    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут."
+  },
   "downloadFeedback": {
     "failed": "Не удалось скачать файл",
     "revealMac": "Показать в Finder",
@@ -73,6 +84,9 @@
     "saved": "Сохранено в папку «Загрузки»",
     "started": "Скачивание началось",
     "startedDescription": "Файл {filename} появится в загрузках браузера."
+  },
+  "managedServicesBanner": {
+    "body": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>"
   },
   "notFound": {
     "badge": "Ошибка 404",
@@ -94,6 +108,11 @@
   },
   "sectionActionsButton": {
     "ariaLabel": "Действия: {name}"
+  },
+  "serviceCard": {
+    "managedLabel": "Управляемые",
+    "modeToggleAriaLabel": "Режим сервиса",
+    "yourOwnLabel": "Свои"
   },
   "sttProviderForm": {
     "windowsNativeDisplayName": "Windows Native Dictation",

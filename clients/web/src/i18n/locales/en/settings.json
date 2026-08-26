@@ -1803,21 +1803,6 @@
     "warningLabel": "Warning Event",
     "warningSentToast": "Sentry warning event sent."
   },
-  "sharedUi": {
-    "checkingDomain": "Checking domain…",
-    "domainVerified": "Domain verified",
-    "failedTitle": "Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain.",
-    "managedLabel": "Managed",
-    "managedServicesBanner": "Managed services are metered and deducted from your Vellum account balance. <link>View pricing</link>",
-    "modeToggleAriaLabel": "Service mode",
-    "unknownStatus": "Unknown status",
-    "unknownStatusTitle": "Unable to retrieve domain verification status.",
-    "verificationFailed": "Verification failed",
-    "verifiedTitle": "DNS records have been verified. Your domain is ready to send and receive email.",
-    "verifyingDomain": "Verifying domain…",
-    "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes.",
-    "yourOwnLabel": "Your Own"
-  },
   "shortcutsSections": {
     "alreadyUsedBy": "Already used by {label}",
     "appDescription": "Work while a Vellum window is focused.",

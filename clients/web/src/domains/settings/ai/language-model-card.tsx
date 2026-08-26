@@ -4,7 +4,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/byo-service-card";
 import { LanguageModelSection } from "@/domains/settings/ai/language-model-section";
 import { ProfilesSection } from "@/domains/settings/ai/profiles-section";
 import { ProvidersSection } from "@/domains/settings/ai/providers-section";

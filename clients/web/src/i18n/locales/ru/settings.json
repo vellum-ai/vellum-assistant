@@ -1802,21 +1802,6 @@
     "warningLabel": "Событие Warning",
     "warningSentToast": "Событие warning Sentry отправлено."
   },
-  "sharedUi": {
-    "checkingDomain": "Проверка домена…",
-    "domainVerified": "Домен подтверждён",
-    "failedTitle": "Не удалось подтвердить домен. Записи DNS могли ещё не распространиться. Освободите домен и зарегистрируйте его снова.",
-    "managedLabel": "Управляемые",
-    "managedServicesBanner": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>",
-    "modeToggleAriaLabel": "Режим сервиса",
-    "unknownStatus": "Неизвестный статус",
-    "unknownStatusTitle": "Не удалось получить статус проверки домена.",
-    "verificationFailed": "Проверка не прошла",
-    "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
-    "verifyingDomain": "Проверка домена…",
-    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут.",
-    "yourOwnLabel": "Свои"
-  },
   "shortcutsSections": {
     "alreadyUsedBy": "Уже занято: {label}",
     "appDescription": "Работают, пока в фокусе окно Vellum.",

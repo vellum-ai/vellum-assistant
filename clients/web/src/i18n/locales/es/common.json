@@ -759,5 +759,24 @@
     "file": "Archivo",
     "help": "Ayuda",
     "view": "Ver"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "Comprobando dominio…",
+    "domainVerified": "Dominio verificado",
+    "failedTitle": "La verificación del dominio falló. Es posible que los registros DNS no se hayan propagado correctamente. Puedes intentar liberar y volver a registrar el dominio.",
+    "unknownStatus": "Estado desconocido",
+    "unknownStatusTitle": "No se pudo obtener el estado de verificación del dominio.",
+    "verificationFailed": "Verificación fallida",
+    "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
+    "verifyingDomain": "Verificando dominio…",
+    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos."
+  },
+  "managedServicesBanner": {
+    "body": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>"
+  },
+  "serviceCard": {
+    "managedLabel": "Administrado",
+    "modeToggleAriaLabel": "Modo de servicio",
+    "yourOwnLabel": "Propio"
   }
 }

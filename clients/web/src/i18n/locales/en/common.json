@@ -759,5 +759,24 @@
     "file": "File",
     "help": "Help",
     "view": "View"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "Checking domain…",
+    "domainVerified": "Domain verified",
+    "failedTitle": "Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain.",
+    "unknownStatus": "Unknown status",
+    "unknownStatusTitle": "Unable to retrieve domain verification status.",
+    "verificationFailed": "Verification failed",
+    "verifiedTitle": "DNS records have been verified. Your domain is ready to send and receive email.",
+    "verifyingDomain": "Verifying domain…",
+    "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes."
+  },
+  "managedServicesBanner": {
+    "body": "Managed services are metered and deducted from your Vellum account balance. <link>View pricing</link>"
+  },
+  "serviceCard": {
+    "managedLabel": "Managed",
+    "modeToggleAriaLabel": "Service mode",
+    "yourOwnLabel": "Your Own"
   }
 }
