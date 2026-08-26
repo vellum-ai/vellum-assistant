@@ -25,7 +25,7 @@ export function createGenerationGuard(): GenerationGuard {
       return generations.get(key) ?? 0;
     },
     isCurrent(key, generation) {
-      return generations.get(key) === generation;
+      return (generations.get(key) ?? 0) === generation;
     },
     invalidate(key) {
       claim(key);
