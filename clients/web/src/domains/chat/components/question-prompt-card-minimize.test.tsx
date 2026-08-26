@@ -257,6 +257,50 @@ describe("QuestionPromptCard minimize", () => {
     expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
   });
 
+  test("the position counter leaves with the pager it counts for", () => {
+    renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
+
+    expect(screen.getByText("1 of 2")).toBeDefined();
+
+    fireEvent.click(toggleButton());
+
+    expect(screen.queryByText("1 of 2")).toBeNull();
+  });
+
+  test("a minimized card keeps no chevron of its own", () => {
+    const { container } = renderCard({ onClose: () => {} });
+
+    fireEvent.click(toggleButton());
+
+    expect(
+      Array.from(container.querySelectorAll("button")).filter((button) => {
+        const label = button.getAttribute("aria-label");
+        return label === "Minimize question" || label === "Reopen question";
+      }),
+    ).toHaveLength(0);
+    // What reopens the card is the summary itself, not a second chevron
+    // pointing the other way.
+    expect(toggleButton().tagName).not.toBe("BUTTON");
+  });
+
+  test("the keyboard reopens a minimized card", () => {
+    renderCard();
+
+    fireEvent.click(toggleButton());
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
+
+    // The summary is a `role="button"` div, so it handles the keystrokes a
+    // real button would have taken care of on its own.
+    fireEvent.keyDown(toggleButton(), { key: "Enter" });
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(toggleButton());
+    fireEvent.keyDown(toggleButton(), { key: " " });
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
+  });
+
   test("the swipe grabber renders only where a swipe can happen", () => {
     const GRABBER = '[data-slot="question-card-grabber"]';
 

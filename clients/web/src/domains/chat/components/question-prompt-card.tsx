@@ -91,9 +91,10 @@ export function QuestionPromptCard(props: QuestionPromptCardProps) {
  * At full height the card covers the assistant message the question is about,
  * which on a phone is most of what is left of the transcript (LUM-3390). The
  * header stays put and everything below it collapses to nothing, leaving the
- * question and an option count docked above the composer. Three ways in and
- * out, all driving the same state: the header's chevron, a vertical swipe
- * anywhere on the card, and a tap on a minimized card's header.
+ * question and an option count docked above the composer. Three ways through
+ * it, all driving the same state: the header's chevron minimizes, a vertical
+ * swipe anywhere on the card goes either way, and a minimized card reopens
+ * from its own header.
  *
  * `useQuestionCardMinimize` reduces all of that to one `progress` value, which
  * every moving part below reads. Mid-drag it tracks the finger; at rest it is
@@ -126,7 +127,19 @@ export function QuestionPromptBody({
   const collapsibleId = useId();
 
   const minimize = useQuestionCardMinimize();
-  const { isMinimized, progress, dragAttr } = minimize;
+  const { expand, isMinimized, progress, dragAttr } = minimize;
+
+  // `role="button"` buys the summary the click, not the keystrokes a real
+  // button would have handled for free.
+  const handleReopenKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        expand();
+      }
+    },
+    [expand],
+  );
 
   const isBatched = entries.length > 1;
   const currentEntry = entries[currentIndex];
@@ -375,14 +388,29 @@ export function QuestionPromptBody({
           // Only where a drag can start: elsewhere this would take away the
           // ability to select the question text and give nothing back.
           isTouch && "select-none",
-          isMinimized && "cursor-pointer",
         )}
-        // A minimized card reopens from anywhere in its header, which is the
-        // whole card. Left off while expanded so the header's own buttons
-        // aren't shadowed by a handler that would undo them on the way up.
-        onClick={isMinimized ? minimize.expand : undefined}
       >
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            isMinimized && "cursor-pointer",
+          )}
+          // A minimized card carries no chevron of its own, so the summary is
+          // what reopens it, by tap and by keyboard alike. Role and tabindex
+          // rather than a real button because the close X sits in the same row
+          // and must not end up nested inside one. Left off while expanded so
+          // the header's own buttons aren't shadowed by a handler that would
+          // undo them on the way up.
+          role={isMinimized ? "button" : undefined}
+          tabIndex={isMinimized ? 0 : undefined}
+          aria-expanded={isMinimized ? false : undefined}
+          aria-controls={isMinimized ? collapsibleId : undefined}
+          aria-label={
+            isMinimized ? t("questionPromptCard.expandAria") : undefined
+          }
+          onClick={isMinimized ? expand : undefined}
+          onKeyDown={isMinimized ? handleReopenKeyDown : undefined}
+        >
           <Typography
             variant="body-medium-default"
             as="div"
@@ -438,28 +466,32 @@ export function QuestionPromptBody({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {isBatched && (
-            <Typography
-              variant="label-small-default"
-              as="span"
-              className="px-1 text-[color:var(--content-tertiary)]"
-            >
-              {t("questionPromptCard.position", {
-                current: currentIndex + 1,
-                total: entries.length,
-              })}
-            </Typography>
-          )}
           {!isMinimized && (
-            // Paging through a batch is an expanded-card action, so the pager
-            // leaves with the rows it pages between. It fades out over the
-            // first half of the collapse and unmounts once the state commits,
-            // by which point it is already invisible.
+            // Everything in here acts on rows that are on screen: the pager
+            // pages between them, the counter says which one is showing, and
+            // the chevron puts them away. So all three leave with the rows,
+            // fading out over the first half of the collapse and unmounting
+            // once the state commits, by which point they are already
+            // invisible. The chevron points down and stays there: reopening is
+            // the minimized header's job, and a second control rotated the
+            // other way would only duplicate it.
             <div
               className="question-card-motion flex items-center gap-1"
               style={{ opacity: expandedOpacity }}
               data-dragging={dragAttr}
             >
+              {isBatched && (
+                <Typography
+                  variant="label-small-default"
+                  as="span"
+                  className="px-1 text-[color:var(--content-tertiary)]"
+                >
+                  {t("questionPromptCard.position", {
+                    current: currentIndex + 1,
+                    total: entries.length,
+                  })}
+                </Typography>
+              )}
               <Button
                 variant="ghost"
                 size="compact"
@@ -476,27 +508,17 @@ export function QuestionPromptBody({
                 disabled={!canGoNext || isSubmitting}
                 aria-label={t("questionPromptCard.nextQuestionAria")}
               />
+              <Button
+                variant="ghost"
+                size="compact"
+                iconOnly={<ChevronDown />}
+                onClick={minimize.toggle}
+                aria-expanded
+                aria-controls={collapsibleId}
+                aria-label={t("questionPromptCard.minimizeAria")}
+              />
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="compact"
-            iconOnly={
-              <ChevronDown
-                className="question-card-motion"
-                style={{ transform: `rotate(${(1 - progress) * 180}deg)` }}
-                data-dragging={dragAttr}
-              />
-            }
-            onClick={minimize.toggle}
-            aria-expanded={!isMinimized}
-            aria-controls={collapsibleId}
-            aria-label={
-              isMinimized
-                ? t("questionPromptCard.expandAria")
-                : t("questionPromptCard.minimizeAria")
-            }
-          />
           {onClose && (
             <Button
               variant="ghost"
