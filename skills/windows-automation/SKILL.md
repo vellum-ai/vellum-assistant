@@ -69,14 +69,31 @@ Every PowerShell command sequence that saves, sends, deletes, or overwrites cont
 Run the invocation with `host_bash.timeout_seconds` set to at least `330`. The confirmation waits up to five minutes, so the host process needs additional time to branch and finish.
 
 ```powershell
-assistant ui confirm `
+$assistantCli = $env:VELLUM_ASSISTANT_CLI_PATH
+if ([string]::IsNullOrWhiteSpace($assistantCli)) {
+  $assistantCommand = Get-Command assistant -CommandType Application -ErrorAction SilentlyContinue
+  if ($null -ne $assistantCommand) {
+    $assistantCli = $assistantCommand.Source
+  }
+}
+
+if ([string]::IsNullOrWhiteSpace($assistantCli) -or -not (Test-Path -LiteralPath $assistantCli -PathType Leaf)) {
+  throw "The assistant confirmation command is unavailable. No changes were saved."
+}
+
+& $assistantCli ui confirm `
   --title "Save workbook" `
   --message "Save the new workbook to C:\Users\Public\Documents\example.xlsx?" `
   --confirm-label "Save" `
   --deny-label "Cancel" `
   --timeout 300000
 
-if ($LASTEXITCODE -ne 0) {
+$confirmationStarted = $?
+$confirmationExitCode = $LASTEXITCODE
+if (-not $confirmationStarted) {
+  throw "The confirmation command failed. No changes were saved."
+}
+if ($confirmationExitCode -ne 0) {
   Write-Output "Save cancelled."
   exit 0
 }

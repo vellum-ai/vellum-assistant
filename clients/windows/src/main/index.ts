@@ -302,6 +302,10 @@ app
           releaseChannel,
           version: app.getVersion(),
         });
+        process.env.VELLUM_ASSISTANT_CLI_PATH = path.join(
+          result.installDir,
+          "assistant.exe",
+        );
         if (["foreign", "shadowed"].includes(result.launcherState)) {
           log.warn(`[cli] Windows launcher is ${result.launcherState}`);
         }
