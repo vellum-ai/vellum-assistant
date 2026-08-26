@@ -324,6 +324,34 @@ describe("QuestionPromptCard minimize", () => {
     expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
   });
 
+  test("focus follows the control that replaces the one it was on", () => {
+    renderCard();
+
+    const chevron = toggleButton();
+    chevron.focus();
+    fireEvent.click(chevron);
+
+    // The chevron has just unmounted. Left alone, focus would land on the
+    // document body and the next Tab would restart from the top of the page.
+    expect(document.activeElement).toBe(toggleButton());
+
+    fireEvent.keyDown(toggleButton(), { key: "Enter" });
+
+    // And back: the summary keeps the DOM node but loses its role and tab
+    // stop, so focus has to move to the chevron that took over from it.
+    expect(document.activeElement).toBe(toggleButton());
+    expect(toggleButton().tagName).toBe("BUTTON");
+  });
+
+  test("a card that opens minimized on its own does not pull focus", () => {
+    // The same guard the swipe relies on: focus moves only when the user
+    // activated one of the two controls, never when the state changed under a
+    // thumb that was not holding focus in the first place.
+    renderCard();
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
   test("the swipe grabber renders only where a swipe can happen", () => {
     const GRABBER = '[data-slot="question-card-grabber"]';
 

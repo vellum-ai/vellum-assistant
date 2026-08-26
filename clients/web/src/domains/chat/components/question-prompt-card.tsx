@@ -127,7 +127,30 @@ export function QuestionPromptBody({
   const collapsibleId = useId();
 
   const minimize = useQuestionCardMinimize();
-  const { expand, isMinimized, progress, dragAttr } = minimize;
+  const { expand, isMinimized, progress, dragAttr, toggle } = minimize;
+
+  // The two halves of the collapse control. Only one is ever on screen: the
+  // chevron while expanded, the summary while minimized.
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const chevronRef = useRef<HTMLButtonElement>(null);
+  // Whether the state last changed by activating one of those two, as opposed
+  // to a swipe or the first render. Only then does focus have somewhere it has
+  // to follow: crossing the state unmounts the chevron and strips the summary
+  // of its role and tab stop, so a keyboard user is left on the document body
+  // and the next Tab restarts from the top of the page. A swipe is a thumb
+  // that was never holding focus to begin with, and moving it there would take
+  // focus away from wherever the user actually left it.
+  const moveFocusRef = useRef(false);
+
+  const handleMinimize = useCallback(() => {
+    moveFocusRef.current = true;
+    toggle();
+  }, [toggle]);
+
+  const handleReopen = useCallback(() => {
+    moveFocusRef.current = true;
+    expand();
+  }, [expand]);
 
   // `role="button"` buys the summary the click, not the keystrokes a real
   // button would have handled for free.
@@ -135,11 +158,21 @@ export function QuestionPromptBody({
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        expand();
+        handleReopen();
       }
     },
-    [expand],
+    [handleReopen],
   );
+
+  useEffect(() => {
+    if (!moveFocusRef.current) {
+      return;
+    }
+    moveFocusRef.current = false;
+    // The counterpart, which this same commit has just put on screen.
+    const replacement = isMinimized ? summaryRef.current : chevronRef.current;
+    replacement?.focus();
+  }, [isMinimized]);
 
   const isBatched = entries.length > 1;
   const currentEntry = entries[currentIndex];
@@ -391,6 +424,7 @@ export function QuestionPromptBody({
         )}
       >
         <div
+          ref={summaryRef}
           className={cn(
             "flex min-w-0 flex-1 flex-col",
             isMinimized && "cursor-pointer",
@@ -417,7 +451,7 @@ export function QuestionPromptBody({
           tabIndex={isMinimized ? 0 : undefined}
           aria-expanded={isMinimized ? false : undefined}
           aria-controls={isMinimized ? collapsibleId : undefined}
-          onClick={isMinimized ? expand : undefined}
+          onClick={isMinimized ? handleReopen : undefined}
           onKeyDown={isMinimized ? handleReopenKeyDown : undefined}
         >
           <Typography
@@ -518,10 +552,11 @@ export function QuestionPromptBody({
                 aria-label={t("questionPromptCard.nextQuestionAria")}
               />
               <Button
+                ref={chevronRef}
                 variant="ghost"
                 size="compact"
                 iconOnly={<ChevronDown />}
-                onClick={minimize.toggle}
+                onClick={handleMinimize}
                 aria-expanded
                 aria-controls={collapsibleId}
                 aria-label={t("questionPromptCard.minimizeAria")}
