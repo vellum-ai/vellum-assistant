@@ -1806,6 +1806,59 @@ test("preserves the complete local file when finalization is not confirmed", asy
   expect(clientPost).toHaveBeenCalledTimes(6);
 });
 
+test("aborts a completed remote transfer when finalization is rejected", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const transfers: string[] = [];
+  const statuses: string[] = [];
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+      if (status === "stopped") {
+        throw new Error("finalization rejected");
+      }
+    },
+    requiresTransfer: () => true,
+    transferRecording: async (_assistantId, _recordingId, operation) => {
+      transfers.push(operation);
+      return operation === "finish"
+        ? { attachmentId: "attachment-unlinked" }
+        : {};
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-remote");
+  await expect(
+    controller.handle(
+      { type: "recording_stop", recordingId },
+      "assistant-remote",
+    ),
+  ).rejects.toThrow("finalization rejected");
+
+  expect(transfers).toEqual(["begin", "append", "finish", "abort"]);
+  expect(statuses).toEqual([
+    "started",
+    "stopped",
+    "stopped",
+    "stopped",
+    "stopped",
+    "failed",
+  ]);
+  expect(window.vellum!.screenRecording!.release).not.toHaveBeenCalled();
+});
+
 test("retries remote finish after a lost response", async () => {
   const recorder = new FakeRecorder();
   const track = new FakeTrack();

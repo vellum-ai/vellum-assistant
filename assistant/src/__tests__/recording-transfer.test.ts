@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, jest, mock, test } from "bun:test";
@@ -120,6 +121,78 @@ test("returns the same attachment when finish is retried", async () => {
   expect(await store.finish(recordingId, "client-1")).toBe("attachment-1");
   expect(await store.finish(recordingId, "client-1")).toBe("attachment-1");
   expect(registerAttachment).toHaveBeenCalledTimes(1);
+});
+
+test("aborts a transfer that exceeds the cumulative size limit", async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment: () => ({ id: "attachment-limit" }),
+    maxBytes: 3,
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000004";
+
+  await store.begin(recordingId, "client-1");
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
+  await expect(
+    store.append(recordingId, "client-1", 1, new Uint8Array([3, 4])),
+  ).rejects.toThrow("size limit");
+
+  expect(await readdir(rootDir)).toEqual([]);
+  await expect(store.finish(recordingId, "client-1")).rejects.toThrow(
+    "not found",
+  );
+});
+
+test("deletes a completed transfer when its owner aborts", async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  let completedPath = "";
+  const deleteAttachment = mock((_attachmentId: string) => {
+    rmSync(completedPath, { force: true });
+  });
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment: (_filename, _mimeType, filePath) => {
+      completedPath = filePath;
+      return { id: "attachment-failed-finalization" };
+    },
+    deleteAttachment,
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000005";
+
+  await store.begin(recordingId, "client-1");
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
+  await store.finish(recordingId, "client-1");
+  await expect(readFile(completedPath)).resolves.toEqual(Buffer.from([1, 2]));
+
+  await store.abort(recordingId, "client-1");
+
+  expect(deleteAttachment).toHaveBeenCalledWith(
+    "attachment-failed-finalization",
+  );
+  await expect(readFile(completedPath)).rejects.toThrow();
+});
+
+test("cleans an unlinked completed transfer after its timeout", async () => {
+  jest.useFakeTimers();
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  const deleteAttachment = mock((_attachmentId: string) => undefined);
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment: () => ({ id: "attachment-timeout" }),
+    deleteAttachment,
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000006";
+
+  await store.begin(recordingId, "client-1");
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1]));
+  await store.finish(recordingId, "client-1");
+  jest.advanceTimersByTime(TRANSFER_IDLE_TIMEOUT_MS);
+
+  expect(deleteAttachment).toHaveBeenCalledWith("attachment-timeout");
 });
 
 test("claim keepalive preserves a paused transfer beyond the idle timeout", async () => {

@@ -397,6 +397,7 @@ describe("recording status restart fallback", () => {
     mockFileSize = 1024;
     mockConversationExists = true;
     mockClients.clear();
+    mockTransferCalls.length = 0;
   });
 
   test("attaches a completed recording after assistant state is lost", async () => {
@@ -437,6 +438,7 @@ describe("recording status restart fallback", () => {
     });
     registerMockClient("renderer-finalize", "actor-1", "web");
     registerMockClient("desktop-finalize", "actor-1", "windows");
+    expect(claimRecording(recordingId, "desktop-finalize")).toBeTrue();
     const request = {
       body: {
         conversationId: recordingId,
@@ -455,6 +457,18 @@ describe("recording status restart fallback", () => {
     await expect(statusRouteHandler(request)).resolves.toEqual({ ok: false });
 
     expect(mockLinkAttachmentToMessage).toHaveBeenCalledTimes(1);
+    expect(mockTransferCalls).toEqual([
+      {
+        operation: "abort",
+        recordingId,
+        ownerClientId: "desktop-finalize",
+      },
+      {
+        operation: "abort",
+        recordingId,
+        ownerClientId: "desktop-finalize",
+      },
+    ]);
   });
 
   test("clears a stopped picker without publishing a no-file message", async () => {

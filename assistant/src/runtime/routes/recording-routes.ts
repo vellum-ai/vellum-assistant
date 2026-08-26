@@ -173,21 +173,21 @@ async function requireStatusOwner(
   headers: Record<string, string> | undefined,
   recordingId: string,
   clientId: string,
-): Promise<string | null> {
+): Promise<{ clientId: string; restored: boolean }> {
   if (ownsRecordingClaim(recordingId, clientId)) {
-    return null;
+    return { clientId, restored: false };
   }
   const desktopClientId = headers?.["vellum-device-id"]?.trim();
   if (desktopClientId && ownsRecordingClaim(recordingId, desktopClientId)) {
     await requireDesktopClient(headers);
-    return null;
+    return { clientId: desktopClientId, restored: false };
   }
   if (hasRecordingClaim(recordingId)) {
     throw new ConflictError("Recording belongs to another client");
   }
   const outcome = claimRecordingOutcome(recordingId, clientId);
   if (outcome === "claimed") {
-    return null;
+    return { clientId, restored: false };
   }
   if (outcome === "missing") {
     const restoredOwnerId = await restoreRestartFallbackOwner(
@@ -196,7 +196,7 @@ async function requireStatusOwner(
       recordingId,
     );
     if (restoredOwnerId) {
-      return restoredOwnerId;
+      return { clientId: restoredOwnerId, restored: true };
     }
   }
   throw new ConflictError("Recording belongs to another client");
@@ -407,7 +407,7 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
   }
 
   const clientId = requireClientId(headers);
-  const restoredOwnerId = await requireStatusOwner(
+  const statusOwner = await requireStatusOwner(
     body,
     headers,
     body.conversationId,
@@ -422,9 +422,19 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
   let result;
   try {
     result = await handleRecordingStatusCore(msg);
+    if (
+      !result.success &&
+      body.status === "stopped" &&
+      typeof body.attachmentId === "string"
+    ) {
+      await recordingTransferStore.abort(
+        body.conversationId,
+        statusOwner.clientId,
+      );
+    }
   } catch (err) {
-    if (restoredOwnerId) {
-      releaseRecordingClaim(body.conversationId, restoredOwnerId);
+    if (statusOwner.restored) {
+      releaseRecordingClaim(body.conversationId, statusOwner.clientId);
     }
     log.error(
       { err, conversationId: body.conversationId, status: body.status },

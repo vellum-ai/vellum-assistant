@@ -696,13 +696,13 @@ export class ScreenRecordingController {
                 );
               }
               attachmentId = uploaded.attachmentId;
-              transferStarted = false;
             }
             this.release(active);
             await this.reportStatusWithRetry(assistantId, event, "stopped", {
               ...(attachmentId ? { attachmentId } : { filePath }),
               durationMs: this.dependencies.now() - active.startedAt,
             });
+            transferStarted = false;
             shouldDeleteCompletedFile = true;
             resolveStopped();
           } catch (error) {

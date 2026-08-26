@@ -2,16 +2,21 @@ import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { uploadFileBackedAttachment } from "../persistence/attachments-store.js";
+import {
+  deleteAttachment as deleteStoredAttachment,
+  uploadFileBackedAttachment,
+} from "../persistence/attachments-store.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 export const TRANSFER_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+export const MAX_RECORDING_TRANSFER_BYTES = 2 * 1024 * 1024 * 1024;
 
 interface RecordingTransferSession {
   filePath: string;
   ownerClientId: string;
   write: Promise<void>;
   nextSequence: number;
+  sizeBytes: number;
   pendingSequences: Map<number, Promise<void>>;
   finish: Promise<string> | null;
   timeout: NodeJS.Timeout | null;
@@ -20,7 +25,7 @@ interface RecordingTransferSession {
 interface RecordingTransferCompletion {
   attachmentId: string;
   ownerClientId: string;
-  timeout: NodeJS.Timeout;
+  timeout: NodeJS.Timeout | null;
 }
 
 interface RecordingTransferDependencies {
@@ -31,6 +36,8 @@ interface RecordingTransferDependencies {
     filePath: string,
     sizeBytes: number,
   ) => { id: string };
+  deleteAttachment?: (attachmentId: string) => unknown;
+  maxBytes?: number;
 }
 
 export class RecordingTransferStore {
@@ -47,6 +54,7 @@ export class RecordingTransferStore {
         "recordings",
       ),
       registerAttachment: uploadFileBackedAttachment,
+      deleteAttachment: deleteStoredAttachment,
     },
   ) {}
 
@@ -85,8 +93,7 @@ export class RecordingTransferStore {
       throw new Error("Recording transfer already finished");
     }
     if (completion) {
-      clearTimeout(completion.timeout);
-      this.completions.delete(recordingId);
+      this.discardCompletion(recordingId, completion);
     }
     await mkdir(this.dependencies.rootDir, { recursive: true });
     const filePath = path.join(
@@ -99,6 +106,7 @@ export class RecordingTransferStore {
       ownerClientId: clientId,
       write: Promise.resolve(),
       nextSequence: 0,
+      sizeBytes: 0,
       pendingSequences: new Map(),
       finish: null,
       timeout: null,
@@ -128,8 +136,14 @@ export class RecordingTransferStore {
     if (sequence !== session.nextSequence) {
       throw new Error("Recording chunk arrived out of order");
     }
+    const maxBytes = this.dependencies.maxBytes ?? MAX_RECORDING_TRANSFER_BYTES;
+    if (session.sizeBytes + chunk.byteLength > maxBytes) {
+      await this.abort(recordingId, clientId);
+      throw new Error("Recording transfer exceeds the size limit");
+    }
     const write = session.write.then(async () => {
       await appendFile(session.filePath, chunk);
+      session.sizeBytes += chunk.byteLength;
       session.nextSequence += 1;
     });
     session.pendingSequences.set(sequence, write);
@@ -179,6 +193,7 @@ export class RecordingTransferStore {
     const completion = this.completions.get(recordingId);
     if (completion) {
       this.assertOwner(completion, clientId);
+      this.discardCompletion(recordingId, completion);
       return;
     }
     const session = this.sessions.get(recordingId);
@@ -253,15 +268,35 @@ export class RecordingTransferStore {
     ownerClientId: string,
     attachmentId: string,
   ): void {
-    const timeout = setTimeout(() => {
-      this.completions.delete(recordingId);
-    }, TRANSFER_IDLE_TIMEOUT_MS);
-    timeout.unref?.();
-    this.completions.set(recordingId, {
+    const completion: RecordingTransferCompletion = {
       attachmentId,
       ownerClientId,
-      timeout,
-    });
+      timeout: null,
+    };
+    const timeout = setTimeout(() => {
+      try {
+        this.discardCompletion(recordingId, completion);
+      } catch {
+        // A later owner-fenced abort can retry cleanup.
+      }
+    }, TRANSFER_IDLE_TIMEOUT_MS);
+    timeout.unref?.();
+    completion.timeout = timeout;
+    this.completions.set(recordingId, completion);
+  }
+
+  private discardCompletion(
+    recordingId: string,
+    completion: RecordingTransferCompletion,
+  ): void {
+    if (this.completions.get(recordingId) !== completion) {
+      return;
+    }
+    this.dependencies.deleteAttachment?.(completion.attachmentId);
+    if (completion.timeout) {
+      clearTimeout(completion.timeout);
+    }
+    this.completions.delete(recordingId);
   }
 }
 
