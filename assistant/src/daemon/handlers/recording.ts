@@ -822,29 +822,28 @@ export async function handleRecordingStatusCore(
     }
 
     case "restart_cancelled": {
-      // The user closed/canceled the source picker during a restart.
-      // Emit a deterministic response — never "new recording started".
       log.info(
-        { recordingId, conversationId },
-        "Restart cancelled — source picker closed",
+        { recordingId, conversationId, operationToken: msg.operationToken },
+        "Recording source selection cancelled",
       );
 
-      // Clean up restart state
       cleanupMaps(recordingId, conversationId);
       pendingRestartByConversation.delete(conversationId);
       if (activeRestartToken && pendingRestartByConversation.size === 0) {
         activeRestartToken = null;
       }
 
-      broadcastMessage({
-        type: "assistant_text_delta",
-        text: "Recording restart cancelled.",
-        conversationId: conversationId,
-      });
-      broadcastMessage({
-        type: "message_complete",
-        conversationId: conversationId,
-      });
+      if (msg.operationToken) {
+        broadcastMessage({
+          type: "assistant_text_delta",
+          text: "Recording restart cancelled.",
+          conversationId: conversationId,
+        });
+        broadcastMessage({
+          type: "message_complete",
+          conversationId: conversationId,
+        });
+      }
       break;
     }
 

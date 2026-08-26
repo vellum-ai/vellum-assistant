@@ -222,6 +222,9 @@ async function requireTransferOwner(
       return restoredDesktopClientId;
     }
   }
+  if (!hasRecordingClaim(recordingId)) {
+    throw new NotFoundError("Recording state not found");
+  }
   throw new ConflictError("Recording belongs to another client");
 }
 

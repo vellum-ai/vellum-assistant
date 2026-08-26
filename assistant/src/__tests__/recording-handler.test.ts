@@ -411,6 +411,26 @@ describe("recording status restart fallback", () => {
     expect(hasRecordingClaim(recordingId)).toBeFalse();
   });
 
+  test("clears a stopped picker without publishing a no-file message", async () => {
+    const sent = createSent();
+    const recordingId = handleRecordingStart(
+      "conv-recording-picker-stop",
+      undefined,
+    );
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    await handleRecordingStatusCore({
+      type: "recording_status",
+      conversationId: recordingId!,
+      status: "restart_cancelled",
+      attachToConversationId: "conv-recording-picker-stop",
+    });
+
+    expect(sent).toEqual([]);
+    expect(hasRecordingClaim(recordingId!)).toBeFalse();
+  });
+
   test("restarts a lost transfer under the authenticated desktop owner", async () => {
     const recordingId = "00000000-0000-4000-8000-000000000096";
     const headers = statusHeaders(
@@ -458,6 +478,22 @@ describe("recording status restart fallback", () => {
       },
       { operation: "finish", recordingId, ownerClientId: "desktop-transfer" },
     ]);
+  });
+
+  test("signals missing transfer state before the ownership renewal", async () => {
+    registerMockClient("renderer-missing-transfer", "actor-1", "web");
+
+    await expect(
+      transferRouteHandler({
+        body: {
+          recordingId: "00000000-0000-4000-8000-000000000097",
+          operation: "append",
+          sequence: 0,
+          data: Buffer.from([1]).toString("base64"),
+        },
+        headers: statusHeaders("renderer-missing-transfer", "actor-1"),
+      } as never),
+    ).rejects.toThrow("Recording state not found");
   });
 
   test("rejects restart fallback from the wrong actor", async () => {

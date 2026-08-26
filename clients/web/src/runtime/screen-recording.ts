@@ -59,6 +59,15 @@ type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
 type RecordingTransferOperation = "begin" | "append" | "finish" | "abort";
 type RecordingClaimOutcome = "claimed" | "occupied" | "missing";
 
+export class RecordingRequestError extends Error {
+  constructor(readonly status: number | undefined) {
+    super(`Screen recording request failed: ${status}`);
+  }
+}
+
+const isMissingRecordingState = (error: unknown): boolean =>
+  error instanceof RecordingRequestError && error.status === 404;
+
 const postRecordingRequest = async <T>(
   assistantId: string,
   endpoint: "claim" | "transfer",
@@ -74,7 +83,7 @@ const postRecordingRequest = async <T>(
       : {}),
   });
   if (!response?.ok) {
-    throw new Error(`Screen recording request failed: ${response?.status}`);
+    throw new RecordingRequestError(response?.status);
   }
   return data as T;
 };
@@ -412,7 +421,11 @@ export class ScreenRecordingController {
     try {
       if (pending.cancelled) {
         if (!pending.ownershipLost) {
-          await this.dependencies.reportStatus(assistantId, event, "stopped");
+          await this.dependencies.reportStatus(
+            assistantId,
+            event,
+            "restart_cancelled",
+          );
         }
         return;
       }
@@ -425,7 +438,11 @@ export class ScreenRecordingController {
         capture.close();
         capture = null;
         if (!pending.ownershipLost) {
-          await this.dependencies.reportStatus(assistantId, event, "stopped");
+          await this.dependencies.reportStatus(
+            assistantId,
+            event,
+            "restart_cancelled",
+          );
         }
         return;
       }
@@ -453,7 +470,11 @@ export class ScreenRecordingController {
           transferStarted = false;
         }
         if (!pending.ownershipLost) {
-          await this.dependencies.reportStatus(assistantId, event, "stopped");
+          await this.dependencies.reportStatus(
+            assistantId,
+            event,
+            "restart_cancelled",
+          );
         }
         return;
       }
@@ -495,13 +516,22 @@ export class ScreenRecordingController {
         if (requiresTransfer && !active.restartRecovery) {
           const sequence = chunkSequence++;
           transferWrites = transferWrites.then(async () => {
-            await this.transferWithRetry(
-              assistantId,
-              event.recordingId,
-              "append",
-              await bytes,
-              sequence,
-            );
+            try {
+              await this.transferWithRetry(
+                assistantId,
+                event.recordingId,
+                "append",
+                await bytes,
+                sequence,
+              );
+            } catch (error) {
+              if (isMissingRecordingState(error)) {
+                active.restartRecovery = true;
+                active.stopClaimMaintenance();
+                return;
+              }
+              throw error;
+            }
           });
         }
       };
@@ -521,17 +551,32 @@ export class ScreenRecordingController {
             }
             let attachmentId: string | undefined;
             if (requiresTransfer) {
+              await transferWrites.catch((error) => {
+                if (!active.restartRecovery) {
+                  throw error;
+                }
+              });
               let uploaded: { attachmentId?: string };
               if (active.restartRecovery) {
-                await transferWrites.catch(() => undefined);
                 uploaded = await this.replayCompletedRecording(active, bridge);
               } else {
-                await transferWrites;
-                uploaded = await this.transferWithRetry(
-                  assistantId,
-                  event.recordingId,
-                  "finish",
-                );
+                try {
+                  uploaded = await this.transferWithRetry(
+                    assistantId,
+                    event.recordingId,
+                    "finish",
+                  );
+                } catch (error) {
+                  if (!isMissingRecordingState(error)) {
+                    throw error;
+                  }
+                  active.restartRecovery = true;
+                  active.stopClaimMaintenance();
+                  uploaded = await this.replayCompletedRecording(
+                    active,
+                    bridge,
+                  );
+                }
               }
               if (!uploaded.attachmentId) {
                 throw new Error(
@@ -626,7 +671,11 @@ export class ScreenRecordingController {
         return;
       }
       if (pending.cancelled) {
-        await this.dependencies.reportStatus(assistantId, event, "stopped");
+        await this.dependencies.reportStatus(
+          assistantId,
+          event,
+          "restart_cancelled",
+        );
         return;
       }
       await this.dependencies.reportStatus(
@@ -698,7 +747,10 @@ export class ScreenRecordingController {
           attachToConversationId,
         );
       } catch (error) {
-        if (attempt === maxAttempts - 1) {
+        if (
+          isMissingRecordingState(error) ||
+          attempt === maxAttempts - 1
+        ) {
           throw error;
         }
         await this.dependencies.waitBeforeRetry(250 * 2 ** attempt);

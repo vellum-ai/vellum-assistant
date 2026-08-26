@@ -17,6 +17,7 @@ mock.module("@/generated/daemon/client.gen", () => ({
 
 const {
   ScreenRecordingController,
+  RecordingRequestError,
   captureSelectedSource,
   postStatus,
   requiresRecordingTransfer,
@@ -361,9 +362,43 @@ test("honors stop while source selection is pending", async () => {
   });
   await start;
 
-  expect(statuses).toEqual(["stopped"]);
+  expect(statuses).toEqual(["restart_cancelled"]);
   expect(track.stopped).toBeTrue();
   expect(recorder.state).toBe("inactive");
+  expect(window.vellum!.screenRecording!.begin).not.toHaveBeenCalled();
+});
+
+test("cancels a dismissed picker after stop without finalizing", async () => {
+  const statuses: string[] = [];
+  let rejectCapture!: (error: unknown) => void;
+  const capture = mock(
+    () =>
+      new Promise<never>((_resolve, reject) => {
+        rejectCapture = reject;
+      }),
+  );
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+    },
+  });
+
+  const start = controller.handle(startEvent, "assistant-1");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  rejectCapture(new DOMException("dismissed", "NotAllowedError"));
+  await start;
+
+  expect(statuses).toEqual(["restart_cancelled"]);
   expect(window.vellum!.screenRecording!.begin).not.toHaveBeenCalled();
 });
 
@@ -924,10 +959,9 @@ test("keeps recording after a missing renewal and reports the completed file", a
   expect(track.stopped).toBeTrue();
 });
 
-test("replays the complete local recording after remote transfer state is lost", async () => {
+test("replays the complete local recording when transfer state disappears before renewal", async () => {
   const track = new FakeTrack();
   const recorder = new FakeRecorder();
-  let serverStateMissing!: () => void;
   const transfers: Array<{
     operation: string;
     chunk?: number[];
@@ -935,6 +969,8 @@ test("replays the complete local recording after remote transfer state is lost",
     attachToConversationId?: string;
   }> = [];
   const stoppedAttachments: string[] = [];
+  let initialAppendFinished = false;
+  let recoveryBegan = false;
   const completedChunks = [
     { data: new Uint8Array([4, 5, 1]), eof: false },
     { data: new Uint8Array([2, 3]), eof: true },
@@ -956,10 +992,6 @@ test("replays the complete local recording after remote transfer state is lost",
     createRecorder: () => recorder as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => 0,
-    maintainClaim: (_assistantId, _recordingId, _onLost, onMissing) => {
-      serverStateMissing = onMissing;
-      return () => undefined;
-    },
     reportStatus: async (_assistantId, _event, status, details) => {
       if (status === "stopped" && details?.attachmentId) {
         stoppedAttachments.push(details.attachmentId);
@@ -980,6 +1012,15 @@ test("replays the complete local recording after remote transfer state is lost",
         ...(sequence !== undefined ? { sequence } : {}),
         ...(attachToConversationId ? { attachToConversationId } : {}),
       });
+      if (operation === "append" && sequence === 0) {
+        initialAppendFinished = true;
+      }
+      if (operation === "begin" && attachToConversationId) {
+        recoveryBegan = true;
+      }
+      if (operation === "append" && sequence === 1 && !recoveryBegan) {
+        throw new RecordingRequestError(404);
+      }
       return operation === "finish"
         ? { attachmentId: "attachment-recovered" }
         : {};
@@ -990,17 +1031,19 @@ test("replays the complete local recording after remote transfer state is lost",
   recorder.ondataavailable?.({
     data: new Blob([new Uint8Array([4, 5])]),
   } as BlobEvent);
-  await Promise.resolve();
-  serverStateMissing();
+  while (!initialAppendFinished) {
+    await Promise.resolve();
+  }
   await controller.handle(
     { type: "recording_stop", recordingId },
     "assistant-remote",
   );
 
-  expect(transfers).toEqual([
+  expect(transfers.filter(({ operation }) => operation === "begin")).toEqual([
     { operation: "begin" },
-    { operation: "append", chunk: [4, 5], sequence: 0 },
     { operation: "begin", attachToConversationId: "conv-1" },
+  ]);
+  expect(transfers.slice(-3)).toEqual([
     { operation: "append", chunk: [4, 5, 1], sequence: 0 },
     { operation: "append", chunk: [2, 3], sequence: 1 },
     { operation: "finish" },
