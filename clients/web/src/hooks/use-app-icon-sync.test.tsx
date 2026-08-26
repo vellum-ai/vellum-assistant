@@ -1,9 +1,13 @@
 /**
- * The invariants this feature rests on: an icon is only ever *offered* for a
- * character avatar the installed build ships a bundle for, `setAppIcon` is only
- * ever reached from a user-pressed callback, every mounted consumer reads the
- * same shell snapshot, and a swap counts as landed only when a re-read of the
- * shell says the home screen holds the icon that was asked for.
+ * The invariants this feature rests on: only a name the installed build ships a
+ * bundle for can be applied, `setAppIcon` is only ever reached from a
+ * user-pressed callback, every mounted consumer reads the same shell snapshot,
+ * and a swap counts as landed only when a re-read of the shell says the home
+ * screen holds the icon that was asked for.
+ *
+ * The avatar-derived name is a separate fact from what can be applied: it gates
+ * the one-tap sync shortcut only, so a user with no character avatar can still
+ * choose an icon by hand.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +24,8 @@ const TRAITS = {
   color: "cosmic-purple",
 };
 const ICON = "avatar-eyes-curious-cosmic-purple";
+/** A second bundled icon, the one no avatar here maps to. */
+const OTHER = "avatar-eyes-goofy-teal";
 
 const CHARACTER: AvatarState = {
   kind: "character",
@@ -108,14 +114,14 @@ afterEach(() => {
 });
 
 describe("useAppIconSync", () => {
-  test("offers the bundled icon for a character avatar", async () => {
+  test("reports a syncable icon for a character avatar", async () => {
     const { result } = await renderSync();
 
     await waitFor(() => {
       expect(result.current.enabled).toBe(true);
     });
     expect(result.current.targetIcon).toBe(ICON);
-    expect(result.current.canOffer).toBe(true);
+    expect(result.current.canSyncAvatar).toBe(true);
   });
 
   test("stays off the whole way down off native iOS", async () => {
@@ -124,7 +130,7 @@ describe("useAppIconSync", () => {
     const { result } = renderHook(() => useAppIconSync("asst-1"));
 
     expect(result.current.enabled).toBe(false);
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
     expect(result.current.targetIcon).toBeNull();
     expect(getAppIconState).not.toHaveBeenCalled();
   });
@@ -135,7 +141,7 @@ describe("useAppIconSync", () => {
     const { result } = renderHook(() => useAppIconSync("asst-1"));
 
     expect(result.current.enabled).toBe(false);
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
     expect(getAppIconState).not.toHaveBeenCalled();
   });
 
@@ -148,10 +154,10 @@ describe("useAppIconSync", () => {
       expect(getAppIconState).toHaveBeenCalled();
     });
     expect(result.current.enabled).toBe(false);
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
   });
 
-  test("never offers for a custom image, even with stale traits", async () => {
+  test("never syncs for a custom image, even with stale traits", async () => {
     avatarState = IMAGE_WITH_STALE_TRAITS;
 
     const { result } = await renderSync();
@@ -160,10 +166,10 @@ describe("useAppIconSync", () => {
       expect(result.current.enabled).toBe(true);
     });
     expect(result.current.targetIcon).toBeNull();
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
   });
 
-  test("never offers when there is no avatar", async () => {
+  test("never syncs when there is no avatar", async () => {
     avatarState = NONE;
 
     const { result } = await renderSync();
@@ -172,10 +178,10 @@ describe("useAppIconSync", () => {
       expect(result.current.enabled).toBe(true);
     });
     expect(result.current.targetIcon).toBeNull();
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
   });
 
-  test("never offers a name this build does not bundle", async () => {
+  test("never syncs to a name this build does not bundle", async () => {
     iconState = { supported: true, current: null, available: ["avatar-other"] };
 
     const { result } = await renderSync();
@@ -184,10 +190,10 @@ describe("useAppIconSync", () => {
       expect(result.current.enabled).toBe(true);
     });
     expect(result.current.targetIcon).toBe(ICON);
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
   });
 
-  test("does not offer the icon that is already applied", async () => {
+  test("does not sync to the icon that is already applied", async () => {
     iconState = { supported: true, current: ICON, available: [ICON] };
 
     const { result } = await renderSync();
@@ -195,20 +201,20 @@ describe("useAppIconSync", () => {
     await waitFor(() => {
       expect(result.current.currentIcon).toBe(ICON);
     });
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
   });
 
   test("apply swaps to the target and re-reads the shell", async () => {
     const { result } = await renderSync();
     await waitFor(() => {
-      expect(result.current.canOffer).toBe(true);
+      expect(result.current.canSyncAvatar).toBe(true);
     });
     getAppIconState.mockClear();
     iconState = { supported: true, current: ICON, available: [ICON] };
 
     let applied: boolean | undefined;
     await act(async () => {
-      applied = await result.current.apply();
+      applied = await result.current.apply(ICON);
     });
 
     expect(applied).toBe(true);
@@ -216,7 +222,7 @@ describe("useAppIconSync", () => {
     expect(setAppIcon.mock.calls[0]?.[0]).toBe(ICON);
     expect(getAppIconState).toHaveBeenCalled();
     await waitFor(() => {
-      expect(result.current.canOffer).toBe(false);
+      expect(result.current.canSyncAvatar).toBe(false);
     });
   });
 
@@ -225,12 +231,12 @@ describe("useAppIconSync", () => {
     // the request says it worked and the next read says otherwise.
     const { result } = await renderSync();
     await waitFor(() => {
-      expect(result.current.canOffer).toBe(true);
+      expect(result.current.canSyncAvatar).toBe(true);
     });
 
     let applied: boolean | undefined;
     await act(async () => {
-      applied = await result.current.apply();
+      applied = await result.current.apply(ICON);
     });
 
     expect(setAppIcon).toHaveBeenCalledTimes(1);
@@ -238,13 +244,13 @@ describe("useAppIconSync", () => {
     expect(applied).toBe(false);
     expect(useAppIconStore.getState().snapshot.current).toBeNull();
     expect(result.current.currentIcon).toBeNull();
-    expect(result.current.canOffer).toBe(true);
+    expect(result.current.canSyncAvatar).toBe(true);
   });
 
   test("apply reports failure when the re-read degrades", async () => {
     const { result } = await renderSync();
     await waitFor(() => {
-      expect(result.current.canOffer).toBe(true);
+      expect(result.current.canSyncAvatar).toBe(true);
     });
     // The shell stops answering mid-swap, which every degrade path in
     // `runtime/app-icon` turns into this snapshot rather than a rejection.
@@ -252,7 +258,7 @@ describe("useAppIconSync", () => {
 
     let applied: boolean | undefined;
     await act(async () => {
-      applied = await result.current.apply();
+      applied = await result.current.apply(ICON);
     });
 
     expect(applied).toBe(false);
@@ -325,21 +331,21 @@ describe("useAppIconSync", () => {
     swapSucceeds = false;
     const { result } = await renderSync();
     await waitFor(() => {
-      expect(result.current.canOffer).toBe(true);
+      expect(result.current.canSyncAvatar).toBe(true);
     });
     getAppIconState.mockClear();
 
     let applied: boolean | undefined;
     await act(async () => {
-      applied = await result.current.apply();
+      applied = await result.current.apply(ICON);
     });
 
     expect(applied).toBe(false);
     // Nothing changed on the home screen, so the shell is re-read anyway and
-    // the offer is still standing.
+    // the sync shortcut is still standing.
     expect(getAppIconState).toHaveBeenCalled();
     expect(result.current.currentIcon).toBeNull();
-    expect(result.current.canOffer).toBe(true);
+    expect(result.current.canSyncAvatar).toBe(true);
   });
 
   test("reset hands back a refusal and leaves the icon applied", async () => {
@@ -359,8 +365,34 @@ describe("useAppIconSync", () => {
     expect(result.current.currentIcon).toBe(ICON);
   });
 
-  test("apply is inert when nothing is offerable", async () => {
-    avatarState = NONE;
+  test("applies any bundled name, whatever the avatar is", async () => {
+    // The picker lets a custom-image user choose an icon by hand. The avatar
+    // maps to none, which gates the one-tap sync but not a deliberate choice.
+    avatarState = IMAGE_WITH_STALE_TRAITS;
+    iconState = { supported: true, current: null, available: [ICON, OTHER] };
+    const { result } = await renderSync();
+    await waitFor(() => {
+      expect(result.current.enabled).toBe(true);
+    });
+    expect(result.current.canSyncAvatar).toBe(false);
+    iconState = { supported: true, current: OTHER, available: [ICON, OTHER] };
+
+    let applied: boolean | undefined;
+    await act(async () => {
+      applied = await result.current.apply(OTHER);
+    });
+
+    expect(applied).toBe(true);
+    expect(setAppIcon).toHaveBeenCalledTimes(1);
+    expect(setAppIcon.mock.calls[0]?.[0]).toBe(OTHER);
+    await waitFor(() => {
+      expect(result.current.currentIcon).toBe(OTHER);
+    });
+  });
+
+  test("refuses a name the installed shell does not bundle", async () => {
+    // Version skew: a web build that knows a trait pair the installed binary
+    // has no bundle for. Nothing reaches the shell, so nothing can error.
     const { result } = await renderSync();
     await waitFor(() => {
       expect(result.current.enabled).toBe(true);
@@ -368,57 +400,87 @@ describe("useAppIconSync", () => {
 
     let applied: boolean | undefined;
     await act(async () => {
-      applied = await result.current.apply();
+      applied = await result.current.apply(OTHER);
     });
 
     expect(applied).toBe(false);
     expect(setAppIcon).not.toHaveBeenCalled();
   });
 
-  test("an apply in one consumer reaches every other consumer", async () => {
-    // The root prompt and the settings card, both mounted while the user is on
-    // the Privacy page.
-    const prompt = await renderSync();
-    const card = renderHook(() => useAppIconSync("asst-1"));
+  test("refuses to apply while the surface is disabled", async () => {
+    useClientFeatureFlagStore.setState({ iosAvatarAppIcon: false });
+    const { result } = renderHook(() => useAppIconSync("asst-1"));
+
+    let applied: boolean | undefined;
+    await act(async () => {
+      applied = await result.current.apply(ICON);
+    });
+
+    expect(applied).toBe(false);
+    expect(setAppIcon).not.toHaveBeenCalled();
+  });
+
+  test("reports the shell's bundled names", async () => {
+    iconState = { supported: true, current: null, available: [ICON, OTHER] };
+
+    const { result } = await renderSync();
+
     await waitFor(() => {
-      expect(card.result.current.canOffer).toBe(true);
+      expect(result.current.availableIcons).toEqual([ICON, OTHER]);
+    });
+  });
+
+  test("reports no bundled names while the surface is disabled", async () => {
+    nativeIOS = false;
+
+    const { result } = renderHook(() => useAppIconSync("asst-1"));
+
+    expect(result.current.availableIcons).toEqual([]);
+  });
+
+  test("an apply in one consumer reaches every other consumer", async () => {
+    // The picker modal and the settings row behind it, both mounted at once.
+    const modal = await renderSync();
+    const row = renderHook(() => useAppIconSync("asst-1"));
+    await waitFor(() => {
+      expect(row.result.current.canSyncAvatar).toBe(true);
     });
     iconState = { supported: true, current: ICON, available: [ICON] };
 
     await act(async () => {
-      await prompt.result.current.apply();
+      await modal.result.current.apply(ICON);
     });
 
     await waitFor(() => {
-      expect(card.result.current.currentIcon).toBe(ICON);
+      expect(row.result.current.currentIcon).toBe(ICON);
     });
-    // The card must stop offering an icon that is already on the home screen,
+    // The row must stop offering an icon that is already on the home screen,
     // rather than firing a second iOS swap alert for it.
-    expect(card.result.current.canOffer).toBe(false);
+    expect(row.result.current.canSyncAvatar).toBe(false);
   });
 
   test("a reset in one consumer reaches every other consumer", async () => {
     iconState = { supported: true, current: ICON, available: [ICON] };
-    const card = await renderSync();
-    const prompt = renderHook(() => useAppIconSync("asst-1"));
+    const modal = await renderSync();
+    const row = renderHook(() => useAppIconSync("asst-1"));
     await waitFor(() => {
-      expect(prompt.result.current.currentIcon).toBe(ICON);
+      expect(row.result.current.currentIcon).toBe(ICON);
     });
     iconState = { supported: true, current: null, available: [ICON] };
 
     await act(async () => {
-      await card.result.current.reset();
+      await modal.result.current.reset();
     });
 
     await waitFor(() => {
-      expect(prompt.result.current.currentIcon).toBeNull();
+      expect(row.result.current.currentIcon).toBeNull();
     });
   });
 
   test("re-reads the shell's answer on foreground", async () => {
     const { result } = await renderSync();
     await waitFor(() => {
-      expect(result.current.canOffer).toBe(true);
+      expect(result.current.canSyncAvatar).toBe(true);
     });
     // The user put the default icon back from iOS Settings while the app was
     // in the background.
@@ -431,7 +493,7 @@ describe("useAppIconSync", () => {
     await waitFor(() => {
       expect(result.current.currentIcon).toBe(ICON);
     });
-    expect(result.current.canOffer).toBe(false);
+    expect(result.current.canSyncAvatar).toBe(false);
   });
 });
 

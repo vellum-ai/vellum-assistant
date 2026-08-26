@@ -1,12 +1,10 @@
 /**
  * Settings entry point for the iOS home-screen icon.
  *
- * The prompt asks once per avatar and takes no for an answer; this card is
- * where a user who said no, or who changed their mind later, goes. It is
- * therefore the only surface that ignores the decline memory, and the only way
- * back to the default icon: nothing in this feature resets an icon on its own,
- * so an avatar switched to an uploaded image leaves the old icon in place
- * until someone presses Reset here.
+ * Every swap starts here, on a press: matching the icon to the assistant's
+ * avatar, and the only way back to the default. Nothing in this feature resets
+ * an icon on its own, so an avatar switched to an uploaded image leaves the old
+ * icon in place until someone presses Reset here.
  *
  * Draws nothing at all off native iOS, with the `ios-avatar-app-icon` flag
  * off, or on a build that ships no alternate icons.
@@ -23,7 +21,7 @@ import { Button } from "@vellumai/design-library/components/button";
 export function AppIconCard() {
   const { t } = useTranslation("settings");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const { enabled, currentIcon, targetIcon, canOffer, apply, reset } =
+  const { enabled, currentIcon, targetIcon, canSyncAvatar, apply, reset } =
     useAppIconSync(assistantId);
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -37,6 +35,7 @@ export function AppIconCard() {
   // avatar that agrees with it, and this card is still their only way back to
   // the default. It sits beside Match whenever a different icon is on offer.
   const canReset = isAvatarAppIcon(currentIcon);
+  const matchIcon = canSyncAvatar ? targetIcon : null;
 
   const status =
     currentIcon === null
@@ -75,13 +74,13 @@ export function AppIconCard() {
             </p>
           ) : null}
         </div>
-        {canOffer || canReset ? (
+        {matchIcon !== null || canReset ? (
           <div className="flex flex-wrap gap-2">
-            {canOffer ? (
+            {matchIcon !== null ? (
               <Button
                 variant="outlined"
                 disabled={pending}
-                onClick={() => void run(apply)}
+                onClick={() => void run(() => apply(matchIcon))}
               >
                 {t("appIconCard.match")}
               </Button>

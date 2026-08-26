@@ -9,8 +9,8 @@ import type { AvatarState } from "@/types/avatar";
  * `avatar-eyes-<eyeStyle>-<color>` by the icon bundle generator. Body shape is
  * not part of an icon, so it is not part of the name, and every avatar that
  * shares an eye style and a color maps to the same icon. That name is the wire
- * contract between the generated bundles and the runtime, so it is produced in
- * exactly one place: `appIconNameForAvatar`.
+ * contract between the generated bundles and the runtime, so it is composed in
+ * exactly one place: `appIconNameForTraits`.
  */
 
 /** A resolved icon target plus whether the installed shell can apply it. */
@@ -25,12 +25,25 @@ export interface AppIconTarget {
 const AVATAR_ICON_PREFIX = "avatar-eyes-";
 
 /**
+ * Composes the bundled icon name for an eyes-on-color pair. The picker builds
+ * names from traits the user cycled through rather than from an avatar, so this
+ * is the one place the wire contract is spelled out and every other producer
+ * goes through it.
+ */
+export function appIconNameForTraits(eyeStyle: string, color: string): string {
+  return `${AVATAR_ICON_PREFIX}${eyeStyle}-${color}`;
+}
+
+/**
  * The single chokepoint for the invariant that only character avatars have an
- * app icon. Uploaded images, AI-generated avatars, and "no avatar" all return
- * null here, so nothing downstream can offer or apply an icon for them, and a
+ * icon of their own. Uploaded images, AI-generated avatars, and "no avatar" all
+ * return null here, so nothing downstream can derive an icon from them, and a
  * character state with malformed traits returns null rather than a name built
  * from `undefined`. A character's traits always carry all three, so the guard
  * stays whole even though the name is built from two of them.
+ *
+ * A user with any avatar can still pick an icon by hand; this function answers
+ * only what the avatar itself maps to.
  */
 export function appIconNameForAvatar(state: AvatarState | null): string | null {
   if (state === null || state.kind !== "character") {
@@ -40,7 +53,7 @@ export function appIconNameForAvatar(state: AvatarState | null): string | null {
   if (!isCharacterTraits(traits)) {
     return null;
   }
-  return `${AVATAR_ICON_PREFIX}${traits.eyeStyle}-${traits.color}`;
+  return appIconNameForTraits(traits.eyeStyle, traits.color);
 }
 
 /**

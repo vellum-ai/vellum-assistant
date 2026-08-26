@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   appIconNameForAvatar,
+  appIconNameForTraits,
   isAvatarAppIcon,
   resolveAppIconTarget,
 } from "./avatar-app-icon";
@@ -17,7 +18,9 @@ import type { AvatarState } from "@/types/avatar";
  *      the bundles are emitted under exactly these names, so changing the
  *      literal below without regenerating them silently breaks every install.
  *      `clients/ios/scripts/__tests__/generate-avatar-icons.test.ts` pins the
- *      same literal from the generator's side.
+ *      same literal from the generator's side. Both producers are pinned to it:
+ *      the picker composes names from loose traits, the sync path derives them
+ *      from an avatar, and the two must land on the same string.
  */
 
 /** A character avatar by default; `overrides` swaps in the other kinds. */
@@ -34,6 +37,14 @@ function avatarState(
   };
 }
 
+describe("appIconNameForTraits", () => {
+  test("an eyes-on-color pair composes the generator's icon name", () => {
+    expect(appIconNameForTraits("grumpy", "green")).toBe(
+      "avatar-eyes-grumpy-green",
+    );
+  });
+});
+
 describe("appIconNameForAvatar", () => {
   test("character traits map to the generator's icon name", () => {
     const name = appIconNameForAvatar(
@@ -44,6 +55,17 @@ describe("appIconNameForAvatar", () => {
       }),
     );
     expect(name).toBe("avatar-eyes-grumpy-green");
+  });
+
+  test("an avatar lands on the same name the trait pair composes", () => {
+    const name = appIconNameForAvatar(
+      avatarState({
+        bodyShape: "blob",
+        eyeStyle: "grumpy",
+        color: "green",
+      }),
+    );
+    expect(name).toBe(appIconNameForTraits("grumpy", "green"));
   });
 
   test("body shape does not reach the name", () => {

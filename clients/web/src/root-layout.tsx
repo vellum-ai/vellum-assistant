@@ -91,7 +91,6 @@ import {
   removePairedAssistant,
   switchToAssistant,
 } from "@/assistant/switch-service";
-import { AppIconMatchPrompt } from "@/components/avatar/app-icon-match-prompt";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
@@ -560,11 +559,6 @@ export function RootLayout() {
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
-
-      {/* Offers to match the iOS home-screen icon to the assistant's avatar.
-          Mounted here so a cross-device avatar change lands wherever the user
-          is; draws nothing off iOS or with the flag off. */}
-      <AppIconMatchPrompt assistantId={assistantId} />
 
       {feedbackOpen ? (
         <ShareFeedbackModalLazy
