@@ -126,9 +126,9 @@ export function ProfileEditorProviderSection({
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
   // Free-text model entry. Catalog and connection lists can't cover every id a
-  // pass-through provider (e.g. OpenRouter) accepts, so the Model field offers
-  // an explicit escape hatch: picking the sentinel option swaps the dropdown
-  // for a text input whose value is sent to the connection verbatim. It's
+  // pass-through provider accepts, so the Model field offers an explicit
+  // escape hatch. OpenRouter ids are checked against OpenRouter before they
+  // join the list. Other providers send the typed id as-is. The hatch is
   // withheld from subscription-restricted connections, which only accept a
   // fixed model set.
   const { t } = useTranslation("settings");
@@ -194,8 +194,8 @@ export function ProfileEditorProviderSection({
         path: { assistant_id: assistantId },
         query: { id: draft },
       });
-      if (!data || error || !response.ok) {
-        const status = response.status;
+      if (!data || error || !response?.ok) {
+        const status = response?.status;
         setCustomModelError(
           status === 400
             ? t("profileEditorProviderSection.customModelInvalid")
