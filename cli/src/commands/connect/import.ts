@@ -15,9 +15,8 @@ import {
   pairingPoll,
   pairingStart,
   resolveConfigDir,
-  type PairingFailure,
-  type PairingFailureReason,
 } from "@vellumai/local-mode";
+import { isRetryablePairingReason } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { extractFlag } from "../../lib/arg-utils.js";
 import { getLockfilePaths } from "../../lib/environments/paths.js";
@@ -59,27 +58,6 @@ EXAMPLES:
     vellum connect import https://your-assistant.ts.net
     vellum connect import https://your-assistant.ts.net --name desk
 `);
-}
-
-/**
- * Pairing failures worth another attempt: the assistant could not be reached
- * at all, which is the transport class (a thrown fetch, a timeout, a refused
- * redirect, a body that errored mid-stream). Local-mode leaves the session and
- * the device code untouched on those, so polling simply continues.
- *
- * Everything else is settled and ends the attempt. `invalid-address` and
- * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
- * one-time code is already spent; and `gateway` means the assistant
- * ANSWERED with something unusable (an over-cap body, credentials this device
- * cannot persist, an unexpected status), which is a definitive rejection
- * rather than a dropped connection.
- */
-const RETRYABLE_PAIRING_REASONS: ReadonlySet<PairingFailureReason> = new Set([
-  "unreachable",
-]);
-
-function isRetryablePairingFailure(failure: PairingFailure): boolean {
-  return RETRYABLE_PAIRING_REASONS.has(failure.reason);
 }
 
 /** Caps a retry backoff so a long attempt still polls on a useful cadence. */
@@ -241,7 +219,10 @@ export async function connectImport(): Promise<void> {
       });
 
       if (!result.ok) {
-        if (!retryTransientFailures || !isRetryablePairingFailure(result)) {
+        if (
+          !retryTransientFailures ||
+          !isRetryablePairingReason(result.reason)
+        ) {
           console.error(formatImportFailure(result.status, result.error));
           process.exit(1);
         }

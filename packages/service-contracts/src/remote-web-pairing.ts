@@ -621,3 +621,81 @@ export function parsePairingAddress(raw: string): ParsePairingAddressResult {
     deviceCode: parseRemoteWebPairingParams(raw).deviceCode,
   };
 }
+
+/**
+ * What a pairing attempt failed on, for callers picking recovery copy. Every
+ * pairing surface reports one of these: the host-side sessions in
+ * `@vellumai/local-mode`, the Electron bridge, the desktop connect dialog, and
+ * the `vellum connect import` CLI.
+ */
+export type PairingFailureReason =
+  /** The pasted address is not a usable assistant address. */
+  | "invalid-address"
+  /** No live session for this handle: it was cancelled or never existed. */
+  | "unknown-session"
+  /** The device code expired, was denied, or was already spent. */
+  | "expired"
+  /** The assistant could not be reached. */
+  | "unreachable"
+  /**
+   * The assistant refused the request with a status that left the device code
+   * exchangeable, so the same session is worth another attempt.
+   */
+  | "gateway-retryable"
+  /**
+   * The assistant answered, but with a reply this device cannot use. The code
+   * behind it is spent or unknowable, so the attempt is settled.
+   */
+  | "gateway"
+  /** The credentials arrived, but registering them locally was refused. */
+  | "import";
+
+/**
+ * Every reason, mapped to whether another attempt against the same session can
+ * still succeed. Two classes leave the device code exchangeable host-side:
+ *
+ * - `unreachable`, the transport class (a thrown fetch, a timeout, a refused
+ *   redirect, a body that errored mid-stream). Nothing reached the assistant,
+ *   so the session and the code are untouched.
+ * - `gateway-retryable`, a non-200 the assistant answered with. The gateway
+ *   releases the challenge before a repairable failure (a transient error, or
+ *   the `GUARDIAN_REPAIR_REQUIRED` 503), so the same code stays exchangeable.
+ *
+ * Everything else is settled and ends the attempt. `invalid-address` and
+ * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
+ * one-time code is already spent; and `gateway` means the assistant answered
+ * with something this device cannot use (an over-cap body, credentials it
+ * cannot persist, a 200 that is not a pairing reply), past which the code is
+ * spent rather than released.
+ *
+ * The `satisfies` clause keeps the map exhaustive, so a new reason does not
+ * compile until it is classified here.
+ */
+const PAIRING_REASON_RETRYABLE = {
+  "invalid-address": false,
+  "unknown-session": false,
+  expired: false,
+  unreachable: true,
+  "gateway-retryable": true,
+  gateway: false,
+  import: false,
+} satisfies Record<PairingFailureReason, boolean>;
+
+/** The reasons {@link isRetryablePairingReason} accepts. */
+export const RETRYABLE_PAIRING_REASONS: ReadonlySet<PairingFailureReason> =
+  new Set(
+    (Object.keys(PAIRING_REASON_RETRYABLE) as PairingFailureReason[]).filter(
+      (reason) => PAIRING_REASON_RETRYABLE[reason],
+    ),
+  );
+
+/**
+ * Whether a refused pairing step is worth another attempt. An unlabelled
+ * failure reads as settled, so a host too old to name a reason ends the
+ * attempt rather than being spun against until the code expires.
+ */
+export function isRetryablePairingReason(
+  reason: PairingFailureReason | null | undefined,
+): boolean {
+  return reason != null && RETRYABLE_PAIRING_REASONS.has(reason);
+}

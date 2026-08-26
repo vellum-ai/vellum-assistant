@@ -416,6 +416,43 @@ describe("connect import", () => {
     expect(loadGuardianToken("flaky-box")?.accessToken).toBe("acc-tok");
   });
 
+  test("retries a repairable gateway refusal and still imports", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      HOST,
+      "--name",
+      "repairing-box",
+    ];
+    let attempt = 0;
+    globalThis.fetch = (async (url: string) => {
+      if (url === CHALLENGE_URL) {
+        return jsonResponse(challengeBody());
+      }
+      attempt += 1;
+      // The gateway answers, but releases the code before a repairable
+      // failure, so the session stays pollable and the code is still good.
+      if (attempt === 1) {
+        return jsonResponse({ error: "guardian repair required" }, 503);
+      }
+      return jsonResponse(approvedBody());
+    }) as unknown as typeof fetch;
+    const { logs, restore } = captureLogs();
+    try {
+      await connectImport();
+    } finally {
+      restore();
+    }
+
+    expect(attempt).toBe(2);
+    expect(logs.join("\n")).toContain(
+      "Imported paired assistant 'repairing-box'",
+    );
+    expect(loadGuardianToken("repairing-box")?.accessToken).toBe("acc-tok");
+  });
+
   test("reports expiry once transient failures outlast the code", async () => {
     process.argv = ["bun", "vellum", "connect", "import", HOST];
     let exchanges = 0;

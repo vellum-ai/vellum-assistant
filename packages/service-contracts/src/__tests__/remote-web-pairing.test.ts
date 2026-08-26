@@ -4,9 +4,12 @@ import {
   buildRemoteWebPairingUrl,
   isLoopbackPublicUrl,
   isPrivateNetworkPublicUrl,
+  isRetryablePairingReason,
   parsePairingAddress,
   parseRemoteWebPairingParams,
   resolvePublicBaseUrl,
+  RETRYABLE_PAIRING_REASONS,
+  type PairingFailureReason,
   type PublicBaseUrlRejection,
 } from "../remote-web-pairing.js";
 
@@ -232,5 +235,53 @@ describe("resolvePublicBaseUrl localhost normalization", () => {
   ])("still resolves %s", (raw) => {
     expect(isLoopbackPublicUrl(raw)).toBe(false);
     expect(resolvePublicBaseUrl(raw)).toEqual({ ok: true, url: raw });
+  });
+});
+
+describe("isRetryablePairingReason", () => {
+  test.each([
+    // Nothing reached the assistant, so the session and code are untouched.
+    "unreachable",
+    // The assistant refused with a status that released the code.
+    "gateway-retryable",
+  ] as const)("%s is worth another attempt", (reason) => {
+    expect(isRetryablePairingReason(reason)).toBe(true);
+  });
+
+  test.each([
+    "invalid-address",
+    "unknown-session",
+    "expired",
+    // The assistant answered with something unusable, past which the code is
+    // spent rather than released.
+    "gateway",
+    "import",
+  ] as const)("%s settles the attempt", (reason) => {
+    expect(isRetryablePairingReason(reason)).toBe(false);
+  });
+
+  test("an absent reason settles the attempt", () => {
+    expect(isRetryablePairingReason(undefined)).toBe(false);
+    expect(isRetryablePairingReason(null)).toBe(false);
+  });
+
+  test("the exported set is exactly the reasons worth another attempt", () => {
+    const everyReason: PairingFailureReason[] = [
+      "invalid-address",
+      "unknown-session",
+      "expired",
+      "unreachable",
+      "gateway-retryable",
+      "gateway",
+      "import",
+    ];
+    expect(everyReason.filter(isRetryablePairingReason).sort()).toEqual([
+      "gateway-retryable",
+      "unreachable",
+    ]);
+    expect([...RETRYABLE_PAIRING_REASONS].sort()).toEqual([
+      "gateway-retryable",
+      "unreachable",
+    ]);
   });
 });

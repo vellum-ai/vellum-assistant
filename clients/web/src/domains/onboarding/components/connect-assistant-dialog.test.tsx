@@ -17,6 +17,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import {
+  isRetryablePairingReason,
+  type PairingFailureReason,
+} from "@vellumai/service-contracts/remote-web-pairing";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
 
@@ -31,15 +35,6 @@ type StartResult =
       intervalSeconds: number;
     }
   | { ok: false; error: string };
-
-type PairingFailureReason =
-  | "invalid-address"
-  | "unknown-session"
-  | "expired"
-  | "unreachable"
-  | "gateway-retryable"
-  | "gateway"
-  | "import";
 
 type PollResult =
   | { ok: true; status: "pending"; expiresAt: string; intervalSeconds: number }
@@ -76,15 +71,15 @@ const onImportedMock = mock((_assistantId: string) => {});
 
 // --- Mocks --------------------------------------------------------------------
 
-// Mirrors the real classifier, which is covered against every reason in
-// `src/lib/local-mode.test.ts`; restated here because this file replaces the
-// whole module rather than pulling its transport dependencies in.
+// This file replaces the whole module rather than pulling its transport
+// dependencies in, so the classifier is rebuilt from the shared reason table
+// the real one reads.
 mock.module("@/lib/local-mode", () => ({
   startAssistantPairing: startAssistantPairingMock,
   pollAssistantPairing: pollAssistantPairingMock,
   cancelAssistantPairing: cancelAssistantPairingMock,
   isRetryablePairingFailure: (failure: { reason?: PairingFailureReason }) =>
-    failure.reason === "unreachable" || failure.reason === "gateway-retryable",
+    isRetryablePairingReason(failure.reason),
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
