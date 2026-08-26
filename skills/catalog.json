@@ -548,7 +548,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "mailgun-setup",
@@ -764,7 +764,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-25T22:55:33.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "public-ingress",
@@ -785,7 +785,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-25T22:59:59.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "resend-setup",
@@ -834,7 +834,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "self-upgrade",
@@ -1178,7 +1178,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-25T22:59:59.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1246,7 +1246,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "vellum-terminal-sessions",
@@ -1273,7 +1273,7 @@
         }
       },
       "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux.",
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "vellum-workspace-theme",
@@ -1334,12 +1334,12 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "watch-together",
       "name": "watch-together",
-      "description": "Watch TV shows and movies with the user in real time. A fast editor model watches every window of playback, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer. Plays media files directly via mpv (no screen capture), with screen capture as a fallback for browser-only content.",
+      "description": "Watch local TV shows and movies with the user in real time. An editor model watches each playback window, transcribes dialogue, and picks story-critical frames. Source mode plays local media in mpv; screen mode captures supported desktops as a fallback.",
       "metadata": {
         "emoji": "📺",
         "vellum": {
@@ -1348,11 +1348,12 @@
           "emoji": "📺",
           "platforms": [
             "macos",
+            "windows",
             "linux"
           ]
         }
       },
-      "updatedAt": "2026-08-21T02:24:47.000Z"
+      "updatedAt": "2026-08-25T23:32:13.000Z"
     },
     {
       "id": "watcher",
