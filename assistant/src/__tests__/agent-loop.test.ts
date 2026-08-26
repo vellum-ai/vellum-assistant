@@ -289,7 +289,7 @@ describe("AgentLoop", () => {
 
   // 5. Error handling — provider throws, verify error event and loop stops
   test("emits error event and stops when provider throws", async () => {
-    const error = new Error("API rate limit exceeded");
+    const error = new Error("unexpected provider crash");
     const provider: Provider = {
       name: "mock",
       async sendMessage(): Promise<ProviderResponse> {
@@ -318,7 +318,7 @@ describe("AgentLoop", () => {
     expect(errorEvents).toHaveLength(1);
     expect(
       (errorEvents[0] as { type: "error"; error: Error }).error.message,
-    ).toBe("API rate limit exceeded");
+    ).toBe("unexpected provider crash");
   });
 
   // 5b. Reactive context-overflow recovery

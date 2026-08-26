@@ -23,6 +23,7 @@ import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/inde
 import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
 import {
   resolveUsageAttribution,
   type UsageAttributionInput,
@@ -633,8 +634,35 @@ let mockConversationErrorClassification = {
 };
 
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) =>
-    mockConversationErrorClassification,
+  classifyConversationError: (err: unknown, _ctx: unknown) => {
+    const reason =
+      err && typeof err === "object" && "reason" in err
+        ? (err as { reason?: string }).reason
+        : undefined;
+    const statusCode =
+      err && typeof err === "object" && "statusCode" in err
+        ? (err as { statusCode?: number }).statusCode
+        : undefined;
+    if (reason === "rate_limited" || statusCode === 429) {
+      return {
+        code: "PROVIDER_RATE_LIMIT",
+        userMessage:
+          "You are being rate limited by the AI provider. Please try again in a moment.",
+        retryable: true,
+        errorCategory: "rate_limit",
+      };
+    }
+    if (reason === "overloaded" || statusCode === 529) {
+      return {
+        code: "PROVIDER_OVERLOADED",
+        userMessage:
+          "The AI provider is temporarily overloaded. Please try again in a moment.",
+        retryable: true,
+        errorCategory: "provider_overloaded",
+      };
+    }
+    return mockConversationErrorClassification;
+  },
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) {
       return false;
@@ -2163,6 +2191,155 @@ describe("session-agent-loop", () => {
         );
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
+    });
+  });
+
+  describe("provider rate-limit retries", () => {
+    function rateLimitError(): ProviderError {
+      return new ProviderError(
+        "Anthropic API error (429): Too many requests",
+        "anthropic",
+        429,
+        { reason: "rate_limited", retryAfterMs: 0 },
+      );
+    }
+
+    test("retries a PROVIDER_RATE_LIMIT error and completes without a terminal error", async () => {
+      const events: AssistantEvent[] = [];
+      let calls = 0;
+      const provider: Provider = {
+        name: "mock-provider",
+        async sendMessage() {
+          calls++;
+          if (calls === 1) {
+            throw rateLimitError();
+          }
+          return textResponse("recovered after rate limit");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      expect(calls).toBe(2);
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      expect(ctx.isProcessing()).toBe(false);
+    });
+
+    test("emits a terminal PROVIDER_RATE_LIMIT error after DEFAULT_MAX_RETRIES", async () => {
+      const events: AssistantEvent[] = [];
+      let calls = 0;
+      const provider: Provider = {
+        name: "mock-provider",
+        async sendMessage() {
+          calls++;
+          throw rateLimitError();
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // 1 initial attempt + DEFAULT_MAX_RETRIES automatic retries
+      expect(calls).toBe(4);
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toMatchObject({
+        type: "conversation_error",
+        code: "PROVIDER_RATE_LIMIT",
+        retryable: true,
+        errorCategory: "rate_limit",
+      });
+      expect(ctx.isProcessing()).toBe(false);
+    });
+
+    test("does not retry when the abort signal is already active", async () => {
+      const events: AssistantEvent[] = [];
+      const abortController = new AbortController();
+      let calls = 0;
+      const provider: Provider = {
+        name: "mock-provider",
+        async sendMessage() {
+          calls++;
+          abortController.abort();
+          throw rateLimitError();
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      expect(calls).toBe(1);
+      expect(
+        events.find((event) => event.type === "generation_cancelled"),
+      ).toBeDefined();
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+    });
+
+    test("does not retry a retryable non-rate-limit provider error", async () => {
+      const events: AssistantEvent[] = [];
+      let calls = 0;
+      const provider: Provider = {
+        name: "mock-provider",
+        async sendMessage() {
+          calls++;
+          throw new ProviderError(
+            "Anthropic API error (529): Overloaded",
+            "anthropic",
+            529,
+            { reason: "overloaded", retryAfterMs: 0 },
+          );
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      expect(calls).toBe(1);
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toMatchObject({
+        type: "conversation_error",
+        code: "PROVIDER_OVERLOADED",
+      });
+    });
+
+    test("treats abort during the rate-limit backoff as a user cancellation", async () => {
+      const events: AssistantEvent[] = [];
+      const abortController = new AbortController();
+      let calls = 0;
+      const provider: Provider = {
+        name: "mock-provider",
+        async sendMessage() {
+          calls++;
+          throw new ProviderError(
+            "Anthropic API error (429): Too many requests",
+            "anthropic",
+            429,
+            { reason: "rate_limited", retryAfterMs: 200 },
+          );
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+
+      const run = runAgentLoopImpl(ctx, "hi", "msg-1", (msg) =>
+        events.push(msg),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      abortController.abort();
+      await run;
+
+      expect(calls).toBe(1);
+      expect(
+        events.find((event) => event.type === "generation_cancelled"),
+      ).toBeDefined();
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
     });
   });
 

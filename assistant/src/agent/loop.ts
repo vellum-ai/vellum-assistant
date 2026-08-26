@@ -10,6 +10,12 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
+import { classifyConversationError } from "../daemon/conversation-error.js";
+import {
+  DEFAULT_MAX_RETRIES,
+  shouldRetryProviderRateLimit,
+  sleepForRateLimitRetry,
+} from "../daemon/conversation-rate-limit-retry.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -1089,6 +1095,10 @@ export class AgentLoop {
     // interruption means re-issuing is not getting through, so the error
     // surfaces instead of looping.
     let interruptedCallResumed = false;
+    // Automatic retries for classified PROVIDER_RATE_LIMIT errors. Separate
+    // from `postModelCallContinues` so a rate-limit wait does not consume
+    // image-recovery or history-repair budget.
+    let rateLimitRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
@@ -2621,6 +2631,35 @@ export class AgentLoop {
               { turn: toolUseTurns, messageCount: history.length, err },
               "Model call died mid-generation, resuming the turn",
             );
+            continue;
+          }
+
+          const classified = classifyConversationError(error, {
+            phase: "agent_loop",
+            aborted: signal?.aborted,
+          });
+          if (
+            shouldRetryProviderRateLimit(classified, {
+              attempt: rateLimitRetries,
+              signal,
+            })
+          ) {
+            rlog.warn(
+              {
+                attempt: rateLimitRetries + 1,
+                maxRetries: DEFAULT_MAX_RETRIES,
+                code: classified.code,
+              },
+              "Rate limited by provider; retrying model call",
+            );
+            await sleepForRateLimitRetry(error, rateLimitRetries, signal);
+            if (signal?.aborted) {
+              throw (
+                signal.reason ??
+                new DOMException("The operation was aborted", "AbortError")
+              );
+            }
+            rateLimitRetries++;
             continue;
           }
         }

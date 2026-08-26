@@ -109,6 +109,11 @@ import {
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
 import {
+  DEFAULT_MAX_RETRIES,
+  shouldRetryProviderRateLimit,
+  sleepForRateLimitRetry,
+} from "./conversation-rate-limit-retry.js";
+import {
   clearConversationNotices,
   drainConversationNotices,
 } from "./conversation-notices.js";
@@ -1351,7 +1356,51 @@ export async function runAgentLoopImpl(
       return history;
     };
 
-    const updatedHistory = await runAgentLoop(runMessages, true);
+    // Rate-limit retries wrap only the loop run so prompt-submit hooks,
+    // history repair, and the outer finally run once. Exhausted retries
+    // rethrow into the existing terminal `conversation_error` path.
+    let rateLimitRetries = 0;
+    let updatedHistory: Message[];
+    while (true) {
+      try {
+        updatedHistory = await runAgentLoop(runMessages, true);
+        break;
+      } catch (err) {
+        const classified = classifyConversationError(err, {
+          phase: "agent_loop",
+          aborted: abortController.signal.aborted,
+          ...turnErrorAttribution(),
+        });
+        if (
+          !shouldRetryProviderRateLimit(classified, {
+            attempt: rateLimitRetries,
+            signal: abortController.signal,
+          })
+        ) {
+          throw err;
+        }
+        rlog.warn(
+          {
+            attempt: rateLimitRetries + 1,
+            maxRetries: DEFAULT_MAX_RETRIES,
+            code: classified.code,
+          },
+          "Rate limited by provider; retrying agent loop",
+        );
+        await sleepForRateLimitRetry(
+          err,
+          rateLimitRetries,
+          abortController.signal,
+        );
+        if (abortController.signal.aborted) {
+          throw (
+            abortController.signal.reason ??
+            new DOMException("The operation was aborted", "AbortError")
+          );
+        }
+        rateLimitRetries++;
+      }
+    }
     // Generation is done streaming. Anything awaited between here and the
     // terminal SSE is what the user perceives as the gap between the last
     // token and the composer re-enabling, so keep that window minimal.

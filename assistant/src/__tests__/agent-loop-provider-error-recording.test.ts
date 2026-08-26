@@ -75,10 +75,9 @@ function makeThrowingProvider(
 describe("AgentLoop provider_error event emission", () => {
   test("emits provider_error with loop-level rawRequest when provider throws ProviderError", async () => {
     const thrown = new ProviderError(
-      "Anthropic API error (429): rate limited",
+      "Anthropic API error (400): invalid request",
       "anthropic",
-      429,
-      { retryAfterMs: 1500 },
+      400,
     );
     const { provider, calls } = makeThrowingProvider("anthropic", () => thrown);
 
