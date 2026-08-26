@@ -770,7 +770,10 @@ export class ConversationGraphMemory {
       result.serendipityNodes,
       skillPlatformContext,
     );
-    if (compatibleNodes.length === 0) {
+    if (
+      compatibleNodes.length === 0 &&
+      compatibleSerendipityNodes.length === 0
+    ) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
