@@ -23,13 +23,13 @@ const resolver =
     sec ? sec.text : (fullBodies[slug] ?? "");
 
 describe("renderCardsBlockInner", () => {
-  test("prefixes the v2 read-affordance header and joins cards with blank lines", () => {
+  test("prefixes the read header and frames cards with their lengths", () => {
     const inner = renderCardsBlockInner([
       "# memory/concepts/page-a.md\nhead a",
       "# memory/concepts/page-b.md\nhead b",
     ]);
     expect(inner).toBe(
-      `${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b`,
+      `${V3_CARDS_INJECTION_HEADER}\n\n<!-- vellum-memory-card:34 -->\n# memory/concepts/page-a.md\nhead a\n\n<!-- vellum-memory-card:34 -->\n# memory/concepts/page-b.md\nhead b`,
     );
   });
 
