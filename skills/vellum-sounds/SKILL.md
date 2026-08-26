@@ -23,13 +23,13 @@ Two stores, both under `$VELLUM_WORKSPACE_DIR/data/sounds/`:
 - **Sound files:** `.aiff`, `.wav`, `.mp3`, `.m4a`, or `.caf`. No other extensions are accepted. The app scans this directory to populate the dropdown for each event. Prefer `.wav`, `.mp3`, or `.m4a` when the same file must play on both macOS and Windows.
 - **`config.json`:** a single JSON file that stores the global on/off switch, the master volume, and a per-event map of `{ enabled, sounds }`. Each event's `sounds` is a **pool** of filenames; the app picks one at random on playback. An empty pool falls back to the platform's default blip.
 
-## The 9 events
+## Sound events
 
-These are the only valid event keys. Other keys are ignored by the app.
+macOS supports all nine events below. Windows supports the eight events other than `app_open`. Do not configure `app_open` on Windows because it is not displayed or played there. Other keys are ignored by the app.
 
 | Event key          | Fires when                                 |
 | ------------------ | ------------------------------------------ |
-| `app_open`         | App launches (first time per session)      |
+| `app_open`         | App launches (macOS only)                  |
 | `task_complete`    | Conversation transitions processing → idle |
 | `needs_input`      | Conversation enters waiting-for-input      |
 | `task_failed`      | Conversation enters error state            |
@@ -105,7 +105,7 @@ Flag reference:
 | ------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--global-enabled` | `true` or `false`         | Master switch. If `false`, NOTHING plays regardless of per-event settings.                                                                                                 |
 | `--volume`         | `0.0`–`1.0` (clamped)     | Master volume. `0.7` is the default.                                                                                                                                       |
-| `--event`          | one of the 9 keys above   | Scopes the next flags to a single event.                                                                                                                                   |
+| `--event`          | a supported key above     | Scopes the next flags to a single event.                                                                                                                                   |
 | `--enabled`        | `true` or `false`         | Per-event on/off (requires `--event`).                                                                                                                                     |
 | `--sound`          | filename or `null`        | Single-sound convenience (requires `--event`). **Replaces** the entire pool with one entry, or clears it when given `null`. The file must already exist in `data/sounds/`. |
 | `--sounds`         | comma-separated filenames | Replaces the pool with the given list (requires `--event`). Every filename must already exist in `data/sounds/`. Use `--clear-sounds` to empty.                            |
@@ -141,11 +141,11 @@ bun run scripts/update-config.ts --event <key> --clear-sounds
 - **Pool editing in the UI.** The Settings > Sounds tab supports pool editing on macOS and Windows. Users can add and remove entries there without running this script. Power users can weight a sound more heavily by hand-editing `config.json` to include duplicates. For example, `["a.wav","a.wav","b.wav"]` makes `a.wav` twice as likely. The script de-dupes on `--add-sound` but does not re-sort or de-dupe on read, so hand-edited duplicates survive round-trips.
 - **Filename sanity.** When the user sends a file named something like `Screen Recording 2026-04-13 at 11.47.23.m4a`, rename it to something memorable before copying — they'll have to pick it from a dropdown later.
 - **Confirm after changes.** Tell the user the Settings > Sounds tab will reflect changes live. Offer to open it: "You can preview it in Settings > Sounds, or I can play it for you next time that event fires."
-- **Don't invent events.** The 9 event keys above are the complete list. There is currently no event for voice-mode activation or typing indicators. If the user asks for those, tell them it needs a desktop app code change.
+- **Don't invent events.** macOS supports the nine keys above, while Windows supports eight and excludes `app_open`. There is currently no event for voice-mode activation or typing indicators. If the user asks for those, tell them it needs a desktop app code change.
 
 ## Config shape reference
 
-If the user inspects `config.json` directly, this is what they will see. Defaults match the shared desktop sound configuration.
+If the user inspects `config.json` directly, this is the macOS superset they may see. On Windows, omit the `app_open` entry. Defaults otherwise match the shared desktop sound configuration.
 
 ```json
 {
