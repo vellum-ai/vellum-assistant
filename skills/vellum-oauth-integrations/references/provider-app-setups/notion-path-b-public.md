@@ -40,16 +40,18 @@ Guide the user to find the conversion option in their integration settings. Once
 
 Determine the correct redirect URI based on the channel:
 
-- **Interactive (macOS app, local):** Use `http://localhost:17323/oauth/callback`
+- **Interactive desktop app (local):** Use `http://localhost:17323/oauth/callback`
 - **Remote channel (Telegram, Slack, etc.):** Read the configured public gateway URL from `ingress.publicBaseUrl`. If missing, load and run the `public-ingress` skill first. Build the URI as `<publicBaseUrl>/webhooks/oauth/callback`.
 
-Copy the resolved redirect URI to clipboard:
+On macOS, copy the resolved redirect URI to the clipboard:
 
 ```
 host_bash:
   command: |
     echo -n "<resolved redirect URI>" | pbcopy
 ```
+
+On Windows, present the redirect URI for the user to copy instead of invoking `pbcopy`.
 
 Guide the user to the **Distribution** tab to paste the redirect URI and save.
 

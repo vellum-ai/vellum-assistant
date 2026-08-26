@@ -41,7 +41,9 @@ import {
 import {
   configureHatchProviderApiKey,
   formatProviderName,
+  promptProviderChoice,
   resolveHatchProvider,
+  shouldPromptForHatchProvider,
 } from "./provider-secrets.js";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { checkProviderApiKey } from "./api-key-check.js";
@@ -171,10 +173,10 @@ export async function hatchLocal(
   options: HatchLocalOptions = {},
 ): Promise<HatchLocalResult> {
   const reporter = options.reporter ?? consoleLifecycleReporter;
-  const provider =
-    options.setupProviderCredentials === false
-      ? undefined
-      : resolveHatchProvider(configValues);
+  const setupProviderCredentials = options.setupProviderCredentials !== false;
+  let provider = setupProviderCredentials
+    ? resolveHatchProvider(configValues)
+    : undefined;
   const instanceName = generateInstanceName(
     species,
     name ?? process.env.VELLUM_ASSISTANT_NAME,
@@ -209,7 +211,23 @@ export async function hatchLocal(
       reporter.log("");
 
       const apiKeyCheck = checkProviderApiKey();
-      if (!apiKeyCheck.hasKey) {
+      let pickedProvider = false;
+      if (
+        shouldPromptForHatchProvider({
+          configValues,
+          setupProviderCredentials,
+          hasProviderApiKey: apiKeyCheck.hasKey,
+          stdinIsTTY: process.stdin.isTTY,
+        })
+      ) {
+        const picked = await promptProviderChoice();
+        if (picked) {
+          provider = picked;
+          pickedProvider = true;
+        }
+      }
+
+      if (!apiKeyCheck.hasKey && !pickedProvider) {
         reporter.warn(
           "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
         );

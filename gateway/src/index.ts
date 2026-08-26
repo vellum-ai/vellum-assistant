@@ -562,6 +562,15 @@ async function main() {
     "stt",
     { credentials: credentialCache },
   );
+  // Managed STT v2 (Flux). Separate handler rather than a param on v1: the
+  // contract version is the endpoint, and v2 accepts query params v1 must
+  // keep rejecting.
+  const handleSpeechRelaySttV2Ws = createSpeechRelayUpgradeHandler(
+    config,
+    "stt",
+    { credentials: credentialCache },
+    "v2",
+  );
   const handleSpeechRelayTtsWs = createSpeechRelayUpgradeHandler(
     config,
     "tts",
@@ -2200,6 +2209,12 @@ async function main() {
     // VELAY_ALLOWED_PATHS — velay's inbound tunnel must never reach it.
     if (url.pathname === "/v1/speech/stt/stream") {
       const upgradeResult = await handleSpeechRelaySttWs(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
+    if (url.pathname === "/v2/speech/stt/stream") {
+      const upgradeResult = await handleSpeechRelaySttV2Ws(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
     }

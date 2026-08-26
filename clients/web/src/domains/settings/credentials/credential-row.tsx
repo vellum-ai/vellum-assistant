@@ -150,7 +150,7 @@ export function CredentialRow({
 // ---------------------------------------------------------------------------
 // CredentialValue — masked/revealed secret preview for a single stored
 // credential. Owns its own reveal + copy state so the row stays a thin
-// orchestrator. The masked preview (`****last4`) is rendered blurred until the
+// orchestrator. The masked preview (`first4****`) is rendered blurred until the
 // user reveals it, at which point the plaintext is fetched on demand via
 // `POST /v1/credentials/reveal` — the value is never held in the list query
 // cache, only in this component's transient state, and is dropped on re-hide.
@@ -193,7 +193,7 @@ function CredentialValue({
   // an upsert, so without this the stale plaintext from the previous value
   // would remain visible and copyable until the row remounts. Using
   // `updatedAt` (not `scrubbedValue`) avoids a false negative when the
-  // replacement masks to the same preview (e.g. same last four chars or any
+  // replacement masks to the same preview (e.g. same first four chars or any
   // value ≤ 4 chars where scrubSecret() returns "****").
   useEffect(() => {
     hide();
@@ -275,7 +275,7 @@ function CredentialValue({
         }
         // Prevent session-replay (LogRocket) from recording the credential
         // value. The attribute is always present so the masked preview
-        // (****last4) is also excluded, not just the revealed plaintext.
+        // (first4****) is also excluded, not just the revealed plaintext.
         // https://docs.logrocket.com/reference/dom#sanitizing-individual-elements
         data-private
         className={`min-w-0 truncate rounded-sm text-left transition-[filter,color] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)] ${

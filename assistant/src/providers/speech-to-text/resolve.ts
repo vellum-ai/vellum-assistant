@@ -12,6 +12,8 @@ import {
   batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
+  isManagedSttProvider,
+  resolveSttCatalogKey,
   supportsBoundary,
   supportsDiarization,
 } from "./provider-catalog.js";
@@ -35,6 +37,10 @@ const log = getLogger("stt-resolver");
 const MULTILINGUAL_DEFAULT_PROVIDERS: ReadonlySet<SttProviderId> = new Set([
   "deepgram",
   "vellum",
+  // Managed Flux resolves an absent language to `flux-general-en` relay-side,
+  // so unset is an English pin here too. With "multi" the relay selects
+  // `flux-general-multi` and lets Flux detect and code-switch.
+  "vellum-flux",
 ] as SttProviderId[]);
 
 /**
@@ -102,7 +108,7 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   // Snapshot the stt config once, before any await, so a concurrent config
   // change cannot pair one setting's old value with another's new value.
   const stt = getConfig().services.stt;
-  const provider = stt.provider;
+  const provider = resolveSttCatalogKey(stt);
   const language = effectiveSttLanguage(
     provider as SttProviderId,
     stt.language,
@@ -192,7 +198,7 @@ export type TelephonySttCapability =
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = resolveSttCatalogKey(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -281,7 +287,7 @@ export type ConversationStreamingSttCapability =
  */
 export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = resolveSttCatalogKey(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -409,7 +415,7 @@ export async function resolveStreamingTranscriber(
   // change cannot pair one setting's old value with another's new value
   // (e.g. the old provider with the new language).
   const stt = getConfig().services.stt;
-  const provider = options.providerId ?? (stt.provider as SttProviderId);
+  const provider = options.providerId ?? resolveSttCatalogKey(stt);
   // Config-level language applies to every streaming caller (live voice,
   // dictation, telephony) unless one overrides it for a single session, so
   // the setting lands in one place rather than at each call site. An unset
@@ -466,11 +472,14 @@ export async function resolveStreamingTranscriber(
     (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
-  const apiKey =
-    provider === "vellum"
-      ? null
-      : await getProviderKeyAsync(credentialProviderName);
-  if (provider === "vellum") {
+  // Both managed entries authenticate with the platform connection, not a
+  // stored API key: there is no key to fetch, and readiness is whether the
+  // connection resolves.
+  const managed = isManagedSttProvider(provider);
+  const apiKey = managed
+    ? null
+    : await getProviderKeyAsync(credentialProviderName);
+  if (managed) {
     if (!(await sttProviderKeyResolves("vellum"))) {
       return null;
     }
@@ -641,18 +650,60 @@ async function createStreamingTranscriber(
           : {}),
       });
     }
+    case "vellum-flux": {
+      // Managed Flux: same relay as `vellum`, but the STT v2 endpoint with
+      // `contract=flux` so the turn events arrive intact instead of being
+      // translated into the released v1 Deepgram dialect. Gated on the local
+      // platform connection for the same reason as `vellum` above.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
+      const { resolveSpeechRelayConnection } =
+        await import("./vellum-speech-relay-connection.js");
+      const connection = await resolveSpeechRelayConnection();
+      if (!connection) {
+        return null;
+      }
+      const { VellumManagedFluxRealtimeTranscriber } =
+        await import("./vellum-managed-flux-realtime.js");
+      return new VellumManagedFluxRealtimeTranscriber(connection, {
+        sampleRate: options.sampleRate,
+        // The relay picks `flux-general-en` or `flux-general-multi` from
+        // this, so it is the only lever over the Flux model from here.
+        // `utteranceBoundaryFinals` is a nova-3 concept and the catalog
+        // keeps this provider off telephony, so it never arrives.
+        ...(options.language ? { language: options.language } : {}),
+      });
+    }
     case "deepgram-flux": {
       // Flux is streaming-only and dials Deepgram's /v2/listen conversational
-      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which
-      // the adapter reads itself, so only the transport-level sample rate is
-      // passed here. No language is forwarded: the spike pins the
-      // English-only `flux-general-en`, and `language_hint` means nothing to
-      // a monolingual model. Diarization is off in the catalog, so a
-      // `"required"` caller never reaches this case.
+      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which the
+      // adapter reads itself. The language picks the model, so a language Flux
+      // has no model for resolves to nothing rather than being transcribed by
+      // the English one, which returns fluent-looking nonsense the transcript
+      // gives no sign of. Diarization is off in the catalog, so a `"required"`
+      // caller never reaches this case.
+      const { fluxModelForLanguage } =
+        await import("./deepgram-flux-frames.js");
+      // A pinned model is the operator saying which one to run, so the
+      // language check only guards the derived case.
+      if (
+        getConfig().liveVoice.flux.model === undefined &&
+        fluxModelForLanguage(options.language) === null
+      ) {
+        log.warn(
+          { providerId, language: options.language },
+          "Deepgram Flux has no model for the configured language; refusing rather than transcribing it as another",
+        );
+        return null;
+      }
       const { DeepgramFluxRealtimeTranscriber } =
         await import("./deepgram-flux-realtime.js");
       return new DeepgramFluxRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...(options.language ? { language: options.language } : {}),
       });
     }
     default: {

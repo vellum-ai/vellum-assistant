@@ -7,6 +7,9 @@ metadata:
     category: "content"
     display-name: "Watch Together"
     emoji: 📺
+    platforms:
+      - macos
+      - linux
 ---
 
 # Watch Together

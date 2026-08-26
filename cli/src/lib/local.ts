@@ -550,7 +550,8 @@ function ensureBunInstalled(): void {
         installEnv[key] = process.env[key]!;
       }
     }
-    execSync("curl -fsSL https://bun.sh/install | bash", {
+    // Pinned. Keep in sync with .tool-versions.
+    execSync('curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"', {
       stdio: "pipe",
       timeout: 60_000,
       env: installEnv,

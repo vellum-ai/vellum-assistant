@@ -401,6 +401,34 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   border-radius: var(--radius-lg);
 }
 
+/* The ask-question card's minimize / expand travel. One class carried by every
+ * part that moves (the collapsing rows, the crossfading header copy, the
+ * chevron) so the card eases as one piece rather than as several things that
+ * happen to share a duration.
+ *
+ * Heights animate as `grid-template-rows` between `1fr` and `0fr` over a row
+ * whose child hides its overflow. That is the one way to ease to and from a
+ * content-sized height without measuring it in JavaScript, and it interpolates
+ * through fractional values, so the same property carries the drag. */
+.question-card-motion {
+  transition:
+    grid-template-rows var(--anim-standard) var(--anim-spring),
+    opacity var(--anim-standard) var(--anim-ease-out),
+    transform var(--anim-standard) var(--anim-spring);
+}
+
+/* While the finger is down the card is already where the gesture puts it, so a
+ * transition would only add lag between the two. */
+.question-card-motion[data-dragging="true"] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .question-card-motion {
+    transition: none;
+  }
+}
+
 /* Unseen-changes dot attention pulse, applied when the dot appears so a
  * change landing while the user reads the transcript is noticeable. Bounded
  * on purpose: this dot lives in a persistent header, where anything looping

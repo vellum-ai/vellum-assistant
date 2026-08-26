@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { eq } from "drizzle-orm";
 
+import { MAX_PAIRING_USER_AGENT_CHARS } from "../auth/device-identity-text.js";
 import { initSigningKey } from "../auth/token-service.js";
 
 import {
@@ -55,10 +56,13 @@ const GUARDIAN_ID = "guardian-001";
 
 let testRoot: string;
 
-function makeTokenRequest(body: unknown): Request {
+function makeTokenRequest(
+  body: unknown,
+  headers: Record<string, string> = {},
+): Request {
   return new Request("https://paired.example.com/v1/remote-web/pairing-token", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
@@ -744,5 +748,158 @@ describe("remote web pairing token exchange", () => {
     });
     expect(activeTokens()).toHaveLength(0);
     expect(activeRefreshTokens()).toHaveLength(0);
+  });
+
+  test("a missing deviceCode returns the deviceCode is required 400", async () => {
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({ clientReportedName: "Alice's iPhone" }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: "BAD_REQUEST", message: "deviceCode is required" },
+    });
+    expect(activeTokens()).toHaveLength(0);
+  });
+
+  test("a literal null JSON body returns 400 instead of crashing", async () => {
+    const res = await handleRemoteWebPairingToken(makeTokenRequest(null));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: "BAD_REQUEST", message: "invalid JSON body" },
+    });
+    expect(activeTokens()).toHaveLength(0);
+  });
+
+  test("exchange request's User-Agent is persisted on both minted rows", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest(
+        { deviceCode: challenge.deviceCode },
+        { "user-agent": "ExchangeApp/2.0" },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(activeTokens()[0].pairingUserAgent).toBe("ExchangeApp/2.0");
+    expect(activeRefreshTokens()[0].pairingUserAgent).toBe("ExchangeApp/2.0");
+  });
+
+  test("exchange with no User-Agent header persists null and still succeeds", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(activeTokens()[0].pairingUserAgent).toBeNull();
+    expect(activeRefreshTokens()[0].pairingUserAgent).toBeNull();
+  });
+
+  test("a clientReportedName in the exchange body is persisted", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({
+        deviceCode: challenge.deviceCode,
+        clientReportedName: "Alice's iPhone",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(activeTokens()[0].clientReportedName).toBe("Alice's iPhone");
+    expect(activeRefreshTokens()[0].clientReportedName).toBe("Alice's iPhone");
+  });
+
+  test("a non-string clientReportedName still exchanges with the field null", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({
+        deviceCode: challenge.deviceCode,
+        clientReportedName: 12345,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(activeTokens()[0].clientReportedName).toBeNull();
+    expect(activeRefreshTokens()[0].clientReportedName).toBeNull();
+  });
+
+  test("a body over the raised cap returns PAYLOAD_TOO_LARGE", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const bodyObj = {
+      deviceCode: challenge.deviceCode,
+      clientReportedName: "A".repeat(1100),
+    };
+    const bodyStr = JSON.stringify(bodyObj);
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest(bodyObj, {
+        "content-length": String(bodyStr.length),
+      }),
+    );
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: { code: "PAYLOAD_TOO_LARGE", message: "request body too large" },
+    });
+    expect(activeTokens()).toHaveLength(0);
+  });
+
+  test("an over-long User-Agent header is stored truncated", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const longUserAgent = "A".repeat(MAX_PAIRING_USER_AGENT_CHARS + 100);
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest(
+        { deviceCode: challenge.deviceCode },
+        { "user-agent": longUserAgent },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const expected = "A".repeat(MAX_PAIRING_USER_AGENT_CHARS);
+    expect(activeTokens()[0].pairingUserAgent).toBe(expected);
+    expect(activeRefreshTokens()[0].pairingUserAgent).toBe(expected);
   });
 });

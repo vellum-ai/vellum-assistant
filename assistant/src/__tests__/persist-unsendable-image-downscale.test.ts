@@ -2,18 +2,16 @@
  * Regression test for the durable-downscale path of the image-too-large
  * recovery (JARVIS-1041 review follow-up).
  *
- * When an oversized stored image *can* be shrunk on this host (the common macOS
- * path where `sips` is available), `persistUnsendableImageDowngrades` must write
- * the downscaled bytes back to the DB — not leave the original in place. The
+ * When an oversized stored image can be shrunk,
+ * `persistUnsendableImageDowngrades` must write the downscaled bytes back to
+ * the DB, not leave the original in place. The
  * latest tool-result media is intentionally kept in context, so leaving the
  * full-size block would rehydrate and re-reject on every later turn instead of
  * durably self-healing the conversation.
  *
- * `optimizeImageForTransport` needs `sips` and a decodable image to actually
- * downscale, which is not portable to CI, so it is mocked here to simulate a
- * successful shrink. The mock is process-global, so this case lives in its own
- * file (the test runner isolates each file in its own process) to avoid
- * disturbing the no-op-resize cases in persist-unsendable-image.test.ts.
+ * The encoder is mocked here to isolate the durable persistence behavior from
+ * image decoding. The mock is process-global, so this case lives in its own
+ * file to avoid disturbing the no-op resize cases.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";

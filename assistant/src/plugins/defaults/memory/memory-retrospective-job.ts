@@ -52,8 +52,10 @@ import {
 } from "@vellumai/plugin-api";
 
 import {
+  type ClientOs,
   type InterfaceId,
   isInteractiveInterface,
+  parseClientOs,
   parseInterfaceId,
 } from "../../../channels/types.js";
 import { isV3TierActive } from "../../../config/memory-v3-gate.js";
@@ -768,6 +770,8 @@ interface SourceParityPins {
  *
  * `toolContextPin.transportInterface` — the interface the source's most
  * recent live turns ran on (see {@link resolveSourceLiveInterface}).
+ * `toolContextPin.clientOs` is recovered from the same persisted user-message
+ * metadata, with the transport interface as a fallback.
  * `channelCapabilities` is left unset: desktop/web HTTP turns never set
  * channel capabilities, and for channel-routed sources (whose live turns do
  * carry them) every tool gate resolves identically under
@@ -802,6 +806,7 @@ function resolveSourceParityPins(
   // with an unmappable channel stay undefined (their live turns were
   // clientless either way).
   const transportInterface = recovered ?? (channelRouted ? undefined : "web");
+  const clientOs = resolveSourceLiveClientOs(sliceMessages, transportInterface);
   const hasNoClient =
     transportInterface == null || !isInteractiveInterface(transportInterface);
   const personaOverride: SystemPromptPersonaOverride = channelRouted
@@ -820,6 +825,7 @@ function resolveSourceParityPins(
     toolContextPin: {
       hasNoClient,
       transportInterface,
+      clientOs,
       requestOrigin: MEMORY_RETROSPECTIVE_ORIGIN,
     },
   };
@@ -869,6 +875,37 @@ function resolveSourceLiveInterface(
     parseInterfaceId(source.originChannel) ??
     undefined
   );
+}
+
+/** Pin the source's live client OS so OS-gated tools match on wake. */
+function resolveSourceLiveClientOs(
+  sliceMessages: Array<{ role: string; metadata: string | null }>,
+  transportInterface: InterfaceId | undefined,
+): ClientOs | undefined {
+  for (let i = sliceMessages.length - 1; i >= 0; i--) {
+    const row = sliceMessages[i]!;
+    if (row.role !== "user" || !row.metadata) {
+      continue;
+    }
+    let meta: unknown;
+    try {
+      meta = JSON.parse(row.metadata);
+    } catch {
+      continue;
+    }
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
+    const { clientOsFromRequest, client } = meta as Record<string, unknown>;
+    if (clientOsFromRequest !== true || !client || typeof client !== "object") {
+      continue;
+    }
+    const clientOs = parseClientOs((client as Record<string, unknown>).os);
+    if (clientOs) {
+      return clientOs;
+    }
+  }
+  return parseClientOs(transportInterface) ?? undefined;
 }
 
 type PriorRetrospective = NonNullable<

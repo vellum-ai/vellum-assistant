@@ -257,7 +257,12 @@ async function resolveBatchTranscriberOrUnavailable(): Promise<BatchTranscriber>
 // ---------------------------------------------------------------------------
 
 function handleListProviders() {
-  const entries = listProviderEntries();
+  // Model-family rows share their parent's credential and are selected
+  // through `services.stt.providers.<id>.model`, so a provider picker must
+  // not offer them as separate providers.
+  const entries = listProviderEntries().filter(
+    (entry) => entry.variantOf === undefined,
+  );
   const providers = entries.map((e) => ({
     id: e.id,
     displayName: e.displayName,

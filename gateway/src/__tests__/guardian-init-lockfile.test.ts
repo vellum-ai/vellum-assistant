@@ -516,6 +516,34 @@ describe("guardian/init one-time-use lockfile", () => {
 
     gwDb.close();
   });
+
+  test("a client-reported hostname in the init request is persisted on the token record", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "cli",
+          deviceId: "my-remote-device",
+          clientReportedName: "Alices-MacBook-Pro.local",
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const gwDb = new Database(join(securityDir, "gateway.sqlite"), {
+      readonly: true,
+    });
+    const tokenRow = gwDb
+      .query<
+        { client_reported_name: string | null },
+        []
+      >("SELECT client_reported_name FROM actor_token_records WHERE status = 'active'")
+      .get();
+    expect(tokenRow?.client_reported_name).toBe("Alices-MacBook-Pro.local");
+    gwDb.close();
+  });
 });
 
 describe("guardian/init multi-secret consumption tracking", () => {

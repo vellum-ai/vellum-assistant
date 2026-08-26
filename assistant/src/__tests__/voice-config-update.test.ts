@@ -561,6 +561,49 @@ describe("voice_config_update — stt_provider", () => {
     expect((readConfig().services as any)?.stt?.provider).toBeUndefined();
   });
 
+  test("stt_model persists under the active provider", async () => {
+    // Flux stays reachable from this surface after ceasing to be a provider
+    // id: it is a model family on whichever provider is active.
+    writeConfig({ services: { stt: { provider: "deepgram" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_model", value: "flux" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      (readConfig().services as any)?.stt?.providers?.deepgram?.model,
+    ).toBe("flux");
+  });
+
+  test("stt_model rejects a family the active provider cannot serve", async () => {
+    writeConfig({ services: { stt: { provider: "openai-whisper" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_model", value: "flux" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("single model");
+  });
+
+  test("stt_model rejects an unknown family", async () => {
+    writeConfig({ services: { stt: { provider: "deepgram" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_model", value: "flx" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("stt_model must be one of");
+  });
+
   test("switching away from vellum takes effect", async () => {
     writeConfig({ services: { stt: { provider: "vellum" } } });
     invalidateConfigCache();
