@@ -217,6 +217,11 @@ async function ensureCatalogFallback(): Promise<void> {
   await pending;
 }
 
+/** Ensure the synchronous skill-card cache has a catalog-backed snapshot. */
+export async function ensureSkillEntriesAvailable(): Promise<void> {
+  await ensureCatalogFallback();
+}
+
 /** The authoritative seeded snapshot, or the pre-seed catalog fallback. */
 function readableEntries(): Map<string, SkillEntry> | null {
   return entries ?? fallbackEntries;
@@ -534,10 +539,11 @@ export function isSkillSlug(slug: string): boolean {
  * up-to-the-moment state must re-call this after awaiting the seed.
  */
 export function listSkillEntries(): SkillEntry[] {
-  if (!entries) {
+  const available = readableEntries();
+  if (!available) {
     return [];
   }
-  return [...entries.values()]
+  return [...available.values()]
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((entry) => Object.freeze({ ...entry }));
 }

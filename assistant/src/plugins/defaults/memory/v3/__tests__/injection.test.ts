@@ -35,7 +35,7 @@ import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/mig
 import * as schema from "../../../../../persistence/schema/index.js";
 import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
 import type { InjectionBlock, TurnContext } from "../../../../types.js";
-import { unwrapMemoryBlock } from "../../memory-marker.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
 import { stripIncompatibleSkillCardsFromMessages } from "../../substrate/skill-card-compatibility.js";
 import type { SkillEntry } from "../../substrate/types.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -79,6 +79,7 @@ let pruneConfig: {
 /** Canned orchestrate result per turnIndex; `null` simulates an ordinary miss. */
 let turnResults = new Map<number, OrchestrateResult | null | Error>();
 let windowsSkillEnabled = false;
+let primeWindowsSkillOnDemand = false;
 const observeTurnSpy = mock(
   async (
     _conversationId: string,
@@ -206,6 +207,11 @@ mock.module("../page-content.js", () => ({
 
 mock.module("../../substrate/skill-store.js", () => ({
   ...realSkillStore,
+  ensureSkillEntriesAvailable: async () => {
+    if (injectionMockActive && primeWindowsSkillOnDemand) {
+      windowsSkillEnabled = true;
+    }
+  },
   getSkillCapability: (idOrSlug: string) => {
     if (injectionMockActive && idOrSlug === "skills/test-skill") {
       return { id: "test-skill", content: "Synthetic test skill" };
@@ -378,6 +384,7 @@ beforeEach(async () => {
   pruneConfig = null;
   turnResults = new Map();
   windowsSkillEnabled = false;
+  primeWindowsSkillOnDemand = false;
   observeTurnSpy.mockClear();
   logCalls.length = 0;
   testDb = makeDb();
@@ -394,6 +401,55 @@ afterAll(async () => {
 // ─── frozen net-new cards ───────────────────────────────────────────────────
 
 describe("memoryV3Injector — frozen net-new cards", () => {
+  test("primes a cold skill cache before stripping persisted cards", async () => {
+    primeWindowsSkillOnDemand = true;
+    const skillContext = {
+      clientOs: "windows" as const,
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+    };
+    const makeMessages = () =>
+      [
+        "# Skill: windows-automation\nAutomates native Windows applications.",
+        "### Skills You Can Use\n- Automates native Windows applications. → use skill_load to activate",
+      ].map((text) => ({
+        role: "user" as const,
+        content: [{ type: "text" as const, text: wrapMemoryBlock(text) }],
+      }));
+
+    const disconnectedMessages = makeMessages();
+    expect(windowsSkillEnabled).toBeFalse();
+    await stripIncompatibleSkillCardsFromMessages(
+      disconnectedMessages,
+      skillContext,
+    );
+    expect(windowsSkillEnabled).toBeTrue();
+    expect(JSON.stringify(disconnectedMessages)).not.toContain(
+      "Automates native Windows applications.",
+    );
+
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "memory-v3-cold-cache-windows-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    try {
+      const connectedMessages = makeMessages();
+      await stripIncompatibleSkillCardsFromMessages(
+        connectedMessages,
+        skillContext,
+      );
+      expect(JSON.stringify(connectedMessages)).toContain(
+        "Automates native Windows applications.",
+      );
+    } finally {
+      hostClient.dispose();
+    }
+  });
+
   test("global memory disabled → both injectors produce null without orchestration", async () => {
     liveEnabled = true;
     memoryEnabled = false;
@@ -643,7 +699,7 @@ describe("memoryV3Injector — frozen net-new cards", () => {
         },
       ];
       hostClient.dispose();
-      stripIncompatibleSkillCardsFromMessages(messages, skillContext);
+      await stripIncompatibleSkillCardsFromMessages(messages, skillContext);
       expect(JSON.stringify(messages)).not.toContain(
         "Automates native Windows applications.",
       );
@@ -744,7 +800,7 @@ describe("memoryV3Injector — frozen net-new cards", () => {
           content: [{ type: "text" as const, text: connected!.text }],
         },
       ];
-      stripIncompatibleSkillCardsFromMessages(messages, scheduledContext);
+      await stripIncompatibleSkillCardsFromMessages(messages, scheduledContext);
       expect(JSON.stringify(messages)).not.toContain(
         "Automates native Windows applications.",
       );

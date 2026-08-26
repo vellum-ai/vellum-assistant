@@ -200,6 +200,7 @@ mock.module("../../../../../skills/catalog-cache.js", () => ({
 // Imported AFTER all mocks are wired so the module under test sees the stubs.
 const {
   seedV2SkillEntries,
+  ensureSkillEntriesAvailable,
   getSkillCapability,
   listAlwaysCandidateSkillSlugs,
   listSkillEntries,
@@ -952,6 +953,28 @@ describe("listAlwaysCandidateSkillSlugs — pre-seed catalog fallback", () => {
       "skills/example-skill-a",
     ]);
     // No seed ran, so nothing was embedded.
+    expect(state.upsertCalls).toHaveLength(0);
+  });
+
+  test("primes every installed skill card before the seed completes", async () => {
+    const ordinary = makeSummary({
+      id: "windows-automation",
+      platforms: ["windows"],
+      requiredHostCapabilities: ["host_bash"],
+    });
+    state.catalog = [ordinary];
+    state.resolved = [{ summary: ordinary, state: "enabled" }];
+
+    expect(listSkillEntries()).toEqual([]);
+    await ensureSkillEntriesAvailable();
+
+    expect(listSkillEntries()).toEqual([
+      expect.objectContaining({
+        id: "windows-automation",
+        platforms: ["windows"],
+        requiredHostCapabilities: ["host_bash"],
+      }),
+    ]);
     expect(state.upsertCalls).toHaveLength(0);
   });
 

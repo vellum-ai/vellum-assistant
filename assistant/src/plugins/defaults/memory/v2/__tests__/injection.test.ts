@@ -138,6 +138,7 @@ const skillState = {
 };
 
 mock.module("../../substrate/skill-store.js", () => ({
+  ensureSkillEntriesAvailable: async () => {},
   getSkillCapability: (idOrSlug: string) => {
     const id = idOrSlug.startsWith("skills/")
       ? idOrSlug.slice("skills/".length)
@@ -1046,7 +1047,7 @@ describe("injectMemoryV2Block", () => {
         },
       ];
       hostClient.dispose();
-      stripIncompatibleSkillCardsFromMessages(messages, {
+      await stripIncompatibleSkillCardsFromMessages(messages, {
         clientOs: "windows",
         isInteractive: true,
         sourceActorPrincipalId: "actor-a",
@@ -1146,7 +1147,7 @@ describe("injectMemoryV2Block", () => {
           ],
         },
       ];
-      stripIncompatibleSkillCardsFromMessages(
+      await stripIncompatibleSkillCardsFromMessages(
         carriedMessages,
         scheduledSkillContext,
       );

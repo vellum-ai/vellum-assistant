@@ -331,7 +331,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     }),
     sourceActorPrincipalId: conversation?.getTurnActorPrincipalId?.(),
   };
-  stripIncompatibleSkillCardsFromMessages(
+  await stripIncompatibleSkillCardsFromMessages(
     ctx.latestMessages,
     skillPlatformContext,
   );

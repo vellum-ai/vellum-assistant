@@ -7,6 +7,7 @@ import {
 
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
+  ensureSkillEntriesAvailable,
   getSkillCapability,
   isSkillSlug,
   listSkillEntries,
@@ -73,10 +74,11 @@ function stripIncompatibleSkillsFromInner(
   );
 }
 
-export function stripIncompatibleSkillCardsFromMessages(
+export async function stripIncompatibleSkillCardsFromMessages(
   messages: Message[],
   context: SkillPlatformContext,
-): number {
+): Promise<number> {
+  await ensureSkillEntriesAvailable();
   const incompatibleSkills = listSkillEntries().filter(
     (skill) => !isSkillCompatibleWithContext(skill, context),
   );
