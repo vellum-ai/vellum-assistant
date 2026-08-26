@@ -9,6 +9,7 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import {
+  ANDROID_PLAY_STORE_URL,
   getNativeAppPromotion,
   incrementNativeAppAssistantTurnsSeen,
   openNativeAppStore,
@@ -48,9 +49,18 @@ describe("Android promotion readiness", () => {
     expect(getNativeAppPromotion("android")).toEqual({
       platform: "android",
       appName: "Android",
-      storeUrl:
-        "https://play.google.com/store/apps/details?id=ai.vellum.assistant",
+      storeUrl: ANDROID_PLAY_STORE_URL,
     });
+  });
+
+  test("tags the listing with an install referrer", () => {
+    const url = new URL(ANDROID_PLAY_STORE_URL);
+
+    expect([...url.searchParams.keys()]).toEqual(["id", "referrer"]);
+    expect(url.searchParams.get("id")).toBe("ai.vellum.assistant");
+    expect(url.searchParams.get("referrer")).toBe(
+      "utm_source=vellum-app&utm_medium=in-app-nudge",
+    );
   });
 
   test("does not record a download when promotion is unavailable", () => {
