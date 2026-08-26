@@ -52,10 +52,13 @@ Prefer a stable executable, AppUserModelId, URI scheme, process ID, or automatio
 Microsoft Office desktop apps expose COM APIs. Check that the app is installed before relying on one. Keep the COM object alive for the full operation and release it when finished.
 
 ```powershell
-# Open Excel without taking over an existing workbook
+# Create an isolated temporary workbook
 $excel = New-Object -ComObject Excel.Application
 $excel.Visible = $true
 $workbook = $excel.Workbooks.Add()
+if (-not [string]::IsNullOrEmpty($workbook.Path) -or $workbook.AutoSaveOn) {
+  throw "The workbook is not an isolated temporary document."
+}
 $worksheet = $workbook.Worksheets.Item(1)
 $worksheet.Cells.Item(1, 1).Value2 = "Example"
 ```
@@ -64,7 +67,9 @@ Close temporary documents and call `[System.Runtime.InteropServices.Marshal]::Re
 
 ## Consequential actions are unsupported
 
-Do not use this skill to save, send, delete, or overwrite content. The Windows host executor does not provide an in-process confirmation gate that works for both local and remote assistants. Limit automation to reversible inspection, launching, navigation, and changes that remain unsaved.
+Do not use this skill to save, send, delete, or overwrite content. The Windows host executor does not provide an in-process confirmation gate that works for both local and remote assistants.
+
+Treat every existing document, workbook, message, note, calendar item, file, and cloud-backed resource as read-only. AutoSave can persist an edit without an explicit save command. Only edit an isolated temporary document that the automation created during the current task, has no storage path or cloud connection, and has AutoSave definitively disabled. If those conditions cannot be verified, do not edit it.
 
 If the user requests a consequential action, use a dedicated skill or product workflow with its own hard confirmation gate. If none is available, explain the limitation and ask the user to perform that final action manually.
 
