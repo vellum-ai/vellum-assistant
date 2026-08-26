@@ -7,14 +7,15 @@
  * is a no-op for providers that cannot). Resolution mirrors live voice's
  * per-utterance turn language (live-voice-session.ts): the caller's
  * latest STT-detected language when the transcriber tags finals, else a
- * monolingual `services.stt.language` pin when the configured provider
- * honors manual language selection, else undefined (no hint, provider
- * default behavior).
+ * monolingual `services.stt.language` pin when the provider serving the
+ * telephony role honors manual language selection, else undefined (no hint,
+ * provider default behavior).
  */
 
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import { resolveLanguageVoiceOverride } from "../tts/language-voices.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProviderId } from "../tts/types.js";
@@ -37,7 +38,7 @@ export function resolveTelephonySynthesisLanguage(
     return detected;
   }
 
-  let stt: { provider: string; language?: string };
+  let stt: AssistantConfig["services"]["stt"];
   try {
     stt = getConfig().services.stt;
   } catch {
@@ -45,7 +46,14 @@ export function resolveTelephonySynthesisLanguage(
     return undefined;
   }
 
-  return pinnedListeningLanguage(stt.provider, stt.language);
+  // The pin only counts when the provider transcribing the call honors
+  // manual language selection, so the gate reads the telephony role rather
+  // than the global provider: those differ whenever a role override is set,
+  // and it is the role's transcriber the caller is actually heard by.
+  return pinnedListeningLanguage(
+    sttCatalogKeyForRole(stt, "telephony"),
+    stt.language,
+  );
 }
 
 /**

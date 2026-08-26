@@ -33,6 +33,10 @@ struct StatusWidget: Widget {
     }
 }
 
+// A Storybook replica copies this file's measurements and palette, at
+// `clients/web/src/components/ios-widget-previews/`. Nothing checks the two
+// against each other, so a change here wants a look there.
+
 /// One card that swaps what it is for: a readout when the account has something
 /// waiting, a launcher when it does not.
 ///
@@ -143,13 +147,13 @@ struct StatusWidgetView: View {
     private func chatPill(height: CGFloat, scale: CGFloat) -> some View {
         PillActionButton(
             intent: OpenNewChatIntent(),
-            icon: Image("VellumV"),
             title: "Chat",
             fill: entry.softAccent.fill,
             tint: entry.softAccent.onFill,
             height: height,
             carriesAccent: true,
             avatarImage: entry.avatarImage,
+            showsAppIcon: true,
             scale: scale
         )
     }

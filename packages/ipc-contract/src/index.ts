@@ -19,6 +19,7 @@ export {
   type LocalPairingFailureReason,
   type LocalPairingPollResult,
   type LocalPairingStartResult,
+  type LocalReadAssistantAvatarResult,
   type LocalRevokeDeviceResult,
   type LocalUpgradeOptions,
   type LocalWakeOptions,

@@ -10,6 +10,7 @@ on:
       - 'patches/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-manifest/**'
       - '.github/workflows/ci-main-local-mode.yaml'
 
 jobs:

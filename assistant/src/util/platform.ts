@@ -2,6 +2,11 @@ import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
+import {
+  AVATAR_IMAGE_FILENAME,
+  AVATAR_MANIFEST_FILENAME,
+  resolveAvatarDir,
+} from "@vellumai/avatar-manifest";
 import { SEEDS } from "@vellumai/environments";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
@@ -160,19 +165,13 @@ export function getSoundsDir(): string {
 
 /** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
 export function getAvatarDir(): string {
-  return join(getWorkspaceDir(), "data", "avatar");
+  return resolveAvatarDir(getWorkspaceDir());
 }
-
-/** Canonical filename for the custom avatar PNG. */
-export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 
 /** Returns the canonical avatar image path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png). */
 export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
-
-/** Canonical filename for the avatar state manifest. */
-export const AVATAR_MANIFEST_FILENAME = "avatar.json";
 
 /** Returns the canonical avatar manifest path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar.json). */
 export function getAvatarManifestPath(): string {

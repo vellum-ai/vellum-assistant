@@ -6,7 +6,10 @@
  * deliberately not a second story: binary frames or base64 `audio` events in,
  * a `{ type: "stop" }` text frame to flush, and a `StreamingTranscriber`
  * resolved by `resolveStreamingTranscriber()` so provider selection,
- * credentials, and language live in exactly one place.
+ * credentials, and language live in exactly one place. Watch is its own STT
+ * consumer there (`services.stt.roles.watch`, falling back to the global
+ * provider), because it shares dictation's transport without sharing its
+ * batch fallback.
  *
  * What differs is everything downstream of a transcript. Dictation hands its
  * text back to the client; a watch session hands each final to
@@ -421,11 +424,12 @@ export class WatchStreamSession {
     }
     const { resolveStreamingTranscriber } =
       await import("../../providers/speech-to-text/resolve.js");
-    return resolveStreamingTranscriber(
-      this.options.sampleRate !== undefined
+    return resolveStreamingTranscriber({
+      role: "watch",
+      ...(this.options.sampleRate !== undefined
         ? { sampleRate: this.options.sampleRate }
-        : {},
-    );
+        : {}),
+    });
   }
 
   /**

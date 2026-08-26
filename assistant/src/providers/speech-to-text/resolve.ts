@@ -1,6 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
+import { sttCatalogKeyForRole, type SttRole } from "../../stt/roles.js";
 import type {
   BatchTranscriber,
   StreamingTranscriber,
@@ -82,6 +83,29 @@ export function effectiveSttLanguage(
     : undefined;
 }
 
+/**
+ * Record which provider a role actually dialed, when that differs from the
+ * global setting.
+ *
+ * `assistant config get` reports what was set, not what resolved, and managed
+ * defaulting already substitutes silently. A role override adds a second way
+ * for the two to diverge, so the divergence is logged rather than left to be
+ * inferred from a provider's behaviour.
+ */
+function logRoleSelection(
+  role: SttRole | undefined,
+  resolved: SttProviderId,
+  base: SttProviderId,
+): void {
+  if (role === undefined || resolved === base) {
+    return;
+  }
+  log.info(
+    { role, providerId: resolved, baseProviderId: base },
+    "STT role override selected a provider other than services.stt.provider",
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Batch transcriber resolver (existing public API — unchanged contract)
 // ---------------------------------------------------------------------------
@@ -104,11 +128,14 @@ export function effectiveSttLanguage(
  * "no speech-to-text provider is configured" copy every caller pairs with
  * `null`, which is the opposite of what happened.
  */
-export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
+export async function resolveBatchTranscriber(
+  options: { role?: SttRole } = {},
+): Promise<BatchTranscriber | null> {
   // Snapshot the stt config once, before any await, so a concurrent config
   // change cannot pair one setting's old value with another's new value.
   const stt = getConfig().services.stt;
-  const provider = resolveSttCatalogKey(stt);
+  const provider = sttCatalogKeyForRole(stt, options.role);
+  logRoleSelection(options.role, provider, resolveSttCatalogKey(stt));
   const language = effectiveSttLanguage(
     provider as SttProviderId,
     stt.language,
@@ -183,22 +210,27 @@ export type TelephonySttCapability =
     };
 
 /**
- * Validate whether the configured `services.stt` provider is eligible for
- * future real-time telephony call ingestion.
+ * Validate whether the STT provider serving telephony is eligible for
+ * real-time call ingestion.
  *
- * This resolver does **not** create a live transcriber — it only validates
+ * This resolver does **not** create a live transcriber: it only validates
  * that the configuration, catalog entry, and credentials are all in order.
- * The actual wiring is deferred to a future media-stream call adapter PR.
+ *
+ * The provider is the telephony role's, which is the one a call actually
+ * dials. Reading the global provider instead would answer about a provider
+ * no call uses: a credentialed role selection would be turned away for the
+ * global's missing key, and the inverse would pass preflight and fail at the
+ * dial.
  *
  * Callers can branch on the discriminated `status` field:
- * - `"supported"` — the provider is telephony-eligible and credentials exist.
- * - `"unsupported"` — the provider exists but has `telephonyMode: "none"`.
- * - `"unconfigured"` — the provider is unknown or missing from the catalog.
- * - `"missing-credentials"` — the provider is eligible but has no API key.
+ * - `"supported"`: the provider is telephony-eligible and credentials exist.
+ * - `"unsupported"`: the provider exists but has `telephonyMode: "none"`.
+ * - `"unconfigured"`: the provider is unknown or missing from the catalog.
+ * - `"missing-credentials"`: the provider is eligible but has no API key.
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = resolveSttCatalogKey(config.services.stt);
+  const provider = sttCatalogKeyForRole(config.services.stt, "telephony");
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -354,6 +386,13 @@ export interface ResolveStreamingTranscriberOptions {
    */
   providerId?: SttProviderId;
   /**
+   * Consumer asking for the transcriber. Selects that role's
+   * `services.stt.roles` override; omitted falls back to the global
+   * `services.stt.provider`. Ignored when `providerId` is given, since that
+   * caller already resolved the provider itself.
+   */
+  role?: SttRole;
+  /**
    * Speaker diarization preference. Default: `"off"`.
    *
    * See {@link DiarizePreference} for semantics.
@@ -415,7 +454,11 @@ export async function resolveStreamingTranscriber(
   // change cannot pair one setting's old value with another's new value
   // (e.g. the old provider with the new language).
   const stt = getConfig().services.stt;
-  const provider = options.providerId ?? resolveSttCatalogKey(stt);
+  const provider =
+    options.providerId ?? sttCatalogKeyForRole(stt, options.role);
+  if (options.providerId === undefined) {
+    logRoleSelection(options.role, provider, resolveSttCatalogKey(stt));
+  }
   // Config-level language applies to every streaming caller (live voice,
   // dictation, telephony) unless one overrides it for a single session, so
   // the setting lands in one place rather than at each call site. An unset

@@ -523,7 +523,21 @@ export function resolveSttCatalogKey(stt: {
     | undefined;
 }): SttProviderId {
   const provider = stt.provider as SttProviderId;
-  const model = stt.providers?.[provider]?.model;
+  return sttCatalogKeyFor(provider, stt.providers?.[provider]?.model);
+}
+
+/**
+ * The catalog row a provider and model family pair resolves to.
+ *
+ * Split out from {@link resolveSttCatalogKey} because a selection does not
+ * always come from the top-level config block: a per-consumer role names its
+ * own provider and family, and has to reach the same row that pair would
+ * reach anywhere else.
+ */
+export function sttCatalogKeyFor(
+  provider: SttProviderId,
+  model: unknown,
+): SttProviderId {
   if (typeof model !== "string") {
     return provider;
   }

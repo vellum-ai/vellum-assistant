@@ -153,9 +153,11 @@ export interface BusEventMap {
    * process once it saved (or failed to save) a download this window
    * started, and published by `saveFile` itself when a URL source fails to
    * fetch before any download could start (the shell denies the anchor
-   * fallback, so that failure has no other signal). `id` accompanies
-   * `state: "completed"` and keys the file-manager reveal
-   * (`revealDownload`). Off Electron this never fires; the browser host
+   * fallback, so that failure has no other signal). The Capacitor save path
+   * publishes the failure case too, when the source cannot be fetched or
+   * staged before the share sheet presents; a presented sheet remains its
+   * own feedback. `id` accompanies `state: "completed"` and keys the
+   * file-manager reveal (`revealDownload`). The plain-browser host
    * publishes `download.started` at handoff instead.
    */
   "download.done": {

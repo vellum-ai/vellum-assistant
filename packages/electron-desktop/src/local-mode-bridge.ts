@@ -19,6 +19,8 @@ export const createLocalModeBridge = (
     ipc.invoke("vellum:localMode:pairingPoll", handle, name),
   pairingStart: (address) =>
     ipc.invoke("vellum:localMode:pairingStart", address),
+  readAssistantAvatar: (assistantId) =>
+    ipc.invoke("vellum:localMode:readAssistantAvatar", assistantId),
   readLockfile: () => ipc.invoke("vellum:localMode:readLockfile"),
   renameLockfileAssistant: (assistantId, name) =>
     ipc.invoke("vellum:localMode:renameLockfileAssistant", assistantId, name),

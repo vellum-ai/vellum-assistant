@@ -1,9 +1,9 @@
 /**
- * Surface action submission, content fetching, and artifact download.
+ * Surface action submission, content fetching, and document PDF download.
  */
 
-import { client } from "@/generated/api/client.gen";
 import {
+  documentsByIdPdfGet,
   surfaceactionsPost,
   surfacesBySurfaceIdGet,
 } from "@/generated/daemon/sdk.gen";
@@ -11,7 +11,6 @@ import type {
   SurfaceactionsPostResponse,
   SurfacesBySurfaceIdGetResponse,
 } from "@/generated/daemon/types.gen";
-import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export type SurfaceActionResult =
   | { ok: false }
@@ -92,35 +91,27 @@ export async function fetchSurfaceContent(
 }
 
 // ---------------------------------------------------------------------------
-// Artifact download
+// Document PDF download
 // ---------------------------------------------------------------------------
 
-export async function downloadArtifact(
+/**
+ * Fetch a document surface's PDF export and hand it to `saveFile`, which
+ * owns per-host transport and outcome feedback. Throws on a failed fetch so
+ * each caller can surface its own error state.
+ */
+export async function downloadDocumentPdf(
   assistantId: string,
-  artifactPath: string,
-  filename: string,
+  surfaceId: string,
+  title: string | null | undefined,
 ): Promise<void> {
-  const { data, error, response } = await client.get<Blob | File, unknown>({
-    url: "/v1/assistants/{assistant_id}/artifacts/{artifact_path}",
-    path: { assistant_id: assistantId, artifact_path: artifactPath },
-    parseAs: "blob",
+  const { data: blob, response } = await documentsByIdPdfGet({
+    path: { assistant_id: assistantId, id: surfaceId },
     throwOnError: false,
+    parseAs: "blob",
   });
-  assertHasResponse(response, error, "Failed to download artifact");
-
-  if (!response.ok) {
-    const msg = extractErrorMessage(
-      error,
-      response,
-      "Failed to download artifact",
-    );
-    throw new Error(msg);
+  if (!response?.ok || !(blob instanceof Blob)) {
+    throw new Error("Failed to export document PDF");
   }
-
-  if (!(data instanceof Blob)) {
-    throw new Error("Failed to download artifact");
-  }
-
   const { saveFile } = await import("@/runtime/native-file");
-  await saveFile(data, filename);
+  await saveFile(blob, `${title || "document"}.pdf`);
 }

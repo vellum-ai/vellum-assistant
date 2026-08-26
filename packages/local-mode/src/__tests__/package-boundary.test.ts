@@ -2,15 +2,17 @@
  * Package boundary tests for @vellumai/local-mode.
  *
  * This package is the shared local-assistant host surface. It sits one layer
- * above @vellumai/environments and @vellumai/service-contracts (its only
- * allowed @vellumai dependencies) and uses node builtins for filesystem,
- * child-process, and network work.
+ * above @vellumai/environments, @vellumai/service-contracts, and the
+ * source-only @vellumai/avatar-manifest (its only allowed @vellumai
+ * dependencies) and uses node builtins for filesystem, child-process, and
+ * network work.
  *
  * Enforces that the package:
  * 1. Imports only node builtins, its own relative modules,
  *    `@vellumai/environments`, `@vellumai/service-contracts` (the pairing wire
- *    contracts), `zod` (the lockfile contract's schema library), and `nanoid`
- *    (pair's fallback local-id generator); nothing else.
+ *    contracts), `@vellumai/avatar-manifest`, `zod` (the lockfile contract's
+ *    schema library), and `nanoid` (pair's fallback local-id generator);
+ *    nothing else.
  * 2. Declares exactly those runtime dependencies.
  * 3. Is marked `private`.
  */
@@ -25,6 +27,7 @@ const SRC_DIR = join(PACKAGE_ROOT, "src");
 const ALLOWED_PACKAGES = new Set([
   "@vellumai/environments",
   "@vellumai/service-contracts",
+  "@vellumai/avatar-manifest",
   "zod",
   "nanoid",
 ]);
@@ -98,8 +101,9 @@ describe("package boundary", () => {
           violations.map((v) => `  - ${v}`).join("\n") +
           "\n\n@vellumai/local-mode may import only node builtins, its own\n" +
           "relative modules, @vellumai/environments, and\n" +
-          "@vellumai/service-contracts. Any other dependency would break\n" +
-          "bundler hosts that inline this source-only package.",
+          "@vellumai/service-contracts, and @vellumai/avatar-manifest. Any\n" +
+          "other dependency would break bundler hosts that inline this\n" +
+          "source-only package.",
       );
     }
   });
@@ -110,6 +114,7 @@ describe("package boundary", () => {
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
+      "@vellumai/avatar-manifest": "workspace:*",
       "@vellumai/environments": "workspace:*",
       "@vellumai/service-contracts": "workspace:*",
       nanoid: "5.1.7",

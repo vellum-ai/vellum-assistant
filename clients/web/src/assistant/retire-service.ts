@@ -1,4 +1,7 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import { listAssistants, retireAssistantById } from "@/assistant/api";
+import { forgetAssistantAvatar } from "@/hooks/use-chooser-row-avatar";
 import {
   getLockfile,
   isLocalAssistant,
@@ -59,6 +62,7 @@ function getPostRetireRoute(): string {
  * `{ ok: false, error }`.
  */
 export async function retireAssistant(
+  queryClient: QueryClient,
   assistantId: string,
 ): Promise<RetireOutcome> {
   try {
@@ -112,6 +116,7 @@ export async function retireAssistant(
     }
 
     useResolvedAssistantsStore.getState().remove(assistantId);
+    forgetAssistantAvatar(queryClient, assistantId);
     // Retiring ends any in-flight onboarding journey with it: drop the
     // research-onboarding resume snapshot so the next onboarding starts at the
     // form instead of resuming the retired assistant's run deep in the flow

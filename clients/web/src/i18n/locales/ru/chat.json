@@ -232,6 +232,9 @@
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
   },
+  "documentViewerPage": {
+    "exportFailed": "Не удалось экспортировать PDF"
+  },
   "exportProgressModal": {
     "cancel": "Отмена",
     "close": "Закрыть",

@@ -63,7 +63,9 @@ mock.module("@/lib/sentry/capture-error", () => ({
 }));
 
 let selfHostedIngressUrl: string | null = null;
+const actualSelfHostedConnection = await import("@/lib/self-hosted/connection");
 mock.module("@/lib/self-hosted/connection", () => ({
+  ...actualSelfHostedConnection,
   getSelfHostedIngressUrl: () => selfHostedIngressUrl,
 }));
 
@@ -73,7 +75,9 @@ const avatarCalls: Array<
     { supportsManifest?: boolean; enabled?: boolean } | undefined,
   ]
 > = [];
+const actualAssistantAvatar = await import("@/hooks/use-assistant-avatar");
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...actualAssistantAvatar,
   useAssistantAvatar: (
     id: string | null,
     options?: { supportsManifest?: boolean; enabled?: boolean },

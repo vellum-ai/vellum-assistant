@@ -27,6 +27,7 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
@@ -968,9 +969,16 @@ export function ChatComposer({
   // A banner docks to the card's top edge and takes the strip this row floats
   // in, so the row stands down while one is up rather than crowding it. The
   // avatar peeking over that same edge stands down with it (`ComposerPeek`).
+  //
+  // A pending question card lands in the same strip and stands the row down
+  // for the same reason, plus one of its own: the card is what the turn is
+  // waiting on, and the pills reach settings that are beside the point until
+  // it is answered.
+  const hasPendingQuestion = useHasPendingQuestion();
   const settingsPillsVisible =
     isMobileMainComposer &&
     !hasBannerAboveCard &&
+    !hasPendingQuestion &&
     (isNativeMobileShell || composerInUse);
   // The entrance belongs to the row that arrives with the keyboard. A row that
   // stands throughout has no arrival to animate, and the same animation there

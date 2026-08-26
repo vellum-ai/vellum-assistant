@@ -466,7 +466,7 @@ export async function preprocessForAsset(
     let transcriber: BatchTranscriber | null = null;
     if (options.includeAudio) {
       try {
-        transcriber = await resolveBatchTranscriber();
+        transcriber = await resolveBatchTranscriber({ role: "batch" });
       } catch (err) {
         onProgress?.(
           `Audio transcription unavailable: ${(err as Error).message}\n`,

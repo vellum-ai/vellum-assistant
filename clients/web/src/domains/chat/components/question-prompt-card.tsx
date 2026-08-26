@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type TouchEvent as ReactTouchEvent,
   useCallback,
   useEffect,
   useId,
@@ -91,9 +92,10 @@ export function QuestionPromptCard(props: QuestionPromptCardProps) {
  * At full height the card covers the assistant message the question is about,
  * which on a phone is most of what is left of the transcript (LUM-3390). The
  * header stays put and everything below it collapses to nothing, leaving the
- * question and an option count docked above the composer. Three ways in and
- * out, all driving the same state: the header's chevron, a vertical swipe
- * anywhere on the card, and a tap on a minimized card's header.
+ * question and an option count docked above the composer. Three ways through
+ * it, all driving the same state: the header's chevron minimizes, a vertical
+ * swipe anywhere on the card goes either way, and a minimized card reopens
+ * from its own header.
  *
  * `useQuestionCardMinimize` reduces all of that to one `progress` value, which
  * every moving part below reads. Mid-drag it tracks the finger; at rest it is
@@ -126,7 +128,74 @@ export function QuestionPromptBody({
   const collapsibleId = useId();
 
   const minimize = useQuestionCardMinimize();
-  const { isMinimized, progress, dragAttr } = minimize;
+  const { expand, isMinimized, progress, dragAttr, toggle } = minimize;
+
+  // The two halves of the collapse control. Only one is ever on screen: the
+  // chevron while expanded, the summary while minimized.
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const chevronRef = useRef<HTMLButtonElement>(null);
+  // Whether the control that is about to be retired is the one holding focus.
+  // Crossing the state unmounts the chevron and strips the summary of its role
+  // and tab stop, so a keyboard user would be left on the document body with
+  // the next Tab restarting from the top of the page.
+  //
+  // Sampled up front rather than read in the effect below, which runs after the
+  // commit that already removed the chevron and sent focus to the body. And a
+  // sample rather than a flag saying "a control was activated", because the
+  // swipe crosses the same state without going through either control: a thumb
+  // that was not holding focus must not drag it out of wherever the user left
+  // it, and one that was must not lose it.
+  const controlHadFocusRef = useRef(false);
+
+  const sampleControlFocus = useCallback(() => {
+    const control = isMinimized ? summaryRef.current : chevronRef.current;
+    controlHadFocusRef.current =
+      control !== null && document.activeElement === control;
+  }, [isMinimized]);
+
+  const handleMinimize = useCallback(() => {
+    sampleControlFocus();
+    toggle();
+  }, [sampleControlFocus, toggle]);
+
+  const handleReopen = useCallback(() => {
+    sampleControlFocus();
+    expand();
+  }, [sampleControlFocus, expand]);
+
+  // The third way across, and the only one that does not run through a control.
+  // Sampling on touch-start is early enough for any of them: the engine cannot
+  // commit before the finger has moved.
+  const { onTouchStart } = minimize.dragHandlers;
+  const handleCardTouchStart = useCallback(
+    (event: ReactTouchEvent) => {
+      sampleControlFocus();
+      onTouchStart(event);
+    },
+    [sampleControlFocus, onTouchStart],
+  );
+
+  // `role="button"` buys the summary the click, not the keystrokes a real
+  // button would have handled for free.
+  const handleReopenKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handleReopen();
+      }
+    },
+    [handleReopen],
+  );
+
+  useEffect(() => {
+    if (!controlHadFocusRef.current) {
+      return;
+    }
+    controlHadFocusRef.current = false;
+    // The counterpart, which this same commit has just put on screen.
+    const replacement = isMinimized ? summaryRef.current : chevronRef.current;
+    replacement?.focus();
+  }, [isMinimized]);
 
   const isBatched = entries.length > 1;
   const currentEntry = entries[currentIndex];
@@ -344,8 +413,9 @@ export function QuestionPromptBody({
       // `touchend`: the card would follow the finger and then snap back with
       // nothing committed. Zoom and horizontal panning are left alone, since
       // neither is a gesture the card wants.
+      data-slot="question-card-surface"
       className="relative flex flex-col p-4 [touch-action:pan-x_pinch-zoom]"
-      onTouchStart={minimize.dragHandlers.onTouchStart}
+      onTouchStart={handleCardTouchStart}
       onTouchMove={minimize.dragHandlers.onTouchMove}
       onTouchEnd={minimize.dragHandlers.onTouchEnd}
       onTouchCancel={minimize.dragHandlers.onTouchCancel}
@@ -375,14 +445,39 @@ export function QuestionPromptBody({
           // Only where a drag can start: elsewhere this would take away the
           // ability to select the question text and give nothing back.
           isTouch && "select-none",
-          isMinimized && "cursor-pointer",
         )}
-        // A minimized card reopens from anywhere in its header, which is the
-        // whole card. Left off while expanded so the header's own buttons
-        // aren't shadowed by a handler that would undo them on the way up.
-        onClick={isMinimized ? minimize.expand : undefined}
       >
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          ref={summaryRef}
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            isMinimized && "cursor-pointer",
+          )}
+          // A minimized card carries no chevron of its own, so the summary is
+          // what reopens it, by tap and by keyboard alike. Left off while
+          // expanded, so the header's own buttons aren't shadowed by a handler
+          // that would undo them on the way up.
+          //
+          // Deliberately not `Button`, and deliberately unlabelled:
+          //
+          // - A real button would have to swap in at the state flip, and
+          //   changing the element type at this position remounts everything
+          //   under it. The two crossfading rows below are in there, and they
+          //   ease on `grid-template-rows`, which a fresh mount has no previous
+          //   value to interpolate from. The collapse would jump instead of
+          //   running.
+          // - A button's accessible name comes from its contents, and here the
+          //   contents are exactly what a reader should hear in place of the
+          //   body: the question, and the count of options behind it. An
+          //   `aria-label` would replace both with a generic phrase, since
+          //   descendants of `role="button"` are flattened into the name.
+          role={isMinimized ? "button" : undefined}
+          tabIndex={isMinimized ? 0 : undefined}
+          aria-expanded={isMinimized ? false : undefined}
+          aria-controls={isMinimized ? collapsibleId : undefined}
+          onClick={isMinimized ? handleReopen : undefined}
+          onKeyDown={isMinimized ? handleReopenKeyDown : undefined}
+        >
           <Typography
             variant="body-medium-default"
             as="div"
@@ -438,28 +533,32 @@ export function QuestionPromptBody({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {isBatched && (
-            <Typography
-              variant="label-small-default"
-              as="span"
-              className="px-1 text-[color:var(--content-tertiary)]"
-            >
-              {t("questionPromptCard.position", {
-                current: currentIndex + 1,
-                total: entries.length,
-              })}
-            </Typography>
-          )}
           {!isMinimized && (
-            // Paging through a batch is an expanded-card action, so the pager
-            // leaves with the rows it pages between. It fades out over the
-            // first half of the collapse and unmounts once the state commits,
-            // by which point it is already invisible.
+            // Everything in here acts on rows that are on screen: the pager
+            // pages between them, the counter says which one is showing, and
+            // the chevron puts them away. So all three leave with the rows,
+            // fading out over the first half of the collapse and unmounting
+            // once the state commits, by which point they are already
+            // invisible. The chevron points down and stays there: reopening is
+            // the minimized header's job, and a second control rotated the
+            // other way would only duplicate it.
             <div
               className="question-card-motion flex items-center gap-1"
               style={{ opacity: expandedOpacity }}
               data-dragging={dragAttr}
             >
+              {isBatched && (
+                <Typography
+                  variant="label-small-default"
+                  as="span"
+                  className="px-1 text-[color:var(--content-tertiary)]"
+                >
+                  {t("questionPromptCard.position", {
+                    current: currentIndex + 1,
+                    total: entries.length,
+                  })}
+                </Typography>
+              )}
               <Button
                 variant="ghost"
                 size="compact"
@@ -476,27 +575,18 @@ export function QuestionPromptBody({
                 disabled={!canGoNext || isSubmitting}
                 aria-label={t("questionPromptCard.nextQuestionAria")}
               />
+              <Button
+                ref={chevronRef}
+                variant="ghost"
+                size="compact"
+                iconOnly={<ChevronDown />}
+                onClick={handleMinimize}
+                aria-expanded
+                aria-controls={collapsibleId}
+                aria-label={t("questionPromptCard.minimizeAria")}
+              />
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="compact"
-            iconOnly={
-              <ChevronDown
-                className="question-card-motion"
-                style={{ transform: `rotate(${(1 - progress) * 180}deg)` }}
-                data-dragging={dragAttr}
-              />
-            }
-            onClick={minimize.toggle}
-            aria-expanded={!isMinimized}
-            aria-controls={collapsibleId}
-            aria-label={
-              isMinimized
-                ? t("questionPromptCard.expandAria")
-                : t("questionPromptCard.minimizeAria")
-            }
-          />
           {onClose && (
             <Button
               variant="ghost"
