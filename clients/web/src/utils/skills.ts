@@ -38,3 +38,19 @@ export function invalidateSkillsList(
     queryKey: skillsGetQueryKey({ path: { assistant_id: assistantId } }),
   });
 }
+
+/**
+ * Router state a chat surface attaches when opening the skill detail page
+ * (`routes.skills.detail`), so the page's back affordances return to the
+ * conversation the skill was opened from instead of the My Superpowers list.
+ *
+ * `skill-detail-page.tsx` is the one reader; it validates the value before
+ * trusting it, so deep links and stale history entries degrade to the list.
+ */
+export function skillDetailBackState(location: {
+  pathname: string;
+  search: string;
+  hash: string;
+}): { backTo: string } {
+  return { backTo: `${location.pathname}${location.search}${location.hash}` };
+}

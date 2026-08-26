@@ -11,7 +11,7 @@
  */
 
 import { lazy, useCallback, useEffect, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -38,6 +38,7 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
+import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
 // below and the idle-prefetch effect. Once a thunk has run, the browser module
@@ -132,8 +133,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   );
   const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
-  const activeChannelTranscript =
-    useViewerStore.use.activeChannelTranscript();
+  const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -141,6 +141,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const editApp = useEditApp();
 
   // -------------------------------------------------------------------------
@@ -287,8 +288,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       return;
     }
     useViewerStore.getState().closeSkillDetail();
-    navigate(routes.skills.detail(activeSkillDetailId));
-  }, [isMobile, mainView, activeSkillDetailId, navigate]);
+    navigate(routes.skills.detail(activeSkillDetailId), {
+      state: skillDetailBackState(location),
+    });
+  }, [isMobile, mainView, activeSkillDetailId, navigate, location]);
 
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
@@ -605,10 +608,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           onClose={onCloseChannelSetup}
         />
       );
-    } else if (
-      mainView === "channel-transcript" &&
-      activeChannelTranscript
-    ) {
+    } else if (mainView === "channel-transcript" && activeChannelTranscript) {
       rightPanel = (
         <LazyBoundary>
           {/* Re-key per thread so switching conversations remounts the panel
