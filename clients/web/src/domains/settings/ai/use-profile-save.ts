@@ -91,7 +91,7 @@ export function useProfileSave(
   assistantId: string,
   { onSaved }: { onSaved?: () => void } = {},
 ): ProfileSave {
-  const configMutation = useLlmConfigPatch(assistantId);
+  const configMutation = useLlmConfigPatch();
 
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),

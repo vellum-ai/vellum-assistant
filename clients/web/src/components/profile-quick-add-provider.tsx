@@ -84,7 +84,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
-  const configMutation = useLlmConfigPatch(assistantId ?? "");
+  const configMutation = useLlmConfigPatch();
   const [isOpen, setIsOpen] = useState(false);
   const [existingNames, setExistingNames] = useState<string[]>([]);
   // Held in a ref so the modal's onSave closure always sees the latest caller
