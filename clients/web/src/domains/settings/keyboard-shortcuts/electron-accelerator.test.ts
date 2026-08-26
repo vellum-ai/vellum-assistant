@@ -121,4 +121,12 @@ describe("findConflict", () => {
     expect(clash?.key).toBe("find");
     expect(clash?.rebindable).toBe(false);
   });
+
+  it("treats a legacy Windows Control override as CmdOrCtrl", () => {
+    const catalog = [hotkey("newConversation", "Control+Shift+N")];
+    expect(
+      findConflict(catalog, "home", "CmdOrCtrl+Shift+N", "windows")?.key,
+    ).toBe("newConversation");
+    expect(findConflict(catalog, "home", "CmdOrCtrl+Shift+N")).toBeNull();
+  });
 });

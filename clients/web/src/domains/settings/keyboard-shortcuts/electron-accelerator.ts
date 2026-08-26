@@ -128,6 +128,29 @@ export const eventToAccelerator = (
 };
 
 /**
+ * Modifier spellings Electron treats as the platform's primary modifier.
+ * Legacy Windows overrides were recorded as `Control+...`, which Electron
+ * binds identically to `CmdOrCtrl+...` there, so both must compare equal.
+ */
+const PRIMARY_ALIASES: Record<ElectronHostOS, ReadonlySet<string>> = {
+  macos: new Set(["Command", "Cmd", "CommandOrControl"]),
+  windows: new Set(["Control", "Ctrl", "CommandOrControl"]),
+};
+
+/** Canonical form of an accelerator for equality checks on `hostOS`. */
+export const normalizeAccelerator = (
+  accelerator: string,
+  hostOS: ElectronHostOS = "macos",
+): string => {
+  const aliases = PRIMARY_ALIASES[hostOS];
+  const parts = accelerator
+    .split("+")
+    .map((part) => (aliases.has(part) ? "CmdOrCtrl" : part));
+  const key = parts.pop() ?? "";
+  return [...new Set(parts)].sort().concat(key).join("+");
+};
+
+/**
  * The first command (other than `excludeKey`) already bound to `accelerator`,
  * or `null` when the accelerator is free. The catalog includes reserved,
  * non-rebindable commands (e.g. Find, Settings), so this also blocks binding
@@ -139,13 +162,18 @@ export const findConflict = (
   catalog: ResolvedHotkey[],
   excludeKey: string,
   accelerator: string,
+  hostOS: ElectronHostOS = "macos",
 ): ResolvedHotkey | null => {
   if (accelerator === "") {
     return null;
   }
+  const wanted = normalizeAccelerator(accelerator, hostOS);
   return (
     catalog.find(
-      (entry) => entry.key !== excludeKey && entry.accelerator === accelerator,
+      (entry) =>
+        entry.key !== excludeKey &&
+        entry.accelerator !== "" &&
+        normalizeAccelerator(entry.accelerator, hostOS) === wanted,
     ) ?? null
   );
 };
