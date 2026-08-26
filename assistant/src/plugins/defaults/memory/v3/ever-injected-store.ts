@@ -34,6 +34,7 @@ import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 
 const log = getLogger("memory-v3-ever-injected-store");
+const lastKnownPrunedSlugs = new Map<string, Set<string>>();
 
 /**
  * Message-metadata key the v3 injector persists each turn's card block under
@@ -138,21 +139,28 @@ export function getActiveEntries(
  * `prune.ts` / `daemon/conversation.ts`).
  */
 export function getPrunedSlugs(conversationId: string): Set<string> {
-  const mdb = memoryDbOrNull("getPrunedSlugs");
-  if (!mdb) {
-    return new Set();
+  try {
+    const mdb = memoryDbOrNull("getPrunedSlugs");
+    if (!mdb) {
+      return new Set(lastKnownPrunedSlugs.get(conversationId) ?? []);
+    }
+    const rows = mdb
+      .select({ slug: memoryV3EverInjected.slug })
+      .from(memoryV3EverInjected)
+      .where(
+        and(
+          eq(memoryV3EverInjected.conversationId, conversationId),
+          isNotNull(memoryV3EverInjected.prunedAt),
+        ),
+      )
+      .all();
+    const slugs = new Set(rows.map((row) => row.slug));
+    lastKnownPrunedSlugs.set(conversationId, slugs);
+    return new Set(slugs);
+  } catch (err) {
+    log.warn({ err }, "failed to read pruned card state; using last snapshot");
+    return new Set(lastKnownPrunedSlugs.get(conversationId) ?? []);
   }
-  const rows = mdb
-    .select({ slug: memoryV3EverInjected.slug })
-    .from(memoryV3EverInjected)
-    .where(
-      and(
-        eq(memoryV3EverInjected.conversationId, conversationId),
-        isNotNull(memoryV3EverInjected.prunedAt),
-      ),
-    )
-    .all();
-  return new Set(rows.map((row) => row.slug));
 }
 
 /**
@@ -194,6 +202,7 @@ export function recordInjected(
           set: { injectedAt: at, bytes: entry.bytes, prunedAt: null },
         })
         .run();
+      lastKnownPrunedSlugs.get(conversationId)?.delete(entry.slug);
     }
   } catch (err) {
     log.warn({ err }, "failed to record ever-injected cards; continuing");
@@ -227,6 +236,11 @@ export function markPruned(
         ),
       )
       .run();
+    const snapshot = lastKnownPrunedSlugs.get(conversationId) ?? new Set();
+    for (const slug of slugs) {
+      snapshot.add(slug);
+    }
+    lastKnownPrunedSlugs.set(conversationId, snapshot);
   } catch (err) {
     log.warn({ err }, "failed to mark ever-injected cards pruned; continuing");
   }
@@ -237,6 +251,7 @@ export function markPruned(
  * blocks are gone from history, so every slug must become re-injectable.
  */
 export function clearConversation(conversationId: string): void {
+  lastKnownPrunedSlugs.delete(conversationId);
   try {
     const mdb = memoryDbOrNull("clearConversation");
     if (!mdb) {

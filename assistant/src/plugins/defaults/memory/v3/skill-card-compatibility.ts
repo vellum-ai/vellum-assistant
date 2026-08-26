@@ -9,14 +9,9 @@ export function stripIncompatibleSkillCardsFromMessages(
   context: SkillPlatformContext,
   options: { conversationId?: string } = {},
 ): Promise<number> {
-  let prunedSlugs = new Set<string>();
-  if (options.conversationId) {
-    try {
-      prunedSlugs = getPrunedSlugs(options.conversationId);
-    } catch {
-      prunedSlugs = new Set();
-    }
-  }
+  const prunedSlugs = options.conversationId
+    ? getPrunedSlugs(options.conversationId)
+    : new Set<string>();
   return stripFromSubstrate(messages, context, {
     ...options,
     normalizePersistedLegacyBlock: (inner) =>

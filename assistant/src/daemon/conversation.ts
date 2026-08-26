@@ -1135,16 +1135,12 @@ export class Conversation {
     // prune valve marks cards pruned in the everInjected store instead of
     // rewriting the persisted metadata, so the v3 rehydration splice below
     // re-applies the filter on every load — that is what makes a prune
-    // survive daemon restarts. Defensive catch: a store failure degrades to
-    // an unfiltered (pre-prune) rehydration rather than a failed load.
+    // survive daemon restarts. The store returns its last successful snapshot
+    // when the memory database is temporarily unavailable.
     let v3PrunedSlugsMemo: Set<string> | null = null;
     const v3PrunedSlugs = (): Set<string> => {
       if (v3PrunedSlugsMemo === null) {
-        try {
-          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
-        } catch {
-          v3PrunedSlugsMemo = new Set();
-        }
+        v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
       }
       return v3PrunedSlugsMemo;
     };

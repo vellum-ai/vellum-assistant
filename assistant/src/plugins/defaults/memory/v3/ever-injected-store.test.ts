@@ -77,6 +77,9 @@ beforeEach(() => {
   storeMockActive = true;
   memoryDbAvailable = true;
   makeDb();
+  for (const conversationId of ["conv-1", "conv-parent", "conv-child"]) {
+    clearConversation(conversationId);
+  }
 });
 
 afterAll(() => {
@@ -319,6 +322,17 @@ describe("memory-side schema", () => {
 });
 
 describe("fail-soft without a memory database", () => {
+  test("keeps the last pruned snapshot after a read failure", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+
+    memorySqlite.run("DROP TABLE memory_v3_ever_injected");
+
+    expect(() => getPrunedSlugs("conv-1")).not.toThrow();
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+  });
+
   test("reads return empty and writes no-op when the memory DB is unavailable", () => {
     memoryDbAvailable = false;
     expect(() =>
