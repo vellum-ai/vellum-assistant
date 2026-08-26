@@ -253,7 +253,7 @@ export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
       <MessageBox>
         {t("emailsTab.noAddress")}{" "}
         <Link
-          to={routes.settings.ai}
+          to={`${routes.channels}?setup=email`}
           className="underline"
           style={{ color: "var(--content-tertiary)" }}
         >

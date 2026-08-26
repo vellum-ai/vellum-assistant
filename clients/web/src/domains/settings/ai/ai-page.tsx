@@ -29,7 +29,7 @@ export function AiPage() {
   // the drawer can dock beside the whole card stack, schedules-page style.
   const [lmPanel, setLmPanel] = useState<LanguageModelPanelState | null>(null);
 
-  // Scroll to hash target on mount (e.g. deep links to #email).
+  // Scroll to hash target on mount (e.g. deep links to #text-to-speech).
   useEffect(() => {
     const hash = window.location.hash.slice(1);
     if (!hash) {

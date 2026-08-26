@@ -4,6 +4,7 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { useTranslation } from "@/i18n";
 import type { MutationStatus } from "@/components/channel-setup-wizard";
+import { DetailCard } from "@/components/detail-card";
 import { EmptyState } from "@/components/empty-state";
 import { DiscordSetupWizard } from "@/components/discord-setup-wizard";
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
@@ -129,21 +130,26 @@ export function ChannelPanel({
   // scroll, so no min-h-0/flex-1 fill here.
   // Email's setup is address and domain management on the platform plus a
   // bring-your-own provider key, not a credential wizard, so its section owns
-  // the whole surface across connected and unconfigured states. The trust
-  // floor is the one generic control it shares with the other channels.
+  // the whole surface across connected and unconfigured states. Like Slack it
+  // returns bare (the parent skips the DetailCard) because its cards carry
+  // their own chrome; the trust floor, the one generic control it shares with
+  // the other channels, gets its own card and shows only once an address can
+  // actually receive mail, matching the connected-only gate below.
   if (channel.key === "email") {
     return (
       <div className="flex flex-col gap-4">
         <EmailChannelSection />
-        {onPolicyChange ? (
-          <ChannelTrustFloorSection
-            assistantDisplayName={assistantDisplayName}
-            policy={policy}
-            saving={policySaving}
-            loading={policyLoading}
-            error={policyError}
-            onChange={onPolicyChange}
-          />
+        {connected && onPolicyChange ? (
+          <DetailCard>
+            <ChannelTrustFloorSection
+              assistantDisplayName={assistantDisplayName}
+              policy={policy}
+              saving={policySaving}
+              loading={policyLoading}
+              error={policyError}
+              onChange={onPolicyChange}
+            />
+          </DetailCard>
         ) : null}
       </div>
     );
