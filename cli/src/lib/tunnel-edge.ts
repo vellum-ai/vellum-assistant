@@ -23,6 +23,7 @@ import {
 } from "./nginx-ingress.js";
 import { waitForDaemonReady } from "./http-client.js";
 import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
+import { shellArg } from "./shell-arg.js";
 
 /** Matches the Docker hatch path's service-readiness allowance. */
 export const DOCKER_GATEWAY_READY_TIMEOUT_MS = 5 * 60_000;
@@ -74,7 +75,7 @@ function tunnelRestartCommand(
       loadRawConfig(workspaceDir).ingress,
     );
     if (record) {
-      return `vellum tunnel ${assistantId} --provider ${record.provider}`;
+      return `vellum tunnel ${shellArg(assistantId)} --provider ${record.provider}`;
     }
   } catch {
     // An unreadable config names no provider; the help pointer still holds.

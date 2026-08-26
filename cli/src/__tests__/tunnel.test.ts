@@ -675,7 +675,20 @@ describe("tunnel edge targeting", () => {
 
     expect(exited).toBe(true);
     expect(errors).toContain("--provider is required");
+    // The suggestions keep the assistant that was asked for, so pasting one
+    // cannot tunnel the active assistant instead.
+    expect(errors).toContain("vellum tunnel Ada --provider ngrok");
+    expect(errors).toContain("vellum tunnel Ada --provider tailscale");
     expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+  });
+
+  test("a shell-sensitive assistant name is quoted in the suggestions", async () => {
+    writeLockfile(makeLocalEntry());
+    process.argv = ["bun", "vellum", "tunnel", "Bob&Alice"];
+
+    const { errors } = await runTunnelExpectingExit1();
+
+    expect(errors).toContain("vellum tunnel 'Bob&Alice' --provider ngrok");
   });
 
   test("--provider tailscale keeps the webhook callback base and says so", async () => {

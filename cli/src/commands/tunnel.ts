@@ -27,6 +27,7 @@ import {
   type TunnelEdge,
 } from "../lib/nginx-ingress.js";
 import { hasWebhookIntegrationsConfigured, runNgrokTunnel } from "../lib/ngrok";
+import { shellArg } from "../lib/shell-arg.js";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
 
@@ -213,9 +214,12 @@ function parseArgs(): TunnelArgs {
     );
     console.error("");
     console.error("Run one of:");
+    // Carries the assistant through: dropping it would suggest a command that
+    // tunnels the active assistant instead of the one that was asked for.
+    const target = assistantName ? ` ${shellArg(assistantName)}` : "";
     for (const name of TUNNEL_PROVIDERS) {
       console.error(
-        `  vellum tunnel --provider ${name.padEnd(13)}${PROVIDER_REACH[name]}`,
+        `  vellum tunnel${target} --provider ${name.padEnd(13)}${PROVIDER_REACH[name]}`,
       );
     }
     process.exit(1);
