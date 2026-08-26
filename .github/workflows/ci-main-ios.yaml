@@ -14,6 +14,10 @@ on:
       # component library.
       - 'assistant/src/avatar/**'
       - 'clients/android/app/src/main/res/**'
+      # Both native shells embed the web layer's marketing attribution
+      # allowlist; the same drift tests pin the two copies to it.
+      - 'clients/android/app/src/main/java/ai/vellum/assistant/Attribution.java'
+      - 'clients/web/src/domains/account/social-auth.ts'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
       - '.github/workflows/ci-main-ios.yaml'
@@ -53,10 +57,11 @@ jobs:
         working-directory: clients/web
         run: bun install --frozen-lockfile --filter=@vellumai/web
 
-      - name: Check app icon geometry drift
+      - name: Check drift guards
         working-directory: clients/ios
         # Asserts the icon assets still embed the avatar library's eye
-        # geometry verbatim. Runs from `clients/ios` because the repo-root
+        # geometry, and that both native shells still embed the web layer's
+        # attribution allowlist. Runs from `clients/ios` because the repo-root
         # `test-preload.ts` rejects a root `bun test`.
         run: bun test scripts/__tests__/
 
@@ -77,6 +82,21 @@ jobs:
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Unit tests
+        working-directory: clients/ios/App
+        # The `AppTests` bundle links none of the app targets, so this costs
+        # seconds rather than a second full build. The simulator is picked at
+        # runtime: the runner image's device names follow whichever iOS
+        # runtime ships with Xcode.
+        run: |
+          simulator=$(xcrun simctl list devices available --json \
+            | jq -er '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          xcodebuild test \
+            -project App.xcodeproj \
+            -scheme AppTests \
+            -destination "platform=iOS Simulator,id=$simulator" \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Build (unsigned)
         working-directory: clients/ios/App
