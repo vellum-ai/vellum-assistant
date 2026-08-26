@@ -70,6 +70,21 @@ export function pluginScopedId(plugin: string, value: string): string {
 }
 
 /**
+ * The vendor-facing id inside a scoped plugin id.
+ *
+ * `pluginScopedId` prefixes with `${plugin}:`. The plugin's send API addresses
+ * chats in the vendor's own terms, so a notice has to carry the unprefixed
+ * value the declaration read, not the namespaced key the gate stores.
+ */
+export function unscopedPluginId(plugin: string, scoped: string): string {
+  const prefix = `${plugin}:`;
+  if (scoped.startsWith(prefix)) {
+    return scoped.slice(prefix.length);
+  }
+  return scoped;
+}
+
+/**
  * The vendor payload the plugin carried forward, if it carried one.
  *
  * `raw` is what every other channel's normalizer keeps for a later stage to

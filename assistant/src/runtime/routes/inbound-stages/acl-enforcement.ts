@@ -6,10 +6,11 @@
  * Invite code/token redemption is intercepted at gateway ingress; redeemed
  * messages never reach this stage.
  */
-import type {
-  AdmissionPolicy,
-  SourceMetadata,
-  TrustVerdict,
+import {
+  ACCESS_DENIED_NOT_APPROVED_REPLY,
+  type AdmissionPolicy,
+  type SourceMetadata,
+  type TrustVerdict,
 } from "@vellumai/gateway-client";
 
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
@@ -78,7 +79,7 @@ export function composeAccessDenialReply(params: {
   if (params.guardianNotified) {
     return `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(params.verdict)} know you tried talking to me and get back to you.`;
   }
-  return "Sorry, you haven't been approved to message this assistant.";
+  return ACCESS_DENIED_NOT_APPROVED_REPLY;
 }
 
 // ---------------------------------------------------------------------------
@@ -880,8 +881,7 @@ export async function enforceIngressAcl(
           { sourceChannel, channelId: resolvedMember.channelId },
           "Ingress ACL: member policy deny",
         );
-        const denyReplyText =
-          "Sorry, you haven't been approved to message this assistant.";
+        const denyReplyText = ACCESS_DENIED_NOT_APPROVED_REPLY;
         let denyReplyDelivered = false;
         if (replyCallbackUrl) {
           const denyPayload: Parameters<typeof deliverChannelReply>[1] = {
