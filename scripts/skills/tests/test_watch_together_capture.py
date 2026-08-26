@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -48,6 +49,68 @@ class CaptureCommandTests(unittest.TestCase):
     def test_linux_requires_an_x11_display(self):
         with self.assertRaisesRegex(ValueError, "requires DISPLAY"):
             CAPTURE_LIVE.build_ffmpeg_command("Linux", self.chunks, 60, env={})
+
+
+class FakeStdin:
+    def __init__(self):
+        self.writes = []
+        self.closed = False
+
+    def write(self, value):
+        self.writes.append(value)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class FakeCapture:
+    def __init__(self, wait_results):
+        self.stdin = FakeStdin()
+        self.wait_results = list(wait_results)
+        self.wait_timeouts = []
+        self.terminated = False
+        self.killed = False
+
+    def poll(self):
+        return None
+
+    def wait(self, timeout=None):
+        self.wait_timeouts.append(timeout)
+        result = self.wait_results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+
+class CaptureStopTests(unittest.TestCase):
+    def test_requests_ffmpeg_quit_before_termination(self):
+        capture = FakeCapture([0])
+
+        CAPTURE_LIVE.stop_capture(capture)
+
+        self.assertEqual(capture.stdin.writes, [b"q\n"])
+        self.assertTrue(capture.stdin.closed)
+        self.assertFalse(capture.terminated)
+        self.assertEqual(capture.wait_timeouts, [10])
+
+    def test_terminates_only_after_graceful_timeout(self):
+        timeout = subprocess.TimeoutExpired("ffmpeg", 10)
+        capture = FakeCapture([timeout, 0])
+
+        CAPTURE_LIVE.stop_capture(capture)
+
+        self.assertTrue(capture.terminated)
+        self.assertFalse(capture.killed)
+        self.assertEqual(capture.wait_timeouts, [10, 5])
 
 
 if __name__ == "__main__":

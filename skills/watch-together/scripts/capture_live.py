@@ -176,6 +176,31 @@ def process_chunks(script_dir, session_dir, conversation, chunk_seconds, final=F
             print(f"Editor failed on {chunk.stem}", file=sys.stderr)
 
 
+def stop_capture(capture, graceful_timeout=10, terminate_timeout=5):
+    if capture.poll() is not None:
+        return
+
+    if capture.stdin:
+        try:
+            capture.stdin.write(b"q\n")
+            capture.stdin.flush()
+            capture.stdin.close()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+
+    try:
+        capture.wait(timeout=graceful_timeout)
+        return
+    except subprocess.TimeoutExpired:
+        capture.terminate()
+
+    try:
+        capture.wait(timeout=terminate_timeout)
+    except subprocess.TimeoutExpired:
+        capture.kill()
+        capture.wait()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Capture the desktop in segments for Watch Together screen mode."
@@ -250,7 +275,7 @@ def main():
         stop_requested = True
 
     signal.signal(signal.SIGTERM, request_stop)
-    capture = subprocess.Popen(command)
+    capture = subprocess.Popen(command, stdin=subprocess.PIPE)
     interrupted = False
     try:
         while capture.poll() is None and not stop_requested:
@@ -264,13 +289,7 @@ def main():
     except KeyboardInterrupt:
         interrupted = True
     finally:
-        if capture.poll() is None:
-            capture.terminate()
-            try:
-                capture.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                capture.kill()
-                capture.wait()
+        stop_capture(capture)
         process_chunks(
             script_dir,
             session_dir,
