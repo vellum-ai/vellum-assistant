@@ -999,9 +999,22 @@ export async function handleMigrationImport(
       );
     }
 
-    // Reconcile vellum:* metadata against CES so the gateway's
-    // readServiceCredentials can still find platform identity values even
-    // if Django's post-hatch provisioning raced with the import.
+    try {
+      const { hydrateCredentialRecordsFromCes } = await import(
+        "../../tools/credentials/metadata-store.js"
+      );
+      await hydrateCredentialRecordsFromCes();
+    } catch (err) {
+      result.report.warnings.push(
+        `Failed to import credential records into CES: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    // Reconcile vellum:* records against CES secret values so platform
+    // identity fields survive an import that raced with post-hatch
+    // provisioning.
     await reconcileVellumMetadataFromCes(result.report);
 
     // Invalidate in-process config cache so imported settings.json takes effect
@@ -1586,12 +1599,9 @@ async function runGcsImport(
     result.report.warnings.push(...credentialImportWarningSink.warnings);
   }
 
-  // Reconcile vellum:* metadata against CES so the gateway's
-  // readServiceCredentials can still find platform identity values even
-  // if Django's post-hatch provisioning raced with the streaming import
-  // (its metadata upsert may have landed in the backup-dir copy that the
-  // swap pushed aside, while its CES write survived on the separate
-  // volume).
+  // Reconcile vellum:* records against CES secret values so platform
+  // identity fields survive a streaming import that raced with post-hatch
+  // provisioning (the CES write survives on a separate volume).
   await reconcileVellumMetadataFromCes(result.report);
 
   // streamCommitImport already invalidated config + trust caches inside its
