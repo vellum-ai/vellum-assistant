@@ -131,6 +131,38 @@ export function claudeCredentialStillCurrent(
 }
 
 /**
+ * Whether a run that took its Claude token from agent config is still holding
+ * the credential the user is working with.
+ *
+ * The digest check above cannot answer this. A configured token is never the
+ * one in secure storage, so comparing identities would report every config
+ * run as superseded and suppress every one of their cards. What matters for
+ * this source is not identity but a clock: has a token been written since the
+ * run took its value? If one has, the user completed Connect while the run was
+ * still going, `retireAcpAuthRecovery` already swept the cards and markers,
+ * and `configClaudeTokenSuperseded` has already stood this value down for the
+ * next spawn. Recreating the card from this run's late rejection would reopen
+ * a loop the write just closed.
+ *
+ * Unknown answers `true`, matching the digest check: no captured generation is
+ * no evidence, and this path fails toward leaving the user a route back to
+ * auth.
+ *
+ * The generation is bumped after the write it describes is published, so a
+ * value captured inside that window reads as superseded a moment early. That
+ * errs toward suppressing a card rather than stranding one, and it is the same
+ * window `configClaudeTokenSuperseded` already resolves the same way.
+ */
+export function configClaudeCredentialStillCurrent(
+  generationAtInjection: number | undefined,
+): boolean {
+  if (generationAtInjection === undefined) {
+    return true;
+  }
+  return claudeCredentialGeneration <= generationAtInjection;
+}
+
+/**
  * Retire everything a past Claude auth failure left behind, because a new
  * token has just been written.
  *

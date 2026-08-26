@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 import {
   claudeCredentialStillCurrent,
   claudeTokenDigest,
+  configClaudeCredentialStillCurrent,
   configClaudeTokenSuperseded,
   currentClaudeCredentialGeneration,
   noteConfigClaudeTokenRejected,
@@ -170,5 +171,72 @@ describe("rollbackStoredClaudeTokenDigest", () => {
     expect(
       claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-original")),
     ).toBe(false);
+  });
+});
+
+describe("configClaudeCredentialStillCurrent", () => {
+  test("a config run is current while nothing has been written since", () => {
+    const atInjection = currentClaudeCredentialGeneration();
+
+    expect(configClaudeCredentialStillCurrent(atInjection)).toBe(true);
+  });
+
+  test("a config run whose value a later write replaced is superseded", () => {
+    // The user completed Connect while this run was still going. The write
+    // already swept the cards and markers and stood the config value down for
+    // the next spawn, so recreating a card from this rejection reopens the
+    // loop the write just closed.
+    const atInjection = currentClaudeCredentialGeneration();
+    retireAcpAuthRecovery();
+
+    expect(configClaudeCredentialStillCurrent(atInjection)).toBe(false);
+  });
+
+  test("no captured generation is treated as current", () => {
+    retireAcpAuthRecovery();
+
+    expect(configClaudeCredentialStillCurrent(undefined)).toBe(true);
+  });
+
+  test("agrees with the supersession the same rejection records", () => {
+    // The recovery guard and the next spawn's source choice must not disagree:
+    // suppressing the card while still trusting the configured token would
+    // leave the run failing with no route back to auth.
+    const atInjection = currentClaudeCredentialGeneration();
+    noteConfigClaudeTokenRejected("sk-ant-oat-config-agree", atInjection);
+    retireAcpAuthRecovery();
+
+    expect(configClaudeCredentialStillCurrent(atInjection)).toBe(
+      !configClaudeTokenSuperseded("sk-ant-oat-config-agree"),
+    );
+  });
+});
+
+describe("overlapping writes settle in resolution order", () => {
+  /**
+   * The claim-then-confirm pair `secure-keys` wraps each write in: the claim
+   * runs before the token is published, the confirm in the continuation of the
+   * `set()` that published it.
+   */
+  function claim(token: string) {
+    const digest = claudeTokenDigest(token);
+    setStoredClaudeTokenDigest(digest);
+    return { digest, confirm: () => setStoredClaudeTokenDigest(digest) };
+  }
+
+  test("the write that lands last owns the cache", () => {
+    // Both writes start, then B publishes before A. Storage ends up holding
+    // A, so a run carrying A must not read as superseded. The claims record
+    // only the order the writes started, which here is the reverse of the
+    // order they landed; the confirms are what put the cache back in landing
+    // order.
+    const a = claim("sk-ant-oat-slow");
+    const b = claim("sk-ant-oat-fast");
+
+    b.confirm();
+    a.confirm();
+
+    expect(claudeCredentialStillCurrent(a.digest)).toBe(true);
+    expect(claudeCredentialStillCurrent(b.digest)).toBe(false);
   });
 });

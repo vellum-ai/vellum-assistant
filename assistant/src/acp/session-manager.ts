@@ -17,6 +17,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import {
   claudeCredentialStillCurrent,
+  configClaudeCredentialStillCurrent,
   currentClaudeCredentialGeneration,
   noteConfigClaudeTokenRejected,
 } from "./acp-auth-marker-store.js";
@@ -1217,9 +1218,18 @@ export class AcpSessionManager {
           // token is not the one storage holds. A run with no recorded
           // identity, or a process that has written no token, proves nothing,
           // and recovery is the user's only route back to auth.
-          const credentialStillCurrent = claudeCredentialStillCurrent(
-            current.credentialDigest,
-          );
+          //
+          // Which evidence counts depends on where the token came from. A
+          // vault token is compared by identity. A configured one never has a
+          // stored identity to compare, so the digest check would wave every
+          // config run through; the generation it was captured under is the
+          // evidence for that source.
+          const credentialStillCurrent =
+            current.credentialFromConfig === true
+              ? configClaudeCredentialStillCurrent(
+                  current.configCredentialGeneration,
+                )
+              : claudeCredentialStillCurrent(current.credentialDigest);
           if (
             errorCode !== undefined &&
             recoveryAnchor !== undefined &&
