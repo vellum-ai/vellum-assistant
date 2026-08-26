@@ -1,4 +1,5 @@
 import { wrapMemoryBlock } from "../memory-marker.js";
+import { frameCardSection } from "../substrate/card-block-sections.js";
 import { Section, Slug } from "./types.js";
 
 /**
@@ -23,7 +24,9 @@ export function renderCardsBlockInner(cards: string[]): string {
   if (cards.length === 0) {
     return "";
   }
-  return [V3_CARDS_INJECTION_HEADER, ...cards].join("\n\n");
+  return [V3_CARDS_INJECTION_HEADER, ...cards.map(frameCardSection)].join(
+    "\n\n",
+  );
 }
 
 /**

@@ -251,7 +251,8 @@ const {
   markPruned,
   recordInjected,
 } = await import("../ever-injected-store.js");
-const { V3_CARDS_INJECTION_HEADER } = await import("../render-injection.js");
+const { renderCardsBlockInner, V3_CARDS_INJECTION_HEADER } =
+  await import("../render-injection.js");
 const { flushPruneValveForTests } = await import("../prune.js");
 const { drainConversationNotices, resetConversationNoticesForTests } =
   await import("../../../../../daemon/conversation-notices.js");
@@ -410,7 +411,10 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     };
     const makeMessages = () =>
       [
-        "# Skill: windows-automation\nOlder Windows automation description.\n\nUse when:\n- Run legacy Windows automation.\n\nAvoid when:\n- The Windows host is disconnected.\n\n# Skill: unrelated-skill\nUnrelated v3 card.\n\nUse when:\n- Keep this adjacent card.",
+        renderCardsBlockInner([
+          "# Skill: windows-automation\nOlder Windows automation description.\n\nUse when:\n- Run legacy Windows automation.\n\nAvoid when:\n- The Windows host is disconnected.",
+          "# Skill: unrelated-skill\nUnrelated v3 card.\n\n# Skill: windows-automation\nHeader-shaped body content.\n\nUse when:\n- Keep this adjacent card.",
+        ]),
         '### Skills You Can Use\n- The "Windows Automation" skill (windows-automation) is available. Older Windows automation description. → use skill_load to activate\n- The "Unrelated Skill" skill (unrelated-skill) is available. Unrelated v2 card. → use skill_load to activate',
       ].map((text) => ({
         role: "user" as const,
@@ -438,6 +442,9 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     );
     expect(JSON.stringify(disconnectedMessages)).toContain(
       "Keep this adjacent card.",
+    );
+    expect(JSON.stringify(disconnectedMessages)).toContain(
+      "Header-shaped body content.",
     );
     expect(JSON.stringify(disconnectedMessages)).toContain(
       "Unrelated v2 card.",
@@ -469,6 +476,9 @@ describe("memoryV3Injector — frozen net-new cards", () => {
       expect(JSON.stringify(connectedMessages)).toContain("Unrelated v3 card.");
       expect(JSON.stringify(connectedMessages)).toContain(
         "Keep this adjacent card.",
+      );
+      expect(JSON.stringify(connectedMessages)).toContain(
+        "Header-shaped body content.",
       );
       expect(JSON.stringify(connectedMessages)).toContain("Unrelated v2 card.");
     } finally {

@@ -6,7 +6,10 @@ import {
 } from "@vellumai/plugin-api";
 
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
-import { parseCardSections } from "./card-block-sections.js";
+import {
+  parseCardSections,
+  renderCardSections,
+} from "./card-block-sections.js";
 import {
   extractSkillIdFromAvailabilityContent,
   extractSkillIdFromV3Card,
@@ -71,7 +74,7 @@ function stripIncompatibleSkillsFromInner(
   incompatibleSkills: ReadonlyArray<{ id: string }>,
 ): string {
   const incompatibleIds = new Set(incompatibleSkills.map((skill) => skill.id));
-  const { preamble, pieces } = parseCardSections(inner);
+  const { preamble, pieces, framed } = parseCardSections(inner);
   const kept = pieces.filter((piece) => {
     const skillId = extractSkillIdFromV3Card(piece.text);
     return !skillId || !incompatibleIds.has(skillId);
@@ -79,9 +82,9 @@ function stripIncompatibleSkillsFromInner(
   const withoutV3 =
     kept.length === pieces.length
       ? inner
-      : [preamble, ...kept.map((piece) => piece.text)]
-          .filter((piece) => piece.length > 0)
-          .join("\n\n");
+      : !framed
+        ? ""
+        : renderCardSections(preamble, kept, true);
   return stripV2SkillSection(withoutV3, incompatibleIds);
 }
 

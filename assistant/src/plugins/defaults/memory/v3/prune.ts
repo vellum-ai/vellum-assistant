@@ -65,7 +65,10 @@ import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
-import { parseCardSections } from "../substrate/card-block-sections.js";
+import {
+  parseCardSections,
+  renderCardSections,
+} from "../substrate/card-block-sections.js";
 import { readInjectedBlock } from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
@@ -96,7 +99,7 @@ export function filterPrunedCardSections(
   inner: string,
   prunedSlugs: ReadonlySet<string>,
 ): string {
-  const { preamble, sections, pieces } = parseCardSections(inner);
+  const { preamble, sections, pieces, framed } = parseCardSections(inner);
   if (sections.length === 0) {
     return inner;
   }
@@ -111,11 +114,7 @@ export function filterPrunedCardSections(
     return "";
   }
 
-  const texts = kept.map((piece) => piece.text);
-  if (preamble.length > 0) {
-    texts.unshift(preamble);
-  }
-  return texts.join("\n\n");
+  return renderCardSections(preamble, kept, framed);
 }
 
 // ─── prune planning ──────────────────────────────────────────────────────────

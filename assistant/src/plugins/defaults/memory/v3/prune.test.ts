@@ -207,6 +207,15 @@ describe("parseCardSections / filterPrunedCardSections", () => {
     );
   });
 
+  test("keeps header-shaped content inside a framed concept card", () => {
+    const embeddedHeaderCard = `${card("page-a")}\n\n# Skill: windows-automation\nExample text inside the concept body.`;
+    const framed = renderCardsBlockInner([embeddedHeaderCard, card("page-b")]);
+
+    expect(filterPrunedCardSections(framed, new Set(["page-b"]))).toBe(
+      renderCardsBlockInner([embeddedHeaderCard]),
+    );
+  });
+
   test("all cards pruned → empty string (caller drops the block)", () => {
     expect(
       filterPrunedCardSections(inner, new Set(["page-a", "page-b", "page-c"])),
