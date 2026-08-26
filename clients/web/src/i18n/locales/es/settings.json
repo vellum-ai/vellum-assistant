@@ -293,8 +293,8 @@
     "loading": "Cargando resumen de facturación...",
     "lowBalanceToggle": "Alerta personalizada de saldo bajo",
     "noInfo": "No hay información de facturación disponible.",
-    "subtitle": "Resumen rápido de tus saldos y otros datos",
-    "title": "Créditos"
+    "subtitle": "Créditos que se usan al alcanzar el límite de uso",
+    "title": "Créditos de uso adicional"
   },
   "billingPortalReturnHandler": {
     "endOfBillingPeriod": "el final de tu período de facturación",

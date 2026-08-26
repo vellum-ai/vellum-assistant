@@ -293,8 +293,8 @@
     "loading": "Loading billing summary...",
     "lowBalanceToggle": "Custom Low Balance Alert",
     "noInfo": "No billing information available.",
-    "subtitle": "Quick overview of your balances and other things",
-    "title": "Credits"
+    "subtitle": "Credits used when usage limit is reached",
+    "title": "Extra Usage Credits"
   },
   "billingPortalReturnHandler": {
     "endOfBillingPeriod": "the end of your billing period",
