@@ -137,8 +137,9 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - `vellum://connect?url=…&code=…` → `{ kind: "connect", … }`.
  *     The pair page's "Open in the Vellum app" button and
  *     `vellum pair --app` QR codes. `url` must parse as https
- *     (dropped otherwise); `code` (the device code) must match the
- *     base64url shape the gateway mints, and rides only alongside a
+ *     (dropped otherwise); `code` (the device code) is opaque, so it
+ *     is only bounded in length and refused when it carries
+ *     whitespace or control characters, and rides only alongside a
  *     usable base, since a code with nothing to exchange it against
  *     is inert. A `bundle` param comes from app versions whose
  *     connect dialog took a pasted pairing bundle: its presence sets
