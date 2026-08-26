@@ -664,6 +664,31 @@ export async function getSecureKeyAsync(
  * callers (e.g. the post-login platform credential push) do not retry a
  * failed write.
  */
+/**
+ * Post-write side effects keyed on which credential was actually stored.
+ *
+ * Every path that lands a credential runs through this, single writes and bulk
+ * restores alike, so a behaviour that has to follow a credential does not
+ * depend on a list of call sites that drifts as write paths are added. Today
+ * that is one thing: a new Claude OAuth token retires the ACP auth markers and
+ * the card registry that asked for it.
+ *
+ * Imported on demand and only on a match, so the persistence graph behind the
+ * marker store stays out of this module's load path.
+ */
+async function onCredentialsWritten(accounts: string[]): Promise<void> {
+  if (!accounts.includes(credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD))) {
+    return;
+  }
+  try {
+    const { retireAcpAuthRecovery } =
+      await import("../acp/acp-auth-marker-store.js");
+    retireAcpAuthRecovery();
+  } catch (err) {
+    log.warn({ err }, "ACP auth recovery retirement failed after a write");
+  }
+}
+
 export async function setSecureKeyAsync(
   account: string,
   value: string,
@@ -680,17 +705,8 @@ export async function setSecureKeyAsync(
       log.info({ account, backend: backend.name }, "Credential stored");
     }
     updateCesHttpReachability(backend, !ok);
-    // Every writer of the Claude OAuth token converges here: the Connect flow,
-    // the generic credential writer, the headless secure prompt, the
-    // `secrets_add` route, and any future one. A new token retires the ACP auth
-    // markers that asked for it, so hanging that off this seam is what keeps
-    // the behaviour from depending on a list of callers that drifts. Loaded on
-    // demand and only on a match, so the persistence graph behind it stays out
-    // of this module's load path.
-    if (ok && account === credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)) {
-      const { retireAcpAuthRecovery } =
-        await import("../acp/acp-auth-marker-store.js");
-      retireAcpAuthRecovery();
+    if (ok) {
+      await onCredentialsWritten([account]);
     }
     return ok;
   }, false);
@@ -745,6 +761,9 @@ export async function bulkSetSecureKeysAsync(
         }
         updateCesHttpReachability(backend, anyFailed);
       }
+      await onCredentialsWritten(
+        results.filter((r) => r.ok).map((r) => r.account),
+      );
       const succeeded = results.filter((r) => r.ok).length;
       const failed = results.filter((r) => !r.ok).length;
       if (succeeded > 0 || failed > 0) {
