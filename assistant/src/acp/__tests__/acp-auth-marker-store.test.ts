@@ -11,11 +11,13 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import {
   acpAuthMarkerStillCurrent,
   claudeTokenDigest,
   claudeTokenRefusedByClaude,
+  noteClaudeTokenRefused,
 } from "../acp-auth-marker-store.js";
 import { clearHistory, insertHistoryRow } from "./helpers/acp-history-db.js";
 
@@ -77,29 +79,21 @@ describe("claudeTokenDigest", () => {
 
 describe("claudeTokenRefusedByClaude", () => {
   const CONFIG_TOKEN = "sk-ant-oat-from-config";
+  const DIGEST = claudeTokenDigest(CONFIG_TOKEN);
 
   beforeEach(() => {
     clearHistory();
+    getSqlite().run("DELETE FROM acp_refused_credentials");
   });
 
-  function refusalRow(overrides: Record<string, unknown> = {}) {
-    insertHistoryRow({
-      id: "run-refused",
-      status: "failed",
-      authErrorCode: "acp_claude_auth_required",
-      authErrorCredential: claudeTokenDigest(CONFIG_TOKEN),
-      ...overrides,
-    });
-  }
-
-  test("reports a token Claude refused on some run", () => {
-    refusalRow();
+  test("reports a token Claude refused", () => {
+    noteClaudeTokenRefused(DIGEST, 1000);
 
     expect(claudeTokenRefusedByClaude(CONFIG_TOKEN)).toBe(true);
   });
 
-  test("reports nothing for a token no run was refused on", () => {
-    refusalRow();
+  test("reports nothing for a token never refused", () => {
+    noteClaudeTokenRefused(DIGEST, 1000);
 
     expect(claudeTokenRefusedByClaude("sk-ant-oat-never-tried")).toBe(false);
   });
@@ -107,23 +101,39 @@ describe("claudeTokenRefusedByClaude", () => {
   test("one alias's refused token says nothing about another's", () => {
     // A global one-shot would let whichever alias prepared first consume the
     // record, discarding its own good token and re-trusting the bad one.
-    refusalRow();
+    noteClaudeTokenRefused(DIGEST, 1000);
 
     expect(claudeTokenRefusedByClaude("sk-ant-oat-other-alias")).toBe(false);
   });
 
-  test("survives a restart, because the record is the row not a cache", () => {
-    // The refusal outlives the process that saw it. A configured token lives
-    // in config, so a daemon restart would otherwise trust the revoked value
-    // on sight again and reopen the Connect loop.
-    refusalRow();
+  test("survives clearing ACP session history", () => {
+    // Deleting a run must not change which credential the next spawn picks.
+    // Held on the run row, a bulk clear (which sweeps failed rows too) would
+    // put the revoked configured token back in play against the vault
+    // replacement the user just connected.
+    noteClaudeTokenRefused(DIGEST, 1000);
+    insertHistoryRow({
+      id: "run-refused",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: DIGEST,
+    });
 
-    expect(claudeTokenRefusedByClaude(CONFIG_TOKEN)).toBe(true);
+    clearHistory();
+
     expect(claudeTokenRefusedByClaude(CONFIG_TOKEN)).toBe(true);
   });
 
-  test("a row with a credential but no failure code is not a refusal", () => {
-    refusalRow({ authErrorCode: null });
+  test("recording the same refusal twice is not an error", () => {
+    // Every retry of a revoked configured token refuses the same digest.
+    noteClaudeTokenRefused(DIGEST, 1000);
+    noteClaudeTokenRefused(DIGEST, 2000);
+
+    expect(claudeTokenRefusedByClaude(CONFIG_TOKEN)).toBe(true);
+  });
+
+  test("a run that carried no credential records nothing", () => {
+    noteClaudeTokenRefused(undefined, 1000);
 
     expect(claudeTokenRefusedByClaude(CONFIG_TOKEN)).toBe(false);
   });

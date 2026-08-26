@@ -7,6 +7,18 @@ import {
 } from "../daemon/conversation-registry.js";
 import { claudeTokenDigest } from "./acp-auth-marker-store.js";
 import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
+
+// The credential a spawn of this agent would resolve now. The failure path
+// asks the same question the read path does before emitting a live event, so
+// a card is not raised into connected clients for auth that was already
+// repaired. Spreading the real module keeps every other export intact.
+let fakeResolvedCredential: string | undefined;
+const realPrepareAgentEnv = await import("./prepare-agent-env.js");
+mock.module("./prepare-agent-env.js", () => ({
+  ...realPrepareAgentEnv,
+  resolvedClaudeCredentialDigest: async () => fakeResolvedCredential,
+}));
+
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
 
@@ -377,6 +389,41 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       ).authErrorCredential,
     };
   }
+
+  test("no live event when the credential was already replaced", async () => {
+    // A replacement token and its invalidation can both land before an older
+    // run reports its rejection. The card the live event raises deliberately
+    // skips connected-state self-healing, so nothing would retire it until the
+    // next snapshot, which may be a navigation away.
+    fakeResolvedCredential = claudeTokenDigest("sk-ant-oat-replacement");
+    const r = await driveAuthFailure({
+      id: "sess-auth-replaced",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-replaced",
+      credentialDigest: claudeTokenDigest("sk-ant-oat-refused"),
+    });
+    fakeResolvedCredential = undefined;
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+    // The guidance follows the same predicate: pointing the model at a card
+    // that was never raised sends it to an affordance that does not exist.
+    expect(r.persistedContent).not.toContain("Connect Claude Code");
+  });
+
+  test("still raises when the run holds the credential a spawn would resolve", async () => {
+    const digest = claudeTokenDigest("sk-ant-oat-still-current");
+    fakeResolvedCredential = digest;
+    const r = await driveAuthFailure({
+      id: "sess-auth-current",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-current",
+      credentialDigest: digest,
+    });
+    fakeResolvedCredential = undefined;
+
+    expect(r.authEvent).toBeDefined();
+  });
 
   test("the marker names the credential the run was refused on", async () => {
     // The failure path does not judge whether the rejection still matters. It

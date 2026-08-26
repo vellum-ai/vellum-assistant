@@ -10,10 +10,12 @@ import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { acpAuthMarkerStillCurrent } from "../../acp/acp-auth-marker-store.js";
-import { storedClaudeTokenDigest } from "../../acp/acp-claude-oauth.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
-import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
+import {
+  prepareAgentEnv,
+  resolvedClaudeCredentialDigest,
+} from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import {
   AcpResumeError,
@@ -73,6 +75,16 @@ const sessionEntrySchema = z.object({
 });
 
 type SessionEntry = z.infer<typeof sessionEntrySchema>;
+
+/**
+ * A merged session before its marker has been judged.
+ *
+ * `authErrorCredential` names the credential the failure was refused on. It is
+ * what the comparison needs and is dropped before the response goes out: a
+ * client has no use for it and no way to resolve the other side of the
+ * comparison, so serving it would only widen what leaves the daemon.
+ */
+type MergedSession = SessionEntry & { authErrorCredential?: string };
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -432,18 +444,59 @@ function closeSession({ pathParams }: RouteHandlerArgs) {
 async function listSessions({ queryParams }: RouteHandlerArgs) {
   const limit = parseLimit(queryParams?.limit);
   const conversationId = queryParams?.conversationId;
-  // The credential a spawn would resolve now. Every credential-failure marker
-  // is served or withheld by comparing against this, which is what retires a
-  // Connect card: not a sweep that has to run at the right moment, but the
-  // marker no longer describing the credential in use. Read once per request
-  // rather than per row.
-  const resolvedCredential = await storedClaudeTokenDigest();
-  const sessions = listMergedSessions({
-    limit,
-    conversationId,
-    resolvedCredential,
-  });
-  return { sessions };
+  const sessions = listMergedSessions({ limit, conversationId });
+  return { sessions: await withCurrentMarkersOnly(sessions) };
+}
+
+/**
+ * Blank the failure code on any session whose marker no longer describes the
+ * credential its agent would resolve.
+ *
+ * This comparison is what retires a Connect card: not a sweep that has to run
+ * at the right moment, but the marker no longer describing the credential in
+ * use. Applied after merging rather than inside the query, so live sessions
+ * and history rows are judged by exactly the same rule.
+ *
+ * Resolved per agent, because precedence is per agent: one alias can carry a
+ * configured token while another falls through to the vault. Memoised across
+ * the request, since a conversation's marked runs are nearly always one agent
+ * and each resolution costs a vault read.
+ */
+async function withCurrentMarkersOnly(
+  sessions: MergedSession[],
+): Promise<SessionEntry[]> {
+  const strip = ({
+    authErrorCredential: _dropped,
+    ...session
+  }: MergedSession): SessionEntry => session;
+  if (!sessions.some((s) => s.authErrorCode !== undefined)) {
+    return sessions.map(strip);
+  }
+  const resolvedByAgent = new Map<string, string | undefined>();
+  const resolvedFor = async (agentId: string) => {
+    if (!resolvedByAgent.has(agentId)) {
+      resolvedByAgent.set(
+        agentId,
+        await resolvedClaudeCredentialDigest(agentId),
+      );
+    }
+    return resolvedByAgent.get(agentId);
+  };
+  const judged: SessionEntry[] = [];
+  for (const session of sessions) {
+    if (session.authErrorCode === undefined) {
+      judged.push(strip(session));
+      continue;
+    }
+    const current = acpAuthMarkerStillCurrent(
+      session.authErrorCredential,
+      await resolvedFor(session.agentId),
+    );
+    judged.push(
+      strip(current ? session : { ...session, authErrorCode: undefined }),
+    );
+  }
+  return judged;
 }
 
 function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
@@ -719,15 +772,11 @@ function parseLimit(raw: string | null | undefined): number {
 function listMergedSessions(opts: {
   limit: number;
   conversationId?: string;
-  resolvedCredential?: string;
-}): SessionEntry[] {
-  /** Whether a row's marker still describes the credential in use. */
-  const markerCurrent = (credential: string | null | undefined) =>
-    acpAuthMarkerStillCurrent(credential, opts.resolvedCredential);
+}): MergedSession[] {
   const manager = getAcpSessionManager();
   const inMemory = manager.getStatus() as AcpSessionState[];
 
-  const merged = new Map<string, SessionEntry>();
+  const merged = new Map<string, MergedSession>();
   for (const s of inMemory) {
     if (opts.conversationId && s.parentConversationId !== opts.conversationId) {
       continue;
@@ -744,9 +793,8 @@ function listMergedSessions(opts: {
       stopReason: s.stopReason ?? null,
       task: s.task,
       parentToolUseId: s.parentToolUseId,
-      authErrorCode: markerCurrent(s.authErrorCredential)
-        ? s.authErrorCode
-        : undefined,
+      authErrorCode: s.authErrorCode,
+      authErrorCredential: s.authErrorCredential,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,
@@ -827,9 +875,8 @@ function listMergedSessions(opts: {
       stopReason: row.stopReason,
       task: row.task ?? undefined,
       parentToolUseId: row.parentToolUseId ?? undefined,
-      authErrorCode: markerCurrent(row.authErrorCredential)
-        ? (row.authErrorCode ?? undefined)
-        : undefined,
+      authErrorCode: row.authErrorCode ?? undefined,
+      authErrorCredential: row.authErrorCredential ?? undefined,
       usedTokens: row.usedTokens ?? undefined,
       contextSize: row.contextSize ?? undefined,
       costAmount: row.costAmount ?? undefined,
@@ -843,7 +890,7 @@ function listMergedSessions(opts: {
   const ordered = Array.from(merged.values()).sort(
     (a, b) => b.startedAt - a.startedAt,
   );
-  const page = ordered.slice(0, opts.limit);
+  const page: MergedSession[] = ordered.slice(0, opts.limit);
   // Marked rows survive the truncation that the page itself is subject to.
   // Reaching them is the whole point of including them: a conversation with
   // more recent runs than the page holds would otherwise drop the one row a

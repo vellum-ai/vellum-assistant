@@ -983,3 +983,82 @@ describe("GET /v1/acp/sessions: a marker answers for itself", () => {
     expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
   });
 });
+
+describe("GET /v1/acp/sessions: markers resolve against configured tokens too", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const CONFIGURED = "sk-ant-oat-configured-repair";
+
+  function markedRow() {
+    insertHistoryRow({
+      id: "hist-cfg",
+      agentId: "claude",
+      acpSessionId: "proto-cfg",
+      parentConversationId: "conv-cfg",
+      startedAt: 5000,
+      completedAt: 6000,
+      status: "failed",
+      eventLogJson: "[]",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+  }
+
+  test("withholds the marker when config supplies the repaired token", async () => {
+    // The user fixed auth by setting `acp.agents.claude.env`, not by
+    // connecting. Config wins at spawn, so the next run uses the repaired
+    // token and the old failure is not going to repeat. A vault-only
+    // comparison would keep restoring the card forever, since the vault still
+    // holds the refused value.
+    markedRow();
+    fakeStoredCredential = REFUSED;
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: CONFIGURED },
+        },
+      },
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-cfg" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBeUndefined();
+  });
+
+  test("serves it when the configured token is the one that was refused", async () => {
+    markedRow();
+    fakeStoredCredential = undefined;
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-refused" },
+        },
+      },
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-cfg" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("never puts the credential digest on the wire", async () => {
+    markedRow();
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-cfg" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0]).not.toHaveProperty("authErrorCredential");
+  });
+});

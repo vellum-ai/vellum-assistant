@@ -15,6 +15,10 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
+import {
+  acpAuthMarkerStillCurrent,
+  noteClaudeTokenRefused,
+} from "./acp-auth-marker-store.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
@@ -1123,7 +1127,7 @@ export class AcpSessionManager {
           }
         }
       })
-      .catch((err: Error) => {
+      .catch(async (err: Error) => {
         const current = this.sessions.get(acpSessionId);
         // Same guards: entry must exist, prompt must be current, and status
         // must not have been set to "cancelled".
@@ -1167,14 +1171,46 @@ export class AcpSessionManager {
             errorCode !== undefined && current.state.status !== "cancelled"
               ? current.parentToolUseId
               : undefined;
-          // Raised whenever there is an anchor to hang it on. Nothing is
-          // compared here: whether this failure is still worth showing a card
-          // for is decided when the marker is read, against the credential a
-          // spawn would resolve then. Deciding it now would be guessing about
-          // writes that have not finished, and guessing wrong in the
-          // suppressing direction costs the user the only route back to auth,
-          // because the rejection that would have raised the card is spent.
-          if (errorCode !== undefined && recoveryAnchor !== undefined) {
+          // Claude refused this credential, so no later spawn should resolve
+          // it again. Recorded before the card is raised and independently of
+          // the marker, because the user may delete this run and clearing
+          // history must not put the revoked value back in play.
+          if (errorCode !== undefined) {
+            noteClaudeTokenRefused(current.credentialDigest, Date.now());
+          }
+          // The live event reaches clients that are listening now, and the
+          // card it raises deliberately skips connected-state self-healing, so
+          // nothing retires it until the next snapshot. If the credential has
+          // already been replaced, that snapshot is the only thing that would
+          // have withheld it, and it may be a navigation away. Ask the same
+          // question the read path asks, against the same source of truth.
+          //
+          // An optimisation, not the authority: a write landing right after
+          // this read raises a card the next snapshot withholds. The marker is
+          // written either way, so the read path still has the final say.
+          const stillCurrent =
+            errorCode !== undefined &&
+            recoveryAnchor !== undefined &&
+            acpAuthMarkerStillCurrent(
+              current.credentialDigest,
+              // Imported at call time so this module's load graph stays as it
+              // was: several suites stub `prepare-agent-env` with a partial
+              // factory, and a new static import from here would break their
+              // module resolution rather than their assertions.
+              await import("./prepare-agent-env.js")
+                .then((m) =>
+                  m.resolvedClaudeCredentialDigest(current.state.agentId),
+                )
+                // Unknown reads as current, matching the comparison itself:
+                // failing toward a card the next snapshot can withdraw beats
+                // withholding the user's only route back to auth.
+                .catch(() => current.credentialDigest),
+            );
+          if (
+            errorCode !== undefined &&
+            recoveryAnchor !== undefined &&
+            stillCurrent
+          ) {
             current.sendToVellum({
               type: "acp_auth_required",
               acpSessionId,
@@ -1216,9 +1252,7 @@ export class AcpSessionManager {
                 // Same predicate as the recovery surface above. Telling the
                 // model a Connect card is waiting when none was raised sends
                 // it to an affordance that does not exist.
-                (recoveryAnchor !== undefined
-                  ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`
-                  : ""),
+                (stillCurrent ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}` : ""),
             );
           }
         }

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, isNotNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { acpSessionHistory } from "../persistence/schema/index.js";
+import { acpRefusedCredentials } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp-auth-marker-store");
@@ -41,36 +41,62 @@ export function acpAuthMarkerStillCurrent(
 }
 
 /**
- * Whether Claude has refused this token on some run whose marker still stands.
+ * Record that Claude refused this token, so no later spawn resolves it again.
  *
- * Read from the marker rows rather than a process-local set. A configured
- * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` outlives the daemon, so a
- * rejection remembered only in memory is forgotten by the next restart and the
- * revoked value is trusted on sight again, which reopens the Connect loop it
- * was recorded to close.
+ * Kept in its own table rather than read back off the marker rows. A marker is
+ * about showing a card for one run and the user may delete it with that run,
+ * while this decides which credential a spawn selects, and clearing session
+ * history must not change that. A configured
+ * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` lives in config, so forgetting
+ * a refusal lets the revoked value win over the vault replacement again.
  *
- * Never throws: this only ever widens or narrows which token a spawn prefers,
- * and a read failure must not take the spawn with it.
+ * Never throws: a run has already failed by the time this is called, and
+ * losing the record costs one more failed spawn rather than the failure
+ * handling itself.
+ */
+export function noteClaudeTokenRefused(
+  digest: string | undefined,
+  refusedAt: number,
+): void {
+  if (digest === undefined) {
+    return;
+  }
+  try {
+    getDb()
+      .insert(acpRefusedCredentials)
+      .values({ digest, refusedAt })
+      .onConflictDoNothing()
+      .run();
+  } catch (err) {
+    log.error(
+      { err },
+      "recording a refused Claude credential failed; it may be resolved again",
+    );
+  }
+}
+
+/**
+ * Whether Claude has refused this token before.
+ *
+ * Never throws: this only narrows which token a spawn prefers, and a read
+ * failure must not take the spawn with it. Failing open resolves the
+ * configured token, which is what would have happened before it was ever
+ * refused.
  */
 export function claudeTokenRefusedByClaude(token: string): boolean {
   const digest = claudeTokenDigest(token);
   try {
     const row = getDb()
-      .select({ id: acpSessionHistory.id })
-      .from(acpSessionHistory)
-      .where(
-        and(
-          isNotNull(acpSessionHistory.authErrorCode),
-          eq(acpSessionHistory.authErrorCredential, digest),
-        ),
-      )
+      .select({ digest: acpRefusedCredentials.digest })
+      .from(acpRefusedCredentials)
+      .where(eq(acpRefusedCredentials.digest, digest))
       .limit(1)
       .get();
     return row !== undefined;
   } catch (err) {
     log.error(
       { err },
-      "reading ACP auth markers failed; treating the token as untried",
+      "reading refused Claude credentials failed; treating the token as untried",
     );
     return false;
   }

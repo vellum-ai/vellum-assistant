@@ -53,3 +53,15 @@ export const acpSessionHistory = sqliteTable(
     ),
   ],
 );
+
+/**
+ * Claude tokens Claude has refused, by digest.
+ *
+ * Separate from the session-history marker on purpose: a marker is about
+ * showing a card for one run and is deleted with it, while this is about which
+ * credential a spawn may resolve and must survive the user clearing history.
+ */
+export const acpRefusedCredentials = sqliteTable("acp_refused_credentials", {
+  digest: text("digest").primaryKey(),
+  refusedAt: integer("refused_at").notNull(),
+});
