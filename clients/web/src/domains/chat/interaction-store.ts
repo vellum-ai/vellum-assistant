@@ -187,6 +187,22 @@ export interface InteractionActions {
 
   // ACP Connect Claude prompt
   showAcpConnect: (payload: PendingAcpConnectState) => void;
+  /**
+   * Give the standing Connect prompt the conversation that owns it, when it
+   * was raised without one.
+   *
+   * `acp_auth_required` is global and carries no conversation, so a client
+   * that missed the run's spawn event has nothing to attribute the prompt to.
+   * An unowned prompt renders only inline under its anchor row, so it is
+   * unreachable once that row is outside the loaded transcript.
+   *
+   * Matched on the tool-use id by the caller, so this identifies the prompt
+   * already on screen rather than replacing it. Deliberately does not advance
+   * `acpConnectRevision`: nothing was raised or retired, the same prompt is
+   * merely better identified, and advancing it would invalidate reads that are
+   * legitimately in flight.
+   */
+  adoptAcpConnectConversation: (conversationId: string) => void;
   dismissAcpConnect: () => void;
   requestAcpContinue: () => void;
   setAcpConnectFlowActive: (active: boolean) => void;
@@ -424,6 +440,18 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
             pendingAcpConnect: payload,
             acpConnectRevision: state.acpConnectRevision + 1,
           },
+    ),
+
+  adoptAcpConnectConversation: (conversationId) =>
+    set((state) =>
+      state.pendingAcpConnect && !state.pendingAcpConnect.conversationId
+        ? {
+            pendingAcpConnect: {
+              ...state.pendingAcpConnect,
+              conversationId,
+            },
+          }
+        : state,
     ),
 
   // Remember which failed spawn was dismissed so a later reseed can't resurrect

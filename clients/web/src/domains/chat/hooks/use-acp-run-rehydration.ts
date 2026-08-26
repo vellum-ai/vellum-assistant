@@ -221,6 +221,12 @@ export function raiseAcpConnectFromSnapshot(
   // that no longer speaks for the current prompt raises nothing and retires
   // nothing.
   if (useInteractionStore.getState().acpConnectRevision !== revisionAtFetch) {
+    // Stale for raising and retiring, but not for saying who owns the prompt
+    // that overtook it. That prompt may have come from the live
+    // `acp_auth_required` event, which is global and carries no conversation,
+    // so a client that missed the run's spawn event recorded it with none and
+    // the card renders only inline under its anchor row.
+    adoptAcpConnectOwnerFromSnapshot(entries);
     return;
   }
   for (const entry of entries) {
@@ -244,6 +250,31 @@ export function raiseAcpConnectFromSnapshot(
   // resets, so without this the stale card outlives the reconnect that should
   // have cleared it. Scoped to the conversation the snapshot covers.
   retireStaleAcpConnectPrompt(snapshotConversationId, revisionAtFetch);
+}
+
+/**
+ * Fill in the conversation for a prompt that was raised without one.
+ *
+ * Matched on the tool-use id, so this only ever describes the prompt already
+ * on screen. That makes it safe from a snapshot too old to raise or retire
+ * anything: an older response still knows which conversation started a given
+ * run, because that never changes.
+ */
+function adoptAcpConnectOwnerFromSnapshot(entries: AcpRunEntry[]): void {
+  const prompt = useInteractionStore.getState().pendingAcpConnect;
+  if (!prompt || prompt.conversationId) {
+    return;
+  }
+  const owner = entries.find(
+    (entry) =>
+      entry.parentToolUseId === prompt.toolUseId && entry.parentConversationId,
+  );
+  if (!owner?.parentConversationId) {
+    return;
+  }
+  useInteractionStore
+    .getState()
+    .adoptAcpConnectConversation(owner.parentConversationId);
 }
 
 /**

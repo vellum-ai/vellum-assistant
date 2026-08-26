@@ -303,3 +303,97 @@ describe("raiseAcpConnectFromSnapshot: a conversation switch mid-fetch", () => {
     ).toBe(0);
   });
 });
+
+describe("raiseAcpConnectFromSnapshot: adopting an owner for an unowned prompt", () => {
+  test("a stale snapshot still supplies the conversation the live event lacked", () => {
+    // `acp_auth_required` is global and carries no conversation, so a client
+    // that missed the run's spawn event records the prompt with none. An
+    // unowned prompt renders only inline under its anchor row, so it is
+    // unreachable once that row is outside the loaded transcript.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+
+    // The live event lands while the fetch is in flight, with no owner.
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: null,
+    });
+
+    raiseAcpConnectFromSnapshot([run()], "conv-1", revisionAtFetch);
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toMatchObject({
+      toolUseId: "tool-1",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("does not advance the revision, so reads in flight stay valid", () => {
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: null,
+    });
+    const afterRaise = useInteractionStore.getState().acpConnectRevision;
+
+    raiseAcpConnectFromSnapshot([run()], "conv-1", revisionAtFetch);
+
+    expect(useInteractionStore.getState().acpConnectRevision).toBe(afterRaise);
+  });
+
+  test("leaves a prompt that already knows its conversation alone", () => {
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: "conv-owned",
+    });
+
+    raiseAcpConnectFromSnapshot([run()], "conv-1", revisionAtFetch);
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.conversationId,
+    ).toBe("conv-owned");
+  });
+
+  test("only adopts from the row that anchors this prompt", () => {
+    // A stale snapshot may carry other runs. Matching on the tool-use id is
+    // what keeps this from attributing the prompt to an unrelated failure.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-unmatched",
+      reason: "auth_required",
+      conversationId: null,
+    });
+
+    raiseAcpConnectFromSnapshot([run()], "conv-1", revisionAtFetch);
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.conversationId,
+    ).toBeNull();
+  });
+});
