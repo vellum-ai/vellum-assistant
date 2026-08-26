@@ -1100,7 +1100,12 @@ export async function ensureVellumGuardianBinding(
 
 /**
  * Bootstrap is on the critical path, so a throwing or empty hostname
- * degrades to `undefined` rather than failing guardian bootstrap.
+ * degrades to `undefined` rather than failing guardian bootstrap. This is
+ * the gateway process's own hostname, which is only the right identity for
+ * the paired machine in bare-metal mode; a containerized gateway (Docker,
+ * AWS, GCP) reads its own container/VM name here instead of the host that
+ * issued the init request. Callers should prefer a client-reported name
+ * when the init request carried one.
  */
 function readHostReportedName(): string | undefined {
   try {
@@ -1120,6 +1125,7 @@ function readHostReportedName(): string | undefined {
 export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
+  clientReportedName?: string;
 }): Promise<GuardianBootstrapResult> {
   // 1. Resolve (or mint) the guardian principal. Guardian init is the
   //    sanctioned operator-driven recovery path, so it may mint over evidence
@@ -1132,7 +1138,9 @@ export async function bootstrapGuardian(params: {
     guardianPrincipalId,
     deviceId: params.deviceId,
     platform: params.platform,
-    identity: { clientReportedName: readHostReportedName() },
+    identity: {
+      clientReportedName: params.clientReportedName ?? readHostReportedName(),
+    },
   });
 
   log.info(

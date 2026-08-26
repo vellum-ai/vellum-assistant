@@ -343,6 +343,17 @@ describe("bootstrapGuardian host identity", () => {
     const row = actorRow("host-device-throws");
     expect(row?.clientReportedName).toBeNull();
   });
+
+  test("prefers a client-reported hostname over the gateway's own hostname", async () => {
+    await bootstrapGuardian({
+      platform: "cli",
+      deviceId: "host-device-remote",
+      clientReportedName: "Alices-MacBook-Pro.local",
+    });
+
+    const row = actorRow("host-device-remote");
+    expect(row?.clientReportedName).toBe("Alices-MacBook-Pro.local");
+  });
 });
 
 describe("/v1/pair clientReportedName", () => {
