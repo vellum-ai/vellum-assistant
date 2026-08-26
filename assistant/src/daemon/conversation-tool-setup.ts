@@ -433,8 +433,7 @@ export function createToolExecutor(
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
-      clientOs:
-        parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ?? undefined,
+      clientOs: resolveTurnClientOs(ctx).clientOs,
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
