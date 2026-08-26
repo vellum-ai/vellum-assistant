@@ -178,11 +178,3 @@ export function sttCatalogKeyForRole(
   const selection = sttSelectionForRole(stt, role);
   return sttCatalogKeyFor(selection.provider as SttProviderId, selection.model);
 }
-
-/** Type guard for a value read back from config. */
-export function isSttRole(value: unknown): value is SttRole {
-  return (
-    typeof value === "string" &&
-    (STT_ROLES as readonly string[]).includes(value)
-  );
-}
