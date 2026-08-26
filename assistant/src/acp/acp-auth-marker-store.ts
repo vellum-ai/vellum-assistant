@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { isNotNull } from "drizzle-orm";
 
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
@@ -78,6 +79,21 @@ export function retireAcpAuthRecovery(): void {
   claudeCredentialGeneration += 1;
   clearAcpAuthMarkers();
   takeConversationsWithAcpConnectCard();
+  // Other clients cannot discover this on their own: a restored
+  // `auth_required` prompt deliberately skips the connected-state self-heal,
+  // and nothing refetches the ACP snapshot until navigation or reconnect, so
+  // they would keep offering Connect for the token just replaced. Published
+  // after the writes above so a client that refetches on the invalidation sees
+  // the cleared state. Imported on demand to keep the event hub out of this
+  // module's load path, and never awaited: the retirement is already done, and
+  // a broadcast failure must not fail the token write that triggered it.
+  void import("../runtime/sync/sync-publisher.js")
+    .then(({ publishSyncInvalidation }) =>
+      publishSyncInvalidation([SYNC_TAGS.acpAuthRecovery]),
+    )
+    .catch((err: unknown) => {
+      log.warn({ err }, "failed to publish ACP auth recovery invalidation");
+    });
 }
 
 /**
@@ -118,16 +134,15 @@ export function noteConfigClaudeTokenRejected(token: string): void {
  *
  * True once a token has been written after this one was rejected: that write
  * is the user completing Connect, and honouring the config value over it would
- * loop the card forever. The entry is dropped when it fires, so a config value
- * the user later fixes is trusted again, and a different alias's token is
- * unaffected either way.
+ * loop the card forever.
+ *
+ * The record is kept, not consumed. A revoked value the user never removes
+ * from config is resolved by every later spawn too, so a one-shot only spares
+ * the first one and lets the next reopen the loop. Keying by digest is what
+ * makes retention safe: a config value the user actually fixes hashes
+ * differently and was never recorded, so it is trusted on sight.
  */
 export function configClaudeTokenSuperseded(token: string): boolean {
-  const key = configTokenDigest(token);
-  const rejectedAt = rejectedConfigTokens.get(key);
-  if (rejectedAt === undefined || claudeCredentialGeneration <= rejectedAt) {
-    return false;
-  }
-  rejectedConfigTokens.delete(key);
-  return true;
+  const rejectedAt = rejectedConfigTokens.get(configTokenDigest(token));
+  return rejectedAt !== undefined && claudeCredentialGeneration > rejectedAt;
 }

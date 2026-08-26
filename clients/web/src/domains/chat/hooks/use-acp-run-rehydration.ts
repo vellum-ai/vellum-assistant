@@ -34,6 +34,7 @@ import {
 } from "@/domains/chat/acp-run-store";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { SYNC_TAGS } from "@/lib/sync/types";
 import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 
 interface AcpSessionEventLogItem {
@@ -304,6 +305,33 @@ export function useAcpRunRehydration(
   // stuck `running`. `fresh`/`anchor` opens are skipped — the conversation
   // effect above already owns the initial load. Seeding merges by `seq` and is
   // idempotent against events already streamed.
+  // A token write on any client retires the daemon's auth markers and
+  // publishes this tag. Another client holding a restored `auth_required`
+  // prompt cannot discover that on its own: the prompt deliberately skips the
+  // connected-state self-heal, and nothing refetches the snapshot until
+  // navigation or reconnect, so it would keep offering Connect for the token
+  // that was just replaced. Retire the prompt and re-read the snapshot, which
+  // now carries no marker.
+  useBusSubscription("sse.event", (envelope) => {
+    const message = envelope.message;
+    if (
+      message.type !== "sync_changed" ||
+      !message.tags?.includes(SYNC_TAGS.acpAuthRecovery)
+    ) {
+      return;
+    }
+    if (useInteractionStore.getState().pendingAcpConnect) {
+      useInteractionStore.getState().dismissAcpConnect();
+    }
+    if (!assistantId || !conversationId) {
+      return;
+    }
+    const priorActiveIds = activeRunIdsFor(conversationId);
+    void fetchAcpSessions(assistantId, conversationId).then((entries) => {
+      applyAcpSnapshot(entries, priorActiveIds);
+    });
+  });
+
   useBusSubscription(
     "sse.opened",
     ({ assistantId: openedAssistantId, cause }) => {

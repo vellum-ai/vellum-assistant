@@ -56,12 +56,25 @@ describe("config token supersession", () => {
     expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
   });
 
-  test("supersession fires once, so a later fixed config value is trusted", () => {
+  test("stays superseded across later spawns, not just the first", () => {
+    // A revoked value the user never removes from config is resolved by every
+    // later spawn too, so consuming the record would spare only the first and
+    // let the next reopen the Connect loop.
     noteConfigClaudeTokenRejected(TOKEN_A);
     retireAcpAuthRecovery();
 
     expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
-    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(false);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
+  });
+
+  test("a config value the user actually fixes is trusted on sight", () => {
+    // Retention is safe because the key is the token: a different value hashes
+    // differently and was never recorded.
+    noteConfigClaudeTokenRejected(TOKEN_A);
+    retireAcpAuthRecovery();
+
+    expect(configClaudeTokenSuperseded("sk-ant-oat-alias-a-fixed")).toBe(false);
   });
 
   test("one alias's rejected token does not stand down another's", () => {
