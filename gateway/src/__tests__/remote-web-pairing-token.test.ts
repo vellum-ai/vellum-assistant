@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,6 +62,24 @@ const {
   resetGuardianIntegrityReporterForTesting,
   setGuardianIntegrityReporterOverridesForTesting,
 } = await import("../guardian-integrity-reporter.js");
+const realBrowserAuthCookies = await import("../http/browser-auth-cookies.js");
+// Captured before any mock is armed: `mock.module` rewrites the live
+// namespace, so a restore needs its own reference to the real function.
+const realCookiePathForPublicBaseUrl =
+  realBrowserAuthCookies.remoteWebRefreshCookiePathForPublicBaseUrl;
+
+/**
+ * Swap the cookie-path helper the pairing route reads. A module mock outlives
+ * the block that arms it, so every caller pairs an arm with a restore.
+ */
+function setCookiePathHelper(
+  impl: typeof realCookiePathForPublicBaseUrl,
+): void {
+  mock.module("../http/browser-auth-cookies.js", () => ({
+    ...realBrowserAuthCookies,
+    remoteWebRefreshCookiePathForPublicBaseUrl: impl,
+  }));
+}
 
 const GUARDIAN_ID = "guardian-001";
 
@@ -875,6 +902,55 @@ describe("remote web pairing token exchange", () => {
     expect(activeRefreshTokens()).toHaveLength(0);
   });
 
+  test("a blank deviceId is rejected rather than treated as a browser exchange", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode, deviceId: "   " }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: { code: "BAD_REQUEST", message: "deviceId must not be blank" },
+    });
+    expect(setCookies(res)).toHaveLength(0);
+    expect(activeTokens()).toHaveLength(0);
+  });
+
+  test("a padded deviceId records the binding a trimmed refresh matches", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const exchange = await handleRemoteWebPairingToken(
+      makeTokenRequest({
+        deviceCode: challenge.deviceCode,
+        deviceId: "  padded-device  ",
+      }),
+    );
+    expect(exchange.status).toBe(200);
+    const { refreshToken } = (await exchange.json()) as {
+      refreshToken: string;
+    };
+
+    expect(activeTokens()[0].hashedDeviceId).toBe(hashToken("padded-device"));
+
+    const refresh = await handleGuardianRefresh(
+      makeDeviceRefreshRequest({ refreshToken, deviceId: "padded-device" }),
+    );
+    expect(refresh.status).toBe(200);
+  });
+
   test("a missing deviceCode returns the deviceCode is required 400", async () => {
     const res = await handleRemoteWebPairingToken(
       makeTokenRequest({ clientReportedName: "Alice's iPhone" }),
@@ -1026,5 +1102,69 @@ describe("remote web pairing token exchange", () => {
     const expected = "A".repeat(MAX_PAIRING_USER_AGENT_CHARS);
     expect(activeTokens()[0].pairingUserAgent).toBe(expected);
     expect(activeRefreshTokens()[0].pairingUserAgent).toBe(expected);
+  });
+});
+
+/**
+ * `remoteWebRefreshCookiePathForPublicBaseUrl` cannot return an empty string
+ * today, so branching delivery on its truthiness looks identical to branching
+ * on `deviceId` under every real input. Forcing the empty path the helper
+ * never produces pins which of the two the route actually reads.
+ */
+describe("pairing token refresh delivery discriminator", () => {
+  beforeAll(() => {
+    setCookiePathHelper(() => "");
+  });
+
+  afterAll(() => {
+    setCookiePathHelper(realCookiePathForPublicBaseUrl);
+  });
+
+  test("a browser exchange still sets the cookie when the cookie path is empty", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({ deviceCode: challenge.deviceCode }),
+    );
+
+    expect(res.status).toBe(200);
+    const cookies = setCookies(res);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toContain("vellum_web_refresh=");
+    expect(cookies[0]).toContain("HttpOnly");
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.refreshToken).toBeUndefined();
+    expect(body.refreshTokenExpiresAt).toBeUndefined();
+  });
+
+  test("a device-bound exchange bodies the refresh token and sets no cookie", async () => {
+    const challenge = createRemoteWebPairingChallenge(
+      PUBLIC_BASE_URL,
+      TEST_REQUESTER,
+    );
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    const res = await handleRemoteWebPairingToken(
+      makeTokenRequest({
+        deviceCode: challenge.deviceCode,
+        deviceId: "host-device",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(setCookies(res)).toHaveLength(0);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body.refreshToken).toBe("string");
+    expect(typeof body.refreshTokenExpiresAt).toBe("string");
   });
 });
