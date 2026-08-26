@@ -858,8 +858,9 @@ describe("useChooserRowAvatar", () => {
       const hostQuery = queryClient
         .getQueryCache()
         .find({ queryKey: [...chooserRowAvatarQueryKeyPrefix("other"), "host"] });
-      expect(hostQuery?.options.refetchInterval).toBe(60_000);
-      expect(hostQuery?.options.refetchIntervalInBackground).toBe(false);
+      const observerOptions = hostQuery?.observers[0]?.options;
+      expect(observerOptions?.refetchInterval).toBe(60_000);
+      expect(observerOptions?.refetchIntervalInBackground).toBe(false);
       expect(hostQuery?.getObserversCount()).toBe(1);
     });
 
