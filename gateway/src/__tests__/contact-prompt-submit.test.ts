@@ -206,7 +206,7 @@ describe("handleContactPromptSubmit", () => {
     seedGuardian();
     ipcMock.mockImplementation(async (method: string) => {
       if (method === "contact_prompt_flags") {
-        return { verify: true };
+        return { resolved: true, verify: true };
       }
       return { resolved: true };
     });
