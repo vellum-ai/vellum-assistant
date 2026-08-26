@@ -573,7 +573,7 @@ describe("execute-mode failure notifications", () => {
       syntax: "cron",
       maxRetries: 1,
       retryBackoffMs: 1000,
-      inferenceProfile: "profile-a",
+      inferenceProfile: "cost-optimized",
     });
     const scheduleB = await createSchedule({
       name: "Profile B victim",
@@ -582,7 +582,7 @@ describe("execute-mode failure notifications", () => {
       syntax: "cron",
       maxRetries: 1,
       retryBackoffMs: 1000,
-      inferenceProfile: "profile-b",
+      inferenceProfile: "balanced",
     });
     forceScheduleDue(scheduleA.id);
     forceScheduleDue(scheduleB.id);
@@ -599,10 +599,10 @@ describe("execute-mode failure notifications", () => {
     expect(emitted).toHaveLength(2);
     const keys = emitted.map((signal) => signal.dedupeKey as string).sort();
     expect(keys[0]).toMatch(
-      /^activity-failed:cause:PROVIDER_INVALID_KEY:profile-a:\d{4}-\d{2}-\d{2}$/,
+      /^activity-failed:cause:PROVIDER_INVALID_KEY:balanced:\d{4}-\d{2}-\d{2}$/,
     );
     expect(keys[1]).toMatch(
-      /^activity-failed:cause:PROVIDER_INVALID_KEY:profile-b:\d{4}-\d{2}-\d{2}$/,
+      /^activity-failed:cause:PROVIDER_INVALID_KEY:cost-optimized:\d{4}-\d{2}-\d{2}$/,
     );
   });
 

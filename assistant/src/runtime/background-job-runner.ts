@@ -18,7 +18,7 @@
  * `suppressFailureNotifications`.
  */
 
-import { resolveEffectiveProfileKey } from "../config/llm-resolver.js";
+import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
@@ -416,11 +416,13 @@ export async function runBackgroundJob(
       // The provider scope is the profile key the resolver actually used for
       // this call site (the override when usable, else the site's own
       // winner), so failures on different provider routes cannot collapse
-      // into one notification. No named winner, or a config read failing on
-      // this path, yields no scope and the key falls back to per-job.
+      // into one notification. A mix winner, no named winner, or a config
+      // read failing on this path all yield no scope, and the key falls back
+      // to per-job: a mix's arm is picked per conversation and can span
+      // providers, so no single route can be named for it after the fact.
       let providerScope: string | undefined;
       try {
-        providerScope = resolveEffectiveProfileKey(
+        providerScope = resolveSingleRouteProfileKey(
           opts.callSite,
           getConfig().llm,
           {

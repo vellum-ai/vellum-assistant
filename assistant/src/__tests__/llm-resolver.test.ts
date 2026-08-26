@@ -9,6 +9,7 @@ import {
   resolveCallSiteConfigWithProfile,
   resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
+  resolveSingleRouteProfileKey,
 } from "../config/llm-resolver.js";
 import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
@@ -887,6 +888,25 @@ describe("mix profiles", () => {
     expect(resolved.config.model).toBe(
       selectedArms[0] === "a" ? "model-a" : "model-b",
     );
+  });
+
+  test("resolveSingleRouteProfileKey names standard winners and refuses mixes", () => {
+    // The mix's arm is picked per conversation and can differ from any
+    // post-hoc recomputation, so the outer mix key must never be used as a
+    // single-route attribution scope.
+    expect(resolveSingleRouteProfileKey("mainAgent", mixLlm)).toBeUndefined();
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
+        overrideProfile: "a",
+      }),
+    ).toBe("a");
+    // An unusable override falls through to the active mix, which still
+    // refuses to name a route.
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
+        overrideProfile: "no-such-profile",
+      }),
+    ).toBeUndefined();
   });
 
   test("all dereference spots in a turn agree for the same seed", () => {

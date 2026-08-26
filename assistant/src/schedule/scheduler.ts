@@ -1,4 +1,5 @@
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
+import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import {
   checkDiskPressureBackgroundGate,
@@ -243,7 +244,8 @@ async function handleExecutionFailure(params: {
     scheduleRetry,
     failOneShotPermanently,
     resetRetryCount,
-    emitAlert: () =>
+    emitAlert: () => {
+      const providerScope = resolveScheduleProviderScope(params.job);
       emitScheduleActivityFailed({
         jobId: params.job.id,
         jobName: params.job.name,
@@ -252,12 +254,31 @@ async function handleExecutionFailure(params: {
         ...(params.failureCode !== undefined
           ? { failureCode: params.failureCode }
           : {}),
-        ...(params.job.inferenceProfile != null
-          ? { providerScope: params.job.inferenceProfile }
-          : {}),
-      }),
+        ...(providerScope !== undefined ? { providerScope } : {}),
+      });
+    },
     log,
   });
+}
+
+/**
+ * The provider scope a schedule's failing runs resolved through: its pinned
+ * profile when that names a single provider route, else the route the
+ * mainAgent winner actually served (a deleted pin falls through to it). A
+ * mix pin, no named winner, or an unreadable config yield no scope, so the
+ * exhaustion alert keys per schedule rather than claiming one scope for
+ * arms that can span providers.
+ */
+function resolveScheduleProviderScope(job: ScheduleJob): string | undefined {
+  try {
+    return resolveSingleRouteProfileKey("mainAgent", getConfig().llm, {
+      ...(job.inferenceProfile
+        ? { overrideProfile: job.inferenceProfile }
+        : {}),
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 /** The running scheduler, retained so shutdown can stop it. */

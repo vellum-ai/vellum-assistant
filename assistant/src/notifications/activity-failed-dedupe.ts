@@ -53,9 +53,10 @@ const PROVIDER_SCOPED_FAILURE_CODES = new Set<string>([
  * another's.
  *
  * `providerScope` is the inference-profile key the failing call actually
- * resolved through (the runner derives it via `resolveEffectiveProfileKey`;
- * schedules pass their snapshotted pin). Callers that cannot name a
- * trustworthy scope omit it, and provider-scoped failures then key per job:
+ * resolved through, and only when that key names a single provider route
+ * (both producers derive it via `resolveSingleRouteProfileKey`; a mix
+ * winner has no single route). Callers that cannot name a trustworthy scope
+ * omit it, and provider-scoped failures then key per job:
  * an extra notification is recoverable, while a false collapse across two
  * provider routes hides a failure whose remedy differs. The profile is a
  * transitional stand-in for the provider connection the failure actually hit:
