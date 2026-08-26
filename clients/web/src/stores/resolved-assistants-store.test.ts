@@ -97,6 +97,29 @@ describe("setFromLockfile", () => {
     expect(entry.releaseChannel).toBe("preview");
   });
 
+  it("preserves an API-seeded avatarUrl across a lockfile refresh", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-platform",
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+          avatarUrl: "https://cdn.example/a.png",
+        },
+      ],
+    });
+
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [platformAssistant],
+      activeAssistant: "asst-platform",
+    });
+
+    expect(useResolvedAssistantsStore.getState().assistants[0].avatarUrl).toBe(
+      "https://cdn.example/a.png",
+    );
+  });
+
   it("copies Bun-local fields for local entries", () => {
     const lockfile: Lockfile = {
       assistants: [localAssistant],
@@ -359,6 +382,31 @@ describe("setFromApi connectability", () => {
     expect(
       useResolvedAssistantsStore.getState().assistants[0].avatarUrl,
     ).toBeUndefined();
+  });
+
+  it("clearAvatarUrl nulls one row's avatarUrl and leaves the rest", () => {
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-a", avatar_url: "https://cdn.example/a.png" }),
+        apiEntry({ id: "asst-b", avatar_url: "https://cdn.example/b.png" }),
+      ]);
+    const before = useResolvedAssistantsStore.getState().assistants;
+
+    useResolvedAssistantsStore.getState().clearAvatarUrl("asst-a");
+
+    const byId = new Map(
+      useResolvedAssistantsStore.getState().assistants.map((a) => [a.id, a]),
+    );
+    expect(byId.get("asst-a")?.avatarUrl).toBeNull();
+    expect(byId.get("asst-b")?.avatarUrl).toBe("https://cdn.example/b.png");
+
+    useResolvedAssistantsStore.getState().clearAvatarUrl("asst-a");
+    useResolvedAssistantsStore.getState().clearAvatarUrl("asst-missing");
+    expect(useResolvedAssistantsStore.getState().assistants).not.toBe(before);
+    expect(byId.get("asst-b")).toBe(
+      useResolvedAssistantsStore.getState().assistants[1],
+    );
   });
 
   it("drops a local registration with no ingress and no lockfile entry", () => {

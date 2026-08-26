@@ -123,6 +123,12 @@ interface ResolvedAssistantsActions {
    */
   markHydrated: () => void;
   upsertFromApi: (assistant: Assistant) => void;
+  /**
+   * Forget the synced thumbnail for one row. The platform copy lags a live
+   * avatar change, so callers drop it and let the live/cache paths render
+   * until the next API load carries the new URL.
+   */
+  clearAvatarUrl: (assistantId: string) => void;
   remove: (assistantId: string) => void;
   clear: () => void;
   setActiveAssistantId: (assistantId: string | null) => void;
@@ -145,12 +151,14 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
       const existingById = new Map(
         get().assistants.map((assistant) => [assistant.id, assistant]),
       );
+      // The lockfile carries no platform metadata; keep what the API seeded.
       const assistants = lockfile.assistants.map((a) => ({
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
         cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
+        avatarUrl: existingById.get(a.assistantId)?.avatarUrl,
         currentReleaseVersion: existingById.get(a.assistantId)
           ?.currentReleaseVersion,
         releaseChannel: existingById.get(a.assistantId)?.releaseChannel,
@@ -255,6 +263,17 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             },
           ],
         };
+      }),
+
+    clearAvatarUrl: (assistantId) =>
+      set((state) => {
+        const idx = state.assistants.findIndex((a) => a.id === assistantId);
+        if (idx < 0 || state.assistants[idx].avatarUrl == null) {
+          return state;
+        }
+        const next = [...state.assistants];
+        next[idx] = { ...next[idx], avatarUrl: null };
+        return { assistants: next };
       }),
 
     remove: (assistantId) =>
