@@ -416,6 +416,10 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
+    /** Skill IDs hidden from this row's memory blocks, keyed by viewer conversation. */
+    memorySkillCardSuppressions: z
+      .record(z.string(), z.array(z.string()))
+      .optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
      *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept

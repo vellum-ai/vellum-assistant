@@ -72,6 +72,10 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  stripSuppressedSkillCards,
+  suppressedSkillIdsForConversation,
+} from "../plugins/defaults/memory/substrate/skill-card-suppression.js";
+import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
@@ -1234,11 +1238,18 @@ export class Conversation {
             personalMemoryAllowed &&
             typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string"
           ) {
+            const suppressedSkillIds = suppressedSkillIdsForConversation(
+              meta,
+              this.conversationId,
+            );
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
             const v3Resident = filterPrunedCardSections(
-              unwrapMemoryBlock(v3Block),
+              stripSuppressedSkillCards(
+                unwrapMemoryBlock(v3Block),
+                suppressedSkillIds,
+              ),
               v3PrunedSlugs(),
             );
             if (v3Resident.length > 0) {
@@ -1276,15 +1287,23 @@ export class Conversation {
           // legitimate unwrapped payloads that happen to start with
           // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            content = [
-              {
-                type: "text" as const,
-                text: wrapMemoryBlock(
-                  unwrapMemoryBlock(meta.memoryInjectedBlock),
-                ),
-              },
-              ...content,
-            ];
+            const suppressedSkillIds = suppressedSkillIdsForConversation(
+              meta,
+              this.conversationId,
+            );
+            const residentBlock = stripSuppressedSkillCards(
+              unwrapMemoryBlock(meta.memoryInjectedBlock),
+              suppressedSkillIds,
+            );
+            if (residentBlock.length > 0) {
+              content = [
+                {
+                  type: "text" as const,
+                  text: wrapMemoryBlock(residentBlock),
+                },
+                ...content,
+              ];
+            }
           }
 
           // `<channel_capabilities>` lands just below `<turn_context>`: live

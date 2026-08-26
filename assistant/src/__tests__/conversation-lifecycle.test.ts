@@ -88,6 +88,8 @@ import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
+import { SKILL_CARD_SUPPRESSIONS_METADATA_KEY } from "../plugins/defaults/memory/substrate/skill-card-suppression.js";
+import { renderCardsBlockInner } from "../plugins/defaults/memory/v3/render-injection.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
@@ -404,6 +406,74 @@ describe("loadFromDb metadata injection rehydration", () => {
       },
       { type: "text", text: "Tail turn" },
     ]);
+  });
+
+  test("restart keeps old skill occurrences suppressed after reconnect reinjection", async () => {
+    mockConversation = defaultConv();
+    const windowsCard =
+      "# Skill: windows-automation\nAutomates native Windows applications.";
+    const oldBlock = renderCardsBlockInner([
+      windowsCard,
+      "# memory/concepts/page-a.md\nhead a",
+    ]);
+    const reconnectedBlock = renderCardsBlockInner([windowsCard]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: oldBlock,
+          [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: {
+            "conv-1": ["windows-automation"],
+          },
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "Reconnect turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: reconnectedBlock,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const rendered = JSON.stringify(conversation.getMessages());
+
+    expect(
+      rendered.match(/Automates native Windows applications\./g),
+    ).toHaveLength(1);
+    expect(rendered).toContain("# memory/concepts/page-a.md");
+  });
+
+  test("restart strips suppressed v1 skill entries and keeps ordinary memory", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryInjectedBlock: [
+            '- [skill] The "Windows Automation" skill (windows-automation) is available. Automates Windows applications. → use skill_load to activate',
+            "- (1d ago) Keep this ordinary memory.",
+          ].join("\n"),
+          [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: {
+            "conv-1": ["windows-automation"],
+          },
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const rendered = JSON.stringify(conversation.getMessages());
+
+    expect(rendered).not.toContain("Windows Automation");
+    expect(rendered).toContain("Keep this ordinary memory.");
   });
 
   test("pruned slugs' card sections are skipped at v3 rehydration (prune valve persistence)", async () => {

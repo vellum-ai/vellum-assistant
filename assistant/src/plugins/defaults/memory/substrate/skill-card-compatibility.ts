@@ -1,19 +1,19 @@
 import {
   type ContentBlock,
+  getMessages,
   isSkillCompatibleWithContext,
   type Message,
+  parseMessageMetadata,
   type SkillPlatformContext,
+  updateMessageMetadata,
 } from "@vellumai/plugin-api";
 
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
-  parseCardSections,
-  renderCardSections,
-} from "./card-block-sections.js";
-import {
-  extractSkillIdFromAvailabilityContent,
-  extractSkillIdFromV3Card,
-} from "./skill-card-format.js";
+  normalizeSkillCardSuppressions,
+  SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
+  stripSuppressedSkillCards,
+} from "./skill-card-suppression.js";
 import {
   ensureSkillEntriesAvailable,
   getSkillCapability,
@@ -22,7 +22,10 @@ import {
 } from "./skill-store.js";
 import type { EverInjectedEntry } from "./types.js";
 
-const V2_SKILLS_HEADER = "### Skills You Can Use\n";
+const PERSISTED_BLOCK_KEYS = [
+  "memoryInjectedBlock",
+  "memoryV3InjectedBlock",
+] as const;
 
 export function isSkillSlugCompatible(
   slug: string,
@@ -42,55 +45,48 @@ export function filterCompatibleEverInjected(
   return entries.filter((entry) => isSkillSlugCompatible(entry.slug, context));
 }
 
-function stripV2SkillSection(
-  inner: string,
+async function persistIncompatibleSkillSuppressions(
+  conversationId: string,
   incompatibleIds: ReadonlySet<string>,
-): string {
-  const start = inner.indexOf(V2_SKILLS_HEADER);
-  if (start < 0) {
-    return inner;
-  }
-  const bodyStart = start + V2_SKILLS_HEADER.length;
-  const nextSection = inner.indexOf("\n\n### ", bodyStart);
-  const end = nextSection < 0 ? inner.length : nextSection;
-  let body = inner.slice(bodyStart, end);
-  body = body.replace(
-    /^- ([\s\S]*?) → use skill_load to activate$/gm,
-    (entry, skillContent: string) => {
-      const skillId = extractSkillIdFromAvailabilityContent(skillContent);
-      return skillId && incompatibleIds.has(skillId) ? "" : entry;
-    },
+): Promise<void> {
+  const rows = await getMessages(conversationId);
+  await Promise.all(
+    rows.map(async (row) => {
+      const metadata = await parseMessageMetadata(row.metadata);
+      const rowIncompatibleIds = [...incompatibleIds].filter((id) =>
+        PERSISTED_BLOCK_KEYS.some((key) => {
+          const block = metadata?.[key];
+          const inner =
+            typeof block === "string" ? unwrapMemoryBlock(block) : "";
+          return (
+            inner.length > 0 &&
+            stripSuppressedSkillCards(inner, new Set([id])) !== inner
+          );
+        }),
+      );
+      if (rowIncompatibleIds.length === 0) {
+        return;
+      }
+      const suppressions = normalizeSkillCardSuppressions(
+        metadata?.[SKILL_CARD_SUPPRESSIONS_METADATA_KEY],
+      );
+      suppressions[conversationId] = [
+        ...new Set([
+          ...(suppressions[conversationId] ?? []),
+          ...rowIncompatibleIds,
+        ]),
+      ];
+      await updateMessageMetadata(row.id, {
+        [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: suppressions,
+      });
+    }),
   );
-  body = body.trim();
-  const before = inner.slice(0, start).trimEnd();
-  const after = inner.slice(end).trimStart();
-  return [before, body ? `${V2_SKILLS_HEADER}${body}` : "", after]
-    .filter((part) => part.length > 0)
-    .join("\n\n");
-}
-
-function stripIncompatibleSkillsFromInner(
-  inner: string,
-  incompatibleSkills: ReadonlyArray<{ id: string }>,
-): string {
-  const incompatibleIds = new Set(incompatibleSkills.map((skill) => skill.id));
-  const { preamble, pieces, framed } = parseCardSections(inner);
-  const kept = pieces.filter((piece) => {
-    const skillId = extractSkillIdFromV3Card(piece.text);
-    return !skillId || !incompatibleIds.has(skillId);
-  });
-  const withoutV3 =
-    kept.length === pieces.length
-      ? inner
-      : !framed
-        ? ""
-        : renderCardSections(preamble, kept, true);
-  return stripV2SkillSection(withoutV3, incompatibleIds);
 }
 
 export async function stripIncompatibleSkillCardsFromMessages(
   messages: Message[],
   context: SkillPlatformContext,
+  options: { conversationId?: string } = {},
 ): Promise<number> {
   await ensureSkillEntriesAvailable();
   const incompatibleSkills = listSkillEntries().filter(
@@ -99,6 +95,7 @@ export async function stripIncompatibleSkillCardsFromMessages(
   if (incompatibleSkills.length === 0) {
     return 0;
   }
+  const incompatibleIds = new Set(incompatibleSkills.map((skill) => skill.id));
 
   let strippedBlocks = 0;
   for (const message of messages) {
@@ -117,10 +114,7 @@ export async function stripIncompatibleSkillCardsFromMessages(
         content.push(block);
         continue;
       }
-      const filtered = stripIncompatibleSkillsFromInner(
-        inner,
-        incompatibleSkills,
-      );
+      const filtered = stripSuppressedSkillCards(inner, incompatibleIds);
       if (filtered === inner) {
         content.push(block);
         continue;
@@ -134,6 +128,12 @@ export async function stripIncompatibleSkillCardsFromMessages(
     if (changed) {
       message.content = content;
     }
+  }
+  if (options.conversationId && strippedBlocks > 0) {
+    await persistIncompatibleSkillSuppressions(
+      options.conversationId,
+      incompatibleIds,
+    );
   }
   return strippedBlocks;
 }

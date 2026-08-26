@@ -334,6 +334,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   await stripIncompatibleSkillCardsFromMessages(
     ctx.latestMessages,
     skillPlatformContext,
+    { conversationId: ctx.conversationId },
   );
 
   // Legacy (v1/v2) graph retrieval is the deprecated path:
