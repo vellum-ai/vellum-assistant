@@ -401,9 +401,9 @@ describe("referential forking", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    // Lineage still presents the source prefix, but none of those rows are
-    // owned by the fork. Empty owned set is determined output, not
-    // indeterminate.
+    // Lineage still presents the source prefix (those rows keep the source
+    // conversationId). Empty owned set is determined output, not
+    // indeterminate, and does not need a conversation-row strategy lookup.
     expect(getMessages(fork.id).length).toBeGreaterThan(0);
     const runRows = await loadRetrospectiveRunMessages(
       fork.id,
