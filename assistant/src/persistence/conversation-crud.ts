@@ -426,6 +426,7 @@ export const messageMetadataSchema = z
      *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
      *  not import the memory feature. */
     memoryV3InjectedBlock: z.string().optional(),
+    memoryV3InjectedCardSlugs: z.array(z.string()).optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

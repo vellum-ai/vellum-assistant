@@ -11,6 +11,7 @@ const getMessagesMock = mock(async (_conversationId: string) => [
     id: "row-old",
     metadata: JSON.stringify({
       memoryV3InjectedBlock: WINDOWS_CARD,
+      memoryV3InjectedCardSlugs: ["skills/windows-automation"],
       memorySkillCardSuppressions: { "conv-other": ["other-skill"] },
     }),
   },

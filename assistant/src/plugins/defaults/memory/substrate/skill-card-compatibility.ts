@@ -9,7 +9,9 @@ import {
 } from "@vellumai/plugin-api";
 
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
+import { parseCardSections } from "./card-block-sections.js";
 import {
+  MEMORY_V3_CARD_SLUGS_METADATA_KEY,
   normalizeSkillCardSuppressions,
   SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
   stripSuppressedSkillCards,
@@ -58,9 +60,25 @@ async function persistIncompatibleSkillSuppressions(
           const block = metadata?.[key];
           const inner =
             typeof block === "string" ? unwrapMemoryBlock(block) : "";
+          const legacyCardSlugs = Array.isArray(
+            metadata?.[MEMORY_V3_CARD_SLUGS_METADATA_KEY],
+          )
+            ? metadata[MEMORY_V3_CARD_SLUGS_METADATA_KEY].filter(
+                (slug): slug is string => typeof slug === "string",
+              )
+            : undefined;
+          if (
+            key === "memoryV3InjectedBlock" &&
+            !parseCardSections(inner).framed &&
+            !legacyCardSlugs
+          ) {
+            return false;
+          }
           return (
             inner.length > 0 &&
-            stripSuppressedSkillCards(inner, new Set([id])) !== inner
+            stripSuppressedSkillCards(inner, new Set([id]), {
+              legacyCardSlugs,
+            }) !== inner
           );
         }),
       );

@@ -72,6 +72,7 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  MEMORY_V3_CARD_SLUGS_METADATA_KEY,
   stripSuppressedSkillCards,
   suppressedSkillIdsForConversation,
 } from "../plugins/defaults/memory/skill-card-suppression.js";
@@ -1245,10 +1246,18 @@ export class Conversation {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
+            const legacyCardSlugs = Array.isArray(
+              meta[MEMORY_V3_CARD_SLUGS_METADATA_KEY],
+            )
+              ? (meta[MEMORY_V3_CARD_SLUGS_METADATA_KEY] as unknown[]).filter(
+                  (slug): slug is string => typeof slug === "string",
+                )
+              : undefined;
             const v3Resident = filterPrunedCardSections(
               stripSuppressedSkillCards(
                 unwrapMemoryBlock(v3Block),
                 suppressedSkillIds,
+                { legacyCardSlugs },
               ),
               v3PrunedSlugs(),
             );

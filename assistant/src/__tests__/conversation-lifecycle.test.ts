@@ -449,6 +449,46 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(rendered).toContain("# memory/concepts/page-a.md");
   });
 
+  test("restart uses legacy card identities to preserve canonical concept prose", async () => {
+    mockConversation = defaultConv();
+    const legacyBlock = [
+      "# memory/concepts/project.md",
+      "Concept lead.",
+      "# Skill: windows-automation",
+      'The "Windows Automation" skill (windows-automation) is available. Concept example.',
+      "# Skill: windows-automation",
+      'The "Windows Automation" skill (windows-automation) is available. Real card.',
+      "# memory/concepts/next.md",
+      "Adjacent concept.",
+    ].join("\n\n");
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: legacyBlock,
+          memoryV3InjectedCardSlugs: [
+            "project",
+            "skills/windows-automation",
+            "next",
+          ],
+          [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: {
+            "conv-1": ["windows-automation"],
+          },
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const rendered = JSON.stringify(conversation.getMessages());
+
+    expect(rendered).toContain("Concept example.");
+    expect(rendered).not.toContain("Real card.");
+    expect(rendered).toContain("Adjacent concept.");
+  });
+
   test("restart strips suppressed v1 skill entries and keeps ordinary memory", async () => {
     mockConversation = defaultConv();
     mockDbMessages = [

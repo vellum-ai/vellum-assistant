@@ -12,6 +12,7 @@ const V1_SKILL_ENTRY_REGEX =
   /^- \[skill\] ([^\r\n]+?) → use skill_load to activate$/gm;
 export const SKILL_CARD_SUPPRESSIONS_METADATA_KEY =
   "memorySkillCardSuppressions";
+export const MEMORY_V3_CARD_SLUGS_METADATA_KEY = "memoryV3InjectedCardSlugs";
 
 function stripV2SkillSection(
   inner: string,
@@ -56,30 +57,104 @@ function stripV1SkillEntries(
     : filtered.replace(/^\n+|\n+$/g, "").replace(/\n{3,}/g, "\n\n");
 }
 
-function extractLegacyV3SkillId(card: string): string | null {
-  const headerId = extractSkillIdFromV3Card(card);
-  const lineEnd = card.indexOf("\n");
-  if (!headerId || lineEnd < 0) {
+function cardHeader(slug: string): string {
+  if (slug.startsWith("skills/")) {
+    return `# Skill: ${slug.slice("skills/".length)}`;
+  }
+  if (slug.startsWith("cli-commands/")) {
+    return `# CLI command: ${slug.slice("cli-commands/".length)}`;
+  }
+  return `# memory/concepts/${slug}.md`;
+}
+
+function legacyPiecesFromSlugs(
+  inner: string,
+  slugs: readonly string[],
+): { preamble: string; pieces: Array<{ slug: string; text: string }> } | null {
+  const boundaries: Array<{ index: number; slug: string }> = [];
+  let before = inner.length;
+  for (let index = slugs.length - 1; index >= 0; index -= 1) {
+    const slug = slugs[index]!;
+    const header = cardHeader(slug);
+    const atStart = inner.startsWith(header) ? 0 : -1;
+    const separated = inner.lastIndexOf(`\n\n${header}`, before - 1);
+    const found = separated >= 0 ? separated + 2 : atStart;
+    if (found < 0 || found >= before) {
+      return null;
+    }
+    boundaries.unshift({ index: found, slug });
+    before = found;
+  }
+  if (boundaries.length === 0) {
     return null;
   }
-  const contentId = extractSkillIdFromAvailabilityContent(
-    card.slice(lineEnd + 1),
-  );
-  return contentId === headerId ? headerId : null;
+  return {
+    preamble: inner.slice(0, boundaries[0]!.index).trimEnd(),
+    pieces: boundaries.map((boundary, index) => ({
+      slug: boundary.slug,
+      text: inner.slice(boundary.index, boundaries[index + 1]?.index).trimEnd(),
+    })),
+  };
+}
+
+export function extractFramedCardSlugs(inner: string): string[] | null {
+  const parsed = parseCardSections(inner);
+  if (!parsed.framed) {
+    return null;
+  }
+  return parsed.pieces.flatMap((piece) => {
+    if (piece.kind === "card") {
+      return [piece.slug];
+    }
+    const skillId = extractSkillIdFromV3Card(piece.text);
+    if (skillId) {
+      return [`skills/${skillId}`];
+    }
+    const command = piece.text.match(/^# CLI command: ([^\r\n]+)/)?.[1];
+    return command ? [`cli-commands/${command}`] : [];
+  });
 }
 
 export function stripSuppressedSkillCards(
   inner: string,
   suppressedIds: ReadonlySet<string>,
+  options: { legacyCardSlugs?: readonly string[] } = {},
 ): string {
   if (suppressedIds.size === 0) {
     return inner;
   }
   const { preamble, pieces, framed } = parseCardSections(inner);
+  if (!framed) {
+    const legacy = options.legacyCardSlugs
+      ? legacyPiecesFromSlugs(inner, options.legacyCardSlugs)
+      : null;
+    if (legacy) {
+      const kept = legacy.pieces.filter(
+        (piece) =>
+          !piece.slug.startsWith("skills/") ||
+          !suppressedIds.has(piece.slug.slice("skills/".length)),
+      );
+      return stripV1SkillEntries(
+        stripV2SkillSection(
+          renderCardSections(
+            legacy.preamble,
+            kept.map((piece) => ({ kind: "other", text: piece.text })),
+            false,
+          ),
+          suppressedIds,
+        ),
+        suppressedIds,
+      );
+    }
+    const hasSuppressedLegacyHeader = [...suppressedIds].some((id) =>
+      pieces.some((piece) => piece.text.startsWith(`# Skill: ${id}\n`)),
+    );
+    if (hasSuppressedLegacyHeader) {
+      return "";
+    }
+  }
   const kept = pieces.filter((piece) => {
-    const skillId = framed
-      ? extractSkillIdFromV3Card(piece.text)
-      : extractLegacyV3SkillId(piece.text);
+    const skillId = extractSkillIdFromV3Card(piece.text);
     return !skillId || !suppressedIds.has(skillId);
   });
   const withoutV3 =

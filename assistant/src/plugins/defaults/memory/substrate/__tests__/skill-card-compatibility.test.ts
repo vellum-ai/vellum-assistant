@@ -1,12 +1,31 @@
 import { describe, expect, test } from "bun:test";
 
+import { frameCardSection } from "../card-block-sections.js";
 import {
+  extractFramedCardSlugs,
   SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
   stripSuppressedSkillCards,
   suppressedSkillIdsForConversation,
 } from "../skill-card-suppression.js";
 
 describe("skill card suppression", () => {
+  test("extracts writer-owned card identities from framed blocks", () => {
+    const block = [
+      "preamble",
+      frameCardSection("# memory/concepts/project.md\nConcept."),
+      frameCardSection(
+        '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available.',
+      ),
+      frameCardSection("# CLI command: status\nShow status."),
+    ].join("\n\n");
+
+    expect(extractFramedCardSlugs(block)).toEqual([
+      "project",
+      "skills/windows-automation",
+      "cli-commands/status",
+    ]);
+  });
+
   test("preserves unrelated cards in legacy unframed v3 blocks", () => {
     const block = [
       '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates Windows applications.',
@@ -17,6 +36,13 @@ describe("skill card suppression", () => {
     const filtered = stripSuppressedSkillCards(
       block,
       new Set(["windows-automation"]),
+      {
+        legacyCardSlugs: [
+          "skills/windows-automation",
+          "project",
+          "skills/other-skill",
+        ],
+      },
     );
 
     expect(filtered).toContain("# memory/concepts/project.md");
@@ -37,7 +63,9 @@ describe("skill card suppression", () => {
     ].join("\n\n");
 
     expect(
-      stripSuppressedSkillCards(block, new Set(["windows-automation"])),
+      stripSuppressedSkillCards(block, new Set(["windows-automation"]), {
+        legacyCardSlugs: ["project", "next"],
+      }),
     ).toBe(block);
   });
 
@@ -51,12 +79,29 @@ describe("skill card suppression", () => {
     const filtered = stripSuppressedSkillCards(
       block,
       new Set(["windows-automation"]),
+      {
+        legacyCardSlugs: ["project", "skills/windows-automation", "next"],
+      },
     );
 
     expect(filtered).toContain("Keep the first concept.");
     expect(filtered).not.toContain("# Skill: windows-automation");
     expect(filtered).not.toContain("Automates Windows applications.");
     expect(filtered).toContain("Keep the adjacent concept.");
+  });
+
+  test("withholds ambiguous legacy blocks without occurrence metadata", () => {
+    const block = [
+      "# memory/concepts/project.md",
+      "Concept lead.",
+      "# Skill: windows-automation",
+      'The "Windows Automation" skill (windows-automation) is available.',
+    ].join("\n\n");
+
+    expect(
+      stripSuppressedSkillCards(block, new Set(["windows-automation"])),
+    ).toBe("");
+    expect(stripSuppressedSkillCards(block, new Set())).toBe(block);
   });
 
   test("strips headerless v1 skill entries by their embedded id", () => {
