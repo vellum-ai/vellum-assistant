@@ -110,9 +110,9 @@ export function pathBBox(d: string): BBox {
  * Bounding box of the geometry a path actually draws, curves solved rather
  * than approximated by their control polygon.
  *
- * {@link pathBBox} extends its box by every control point. That is what the
- * peeking and voice-room eyes have always framed against, and they must keep
- * framing against it, but the box can sit well outside the ink: the `angry`
+ * {@link pathBBox} extends its box by every control point. The peeking and
+ * voice-room eyes intentionally frame against that control-point box, but
+ * the box can sit well outside the ink: the `angry`
  * eye style is drawn with control points nowhere near the curve, which makes
  * that box 72% taller than the artwork and drops its center by roughly a third
  * of the eye height.
