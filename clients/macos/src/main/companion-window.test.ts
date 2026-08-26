@@ -243,9 +243,10 @@ const DROP_BELOW = GEOMETRY.dropBelow;
 // cases readable.
 const DISPLAY = { x: 0, width: 1440 };
 
-// The clearance the pill needs beyond the avatar's edge on the side it grows
-// into: the gap, then the widest body.
-const NEEDED = GEOMETRY.gap + GEOMETRY.maxBodyWidth;
+// The clearance the pill needs on the side it grows into, measured from the
+// avatar's centre the way the room on each side is: the avatar's half box, the
+// gap, then the widest body.
+const NEEDED = GEOMETRY.maxReach;
 
 describe("growthFor", () => {
   test("grows rightward with room to the right", () => {
@@ -272,15 +273,31 @@ describe("growthFor", () => {
   });
 
   /**
-   * The gap is part of the clearance, not slack the pill can be squeezed into.
-   * A test measured against the body alone would pass with the pill's leading
-   * edge already off the display.
+   * The gap and the avatar's half box are part of the clearance, not slack the
+   * pill can be squeezed into. A test measured against the body alone would
+   * pass with the pill's leading edge already off the display.
    */
-  test("counts the gap as room the pill needs", () => {
-    expect(NEEDED).toBe(GEOMETRY.maxBodyWidth + GEOMETRY.gap);
+  test("counts the gap and the half box as room the pill needs", () => {
+    expect(NEEDED).toBe(
+      GEOMETRY.avatarBox / 2 + GEOMETRY.gap + GEOMETRY.maxBodyWidth,
+    );
     expect(
       growthFor(DISPLAY.width - GEOMETRY.maxBodyWidth, DISPLAY, GEOMETRY),
     ).toBe("left");
+  });
+
+  /**
+   * The room is measured from the avatar's centre while the pill starts at the
+   * avatar's edge, so the half box is the difference between fitting and
+   * clipping. 340pt on the right clears the gap and the widest body and still
+   * cuts the controls off.
+   */
+  test("flips when only the avatar's half box is missing on the right", () => {
+    const centre = DISPLAY.width - 340;
+    expect(DISPLAY.width - centre).toBeGreaterThan(
+      GEOMETRY.gap + GEOMETRY.maxBodyWidth,
+    );
+    expect(growthFor(centre, DISPLAY, GEOMETRY)).toBe("left");
   });
 
   test("measures against the display's own origin, not the screen's", () => {
@@ -567,6 +584,7 @@ describe("geometryFor", () => {
     expect(small.avatarBox).toBe(44);
     expect(small.canvasWidth).toBe(748);
     expect(small.canvasHeight).toBe(338);
+    expect(small.maxReach).toBe(350);
   });
 
   /**
@@ -580,14 +598,11 @@ describe("geometryFor", () => {
       const pad =
         (COMPANION_BASE_CANVAS_PAD * geometry.avatarBox) /
         COMPANION_BASE_AVATAR_BOX;
+      expect(geometry.maxReach).toBe(
+        geometry.avatarBox / 2 + geometry.gap + geometry.maxBodyWidth,
+      );
       expect(geometry.canvasWidth).toBe(
-        Math.round(
-          2 *
-            (geometry.avatarBox / 2 +
-              geometry.gap +
-              geometry.maxBodyWidth +
-              pad),
-        ),
+        Math.round(2 * (geometry.maxReach + pad)),
       );
     }
   });
@@ -617,6 +632,7 @@ describe("geometryFor", () => {
     expect(large.dropBelow).toBe(small.dropBelow * scale);
     expect(large.gap).toBe(small.gap * scale);
     expect(large.maxBodyWidth).toBe(small.maxBodyWidth * scale);
+    expect(large.maxReach).toBe(small.maxReach * scale);
   });
 
   test("grows monotonically through the named steps", () => {

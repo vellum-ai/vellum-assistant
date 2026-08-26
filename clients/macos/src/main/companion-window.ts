@@ -175,6 +175,8 @@ export interface CompanionGeometry {
   gap: number;
   /** The widest the pill's body draws at this size, gap not included. */
   maxBodyWidth: number;
+  /** The pill's far edge at its widest, measured from the avatar's centre. */
+  maxReach: number;
 }
 
 /**
@@ -203,7 +205,8 @@ export const geometryFor = (size: CompanionSize): CompanionGeometry => {
   // The avatar holds its place and the pill hangs off one side of it across the
   // gap, so the reach is the avatar's half box, the gap, and the widest body.
   // The canvas has to hold it in whichever direction main later picks, so it is
-  // sized for both sides.
+  // sized for both sides, and `growthFor` picks that direction by the same
+  // number.
   const maxReach = avatarBox / 2 + gap + maxBodyWidth;
   const riseAbove = BASE_MAX_CARD_HEIGHT * scale - avatarBox / 2 + pad;
   // The invariant the renderer anchors by, at this size. Scaled rather than
@@ -217,6 +220,7 @@ export const geometryFor = (size: CompanionSize): CompanionGeometry => {
     dropBelow,
     gap,
     maxBodyWidth,
+    maxReach,
   };
 };
 
@@ -377,10 +381,12 @@ export const callOnUpdate = (
 /**
  * Which way the pill grows, from where the avatar actually sits.
  *
- * The pill needs the gap and its widest body of clearance beyond the avatar's
- * edge on the side it grows into. Rightward is the default and leftward is what
- * it flips to when the right edge is too close, so the avatar stays exactly
- * where the user put it instead of the controls running off the display.
+ * The room on each side is measured from the avatar's centre, so the clearance
+ * the pill needs is measured from there too: the avatar's half box, then the
+ * gap, then its widest body, which is {@link CompanionGeometry.maxReach}.
+ * Rightward is the default and leftward is what it flips to when the right edge
+ * is too close, so the avatar stays exactly where the user put it instead of
+ * the controls running off the display.
  *
  * A display too narrow for either direction still grows right, because the
  * clipping is then unavoidable and the user can drag the surface somewhere it
@@ -391,7 +397,7 @@ export const growthFor = (
   workArea: { x: number; width: number },
   geometry: CompanionGeometry,
 ): CompanionGrowth => {
-  const needed = geometry.gap + geometry.maxBodyWidth;
+  const needed = geometry.maxReach;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
   const roomLeft = avatarCentreX - workArea.x;
   if (roomRight < needed && roomLeft >= needed) {
