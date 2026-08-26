@@ -10,7 +10,7 @@ mock.module("@capacitor/core", () => ({
 
 const {
   captureInstallReferrer,
-  clearStoredInstallReferrer,
+  markInstallReferrerSpent,
   readStoredInstallReferrer,
 } = await import("./install-referrer");
 
@@ -85,13 +85,35 @@ test("reads the referrer at most once per install", async () => {
   await captureInstallReferrer();
   expect(read).toHaveBeenCalledTimes(1);
   expect(readStoredInstallReferrer()).toEqual({ utm_source: "newsletter" });
+});
 
-  clearStoredInstallReferrer();
+test("a spend does not re-arm the bridge", async () => {
+  read.mockResolvedValueOnce({ referrer: "utm_source=newsletter" });
+  await captureInstallReferrer();
+
+  markInstallReferrerSpent();
   expect(readStoredInstallReferrer()).toEqual({});
+  // The emptied key is the spend record, so the shell (which answers `read()`
+  // with the same referrer forever) is never asked again. Without it the next
+  // user to sign up on this device inherits the first user's campaign.
+  expect(localStorage.getItem(STORAGE_KEY)).toBe("");
+
+  read.mockResolvedValue({ referrer: "utm_source=newsletter" });
+  await captureInstallReferrer();
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(readStoredInstallReferrer()).toEqual({});
+});
+
+test("a bridge that never answers stores nothing and stays retryable", async () => {
+  // A Play Store that binds without ever calling back would otherwise hold the
+  // auth flow that awaits this open forever.
+  read.mockImplementationOnce(
+    () => new Promise<{ referrer?: string }>(() => {}),
+  );
+  await captureInstallReferrer();
   expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
 
-  read.mockResolvedValueOnce({ referrer: "utm_source=retry" });
+  read.mockResolvedValueOnce({ referrer: "utm_source=newsletter" });
   await captureInstallReferrer();
-  expect(read).toHaveBeenCalledTimes(2);
-  expect(readStoredInstallReferrer()).toEqual({ utm_source: "retry" });
+  expect(readStoredInstallReferrer()).toEqual({ utm_source: "newsletter" });
 });

@@ -360,12 +360,13 @@ the web side is
 [`src/runtime/install-referrer.ts`](../src/runtime/install-referrer.ts). There
 is no iOS counterpart.
 
-- **`read()` never rejects.** It resolves
-  `{ referrer, referrerClickTimestampSeconds, installBeginTimestampSeconds }`
+- **`read()` never rejects, and always answers.** It resolves `{ referrer }`
   when Play answers with a referrer, and `{}` for every other outcome: no Play
   Store on the device, a Play Store that declines the bind, or a Play install
-  with no campaign. A rejection here would surface as an error on the auth
-  path, which is where the value is spent.
+  with no campaign. A bind that connects but never calls back is answered empty
+  by a timeout on each side (five seconds in the plugin, two in the web layer),
+  because the auth path that spends this value awaits the call. A rejection or
+  a hang here would surface as an error or a stuck sign-in button.
 - **The empty result is the answer.** There is no availability probe, for the
   same reason the voice bridge has none (§ "The skew rule"): a probe can itself
   be absent on an older shell, and `{}` is the only answer a caller could act
@@ -374,11 +375,21 @@ is no iOS counterpart.
 - **The shell caches the resolution, not its consumption.** A successful read
   and a status meaning this device's Play Store will never answer both land in
   the `install_referrer_state` preferences, so later launches skip the service
-  bind. A transient failure is left uncached, so a later launch retries.
+  bind. A transient failure, a timed-out bind included, is left uncached, so a
+  later launch retries.
 - **Consumption state belongs to the web layer.** The shell keeps answering
-  `read()` with the same value forever; the web layer captures it into device
-  storage once and drops it when a signup has spent it. Do not add a
-  "mark consumed" method to the bridge.
+  `read()` with the same value forever, so the spend has to be recorded where
+  the value is spent. The web layer captures the referrer into
+  `device:install_referrer` and empties that key once an auth flow has spent
+  it, keeping the key itself as the record: its presence, an empty value
+  included, is what stops a later signup on this device from re-reading the
+  bridge and inheriting the first user's campaign. Do not add a "mark consumed"
+  method to the bridge.
+- **Failures are logged, not reported.** The plugin logs through
+  `com.getcapacitor.Logger`, not `NativeFailureGuard`, whose reports the web
+  layer forwards to Sentry. A Play Store that is absent or declines the bind is
+  the normal path on every sideloaded, `dev`, and `staging` build, so a report
+  there is noise, not signal.
 - **No manifest permission.** The Play Install Referrer Library declares its
   own service binding, so `AndroidManifest.xml` needs no entry for this.
 

@@ -17,7 +17,6 @@
  */
 
 import {
-  removeLocalSetting,
   setLocalBool,
   setLocalSetting,
   watchSetting,
@@ -58,7 +57,8 @@ const DEVICE_SETTINGS = {
   lastUserId: { key: "device:last_user_id" },
   // Allowlisted attribution parsed out of the Android Play install referrer,
   // stored as a query string. Describes the install, so it outlives any
-  // account that signs in on this device.
+  // account that signs in on this device. An empty value records that a native
+  // auth flow has spent it.
   installReferrer: { key: "device:install_referrer" },
 } as const satisfies Record<string, DeviceSettingEntry>;
 
@@ -89,9 +89,16 @@ export function setDeviceSetting(name: DeviceSettingName, value: string): void {
   setLocalSetting(DEVICE_SETTINGS[name].key, value);
 }
 
-/** Remove a device-scoped setting. Fires the `vellum:pref-changed` event for same-tab observers. */
-export function removeDeviceSetting(name: DeviceSettingName): void {
-  removeLocalSetting(DEVICE_SETTINGS[name].key);
+/** Whether a device-scoped setting is stored at all, an empty value included. */
+export function hasDeviceSetting(name: DeviceSettingName): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return localStorage.getItem(DEVICE_SETTINGS[name].key) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /** Read a boolean device setting. */
