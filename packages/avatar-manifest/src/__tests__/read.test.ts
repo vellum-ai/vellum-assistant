@@ -97,7 +97,7 @@ describe("readWorkspaceAvatar", () => {
         color: "green",
       }),
     );
-    rmSync(avatarDir, { recursive: true, force: true });
+    mkdirSync(join(workspaceDir, "data"), { recursive: true });
     symlinkSync(foreign, avatarDir);
     expect(readWorkspaceAvatar(workspaceDir)).toEqual({ kind: "none" });
     rmSync(foreign, { recursive: true, force: true });
