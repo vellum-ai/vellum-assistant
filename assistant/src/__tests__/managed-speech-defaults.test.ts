@@ -26,7 +26,10 @@ mock.module("../calls/telephony-tts-capability.js", () => ({
 }));
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
-import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
+import {
+  maybeDefaultSpeechToManaged,
+  resolveEffectiveSpeechProviders,
+} from "../config/managed-speech-defaults.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
 
 const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
@@ -238,5 +241,90 @@ describe("maybeDefaultSpeechToManaged", () => {
     const config = readConfig();
     expect((config.services as any).stt.provider).toBe("deepgram");
     expect((config.services as any).tts.provider).toBe("elevenlabs");
+  });
+});
+
+describe("managed live voice runs Flux", () => {
+  // Turn detection is the only reason to reach for that family, and a managed
+  // user cannot ask for it: the provider picker offers no family, so `vellum`
+  // is as specific as they can be.
+  test("live voice upgrades to the flux family", async () => {
+    mockManagedSpeechAvailable = true;
+    writeConfig({ services: { stt: { provider: "vellum" } } });
+
+    const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+      role: "liveVoice",
+    });
+
+    expect(stt).toBe("vellum-flux");
+  });
+
+  test("no other consumer follows it there", async () => {
+    // The family streams and nothing else, so batch and telephony would lose
+    // their transcriber entirely.
+    mockManagedSpeechAvailable = true;
+    writeConfig({ services: { stt: { provider: "vellum" } } });
+
+    for (const role of ["batch", "telephony", "dictation", "watch"] as const) {
+      const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+        role,
+      });
+      expect(stt).toBe("vellum");
+    }
+    const { stt: roleless } = await resolveEffectiveSpeechProviders();
+    expect(roleless).toBe("vellum");
+  });
+
+  test("a family the user named wins", async () => {
+    // `services.stt.providers.vellum.model` accepts nova-3, so quietly
+    // overriding it would be the silent substitution roles exist to prevent.
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: { provider: "vellum", providers: { vellum: { model: "nova-3" } } },
+      },
+    });
+
+    const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+      role: "liveVoice",
+    });
+
+    expect(stt).toBe("vellum");
+  });
+
+  test("a language the family cannot serve stays on nova-3", async () => {
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: { stt: { provider: "vellum", language: "ko" } },
+    });
+
+    const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+      role: "liveVoice",
+    });
+
+    expect(stt).toBe("vellum");
+  });
+
+  test("nothing is upgraded while managed speech is unavailable", async () => {
+    mockManagedSpeechAvailable = false;
+    writeConfig({ services: { stt: { provider: "vellum" } } });
+
+    const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+      role: "liveVoice",
+    });
+
+    expect(stt).toBe("vellum");
+  });
+
+  test("the upgrade writes no config", async () => {
+    // A resolution rule, not a substitution: nothing lands on disk for a user
+    // to discover, reset, or have to migrate.
+    mockManagedSpeechAvailable = true;
+    writeConfig({ services: { stt: { provider: "vellum" } } });
+    const before = JSON.stringify(readConfig());
+
+    await resolveEffectiveSpeechProviders(undefined, { role: "liveVoice" });
+
+    expect(JSON.stringify(readConfig())).toBe(before);
   });
 });

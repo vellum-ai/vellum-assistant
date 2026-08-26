@@ -31224,6 +31224,8 @@ paths:
                           type: array
                           items:
                             type: string
+                        baseModelFamily:
+                          type: string
                         credentialsGuide:
                           type: string
                       required:

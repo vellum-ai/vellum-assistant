@@ -33,6 +33,7 @@ import {
   sttCatalogKeyForRole,
   type SttRole,
   sttRoleCapabilityGap,
+  sttSelectionForRole,
 } from "../stt/roles.js";
 import type { SttProviderId } from "../stt/types.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
@@ -144,7 +145,43 @@ export async function resolveEffectiveSpeechProviders(
       ? "vellum"
       : configuredTts;
 
-  return { stt, tts };
+  return {
+    stt: managedLiveVoiceModelFamily(stt, options.role, services.stt),
+    tts,
+  };
+}
+
+/**
+ * Managed live voice runs Flux.
+ *
+ * Turn detection is the reason to reach for Flux at all, and managed users
+ * cannot ask for it: the provider picker offers no model family, so `vellum`
+ * is as specific as they can be. Deciding it here rather than persisting a
+ * `services.stt.roles.liveVoice` entry keeps managed opinionated without
+ * writing config on anyone's behalf, and reaches installs already on `vellum`
+ * that a substitution rule never sees.
+ *
+ * Two things still win over it. A family the user named is honoured, because
+ * `services.stt.providers.vellum.model` accepts `nova-3` and quietly ignoring
+ * a valid setting is the silent substitution roles exist to prevent. And a
+ * language outside Flux's roster stays on nova-3, since the relay refuses the
+ * dial rather than degrading (see `managedStandInFor`).
+ *
+ * Live voice only: Flux streams and nothing else, so every other consumer
+ * would lose its transcriber.
+ */
+function managedLiveVoiceModelFamily(
+  resolved: SttProviderId,
+  role: SttRole | undefined,
+  stt: AssistantConfig["services"]["stt"],
+): SttProviderId {
+  if (role !== "liveVoice" || resolved !== "vellum") {
+    return resolved;
+  }
+  if (sttSelectionForRole(stt, role).model !== undefined) {
+    return resolved;
+  }
+  return fluxModelForLanguage(stt.language) === null ? "vellum" : "vellum-flux";
 }
 
 /**

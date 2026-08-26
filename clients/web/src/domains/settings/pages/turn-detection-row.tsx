@@ -33,6 +33,15 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 const TURN_DETECTING_FAMILY = "flux";
 
 /**
+ * Whether a provider is served by the platform connection rather than a key of
+ * the user's own. Managed live voice is the path that defaults to the
+ * turn-detecting family, so it is the one whose unset state reads as on.
+ */
+function isManagedProvider(provider: string): boolean {
+  return provider === "vellum";
+}
+
+/**
  * Languages that family serves. Outside them the relay refuses the dial, so
  * turning this on would leave the microphone dead rather than less precise.
  * Kept in step with `fluxSupportedLanguages` in the relay and
@@ -90,21 +99,27 @@ export function TurnDetectionRow() {
   });
 
   const provider = stt?.roles?.liveVoice?.provider ?? stt?.provider;
+  const catalogEntry = catalog?.providers?.find(
+    (entry) => entry.id === provider,
+  );
   // A provider with no such family has nothing to offer here, so the row is
   // absent rather than present and permanently off.
-  const offersTurnDetection = catalog?.providers?.some(
-    (entry) =>
-      entry.id === provider &&
-      entry.modelFamilies?.includes(TURN_DETECTING_FAMILY),
-  );
+  const offersTurnDetection =
+    catalogEntry?.modelFamilies?.includes(TURN_DETECTING_FAMILY) ?? false;
   if (!provider || !offersTurnDetection) {
     return null;
   }
 
   const languageOk = languageSupportsTurnDetection(stt?.language);
+  // Managed live voice resolves to the turn-detecting family when nothing is
+  // named, so an unset selection reads as on rather than off. Without that the
+  // row would report a state the session does not run.
+  const named =
+    stt?.roles?.liveVoice?.model ?? stt?.providers?.[provider]?.model;
   const checked =
-    (stt?.roles?.liveVoice?.model ?? stt?.providers?.[provider]?.model) ===
-    TURN_DETECTING_FAMILY;
+    named === undefined
+      ? isManagedProvider(provider) && languageOk
+      : named === TURN_DETECTING_FAMILY;
 
   const apply = async (next: boolean) => {
     setSaving(true);
@@ -119,9 +134,16 @@ export function TurnDetectionRow() {
           services: {
             stt: {
               roles: {
-                liveVoice: next
-                  ? { provider, model: TURN_DETECTING_FAMILY }
-                  : null,
+                liveVoice: {
+                  provider,
+                  // Off names the base family rather than deleting the key.
+                  // Managed live voice resolves an unnamed family to the
+                  // turn-detecting one, so clearing it would switch straight
+                  // back on and the toggle would not stick.
+                  model: next
+                    ? TURN_DETECTING_FAMILY
+                    : catalogEntry?.baseModelFamily,
+                },
               },
             },
           },

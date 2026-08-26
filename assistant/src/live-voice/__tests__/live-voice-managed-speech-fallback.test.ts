@@ -54,7 +54,10 @@ let requestedSttProviders: (string | undefined)[];
 
 /** A provider yields a streaming transcriber when its credential resolves. */
 function transcriberFor(providerId: string | undefined): boolean {
-  return providerId === "vellum"
+  // Both managed rows ride the same platform connection, so neither has a
+  // credential of its own. Live voice asks for the flux row specifically,
+  // since managed live voice resolves to it when no family is named.
+  return providerId === "vellum" || providerId === "vellum-flux"
     ? managedAvailable
     : providerId !== undefined && providerKeys[providerId] !== undefined;
 }
@@ -218,8 +221,10 @@ describe("live voice on managed speech", () => {
     expect(readiness).toEqual({ status: "ready" });
 
     // The transcriber the session arms is asked for the same provider the
-    // readiness verdict was earned on.
-    expect(requestedSttProviders).toEqual(["vellum"]);
+    // readiness verdict was earned on. Live voice resolves the flux row while
+    // the roleless verdict above stays on the base one, which is the whole
+    // point of resolving per role.
+    expect(requestedSttProviders).toEqual(["vellum-flux"]);
     expect(readConfigFile()).toBe(configBefore);
   });
 

@@ -14,6 +14,7 @@ import { extname, join } from "node:path";
 import { z } from "zod";
 
 import {
+  baseModelFamilyFor,
   listProviderEntries,
   listProviderModelFamilies,
 } from "../../providers/speech-to-text/provider-catalog.js";
@@ -277,6 +278,11 @@ function handleListProviders() {
     // offer them as providers, which leaves this the only way a client can
     // learn a family exists at all.
     modelFamilies: listProviderModelFamilies(e.id),
+    // Which of those families the provider runs when none is named. Sent
+    // explicitly rather than left as "the first entry", so a client that
+    // needs to write the non-variant family is not depending on array order
+    // across the wire.
+    baseModelFamily: baseModelFamilyFor(e.id),
     subtitle: e.subtitle,
     setupMode: e.setupMode,
     setupHint: e.setupHint,
@@ -467,6 +473,7 @@ export const ROUTES: RouteDefinition[] = [
           languageSelection: z.enum(["manual", "auto"]).optional(),
           // Optional on the wire so older generated clients keep validating.
           modelFamilies: z.array(z.string()).optional(),
+          baseModelFamily: z.string().optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),
