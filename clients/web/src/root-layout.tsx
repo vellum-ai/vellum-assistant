@@ -51,6 +51,7 @@ import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navig
 import { usePushRegistration } from "@/hooks/use-push-registration";
 import { useWebPresenceReport } from "@/hooks/use-web-presence-report";
 import { useSoundEffects } from "@/hooks/use-sound-effects";
+import { useScreenRecordingLifecycle } from "@/hooks/use-screen-recording-lifecycle";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
@@ -175,6 +176,7 @@ export function RootLayout() {
   useNotificationIntentSync(assistantId);
   useWebPresenceReport(assistantId);
   usePushRegistration(assistantId);
+  useScreenRecordingLifecycle(assistantId);
   useNotificationTapNavigation();
   useSoundEffects(assistantId, isAssistantActive);
   useDocumentEditorSync();

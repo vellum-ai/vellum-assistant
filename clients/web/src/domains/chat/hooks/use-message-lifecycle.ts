@@ -86,7 +86,6 @@ export function useMessageLifecycle({
   const { handleStreamEvent } = useStreamEventHandler({
     push,
     isNative,
-    assistantId,
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
