@@ -73,6 +73,25 @@ export function classifyScrollPosition(
   return { distanceFromBottom, isPinned, showScrollToLatest, shouldLoadOlder };
 }
 
+/**
+ * Whether two item lists hold the same rows, compared by key.
+ *
+ * Guards the underfilled-viewport auto-fetch: transcript items are a
+ * projection of the loaded transcript (confirmation visibility and other
+ * filters can drop rows), so a fetched history page can change the items
+ * array's identity without changing its rows. An auto-fetch that re-fires on
+ * such a no-progress update would chain-load history the transcript will not
+ * show. Key equality is the right grain: a page that adds or removes any
+ * visible row changes the key sequence, while in-place updates to an
+ * existing row (streaming text) keep it.
+ */
+export function haveSameItemKeys(
+  a: readonly TranscriptItem[],
+  b: readonly TranscriptItem[],
+): boolean {
+  return a.length === b.length && a.every((item, i) => item.key === b[i]?.key);
+}
+
 /** Find the new index of a previously saved anchor key inside a refreshed
  *  items list. Returns -1 if the key is no longer present. */
 export function findAnchorIndex(

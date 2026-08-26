@@ -21,6 +21,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
+  haveSameItemKeys,
   decideItemsChangeAction,
   findAnchorIndex,
   findLatestUserAnchorKey,
@@ -705,5 +706,44 @@ describe("integration — items-effect dispatch on underfilled viewport", () => 
       onLoadOlder();
     }
     expect(onLoadOlder).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// haveSameItemKeys — the no-progress guard for the underfilled auto-fetch
+// ---------------------------------------------------------------------------
+
+describe("haveSameItemKeys", () => {
+  test("same rows in the same order compare equal", () => {
+    const prev = [makeMessage("m1"), makeMessage("m2")];
+    const next = [makeMessage("m1"), makeMessage("m2")];
+    expect(haveSameItemKeys(prev, next)).toBe(true);
+  });
+
+  test("an in-place update to a row (same key) still compares equal", () => {
+    // Streaming replaces the item object but keeps its key; the guard must
+    // not read that as progress.
+    const prev = [makeMessage("m1")];
+    const next = [makeMessage("m1")];
+    expect(prev[0]).not.toBe(next[0]);
+    expect(haveSameItemKeys(prev, next)).toBe(true);
+  });
+
+  test("a prepended row is progress", () => {
+    const prev = [makeMessage("m2")];
+    const next = [makeMessage("m1"), makeMessage("m2")];
+    expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+
+  test("a removed row is progress", () => {
+    const prev = [makeMessage("m1"), makeMessage("m2")];
+    const next = [makeMessage("m2")];
+    expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+
+  test("a replaced key at equal length is progress", () => {
+    const prev = [makeMessage("m1"), makeMessage("m2")];
+    const next = [makeMessage("m1"), makeMessage("m3")];
+    expect(haveSameItemKeys(prev, next)).toBe(false);
   });
 });

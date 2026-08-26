@@ -34,10 +34,11 @@ import {
 import { recordUpdate } from "@/lib/commit-pressure";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
-  type AnchorSnapshot,
   classifyScrollPosition,
   decideItemsChangeAction,
   findLatestUserAnchorKey,
+  haveSameItemKeys,
+  type AnchorSnapshot,
   type ScrollMetrics,
 } from "@/domains/chat/transcript/transcript-scroll-utils";
 
@@ -362,8 +363,16 @@ export function useTranscriptScroll(
       // from here. Skip the anchor save during auto-pin (resize observer re-pins).
       // Gate on the synchronous in-flight lock so a chain-load sequence
       // (response prepends → items change → effect re-runs near top) cannot
-      // double-fire on a single render cycle.
-      if (classification.shouldLoadOlder && !loadOlderInFlightRef.current) {
+      // double-fire on a single render cycle. Also gate on the item set
+      // actually having changed (see `haveSameItemKeys`): re-firing on a
+      // no-progress update would chain-load history the transcript will not
+      // show. A real user gesture still reaches load-older through the
+      // scroll handler.
+      if (
+        classification.shouldLoadOlder &&
+        !loadOlderInFlightRef.current &&
+        !haveSameItemKeys(prev, items)
+      ) {
         if (!shouldAutoPinRef.current) {
           const firstItem = items[0];
           if (firstItem) {
