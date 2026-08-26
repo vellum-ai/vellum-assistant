@@ -4,10 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { buildRemoteWebPairingUrl } from "@vellumai/service-contracts/remote-web-pairing";
-
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { t } from "@/i18n";
 import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import {
@@ -25,6 +22,7 @@ import {
   navigateToNewConversation,
   revealConversationView,
 } from "@/utils/conversation-navigation";
+import { pairingLinkForBase } from "@/utils/pairing-address";
 import { conversationIdForPath, routes } from "@/utils/routes";
 
 /**
@@ -149,7 +147,10 @@ function connectAddress(
   if (code === null) {
     return url;
   }
-  return buildRemoteWebPairingUrl({ verificationUri: url, deviceCode: code });
+  // The link the user sees in the address field, so it has to be one they can
+  // also paste into another device's browser: the base plus the pair route,
+  // not the base with a bare fragment hung off it.
+  return pairingLinkForBase(url, code) ?? url;
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -407,21 +408,20 @@ export function useGlobalDeepLinkConsumer(): void {
   //
   // With nothing to submit the dialog explains the link instead. `legacy`
   // marks app versions whose connect dialog took a pasted pairing bundle; the
-  // payload never crosses the bridge, so only the flag is read.
+  // payload never crosses the bridge, so only the flag is read. The kind is
+  // parked rather than the copy, so the dialog resolves it reactively.
   useBusSubscription("deeplink.connect", ({ url, code, legacy }) => {
     void ensureMainWindowVisible();
     const address = connectAddress(url, code);
     // Park before navigating so the chooser mounts with the dialog
     // already open (its auto-skip stands down while it is).
-    useConnectDialogStore.getState().openConnectDialog(
-      address !== null
-        ? { initialAddress: address }
-        : {
-            guidanceMessage: legacy
-              ? t("useGlobalDeepLinkConsumer.legacyLinkGuidance")
-              : t("useGlobalDeepLinkConsumer.connectGuidance"),
-          },
-    );
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog(
+        address !== null
+          ? { initialAddress: address }
+          : { guidanceKind: legacy ? "legacy" : "generic" },
+      );
     navigateRef.current(routes.selectAssistant);
   });
 

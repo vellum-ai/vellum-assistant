@@ -30,12 +30,21 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 
+/**
+ * Which explanation an address-less `connect` deep link earns. `legacy` marks
+ * an app version whose connect dialog took a pasted pairing bundle; `generic`
+ * is a link that simply carried no usable base. The discriminant is parked
+ * rather than resolved copy, so the dialog renders it through its own reactive
+ * `t` and a language switch reaches it.
+ */
+export type ConnectGuidanceKind = "legacy" | "generic";
+
 export interface ConnectDialogState {
   open: boolean;
   /** Prefill for the dialog's address field (deep-link entry), or `null`. */
   initialAddress: string | null;
-  /** Guidance shown above the form (address-less deep-link entry), or `null`. */
-  guidanceMessage: string | null;
+  /** Which guidance the dialog shows above the form, or `null` for none. */
+  guidanceKind: ConnectGuidanceKind | null;
   /** Whether the Electron cold-start deep-link drain has settled. */
   deepLinkDrainSettled: boolean;
 }
@@ -47,7 +56,7 @@ export interface ConnectDialogActions {
    */
   openConnectDialog: (options?: {
     initialAddress?: string;
-    guidanceMessage?: string;
+    guidanceKind?: ConnectGuidanceKind;
   }) => void;
   /** Close the dialog and clear any parked deep-link payload. */
   closeConnectDialog: () => void;
@@ -60,16 +69,16 @@ export type ConnectDialogStore = ConnectDialogState & ConnectDialogActions;
 const useConnectDialogStoreBase = create<ConnectDialogStore>()((set) => ({
   open: false,
   initialAddress: null,
-  guidanceMessage: null,
+  guidanceKind: null,
   deepLinkDrainSettled: false,
   openConnectDialog: (options) =>
     set({
       open: true,
       initialAddress: options?.initialAddress ?? null,
-      guidanceMessage: options?.guidanceMessage ?? null,
+      guidanceKind: options?.guidanceKind ?? null,
     }),
   closeConnectDialog: () =>
-    set({ open: false, initialAddress: null, guidanceMessage: null }),
+    set({ open: false, initialAddress: null, guidanceKind: null }),
   markDeepLinkDrainSettled: () => set({ deepLinkDrainSettled: true }),
 }));
 
@@ -82,7 +91,7 @@ export function __resetConnectDialogForTesting(): void {
   useConnectDialogStoreBase.setState({
     open: false,
     initialAddress: null,
-    guidanceMessage: null,
+    guidanceKind: null,
     deepLinkDrainSettled: false,
   });
 }

@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
+import type { PublicBaseUrlRejection } from "@vellumai/service-contracts/remote-web-pairing";
 
 import {
   cancelAssistantPairing,
@@ -12,15 +13,17 @@ import {
   pollAssistantPairing,
   startAssistantPairing,
 } from "@/lib/local-mode";
+import type { ConnectGuidanceKind } from "@/stores/connect-dialog-store";
 import { formatCountdown } from "@/utils/format-countdown";
+import { publicBaseUrlRejectionMessage } from "@/utils/pairing-address";
 import { useTranslation } from "@/i18n";
 
 interface ConnectAssistantDialogProps {
   open: boolean;
   /** Prefills the address field when the dialog opens (deep-link entry). */
   initialAddress?: string;
-  /** Extra guidance rendered above the form (deep-link entry with no address). */
-  guidanceMessage?: string;
+  /** Which guidance to render above the form (deep-link entry with no address). */
+  guidanceKind?: ConnectGuidanceKind;
   onClose: () => void;
   /**
    * Fired once the pairing is imported and the lockfile refreshed, so the
@@ -36,6 +39,19 @@ interface ApprovalSession {
   userCode: string;
   expiresAt: string;
 }
+
+/**
+ * What to show inline when an attempt fails. A refused address carries the
+ * structured reason, which this dialog renders from its own catalog; anything
+ * else carries copy that is already display-ready.
+ */
+type ConnectFailure =
+  | {
+      kind: "rejected-address";
+      rejection: PublicBaseUrlRejection;
+      address: string;
+    }
+  | { kind: "message"; text: string };
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,7 +83,7 @@ const isPastDeadline = (expiresAt: string): boolean => {
 function ConnectAssistantDialog({
   open,
   initialAddress,
-  guidanceMessage,
+  guidanceKind,
   onClose,
   onImported,
 }: ConnectAssistantDialogProps) {
@@ -75,7 +91,7 @@ function ConnectAssistantDialog({
   const [address, setAddress] = useState("");
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ConnectFailure | null>(null);
   // Set once the host answers with an approval code: the dialog swaps the form
   // for the code and polls until it is approved.
   const [session, setSession] = useState<ApprovalSession | null>(null);
@@ -164,7 +180,18 @@ function ConnectAssistantDialog({
         return;
       }
       if (!started.ok) {
-        setError(started.error);
+        // A refused address is the one failure this dialog has copy for; the
+        // host's `error` is English, so it stands in only when the refusal
+        // names no reason.
+        setError(
+          started.rejection
+            ? {
+                kind: "rejected-address",
+                rejection: started.rejection,
+                address: trimmedAddress,
+              }
+            : { kind: "message", text: started.error },
+        );
         setPending(false);
         return;
       }
@@ -225,9 +252,12 @@ function ConnectAssistantDialog({
           releaseSession();
           setSession(null);
           setRetrying(false);
-          setError(
-            retryable ? t("connectAssistantDialog.retryExpired") : polled.error,
-          );
+          setError({
+            kind: "message",
+            text: retryable
+              ? t("connectAssistantDialog.retryExpired")
+              : polled.error,
+          });
           break;
         }
         if (consecutiveFailures > 0) {
@@ -245,7 +275,15 @@ function ConnectAssistantDialog({
           return;
         }
         // Pending: the gateway names the deadline and the cadence, and the
-        // host reports the attempt expired once that deadline passes.
+        // host reports the attempt expired once that deadline passes. The
+        // countdown follows the deadline the poll reports, so it cannot read
+        // 0:00 while the loop is still legitimately polling.
+        if (polled.expiresAt !== expiresAt) {
+          setSession((prev) =>
+            prev ? { ...prev, expiresAt: polled.expiresAt } : prev,
+          );
+          setRemainingMs(Date.parse(polled.expiresAt) - Date.now());
+        }
         expiresAt = polled.expiresAt;
         intervalSeconds = polled.intervalSeconds;
         await sleep(intervalSeconds * 1000);
@@ -258,7 +296,10 @@ function ConnectAssistantDialog({
       releaseSession();
       setSession(null);
       setRetrying(false);
-      setError(t("connectAssistantDialog.submitError"));
+      setError({
+        kind: "message",
+        text: t("connectAssistantDialog.submitError"),
+      });
     }
     setPending(false);
   };
@@ -316,7 +357,15 @@ function ConnectAssistantDialog({
 
         <Modal.Body>
           <div className="space-y-4">
-            {guidanceMessage && <Notice tone="info">{guidanceMessage}</Notice>}
+            {guidanceKind && (
+              <Notice tone="info">
+                {t(
+                  guidanceKind === "legacy"
+                    ? "connectAssistantDialog.legacyLinkGuidance"
+                    : "connectAssistantDialog.linkGuidance",
+                )}
+              </Notice>
+            )}
 
             {session ? (
               <div className="flex flex-col gap-3">
@@ -386,7 +435,12 @@ function ConnectAssistantDialog({
 
             {error && (
               <p className="text-body-small-default text-[var(--system-negative-strong)]">
-                {error}
+                {error.kind === "rejected-address"
+                  ? publicBaseUrlRejectionMessage(
+                      error.rejection,
+                      error.address,
+                    )
+                  : error.text}
               </p>
             )}
           </div>

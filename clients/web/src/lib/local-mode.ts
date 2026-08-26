@@ -6,6 +6,7 @@ import {
 import { isRetryablePairingReason } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { isPublicBaseUrlRejection } from "@/utils/pairing-address";
 import {
   clearSelectedAssistantId,
   readSelectedAssistantId,
@@ -527,7 +528,16 @@ export async function startAssistantPairing(
 ): Promise<LocalPairingStartResult> {
   const result = await pairingStartHost(address);
   if (!result.ok) {
-    return { ...result, error: result.error || PAIRING_FALLBACK_ERROR };
+    return {
+      ...result,
+      error: result.error || PAIRING_FALLBACK_ERROR,
+      // Runtime guard, as on the poll below: the dev-server host branch parses
+      // untyped JSON, so a reason no caller has copy for degrades to the
+      // host's own message rather than to no message at all.
+      rejection: isPublicBaseUrlRejection(result.rejection)
+        ? result.rejection
+        : undefined,
+    };
   }
   return result;
 }

@@ -92,6 +92,8 @@
   "connectAssistantDialog": {
     "title": "Connect a Remote Assistant",
     "instruction": "Paste the pairing link from the assistant's Pair a device settings, or just its address, and approve the request there.",
+    "linkGuidance": "This link came from a pairing QR code. To connect this device, paste the pairing link from the assistant's machine here.",
+    "legacyLinkGuidance": "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here.",
     "addressLabel": "Address or pairing link",
     "addressPlaceholder": "https://your-assistant.ts.net",
     "nameLabel": "Name (optional)",

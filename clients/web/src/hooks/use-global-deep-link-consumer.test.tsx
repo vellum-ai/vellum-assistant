@@ -1290,13 +1290,15 @@ describe("deeplink.connect", () => {
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
     // The two params recompose into the artifact the host hands out, which
-    // the dialog submits to the local-mode host verbatim.
+    // the dialog submits to the local-mode host verbatim. It carries the pair
+    // route, so copying it into another device's browser lands on the pair
+    // page rather than on the SPA root.
     expect(dialog.initialAddress).toBe(
-      "https://office-mac.example:8443/assistant-1#device_code=DEVICE-CODE-1",
+      "https://office-mac.example:8443/assistant-1/assistant/pair#device_code=DEVICE-CODE-1",
     );
     // Prefill only: a URL scheme carries no caller identity, so the pairing
     // grant waits on the user's click.
-    expect(dialog.guidanceMessage).toBeNull();
+    expect(dialog.guidanceKind).toBeNull();
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
@@ -1317,7 +1319,7 @@ describe("deeplink.connect", () => {
     expect(dialog.initialAddress).toBe(
       "https://office-mac.example:8443/assistant-1",
     );
-    expect(dialog.guidanceMessage).toBeNull();
+    expect(dialog.guidanceKind).toBeNull();
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
   });
 
@@ -1331,11 +1333,10 @@ describe("deeplink.connect", () => {
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
     // The bundle payload never crosses the bridge, so there is nothing to
-    // submit: the dialog explains the link instead.
+    // submit: the dialog explains the link instead. The kind is parked, not
+    // the copy, so the dialog resolves it in the active language.
     expect(dialog.initialAddress).toBeNull();
-    expect(dialog.guidanceMessage).toBe(
-      "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here.",
-    );
+    expect(dialog.guidanceKind).toBe("legacy");
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
@@ -1350,9 +1351,7 @@ describe("deeplink.connect", () => {
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
     expect(dialog.initialAddress).toBeNull();
-    expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine here.",
-    );
+    expect(dialog.guidanceKind).toBe("generic");
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
   });
 
@@ -1369,9 +1368,25 @@ describe("deeplink.connect", () => {
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.initialAddress).toBe(
-      "https://office-mac.example/#device_code=DEVICE-CODE-1",
+      "https://office-mac.example/assistant/pair#device_code=DEVICE-CODE-1",
     );
-    expect(dialog.guidanceMessage).toBeNull();
+    expect(dialog.guidanceKind).toBeNull();
+  });
+
+  test("a trailing slash on the base does not double the pair route", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.connect", {
+        url: "https://office-mac.example/assistant-1/",
+        code: "DEVICE-CODE-1",
+        legacy: false,
+      });
+    });
+
+    expect(useConnectDialogStore.getState().initialAddress).toBe(
+      "https://office-mac.example/assistant-1/assistant/pair#device_code=DEVICE-CODE-1",
+    );
   });
 });
 
