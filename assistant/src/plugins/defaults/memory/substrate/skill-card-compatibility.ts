@@ -7,6 +7,10 @@ import {
 
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
+  extractSkillIdFromAvailabilityContent,
+  extractSkillIdFromV3Card,
+} from "./skill-card-format.js";
+import {
   ensureSkillEntriesAvailable,
   getSkillCapability,
   isSkillSlug,
@@ -36,7 +40,7 @@ export function filterCompatibleEverInjected(
 
 function stripV2SkillSection(
   inner: string,
-  incompatibleContents: readonly string[],
+  incompatibleIds: ReadonlySet<string>,
 ): string {
   const start = inner.indexOf(V2_SKILLS_HEADER);
   if (start < 0) {
@@ -46,9 +50,13 @@ function stripV2SkillSection(
   const nextSection = inner.indexOf("\n\n### ", bodyStart);
   const end = nextSection < 0 ? inner.length : nextSection;
   let body = inner.slice(bodyStart, end);
-  for (const content of incompatibleContents) {
-    body = body.replace(`- ${content} → use skill_load to activate`, "");
-  }
+  body = body.replace(
+    /^- ([\s\S]*?) → use skill_load to activate$/gm,
+    (entry, skillContent: string) => {
+      const skillId = extractSkillIdFromAvailabilityContent(skillContent);
+      return skillId && incompatibleIds.has(skillId) ? "" : entry;
+    },
+  );
   body = body.trim();
   const before = inner.slice(0, start).trimEnd();
   const after = inner.slice(end).trimStart();
@@ -59,19 +67,17 @@ function stripV2SkillSection(
 
 function stripIncompatibleSkillsFromInner(
   inner: string,
-  incompatibleSkills: ReadonlyArray<{ id: string; content: string }>,
+  incompatibleSkills: ReadonlyArray<{ id: string }>,
 ): string {
-  const v3Chunks = new Set(
-    incompatibleSkills.map((skill) => `# Skill: ${skill.id}\n${skill.content}`),
-  );
+  const incompatibleIds = new Set(incompatibleSkills.map((skill) => skill.id));
   const withoutV3 = inner
     .split("\n\n")
-    .filter((piece) => !v3Chunks.has(piece))
+    .filter((piece) => {
+      const skillId = extractSkillIdFromV3Card(piece);
+      return !skillId || !incompatibleIds.has(skillId);
+    })
     .join("\n\n");
-  return stripV2SkillSection(
-    withoutV3,
-    incompatibleSkills.map((skill) => skill.content),
-  );
+  return stripV2SkillSection(withoutV3, incompatibleIds);
 }
 
 export async function stripIncompatibleSkillCardsFromMessages(

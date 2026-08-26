@@ -22,6 +22,7 @@ import {
   getCliCommandCapability,
   isCliCommandSlug,
 } from "../substrate/cli-command-store.js";
+import { renderV3SkillCard } from "../substrate/skill-card-format.js";
 import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
 import type { Slug } from "./types.js";
 
@@ -67,7 +68,7 @@ function renderCapability(
 ): string | null {
   if (isSkillSlug(slug)) {
     const entry = resolvers.skill(slug);
-    return entry ? `# Skill: ${entry.id}\n${entry.content}` : "";
+    return entry ? renderV3SkillCard(entry.id, entry.content) : "";
   }
   if (isCliCommandSlug(slug)) {
     const entry = resolvers.cli(slug);

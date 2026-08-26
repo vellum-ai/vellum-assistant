@@ -136,6 +136,8 @@ const skillState = {
   /** Skill ids the store reports as `always-candidate`. */
   alwaysCandidateIds: new Set<string>(),
 };
+const WINDOWS_SKILL_CONTENT =
+  'The "Windows Automation" skill (windows-automation) is available. Automates native Windows applications.';
 
 mock.module("../../substrate/skill-store.js", () => ({
   ensureSkillEntriesAvailable: async () => {},
@@ -1005,7 +1007,7 @@ describe("injectMemoryV2Block", () => {
     stageSkills([
       {
         id: "windows-automation",
-        content: "Automates native Windows applications.",
+        content: WINDOWS_SKILL_CONTENT,
         platforms: ["windows"],
         requiredHostCapabilities: ["host_bash"],
       },
@@ -1112,7 +1114,7 @@ describe("injectMemoryV2Block", () => {
     stageSkills([
       {
         id: "windows-automation",
-        content: "Automates native Windows applications.",
+        content: WINDOWS_SKILL_CONTENT,
         platforms: ["windows"],
         requiredHostCapabilities: ["host_bash"],
       },
@@ -1141,7 +1143,7 @@ describe("injectMemoryV2Block", () => {
             {
               type: "text" as const,
               text: wrapMemoryBlock(
-                "### Skills You Can Use\n- Automates native Windows applications. → use skill_load to activate",
+                '### Skills You Can Use\n- The "Windows Automation" skill (windows-automation) is available. Automates native Windows applications. → use skill_load to activate',
               ),
             },
           ],

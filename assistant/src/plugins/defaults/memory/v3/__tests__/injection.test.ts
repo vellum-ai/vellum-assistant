@@ -410,8 +410,8 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     };
     const makeMessages = () =>
       [
-        "# Skill: windows-automation\nAutomates native Windows applications.",
-        "### Skills You Can Use\n- Automates native Windows applications. → use skill_load to activate",
+        "# Skill: windows-automation\nOlder Windows automation description.\n\n# Skill: unrelated-skill\nUnrelated v3 card.",
+        '### Skills You Can Use\n- The "Windows Automation" skill (windows-automation) is available. Older Windows automation description. → use skill_load to activate\n- The "Unrelated Skill" skill (unrelated-skill) is available. Unrelated v2 card. → use skill_load to activate',
       ].map((text) => ({
         role: "user" as const,
         content: [{ type: "text" as const, text: wrapMemoryBlock(text) }],
@@ -425,7 +425,13 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     );
     expect(windowsSkillEnabled).toBeTrue();
     expect(JSON.stringify(disconnectedMessages)).not.toContain(
-      "Automates native Windows applications.",
+      "Older Windows automation description.",
+    );
+    expect(JSON.stringify(disconnectedMessages)).toContain(
+      "Unrelated v3 card.",
+    );
+    expect(JSON.stringify(disconnectedMessages)).toContain(
+      "Unrelated v2 card.",
     );
 
     const hostClient = assistantEventHub.subscribe({
@@ -443,8 +449,10 @@ describe("memoryV3Injector — frozen net-new cards", () => {
         skillContext,
       );
       expect(JSON.stringify(connectedMessages)).toContain(
-        "Automates native Windows applications.",
+        "Older Windows automation description.",
       );
+      expect(JSON.stringify(connectedMessages)).toContain("Unrelated v3 card.");
+      expect(JSON.stringify(connectedMessages)).toContain("Unrelated v2 card.");
     } finally {
       hostClient.dispose();
     }
