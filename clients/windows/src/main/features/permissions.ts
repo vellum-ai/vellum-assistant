@@ -1,4 +1,10 @@
-import { BrowserWindow, app, shell, systemPreferences } from "electron";
+import {
+  BrowserWindow,
+  Notification,
+  app,
+  shell,
+  systemPreferences,
+} from "electron";
 import { z } from "zod";
 
 import type {
@@ -93,6 +99,12 @@ const NOT_APPLICABLE_KINDS = new Set<SystemPermissionKind>([
   "automation",
 ]);
 
+// Kinds Electron can read straight from the OS on Windows.
+type MediaStatusKind = Extract<SystemPermissionKind, "microphone" | "screen">;
+const isMediaStatusKind = (
+  kind: SystemPermissionKind,
+): kind is MediaStatusKind => kind === "microphone" || kind === "screen";
+
 const mapMediaStatus = (status: string): SystemPermissionStatus =>
   SYSTEM_PERMISSION_STATUSES.includes(status as SystemPermissionStatus)
     ? (status as SystemPermissionStatus)
@@ -105,6 +117,7 @@ const allWindowsWebContents = () =>
 
 class WindowsPermissionsService {
   private lastStateJson: string | null = null;
+  private notificationStatus: SystemPermissionStatus | null = null;
 
   async state(): Promise<SystemPermissionsState> {
     const native = await this.readNativeStatuses();
@@ -119,9 +132,16 @@ class WindowsPermissionsService {
     return state;
   }
 
-  // Windows has no programmatic permission prompt for desktop apps; the
-  // only request path is the matching Settings page.
-  request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem> {
+  // Windows has no programmatic permission prompt for desktop apps except
+  // notifications, which are probed by showing one. Everything else can only
+  // be changed from the matching Settings page.
+  async request(
+    kind: SystemPermissionKind,
+  ): Promise<SystemPermissionStateItem> {
+    if (kind === "notifications") {
+      await this.requestNotifications();
+      return (await this.refresh())[kind];
+    }
     return this.openSettings(kind);
   }
 
@@ -160,24 +180,68 @@ class WindowsPermissionsService {
     kind: SystemPermissionKind,
     native: Partial<Record<SystemPermissionKind, SystemPermissionStatus>>,
   ): SystemPermissionStateItem {
-    const status = native[kind] ?? this.fallbackStatus(kind);
+    const status = this.readStatus(kind, native);
+    const settled = status === "granted" || status === "restricted";
     return {
       kind,
       status,
-      canRequest: false,
+      canRequest: kind === "notifications" && !settled,
       canOpenSettings: kind in SETTINGS_URIS && status !== "granted",
       requiresRestart: false,
     };
   }
 
-  private fallbackStatus(kind: SystemPermissionKind): SystemPermissionStatus {
+  private readStatus(
+    kind: SystemPermissionKind,
+    native: Partial<Record<SystemPermissionKind, SystemPermissionStatus>>,
+  ): SystemPermissionStatus {
     if (NOT_APPLICABLE_KINDS.has(kind)) {
       return "not-applicable";
     }
-    if (kind === "microphone") {
+    // A probe result is fresher than the registry toggle the helper reads.
+    if (kind === "notifications" && this.notificationStatus) {
+      return this.notificationStatus;
+    }
+    if (native[kind]) {
+      return native[kind];
+    }
+    if (isMediaStatusKind(kind)) {
       return mapMediaStatus(systemPreferences.getMediaAccessStatus(kind));
     }
     return "unknown";
+  }
+
+  private requestNotifications(): Promise<void> {
+    if (!Notification.isSupported()) {
+      this.notificationStatus = "restricted";
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (status: SystemPermissionStatus) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        this.notificationStatus = status;
+        resolve();
+      };
+      const timeout = setTimeout(() => settle("unknown"), 30_000);
+      timeout.unref?.();
+
+      const notification = new Notification({
+        title: "Vellum",
+        body: "Notifications are enabled.",
+      });
+      notification.once("show", () => settle("granted"));
+      notification.once("failed", () => settle("denied"));
+      try {
+        notification.show();
+      } catch {
+        settle("unknown");
+      }
+    });
   }
 
   private broadcastIfChanged(state: SystemPermissionsState): void {

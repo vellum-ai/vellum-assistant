@@ -39,10 +39,20 @@ const SYSTEM_PERMISSION_SETTINGS_URLS: Readonly<
     hostOS: "windows",
     kind: "speechRecognition",
   },
+  "ms-settings:privacy-graphicscaptureprogrammatic": {
+    hostOS: "windows",
+    kind: "screen",
+  },
+  "ms-settings:notifications": {
+    hostOS: "windows",
+    kind: "notifications",
+  },
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone":
     { hostOS: "macos", kind: "microphone" },
   "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition":
     { hostOS: "macos", kind: "speechRecognition" },
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture":
+    { hostOS: "macos", kind: "screen" },
 };
 
 export function supportsSystemPermissions(): boolean {

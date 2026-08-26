@@ -473,6 +473,7 @@ export function createToolExecutor(
       // channels that can't render dynamic surfaces (Telegram, SMS) instead of
       // emitting one the channel silently drops.
       supportsDynamicUi: conversationSupportsDynamicUi(ctx),
+      clientOS: ctx.channelCapabilities?.clientOS,
       supportsGuardianQuestionCards:
         conversationSupportsGuardianQuestionCards(ctx),
       proxyToolResolver: (
@@ -870,7 +871,11 @@ export function isToolActiveForContext(
   if (PLATFORM_TOOL_NAMES.has(name)) {
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
-    return channelCapabilities?.clientOS === "macos" && !hasNoClient;
+    return (
+      (channelCapabilities?.clientOS === "macos" ||
+        channelCapabilities?.clientOS === "windows") &&
+      !hasNoClient
+    );
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
