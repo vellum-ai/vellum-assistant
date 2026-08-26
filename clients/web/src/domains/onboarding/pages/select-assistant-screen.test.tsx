@@ -257,10 +257,11 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
     ) : null,
 }));
 
+const forgetAssistantAvatarMock = mock((_qc: unknown, _id: string) => {});
 const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
   useChooserRowAvatar: (assistant) =>
     rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null },
-  forgetAssistantAvatar: () => {},
+  forgetAssistantAvatar: forgetAssistantAvatarMock,
 };
 mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
 
@@ -543,6 +544,10 @@ beforeEach(() => {
     ok: true,
   }));
   removePlatformAssistantFromLockfileMock.mockClear();
+  removePlatformAssistantFromLockfileMock.mockImplementation(async () => ({
+    ok: true,
+  }));
+  forgetAssistantAvatarMock.mockClear();
   activeAssistantIdValue = null;
   setActiveAssistantIdMock.mockClear();
   refreshPlatformAssistantsIfStaleMock.mockClear();
@@ -994,6 +999,42 @@ describe("SelectAssistantScreen paired assistants", () => {
       ),
     );
     expect(removePairedAssistantFromLockfileMock).not.toHaveBeenCalled();
+  });
+
+  test("a successful platform removal forgets the assistant's avatar", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(forgetAssistantAvatarMock).toHaveBeenCalledWith(
+        expect.anything(),
+        PLATFORM_ID,
+      ),
+    );
+  });
+
+  test("a failed platform removal leaves the avatar caches alone", async () => {
+    localModeHostAvailableValue = true;
+    assistantsValue = [makePlatformAssistant()];
+    removePlatformAssistantFromLockfileMock.mockImplementation(async () => ({
+      ok: false,
+      error: "nope",
+    }));
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Remove from this device…"));
+    fireEvent.click(screen.getByText("Confirm remove"));
+
+    await waitFor(() =>
+      expect(removePlatformAssistantFromLockfileMock).toHaveBeenCalled(),
+    );
+    expect(forgetAssistantAvatarMock).not.toHaveBeenCalled();
   });
 });
 

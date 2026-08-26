@@ -37,7 +37,10 @@ import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-r
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { formatRelativeDate } from "@/utils/format-date";
-import { useChooserRowAvatar } from "@/hooks/use-chooser-row-avatar";
+import {
+  forgetAssistantAvatar,
+  useChooserRowAvatar,
+} from "@/hooks/use-chooser-row-avatar";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
 import {
@@ -526,6 +529,9 @@ export function SelectAssistantScreen() {
         if (resolvedStore.activeAssistantId === removeTarget.id) {
           resolvedStore.setActiveAssistantId(null);
         }
+        // Same cleanup as the paired path: a later login re-adds this id,
+        // and a stale last-seen entry or query would render the old avatar.
+        forgetAssistantAvatar(queryClient, removeTarget.id);
         removedThisVisitRef.current = true;
         setRemoveTarget(null);
       } else {

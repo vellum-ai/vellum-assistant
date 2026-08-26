@@ -102,6 +102,9 @@ mock.module(
 
 const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar");
 
+const revokeObjectURL = mock((_url: string) => {});
+URL.revokeObjectURL = revokeObjectURL;
+
 function createWrapper(
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -132,6 +135,7 @@ afterEach(() => {
   fetchCharacterTraitsResult.mockClear();
   writeLastSeenAvatar.mockClear();
   deleteLastSeenAvatar.mockClear();
+  revokeObjectURL.mockClear();
   fetchCharacterComponents.mockResolvedValue(components);
   fetchAvatarState.mockResolvedValue(noneState);
   fetchAvatarImageUrlResult.mockResolvedValue(ABSENT);
@@ -203,6 +207,46 @@ describe("useAssistantAvatar", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(writeLastSeenAvatar).not.toHaveBeenCalled();
       expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a superseded legacy read that finishes last persists nothing and drops its blob", async () => {
+      let resolveOld: (result: AvatarFileResult<string>) => void = () => {};
+      const oldImage = new Promise<AvatarFileResult<string>>((resolve) => {
+        resolveOld = resolve;
+      });
+      fetchAvatarImageUrlResult.mockImplementationOnce(() => oldImage);
+      fetchAvatarState.mockResolvedValue(characterState);
+
+      const { result, rerender } = renderHook(
+        (supportsManifest: boolean) =>
+          useAssistantAvatar("asst-1", { supportsManifest }),
+        { wrapper: createWrapper(), initialProps: false },
+      );
+      await waitFor(() => {
+        expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
+      });
+
+      rerender(true);
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      });
+
+      resolveOld(found("blob:old"));
+      await waitFor(() => {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:old");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+        "asst-1",
+        { kind: "character", traits },
+        expect.any(Number),
+      );
+      expect(result.current.traits).toEqual(traits);
+      expect(result.current.customImageUrl).toBeNull();
     });
 
     test("an inconclusive read touches nothing", async () => {

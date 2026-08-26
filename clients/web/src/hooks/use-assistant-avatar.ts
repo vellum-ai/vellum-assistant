@@ -9,6 +9,7 @@ import {
 } from "@/assistant/avatar-api";
 import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
+import { createGenerationGuard } from "@/lib/generation-guard";
 import { persistLastSeenAvatar } from "@/lib/persist-last-seen-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type {
@@ -33,8 +34,15 @@ export interface AvatarData {
 
 const activeBlobUrls = new Map<string, string>();
 
-/** Revoke the object URL this hook holds for a removed assistant. */
+/** Latest fetch generation per assistant; a superseded fetch must not persist or track. */
+const fetchGenerations = createGenerationGuard();
+
+/**
+ * Revoke the object URL this hook holds for a removed assistant, and
+ * supersede any in-flight fetch so it drops its own blob instead.
+ */
 export function releaseAssistantAvatarUrl(assistantId: string): void {
+  fetchGenerations.invalidate(assistantId);
   trackBlobUrl(activeBlobUrls, assistantId, null);
 }
 
@@ -183,6 +191,11 @@ export function useAssistantAvatar(
     queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],
     queryFn: async ({ client }) => {
       const id = assistantId!;
+      // A re-key (manifest support flipping) starts a newer fetch while this
+      // one is in flight and does not abort it; when the older one finishes
+      // last it must neither overwrite the last-seen entry nor revoke the
+      // URL the newer query renders, so it drops its own blob instead.
+      const generation = fetchGenerations.claim(id);
       const [components, { traits, imageUrl }] = await Promise.all([
         fetchCharacterComponents(id),
         supportsManifest
@@ -196,6 +209,13 @@ export function useAssistantAvatar(
       // image to fall back on; otherwise the partial result is usable.
       if (!components && !imageUrl) {
         throw new Error("Failed to fetch character components");
+      }
+
+      if (!fetchGenerations.isCurrent(id, generation)) {
+        if (imageUrl) {
+          URL.revokeObjectURL(imageUrl);
+        }
+        return { components, traits, customImageUrl: null };
       }
 
       trackBlobUrl(activeBlobUrls, id, imageUrl);
