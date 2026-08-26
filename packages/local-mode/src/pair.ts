@@ -69,6 +69,15 @@ export interface PairOptions {
   credentials: PairedAssistantCredentials;
   /** Optional local name; its slug becomes the entry's assistantId. */
   name?: string;
+  /**
+   * The device id a legacy base64 bundle carries, which only
+   * {@link connectImport} passes. It adopts the `paired-<deviceId>` entry a
+   * previous release keyed that same bundle on, so a nameless re-import
+   * updates it instead of adding a second entry (see
+   * {@link findLegacyDeviceScopedId}). The pairing-link flow mints a device id
+   * per attempt, so keying on it there would strand every earlier pairing.
+   */
+  legacyDeviceId?: string;
 }
 
 /**
@@ -150,6 +159,48 @@ function findRawAssistant(
 }
 
 /**
+ * The `paired-<deviceId>` entry an earlier release wrote for this same
+ * bundle, or undefined when there is none. That release keyed a nameless
+ * bundle import on the bundle's own device id, so honoring the key here is
+ * what makes a re-import of that bundle update its entry rather than register
+ * a duplicate under the {@link gatewayLabel} id and leave the original holding
+ * stale credentials.
+ *
+ * Only a `paired: true` entry whose runtimeUrl names the same gateway is
+ * adopted. The device id is untrusted bundle input, so an unmatched one would
+ * let a crafted bundle take over an unrelated pairing and repoint it at
+ * another host; requiring the match means the adopted id is always one this
+ * machine already minted for this gateway.
+ */
+function findLegacyDeviceScopedId(
+  lockfilePaths: string[],
+  deviceId: string,
+  gatewayUrl: string,
+): string | undefined {
+  const slug = slugify(deviceId);
+  if (!slug) {
+    return undefined;
+  }
+  const legacyId = `paired-${slug}`;
+  const existing = findRawAssistant(lockfilePaths, legacyId);
+  if (
+    existing?.paired !== true ||
+    typeof existing.runtimeUrl !== "string" ||
+    !existing.runtimeUrl
+  ) {
+    return undefined;
+  }
+  try {
+    if (gatewayLabel(existing.runtimeUrl) !== gatewayLabel(gatewayUrl)) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return legacyId;
+}
+
+/**
  * Why `localId` may not be registered, or null when it is free. An id that
  * slugifies to nothing is unusable, and an id already held by a NON-paired
  * assistant is refused rather than clobbered: overwriting would drop that
@@ -194,13 +245,25 @@ interface PairedDestination {
  * A pre-check is not a reservation: another process can claim the id in
  * between. It closes the common case; the check inside `pairAssistant` is
  * still what guarantees the id.
+ *
+ * `legacyDeviceId` is the bundle path's opt-in to
+ * {@link findLegacyDeviceScopedId}; an explicit name outranks it.
  */
 function resolvePairedDestination(
   lockfilePaths: string[],
   name: string | undefined,
   gatewayUrl?: string,
+  legacyDeviceId?: string,
 ): PairedDestination {
-  const localId = derivePairedAssistantId(name, gatewayUrl);
+  let localId: string | undefined;
+  if (!name && legacyDeviceId && gatewayUrl) {
+    localId = findLegacyDeviceScopedId(
+      lockfilePaths,
+      legacyDeviceId,
+      gatewayUrl,
+    );
+  }
+  localId ??= derivePairedAssistantId(name, gatewayUrl);
   const existing = findRawAssistant(lockfilePaths, localId);
   return {
     localId,
@@ -236,7 +299,7 @@ export function checkPairedAssistantName(
 export function pairAssistant(
   lockfilePaths: string[],
   configDir: string,
-  { credentials, name }: PairOptions,
+  { credentials, name, legacyDeviceId }: PairOptions,
 ): PairResult {
   let label: string;
   try {
@@ -267,6 +330,7 @@ export function pairAssistant(
     lockfilePaths,
     name,
     credentials.gatewayUrl,
+    legacyDeviceId,
   );
   if (refusal) {
     return refusal;
@@ -1243,6 +1307,7 @@ export function connectImport(
   const result = pairAssistant(lockfilePaths, configDir, {
     credentials: decoded.credentials,
     name: typeof name === "string" && name ? name : undefined,
+    legacyDeviceId: decoded.credentials.deviceId,
   });
   if (!result.ok) {
     return { ok: false, status: result.status, error: result.error };

@@ -261,6 +261,54 @@ describe("pair command", () => {
     expect(logs.join("\n")).not.toContain("--qr");
   });
 
+  test("--app-scheme without --app is refused rather than ignored", async () => {
+    // A scheme only names the app link, so accepting it alone would print the
+    // https QR and drop the scheme silently.
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--app-scheme",
+      "vellum-assistant-dev",
+      "--url",
+      PUBLIC_URL,
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("--app-scheme");
+    expect(errors.join("\n")).toContain("--app");
+    // Refused before anything is minted.
+    expect(fetchCalled).toBe(false);
+  });
+
   test("--web is refused, pointing at connect import on the other device", async () => {
     let fetchCalled = false;
     const origFetch = globalThis.fetch;

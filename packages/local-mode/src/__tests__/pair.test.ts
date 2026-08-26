@@ -1796,6 +1796,75 @@ describe("connectImport", () => {
     });
   });
 
+  test("a nameless re-import adopts the entry the previous release keyed", () => {
+    // The previous release keyed a nameless bundle import on the bundle's own
+    // device id. Re-importing that bundle updates that entry rather than
+    // registering a second one under the gateway-derived id.
+    const bundle = encodeBundle({
+      gatewayUrl: "https://gw.example.com",
+      token: "tok-1",
+      deviceId: "dev-legacy",
+    });
+    writeLockfile({
+      assistants: [
+        {
+          assistantId: "paired-dev-legacy",
+          cloud: "paired",
+          paired: true,
+          runtimeUrl: "https://gw.example.com",
+        },
+      ],
+    });
+
+    const result = connectImport([lockfilePath], configDir, { bundle });
+
+    expect(result).toMatchObject({
+      ok: true,
+      assistantId: "paired-dev-legacy",
+      updated: true,
+    });
+    const entries = readLockfileFromDisk().assistants as Array<
+      Record<string, unknown>
+    >;
+    expect(entries).toHaveLength(1);
+    expect(
+      fs.existsSync(guardianTokenPath(configDir, "paired-dev-legacy")),
+    ).toBe(true);
+  });
+
+  test("a legacy id naming another gateway is not adopted", () => {
+    // The device id is untrusted bundle input, so an entry that does not name
+    // the same gateway is left alone rather than repointed at another host.
+    writeLockfile({
+      assistants: [
+        {
+          assistantId: "paired-dev-legacy",
+          cloud: "paired",
+          paired: true,
+          runtimeUrl: "https://other.example.com",
+        },
+      ],
+    });
+
+    const result = connectImport([lockfilePath], configDir, {
+      bundle: encodeBundle({
+        gatewayUrl: "https://gw.example.com",
+        token: "tok-1",
+        deviceId: "dev-legacy",
+      }),
+    });
+
+    expect(result).toMatchObject({ ok: true, updated: false });
+    const entries = readLockfileFromDisk().assistants as Array<
+      Record<string, unknown>
+    >;
+    expect(entries).toHaveLength(2);
+    expect(
+      (entries.find((e) => e.assistantId === "paired-dev-legacy") ?? {})
+        .runtimeUrl,
+    ).toBe("https://other.example.com");
+  });
+
   test("a missing, empty, or non-string bundle is a 400", () => {
     for (const value of [undefined, "", 42]) {
       expect(

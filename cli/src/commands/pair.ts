@@ -117,9 +117,9 @@ OPTIONS:
                     Vellum app directly. The https link is still printed as a
                     fallback for devices without the app.
     --app-scheme <scheme>
-                    URL scheme for --app links (default: vellum-assistant; dev
-                    and staging app builds register vellum-assistant-dev and
-                    vellum-assistant-staging).
+                    URL scheme for --app links; requires --app (default:
+                    vellum-assistant; dev and staging app builds register
+                    vellum-assistant-dev and vellum-assistant-staging).
     --web-approve <code>
                     Approve a pairing code another device is showing, in
                     ABCD-EFGH form, e.g. from 'vellum connect import <url>' or
@@ -320,6 +320,15 @@ export async function pair(): Promise<void> {
     console.error(
       "Error: --app and --app-scheme don't apply to --web-approve, which " +
         "approves a code the other device already has.",
+    );
+    process.exit(1);
+  }
+  // A scheme only names the app link, so accepting it without --app would
+  // print the https QR and drop the scheme without saying so.
+  if (appSchemeOverride && !appVariant) {
+    console.error(
+      "Error: --app-scheme names the scheme for the app link, so it needs " +
+        "--app. Re-run with both, or drop --app-scheme for the https link.",
     );
     process.exit(1);
   }
