@@ -45,8 +45,15 @@ const standaloneRecordingConversationId = new Map<string, string>();
 /** Maps conversationId -> recordingId (active recording). */
 const recordingOwnerByConversation = new Map<string, string>();
 
+const RECORDING_CLAIM_LEASE_MS = 30_000;
+
+interface RecordingClientClaim {
+  clientId: string;
+  expiresAt: number;
+}
+
 /** Maps recordingId -> the client that won capture ownership. */
-const recordingClientClaims = new Map<string, string>();
+const recordingClientClaims = new Map<string, RecordingClientClaim>();
 
 /** Pending stop-acknowledgement timeouts keyed by recordingId. */
 const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
@@ -139,15 +146,34 @@ export function handleRecordingStart(
   return recordingId;
 }
 
-export function claimRecording(recordingId: string, clientId: string): boolean {
+export function claimRecording(
+  recordingId: string,
+  clientId: string,
+  options: {
+    now?: number;
+    isClientConnected?: (clientId: string) => boolean;
+  } = {},
+): boolean {
   if (!standaloneRecordingConversationId.has(recordingId)) {
     return false;
   }
+  const now = options.now ?? Date.now();
   const owner = recordingClientClaims.get(recordingId);
-  if (owner) {
-    return owner === clientId;
+  if (owner?.clientId === clientId) {
+    owner.expiresAt = now + RECORDING_CLAIM_LEASE_MS;
+    return true;
   }
-  recordingClientClaims.set(recordingId, clientId);
+  if (
+    owner &&
+    owner.expiresAt > now &&
+    (options.isClientConnected?.(owner.clientId) ?? true)
+  ) {
+    return false;
+  }
+  recordingClientClaims.set(recordingId, {
+    clientId,
+    expiresAt: now + RECORDING_CLAIM_LEASE_MS,
+  });
   return true;
 }
 

@@ -10,6 +10,8 @@ interface RecordingTransferSession {
   filePath: string;
   ownerClientId: string;
   write: Promise<void>;
+  nextSequence: number;
+  pendingSequences: Map<number, Promise<void>>;
   timeout: NodeJS.Timeout | null;
 }
 
@@ -52,6 +54,8 @@ export class RecordingTransferStore {
       filePath,
       ownerClientId: clientId,
       write: Promise.resolve(),
+      nextSequence: 0,
+      pendingSequences: new Map(),
       timeout: null,
     };
     this.sessions.set(recordingId, session);
@@ -61,14 +65,35 @@ export class RecordingTransferStore {
   async append(
     recordingId: string,
     clientId: string,
+    sequence: number,
     chunk: Uint8Array,
   ): Promise<void> {
     const session = this.getOwned(recordingId, clientId);
-    session.write = session.write.then(async () => {
+    if (sequence < session.nextSequence) {
+      return;
+    }
+    const pending = session.pendingSequences.get(sequence);
+    if (pending) {
+      await pending;
+      return;
+    }
+    if (sequence !== session.nextSequence) {
+      throw new Error("Recording chunk arrived out of order");
+    }
+    const write = session.write.then(async () => {
       await appendFile(session.filePath, chunk);
+      session.nextSequence += 1;
     });
+    session.pendingSequences.set(sequence, write);
+    session.write = write;
     this.refreshTimeout(recordingId, session);
-    await session.write;
+    try {
+      await write;
+    } finally {
+      if (session.pendingSequences.get(sequence) === write) {
+        session.pendingSequences.delete(sequence);
+      }
+    }
   }
 
   async finish(recordingId: string, clientId: string): Promise<string> {

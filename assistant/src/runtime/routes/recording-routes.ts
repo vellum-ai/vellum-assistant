@@ -30,6 +30,7 @@ import type {
 } from "../../daemon/message-protocol.js";
 import { recordingTransferStore } from "../../daemon/recording-transfer.js";
 import { getLogger } from "../../util/logger.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -88,7 +89,10 @@ function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("recordingId is required");
   }
   return {
-    claimed: claimRecording(recordingId, requireClientId(headers)),
+    claimed: claimRecording(recordingId, requireClientId(headers), {
+      isClientConnected: (clientId) =>
+        Boolean(assistantEventHub.getClientById(clientId)),
+    }),
   };
 }
 
@@ -115,6 +119,13 @@ async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
         throw new BadRequestError("data is required");
       }
       if (
+        typeof body.sequence !== "number" ||
+        !Number.isInteger(body.sequence) ||
+        body.sequence < 0
+      ) {
+        throw new BadRequestError("sequence is required");
+      }
+      if (
         body.data.length >
         Math.ceil((MAX_RECORDING_CHUNK_BYTES * 4) / 3) + 4
       ) {
@@ -124,7 +135,12 @@ async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
       if (chunk.byteLength > MAX_RECORDING_CHUNK_BYTES) {
         throw new BadRequestError("Recording chunk is too large");
       }
-      await recordingTransferStore.append(recordingId, clientId, chunk);
+      await recordingTransferStore.append(
+        recordingId,
+        clientId,
+        body.sequence,
+        chunk,
+      );
       return { ok: true };
     }
     case "finish":
@@ -334,6 +350,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       recordingId: z.string().uuid(),
       operation: z.enum(["begin", "append", "finish", "abort"]),
+      sequence: z.number().int().nonnegative().optional(),
       data: z.string().optional(),
     }),
     responseBody: z.object({

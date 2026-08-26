@@ -219,6 +219,30 @@ describe("handleRecordingStart", () => {
     expect(claimRecording(recordingId, "client-2")).toBeFalse();
   });
 
+  test("allows reclaim after owner disconnect or lease expiry", () => {
+    const disconnectedId = handleRecordingStart(
+      "conv-disconnected",
+      undefined,
+    )!;
+    expect(claimRecording(disconnectedId, "client-1", { now: 0 })).toBeTrue();
+    expect(
+      claimRecording(disconnectedId, "client-2", {
+        now: 1,
+        isClientConnected: () => false,
+      }),
+    ).toBeTrue();
+
+    __resetRecordingState();
+    const expiredId = handleRecordingStart("conv-expired", undefined)!;
+    expect(claimRecording(expiredId, "client-1", { now: 0 })).toBeTrue();
+    expect(
+      claimRecording(expiredId, "client-2", {
+        now: 30_001,
+        isClientConnected: () => true,
+      }),
+    ).toBeTrue();
+  });
+
   test("returns null when recording already active and sends no messages", () => {
     const sent = createSent();
 

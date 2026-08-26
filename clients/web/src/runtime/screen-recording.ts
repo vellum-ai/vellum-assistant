@@ -29,6 +29,7 @@ interface ActiveRecording {
   stopping: boolean;
   released: boolean;
   closeCapture: () => void;
+  stopClaimMaintenance: () => void;
 }
 
 interface PendingRecording {
@@ -86,12 +87,24 @@ export const transferRecording = async (
   recordingId: string,
   operation: RecordingTransferOperation,
   chunk?: Uint8Array,
+  sequence?: number,
 ): Promise<{ attachmentId?: string }> =>
   postRecordingRequest(assistantId, "transfer", {
     recordingId,
     operation,
     ...(chunk ? { data: encodeChunk(chunk) } : {}),
+    ...(sequence !== undefined ? { sequence } : {}),
   });
+
+const maintainRecordingClaim = (
+  assistantId: string,
+  recordingId: string,
+): (() => void) => {
+  const timer = setInterval(() => {
+    void claimRecording(assistantId, recordingId).catch(() => undefined);
+  }, 10_000);
+  return () => clearInterval(timer);
+};
 
 const postStatus = async (
   assistantId: string,
@@ -241,8 +254,10 @@ export class ScreenRecordingController {
       now: () => number;
       reportStatus: typeof postStatus;
       claimRecording: typeof claimRecording;
+      maintainClaim: typeof maintainRecordingClaim;
       requiresTransfer: typeof requiresRecordingTransfer;
       transferRecording: typeof transferRecording;
+      waitBeforeTransferRetry: (delayMs: number) => Promise<void>;
     } = {
       capture: captureStream,
       chooseMimeType: recorderMimeType,
@@ -252,8 +267,11 @@ export class ScreenRecordingController {
       now: Date.now,
       reportStatus: postStatus,
       claimRecording,
+      maintainClaim: maintainRecordingClaim,
       requiresTransfer: requiresRecordingTransfer,
       transferRecording,
+      waitBeforeTransferRetry: (delayMs) =>
+        new Promise((resolve) => setTimeout(resolve, delayMs)),
     },
   ) {}
 
@@ -290,9 +308,6 @@ export class ScreenRecordingController {
   ): Promise<void> {
     const bridge = window.vellum!.screenRecording!;
     if (this.active || this.pending) {
-      await this.dependencies.reportStatus(assistantId, event, "failed", {
-        error: "A screen recording is already active",
-      });
       return;
     }
     if (
@@ -300,6 +315,10 @@ export class ScreenRecordingController {
     ) {
       return;
     }
+    const stopClaimMaintenance = this.dependencies.maintainClaim(
+      assistantId,
+      event.recordingId,
+    );
 
     const pending: PendingRecording = {
       recordingId: event.recordingId,
@@ -351,23 +370,30 @@ export class ScreenRecordingController {
       }
 
       recorder = this.dependencies.createRecorder(capture.stream, mimeType);
-      let writes = Promise.resolve();
+      let localWrites = Promise.resolve();
+      let transferWrites = Promise.resolve();
+      let chunkSequence = 0;
       recorder.ondataavailable = (dataEvent) => {
         if (dataEvent.data.size === 0) {
           return;
         }
-        writes = writes.then(async () => {
-          const bytes = new Uint8Array(await dataEvent.data.arrayBuffer());
-          await bridge.append(event.recordingId, bytes);
-          if (requiresTransfer) {
-            await this.dependencies.transferRecording(
+        const bytes = dataEvent.data
+          .arrayBuffer()
+          .then((buffer) => new Uint8Array(buffer));
+        localWrites = localWrites.then(async () => {
+          await bridge.append(event.recordingId, await bytes);
+        });
+        if (requiresTransfer) {
+          const sequence = chunkSequence++;
+          transferWrites = transferWrites.then(async () => {
+            await this.appendTransferChunk(
               assistantId,
               event.recordingId,
-              "append",
-              bytes,
+              sequence,
+              await bytes,
             );
-          }
-        });
+          });
+        }
       };
 
       let resolveStopped!: () => void;
@@ -386,12 +412,16 @@ export class ScreenRecordingController {
         stopping: false,
         released: false,
         closeCapture: capture.close,
+        stopClaimMaintenance,
       };
       recorder.onstop = () => {
         void (async () => {
+          let localFinished = false;
           try {
-            await writes;
+            await localWrites;
             const { filePath } = await bridge.finish(event.recordingId);
+            localFinished = true;
+            await transferWrites;
             let attachmentId: string | undefined;
             if (requiresTransfer) {
               const uploaded = await this.dependencies.transferRecording(
@@ -419,7 +449,9 @@ export class ScreenRecordingController {
             );
             resolveStopped();
           } catch (error) {
-            await bridge.abort(event.recordingId);
+            if (!localFinished) {
+              await bridge.abort(event.recordingId);
+            }
             if (transferStarted) {
               await this.dependencies
                 .transferRecording(assistantId, event.recordingId, "abort")
@@ -429,7 +461,12 @@ export class ScreenRecordingController {
             this.release(active);
             await this.dependencies
               .reportStatus(assistantId, event, "failed", {
-                error: error instanceof Error ? error.message : String(error),
+                error:
+                  localFinished && requiresTransfer
+                    ? "Remote recording transfer failed. The complete recording remains saved on this computer."
+                    : error instanceof Error
+                      ? error.message
+                      : String(error),
               })
               .catch(() => undefined);
             rejectStopped(error);
@@ -484,6 +521,35 @@ export class ScreenRecordingController {
       if (this.pending === pending) {
         this.pending = null;
       }
+      if (this.active?.event.recordingId !== event.recordingId) {
+        stopClaimMaintenance();
+      }
+    }
+  }
+
+  private async appendTransferChunk(
+    assistantId: string,
+    recordingId: string,
+    sequence: number,
+    chunk: Uint8Array,
+  ): Promise<void> {
+    const maxAttempts = 4;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        await this.dependencies.transferRecording(
+          assistantId,
+          recordingId,
+          "append",
+          chunk,
+          sequence,
+        );
+        return;
+      } catch (error) {
+        if (attempt === maxAttempts - 1) {
+          throw error;
+        }
+        await this.dependencies.waitBeforeTransferRetry(250 * 2 ** attempt);
+      }
     }
   }
 
@@ -512,6 +578,7 @@ export class ScreenRecordingController {
       return;
     }
     active.released = true;
+    active.stopClaimMaintenance();
     active.closeCapture();
     if (this.active === active) {
       this.active = null;

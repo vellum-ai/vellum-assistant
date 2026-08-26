@@ -33,8 +33,9 @@ test("streams ordered chunks into a file-backed recording attachment", async () 
   const recordingId = "00000000-0000-4000-8000-000000000001";
 
   await store.begin(recordingId, "client-1");
-  await store.append(recordingId, "client-1", new Uint8Array([1, 2]));
-  await store.append(recordingId, "client-1", new Uint8Array([3, 4]));
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
+  await store.append(recordingId, "client-1", 1, new Uint8Array([3, 4]));
   const attachmentId = await store.finish(recordingId, "client-1");
 
   expect(attachmentId).toBe("attachment-1");
@@ -56,7 +57,7 @@ test("rejects transfer writes from a client that did not begin it", async () => 
   await store.begin(recordingId, "client-1");
 
   await expect(
-    store.append(recordingId, "client-2", new Uint8Array([1])),
+    store.append(recordingId, "client-2", 0, new Uint8Array([1])),
   ).rejects.toThrow("another client");
   await store.abort(recordingId, "client-1");
 });

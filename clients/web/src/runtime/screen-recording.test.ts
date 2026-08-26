@@ -68,8 +68,10 @@ const startEvent = {
 
 const localTransferDependencies = {
   claimRecording: async () => true,
+  maintainClaim: () => () => undefined,
   requiresTransfer: () => false,
   transferRecording: async () => ({}),
+  waitBeforeTransferRetry: async () => undefined,
 };
 
 beforeEach(() => {
@@ -94,6 +96,7 @@ test("encodes each remote transfer chunk in its own request", async () => {
     recordingId,
     "append",
     new Uint8Array([1, 2, 3]),
+    7,
   );
 
   expect(clientPost).toHaveBeenCalledWith(
@@ -102,6 +105,7 @@ test("encodes each remote transfer chunk in its own request", async () => {
         recordingId,
         operation: "append",
         data: "AQID",
+        sequence: 7,
       },
     }),
   );
@@ -374,7 +378,9 @@ test("streams remote recording chunks before reporting stopped", async () => {
     assistantId: string;
     operation: string;
     chunk?: number[];
+    sequence?: number;
   }> = [];
+  let appendAttempts = 0;
   const stoppedDetails: Array<{
     attachmentId?: string;
     filePath?: string;
@@ -396,22 +402,34 @@ test("streams remote recording chunks before reporting stopped", async () => {
     ownsLifecycle: () => true,
     now: () => 0,
     claimRecording: async () => true,
+    maintainClaim: () => () => undefined,
     reportStatus: async (_assistantId, _event, status, details) => {
       if (status === "stopped") {
         stoppedDetails.push(details ?? {});
       }
     },
     requiresTransfer: () => true,
-    transferRecording: async (assistantId, _recordingId, operation, chunk) => {
+    transferRecording: async (
+      assistantId,
+      _recordingId,
+      operation,
+      chunk,
+      sequence,
+    ) => {
       transfers.push({
         assistantId,
         operation,
         ...(chunk ? { chunk: [...chunk] } : {}),
+        ...(sequence !== undefined ? { sequence } : {}),
       });
+      if (operation === "append" && appendAttempts++ === 0) {
+        throw new Error("temporary tunnel interruption");
+      }
       return operation === "finish"
         ? { attachmentId: "attachment-remote" }
         : {};
     },
+    waitBeforeTransferRetry: async () => undefined,
   });
 
   await controller.handle(startEvent, "assistant-remote");
@@ -426,6 +444,13 @@ test("streams remote recording chunks before reporting stopped", async () => {
       assistantId: "assistant-remote",
       operation: "append",
       chunk: [1, 2, 3],
+      sequence: 0,
+    },
+    {
+      assistantId: "assistant-remote",
+      operation: "append",
+      chunk: [1, 2, 3],
+      sequence: 0,
     },
     { assistantId: "assistant-remote", operation: "finish" },
   ]);
@@ -477,6 +502,112 @@ test("only the client that wins the claim starts capture", async () => {
 
   expect(capture).toHaveBeenCalledTimes(1);
   expect(election.owner).toBe("client-1");
+});
+
+test("a busy non-owner stays silent so an idle client can claim", async () => {
+  const busyClaim = mock(async () => true);
+  const busyStatuses: string[] = [];
+  const makeCapture = async () => {
+    const track = new FakeTrack();
+    return {
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    };
+  };
+  const busy = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: makeCapture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: busyClaim,
+    reportStatus: async (_assistantId, _event, status) => {
+      busyStatuses.push(status);
+    },
+  });
+  const idle = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: makeCapture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async () => undefined,
+  });
+  const contender = {
+    ...startEvent,
+    recordingId: "00000000-0000-4000-8000-000000000002",
+  };
+
+  await busy.handle(startEvent, "assistant-1");
+  await busy.handle(contender, "assistant-1");
+  await idle.handle(contender, "assistant-1");
+
+  expect(busyClaim).toHaveBeenCalledTimes(1);
+  expect(busyStatuses).toEqual(["started"]);
+});
+
+test("preserves the complete local file when remote retries are exhausted", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const errors: string[] = [];
+  const transferRecordingMock = mock(
+    async (
+      _assistantId: string,
+      _recordingId: string,
+      operation: string,
+    ) => {
+      if (operation === "append") {
+        throw new Error("tunnel unavailable");
+      }
+      return {};
+    },
+  );
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status, details) => {
+      if (status === "failed" && details?.error) {
+        errors.push(details.error);
+      }
+    },
+    requiresTransfer: () => true,
+    transferRecording: transferRecordingMock,
+  });
+
+  await controller.handle(startEvent, "assistant-remote");
+  await expect(
+    controller.handle(
+      { type: "recording_stop", recordingId },
+      "assistant-remote",
+    ),
+  ).rejects.toThrow("tunnel unavailable");
+
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+  expect(window.vellum!.screenRecording!.abort).not.toHaveBeenCalled();
+  expect(window.vellum!.screenRecording!.append).toHaveBeenCalledTimes(1);
+  expect(
+    transferRecordingMock.mock.calls.filter(
+      ([, , operation]) => operation === "append",
+    ),
+  ).toHaveLength(4);
+  expect(errors).toEqual([
+    "Remote recording transfer failed. The complete recording remains saved on this computer.",
+  ]);
 });
 
 test("uses the main-process picker for prompted macOS capture", async () => {
