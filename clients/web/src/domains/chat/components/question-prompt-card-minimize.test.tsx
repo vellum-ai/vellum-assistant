@@ -12,7 +12,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
@@ -30,26 +36,50 @@ const ENTRY: QuestionEntry = {
   ],
 };
 
-function setPointer(coarse: boolean): void {
+/**
+ * A `matchMedia` that can change its answer mid-test, which is the whole point
+ * of the pointer gates below: the card subscribes rather than sampling once, so
+ * a convertible folding into tablet mode has to reach a card already on screen.
+ */
+let pointerIsCoarse = false;
+const mediaListeners = new Set<() => void>();
+
+function installMatchMedia(): void {
   window.matchMedia = ((query: string) => ({
-    matches: coarse && query.includes("coarse"),
+    matches: pointerIsCoarse && query.includes("coarse"),
     media: query,
     onchange: null,
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (_type: string, listener: () => void) => {
+      mediaListeners.add(listener);
+    },
+    removeEventListener: (_type: string, listener: () => void) => {
+      mediaListeners.delete(listener);
+    },
     addListener: () => {},
     removeListener: () => {},
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
 }
 
+function setPointer(coarse: boolean): void {
+  pointerIsCoarse = coarse;
+  act(() => {
+    for (const listener of mediaListeners) {
+      listener();
+    }
+  });
+}
+
 beforeEach(() => {
-  setPointer(false);
+  pointerIsCoarse = false;
+  mediaListeners.clear();
+  installMatchMedia();
 });
 
 afterEach(() => {
   cleanup();
-  setPointer(false);
+  pointerIsCoarse = false;
+  mediaListeners.clear();
 });
 
 function renderCard(
@@ -237,5 +267,19 @@ describe("QuestionPromptCard minimize", () => {
     setPointer(true);
     const coarse = renderCard();
     expect(coarse.container.querySelector(GRABBER)).not.toBeNull();
+  });
+
+  test("the grabber follows the pointer changing under a mounted card", () => {
+    const GRABBER = '[data-slot="question-card-grabber"]';
+    const { container } = renderCard();
+
+    expect(container.querySelector(GRABBER)).toBeNull();
+
+    // A convertible folding into tablet mode, with the card already on screen.
+    setPointer(true);
+    expect(container.querySelector(GRABBER)).not.toBeNull();
+
+    setPointer(false);
+    expect(container.querySelector(GRABBER)).toBeNull();
   });
 });

@@ -25,7 +25,7 @@ import {
 import { useTranslation } from "@/i18n";
 import { useOptionHotkeys } from "@/hooks/use-option-hotkeys";
 import type { QuestionEntry } from "@/types/interaction-ui-types";
-import { isPointerCoarse } from "@/utils/pointer";
+import { usePointerCoarse } from "@/utils/pointer";
 import { Button, Card, cn, Typography } from "@vellumai/design-library";
 
 /** Stable no-op for the hotkeys the minimized card has nothing to act on. */
@@ -135,12 +135,16 @@ export function QuestionPromptBody({
     : "";
   const hasFreeText = currentFreeText.trim().length > 0;
 
-  // The pointer axis, read once: on a given device it doesn't change. It gates
-  // two things that only make sense on one side of it: the numeric badges,
-  // which hint at a hardware-keyboard affordance a thumb can't reach, and the
-  // grabber, which advertises a swipe that only touch can perform. The pencil
-  // icon on the free-text row is iconography, not a hint, and stays either way.
-  const [isTouch] = useState(() => isPointerCoarse());
+  // The pointer axis, subscribed rather than sampled: a convertible folding
+  // into tablet mode changes it under a card that is already on screen, and
+  // both things it gates are rendered. The grabber advertises a swipe only
+  // touch can perform, and the numeric badges hint at a hardware-keyboard
+  // affordance a thumb can't reach, so a stale read leaves one of them making
+  // a promise the device can no longer keep. `useSwipeEngine` reads the same
+  // subscribed signal, so the grabber and the gesture it advertises arrive and
+  // leave together. The pencil icon on the free-text row is iconography, not a
+  // hint, and stays either way.
+  const isTouch = usePointerCoarse();
   const showHotkeyBadges = !isTouch;
 
   const recordResponse = useCallback(
@@ -334,7 +338,13 @@ export function QuestionPromptBody({
 
   return (
     <div
-      className="relative flex flex-col p-4"
+      // `pan-x pinch-zoom` hands the browser everything except the axis this
+      // card drags on. Without it a downward swipe can be claimed as native
+      // viewport or ancestor panning, and the touch stream is cancelled before
+      // `touchend`: the card would follow the finger and then snap back with
+      // nothing committed. Zoom and horizontal panning are left alone, since
+      // neither is a gesture the card wants.
+      className="relative flex flex-col p-4 [touch-action:pan-x_pinch-zoom]"
       onTouchStart={minimize.dragHandlers.onTouchStart}
       onTouchMove={minimize.dragHandlers.onTouchMove}
       onTouchEnd={minimize.dragHandlers.onTouchEnd}
