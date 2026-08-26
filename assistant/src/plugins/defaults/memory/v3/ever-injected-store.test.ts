@@ -343,6 +343,23 @@ describe("fail-soft without a memory database", () => {
     expect(residentBytes("conv-1")).toBe(0);
     expect(() => clearConversation("conv-1")).not.toThrow();
   });
+
+  test("keeps a re-injected card active until its accounting write recovers", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+
+    memoryDbAvailable = false;
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+
+    memoryDbAvailable = true;
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 140,
+      prunedAt: null,
+    });
+  });
 });
 
 describe("fail-soft when the underlying statement fails", () => {
@@ -367,5 +384,30 @@ describe("fail-soft when the underlying statement fails", () => {
         5_000,
       ),
     ).not.toThrow();
+  });
+
+  test("retries a failed re-injection write before reading tombstones", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+
+    memorySqlite.run(`
+      CREATE TRIGGER fail_reinjection
+      BEFORE UPDATE ON memory_v3_ever_injected
+      WHEN NEW.pruned_at IS NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'failed re-injection');
+      END
+    `);
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+    expect(getInjected("conv-1").get("topics/page-a")?.prunedAt).toBe(2_000);
+
+    memorySqlite.run("DROP TRIGGER fail_reinjection");
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 140,
+      prunedAt: null,
+    });
   });
 });
