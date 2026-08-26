@@ -50,6 +50,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
+import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import { getConfig, loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
@@ -836,6 +837,49 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     seedRawConfig();
   });
 
+  describe("fallbackProfile write protection", () => {
+    beforeEach(() => {
+      const llm = rawConfigFixture.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      };
+      llm.profiles.backup = {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+      };
+      seedRawConfig();
+    });
+
+    test("rejects a custom fallbackProfile without writing", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "backup",
+          },
+        }),
+      ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+      expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+      expect(initializeProvidersCalls).toBe(0);
+    });
+
+    test("rejects a custom pointer at a managed backup name", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "balanced-backup",
+          },
+        }),
+      ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+      expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+      expect(initializeProvidersCalls).toBe(0);
+    });
+  });
+
   test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
@@ -1239,6 +1283,48 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(initializeProvidersCalls).toBe(1);
       expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
+  });
+});
+
+describe("PATCH /v1/config fallbackProfile write protection", () => {
+  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+  beforeEach(() => {
+    initializeProvidersCalls = 0;
+    clearEmbeddingBackendCacheCalls = 0;
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          custom: { provider: "anthropic", model: "claude-sonnet-4-6" },
+          backup: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("rejects a custom fallbackProfile without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { custom: { fallbackProfile: "backup" } } } },
+      }),
+    ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("rejects a custom pointer at a managed backup name", async () => {
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: { custom: { fallbackProfile: "balanced-backup" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
   });
 });
 
@@ -1694,6 +1780,16 @@ describe("config invariant flag enrichment", () => {
     for (const name of ["balanced", "quality-optimized", "latency-optimized"]) {
       expect(profiles[name]!.invariant).toBe(true);
     }
+  });
+
+  test("GET /v1/config hides managed backups from the picker catalog", async () => {
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    for (const name of BACKUP_PROFILE_KEYS) {
+      expect(profiles).not.toHaveProperty(name);
+    }
+    expect(profiles.balanced).toBeDefined();
   });
 
   test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {

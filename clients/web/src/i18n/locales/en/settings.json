@@ -305,8 +305,8 @@
     "loading": "Loading billing summary...",
     "lowBalanceToggle": "Custom Low Balance Alert",
     "noInfo": "No billing information available.",
-    "subtitle": "Quick overview of your balances and other things",
-    "title": "Credits"
+    "subtitle": "Credits used when usage limit is reached",
+    "title": "Extra Usage Credits"
   },
   "billingPortalReturnHandler": {
     "endOfBillingPeriod": "the end of your billing period",
@@ -1182,7 +1182,9 @@
     "benefitPush": "Push notifications",
     "download": "Download",
     "subtitle": "The Vellum {appName} app gives you a native experience.",
-    "title": "Get the {appName} App"
+    "subtitleGeneric": "The Vellum mobile app gives you a native experience.",
+    "title": "Get the {appName} App",
+    "titleGeneric": "Get the Vellum Mobile App"
   },
   "notificationsPage": {
     "description": "Manage how Vellum notifies you on this Android device.",
@@ -1221,6 +1223,7 @@
     "generateButtonMinting": "Generating…",
     "generateButtonRegenerate": "Generate new code",
     "generateButtonWarned": "Generate anyway",
+    "learnMore": "Learn more about pairing",
     "noTunnelMore": "Other providers and options: <code>{command}</code>",
     "noTunnelNext": "The tunnel prints an https address. Paste it into Public URL below, and leave the tunnel running while you pair and use other devices.",
     "noTunnelTitle": "Open a tunnel first",
@@ -1235,7 +1238,7 @@
     "title": "Pair a device"
   },
   "pairDeviceClient": {
-    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.",
+    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel --help` lists the providers) and the public URL points at it, then generate a new code.",
     "httpError": "Pairing failed (HTTP {status}).",
     "networkError": "Couldn't reach the assistant. Make sure it's running and try again.",
     "unexpectedResponse": "The assistant returned an unexpected response."
@@ -1253,11 +1256,12 @@
     "loopback": "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
     "nonHttps": "The URL must use https so your devices can connect securely.",
     "serviceFallbackName": "the tunnel provider",
-    "serviceWebsite": "This is {service}'s website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+    "serviceWebsite": "This is {service}'s website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
     "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
-    "confirmMessage": "The {platform} device {hash} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
+    "browserOnOs": "{browser} on {os}",
+    "confirmMessageNamed": "{name} ({hash}) loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
     "confirmTitle": "Revoke this device?",
     "dateUnknown": "unknown",
     "hostRevokeDisabledTitle": "This is this machine's own credential; revoking it would lock the host out of the assistant.",
@@ -1563,9 +1567,11 @@
     "advanced": "Advanced",
     "apiKeyPlaceholder": "Enter your API key",
     "baseUrlHintOllama": "Leave blank to use the local Ollama default, or enter a remote or non-default host.",
+    "baseUrlHintOpencode": "Leave blank to use OpenCode Zen, or set this to the OpenCode Go endpoint.",
     "baseUrlLabel": "Base URL",
     "baseUrlPlaceholder": "https://api.x.ai/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Cancel",
     "customProviderHint": "Custom providers connect to any endpoint that serves the OpenAI-compatible API - xAI, Groq, LM Studio, vLLM, and similar.",
     "customProviderOption": "Custom provider",
@@ -1606,9 +1612,11 @@
   "providerEditorContent": {
     "apiKeyPlaceholder": "Enter your API key",
     "baseUrlHintOllama": "Leave blank to use the local Ollama default, or enter a remote or non-default host.",
+    "baseUrlHintOpencode": "Leave blank to use OpenCode Zen, or set this to the OpenCode Go endpoint.",
     "baseUrlLabel": "Base URL",
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Cancel",
     "displayNameLabel": "Display Name <optional>(optional)</optional>",
     "displayNamePlaceholder": "e.g. My Anthropic Key",
@@ -1703,12 +1711,11 @@
     "copySuccess": "Copied to clipboard!",
     "creditsEarned": "Credits Earned",
     "friendsReferred": "Friends Referred",
-    "gatedNotice": "You're not currently earning referral credits. Buy credits or upgrade to Pro to start earning - your invite link still works in the meantime.",
+    "gatedTooltip": "Subscribe or purchase credits to start earning!",
     "loadError": "Failed to load referral information.",
     "loading": "Loading...",
     "shareLink": "Share Link",
     "subtitleDefault": "Share Vellum with friends and earn credits for every signup.",
-    "subtitleGated": "Invite friends to Vellum. You'll start earning referral credits once you've purchased credits or upgraded to Pro.",
     "subtitleWithAmounts": "Share Vellum with friends - you'll each earn {creditAmount} credits when they sign up, up to {earningCap} total."
   },
   "referralModal": {
@@ -1809,21 +1816,6 @@
     "warningDescription": "Send a warning-level message.",
     "warningLabel": "Warning Event",
     "warningSentToast": "Sentry warning event sent."
-  },
-  "sharedUi": {
-    "checkingDomain": "Checking domain…",
-    "domainVerified": "Domain verified",
-    "failedTitle": "Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain.",
-    "managedLabel": "Managed",
-    "managedServicesBanner": "Managed services are metered and deducted from your Vellum account balance. <link>View pricing</link>",
-    "modeToggleAriaLabel": "Service mode",
-    "unknownStatus": "Unknown status",
-    "unknownStatusTitle": "Unable to retrieve domain verification status.",
-    "verificationFailed": "Verification failed",
-    "verifiedTitle": "DNS records have been verified. Your domain is ready to send and receive email.",
-    "verifyingDomain": "Verifying domain…",
-    "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes.",
-    "yourOwnLabel": "Your Own"
   },
   "shortcutsSections": {
     "alreadyUsedBy": "Already used by {label}",

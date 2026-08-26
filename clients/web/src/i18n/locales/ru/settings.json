@@ -293,8 +293,8 @@
     "loading": "Загрузка сводки по оплате...",
     "lowBalanceToggle": "Своё оповещение о низком балансе",
     "noInfo": "Нет сведений об оплате.",
-    "subtitle": "Краткая сводка по балансам и не только",
-    "title": "Кредиты"
+    "subtitle": "Кредиты, используемые при достижении лимита использования",
+    "title": "Кредиты дополнительного использования"
   },
   "billingPortalReturnHandler": {
     "endOfBillingPeriod": "конца расчётного периода",
@@ -1170,7 +1170,9 @@
     "benefitPush": "Push-уведомления",
     "download": "Скачать",
     "subtitle": "Приложение Vellum для {appName} даёт нативный опыт.",
-    "title": "Скачать приложение {appName}"
+    "subtitleGeneric": "Мобильное приложение Vellum даёт нативный опыт.",
+    "title": "Скачать приложение {appName}",
+    "titleGeneric": "Скачать мобильное приложение Vellum"
   },
   "notificationsPage": {
     "description": "Настройка уведомлений Vellum на этом устройстве Android.",
@@ -1223,7 +1225,7 @@
     "title": "Привязать устройство"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Если сканирование не подключается: на хосте должен быть запущен туннель (`vellum tunnel`), публичный URL должен указывать на него, затем создание нового кода.",
+    "connectivityHint": "Если сканирование не подключается: на хосте должен быть запущен туннель (список провайдеров: `vellum tunnel --help`), публичный URL должен указывать на него, затем создание нового кода.",
     "httpError": "Привязка не удалась (HTTP {status}).",
     "networkError": "Не удалось достучаться до ассистента. Проверьте, что он запущен, и повторите попытку.",
     "unexpectedResponse": "Ассистент вернул неожиданный ответ."
@@ -1241,11 +1243,12 @@
     "loopback": "Это loopback-адрес, до которого другие устройства не достучатся. Нужен публичный https URL ассистента.",
     "nonHttps": "URL должен использовать https, чтобы устройства подключались безопасно.",
     "serviceFallbackName": "провайдер туннеля",
-    "serviceWebsite": "Это сайт {service}, а не адрес ассистента. Команда `vellum tunnel` на хосте даёт адрес.",
+    "serviceWebsite": "Это сайт {service}, а не адрес ассистента. Запустите туннель на хосте, чтобы получить адрес; список провайдеров: `vellum tunnel --help`.",
     "unparseable": "Нужен корректный URL, например https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
-    "confirmMessage": "Устройство {platform} {hash} потеряет доступ к этому ассистенту. Его токены доступа сразу станут недействительными; чтобы подключиться снова, устройство нужно привязать с этой машины.",
+    "browserOnOs": "{browser} на {os}",
+    "confirmMessageNamed": "{name} ({hash}) потеряет доступ к этому ассистенту. Его токены доступа сразу станут недействительными; чтобы подключиться снова, устройство нужно привязать с этой машины.",
     "confirmTitle": "Отозвать это устройство?",
     "dateUnknown": "неизвестно",
     "hostRevokeDisabledTitle": "Это учётные данные этой же машины; если их отозвать, хост потеряет доступ к ассистенту.",
@@ -1551,9 +1554,11 @@
     "advanced": "Дополнительно",
     "apiKeyPlaceholder": "API-ключ",
     "baseUrlHintOllama": "Пустое поле: локальный Ollama по умолчанию. Иначе удалённый либо нестандартный хост.",
+    "baseUrlHintOpencode": "Пустое поле: OpenCode Zen. Иначе укажите endpoint OpenCode Go.",
     "baseUrlLabel": "Базовый URL",
     "baseUrlPlaceholder": "https://api.x.ai/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Отмена",
     "customProviderHint": "Свои провайдеры подключаются к любому endpoint с API, совместимым с OpenAI: xAI, Groq, LM Studio, vLLM и похожим.",
     "customProviderOption": "Свой провайдер",
@@ -1594,9 +1599,11 @@
   "providerEditorContent": {
     "apiKeyPlaceholder": "API-ключ",
     "baseUrlHintOllama": "Пустое поле: локальный Ollama по умолчанию. Иначе удалённый либо нестандартный хост.",
+    "baseUrlHintOpencode": "Пустое поле: OpenCode Zen. Иначе укажите endpoint OpenCode Go.",
     "baseUrlLabel": "Базовый URL",
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Отмена",
     "displayNameLabel": "Отображаемое имя <optional>(необязательно)</optional>",
     "displayNamePlaceholder": "например, Мой ключ Anthropic",
@@ -1691,12 +1698,11 @@
     "copySuccess": "Скопировано в буфер обмена!",
     "creditsEarned": "Заработано кредитов",
     "friendsReferred": "Приглашено друзей",
-    "gatedNotice": "Реферальные кредиты сейчас не начисляются. Покупка кредитов или переход на Pro включает начисление. Ссылка-приглашение пока работает.",
+    "gatedTooltip": "Оформи подписку или купи кредиты, чтобы начать зарабатывать!",
     "loadError": "Не удалось загрузить сведения о реферальной программе.",
     "loading": "Загрузка...",
     "shareLink": "Поделиться ссылкой",
     "subtitleDefault": "Расскажи друзьям о Vellum и получай кредиты за каждую регистрацию.",
-    "subtitleGated": "Пригласи друзей в Vellum. Реферальные кредиты начнут начисляться после покупки кредитов или перехода на Pro.",
     "subtitleWithAmounts": "Расскажи друзьям о Vellum: вы оба получите {creditAmount} кредитов после их регистрации, всего до {earningCap}."
   },
   "referralModal": {
@@ -1797,21 +1803,6 @@
     "warningDescription": "Отправить сообщение уровня warning.",
     "warningLabel": "Событие Warning",
     "warningSentToast": "Событие warning Sentry отправлено."
-  },
-  "sharedUi": {
-    "checkingDomain": "Проверка домена…",
-    "domainVerified": "Домен подтверждён",
-    "failedTitle": "Не удалось подтвердить домен. Записи DNS могли ещё не распространиться. Освободите домен и зарегистрируйте его снова.",
-    "managedLabel": "Управляемые",
-    "managedServicesBanner": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>",
-    "modeToggleAriaLabel": "Режим сервиса",
-    "unknownStatus": "Неизвестный статус",
-    "unknownStatusTitle": "Не удалось получить статус проверки домена.",
-    "verificationFailed": "Проверка не прошла",
-    "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
-    "verifyingDomain": "Проверка домена…",
-    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут.",
-    "yourOwnLabel": "Свои"
   },
   "shortcutsSections": {
     "alreadyUsedBy": "Уже занято: {label}",

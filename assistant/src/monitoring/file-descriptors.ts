@@ -22,7 +22,12 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import type { MonitoringConfig } from "../config/schemas/monitoring.js";
 import { getLogger } from "../util/logger.js";
-import { readProcessCommand } from "../util/process-tree.js";
+import {
+  getProcessTableRows,
+  type ProcessTableOptions,
+  type ProcessTableRow,
+} from "../util/process-table.js";
+import { deriveName, readProcessCommand } from "../util/process-tree.js";
 
 const log = getLogger("file-descriptors");
 
@@ -40,7 +45,7 @@ export interface ProcessFdUsage {
   pid: number;
   /** Redacted process descriptor (see {@link readProcessCommand}). */
   command: string;
-  /** Entries in `/proc/<pid>/fd`. */
+  /** Open descriptor count, or handle count on Windows. */
   openCount: number;
   softLimit: number | null;
   hardLimit: number | null;
@@ -108,9 +113,34 @@ function readProcessFdUsage(pid: number): ProcessFdUsage | null {
 /**
  * Descriptor usage for every readable process, closest to its soft limit first
  * (processes with an unknown limit sort last, by raw count). Empty when
- * `/proc` is unavailable, e.g. on macOS.
+ * `/proc` is unavailable. Windows reports process handle counts without a
+ * comparable soft limit.
  */
-export function collectFdUsage(): ProcessFdUsage[] {
+export function collectFdUsage(
+  options: ProcessTableOptions = {},
+): ProcessFdUsage[] {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    try {
+      return getProcessTableRows(options)
+        .filter(
+          (row): row is ProcessTableRow & { handleCount: number } =>
+            row.handleCount != null,
+        )
+        .map((row) => ({
+          pid: row.pid,
+          command: deriveName(row.command),
+          openCount: row.handleCount,
+          softLimit: null,
+          hardLimit: null,
+          ratio: null,
+        }))
+        .sort((a, b) => b.openCount - a.openCount);
+    } catch {
+      return [];
+    }
+  }
+
   let entries: string[];
   try {
     entries = readdirSync("/proc").filter((entry) => /^\d+$/.test(entry));
@@ -133,8 +163,11 @@ export function collectFdUsage(): ProcessFdUsage[] {
 }
 
 /** The top `limit` processes by descriptor pressure, most pressured first. */
-export function topProcessesByFd(limit: number): ProcessFdUsage[] {
-  return collectFdUsage().slice(0, limit);
+export function topProcessesByFd(
+  limit: number,
+  options: ProcessTableOptions = {},
+): ProcessFdUsage[] {
+  return collectFdUsage(options).slice(0, limit);
 }
 
 /** What a pass concluded about the container's descriptor pressure. */

@@ -9,7 +9,21 @@ import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { inferenceProfilesByNameValidatePost } from "@/generated/daemon/sdk.gen";
-import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
+import type {
+  ProfileEntry,
+  ProfilePatchEntryWritable,
+} from "@/generated/daemon/types.gen";
+
+/**
+ * Drop the server-owned fields a config PATCH may not carry. `fallbackProfile`
+ * is set by the daemon from its own table and rejected on the way back in, so
+ * an entry read out of the config document has to be stripped before it can be
+ * re-sent.
+ */
+function toWritableEntry(entry: ProfileEntry): ProfilePatchEntryWritable {
+  const { fallbackProfile: _fallbackProfile, ...writable } = entry;
+  return writable;
+}
 
 /**
  * Probe the just-saved profile with one minimal request and surface a
@@ -19,7 +33,7 @@ import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
  * transport error must not disturb the save flow, and a null check means the
  * daemon had no verdict to give.
  */
-async function probeSavedProfile(
+export async function probeSavedProfile(
   assistantId: string,
   name: string,
 ): Promise<void> {
@@ -67,7 +81,7 @@ export interface ProfileSave {
    */
   saveProfile: (
     name: string,
-    entry: ProfilePatchEntry,
+    entry: ProfilePatchEntryWritable,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   isPending: boolean;
@@ -77,7 +91,7 @@ export function useProfileSave(
   assistantId: string,
   { onSaved }: { onSaved?: () => void } = {},
 ): ProfileSave {
-  const configMutation = useLlmConfigPatch(assistantId);
+  const configMutation = useLlmConfigPatch();
 
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
@@ -91,7 +105,7 @@ export function useProfileSave(
 
   async function saveProfile(
     name: string,
-    entry: ProfilePatchEntry,
+    entry: ProfilePatchEntryWritable,
     options?: { mode?: "merge" | "replace" },
   ) {
     const saveMode = options?.mode ?? "replace";
@@ -107,7 +121,7 @@ export function useProfileSave(
     }
 
     const llmPatch: {
-      profiles: Record<string, ProfilePatchEntry>;
+      profiles: Record<string, ProfilePatchEntryWritable>;
       profileOrder?: string[];
     } = { profiles: { [name]: entry } };
     if (isNew) {
@@ -136,7 +150,9 @@ export function useProfileSave(
           await configMutation
             .mutateAsync({
               path: { assistant_id: assistantId },
-              body: { llm: { profiles: { [name]: oldEntry } } },
+              body: {
+                llm: { profiles: { [name]: toWritableEntry(oldEntry) } },
+              },
             })
             .catch(() => {
               /* rollback failed - original error still propagates */

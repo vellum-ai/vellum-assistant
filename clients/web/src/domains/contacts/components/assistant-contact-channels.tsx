@@ -3,6 +3,9 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { Link } from "react-router";
+
+import { routes } from "@/utils/routes";
 import { useTranslation } from "@/i18n";
 import type {
   AssistantChannelState,
@@ -56,7 +59,9 @@ export function AssistantContactChannels({
               pending={pendingChannelKey === channel.key}
               onConnect={onConnect ? () => onConnect(channel.key) : undefined}
               onDisconnect={
-                onDisconnect
+                // Offered only where a route can clear the credentials, so
+                // the confirm can never resolve without doing anything.
+                onDisconnect && channel.canDisconnect
                   ? () => setPendingDisconnect(channel.key)
                   : undefined
               }
@@ -134,23 +139,32 @@ function ChannelRow({
               <Icon className="h-3 w-3" />
               {label}
             </span>
-            <Button
-              variant="danger"
-              onClick={onDisconnect}
-              disabled={!onDisconnect || pending}
-            >
-              {pending ? t("actions.disconnecting") : t("actions.disconnect")}
-            </Button>
+            {/* No handler means no one-click disconnect exists for this row:
+                either the daemon predates the channel's delete route, or the
+                channel declares none because tearing it down is a multi-step
+                decision (email). The row links to the channel's panel, where
+                the real controls live, instead of a permanently dead button. */}
+            {onDisconnect ? (
+              <Button
+                variant="danger"
+                onClick={onDisconnect}
+                disabled={pending}
+              >
+                {pending ? t("actions.disconnecting") : t("actions.disconnect")}
+              </Button>
+            ) : (
+              <Button variant="outlined" asChild>
+                <Link to={`${routes.channels}?setup=${channel.key}`}>
+                  {t("actions.manage")}
+                </Link>
+              </Button>
+            )}
           </>
-        ) : (
-          <Button
-            variant="outlined"
-            onClick={onConnect}
-            disabled={!onConnect || pending}
-          >
+        ) : onConnect ? (
+          <Button variant="outlined" onClick={onConnect} disabled={pending}>
             {t("actions.connect")}
           </Button>
-        )}
+        ) : null}
       </div>
     </div>
   );

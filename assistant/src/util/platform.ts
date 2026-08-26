@@ -1,7 +1,12 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
+import {
+  AVATAR_IMAGE_FILENAME,
+  AVATAR_MANIFEST_FILENAME,
+  resolveAvatarDir,
+} from "@vellumai/avatar-manifest";
 import { SEEDS } from "@vellumai/environments";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
@@ -160,19 +165,13 @@ export function getSoundsDir(): string {
 
 /** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
 export function getAvatarDir(): string {
-  return join(getWorkspaceDir(), "data", "avatar");
+  return resolveAvatarDir(getWorkspaceDir());
 }
-
-/** Canonical filename for the custom avatar PNG. */
-export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 
 /** Returns the canonical avatar image path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png). */
 export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
-
-/** Canonical filename for the avatar state manifest. */
-export const AVATAR_MANIFEST_FILENAME = "avatar.json";
 
 /** Returns the canonical avatar manifest path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar.json). */
 export function getAvatarManifestPath(): string {
@@ -442,12 +441,32 @@ export function getWorkspaceDir(): string {
  *   /data/.vellum/workspace        → /data/.vellum/workspace
  */
 export function getWorkspaceDirDisplay(): string {
-  const abs = getWorkspaceDir();
-  const home = homedir();
-  if (abs.startsWith(home + "/") || abs === home) {
-    return "~" + abs.slice(home.length);
+  return formatHomeRelativePath(getWorkspaceDir(), homedir());
+}
+
+interface PathOperations {
+  isAbsolute(path: string): boolean;
+  relative(from: string, to: string): string;
+  sep: string;
+}
+
+export function formatHomeRelativePath(
+  absolutePath: string,
+  homePath: string,
+  pathOperations: PathOperations = { isAbsolute, relative, sep },
+): string {
+  const relativeToHome = pathOperations.relative(homePath, absolutePath);
+  if (relativeToHome === "") {
+    return "~";
   }
-  return abs;
+  if (
+    relativeToHome !== ".." &&
+    !relativeToHome.startsWith(`..${pathOperations.sep}`) &&
+    !pathOperations.isAbsolute(relativeToHome)
+  ) {
+    return `~${pathOperations.sep}${relativeToHome}`;
+  }
+  return absolutePath;
 }
 
 /** Returns $VELLUM_WORKSPACE_DIR/config.json */

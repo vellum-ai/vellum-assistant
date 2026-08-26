@@ -27,6 +27,7 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
@@ -55,6 +56,8 @@ import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
+import { endLiveVoiceSessionOnAssistant } from "@/domains/chat/voice/live-voice/live-voice-session-end-api";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
@@ -400,6 +403,7 @@ export function ChatComposer({
   const supportsLiveVoice = useSupportsLiveVoice(assistantId);
   const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoiceError = useLiveVoiceStore.use.error();
+  const liveVoiceErrorRecovery = useLiveVoiceStore.use.errorRecovery();
   // Whether any session is live anywhere (this thread or another). `failed`
   // is a retryable/inactive state, so it must count as inactive — otherwise
   // dictation would stay unavailable after a failed start.
@@ -546,6 +550,60 @@ export function ChatComposer({
     setLiveVoiceEntryOrigin(origin);
     starter?.start(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
+  /**
+   * In-flight reclaim, so unmounting cancels it. The start on the far side of
+   * the await reads this composer's chat identity, and a composer that has
+   * unmounted stops updating it: its staleness check would compare the values
+   * captured at unmount against itself, pass, and open a session for the page
+   * the user left.
+   */
+  const liveVoiceReclaimRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      liveVoiceReclaimRef.current?.abort();
+      liveVoiceReclaimRef.current = null;
+    },
+    [],
+  );
+  /**
+   * Take the live-voice slot from the session that refused this one, and start
+   * here. The blocking session is usually the same person on a surface they
+   * cannot get back to, so the way out is to end it from here rather than to
+   * go find it.
+   */
+  const handleReclaimLiveVoice = useCallback(async () => {
+    if (!assistantId) {
+      return;
+    }
+    // Prewarm from inside the click, before any await: WebKit's playback
+    // permission belongs to the gesture, and `startLiveVoiceSession` below
+    // runs after a network round trip, by which time the gesture is spent.
+    useLiveVoiceStore.getState().starter?.prewarm();
+    const reclaim = new AbortController();
+    liveVoiceReclaimRef.current?.abort();
+    liveVoiceReclaimRef.current = reclaim;
+    // The result is not branched on: whether the slot was already free or the
+    // call failed, the next move is to try to start, and the start handshake
+    // reports anything still wrong. A second error in front of someone
+    // escaping the first one helps nobody.
+    await endLiveVoiceSessionOnAssistant(assistantId, reclaim.signal);
+    if (liveVoiceReclaimRef.current === reclaim) {
+      liveVoiceReclaimRef.current = null;
+    }
+    if (reclaim.signal.aborted) {
+      return;
+    }
+    dismissLiveVoiceFailure();
+    void startLiveVoiceSession();
+  }, [assistantId, startLiveVoiceSession]);
+  const handleGoToVoiceSession = useCallback(() => {
+    const holderConversationId = liveVoiceErrorRecovery?.holderConversationId;
+    if (!holderConversationId) {
+      return;
+    }
+    dismissLiveVoiceFailure();
+    navigateToConversation(navigate, holderConversationId);
+  }, [liveVoiceErrorRecovery, navigate]);
   const handleLiveVoiceStart = useCallback(
     (origin?: { x: number; y: number }) => {
       if (!assistantId) {
@@ -911,9 +969,16 @@ export function ChatComposer({
   // A banner docks to the card's top edge and takes the strip this row floats
   // in, so the row stands down while one is up rather than crowding it. The
   // avatar peeking over that same edge stands down with it (`ComposerPeek`).
+  //
+  // A pending question card lands in the same strip and stands the row down
+  // for the same reason, plus one of its own: the card is what the turn is
+  // waiting on, and the pills reach settings that are beside the point until
+  // it is answered.
+  const hasPendingQuestion = useHasPendingQuestion();
   const settingsPillsVisible =
     isMobileMainComposer &&
     !hasBannerAboveCard &&
+    !hasPendingQuestion &&
     (isNativeMobileShell || composerInUse);
   // The entrance belongs to the row that arrives with the keyboard. A row that
   // stands throughout has no arrival to animate, and the same animation there
@@ -1125,7 +1190,11 @@ export function ChatComposer({
     // this inline waveform because the overlay bridge no-ops there.
     <div
       className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-      aria-label={voicePhase === "processing" ? t("chatComposer.transcribing") : t("chatComposer.recording")}
+      aria-label={
+        voicePhase === "processing"
+          ? t("chatComposer.transcribing")
+          : t("chatComposer.recording")
+      }
       aria-live="polite"
     >
       <StreamingWaveform
@@ -1422,7 +1491,37 @@ export function ChatComposer({
             eligibility drop must still surface its error. */}
         {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
           <div className="mb-2">
-            <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
+            <Notice
+              tone="error"
+              onDismiss={dismissLiveVoiceFailure}
+              actions={
+                liveVoiceErrorRecovery?.kind === "reclaim" ? (
+                  <>
+                    <Button
+                      variant="outlined"
+                      size="compact"
+                      onClick={() => {
+                        void handleReclaimLiveVoice();
+                      }}
+                    >
+                      {t("chatComposer.endOtherVoiceSession")}
+                    </Button>
+                    {/* Only when it is somewhere else: navigating to the
+                        conversation already on screen would visibly do
+                        nothing. */}
+                    {liveVoiceErrorRecovery.holderConversationId && (
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        onClick={handleGoToVoiceSession}
+                      >
+                        {t("chatComposer.goToVoiceSession")}
+                      </Button>
+                    )}
+                  </>
+                ) : undefined
+              }
+            >
               {liveVoiceError}
             </Notice>
           </div>

@@ -42,6 +42,7 @@ import {
   startPluginScheduleReconcileSweep,
   stopPluginScheduleReconcileSweep,
 } from "../schedule/plugin-schedule-reconciler.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import {
   activeSttStreamSessions,
   SttStreamSession,
@@ -265,16 +266,22 @@ export class RuntimeHttpServer {
             const sttData = data;
 
             // The runtime is config-authoritative: always resolve the
-            // provider from `services.stt.provider` regardless of what
-            // the client/gateway requested.
+            // provider from config regardless of what the client/gateway
+            // requested. Dictation's own role selects it, matching the dial
+            // below, so the session's label, its failure copy and the
+            // mismatch telemetry all name the provider this socket actually
+            // reaches.
             //
             // getConfig() can throw (e.g. after invalidateConfigCache()
             // when config.json is temporarily invalid). Wrap in try/catch
-            // so the session still starts normally — resolveStreamingTranscriber
+            // so the session still starts normally: resolveStreamingTranscriber
             // reads config inside SttStreamSession.start()'s own guarded path.
             let configuredProvider: string | undefined;
             try {
-              configuredProvider = getConfig().services.stt.provider;
+              configuredProvider = sttCatalogKeyForRole(
+                getConfig().services.stt,
+                "dictation",
+              );
 
               // Mismatch telemetry: when the optional requested provider
               // disagrees with the configured provider, log a warning so
@@ -327,6 +334,7 @@ export class RuntimeHttpServer {
             // transcriber and sends a `ready` event on success.
             void session.start(() =>
               resolveStreamingTranscriber({
+                role: "dictation",
                 sampleRate: sttData.sampleRate,
               }),
             );

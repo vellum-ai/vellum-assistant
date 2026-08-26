@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { ShareFeedbackModalLazy } from "@/components/share-feedback-modal-lazy";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useDownloadFeedback } from "@/hooks/use-download-feedback";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGuardianRepairRoute } from "@/hooks/use-guardian-repair-route";
@@ -94,6 +96,7 @@ import {
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
+import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
 /**
@@ -122,11 +125,13 @@ import { toast } from "@vellumai/design-library/components/toast";
  */
 export function RootLayout() {
   useAppTheme();
+  const { t } = useTranslation();
   const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
 
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
@@ -215,6 +220,10 @@ export function RootLayout() {
   useOnboardingWindowSize();
 
   useEventBusInit({ assistantId, isAssistantActive });
+  // Download outcome toasts (`download.started` / `download.done`). Mounted
+  // at the root because downloads start from every domain (chat attachments,
+  // workspace files, invoices, inspector exports).
+  useDownloadFeedback();
   useEffect(() => subscribeAndroidBackButtonSource(), []);
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
@@ -268,7 +277,7 @@ export function RootLayout() {
           .connectLocalAssistant(id)
           .catch((err: unknown) => {
             console.error("rePair.connectLocalAssistant failed", err);
-            toast.error("Failed to connect to the assistant.");
+            toast.error(t("assistantConnect.failed"));
             void navigate(routes.selectAssistant);
           });
       }
@@ -437,7 +446,7 @@ export function RootLayout() {
       return;
     }
     setRemovePairedPending(true);
-    const outcome = await removePairedAssistant(removePairedId);
+    const outcome = await removePairedAssistant(queryClient, removePairedId);
     setRemovePairedPending(false);
     setRemovePairedId(null);
     if (!outcome.ok) {
@@ -454,7 +463,7 @@ export function RootLayout() {
       return;
     }
     setRetirePending(true);
-    const outcome = await retireAssistant(retireId);
+    const outcome = await retireAssistant(queryClient, retireId);
     if (outcome.ok) {
       setRetireId(null);
       setRetirePending(false);
@@ -588,7 +597,7 @@ export function RootLayout() {
         kind="paired"
         assistantName={
           (removePairedId && getLockfileAssistant(removePairedId)?.name) ||
-          "the assistant"
+          t("rootLayout.unnamedAssistant")
         }
         isPending={removePairedPending}
         onConfirm={() => void handleConfirmRemovePaired()}

@@ -41,6 +41,7 @@ import {
   connectionSaveErrorMessage,
   parseCredentialRef,
   providerAllowsCustomBaseUrl,
+  providerPersistsConnectionModels,
   validationErrorMessage,
   warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
@@ -155,6 +156,7 @@ export function ProviderCreateForm({
 
   const isOpenAICompatible = provider === "openai-compatible";
   const allowsCustomBaseUrl = providerAllowsCustomBaseUrl(provider);
+  const persistsConnectionModels = providerPersistsConnectionModels(provider);
   const connectionProviderOptions = useMemo<
     Array<ConnectionProvider | "chatgpt">
   >(() => {
@@ -298,7 +300,7 @@ export function ProviderCreateForm({
         ...(allowsCustomBaseUrl && {
           base_url: baseUrl.trim() || null,
         }),
-        ...(isOpenAICompatible && {
+        ...(persistsConnectionModels && {
           models: connectionModels.trim()
             ? connectionModels
                 .split(",")
@@ -509,7 +511,9 @@ export function ProviderCreateForm({
             placeholder={
               provider === "ollama"
                 ? t("providerCreateForm.baseUrlPlaceholderOllama")
-                : t("providerCreateForm.baseUrlPlaceholder")
+                : provider === "opencode"
+                  ? t("providerCreateForm.baseUrlPlaceholderOpencode")
+                  : t("providerCreateForm.baseUrlPlaceholder")
             }
             fullWidth
           />
@@ -522,9 +526,18 @@ export function ProviderCreateForm({
               {t("providerCreateForm.baseUrlHintOllama")}
             </Typography>
           ) : null}
+          {provider === "opencode" ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("providerCreateForm.baseUrlHintOpencode")}
+            </Typography>
+          ) : null}
         </div>
       )}
-      {isOpenAICompatible && (
+      {persistsConnectionModels && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             {t("providerCreateForm.modelsLabel")}

@@ -190,7 +190,6 @@ import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
 import { createDiscordInboundEventHandler } from "./discord/forward.js";
-import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -228,10 +227,7 @@ import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
-import {
-  admissionPolicyRoutes,
-  createDiscordAdmissionRoutes,
-} from "./ipc/admission-policy-handlers.js";
+import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
@@ -561,6 +557,15 @@ async function main() {
     config,
     "stt",
     { credentials: credentialCache },
+  );
+  // Managed STT v2 (Flux). Separate handler rather than a param on v1: the
+  // contract version is the endpoint, and v2 accepts query params v1 must
+  // keep rejecting.
+  const handleSpeechRelaySttV2Ws = createSpeechRelayUpgradeHandler(
+    config,
+    "stt",
+    { credentials: credentialCache },
+    "v2",
   );
   const handleSpeechRelayTtsWs = createSpeechRelayUpgradeHandler(
     config,
@@ -2204,6 +2209,12 @@ async function main() {
       return undefined as unknown as Response;
     }
 
+    if (url.pathname === "/v2/speech/stt/stream") {
+      const upgradeResult = await handleSpeechRelaySttV2Ws(req, server);
+      if (upgradeResult !== undefined) return upgradeResult;
+      return undefined as unknown as Response;
+    }
+
     if (url.pathname === "/v1/speech/tts/stream") {
       const upgradeResult = await handleSpeechRelayTtsWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
@@ -2644,13 +2655,27 @@ async function main() {
       return;
     }
 
+    // Room admission defers to Discord's own channel permissions. A
+    // non-empty legacy allow-list is persisted operator intent, so it keeps
+    // gating rooms until the operator clears it; the log names the way out.
+    const readLegacyAllowedChannelIds = (): ReadonlySet<string> | undefined => {
+      const ids =
+        configFileCache.getStringArray("discord", "allowedChannelIds") ?? [];
+      return ids.length > 0 ? new Set(ids) : undefined;
+    };
+    if (readLegacyAllowedChannelIds() !== undefined) {
+      log.warn(
+        "discord.allowedChannelIds is a legacy setting and is still " +
+          "enforced: the bot answers mentions only in listed channels. To " +
+          "adopt Discord's own permission model, scope the bot with View " +
+          "Channel permissions in Discord and remove the config entry.",
+      );
+    }
+
     discordGatewayClient = new DiscordGatewayClient(
       {
         botToken,
-        // Read live (the config cache is TTL'd) so an allow-list edit applies
-        // without a client restart, which would spend an IDENTIFY.
-        readAllowedChannelIds: () =>
-          readDiscordAllowedChannelIds(configFileCache),
+        readLegacyAllowedChannelIds,
       },
       createDiscordInboundEventHandler({
         config,
@@ -2673,6 +2698,13 @@ async function main() {
   // refresh until the next scheduled poll (up to 5 min), so the onboarding
   // first message evaluates flags against stale values (see JARVIS-1018).
   let remoteFeatureFlagSyncRef: RemoteFeatureFlagSync | null = null;
+
+  /**
+   * Fingerprint of the Telegram bot token the dedup cache's watermark belongs
+   * to. Null while no token is stored, which is itself a bot change: the next
+   * bot to arrive must not meet the departed one's mark.
+   */
+  let lastTelegramTokenFingerprint: string | null = null;
 
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
@@ -2705,6 +2737,25 @@ async function main() {
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
+    // `update_id` is a per-bot sequence, so a replacement bot starts below the
+    // previous one's high-water mark and every inbound would be rejected as an
+    // already-processed replay and answered 200. Forgetting the mark is what
+    // keeps delivery working across a bot swap.
+    //
+    // Keyed on the token itself rather than on `changed`. Every `keys.enc`
+    // write polls with `forceChanged`, which reports every configured service
+    // as changed even when its plaintext is identical, so re-saving an
+    // unrelated credential would otherwise clear replay protection for a bot
+    // that never moved and let a delayed retry be processed twice.
+    const telegramTokenFingerprint = telegramCreds?.bot_token
+      ? new Bun.CryptoHasher("sha256")
+          .update(telegramCreds.bot_token)
+          .digest("hex")
+      : null;
+    if (telegramTokenFingerprint !== lastTelegramTokenFingerprint) {
+      lastTelegramTokenFingerprint = telegramTokenFingerprint;
+      telegramDedupCache.reset();
+    }
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -2892,7 +2943,6 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
-    ...createDiscordAdmissionRoutes(configFileCache),
     ...channelPermissionRoutes,
     ...trustVerdictRoutes,
     ...guardianDeliveryRoutes,

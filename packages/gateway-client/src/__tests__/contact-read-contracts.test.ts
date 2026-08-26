@@ -20,6 +20,7 @@ describe("contact read contracts", () => {
       contactType: "human",
       lastInteraction: 1700000000,
       interactionCount: 12,
+      autoApproveThreshold: "medium",
       createdAt: 1699000000,
       updatedAt: 1700000000,
       channels: [
@@ -46,6 +47,7 @@ describe("contact read contracts", () => {
     const parsed = ContactReadSchema.parse(contact);
     expect(parsed.createdAt).toBe(1699000000);
     expect(parsed.updatedAt).toBe(1700000000);
+    expect(parsed.autoApproveThreshold).toBe("medium");
   });
 
   test("ContactReadSchema accepts null interactionCount (daemon-native gateway-telemetry outage fail-soft)", () => {
@@ -82,6 +84,36 @@ describe("contact read contracts", () => {
     const parsed = ContactReadSchema.parse(contact);
     expect(parsed.interactionCount).toBeNull();
     expect(parsed.channels[0].interactionCount).toBeNull();
+    expect(parsed.autoApproveThreshold).toBeUndefined();
+  });
+
+  test("ContactReadSchema accepts a null auto-approve threshold", () => {
+    const contact = {
+      id: "c1",
+      displayName: "Example User",
+      role: "contact",
+      interactionCount: 0,
+      autoApproveThreshold: null,
+      createdAt: 1699000000,
+      updatedAt: 1700000000,
+      channels: [],
+    };
+    expect(ContactReadSchema.parse(contact).autoApproveThreshold).toBeNull();
+  });
+
+  test("ContactReadSchema rejects an unknown auto-approve threshold", () => {
+    expect(() =>
+      ContactReadSchema.parse({
+        id: "c1",
+        displayName: "Example User",
+        role: "contact",
+        interactionCount: 0,
+        autoApproveThreshold: "full",
+        createdAt: 1699000000,
+        updatedAt: 1700000000,
+        channels: [],
+      }),
+    ).toThrow();
   });
 
   test("ContactReadSchema requires createdAt/updatedAt", () => {

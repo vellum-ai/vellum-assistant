@@ -28,6 +28,7 @@ import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -813,6 +814,46 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
+  test("avatar sync tag also invalidates the chooser row cache by prefix", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")),
+      ).toEqual([
+        {
+          queryKey: chooserRowAvatarQueryKeyPrefix("asst-1"),
+          refetchType: "none",
+        },
+      ]);
+    });
+  });
+
+  test("avatar_updated also invalidates the chooser row cache by prefix", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")),
+      ).toEqual([
+        {
+          queryKey: chooserRowAvatarQueryKeyPrefix("asst-1"),
+          refetchType: "none",
+        },
+      ]);
+    });
+  });
+
   test("invalidates avatar query on avatar_updated event", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
@@ -856,7 +897,7 @@ describe("useAssistantResourceSync", () => {
       },
     );
     emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalled();
     spy.mockClear();
     rerender({ active: false });
     emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);

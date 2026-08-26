@@ -275,3 +275,99 @@ describe("StringDedupCache", () => {
     expect(tinyCache.has("d")).toBe(true);
   });
 });
+
+/**
+ * A Telegram `update_id` is a per-bot sequence, so replacing the bot token
+ * starts a new one. The high-water mark from the previous bot then sits above
+ * every incoming id, and the webhook route answers an idempotent 200 while
+ * delivering nothing: success to Telegram, silence to the user, until the
+ * gateway restarts.
+ */
+describe("DedupCache.reset for a changed bot", () => {
+  test("a lower update_id is accepted again after a reset", () => {
+    const cache = new DedupCache();
+
+    // The previous bot ran up to a high id.
+    expect(cache.reserve(900_000)).toBe("reserved");
+    cache.set(900_000, "{}", 200);
+
+    // A new bot's first update is far below it, and is refused as a replay.
+    expect(cache.reserve(12)).toBe("already_processed");
+
+    cache.reset();
+
+    expect(cache.reserve(12)).toBe("reserved");
+  });
+
+  test("work from the departed bot cannot restore its watermark", () => {
+    const cache = new DedupCache();
+
+    // The old bot reserves a high id and is still processing it. The caller
+    // carries the generation, because a reset clears the entry that would
+    // otherwise have held it.
+    expect(cache.reserve(900_000)).toBe("reserved");
+    const reservedIn = cache.currentGeneration;
+
+    // The credential rotates mid-flight.
+    cache.reset();
+
+    // The old handler finishes and tries to record its result.
+    cache.set(900_000, "{}", 200, reservedIn);
+
+    // The new bot's low ids must still be accepted: finalizing that stale
+    // work must not have reinstated the old high-water mark.
+    expect(cache.reserve(12)).toBe("reserved");
+  });
+
+  test("a finalize in the current generation still records normally", () => {
+    const cache = new DedupCache();
+    expect(cache.reserve(500)).toBe("reserved");
+    cache.set(500, "{}", 200, cache.currentGeneration);
+
+    // Replay protection is unchanged for a bot that has not moved.
+    expect(cache.reserve(499)).toBe("already_processed");
+  });
+
+  test("reset clears in-flight entries too, not just the mark", () => {
+    const cache = new DedupCache();
+    cache.reserve(5);
+    cache.set(5, "{}", 200);
+    expect(cache.reserve(5)).toBe("duplicate");
+
+    cache.reset();
+
+    expect(cache.reserve(5)).toBe("reserved");
+  });
+});
+
+describe("DedupCache.unreserve across a bot change", () => {
+  test("an old bot's failure cleanup cannot free the new bot's reservation", () => {
+    const cache = new DedupCache();
+
+    // The departed bot reserves an id and is still working on it.
+    expect(cache.reserve(12)).toBe("reserved");
+    const oldGeneration = cache.currentGeneration;
+
+    cache.reset();
+
+    // The new bot legitimately reserves the same id: its sequence starts low
+    // and nothing about the number belongs to the previous bot.
+    expect(cache.reserve(12)).toBe("reserved");
+
+    // The old handler now fails and cleans up after itself.
+    cache.unreserve(12, oldGeneration);
+
+    // The new bot's reservation must survive, or Telegram's retry would be
+    // processed alongside the request already in flight.
+    expect(cache.reserve(12)).toBe("duplicate");
+  });
+
+  test("failure cleanup in the current generation still frees the id", () => {
+    const cache = new DedupCache();
+    expect(cache.reserve(7)).toBe("reserved");
+    cache.unreserve(7, cache.currentGeneration);
+
+    // Telegram retries and must be allowed to, since nothing was recorded.
+    expect(cache.reserve(7)).toBe("reserved");
+  });
+});

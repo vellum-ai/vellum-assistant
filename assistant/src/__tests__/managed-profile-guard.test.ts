@@ -286,6 +286,34 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expectNothingCommitted();
   });
 
+  test("PUT on a managed backup profile is rejected as code-owned", async () => {
+    // Backups are code-owned too, and they carry no on-disk entry, so the
+    // code-owned rejection has to win over the availability gate: reporting
+    // "not currently available" would be wrong for a profile the picker
+    // lists and the user can select.
+    seedRawConfig({ llm: { profiles: {} } });
+
+    for (const name of [
+      "balanced-backup",
+      "quality-optimized-backup",
+      "cost-optimized-backup",
+      "latency-optimized-backup",
+    ]) {
+      for (const body of [
+        { label: "Zippy" },
+        { status: "active" as const },
+        { status: null },
+      ]) {
+        await expect(
+          replaceRoute.handler({ pathParams: { name }, body }),
+        ).rejects.toThrow(
+          `Profile "${name}" is code-owned and cannot be edited.`,
+        );
+      }
+    }
+    expectNothingCommitted();
+  });
+
   test("PUT { status: null } on managed profile clears status (back to active-by-absence)", async () => {
     seedRawConfig({
       llm: {

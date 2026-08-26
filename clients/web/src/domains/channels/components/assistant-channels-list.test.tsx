@@ -11,9 +11,28 @@ import {
 import type { AssistantChannelState } from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
-  { key: "slack", status: "ready", configured: true, address: "@vex" },
-  { key: "telegram", status: "not_configured", configured: false },
-  { key: "phone", status: "not_configured", configured: false },
+  {
+    key: "slack",
+    status: "ready",
+    configured: true,
+    canDisconnect: true,
+    canManualEntry: true,
+    address: "@vex",
+  },
+  {
+    key: "telegram",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+    canManualEntry: true,
+  },
+  {
+    key: "phone",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+    canManualEntry: true,
+  },
 ];
 
 // The Slack panel owns its own queries (`SlackChannelSection`), so list
@@ -144,14 +163,29 @@ describe("assistant channels list", () => {
   test("selecting connected Telegram reveals its trust-floor dropdown", () => {
     renderList({
       channels: [
-        { key: "slack", status: "ready", configured: true, address: "@vex" },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
         {
           key: "telegram",
           status: "ready",
           configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
           address: "@vex_bot",
         },
-        { key: "phone", status: "not_configured", configured: false },
+        {
+          key: "phone",
+          status: "not_configured",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
       ],
       channelPolicies: { telegram: "trusted_contacts" },
       onChannelPolicyChange: () => {},
@@ -169,17 +203,28 @@ describe("assistant channels list", () => {
   test("connected credential channels show no credential form (Slack parity)", () => {
     renderList({
       channels: [
-        { key: "slack", status: "ready", configured: true, address: "@vex" },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
         {
           key: "telegram",
           status: "ready",
           configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
           address: "@vex_bot",
         },
         {
           key: "phone",
           status: "ready",
           configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
           address: "+15550100",
         },
       ],
@@ -236,9 +281,28 @@ describe("assistant channels list", () => {
     const prompts: string[] = [];
     renderList({
       channels: [
-        { key: "slack", status: "ready", configured: true, address: "@vex" },
-        { key: "telegram", status: "incomplete", configured: false },
-        { key: "phone", status: "not_configured", configured: false },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
+        {
+          key: "telegram",
+          status: "incomplete",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
+        {
+          key: "phone",
+          status: "not_configured",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
       ],
       onSetup: (key, incomplete) =>
         prompts.push(`${key}:${incomplete ? "finish" : "fresh"}`),
@@ -266,15 +330,30 @@ describe("assistant channels list", () => {
     // the wrong problem and lose the Disconnect control while it did so.
     renderList({
       channels: [
-        { key: "slack", status: "ready", configured: true, address: "@vex" },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
         {
           key: "telegram",
           status: "incomplete",
           configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
           health: "failing",
           address: "@vex_bot",
         },
-        { key: "phone", status: "not_configured", configured: false },
+        {
+          key: "phone",
+          status: "not_configured",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
       ],
     });
 

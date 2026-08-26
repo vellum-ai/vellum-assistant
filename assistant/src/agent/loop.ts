@@ -43,7 +43,10 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
-import { isContextOverflowError } from "../providers/types.js";
+import {
+  isContextOverflowError,
+  NATIVE_WEB_SEARCH_TOOL_NAME,
+} from "../providers/types.js";
 import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
@@ -133,7 +136,7 @@ export interface AgentLoopConfig {
  * `input_schema` is informational — the provider supplies the real schema.
  */
 const NATIVE_WEB_SEARCH_TOOL: ToolDefinition = {
-  name: "web_search",
+  name: NATIVE_WEB_SEARCH_TOOL_NAME,
   description:
     "Search the web for current information to ground your response.",
   input_schema: {
@@ -369,6 +372,16 @@ export type AgentEvent =
       cacheReadInputTokens?: number;
       model: string;
       actualProvider?: string;
+      /**
+       * Inference profile that actually governed the call, set only when a
+       * wrapper re-routed the request away from the caller's own resolution
+       * (`RetryProvider`'s fallback-profile escalation). Travels alongside
+       * `actualProvider` so the daemon's usage ledger attributes a degraded
+       * serve to the backup profile that answered rather than to the primary
+       * that failed. Absent on the normal (non-rerouted) path, where the
+       * caller's own resolution is already correct.
+       */
+      actualInferenceProfile?: string;
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
@@ -1468,6 +1481,14 @@ export class AgentLoop {
           providerConfig.tool_choice = { type: "auto" };
         }
 
+        // Mark the sentinel so a route change downstream can tell it from an
+        // app-executed `web_search` of the same name (see
+        // `SendMessageConfig.nativeWebSearchSentinel`). Only set when true so
+        // the wire config stays byte-identical otherwise.
+        if (attachNativeWebSearch) {
+          providerConfig.nativeWebSearchSentinel = true;
+        }
+
         if (this.config.cacheTtl) {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
@@ -1809,6 +1830,14 @@ export class AgentLoop {
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
           actualProvider: response.actualProvider ?? this.provider.name,
+          // Only present when a wrapper rerouted this call, so the normal
+          // path's event shape stays byte-identical. There is no caller-side
+          // fallback value to fill in: the loop's own profile resolution is
+          // exactly what a reroute invalidates, and the daemon already reads
+          // its own resolution when this is absent.
+          ...(response.actualInferenceProfile !== undefined
+            ? { actualInferenceProfile: response.actualInferenceProfile }
+            : {}),
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,

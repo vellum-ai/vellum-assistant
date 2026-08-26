@@ -129,7 +129,10 @@ function httpHealthCheck(port: number): Promise<boolean> {
 }
 
 type DaemonReadyzClassification =
-  "ready" | "migrating" | "failed" | "no_answer";
+  | "ready"
+  | "migrating"
+  | "failed"
+  | "no_answer";
 
 /**
  * Classify the daemon's DB migration readiness from the `/readyz` BODY.
@@ -240,25 +243,70 @@ function firstNumber(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+// Raw entry from the same authoritative file the parsed data came from.
 function findRawAssistant(
-  lockfilePaths: string[],
+  raw: Record<string, unknown>,
   assistantId: string,
 ): Record<string, unknown> | null {
-  for (const candidate of lockfilePaths) {
-    let data: unknown;
-    try {
-      data = JSON.parse(readFileSync(candidate, "utf-8"));
-    } catch {
-      continue;
-    }
-    if (!isRecord(data) || !Array.isArray(data.assistants)) return null;
-    const entry = data.assistants.find(
-      (assistant) =>
-        isRecord(assistant) && assistant.assistantId === assistantId,
-    );
-    return isRecord(entry) ? entry : null;
+  if (!Array.isArray(raw.assistants)) return null;
+  const entry = raw.assistants.find(
+    (assistant) => isRecord(assistant) && assistant.assistantId === assistantId,
+  );
+  return isRecord(entry) ? entry : null;
+}
+
+// Legacy entries persisted the directory as top-level `baseDataDir`.
+function lockfileInstanceDir(
+  entry: LockfileAssistant | undefined,
+  rawEntry: Record<string, unknown> | null,
+): string | undefined {
+  const rawResources = isRecord(rawEntry?.resources)
+    ? rawEntry.resources
+    : undefined;
+  return firstString(
+    entry?.resources?.instanceDir,
+    rawResources?.instanceDir,
+    rawEntry?.baseDataDir,
+  );
+}
+
+export type LockfileInstanceDirResult =
+  | { ok: true; instanceDir?: string }
+  | { ok: false };
+
+/**
+ * The instance directory for a lockfile entry: the persisted one (honoring
+ * legacy `baseDataDir` entries the parsed contract drops), else the default
+ * location status also falls back to. `instanceDir` is undefined when the
+ * entry is missing; `ok: false` when the authoritative lockfile is unreadable,
+ * so callers can tell absence from a failed read.
+ */
+export function resolveLockfileInstanceDir(
+  lockfilePaths: string[],
+  assistantId: string,
+  env: Record<string, string | undefined>,
+): LockfileInstanceDirResult {
+  const result = getLockfileData(lockfilePaths);
+  if (!result.ok) {
+    return { ok: false };
   }
-  return null;
+  const entry = result.data.assistants.find(
+    (assistant) => assistant.assistantId === assistantId,
+  );
+  const rawEntry = findRawAssistant(result.raw, assistantId);
+  if (!entry && !rawEntry) {
+    return { ok: true };
+  }
+  try {
+    return {
+      ok: true,
+      instanceDir:
+        lockfileInstanceDir(entry, rawEntry) ??
+        defaultInstanceDir(env, assistantId),
+    };
+  } catch {
+    return { ok: true };
+  }
 }
 
 function resolveStatusResources(
@@ -271,11 +319,8 @@ function resolveStatusResources(
     : undefined;
   const ports = defaultPorts(env);
   const instanceDir =
-    firstString(
-      entry.resources?.instanceDir,
-      rawResources?.instanceDir,
-      rawEntry?.baseDataDir,
-    ) ?? defaultInstanceDir(env, entry.assistantId);
+    lockfileInstanceDir(entry, rawEntry) ??
+    defaultInstanceDir(env, entry.assistantId);
   return {
     instanceDir,
     daemonPort:
@@ -416,7 +461,7 @@ export async function getLocalAssistantStatus(
 
   return runtimeStatusForEntry(
     entry,
-    findRawAssistant(lockfilePaths, assistantId),
+    findRawAssistant(result.raw, assistantId),
     env,
   );
 }

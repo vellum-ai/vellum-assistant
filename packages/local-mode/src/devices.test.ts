@@ -49,6 +49,8 @@ describe("runDevicesList", () => {
               issuedAt: 1000,
               expiresAt: 2000,
               lastUsedAt: 1500,
+              pairingUserAgent: "Vellum/1.0 iOS",
+              clientReportedName: "Alice's iPhone",
             },
           ],
         }),
@@ -65,6 +67,8 @@ describe("runDevicesList", () => {
           issuedAt: 1000,
           expiresAt: 2000,
           lastUsedAt: 1500,
+          pairingUserAgent: "Vellum/1.0 iOS",
+          clientReportedName: "Alice's iPhone",
         },
       ],
     });
@@ -103,6 +107,64 @@ describe("runDevicesList", () => {
           issuedAt: null,
           expiresAt: null,
           lastUsedAt: null,
+          pairingUserAgent: null,
+          clientReportedName: null,
+        },
+      ],
+    });
+  });
+
+  test("non-string pairingUserAgent and clientReportedName parse to null without failing the record", async () => {
+    const pending = runDevicesList(invocation, "asst-42");
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from(
+        JSON.stringify({
+          devices: [
+            {
+              hashedDeviceId: "hash-c",
+              platform: "android",
+              issuedAt: 1000,
+              expiresAt: 2000,
+              lastUsedAt: 1500,
+              pairingUserAgent: 42,
+              clientReportedName: { nested: true },
+            },
+            {
+              hashedDeviceId: "hash-d",
+              platform: "android",
+              issuedAt: 1000,
+              expiresAt: 2000,
+              lastUsedAt: 1500,
+              pairingUserAgent: null,
+              clientReportedName: null,
+            },
+          ],
+        }),
+      ),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({
+      ok: true,
+      devices: [
+        {
+          hashedDeviceId: "hash-c",
+          platform: "android",
+          issuedAt: 1000,
+          expiresAt: 2000,
+          lastUsedAt: 1500,
+          pairingUserAgent: null,
+          clientReportedName: null,
+        },
+        {
+          hashedDeviceId: "hash-d",
+          platform: "android",
+          issuedAt: 1000,
+          expiresAt: 2000,
+          lastUsedAt: 1500,
+          pairingUserAgent: null,
+          clientReportedName: null,
         },
       ],
     });

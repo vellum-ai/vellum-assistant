@@ -1,4 +1,7 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import { setSelectedAssistant } from "@/assistant/selection";
+import { forgetAssistantAvatar } from "@/hooks/use-chooser-row-avatar";
 import {
   getLockfileAssistant,
   getSelectedAssistant,
@@ -7,6 +10,7 @@ import {
   loadLockfile,
   removePairedAssistantFromLockfile,
 } from "@/lib/local-mode";
+import { t } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   useResolvedAssistantsStore,
@@ -46,7 +50,7 @@ export async function switchToAssistant(
       await useAuthStore.getState().connectPairedAssistant(assistantId);
     } catch (err) {
       console.error("switchToAssistant.connectPairedAssistant failed", err);
-      return { ok: false, error: "Failed to connect to the assistant." };
+      return { ok: false, error: t("assistantConnect.failed") };
     }
     return { ok: true };
   }
@@ -95,6 +99,7 @@ export type RemovePairedOutcome =
  * should route to the chooser (`nextRoute`); otherwise stay put (`null`).
  */
 export async function removePairedAssistant(
+  queryClient: QueryClient,
   assistantId: string,
 ): Promise<RemovePairedOutcome> {
   const wasSelected = getSelectedAssistant()?.assistantId === assistantId;
@@ -108,6 +113,7 @@ export async function removePairedAssistant(
   if (!result.ok) {
     return { ok: false, error: result.error ?? "Failed to remove assistant." };
   }
+  forgetAssistantAvatar(queryClient, assistantId);
   const resolvedStore = useResolvedAssistantsStore.getState();
   if (resolvedStore.activeAssistantId === assistantId) {
     resolvedStore.setActiveAssistantId(null);

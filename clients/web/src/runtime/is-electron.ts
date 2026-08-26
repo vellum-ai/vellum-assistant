@@ -33,6 +33,7 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
+  DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
@@ -43,6 +44,7 @@ import type {
   LocalAssistantStatusResult,
   LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
@@ -84,6 +86,7 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -203,6 +206,10 @@ declare global {
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
       };
+      downloads?: {
+        onDone(callback: (event: DownloadDoneEvent) => void): () => void;
+        reveal(id: string): Promise<void>;
+      };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
         titles?(): Promise<Array<{ id: string; label: string }>>;
@@ -251,6 +258,9 @@ declare global {
           options?: LocalUpgradeOptions,
         ): Promise<{ ok: boolean; version?: string; error?: string }>;
         status?(assistantId: string): Promise<LocalAssistantStatusResult>;
+        readAssistantAvatar?(
+          assistantId: string,
+        ): Promise<LocalReadAssistantAvatarResult>;
         guardianToken(
           assistantId: string,
         ): Promise<

@@ -10,6 +10,12 @@ import os from "node:os";
 import path from "node:path";
 import type { ViteDevServer, Connect } from "vite";
 
+import {
+  AVATAR_IMAGE_FILENAME,
+  AVATAR_MANIFEST_FILENAME,
+  AVATAR_TRAITS_FILENAME,
+  resolveAvatarDir,
+} from "@vellumai/avatar-manifest";
 import * as actualLocalMode from "@vellumai/local-mode";
 import {
   guardianTokenPath,
@@ -46,6 +52,7 @@ const env = {
   VELLUM_ENVIRONMENT: "production",
   VELLUM_LOCKFILE_DIR: tempDir,
   XDG_CONFIG_HOME: tempDir,
+  XDG_DATA_HOME: path.join(tempDir, "data-home"),
 };
 const configDir = path.join(tempDir, "vellum");
 const lockfilePath = path.join(tempDir, ".vellum.lock.json");
@@ -208,6 +215,144 @@ describe("guardian-token middleware", () => {
     expect(result.status).toBe(403);
     const { error } = JSON.parse(result.body) as { error: string };
     expect(error).toContain("paired gateway proxy");
+  });
+});
+
+describe("avatar middleware", () => {
+  const instanceDir = path.join(tempDir, "instances", "asst-a");
+  const avatarDir = resolveAvatarDir(
+    path.join(instanceDir, ".vellum", "workspace"),
+  );
+  const traits = { bodyShape: "round", eyeStyle: "dot", color: "#123456" };
+
+  beforeEach(() => {
+    fs.rmSync(instanceDir, { recursive: true, force: true });
+    fs.mkdirSync(avatarDir, { recursive: true });
+    writeLockfile([
+      { assistantId: "asst-a", cloud: "local", resources: { instanceDir } },
+    ]);
+  });
+
+  test("rejects non-loopback callers", async () => {
+    const result = await dispatch(
+      "/__local/avatar/asst-a",
+      {},
+      {
+        remoteAddress: "10.0.0.7",
+      },
+    );
+
+    expect(result.status).toBe(403);
+  });
+
+  test("rejects non-GET methods", async () => {
+    const result = await dispatch(
+      "/__local/avatar/asst-a",
+      {},
+      {
+        method: "POST",
+      },
+    );
+
+    expect(result.status).toBe(405);
+  });
+
+  test("serves a character avatar from the manifest on the SPA-prefixed route", async () => {
+    fs.writeFileSync(
+      path.join(avatarDir, AVATAR_MANIFEST_FILENAME),
+      JSON.stringify({
+        kind: "character",
+        traits,
+        source: "builder",
+        image: null,
+      }),
+    );
+
+    const result = await dispatch("/assistant/__local/avatar/asst-a");
+
+    expect(result.status).toBe(200);
+    expect(JSON.parse(result.body)).toEqual({
+      ok: true,
+      avatar: { kind: "character", traits },
+    });
+  });
+
+  test("serves an image avatar as base64", async () => {
+    const png = Buffer.from("not-really-a-png");
+    fs.writeFileSync(path.join(avatarDir, AVATAR_IMAGE_FILENAME), png);
+    fs.writeFileSync(
+      path.join(avatarDir, AVATAR_MANIFEST_FILENAME),
+      JSON.stringify({
+        kind: "image",
+        traits: null,
+        source: "upload",
+        image: { updatedAt: "2026-01-01T00:00:00Z", etag: "abc" },
+      }),
+    );
+
+    const result = await dispatch("/__local/avatar/asst-a");
+
+    expect(result.status).toBe(200);
+    expect(JSON.parse(result.body)).toEqual({
+      ok: true,
+      avatar: { kind: "image", imageBase64: png.toString("base64") },
+    });
+  });
+
+  test("malformed percent-encoding is a 400", async () => {
+    const result = await dispatch("/__local/avatar/%E0%A4%A");
+
+    expect(result.status).toBe(400);
+    expect(JSON.parse(result.body)).toEqual({
+      ok: false,
+      error: "Malformed assistant ID",
+    });
+  });
+
+  test("an unreadable manifest image is a failure, not null", async () => {
+    fs.writeFileSync(
+      path.join(avatarDir, AVATAR_MANIFEST_FILENAME),
+      JSON.stringify({
+        kind: "image",
+        image: { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" },
+      }),
+    );
+
+    expect(JSON.parse((await dispatch("/__local/avatar/asst-a")).body)).toEqual(
+      { ok: false, error: "avatar image unreadable" },
+    );
+  });
+
+  test("entry without an instanceDir resolves the default dir from the plugin env", async () => {
+    writeLockfile([{ assistantId: "asst-a", cloud: "local" }]);
+    const defaultAvatarDir = resolveAvatarDir(
+      path.join(
+        env.XDG_DATA_HOME,
+        "vellum",
+        "assistants",
+        "asst-a",
+        ".vellum",
+        "workspace",
+      ),
+    );
+    fs.mkdirSync(defaultAvatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(defaultAvatarDir, AVATAR_TRAITS_FILENAME),
+      JSON.stringify(traits),
+    );
+
+    expect(JSON.parse((await dispatch("/__local/avatar/asst-a")).body)).toEqual(
+      { ok: true, avatar: { kind: "character", traits } },
+    );
+  });
+
+  test("absent avatar and unknown assistant both resolve to null", async () => {
+    expect(JSON.parse((await dispatch("/__local/avatar/asst-a")).body)).toEqual(
+      { ok: true, avatar: null },
+    );
+    expect(JSON.parse((await dispatch("/__local/avatar/nobody")).body)).toEqual(
+      { ok: true, avatar: null },
+    );
   });
 });
 

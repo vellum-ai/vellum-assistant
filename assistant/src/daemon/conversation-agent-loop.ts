@@ -733,8 +733,33 @@ export async function runAgentLoopImpl(
   // the `finally` (before processing clears, so the reporter's settled-turn
   // barrier guarantees the stamp ships with the turn event). Unset = the turn
   // replied normally and carries no stamp.
+  const failedOutcomeFromClassification = (classified: {
+    code: string;
+    userMessage: string;
+    errorCategory: string;
+    connectionName?: string;
+    profileName?: string;
+  }): NonNullable<typeof abnormalOutcome> => ({
+    outcome: "failed",
+    failureCode: classified.code,
+    failureMessage: classified.userMessage,
+    failureCategory: classified.errorCategory,
+    ...(classified.connectionName
+      ? { failureConnection: classified.connectionName }
+      : {}),
+    ...(classified.profileName
+      ? { failureProfile: classified.profileName }
+      : {}),
+  });
   let abnormalOutcome:
-    | { outcome: "failed" | "cancelled"; failureCode?: string }
+    | {
+        outcome: "failed" | "cancelled";
+        failureCode?: string;
+        failureMessage?: string;
+        failureCategory?: string;
+        failureConnection?: string;
+        failureProfile?: string;
+      }
     | undefined;
   // True once a replied terminal SSE (message_complete / generation_handoff)
   // has been emitted. Guards the catch block: an error thrown by the
@@ -777,6 +802,10 @@ export async function runAgentLoopImpl(
       try {
         stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
           failureCode: abnormalOutcome.failureCode,
+          failureMessage: abnormalOutcome.failureMessage,
+          failureCategory: abnormalOutcome.failureCategory,
+          failureConnection: abnormalOutcome.failureConnection,
+          failureProfile: abnormalOutcome.failureProfile,
         });
       } catch (err) {
         rlog.warn(
@@ -858,6 +887,7 @@ export async function runAgentLoopImpl(
       abnormalOutcome = {
         outcome: "failed",
         failureCode: DISK_PRESSURE_ERROR_CODE,
+        failureMessage: message,
       };
       rlog.warn(
         { reason: diskPressureDecision.reason },
@@ -1382,17 +1412,16 @@ export async function runAgentLoopImpl(
       );
       // Exhausted-overflow exit: the reduction ladder is spent and the turn
       // ends without a real reply, so label it failed for telemetry.
-      abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+      abnormalOutcome = failedOutcomeFromClassification(classified);
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     } else if (
       overflowTerminalReason === "budget_yield_unrecovered" &&
       !abortController.signal.aborted
     ) {
       budgetYieldClassification = budgetYieldUnrecoveredClassification();
-      abnormalOutcome = {
-        outcome: "failed",
-        failureCode: budgetYieldClassification.code,
-      };
+      abnormalOutcome = failedOutcomeFromClassification(
+        budgetYieldClassification,
+      );
       onEvent(
         buildConversationErrorMessage(
           ctx.conversationId,
@@ -1548,6 +1577,16 @@ export async function runAgentLoopImpl(
         ...(state.providerErrorCode
           ? { failureCode: state.providerErrorCode }
           : {}),
+        failureMessage: state.providerErrorUserMessage,
+        ...(state.providerErrorCategory
+          ? { failureCategory: state.providerErrorCategory }
+          : {}),
+        ...(state.providerErrorConnection
+          ? { failureConnection: state.providerErrorConnection }
+          : {}),
+        ...(state.providerErrorProfile
+          ? { failureProfile: state.providerErrorProfile }
+          : {}),
       };
       // Drop any reservation stranded by the failed LLM call. The B3
       // pre-allocation path reserves an empty assistant row at
@@ -1684,9 +1723,23 @@ export async function runAgentLoopImpl(
         tokens: state.lastCallInputTokens,
         maxTokens: resolveCurrentMaxInputTokens(),
       },
+      // When the turn's last LLM call was rerouted to a backup profile, that
+      // profile is what served the tokens being recorded, so it outranks the
+      // conversation's own resolution, which knows nothing about the
+      // reroute. `provider` and `model` on this same row already follow the
+      // backup (via `state.exchangeProviderName` / `state.model`), so
+      // attributing the profile from the primary would write a row that
+      // contradicts itself. `forceOverrideProfile` floats it above the
+      // call-site profile exactly as the fallback dispatch did.
       {
         callSite: turnCallSite,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        overrideProfile:
+          state.exchangeInferenceProfile ??
+          resolveCurrentOverrideProfile() ??
+          null,
+        ...(state.exchangeInferenceProfile !== undefined
+          ? { forceOverrideProfile: true }
+          : {}),
       },
       turnCronRunId,
     );
@@ -1860,7 +1913,7 @@ export async function runAgentLoopImpl(
         ...turnErrorAttribution(),
       });
       if (!turnReplied) {
-        abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+        abnormalOutcome = failedOutcomeFromClassification(classified);
       }
       onEvent({
         type: "error",
@@ -1975,6 +2028,13 @@ function emitUsage(
   attribution?: {
     callSite: LLMCallSite | null;
     overrideProfile?: string | null;
+    /**
+     * Float `overrideProfile` above the call-site profile, matching how the
+     * dispatch path floated it. Set when the profile being attributed is the
+     * one a reroute actually served under rather than the caller's own
+     * resolution.
+     */
+    forceOverrideProfile?: boolean;
   },
   cronRunId: string | null = null,
 ): void {
@@ -2051,6 +2111,8 @@ export async function applyCompactionResult(
     summaryRawResponses?: unknown[];
     summaryCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
+    summaryActualProvider?: string;
+    summaryActualInferenceProfile?: string;
   },
   onEvent: (msg: AssistantEvent) => void,
   reqId: string | null,
@@ -2125,12 +2187,26 @@ export async function applyCompactionResult(
     result.summaryCacheCreationInputTokens ?? 0,
     result.summaryCacheReadInputTokens ?? 0,
     collapseRawResponses(result.summaryRawResponses),
-    undefined /* providerName */,
+    // The provider that actually served the summary, which follows a fallback
+    // reroute the way `summaryModel` already did. Undefined only where no call
+    // was made, and `emitUsage` then falls back to `ctx.provider.name` exactly
+    // as before.
+    result.summaryActualProvider /* providerName */,
     1 /* llmCallCount */,
     undefined /* contextWindow */,
+    // Same rule as the main-agent row above, applied to the compaction row:
+    // a rerouted summary is attributed to the profile that answered, not to
+    // the one the compactor resolved before the call. The two call sites set
+    // this parameter independently off their own state and never share it.
     {
       callSite: result.summaryCallSite ?? null,
-      overrideProfile: result.summaryOverrideProfile ?? null,
+      overrideProfile:
+        result.summaryActualInferenceProfile ??
+        result.summaryOverrideProfile ??
+        null,
+      ...(result.summaryActualInferenceProfile !== undefined
+        ? { forceOverrideProfile: true }
+        : {}),
     },
     options.cronRunId ?? null,
   );

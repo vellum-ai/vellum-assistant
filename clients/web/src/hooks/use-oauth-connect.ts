@@ -7,6 +7,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
+import { t } from "@/i18n";
 import {
   getOAuthCompleteMessagePayload,
   getOAuthCompleteStoragePayload,
@@ -114,13 +115,19 @@ export function useOAuthConnect({
       clearPendingRequest();
 
       if (oauthStatus === "connected") {
-        toast.success(`${displayName} account connected.`);
+        toast.success(
+          t("useOauthConnect.accountConnected", { name: displayName }),
+        );
         queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
       } else {
-        const errorMsg = oauthCode
-          ? `Error: ${oauthCode}`
-          : "Authorization failed";
-        toast.error(`${displayName} ${errorMsg}`);
+        toast.error(
+          oauthCode
+            ? t("useOauthConnect.authorizationError", {
+                name: displayName,
+                code: oauthCode,
+              })
+            : t("useOauthConnect.authorizationFailed", { name: displayName }),
+        );
       }
     },
     [connectionsQueryKey, displayName, queryClient],
@@ -252,7 +259,9 @@ export function useOAuthConnect({
         }
         clearPendingRequest();
         if (providerConnected) {
-          toast.success(`${displayName} account connected.`);
+          toast.success(
+            t("useOauthConnect.accountConnected", { name: displayName }),
+          );
         }
       })();
     });
@@ -294,7 +303,7 @@ export function useOAuthConnect({
         toast.error(
           error instanceof Error
             ? error.message
-            : `Failed to start ${displayName} authorization.`,
+            : t("useOauthConnect.startFailed", { name: displayName }),
         );
         return;
       }
@@ -340,7 +349,9 @@ export function useOAuthConnect({
             } else if (pendingRequestRef.current) {
               closePopupWindow();
               clearPendingRequest();
-              toast.error(`${displayName} connection failed: popup closed.`);
+              toast.error(
+                t("useOauthConnect.popupClosed", { name: displayName }),
+              );
             }
           },
           onError(error) {
@@ -349,7 +360,7 @@ export function useOAuthConnect({
             const detail = extractErrorMessage(
               error,
               undefined,
-              `Failed to start ${displayName} authorization.`,
+              t("useOauthConnect.startFailed", { name: displayName }),
             );
             toast.error(detail);
           },
@@ -366,7 +377,7 @@ export function useOAuthConnect({
 
     if (popup === null) {
       clearPendingRequest();
-      toast.error("Popup blocked. Please enable popups and try again.");
+      toast.error(t("useOauthConnect.popupBlocked"));
       return;
     }
 
@@ -409,14 +420,16 @@ export function useOAuthConnect({
           if (providerConnected) {
             closePopupWindow();
             clearPendingRequest();
-            toast.success(`${displayName} account connected.`);
+            toast.success(
+              t("useOauthConnect.accountConnected", { name: displayName }),
+            );
             return;
           }
 
           closePopupWindow();
           clearPendingRequest();
           toast.error(
-            `${displayName} connection failed: authorization popup closed.`,
+            t("useOauthConnect.authPopupClosed", { name: displayName }),
           );
         }, 1000);
       }

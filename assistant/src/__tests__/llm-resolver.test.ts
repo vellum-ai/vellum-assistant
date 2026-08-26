@@ -9,6 +9,7 @@ import {
   resolveCallSiteConfigWithProfile,
   resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
+  resolveSingleRouteProfileKey,
 } from "../config/llm-resolver.js";
 import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
@@ -301,6 +302,26 @@ describe("resolveCallSiteConfig", () => {
     // and `effort` comes from the winning balanced-intent profile.
     expect(resolved.speed).toBe("standard");
     expect(resolved.effort).toBe("high");
+  });
+
+  test("a winning profile's fallbackProfile metadata never leaks into the resolved config", () => {
+    const llm = LLMSchema.parse({
+      defaultProvider: { provider: "vellum" },
+      profiles: {
+        "quality-optimized": {
+          source: "managed",
+          fallbackProfile: "quality-optimized-backup",
+        },
+      },
+      callSites: {
+        memoryExtraction: { profile: "quality-optimized" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.model).toBe("gpt-5.6-sol");
+    // `fallbackProfile` is ProfileEntry-only metadata, absent from
+    // `LLMConfigBase`; the resolved config must not carry the key at all.
+    expect(Object.hasOwn(resolved, "fallbackProfile")).toBe(false);
   });
 
   test("topP defaults to null when no profile or override sets it", () => {
@@ -867,6 +888,59 @@ describe("mix profiles", () => {
     expect(resolved.config.model).toBe(
       selectedArms[0] === "a" ? "model-a" : "model-b",
     );
+  });
+
+  test("resolveSingleRouteProfileKey names standard winners and refuses mixes", () => {
+    // The mix's arm is picked per conversation and can differ from any
+    // post-hoc recomputation, so the outer mix key must never be used as a
+    // single-route attribution scope.
+    expect(resolveSingleRouteProfileKey("mainAgent", mixLlm)).toBeUndefined();
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
+        overrideProfile: "a",
+      }),
+    ).toBe("a");
+    // An unusable override falls through to the active mix, which still
+    // refuses to name a route.
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
+        overrideProfile: "no-such-profile",
+      }),
+    ).toBeUndefined();
+  });
+
+  test("resolveSingleRouteProfileKey honors the dispatch resolvability predicate", () => {
+    // A pin whose provider dispatch cannot resolve (e.g. a force-deleted
+    // connection) must not be claimed as a scope: selection falls through to
+    // the active mix exactly as dispatch does, which then refuses to name a
+    // route. Without the predicate the stale pin still wins the chain, which
+    // is why scope callers must pass dispatch's predicate.
+    const staleLlm = LLMSchema.parse({
+      profiles: {
+        a: { provider: "anthropic", model: "model-a" },
+        b: { provider: "anthropic", model: "model-b" },
+        stale: { provider: "openai", model: "model-s" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 1 },
+            { profile: "b", weight: 1 },
+          ],
+        },
+      },
+      activeProfile: "ab",
+    });
+    const openaiForceDeleted = (provider: string) => provider !== "openai";
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", staleLlm, {
+        overrideProfile: "stale",
+        isResolvableProvider: openaiForceDeleted,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", staleLlm, {
+        overrideProfile: "stale",
+      }),
+    ).toBe("stale");
   });
 
   test("all dereference spots in a turn agree for the same seed", () => {

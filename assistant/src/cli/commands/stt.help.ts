@@ -12,7 +12,7 @@
 // `import()` has nothing to defer.
 // eslint-disable-next-line cli/no-daemon-internals
 import {
-  listProviderIds,
+  listSelectableProviderIds,
   supportsBoundary,
 } from "../../providers/speech-to-text/provider-catalog.js";
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
@@ -22,7 +22,7 @@ import type { CliCommandHelp } from "../lib/cli-command-help.js";
  * providers are omitted: naming one would advertise a configuration that
  * fails on every file.
  */
-const batchProviders = listProviderIds()
+const batchProviders = listSelectableProviderIds()
   .filter((id) => supportsBoundary(id, "daemon-batch"))
   .join(", ");
 

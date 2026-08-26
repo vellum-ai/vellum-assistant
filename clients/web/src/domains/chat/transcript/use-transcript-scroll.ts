@@ -422,9 +422,17 @@ export function useTranscriptScroll(
     }
 
     const observer = new ResizeObserver(() => {
-      if (latestRef.current.isPinnedToLatest) {
-        transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+      if (!latestRef.current.isPinnedToLatest) {
+        return;
       }
+      // A row's own text field outranks the pin: keep the field the user is in
+      // on screen rather than scrolling past it to the latest message. Only
+      // reachable where the pin would have fired, so a reader who has scrolled
+      // away keeps the viewport they chose.
+      if (transcriptRef.current?.keepFocusedFieldVisible()) {
+        return;
+      }
+      transcriptRef.current?.scrollToLatest({ behavior: "auto" });
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
@@ -473,9 +481,15 @@ export function useTranscriptScroll(
     }
 
     const observer = new ResizeObserver(() => {
-      if (shouldAutoPinRef.current) {
-        transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+      if (!shouldAutoPinRef.current) {
+        return;
       }
+      // Same precedence as the container observer above, inside this
+      // observer's own auto-pin window.
+      if (transcriptRef.current?.keepFocusedFieldVisible()) {
+        return;
+      }
+      transcriptRef.current?.scrollToLatest({ behavior: "auto" });
     });
     observer.observe(el);
     contentObserverRef.current = observer;

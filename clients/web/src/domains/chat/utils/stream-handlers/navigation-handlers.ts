@@ -1,12 +1,12 @@
 import { dispatchOpenUrl } from "@/domains/chat/utils/oauth-popup-links";
 import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
-import { isSetupChannelId } from "@/types/channel-types";
+
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { routes } from "@/utils/routes";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { isChannelSetupType, useViewerStore } from "@/stores/viewer-store";
 import { revealConversationView } from "@/utils/conversation-navigation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -134,8 +134,12 @@ export function handleOpenPanel(
 
   const rawChannel =
     typeof event.data?.channel === "string" ? event.data.channel : undefined;
+  // Narrower than the setup-channel list: this drawer is a credential form,
+  // and a channel without one has nothing to render. An id naming such a
+  // channel falls back rather than opening a panel that would show another
+  // channel's connected copy over an empty body.
   const channel =
-    rawChannel && isSetupChannelId(rawChannel) ? rawChannel : "slack";
+    rawChannel && isChannelSetupType(rawChannel) ? rawChannel : "slack";
   // The event's conversationId belongs to the assistant whose stream
   // delivered it — pair the payload with that assistant, not whatever is
   // active at arrival time, so a close-notify posted later can't mix

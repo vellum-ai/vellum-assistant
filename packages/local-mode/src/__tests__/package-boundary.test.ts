@@ -2,13 +2,15 @@
  * Package boundary tests for @vellumai/local-mode.
  *
  * This package is the shared local-assistant host surface. It sits one layer
- * above @vellumai/environments (its only allowed @vellumai dependency) and
- * uses node builtins for filesystem, child-process, and network work.
+ * above @vellumai/environments and the source-only @vellumai/avatar-manifest
+ * (its only allowed @vellumai dependencies) and uses node builtins for
+ * filesystem, child-process, and network work.
  *
  * Enforces that the package:
- * 1. Imports only node builtins, its own relative modules, `@vellumai/environments`,
- *    `zod` (the lockfile contract's schema library), and `nanoid` (pair's
- *    fallback local-id generator); nothing else.
+ * 1. Imports only node builtins, its own relative modules,
+ *    `@vellumai/environments`, `@vellumai/avatar-manifest`, `zod` (the
+ *    lockfile contract's schema library), and `nanoid` (pair's fallback
+ *    local-id generator); nothing else.
  * 2. Declares exactly those runtime dependencies.
  * 3. Is marked `private`.
  */
@@ -20,7 +22,12 @@ import { join, resolve } from "node:path";
 const PACKAGE_ROOT = resolve(import.meta.dirname, "../..");
 const SRC_DIR = join(PACKAGE_ROOT, "src");
 
-const ALLOWED_PACKAGES = new Set(["@vellumai/environments", "zod", "nanoid"]);
+const ALLOWED_PACKAGES = new Set([
+  "@vellumai/environments",
+  "@vellumai/avatar-manifest",
+  "zod",
+  "nanoid",
+]);
 
 function collectSourceFiles(dir: string): string[] {
   const files: string[] = [];
@@ -65,7 +72,7 @@ describe("package boundary", () => {
     expect(sourceFiles.length).toBeGreaterThan(0);
   });
 
-  test("imports only node builtins, relative modules, and @vellumai/environments", () => {
+  test("imports only node builtins, relative modules, and the allowed @vellumai packages", () => {
     const violations: string[] = [];
 
     for (const file of sourceFiles) {
@@ -86,7 +93,8 @@ describe("package boundary", () => {
         `Found ${violations.length} forbidden import(s) in @vellumai/local-mode:\n` +
           violations.map((v) => `  - ${v}`).join("\n") +
           "\n\n@vellumai/local-mode may import only node builtins, its own\n" +
-          "relative modules, and @vellumai/environments. Any other dependency\n" +
+          "relative modules, @vellumai/environments, and\n" +
+          "@vellumai/avatar-manifest. Any other dependency\n" +
           "would break bundler hosts that inline this source-only package.",
       );
     }
@@ -98,6 +106,7 @@ describe("package boundary", () => {
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
+      "@vellumai/avatar-manifest": "file:../avatar-manifest",
       "@vellumai/environments": "file:../environments",
       nanoid: "5.1.7",
       zod: "4.3.6",

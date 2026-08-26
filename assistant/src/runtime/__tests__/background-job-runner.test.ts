@@ -267,24 +267,106 @@ describe("runBackgroundJob", () => {
     // `turnFailure`. The runner must surface this as a failure, not ok=true.
     processMessageImpl = async () => ({
       messageId: "msg-failed-turn",
-      turnFailure: { failureCode: "provider_error" },
+      turnFailure: { failureCode: "PROVIDER_BILLING" },
     });
 
     const result = await runBackgroundJob(baseOpts());
 
     expect(result.ok).toBe(false);
     expect(result.errorKind).toBe("model_provider");
-    expect(result.error?.message).toContain("provider_error");
+    expect(result.error?.message).toContain("PROVIDER_BILLING");
     expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
     // The stable classified code rides the result so callers can branch on
     // the failure class without parsing the error message.
-    expect(result.failureCode).toBe("provider_error");
+    expect(result.turnFailure?.failureCode).toBe("PROVIDER_BILLING");
 
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].sourceEventName).toBe("activity.failed");
     expect(
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("model_provider");
+    // A provider-scoped failure code keys the notification on the cause and
+    // the resolved provider scope, not the job. `heartbeatAgent` resolves the
+    // cost-optimized default profile, so every job failing on this code
+    // through that route collapses into one notification per UTC day.
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:PROVIDER_BILLING:cost-optimized:\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  test("a usable overrideProfile scopes the cause-keyed dedupe", async () => {
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "PROVIDER_BILLING" },
+    });
+
+    await runBackgroundJob(baseOpts({ overrideProfile: "balanced" }));
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:PROVIDER_BILLING:balanced:\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  test("carried turn attribution scopes the dedupe and rides the payload", async () => {
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: {
+        failureCode: "PROVIDER_BILLING",
+        userMessage: "You're out of credits.",
+        errorCategory: "credits_exhausted",
+        connectionName: "conn-a",
+        profileName: "balanced",
+      },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.turnFailure?.userMessage).toBe("You're out of credits.");
+    expect(emitCalls).toHaveLength(1);
+    // The carried connection outranks the call site's recomputed profile.
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:PROVIDER_BILLING:conn-a:\d{4}-\d{2}-\d{2}$/,
+    );
+    expect(emitCalls[0].contextPayload).toMatchObject({
+      failureSummary: "You're out of credits.",
+      errorCategory: "credits_exhausted",
+      connectionName: "conn-a",
+    });
+  });
+
+  test("job-specific failure code keeps the per-job dedupe key", async () => {
+    // CONTEXT_TOO_LARGE names a defect in this job's own prompt; collapsing
+    // it across jobs would hide a second job's unrelated failure.
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "CONTEXT_TOO_LARGE" },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.turnFailure?.failureCode).toBe("CONTEXT_TOO_LARGE");
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  test("code-less provider failure dedupes on the shared model_provider cause", async () => {
+    processMessageImpl = async () => {
+      throw new Error("provider returned 401");
+    };
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("model_provider");
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:model_provider:cost-optimized:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {
@@ -301,6 +383,10 @@ describe("runBackgroundJob", () => {
     expect(
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("timeout");
+    // A timeout is job-specific, so it keeps the per-job dedupe key.
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 
   test("suppressFailureNotifications: failure returns ok=false but emits nothing", async () => {

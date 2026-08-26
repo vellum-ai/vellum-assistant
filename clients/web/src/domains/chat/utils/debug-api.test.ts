@@ -1003,6 +1003,7 @@ function makeTranscriptHandle(
   return {
     scrollToLatest: () => {},
     scrollToMessage: () => false,
+    keepFocusedFieldVisible: () => false,
     getScrollElement: () => scrollEl,
     getContentElement: () => null,
     getViewportHeight: () => scrollEl?.clientHeight ?? 0,

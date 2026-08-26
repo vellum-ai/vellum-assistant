@@ -211,6 +211,15 @@ export interface EventHandlerState {
   firstAssistantText: string;
   /** Most recent resolved provider for the current exchange's usage accounting. */
   exchangeProviderName: string | undefined;
+  /**
+   * Inference profile the most recent LLM call actually ran under, set only
+   * when a wrapper rerouted that call (`RetryProvider`'s fallback-profile
+   * escalation). Overwritten by every call, exactly like
+   * `exchangeProviderName` and `model`, so the ledger row's provider, model,
+   * and profile all describe the same call. `undefined` means the last call
+   * was not rerouted and the conversation's own profile resolution stands.
+   */
+  exchangeInferenceProfile: string | undefined;
   exchangeInputTokens: number;
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
@@ -236,6 +245,14 @@ export interface EventHandlerState {
    * the loop persists the failure as an assistant message.
    */
   providerErrorCategory: string | null;
+  /**
+   * Connection and profile attribution of the most recent provider error
+   * (`classifyConversationError(...).connectionName` / `.profileName`).
+   * Carried into the turn's outcome stamp so failure consumers scope
+   * identity by the route the call actually resolved.
+   */
+  providerErrorConnection: string | null;
+  providerErrorProfile: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -578,6 +595,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
     exchangeProviderName: undefined,
+    exchangeInferenceProfile: undefined,
     exchangeInputTokens: 0,
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
@@ -589,6 +607,8 @@ export function createEventHandlerState(): EventHandlerState {
     providerErrorUserMessage: null,
     providerErrorCode: null,
     providerErrorCategory: null,
+    providerErrorConnection: null,
+    providerErrorProfile: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -2722,6 +2742,8 @@ function handleError(
   state.providerErrorUserMessage = classified.userMessage;
   state.providerErrorCode = classified.code;
   state.providerErrorCategory = classified.errorCategory;
+  state.providerErrorConnection = classified.connectionName ?? null;
+  state.providerErrorProfile = classified.profileName ?? null;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }
@@ -3071,6 +3093,11 @@ function handleUsage(
 ): void {
   const providerName = event.actualProvider ?? deps.ctx.provider.name;
   state.exchangeProviderName = providerName;
+  // Assigned unconditionally, not merged: a later non-rerouted call clearing
+  // this back to `undefined` is correct, because provider and model are being
+  // overwritten from that same call. Keeping a stale profile from an earlier
+  // fallback would reintroduce the very contradiction this field prevents.
+  state.exchangeInferenceProfile = event.actualInferenceProfile;
   state.exchangeLlmCallCount += 1;
   state.exchangeInputTokens += event.inputTokens;
   state.lastCallInputTokens = event.inputTokens;

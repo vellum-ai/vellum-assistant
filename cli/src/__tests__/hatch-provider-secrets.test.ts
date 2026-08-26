@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   configureHatchProviderApiKey,
+  formatProviderName,
+  hasExplicitHatchProvider,
+  HATCH_PROVIDER_CHOICES,
+  isSupportedLlmProvider,
   resolveHatchProvider,
+  shouldPromptForHatchProvider,
   type ProviderSecretFetch,
 } from "../lib/provider-secrets.js";
 
@@ -280,5 +285,95 @@ describe("hatch provider secrets", () => {
     expect(output).toContain("API key is invalid or expired.");
     expect(output).toContain("vellum setup --provider anthropic");
     expect(output).not.toContain("test-anthropic-key");
+  });
+
+  test("formats the LiteLLM and OpenCode labels", () => {
+    expect(formatProviderName("litellm")).toBe("LiteLLM");
+    expect(formatProviderName("opencode")).toBe("OpenCode");
+  });
+
+  test("HATCH_PROVIDER_CHOICES only lists supported providers with a label", () => {
+    for (const provider of HATCH_PROVIDER_CHOICES) {
+      expect(isSupportedLlmProvider(provider)).toBe(true);
+      expect(formatProviderName(provider)).toBeTruthy();
+    }
+  });
+
+  test("HATCH_PROVIDER_CHOICES excludes endpoint-supplied providers that cannot back llm.defaultProvider", () => {
+    expect(HATCH_PROVIDER_CHOICES).not.toContain("litellm");
+    expect(HATCH_PROVIDER_CHOICES).not.toContain("opencode");
+  });
+
+  describe("hasExplicitHatchProvider", () => {
+    test("is false for an empty config", () => {
+      expect(hasExplicitHatchProvider({})).toBe(false);
+    });
+
+    test("is true when llm.default.provider is set", () => {
+      expect(
+        hasExplicitHatchProvider({ "llm.default.provider": "openai" }),
+      ).toBe(true);
+    });
+
+    test("is true for an active-profile provider", () => {
+      expect(
+        hasExplicitHatchProvider({
+          "llm.activeProfile": "work",
+          "llm.profiles.work.provider": "openai",
+        }),
+      ).toBe(true);
+    });
+
+    test("is true when a model implies the provider", () => {
+      expect(
+        hasExplicitHatchProvider({ "llm.default.model": "gpt-5.4" }),
+      ).toBe(true);
+    });
+  });
+
+  describe("shouldPromptForHatchProvider", () => {
+    const base = {
+      configValues: {},
+      setupProviderCredentials: true,
+      hasProviderApiKey: false,
+      stdinIsTTY: true,
+    };
+
+    test("prompts when nothing is configured and stdin is a TTY", () => {
+      expect(shouldPromptForHatchProvider(base)).toBe(true);
+    });
+
+    test("does not prompt when provider credential setup is disabled", () => {
+      expect(
+        shouldPromptForHatchProvider({
+          ...base,
+          setupProviderCredentials: false,
+        }),
+      ).toBe(false);
+    });
+
+    test("does not prompt when an API key is already present", () => {
+      expect(
+        shouldPromptForHatchProvider({ ...base, hasProviderApiKey: true }),
+      ).toBe(false);
+    });
+
+    test("does not prompt when the provider is explicitly configured", () => {
+      expect(
+        shouldPromptForHatchProvider({
+          ...base,
+          configValues: { "llm.default.provider": "openai" },
+        }),
+      ).toBe(false);
+    });
+
+    test("does not prompt outside an interactive terminal", () => {
+      expect(
+        shouldPromptForHatchProvider({ ...base, stdinIsTTY: false }),
+      ).toBe(false);
+      expect(
+        shouldPromptForHatchProvider({ ...base, stdinIsTTY: undefined }),
+      ).toBe(false);
+    });
   });
 });

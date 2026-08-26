@@ -23,7 +23,7 @@ import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/byo-service-card";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { LS_WEB_SEARCH_PROVIDER } from "@/utils/local-settings-keys";
 import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/utils";

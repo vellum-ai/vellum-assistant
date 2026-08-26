@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
-import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { loadConfig } from "../../config/loader.js";
 import {
@@ -66,7 +66,7 @@ export type LlmProfilesListResult = z.infer<
 
 async function handleListProfiles(): Promise<LlmProfilesListResult> {
   const { llm } = loadConfig();
-  const profiles = getEffectiveProfilesForProvider(
+  const profiles = getUserSelectableProfilesForProvider(
     llm?.profiles,
     llm?.defaultProvider ?? null,
   );

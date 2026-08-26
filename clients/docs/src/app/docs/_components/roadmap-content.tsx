@@ -127,12 +127,6 @@ const UP_NEXT: Item[] = [
       "Assistants can own their own email accounts, not just borrow yours. Real identity, real inbox, real separation of concerns.",
   },
   {
-    emoji: "\u{2B50}",
-    title: "Vellum Pro plan",
-    description:
-      "A paid tier for heavy users and small teams — higher limits, priority support, and features built for people who use Vellum every day.",
-  },
-  {
     emoji: "\u{1F5FA}\u{FE0F}",
     title: "Roadmap in docs",
     description:

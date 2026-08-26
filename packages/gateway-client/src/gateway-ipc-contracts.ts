@@ -5,6 +5,8 @@
 import { CHANNEL_IDS } from "@vellumai/service-contracts/channels";
 import { z } from "zod";
 
+import { RiskThresholdSchema } from "./channel-permission-contract.js";
+
 export const GATEWAY_LOG_LEVEL_NAMES = [
   "trace",
   "debug",
@@ -275,6 +277,11 @@ export const ContactReadSchema = z.object({
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
   interactionCount: z.number().nullable(),
+  /**
+   * Per-contact auto-approve ceiling. Null when unset (inherit cascade).
+   * Optional on the wire for version skew; gateway reads always emit it.
+   */
+  autoApproveThreshold: RiskThresholdSchema.nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   channels: z.array(ContactReadChannelSchema),
@@ -401,6 +408,8 @@ export type ClassifyRiskSkillMetadata = z.infer<
 export const ClassifyRiskIpcParamsSchema = z.object({
   tool: z.string().min(1),
   command: z.string().optional(),
+  /** Shell grammar used by host_bash on the target desktop. */
+  shell: z.enum(["bash", "powershell"]).optional(),
   url: z.string().optional(),
   path: z.string().optional(),
   /**

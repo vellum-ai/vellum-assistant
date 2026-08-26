@@ -37,6 +37,7 @@ import { publishCapacitorDeepLinksSource } from "@/runtime/event-sources/capacit
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
 import { publishElectronConnectivitySource } from "@/runtime/event-sources/electron-connectivity";
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
+import { publishElectronDownloadsSource } from "@/runtime/event-sources/electron-downloads";
 import { publishElectronPowerSource } from "@/runtime/event-sources/electron-power";
 import { publishWindowOnlineSource } from "@/runtime/event-sources/window-online";
 
@@ -73,6 +74,7 @@ export function useEventBusInit({
       publishCapacitorDeepLinksSource(),
       publishElectronPowerSource(),
       publishElectronDeepLinksSource(),
+      publishElectronDownloadsSource(),
       publishElectronConnectivitySource(),
       subscribeLifecycleDiagnostics(),
       startBootTelemetry(),

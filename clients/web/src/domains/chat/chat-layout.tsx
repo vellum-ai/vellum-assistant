@@ -61,6 +61,7 @@ import { useChatLayoutDrawerGestures } from "@/domains/chat/hooks/use-chat-layou
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { useConversationListDeepLink } from "@/domains/chat/hooks/use-conversation-list-deep-link";
 import { useMaterializedDraftReconcile } from "@/domains/chat/hooks/use-materialized-draft-reconcile";
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
@@ -501,6 +502,19 @@ export function ChatLayout({
 
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
 
+  // The two shapes the conversation list takes, as callbacks the deep-link
+  // drain below can hold. Blurring first is what the toggle and the swipe do:
+  // without it iOS keeps the soft keyboard up and the drawer slides in behind
+  // it looking stuck.
+  const openDrawerForDeepLink = useCallback(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    setDrawerOpen(true);
+  }, []);
+  // Uncollapsing writes the persisted preference, same as the toggle: the user
+  // asked to see the list, and reverting it a moment later would be the
+  // surprise.
+  const expandSidebarForDeepLink = useCallback(() => setCollapsed(false), []);
+
   useEffect(() => {
     if (!isMobile) {
       setDrawerOpen(false);
@@ -515,6 +529,15 @@ export function ChatLayout({
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.key]);
+
+  // The Home Screen widgets' unread chip and unread line
+  // (`deeplink.openConversations`), drained after the close-on-navigation
+  // effect above so an open it grants on the same commit is not undone by it.
+  useConversationListDeepLink({
+    isMobile,
+    openDrawer: openDrawerForDeepLink,
+    expandSidebar: expandSidebarForDeepLink,
+  });
 
   // The tips new-user grace clock anchors to first app use. Stamping here
   // (not only in the tip hook) covers mobile, where the drawer-gated tip

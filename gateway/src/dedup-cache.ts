@@ -10,6 +10,8 @@ interface CacheEntry {
   expiresAt: number;
   /** When true, the first handler is still processing this update_id. */
   processing?: boolean;
+  /** Which bot generation reserved this; see {@link DedupCache.reset}. */
+  generation: number;
 }
 
 /**
@@ -29,6 +31,19 @@ export class DedupCache {
    * the TTL cache.
    */
   private highWaterMark = -Infinity;
+  /**
+   * Bumped by {@link reset}. A reservation carries the generation it was made
+   * in, and finalizing one from an earlier generation is dropped: an update
+   * for the departed bot can still be in a handler when the credential
+   * rotates, and letting it finalize would restore that bot's high-water mark
+   * into the new bot's cache, silencing the new bot exactly as before.
+   */
+  private generation = 0;
+
+  /** The generation a caller is reserving in, to hand back to {@link set}. */
+  get currentGeneration(): number {
+    return this.generation;
+  }
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
@@ -99,12 +114,24 @@ export class DedupCache {
       status: 0,
       expiresAt: Date.now() + this.ttlMs,
       processing: true,
+      generation: this.generation,
     });
     return "reserved";
   }
 
-  /** Remove a reserved entry so Telegram can retry. */
-  unreserve(updateId: number): void {
+  /**
+   * Remove a reserved entry so Telegram can retry.
+   *
+   * Takes the generation the caller reserved in, for the same reason
+   * {@link set} does and on the other completion path. After a rotation the
+   * new bot can legitimately reserve an id the departed one also held; a
+   * failure cleanup from that old handler would otherwise delete the new
+   * bot's live reservation, letting a retry process it a second time.
+   */
+  unreserve(updateId: number, reservedIn = this.generation): void {
+    if (reservedIn !== this.generation) {
+      return;
+    }
     const entry = this.cache.get(updateId);
     if (entry?.processing) {
       this.cache.delete(updateId);
@@ -112,7 +139,21 @@ export class DedupCache {
   }
 
   /** Store a response for the given update_id and advance the high-water mark. */
-  set(updateId: number, body: string, status: number): void {
+  set(
+    updateId: number,
+    body: string,
+    status: number,
+    reservedIn = this.generation,
+  ): void {
+    // The generation the caller reserved in, carried by the caller rather than
+    // read back off the entry: `reset` clears the map, so by the time stale
+    // work finalizes there is no entry left to carry it and the guard would
+    // never fire. Work from a departed bot is dropped, not recorded, because
+    // its update_id belongs to a sequence this cache no longer tracks.
+    if (reservedIn !== this.generation) {
+      return;
+    }
+
     // Advance monotonic high-water mark so this update_id (and all lower
     // ones) are permanently rejected even after the TTL cache evicts them.
     if (updateId > this.highWaterMark) {
@@ -135,6 +176,7 @@ export class DedupCache {
       body,
       status,
       expiresAt: Date.now() + this.ttlMs,
+      generation: this.generation,
     });
   }
 
@@ -143,6 +185,22 @@ export class DedupCache {
   }
 
   /** Start a periodic background sweep of expired entries. */
+  /**
+   * Forget every seen update and drop the high-water mark.
+   *
+   * For when the bot behind this webhook changes. `update_id` is a per-bot
+   * sequence, so a new token starts a new one, typically far below the mark
+   * the previous bot left behind. Without this the route answers every
+   * inbound with an idempotent 200 while delivering nothing, which reads as
+   * success to Telegram and as silence to the user, until the gateway
+   * restarts.
+   */
+  reset(): void {
+    this.cache.clear();
+    this.highWaterMark = -Infinity;
+    this.generation += 1;
+  }
+
   startCleanup(intervalMs = 60_000): void {
     this.stopCleanup();
     this.cleanupTimer = setInterval(() => this.evictExpired(), intervalMs);

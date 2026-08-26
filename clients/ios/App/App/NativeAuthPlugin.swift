@@ -20,7 +20,8 @@ import UIKit
 /// 5. We verify `state`, exchange the code at
 ///    `user_management/authenticate` as a public client (no secret) for an
 ///    access token, then POST it to `/_allauth/app/v1/auth/provider/token`
-///    (`provider: "workos"`) to receive the platform session token.
+///    (`provider: "workos"`, campaign attribution on the query string)
+///    to receive the platform session token.
 /// 6. JS sets `document.cookie = "sessionid=<token>; ..."` and navigates;
 ///    the `AuthProvider` re-fetches `/_allauth/browser/v1/auth/session`
 ///    and the app is authenticated.
@@ -101,6 +102,8 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let loginHint = call.getString("loginHint")
         let intent = call.getString("intent")
+        // Optional: with no attribution the token request carries no query.
+        let attribution = Attribution.fields(from: call.getObject("attribution"))
 
         guard let codeVerifier = WorkOSAuth.generateCodeVerifier() else {
             // Same fail-closed rationale as `state`: no secure RNG, no PKCE.
@@ -143,6 +146,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     baseURL: baseURL,
                     clientId: clientId,
                     codeVerifier: codeVerifier,
+                    attribution: attribution,
                     call: call
                 )
             }
@@ -158,6 +162,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         baseURL: URL,
         clientId: String,
         codeVerifier: String,
+        attribution: [String: String],
         call: CAPPluginCall
     ) {
         // Double-tap / concurrent call safety: cancel any in-flight session
@@ -229,7 +234,12 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.reject(call, error)
                     return
                 }
-                self.exchangeForSession(baseURL: baseURL, clientId: clientId, accessToken: accessToken) { result in
+                self.exchangeForSession(
+                    baseURL: baseURL,
+                    clientId: clientId,
+                    accessToken: accessToken,
+                    attribution: attribution
+                ) { result in
                     switch result {
                     case .success(let sessionToken):
                         call.resolve(["sessionToken": sessionToken])
@@ -363,6 +373,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         baseURL: URL,
         clientId: String,
         accessToken: String,
+        attribution: [String: String],
         completion: @escaping (Result<String, AuthFlowError>) -> Void
     ) {
         var components = URLComponents()
@@ -370,6 +381,12 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         components.host = baseURL.host
         components.port = baseURL.port
         components.path = "/_allauth/app/v1/auth/provider/token"
+        // allauth headless takes a JSON body, so `request.POST` is empty on
+        // the platform side and attribution has to ride the query string.
+        let attributionQuery = Attribution.query(from: attribution)
+        if !attributionQuery.isEmpty {
+            components.percentEncodedQuery = attributionQuery
+        }
         guard let url = components.url,
               let body = WorkOSAuth.providerTokenRequestBody(clientId: clientId, accessToken: accessToken) else {
             completion(.failure(AuthFlowError(message: "Failed to build session exchange request")))

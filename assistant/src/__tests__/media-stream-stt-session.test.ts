@@ -774,6 +774,7 @@ describe("MediaStreamSttSession", () => {
 
       expect(resolveStreamingTranscriber).toHaveBeenCalledTimes(1);
       expect(resolveStreamingTranscriber).toHaveBeenCalledWith({
+        role: "telephony",
         sampleRate: 16_000,
         utteranceBoundaryFinals: true,
         utteranceEndMs: 1000,
@@ -787,6 +788,7 @@ describe("MediaStreamSttSession", () => {
       const { session } = await startStreamingSession();
 
       expect(resolveStreamingTranscriber).toHaveBeenCalledWith({
+        role: "telephony",
         sampleRate: 16_000,
         utteranceBoundaryFinals: true,
         utteranceEndMs: 2500,

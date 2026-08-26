@@ -165,6 +165,10 @@ async function listDevices(
   for (const device of devices) {
     console.log(`  ${device.hashedDeviceId}`);
     console.log(`    platform:   ${device.platform}`);
+    console.log(
+      `    name:       ${device.clientReportedName || "not reported"}`,
+    );
+    console.log(`    user agent: ${device.pairingUserAgent || "not recorded"}`);
     console.log(`    issued:     ${formatTimestamp(device.issuedAt, "—")}`);
     console.log(`    expires:    ${formatTimestamp(device.expiresAt, "—")}`);
     console.log(

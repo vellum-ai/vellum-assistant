@@ -10,6 +10,7 @@
  */
 
 import { normalizeTitle } from "../util/short-title.js";
+import { truncate } from "../util/truncate.js";
 import {
   accessRequestCardTitle,
   buildAccessRequestContractText,
@@ -40,6 +41,33 @@ import { parseTrustedContactDecisionPayload } from "./trusted-contact-payloads.j
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
+
+/**
+ * Failure prose for an `activity.failed` payload with no authored
+ * classification message. The classified kind supplies the readable part,
+ * and the raw error text is appended only when it reads as prose: a
+ * stack-shaped or constant-shaped message (PROVIDER_BILLING and friends)
+ * says nothing to the person reading the notification and never lands in
+ * the body.
+ */
+function describeUnclassifiedFailure(payload: Record<string, unknown>): string {
+  const kind = str(payload.errorKind, "exception");
+  const opening =
+    kind === "timeout"
+      ? "It ran out of time before finishing."
+      : kind === "model_provider"
+        ? "The model provider did not respond."
+        : "It stopped with an error.";
+  const raw =
+    typeof payload.errorMessage === "string"
+      ? payload.errorMessage.replace(/\s+/g, " ").trim()
+      : "";
+  const readable =
+    raw.length > 0 &&
+    raw.length <= 200 &&
+    !/[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+/.test(raw);
+  return readable ? `${opening} ${raw}` : opening;
+}
 
 function str(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.length > 0) {
@@ -335,16 +363,21 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
 
   "activity.failed": (payload) => {
     const jobName = str(payload.jobName, "background job");
-    const errorKind = str(payload.errorKind, "exception");
-    const rawMessage =
-      typeof payload.errorMessage === "string"
-        ? payload.errorMessage
-        : "no message";
-    const truncated =
-      rawMessage.length > 200 ? rawMessage.slice(0, 200) + "…" : rawMessage;
+    // The classifier's authored user-facing message rides the payload as
+    // `failureSummary` when the failing turn carried its classification;
+    // it already says what happened and what to do about it.
+    // Authored messages are short by construction, but the classifier's
+    // fallback branches can embed provider error text, so bound the body
+    // like any other untrusted payload string.
+    const summary = truncate(
+      typeof payload.failureSummary === "string"
+        ? payload.failureSummary.trim()
+        : "",
+      300,
+    );
     return {
       title: `Background job failed: ${jobName}`,
-      body: `${errorKind}: ${truncated}`,
+      body: summary !== "" ? summary : describeUnclassifiedFailure(payload),
     };
   },
 
