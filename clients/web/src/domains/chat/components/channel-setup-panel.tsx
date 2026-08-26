@@ -71,9 +71,12 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
+  // Discord does NOT close on save: its wizard has a third step after the
+  // token, adding the bot to a server, and closing here would unmount the
+  // only surface that shows the invite link. The user closes when done,
+  // which still emits the wizard-closed notification the skill waits on.
   const saveDiscord = useSaveDiscordConfig({
     assistantId: payload.assistantId,
-    onSuccess: onClose,
   });
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,
@@ -89,7 +92,12 @@ export function ChannelSetupPanel({
       data.snapshots?.some((s) => s.channel === payload.channel && s.ready) ??
       false,
   });
-  const isConnected = readinessQuery.data === true;
+  // Discord flips ready the moment its token stores, which would swap this
+  // panel to the connected view mid-flow and hide the invite step. A save
+  // performed in this mount keeps the wizard until the user closes.
+  const discordFlowActive =
+    payload.channel === "discord" && saveDiscord.isSuccess;
+  const isConnected = readinessQuery.data === true && !discordFlowActive;
 
   const channelIcon =
     payload.channel === "slack" ? (

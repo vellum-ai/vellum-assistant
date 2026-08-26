@@ -50,7 +50,11 @@ If an interactive client is connected, call `ui_show` with `surface_type: "chann
 
 > I've opened the Discord setup wizard in the side panel. It walks you through creating the app, connecting its bot token, and adding the bot to a server. It will notify me when you close it; ask me here if you hit a snag.
 
-When the wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored, then continue at Step 6 (identity verification). If a token was stored, Steps 1 through 5 are complete.
+When the wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored. A stored token completes Steps 1 through 4; the invite (Step 5) happens on the wizard's last step, and closing the panel does not prove it happened. Ask the user directly:
+
+> Did you add the bot to a server on the wizard's last step? If not, I can give you the install link again.
+
+If they did not, run the Step 5 invite script and have them complete it before continuing. Only then continue at Step 6 (identity verification). Do not mark setup complete while the bot is in no server.
 
 If `ui_show` fails (no interactive client, or the surface is rejected), fall back to the chat-guided flow below: it collects the token through the secure credential prompt instead.
 
