@@ -223,12 +223,17 @@ const INNER_GAP = 8;
  */
 export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   resting: AVATAR_BOX,
-  hover: 272,
+  // Three icon-only controls, which is the row as it is first drawn: the labels
+  // are revealed one at a time under the pointer, and on the first frame there
+  // is no pointer on any of them yet.
+  hover: 156,
   // The same row of controls hover draws, since the session is run from it
-  // rather than from a row of its own.
-  watching: 272,
-  // Two labelled controls where the idle row draws three, so narrower than the
-  // row it replaces and never wider than it.
+  // rather than from a row of its own, plus the one word the running session
+  // pins open on the control holding it.
+  watching: 195,
+  // Two labelled controls, both drawn: this row is a question waiting on an
+  // answer rather than a set of ways in, so its words are not the pointer's to
+  // reveal. Wider than the idle row it replaces for exactly that reason.
   summary: 264,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
@@ -1269,6 +1274,23 @@ function Avatar({
  * and the one where the assistant does the looking rather than the user the
  * saying. It is also the one that comes and goes: it is behind a flag of its
  * own, so the row is Talk and Type alone for anyone who does not have it.
+ *
+ * **The words are drawn one at a time, under the pointer.** This is the row a
+ * user meets by resting a hand near the mascot, which means it is drawn far
+ * more often than it is acted on, and three verbs spelled out at once made it a
+ * sentence being read at someone doing something else. Teach was the loudest of
+ * the three by being the least wanted: the flagged, occasional way in, drawn at
+ * the same weight as the two the row exists for.
+ *
+ * So the row rests as icons and each control says its own name when the pointer
+ * reaches it (`revealLabel`). The pill measures its contents, so it is a third
+ * of its old width at rest and grows by one word at a time, which is also what
+ * keeps the reveal legible: exactly one word is ever on the surface, and it is
+ * the one the hand is on.
+ *
+ * Nothing loses its name. `aria-label` was always the accessible name and is
+ * untouched, so a reader gets what it always got; what changed is only when a
+ * looking user is shown it.
  */
 function IdleBody({
   spotlight,
@@ -1293,14 +1315,14 @@ function IdleBody({
       <PillButton
         icon={<AudioLines className="size-4" />}
         label={t("companionSurface.talk")}
-        showLabel
+        revealLabel
         active={spotlight === "talk"}
         onClick={onTalk}
       />
       <PillButton
         icon={<Keyboard className="size-4" />}
         label={t("companionSurface.type")}
-        showLabel
+        revealLabel
         active={spotlight === "type"}
         onClick={onType}
       />
@@ -1309,6 +1331,12 @@ function IdleBody({
           rather than `active`, because this one is a state and not a look: a
           reader is told a session is running, where everything else this
           surface does about it is a colour they never receive.
+
+          It is also what keeps this control's word on the surface while the
+          rest of the row is icons: a running session is the one thing here the
+          user has to be able to find without hunting, and a name revealed only
+          under the pointer is one they would have to go looking for. `pressed`
+          pins it open, so the session names itself for as long as it runs.
 
           Absent entirely when Watch is not offered, rather than disabled: a
           user who cannot have the feature is not owed a control that explains
@@ -1325,7 +1353,7 @@ function IdleBody({
         <PillButton
           icon={<Eye className="size-4" />}
           label={t("companionSurface.teach")}
-          showLabel
+          revealLabel
           pressed={watching}
           onClick={onWatch}
         />
@@ -1614,6 +1642,7 @@ function PillButton({
   label,
   tone,
   showLabel = false,
+  revealLabel = false,
   active = false,
   pressed,
   onClick,
@@ -1622,6 +1651,24 @@ function PillButton({
   label: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
+  /**
+   * Draw the label while the pointer is on this control, and not otherwise.
+   *
+   * **CSS, deliberately, and this is the one place on the surface where that is
+   * not a matter of taste.** The host's window is click-through, so the page
+   * derives its own hover by hit-testing coordinates against the pill on every
+   * forwarded mouse-move rather than trusting `mouseenter`
+   * (`companion-surface-page.tsx`). A per-control reveal driven off React's
+   * mouse events would be betting on the events that page already decided it
+   * could not have. `:hover` is what the held-down background on this very
+   * button has always run on, so a reveal on the same mechanism works exactly
+   * where the rest of the control does.
+   *
+   * The pill measures its own contents, so a label appearing resizes this row
+   * and the surface grows to fit it on its own. Nothing here has to say how
+   * wide the word is.
+   */
+  revealLabel?: boolean;
   /** Drawn as though the pointer were on it. A look, not a state. */
   active?: boolean;
   /**
@@ -1636,20 +1683,34 @@ function PillButton({
   pressed?: boolean;
   onClick?: () => void;
 }) {
+  /**
+   * A revealed label held open with no pointer in the room.
+   *
+   * Both cases are ones where the word has to be readable without a hand on the
+   * control. `active` is the demo reel pointing at a control, and a control
+   * pointed at in a recording nobody can hover is one whose name has to be
+   * drawn. `pressed` is a control holding a session open, and the row's job
+   * then is to say which press ends it, which it cannot do as an icon the user
+   * would have to go looking under.
+   */
+  const pinned = active || pressed === true;
   return (
     <button
       type="button"
       aria-label={label}
       aria-pressed={pressed}
-      title={label}
+      // Only where the word is nowhere else. A tooltip over a control that
+      // reveals its own label on the same hover is the same word twice, a
+      // second later and a few pixels away.
+      title={showLabel || revealLabel ? undefined : label}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
       onMouseDown={(event) => {
         event.stopPropagation();
       }}
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        active || pressed === true ? "bg-white/15" : ""
+      className={`group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
+        pinned ? "bg-white/15" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"
@@ -1660,6 +1721,18 @@ function PillButton({
     >
       {icon}
       {showLabel && <span>{label}</span>}
+      {revealLabel && (
+        // `data-label` is the reveal's contract, and it is here because the
+        // behaviour itself is a stylesheet: a test running without Tailwind
+        // sees a span either way, so the attribute is the only honest way to
+        // hold that this word is hidden until the pointer arrives.
+        <span
+          data-label={pinned ? "pinned" : "hover"}
+          className={pinned ? "" : "hidden group-hover:inline"}
+        >
+          {label}
+        </span>
+      )}
     </button>
   );
 }
