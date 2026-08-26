@@ -20,6 +20,30 @@ describe("activityFailedDedupeKey", () => {
     );
   });
 
+  test("job-specific failure codes key per job, not on the cause", () => {
+    const a = activityFailedDedupeKey({
+      jobName: "job-a",
+      errorKind: "model_provider",
+      failureCode: "CONTEXT_TOO_LARGE",
+    });
+    const b = activityFailedDedupeKey({
+      jobName: "job-b",
+      errorKind: "model_provider",
+      failureCode: "CONTEXT_TOO_LARGE",
+    });
+    expect(a).toMatch(/^activity-failed:job-a:\d{4}-\d{2}-\d{2}$/);
+    expect(a).not.toBe(b);
+  });
+
+  test("unknown failure codes default to the per-job key", () => {
+    const key = activityFailedDedupeKey({
+      jobName: "job-a",
+      errorKind: "model_provider",
+      failureCode: "SOME_FUTURE_CODE",
+    });
+    expect(key).toMatch(/^activity-failed:job-a:\d{4}-\d{2}-\d{2}$/);
+  });
+
   test("distinct failure codes stay distinct", () => {
     const billing = activityFailedDedupeKey({
       jobName: "job",
