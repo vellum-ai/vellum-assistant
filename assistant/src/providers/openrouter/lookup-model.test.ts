@@ -3,9 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   lookupOpenRouterModel,
   normalizeOpenRouterModelId,
+  openRouterDisplayName,
   OpenRouterModelIdInvalidError,
   OpenRouterModelNotFoundError,
-  openRouterDisplayName,
 } from "./lookup-model.js";
 
 describe("normalizeOpenRouterModelId", () => {
