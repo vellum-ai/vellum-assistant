@@ -2,11 +2,11 @@
  * A verification code completes only where one reader exists.
  *
  * The copy that carries a code says "reply here" in a direct message, so a
- * code arriving from a conversation the wire proves is a room (Discord
- * guild channel, Telegram group) is intercepted, kept away from the
- * assistant and the transcript, and never redeemed; the reply says where to
+ * code arriving from a conversation the wire proves has more than one
+ * reader (a Discord guild channel, a Slack room) is intercepted, kept away
+ * from the assistant and the transcript, and never redeemed; the reply says where to
  * send it without saying whether it was valid. A true DM, or a channel that
- * forwards no conversation type, proceeds to redemption unchanged.
+ * states no readership fact, proceeds to redemption unchanged.
  *
  * The session store is real and file-backed: the invariant asserted is that
  * the pending session survives a room-posted code untouched.
@@ -92,11 +92,13 @@ afterAll(() => {
 });
 
 describe("verification lane guard", () => {
-  test("a valid code posted in a public room is intercepted but never redeemed", async () => {
+  test("a valid code posted in a room is intercepted but never redeemed", async () => {
+    // The readership fact alone drives the guard: a Discord guild message
+    // arrives exactly like this, not-a-DM proven with no visibility stated.
     const sessionId = mintOutboundFor(ALICE);
 
     const result = await tryTextVerificationIntercept(
-      interceptParams({ conversationType: "public" }),
+      interceptParams({ isDirectMessage: false }),
     );
 
     expect(result.intercepted).toBe(true);
@@ -108,27 +110,13 @@ describe("verification lane guard", () => {
     expect(statusOf(sessionId)).toBe("awaiting_response");
   });
 
-  test("a private group room is refused the same way", async () => {
-    const sessionId = mintOutboundFor(ALICE);
-
-    const result = await tryTextVerificationIntercept(
-      interceptParams({ conversationType: "private" }),
-    );
-
-    expect(result.intercepted).toBe(true);
-    if (result.intercepted) {
-      expect(result.outcome).toBe("wrong_conversation");
-    }
-    expect(statusOf(sessionId)).toBe("awaiting_response");
-  });
-
   test("a DM proceeds past the guard to redemption", async () => {
     mintOutboundFor(ALICE);
 
     // A wrong code in a DM reaches the anti-oracle reply, proving the guard
     // let the message through to the redemption path.
     const result = await tryTextVerificationIntercept(
-      interceptParams({ messageContent: "654321", conversationType: "dm" }),
+      interceptParams({ messageContent: "654321", isDirectMessage: true }),
     );
 
     expect(result.intercepted).toBe(true);
@@ -137,7 +125,7 @@ describe("verification lane guard", () => {
     }
   });
 
-  test("a channel that forwards no conversation type is unaffected", async () => {
+  test("a channel that states no readership fact is unaffected", async () => {
     mintOutboundFor(ALICE);
 
     const result = await tryTextVerificationIntercept(

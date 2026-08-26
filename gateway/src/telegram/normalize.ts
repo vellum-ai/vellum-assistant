@@ -224,6 +224,8 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
+        // Non-private chats were rejected above, so one human reader is proven.
+        isDirectMessage: true,
         ...(telegramConversationType(cbq.message.chat.type)
           ? {
               conversationType: telegramConversationType(cbq.message.chat.type),
@@ -338,6 +340,8 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
+      // Non-private chats were rejected above, so one human reader is proven.
+      isDirectMessage: true,
       ...(telegramConversationType(message.chat.type)
         ? { conversationType: telegramConversationType(message.chat.type) }
         : {}),

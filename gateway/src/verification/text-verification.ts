@@ -17,7 +17,6 @@
  * failure are short-circuited at the gateway.
  */
 
-import type { ChannelConversationType } from "@vellumai/gateway-client";
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import {
   consumeSession,
@@ -65,8 +64,8 @@ export interface TextVerificationInterceptParams {
   messageContent: string;
   actorExternalUserId: string;
   actorChatId: string;
-  /** The wire-proven conversation shape, when the channel forwards one. */
-  conversationType?: ChannelConversationType;
+  /** The wire-proven readership fact, when the channel states one. */
+  isDirectMessage?: boolean;
   actorDisplayName?: string;
   actorUsername?: string;
   replyCallbackUrl?: string;
@@ -95,7 +94,7 @@ export async function tryTextVerificationIntercept(
     messageContent,
     actorExternalUserId,
     actorChatId,
-    conversationType,
+    isDirectMessage,
     actorDisplayName,
     actorUsername,
     replyCallbackUrl,
@@ -124,12 +123,14 @@ export async function tryTextVerificationIntercept(
   // and a code posted into a room was already shown to everyone in it. The
   // message is still intercepted, so the code never reaches the assistant
   // or the transcript, but it is never redeemed, and the reply says where
-  // to send it without saying whether it was valid. Gated on the
-  // wire-proven conversation type; a channel that forwards none (or a true
-  // DM) is unaffected.
-  if (conversationType !== undefined && conversationType !== "dm") {
+  // to send it without saying whether it was valid. Keyed on the wire's
+  // readership fact rather than its visibility axis, because Discord can
+  // prove a guild message is not a DM while proving nothing about the
+  // room's visibility; a channel that states nothing (or a true DM) is
+  // unaffected.
+  if (isDirectMessage === false) {
     log.info(
-      { sourceChannel, conversationType },
+      { sourceChannel },
       "Verification code arrived outside a direct message; not redeemed",
     );
     const pendingReplyText = await replyWithFailure(

@@ -125,6 +125,10 @@ function buildNormalizedSlackMessage(
         updateId: eventId,
         messageId: event.ts,
         ...(shape.chatType ? { chatType: shape.chatType } : {}),
+        // A Slack `im` has one human reader; `channel` and `mpim` have many.
+        // Stated only where the shape names the surface (app_mention omits
+        // it), so the readership fact is proven, never guessed.
+        ...(shape.chatType ? { isDirectMessage: shape.chatType === "im" } : {}),
         ...(() => {
           const conversationType = slackConversationVisibility(
             channel,
