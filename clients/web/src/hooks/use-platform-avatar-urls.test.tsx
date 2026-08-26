@@ -55,8 +55,11 @@ mock.module("@/assistant/api", () => ({ ...actualApi, listAssistants }));
 const { useAuthStore } = await import("@/stores/auth-store");
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
-const { usePlatformAvatarUrls } =
-  await import("@/hooks/use-platform-avatar-urls");
+const {
+  platformAvatarUrlsQueryKey,
+  suppressPlatformAvatarUrl,
+  usePlatformAvatarUrls,
+} = await import("@/hooks/use-platform-avatar-urls");
 
 const initialAuthState = useAuthStore.getState();
 
@@ -232,5 +235,67 @@ describe("usePlatformAvatarUrls", () => {
     expect(setState).not.toHaveBeenCalled();
     expect(useResolvedAssistantsStore.getState().assistants).toBe(before);
     setState.mockRestore();
+  });
+});
+
+describe("suppressPlatformAvatarUrl", () => {
+  test("drops the id from a cached map", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => usePlatformAvatarUrls(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => {
+      expect(result.current.get("a")).toBe(WITH_AVATAR);
+    });
+
+    await act(() => suppressPlatformAvatarUrl(queryClient, "a"));
+
+    await waitFor(() => {
+      expect(result.current.has("a")).toBe(false);
+    });
+    expect(listAssistants).toHaveBeenCalledTimes(1);
+  });
+
+  test("a list in flight during suppression cannot land the stale url", async () => {
+    let resolveList!: (value: AssistantApi.ListAssistantsResult) => void;
+    listAssistants.mockReturnValueOnce(
+      new Promise<AssistantApi.ListAssistantsResult>((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => usePlatformAvatarUrls(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => {
+      expect(listAssistants).toHaveBeenCalledTimes(1);
+    });
+
+    await act(() => suppressPlatformAvatarUrl(queryClient, "a"));
+    resolveList({
+      ok: true,
+      status: 200,
+      data: [apiAssistant("a", WITH_AVATAR)],
+    });
+    await settle();
+
+    expect(result.current.has("a")).toBe(false);
+    expect(
+      queryClient.getQueryState(platformAvatarUrlsQueryKey("user-1"))
+        ?.fetchStatus,
+    ).toBe("idle");
+
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: ["platformAvatarUrls"] }),
+    );
+
+    expect(listAssistants).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(result.current.get("a")).toBe(WITH_AVATAR);
+    });
   });
 });

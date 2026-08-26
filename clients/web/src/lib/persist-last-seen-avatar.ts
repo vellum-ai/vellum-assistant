@@ -57,7 +57,7 @@ export async function persistLastSeenAvatar(
     return;
   }
   useResolvedAssistantsStore.getState().clearAvatarUrl(assistantId);
-  suppressPlatformAvatarUrl(queryClient, assistantId);
+  void suppressPlatformAvatarUrl(queryClient, assistantId);
   void queryClient.invalidateQueries({
     queryKey: chooserRowAvatarCacheQueryKey(assistantId),
   });

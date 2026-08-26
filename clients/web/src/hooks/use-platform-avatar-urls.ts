@@ -25,8 +25,22 @@ const PLATFORM_AVATAR_URLS_KEY_PREFIX = ["platformAvatarUrls"] as const;
  * `clearAvatarUrl`: live evidence outranks a URL observed earlier, and the
  * platform copy lags the daemon's async sync, so an immediate refetch would
  * only re-serve the stale URL. The next stale-window refetch restores it.
+ * Also cancels an in-flight list so a response started before the change
+ * cannot land the stale URL afterwards; the scrub runs again once the cancel
+ * settles for a response that raced in first.
  */
-export function suppressPlatformAvatarUrl(
+export async function suppressPlatformAvatarUrl(
+  queryClient: QueryClient,
+  assistantId: string,
+): Promise<void> {
+  dropPlatformAvatarUrl(queryClient, assistantId);
+  await queryClient.cancelQueries({
+    queryKey: PLATFORM_AVATAR_URLS_KEY_PREFIX,
+  });
+  dropPlatformAvatarUrl(queryClient, assistantId);
+}
+
+function dropPlatformAvatarUrl(
   queryClient: QueryClient,
   assistantId: string,
 ): void {

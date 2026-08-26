@@ -248,7 +248,7 @@ export function useAssistantResourceSync(
  */
 function onAvatarChanged(queryClient: QueryClient, assistantId: string): void {
   useResolvedAssistantsStore.getState().clearAvatarUrl(assistantId);
-  suppressPlatformAvatarUrl(queryClient, assistantId);
+  void suppressPlatformAvatarUrl(queryClient, assistantId);
   invalidateAvatarQueries(queryClient, assistantId);
 }
 
