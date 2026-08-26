@@ -356,8 +356,8 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   Settings -> General -> Preferences -> App icon
   (`clients/web/src/domains/settings/components/app-icon-modal.tsx`) and gated
   on the dark `ios-avatar-app-icon` flag. The picker cycles eyes and color over
-  the same component library the artwork is generated from, seeds from the
-  assistant's avatar in one tap when that avatar is a character one, and resets
+  the same component library the artwork is generated from, seeds its selection
+  from the assistant's avatar when that avatar is a character one, and resets
   back to the target's primary icon. Applying is always a press: iOS puts up a
   system alert of its own on every icon change, so nothing swaps on its own.
   Version skew degrades in two layers, neither an error: a shell without the
