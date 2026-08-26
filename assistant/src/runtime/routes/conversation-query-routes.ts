@@ -712,6 +712,18 @@ const ConfigGetResponseSchema = z
           })
           .optional(),
         pricingOverrides: z.array(z.unknown()).optional(),
+        customModels: z
+          .object({
+            openrouter: z
+              .array(
+                z.object({
+                  id: z.string().min(1),
+                  displayName: z.string().min(1).optional(),
+                }),
+              )
+              .optional(),
+          })
+          .optional(),
       })
       .passthrough()
       .optional(),
@@ -814,6 +826,19 @@ const ConfigPatchRequestSchema = z
           .object({
             defaultTtlSeconds: z.number().optional(),
             maxTtlSeconds: z.number().optional(),
+          })
+          .nullable()
+          .optional(),
+        customModels: z
+          .object({
+            openrouter: z
+              .array(
+                z.object({
+                  id: z.string().min(1),
+                  displayName: z.string().min(1).optional(),
+                }),
+              )
+              .optional(),
           })
           .nullable()
           .optional(),

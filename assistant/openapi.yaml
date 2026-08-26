@@ -14917,6 +14917,35 @@ paths:
                 additionalProperties: false
         "400":
           description: Unknown provider filter
+  /v1/inference/models/openrouter/lookup:
+    get:
+      operationId: inference_models_openrouter_lookup_get
+      summary: Look up an OpenRouter model ID
+      description:
+        Confirm an OpenRouter model ID against OpenRouter's public model API and return its display name and token
+        limits. Used when a user adds an ID that is not in the curated catalog.
+      tags:
+        - inference
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OpenRouter model ID in author/slug form (optional :variant suffix).
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenRouterModelLookup"
+        "400":
+          description: Missing or invalid model ID
+        "404":
+          description: OpenRouter does not list this model ID
+        "502":
+          description: OpenRouter lookup failed
   /v1/inference/profiles:
     get:
       operationId: inference_profiles_get
@@ -34703,6 +34732,24 @@ components:
                     maxTtlSeconds:
                       type: number
                 - type: "null"
+            customModels:
+              anyOf:
+                - type: object
+                  properties:
+                    openrouter:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          displayName:
+                            type: string
+                            minLength: 1
+                        required:
+                          - id
+                - type: "null"
           additionalProperties: {}
         memory:
           anyOf:
@@ -35529,6 +35576,24 @@ components:
             pricingOverrides:
               type: array
               items: {}
+            customModels:
+              type: object
+              properties:
+                openrouter:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        minLength: 1
+                      displayName:
+                        type: string
+                        minLength: 1
+                    required:
+                      - id
+                    additionalProperties: false
+              additionalProperties: false
           additionalProperties: {}
         memory:
           $ref: "#/components/schemas/MemoryConfig"
@@ -35948,6 +36013,24 @@ components:
         - provider
         - id
         - displayName
+      additionalProperties: false
+    OpenRouterModelLookup:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        contextWindowTokens:
+          type: number
+        maxOutputTokens:
+          type: number
+        supportsThinking:
+          type: boolean
+      required:
+        - id
+        - displayName
+        - supportsThinking
       additionalProperties: false
     InferenceProfileSummary:
       type: object

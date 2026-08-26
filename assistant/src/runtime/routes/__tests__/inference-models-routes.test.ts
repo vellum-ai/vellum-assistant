@@ -4,10 +4,10 @@
  *   GET /v1/inference/models  — list all catalog models, optional ?provider=
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { PROVIDER_CATALOG } from "../../../providers/model-catalog.js";
-import { BadRequestError } from "../errors.js";
+import { BadGatewayError, BadRequestError, NotFoundError } from "../errors.js";
 import { ROUTES } from "../inference-models-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -50,5 +50,70 @@ describe("GET inference/models", () => {
     expect(() => call({ queryParams: { provider: "not-a-provider" } })).toThrow(
       BadRequestError,
     );
+  });
+});
+
+describe("GET inference/models/openrouter/lookup", () => {
+  const originalFetch = globalThis.fetch;
+
+  function lookup(args: RouteHandlerArgs) {
+    return handler("inference_openrouter_model_lookup")(args);
+  }
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("400s when id is missing", async () => {
+    await expect(lookup({})).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("400s when id is not author/slug", async () => {
+    await expect(lookup({ queryParams: { id: "grok-4.6" } })).rejects.toBeInstanceOf(
+      BadRequestError,
+    );
+  });
+
+  test("404s when OpenRouter does not list the id", async () => {
+    globalThis.fetch = (async () =>
+      new Response("{}", { status: 404 })) as typeof fetch;
+    await expect(
+      lookup({ queryParams: { id: "missing/model" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("returns the mapped OpenRouter model", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            id: "openrouter/test-model",
+            name: "Vendor: Test Model",
+            context_length: 128000,
+            top_provider: { max_completion_tokens: 8000 },
+            supported_parameters: ["tools"],
+          },
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+
+    await expect(
+      lookup({ queryParams: { id: "openrouter/test-model" } }),
+    ).resolves.toEqual({
+      id: "openrouter/test-model",
+      displayName: "Test Model",
+      contextWindowTokens: 128000,
+      maxOutputTokens: 8000,
+      supportsThinking: false,
+    });
+  });
+
+  test("502s when OpenRouter is unreachable", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+    await expect(
+      lookup({ queryParams: { id: "openrouter/test-model" } }),
+    ).rejects.toBeInstanceOf(BadGatewayError);
   });
 });

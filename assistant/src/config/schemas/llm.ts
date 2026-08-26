@@ -920,6 +920,23 @@ export const LLMSchema = z
       })
       .default({ defaultTtlSeconds: 1800, maxTtlSeconds: 43200 }),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
+    /**
+     * User-added model ids that are not in the code-owned catalog. The
+     * settings picker appends these after the curated OpenRouter list once
+     * OpenRouter has confirmed the id exists.
+     */
+    customModels: z
+      .object({
+        openrouter: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              displayName: z.string().min(1).optional(),
+            }),
+          )
+          .default([]),
+      })
+      .default({ openrouter: [] }),
   })
   .superRefine((config, ctx) => {
     for (const [name, entry] of Object.entries(config.profiles ?? {})) {

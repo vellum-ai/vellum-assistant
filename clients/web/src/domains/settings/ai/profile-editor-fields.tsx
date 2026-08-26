@@ -358,6 +358,7 @@ export function ProfileEditorFields({
         />
       ) : (
         <ProfileEditorProviderSection
+          assistantId={assistantId}
           provider={editor.provider}
           model={editor.model}
           providerConnection={editor.providerConnection}
@@ -432,6 +433,7 @@ export function ProfileEditorFields({
       {activeToggle}
 
       <ProfileEditorProviderSection
+        assistantId={assistantId}
         provider={editor.provider}
         model={editor.model}
         providerConnection={editor.providerConnection}

@@ -513,6 +513,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 272_000,
     },
     {
+      id: "x-ai/grok-4.6",
+      displayName: "Grok 4.6",
+      contextWindowTokens: 500_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 30_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "x-ai/grok-4.5",
       displayName: "Grok 4.5",
       contextWindowTokens: 500_000,
@@ -682,6 +691,22 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 1_000_000,
+    },
+    {
+      id: "z-ai/glm-5.3",
+      displayName: "GLM-5.3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
+      id: "z-ai/glm-5.3-flash",
+      displayName: "GLM-5.3 Flash",
+      contextWindowTokens: 1_310_720,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
     },
     {
       id: "z-ai/glm-5.2",
