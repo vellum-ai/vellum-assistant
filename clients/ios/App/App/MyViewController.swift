@@ -78,9 +78,15 @@ class MyViewController: CAPBridgeViewController {
     private var navigationDelegateProxy: NavigationDelegateProxy?
 
     /// The live unreachable-server alert, so a second failure for the same load
-    /// does not stack another one. Weak: the presentation owns it, and the
-    /// reference going nil is what re-arms the alert for the next failure.
+    /// does not stack another one. Weak because the presentation owns it;
+    /// `disarmUnreachableAlert()` is what actually re-arms the guard, since the
+    /// reference outlives the alert's dismissal.
     private weak var unreachableAlert: UIAlertController?
+
+    /// How long to wait before re-offering the unreachable alert when a
+    /// presentation is still animating out. Comfortably longer than UIKit's
+    /// modal transition, and only ever reached on a failure.
+    private static let alertRetryDelay: TimeInterval = 0.5
 
     /// The full server URL the web view was last loaded against — the effective
     /// self-hosted override or the baked default. Foreground change detection
@@ -525,12 +531,26 @@ extension MyViewController: WebViewNavigationFailureObserver {
         return nil
     }
 
-    private func presentUnreachableAlert(for origin: URL) {
+    private func presentUnreachableAlert(for origin: URL, attemptsLeft: Int = 6) {
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.viewIfLoaded?.window != nil,
                   self.unreachableAlert == nil
             else { return }
+
+            let presenter = self.topMostPresenter()
+            // A presentation still animating out refuses a new one. Come back
+            // for it rather than dropping the alert, which would strand the
+            // user on the cancelled document this alert exists to explain. The
+            // attempt budget only bounds a transition that never finishes;
+            // a real one clears in well under one delay.
+            guard presenter.presentedViewController == nil else {
+                guard attemptsLeft > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.alertRetryDelay) { [weak self] in
+                    self?.presentUnreachableAlert(for: origin, attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
 
             let host = origin.host ?? origin.absoluteString
             let alert = UIAlertController(
@@ -539,15 +559,33 @@ extension MyViewController: WebViewNavigationFailureObserver {
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                self?.appliedServerURL = origin
-                self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: origin)))
+                guard let self else { return }
+                self.disarmUnreachableAlert()
+                self.appliedServerURL = origin
+                self.webView?.load(URLRequest(url: Self.appEntryURL(forBase: origin)))
             })
             alert.addAction(UIAlertAction(title: "Choose Assistant", style: .default) { [weak self] _ in
-                self?.openAssistantChooser()
+                guard let self else { return }
+                self.disarmUnreachableAlert()
+                self.openAssistantChooser()
             })
             self.unreachableAlert = alert
-            self.topMostPresenter().present(alert, animated: true)
+            presenter.present(alert, animated: true)
         }
+    }
+
+    /// Release the alert-liveness guard as the alert goes away, so the next
+    /// failure can raise a fresh one.
+    ///
+    /// This cannot wait for the weak reference to clear itself. An action
+    /// handler runs while its alert is still dismissing, so the reference is
+    /// very much alive at the moment Retry kicks off the next load, and a tunnel
+    /// edge that answers another 4xx before the animation ends would have its
+    /// replacement alert suppressed. The response is cancelled either way, so
+    /// that would leave a blank document and no remaining recourse, which is the
+    /// state this whole alert exists to prevent.
+    private func disarmUnreachableAlert() {
+        unreachableAlert = nil
     }
 
     /// Leave the unreachable origin for the chooser on the baked Vellum Cloud
