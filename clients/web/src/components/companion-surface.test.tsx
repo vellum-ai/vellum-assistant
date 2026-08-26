@@ -454,9 +454,9 @@ describe("the companion surface's anchor in the canvas", () => {
  * **The behaviour is a stylesheet, so these hold its contract rather than its
  * effect.** The reveal is `:hover` and not React state, because the host's
  * window is click-through and the page derives its own hover from forwarded
- * mouse-move rather than from `mouseenter`; CSS is the one hover mechanism that
- * is known to work there, since the held-down background on these same buttons
- * has always run on it. Nothing here renders Tailwind, so a case that fired a
+ * mouse-move rather than from `mouseenter`; CSS is the one hover mechanism
+ * known to work there, since the held-down background on these same buttons
+ * runs on it. Nothing here renders Tailwind, so a case that fired a
  * synthetic hover and read the text back passes with the stylesheet missing
  * entirely. What is worth holding instead is the coupling: the word is
  * marked hidden-until-hovered, the button is the `group` that variant resolves

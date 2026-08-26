@@ -1656,10 +1656,10 @@ function PillButton({
    * derives its own hover by hit-testing coordinates against the pill on every
    * forwarded mouse-move rather than trusting `mouseenter`
    * (`companion-surface-page.tsx`). A per-control reveal driven off React's
-   * mouse events would be betting on the events that page already decided it
-   * could not have. `:hover` is what the held-down background on this very
-   * button has always run on, so a reveal on the same mechanism works exactly
-   * where the rest of the control does.
+   * mouse events would be betting on the events that page does not receive.
+   * The held-down background on this very button runs on
+   * `:hover`, so a reveal on the same mechanism works exactly where the rest of
+   * the control does.
    *
    * The pill measures its own contents, so a label appearing resizes this row
    * and the surface grows to fit it on its own. Nothing here has to say how
