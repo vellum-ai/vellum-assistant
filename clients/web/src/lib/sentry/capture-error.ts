@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/react";
 
 import { isExpectedDaemonTransientError } from "@/utils/daemon-errors";
+import { isCancellationError } from "@/utils/is-cancellation-error";
 import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 /**
@@ -61,6 +62,12 @@ export { isExpectedDaemonTransientError } from "@/utils/daemon-errors";
  * and the app handles them gracefully via TanStack Query retries,
  * best-effort sync patterns, and error-state UI.
  *
+ * Cancellation errors (TanStack `CancelledError`, `AbortError`) are
+ * likewise dropped: they mean the operation was cancelled on purpose
+ * (unmount mid-fetch, invalidation restarting an in-flight refetch,
+ * an aborted request), which is control flow, not failure. See
+ * `isCancellationError` in `utils/`.
+ *
  * When `bestEffort` is `true`, expected daemon transient HTTP errors
  * (503/502/401/400-org-header) are also silently dropped. Use this for
  * background fetches that fire optimistically and have natural retry
@@ -89,6 +96,9 @@ export function captureError(
   },
 ): void {
   if (isTransientNetworkError(error)) {
+    return;
+  }
+  if (isCancellationError(error)) {
     return;
   }
   if (opts.bestEffort && isExpectedDaemonTransientError(error)) {

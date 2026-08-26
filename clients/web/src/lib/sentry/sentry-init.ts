@@ -159,6 +159,22 @@ const options: BrowserOptions = {
     /^Load failed($| \()/,
     /^Failed to fetch($| \()/,
     /^NetworkError when attempting to fetch resource\.?($| \()/,
+    // Cancellation rejections: TanStack Query aborts its per-fetch
+    // AbortController whenever a fetch is cancelled (observer unmount,
+    // `invalidateQueries` restarting an in-flight refetch, SSE-reconnect
+    // refresh bursts), and the engines surface the resulting DOMException
+    // through `onunhandledrejection` from browser-internal promises that
+    // JavaScript cannot attach handlers to. TanStack considers these
+    // rejections working-as-designed (TanStack/query#9877). Manual
+    // captures are gated by `captureError()` + `isCancellationError()`;
+    // these patterns close the same gap for the SDK's automatic paths.
+    // Each engine words the DOMException differently:
+    /^signal is aborted without reason$/, // Chromium, abort() without reason
+    /^The user aborted a request\.?$/, // Chromium (older), fetch abort
+    /^The operation was aborted\.?$/, // Firefox
+    /^Fetch is aborted$/, // Safari
+    /^AbortError:/, // WKWebView surfaces the name-prefixed form
+    /^CancelledError$/, // TanStack Query's cancellation sentinel
   ],
   denyUrls: [
     // Browser-extension schemes.
