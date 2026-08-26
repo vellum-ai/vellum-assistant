@@ -9,9 +9,9 @@ import {
 describe("skill card suppression", () => {
   test("preserves unrelated cards in legacy unframed v3 blocks", () => {
     const block = [
-      "# Skill: windows-automation\nAutomates Windows applications.",
+      '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates Windows applications.',
       "# memory/concepts/project.md\nKeep this concept, including its full body.",
-      "# Skill: other-skill\nKeep this unrelated skill.",
+      '# Skill: other-skill\nThe "Other Skill" skill (other-skill) is available. Keep this unrelated skill.',
     ].join("\n\n");
 
     const filtered = stripSuppressedSkillCards(
@@ -39,6 +39,24 @@ describe("skill card suppression", () => {
     expect(
       stripSuppressedSkillCards(block, new Set(["windows-automation"])),
     ).toBe(block);
+  });
+
+  test("strips real legacy skills that follow concept cards", () => {
+    const block = [
+      "# memory/concepts/project.md\nKeep the first concept.",
+      '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates Windows applications.',
+      "# memory/concepts/next.md\nKeep the adjacent concept.",
+    ].join("\n\n");
+
+    const filtered = stripSuppressedSkillCards(
+      block,
+      new Set(["windows-automation"]),
+    );
+
+    expect(filtered).toContain("Keep the first concept.");
+    expect(filtered).not.toContain("# Skill: windows-automation");
+    expect(filtered).not.toContain("Automates Windows applications.");
+    expect(filtered).toContain("Keep the adjacent concept.");
   });
 
   test("strips headerless v1 skill entries by their embedded id", () => {

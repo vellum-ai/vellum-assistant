@@ -56,6 +56,18 @@ function stripV1SkillEntries(
     : filtered.replace(/^\n+|\n+$/g, "").replace(/\n{3,}/g, "\n\n");
 }
 
+function extractLegacyV3SkillId(card: string): string | null {
+  const headerId = extractSkillIdFromV3Card(card);
+  const lineEnd = card.indexOf("\n");
+  if (!headerId || lineEnd < 0) {
+    return null;
+  }
+  const contentId = extractSkillIdFromAvailabilityContent(
+    card.slice(lineEnd + 1),
+  );
+  return contentId === headerId ? headerId : null;
+}
+
 export function stripSuppressedSkillCards(
   inner: string,
   suppressedIds: ReadonlySet<string>,
@@ -64,12 +76,11 @@ export function stripSuppressedSkillCards(
     return inner;
   }
   const { preamble, pieces, framed } = parseCardSections(inner);
-  const firstConceptIndex = pieces.findIndex((piece) => piece.kind === "card");
-  const kept = pieces.filter((piece, index) => {
-    const skillId = extractSkillIdFromV3Card(piece.text);
-    const isUnambiguousLegacySkill =
-      framed || firstConceptIndex < 0 || index < firstConceptIndex;
-    return !isUnambiguousLegacySkill || !skillId || !suppressedIds.has(skillId);
+  const kept = pieces.filter((piece) => {
+    const skillId = framed
+      ? extractSkillIdFromV3Card(piece.text)
+      : extractLegacyV3SkillId(piece.text);
+    return !skillId || !suppressedIds.has(skillId);
   });
   const withoutV3 =
     kept.length === pieces.length

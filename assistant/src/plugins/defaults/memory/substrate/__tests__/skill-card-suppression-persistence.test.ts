@@ -4,12 +4,13 @@ const realPluginApi = await import("@vellumai/plugin-api");
 const realSkillStore = await import("../skill-store.js");
 
 let mockActive = true;
+const WINDOWS_CARD =
+  '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates native Windows applications.';
 const getMessagesMock = mock(async (_conversationId: string) => [
   {
     id: "row-old",
     metadata: JSON.stringify({
-      memoryV3InjectedBlock:
-        "# Skill: windows-automation\nAutomates native Windows applications.",
+      memoryV3InjectedBlock: WINDOWS_CARD,
       memorySkillCardSuppressions: { "conv-other": ["other-skill"] },
     }),
   },
@@ -75,7 +76,7 @@ test("persists conversation-scoped suppression for stripped occurrences", async 
       content: [
         {
           type: "text" as const,
-          text: "<memory>\n# Skill: windows-automation\nAutomates native Windows applications.\n</memory>",
+          text: `<memory>\n${WINDOWS_CARD}\n</memory>`,
         },
       ],
     },
