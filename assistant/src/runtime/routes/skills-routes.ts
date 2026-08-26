@@ -30,6 +30,10 @@ import {
   updateSkill,
 } from "../../daemon/handlers/skills.js";
 import { getCategories } from "../../skills/categories-cache.js";
+import {
+  type SkillPlatform,
+  skillPlatformForNodePlatform,
+} from "../../skills/platform-compatibility.js";
 import { getSkillHistory } from "../../skills/skill-history.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -38,7 +42,23 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 function requestClientOs(
   headers: Record<string, string> | undefined,
 ): string | undefined {
-  return parseClientOs(headers?.[CLIENT_METADATA_HEADERS.os]) ?? undefined;
+  const reported = parseClientOs(headers?.[CLIENT_METADATA_HEADERS.os]);
+  if (reported) {
+    return reported;
+  }
+  return headers?.["x-vellum-principal-type"] === "local"
+    ? (skillPlatformForNodePlatform(process.platform) ?? undefined)
+    : undefined;
+}
+
+function requestLocalHostPlatforms(
+  headers: Record<string, string> | undefined,
+): SkillPlatform[] | undefined {
+  if (headers?.["x-vellum-principal-type"] !== "local") {
+    return undefined;
+  }
+  const platform = skillPlatformForNodePlatform(process.platform);
+  return platform ? [platform] : undefined;
 }
 
 function requestActorPrincipalId(
@@ -251,6 +271,7 @@ export const ROUTES: RouteDefinition[] = [
           clientOs,
           requestActorPrincipalId(headers),
           true,
+          requestLocalHostPlatforms(headers),
         );
         return {
           skills: result.skills,
@@ -263,6 +284,7 @@ export const ROUTES: RouteDefinition[] = [
         clientOs,
         requestActorPrincipalId(headers),
         true,
+        requestLocalHostPlatforms(headers),
       );
       return { skills };
     },
@@ -337,6 +359,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
+        requestLocalHostPlatforms(headers),
       );
       if ("error" in result) {
         if (result.status === 400) {
@@ -382,6 +405,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
+        requestLocalHostPlatforms(headers),
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -454,6 +478,7 @@ export const ROUTES: RouteDefinition[] = [
             requestClientOs(headers),
             requestActorPrincipalId(headers),
             true,
+            requestLocalHostPlatforms(headers),
           )
         ) {
           throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
@@ -610,6 +635,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
+        requestLocalHostPlatforms(headers),
       );
       if (!result.success) {
         throw new InternalError(result.error);
@@ -712,6 +738,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
+        requestLocalHostPlatforms(headers),
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -805,6 +832,7 @@ export const ROUTES: RouteDefinition[] = [
         clientOs: requestClientOs(headers),
         sourceActorPrincipalId: requestActorPrincipalId(headers),
         isInteractive: true,
+        hostPlatforms: requestLocalHostPlatforms(headers),
       });
       if (!result.success) {
         throw new InternalError(result.error);
@@ -871,6 +899,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
+        requestLocalHostPlatforms(headers),
       );
       if (!result.ok) {
         if (result.status === 404) {

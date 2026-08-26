@@ -446,6 +446,7 @@ export function listSkills(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): SlimSkillResponse[] {
   const config = getConfig();
   const catalog = loadSkillCatalog();
@@ -453,6 +454,7 @@ export function listSkills(
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
+    hostPlatforms,
   });
 
   const items = resolved.map((r) => toSlimSkillResponse(r.summary, r.state));
@@ -472,6 +474,7 @@ async function listSkillsWithCatalog(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): Promise<SlimSkillResponse[]> {
   // Warm the catalog cache before converting installed skills so
   // getCatalogCategoryMap() in toSlimSkillResponse() sees real categories
@@ -483,7 +486,12 @@ async function listSkillsWithCatalog(
     catalogSkills = [];
   }
 
-  const installed = listSkills(clientOs, sourceActorPrincipalId, isInteractive);
+  const installed = listSkills(
+    clientOs,
+    sourceActorPrincipalId,
+    isInteractive,
+    hostPlatforms,
+  );
   const installedIds = new Set(installed.map((s) => s.id));
 
   if (catalogSkills.length === 0) {
@@ -496,6 +504,7 @@ async function listSkillsWithCatalog(
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
+    hostPlatforms,
   })
     .filter((cs) => !installedIds.has(cs.id))
     .map((cs) => catalogSkillToSlim(cs));
@@ -561,6 +570,7 @@ export async function listSkillsFiltered(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): Promise<{
   skills: SlimSkillResponse[];
   categoryCounts: Record<string, number>;
@@ -572,8 +582,14 @@ export async function listSkillsFiltered(
           clientOs,
           sourceActorPrincipalId,
           isInteractive,
+          hostPlatforms,
         )
-      : listSkills(clientOs, sourceActorPrincipalId, isInteractive);
+      : listSkills(
+          clientOs,
+          sourceActorPrincipalId,
+          isInteractive,
+          hostPlatforms,
+        );
 
   // Apply origin filter
   if (filter.origin) {
@@ -665,6 +681,7 @@ function findSkillById(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): { item: SlimSkillResponse; summary: SkillSummary } | undefined {
   const config = getConfig();
   const catalog = loadSkillCatalog();
@@ -672,6 +689,7 @@ function findSkillById(
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
+    hostPlatforms,
   });
   const match = resolved.find((r) => r.summary.id === skillId);
   if (!match) {
@@ -694,10 +712,16 @@ export function skillExistsLocally(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): boolean {
   return (
-    findSkillById(skillId, clientOs, sourceActorPrincipalId, isInteractive) !==
-    undefined
+    findSkillById(
+      skillId,
+      clientOs,
+      sourceActorPrincipalId,
+      isInteractive,
+      hostPlatforms,
+    ) !== undefined
   );
 }
 
@@ -706,12 +730,14 @@ export async function getSkill(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
   const found = findSkillById(
     skillId,
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
+    hostPlatforms,
   );
   if (!found) {
     // Fallback: skill is not installed. Try all file providers.
@@ -854,6 +880,7 @@ export function getSkillLocalDetail(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ):
   | {
       ok: true;
@@ -888,6 +915,7 @@ export function getSkillLocalDetail(
       clientOs,
       sourceActorPrincipalId,
       isInteractive,
+      hostPlatforms,
     });
     const match = resolved.find((r) => r.summary.id === skillId);
     if (!match) {
@@ -1039,6 +1067,7 @@ export async function getSkillFileContent(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): Promise<SkillFileContentResponse | { error: string; status: number }> {
   const sanitized = sanitizeRelativePath(relativePath);
   if (!sanitized) {
@@ -1062,6 +1091,7 @@ export async function getSkillFileContent(
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
+    hostPlatforms,
   );
   if (found) {
     if (!existsSync(found.summary.directoryPath)) {
@@ -1169,6 +1199,7 @@ export async function getSkillFiles(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): Promise<
   | { skill: SlimSkillResponse; files: SkillFileEntry[] }
   | { error: string; status: number }
@@ -1181,6 +1212,7 @@ export async function getSkillFiles(
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
+    hostPlatforms,
   );
   if (found) {
     if (existsSync(found.summary.directoryPath)) {
@@ -1301,6 +1333,7 @@ export async function installSkill(spec: {
   clientOs?: string;
   sourceActorPrincipalId?: string;
   isInteractive?: boolean;
+  hostPlatforms?: readonly unknown[];
 }): Promise<
   { success: true; skillId: string } | { success: false; error: string }
 > {
@@ -1561,6 +1594,7 @@ export async function searchSkills(
   clientOs?: string,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
 ): Promise<
   | { success: true; skills: SlimSkillResponse[] }
   | { success: false; error: string }
@@ -1576,11 +1610,13 @@ export async function searchSkills(
       clientOs,
       sourceActorPrincipalId,
       isInteractive,
+      hostPlatforms,
     });
     const resolved = resolveSkillStates(compatibleCatalog, config, {
       clientOs,
       sourceActorPrincipalId,
       isInteractive,
+      hostPlatforms,
     });
     const resolvedById = new Map(resolved.map((r) => [r.summary.id, r]));
 

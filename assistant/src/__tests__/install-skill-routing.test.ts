@@ -14,6 +14,7 @@ const mockCatalogSkills = mock(
     source: string;
     directoryPath?: string;
     platforms?: Array<"macos" | "windows" | "linux">;
+    requiredHostCapabilities?: Array<"host_bash">;
   }> => [],
 );
 const mockClawhubInstall = mock(
@@ -418,6 +419,7 @@ Body.
         source: "bundled",
         directoryPath: "/tmp/test-bundled-skills/client-platform-skill",
         platforms: [clientPlatform],
+        requiredHostCapabilities: ["host_bash"],
       },
     ]);
 
@@ -434,6 +436,7 @@ Body.
         slug: "client-platform-skill",
         clientOs: clientPlatform,
         sourceActorPrincipalId: "actor-a",
+        isInteractive: true,
       });
 
       expect(result).toEqual({

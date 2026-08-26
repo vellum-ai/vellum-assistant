@@ -50,6 +50,7 @@ const realDbConnection = {
 };
 const realPageContent = { ...(await import("../page-content.js")) };
 const realShadowPlugin = { ...(await import("../shadow-plugin.js")) };
+const realSkillStore = { ...(await import("../../substrate/skill-store.js")) };
 
 let injectionMockActive = false;
 
@@ -187,6 +188,14 @@ mock.module("../page-content.js", () => ({
         ? ""
         : `# memory/concepts/${slug}.md\ncard body for ${slug}`
       : realPageContent.renderV3CardContent(slug),
+}));
+
+mock.module("../../substrate/skill-store.js", () => ({
+  ...realSkillStore,
+  getSkillCapability: (idOrSlug: string) =>
+    injectionMockActive && idOrSlug === "skills/test-skill"
+      ? { id: "test-skill", content: "Synthetic test skill" }
+      : realSkillStore.getSkillCapability(idOrSlug),
 }));
 
 mock.module("../shadow-plugin.js", () => ({

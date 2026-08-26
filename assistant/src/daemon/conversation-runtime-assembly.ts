@@ -2385,7 +2385,7 @@ export async function applyRuntimeInjections(
     isInteractive: liveConversation
       ? !liveConversation.hasNoClient
       : options.isNonInteractive === false,
-    sourceActorPrincipalId: liveConversation?.getTurnActorPrincipalId(),
+    sourceActorPrincipalId: liveConversation?.getTurnActorPrincipalId?.(),
     visibleApp,
     channelName,
     actorContext: options.actorContext,
