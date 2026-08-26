@@ -144,6 +144,18 @@ function accessibleText(root: Element): string {
   return out.join(" | ");
 }
 
+/**
+ * The numeric hint on each option row. Decorative, so it is the one
+ * `aria-hidden` span inside an unselected option's button.
+ */
+function hotkeyBadges(container: HTMLElement): Element[] {
+  return Array.from(
+    container.querySelectorAll(
+      'button[aria-label^="Option "] span[aria-hidden="true"]',
+    ),
+  );
+}
+
 /** The card's drag surface, which owns the touch handlers. */
 function dragSurface(): HTMLElement {
   const el = document.querySelector<HTMLElement>(
@@ -287,10 +299,13 @@ describe("QuestionPromptCard minimize", () => {
     expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
   });
 
-  test("the position counter leaves with the pager it counts for", () => {
+  test("a batch carries no position counter in either state", () => {
+    // The pager is the whole account of where you are in a batch. A counter
+    // beside it said the same thing twice, and in the minimized row it said it
+    // about rows that were no longer on screen.
     renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
-    expect(screen.getByText("1 of 2")).toBeDefined();
+    expect(screen.queryByText("1 of 2")).toBeNull();
 
     fireEvent.click(toggleButton());
 
@@ -401,7 +416,10 @@ describe("QuestionPromptCard minimize", () => {
     expect(document.activeElement).toBe(toggleButton());
   });
 
-  test("the swipe grabber renders only where a swipe can happen", () => {
+  test("the card advertises no swipe of its own", () => {
+    // The gesture is still there, on both pointer kinds. What is gone is the
+    // grabber bar that used to announce it: a shortcut for whoever finds it,
+    // not the way the card asks to be operated.
     const GRABBER = '[data-slot="question-card-grabber"]';
 
     const fine = renderCard();
@@ -410,20 +428,23 @@ describe("QuestionPromptCard minimize", () => {
     cleanup();
     setPointer(true);
     const coarse = renderCard();
-    expect(coarse.container.querySelector(GRABBER)).not.toBeNull();
+    expect(coarse.container.querySelector(GRABBER)).toBeNull();
   });
 
-  test("the grabber follows the pointer changing under a mounted card", () => {
-    const GRABBER = '[data-slot="question-card-grabber"]';
+  test("the hotkey badges follow the pointer changing under a mounted card", () => {
+    // The pointer read is subscribed rather than sampled once, so a convertible
+    // folding into tablet mode reaches a card that is already on screen. The
+    // badges are what shows it now that the grabber is gone, and since
+    // `useSwipeEngine` reads the same signal this stands for the gesture arming
+    // and disarming with them.
     const { container } = renderCard();
 
-    expect(container.querySelector(GRABBER)).toBeNull();
+    expect(hotkeyBadges(container)).not.toHaveLength(0);
 
-    // A convertible folding into tablet mode, with the card already on screen.
     setPointer(true);
-    expect(container.querySelector(GRABBER)).not.toBeNull();
+    expect(hotkeyBadges(container)).toHaveLength(0);
 
     setPointer(false);
-    expect(container.querySelector(GRABBER)).toBeNull();
+    expect(hotkeyBadges(container)).not.toHaveLength(0);
   });
 });

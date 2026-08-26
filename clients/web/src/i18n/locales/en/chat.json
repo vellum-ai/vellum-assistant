@@ -1165,7 +1165,6 @@
     "minimizedSummary": "{count, plural, one {# option} other {# options}} · Tap to reopen",
     "nextQuestionAria": "Next question",
     "optionAria": "Option {number}: {label}",
-    "position": "{current} of {total}",
     "previousQuestionAria": "Previous question",
     "sendResponseAria": "Send response",
     "skip": "Skip",
