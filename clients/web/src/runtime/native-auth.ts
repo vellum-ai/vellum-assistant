@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 
 import {
   type ProviderRedirectOptions,
+  readAttributionParams,
   startProviderRedirect,
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
@@ -15,6 +16,11 @@ import { isLocalClient } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
+import {
+  captureInstallReferrer,
+  clearStoredInstallReferrer,
+  readStoredInstallReferrer,
+} from "@/runtime/install-referrer";
 import {
   isBiometricEnabled,
   setBiometricEnabled,
@@ -42,6 +48,13 @@ interface NativeAuthPlugin {
     baseURL: string;
     loginHint?: string;
     intent?: string;
+    /**
+     * Allowlisted campaign params. The shell appends them as query params on
+     * its token POST: allauth headless posts JSON, so the platform reads
+     * attribution off `request.GET`. Omitted when empty, so a shell that
+     * predates this field sees an unchanged call.
+     */
+    attribution?: Record<string, string>;
     postAuthDestination: string;
   }): Promise<{ sessionToken: string }>;
   consumeRestoredAuth(): Promise<{
@@ -127,6 +140,7 @@ export async function startNativeLogin(options?: {
   returnTo?: string | null;
   loginHint?: string;
   intent?: string;
+  attribution?: Record<string, string>;
 }): Promise<void> {
   // Every native auth entry routes through the shared stale-stash cleanup. The
   // direct login form (`login-page.tsx`) calls this without going through
@@ -144,6 +158,7 @@ export async function startNativeLogin(options?: {
     baseURL,
     ...(options?.loginHint ? { loginHint: options.loginHint } : {}),
     ...(options?.intent ? { intent: options.intent } : {}),
+    ...(options?.attribution ? { attribution: options.attribution } : {}),
     postAuthDestination: destination,
   });
 
@@ -205,6 +220,11 @@ async function completeNativeLogin(
   if (isNativePlatform()) {
     await waitForNativeSessionCookie();
   }
+
+  // The referrer is spent: it rode this flow's `startAuth` call. Cleared on
+  // login too, since we can't tell signup from login here and a retained value
+  // would attach this install's campaign to the next user to sign up here.
+  clearStoredInstallReferrer();
 
   // Persist the token in native secure storage for biometric session recovery.
   // Respects the user's opt-out preference; storeBiometricToken is also
@@ -356,6 +376,30 @@ export function clearStaleNativeCheckoutStash(
 }
 
 /**
+ * Attribution to hand the native shell, drawn from exactly one source.
+ *
+ * URL params win: they carry the user's current, explicit campaign context.
+ * The Play install referrer is the fallback, and it is the only attribution a
+ * Play install carries at all (such an install arrives with no URL params).
+ *
+ * The two are never merged: `persist_attribution` on the platform stores a row
+ * as one coherent unit from a single source, so it must not be handed fields
+ * spliced from two. First touch across repeat signups is already held there by
+ * the empty-row backfill guard.
+ */
+async function resolveNativeAttribution(
+  attribution: Record<string, string> | undefined,
+): Promise<Record<string, string> | undefined> {
+  const fromUrl = attribution ?? readAttributionParams(window.location.search);
+  if (Object.keys(fromUrl).length > 0) {
+    return fromUrl;
+  }
+  await captureInstallReferrer();
+  const stored = readStoredInstallReferrer();
+  return Object.keys(stored).length > 0 ? stored : undefined;
+}
+
+/**
  * Unified auth-flow entry point that transparently chooses between the
  * native plugin path and the web form-POST path.
  *
@@ -369,6 +413,9 @@ export function clearStaleNativeCheckoutStash(
  * path, `USER_CANCELLED` (user tapped cancel on the auth sheet) is
  * swallowed since it's a routine dismissal, and all other errors are
  * re-thrown for the caller to handle.
+ *
+ * The native and web paths both forward marketing attribution. Electron does
+ * not: `window.vellum.auth.startOAuth` has no parameter for it yet.
  */
 export async function startAuthFlow(
   providerId: string,
@@ -377,6 +424,7 @@ export async function startAuthFlow(
 ): Promise<void> {
   if (isNativePlatform()) {
     try {
+      const attribution = await resolveNativeAttribution(options.attribution);
       await startNativeLogin({
         returnTo: resolveNativePostAuthDestination(
           options.intent,
@@ -384,6 +432,7 @@ export async function startAuthFlow(
         ),
         loginHint: options.loginHint,
         intent: options.intent,
+        attribution,
       });
     } catch (err) {
       // Capacitor translates native `call.reject(msg, code)` into a
