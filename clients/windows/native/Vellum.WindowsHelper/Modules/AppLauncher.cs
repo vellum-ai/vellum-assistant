@@ -105,8 +105,7 @@ public static partial class AppLauncher
             return $"switched to {resolved}";
         }
 
-        var target = FindMatch(StartMenuShortcuts(), name, resolved)
-            ?? FindMatch(AppsFolderEntries(), name, resolved)
+        var target = FindMatch(StartMenuShortcuts().Concat(AppsFolderEntries()), name, resolved)
             ?? (ShellCommands.TryGetValue(resolved, out var command) ? command : resolved);
         try
         {
@@ -122,9 +121,9 @@ public static partial class AppLauncher
     }
 
     // Brings forward the first visible top-level window whose process name or
-    // title matches; a minimized window is restored first. A found window counts
-    // as activated even if foreground-lock rules reject the switch, so a live
-    // app is never relaunched into a duplicate instance.
+    // title matches; a minimized window is restored first. A live window that
+    // foreground-lock rules refuse to raise is an error, never a relaunch or a
+    // silent success.
     private static bool ActivateRunning(string name, string resolved)
     {
         foreach (var process in Process.GetProcesses())
@@ -139,7 +138,11 @@ public static partial class AppLauncher
                 {
                     _ = ShowWindow(process.MainWindowHandle, 9); // SW_RESTORE
                 }
-                _ = SetForegroundWindow(process.MainWindowHandle);
+                if (!SetForegroundWindow(process.MainWindowHandle))
+                {
+                    throw new InvalidOperationException(
+                        $"{resolved} is running but Windows refused to bring it to the foreground");
+                }
                 return true;
             }
         }
