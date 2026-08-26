@@ -1110,7 +1110,10 @@ describe("vellum:localMode:pairing handlers", () => {
     const polled = await pairingPoll(started.handle, "local-1");
 
     expect(polled.ok).toBe(false);
-    expect(polled.reason).toBe("import");
+    // The pre-check reason: the refusal came before the exchange, so the
+    // device code is unspent and this session still completes under a free
+    // name.
+    expect(polled.reason).toBe("import-precheck");
     expect(polled.error).toContain("already exists");
     expect(fs.existsSync(guardianTokenPath(configDir, "local-1"))).toBe(false);
   });
