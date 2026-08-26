@@ -12,14 +12,10 @@
  * Source of truth is the Swift, always. When the two disagree the Swift is
  * right and this file is stale.
  *
- * The derived colors are NOT transcribed. `darkenHex`, `blendHex` and
- * `contrastForeground` come from `@/utils/avatar-tone`, which the Swift names
- * as its own source of truth (`UIColor.contrastingForeground` mirrors that
- * file's `contrastForeground`, and `blendHex`/`darkenHex` mirror its
- * namesakes). A second copy here would be a second copy that drifts, and its
- * first victim would be the foreground: a YIQ-style brightness rule picks white
- * on a mid-tone teal where the WCAG derivation both sides actually use picks
- * dark.
+ * Only the literals are transcribed. The derivations come from
+ * `@/utils/avatar-tone`, which the Swift names as its own source of truth:
+ * `UIColor.contrastingForeground` mirrors that file's `contrastForeground`,
+ * and `blendHex` / `darkenHex` mirror its namesakes.
  *
  * @see clients/ios/App/VoiceActivity/Widgets/WidgetTheme.swift
  * @see clients/ios/App/App/Shared/CSSHexColor.swift
@@ -71,9 +67,9 @@ const SOFT_ACCENT_LIGHT_WASH = 0.105;
 const SOFT_ACCENT_DARK_WASH = 0.22;
 
 /**
- * `UIColor.contrastingForeground`'s two answers, which are
- * `avatar-tone.ts`'s own `FG_DARK` / `FG_LIGHT`. Named here only so the fill
- * weighting below can tell which one it was handed.
+ * `avatar-tone.ts`'s `FG_DARK`, the darker of the two answers
+ * `contrastForeground` gives. Named here so the fill weighting below can tell
+ * which one it was handed.
  */
 const FG_DARK = "#1A1A1A";
 

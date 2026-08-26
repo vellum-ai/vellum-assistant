@@ -24,6 +24,11 @@ import {
   VellumVGlyph,
   WaveformGlyph,
 } from "./widget-glyphs";
+import {
+  WidgetActionTile,
+  WidgetCircleAction,
+  WIDGET_TILE_ICON_SIZE,
+} from "./widget-action-controls";
 import { WidgetCard } from "./widget-card";
 import { WidgetUnreadMark } from "./widget-unread-mark";
 import {
@@ -43,9 +48,6 @@ const COUNT_GAP = 16;
 const GLYPH_COLUMN_WIDTH = 17;
 const COUNT_GLYPH_GAP = 7;
 const COUNT_TEXT_SIZE = 14;
-const TILE_CORNER_RADIUS = 12;
-const TILE_ICON_SIZE = 24;
-const TILE_LABEL_SIZE = 8;
 const FLATTENED_TILE_FILL = "rgba(255, 255, 255, 0.12)";
 const FLATTENED_CIRCLE_FILL = "rgba(255, 255, 255, 0.14)";
 const FLATTENED_PILL_FILL = "rgba(255, 255, 255, 0.12)";
@@ -137,7 +139,7 @@ export function StatusWidgetPreview({
           </div>
         ) : (
           <div style={{ display: "flex", gap: CIRCLE_GAP * scale }}>
-            <Circle
+            <WidgetCircleAction
               diameter={control}
               fill={
                 flattened
@@ -147,8 +149,8 @@ export function StatusWidgetPreview({
               label="Take a photo"
             >
               <CameraGlyph size={control * 0.4} color={textPrimary} />
-            </Circle>
-            <Circle
+            </WidgetCircleAction>
+            <WidgetCircleAction
               diameter={control}
               fill={
                 flattened
@@ -158,7 +160,7 @@ export function StatusWidgetPreview({
               label="New voice conversation"
             >
               <WaveformGlyph size={control * 0.4} color={textPrimary} />
-            </Circle>
+            </WidgetCircleAction>
           </div>
         )}
         <div style={{ flex: 1, minHeight: BAND_GAP * scale }} />
@@ -166,7 +168,7 @@ export function StatusWidgetPreview({
           <div
             style={{ display: "flex", gap: TILE_GAP * scale, height: control }}
           >
-            <Tile
+            <WidgetActionTile
               scale={scale}
               label="New Chat"
               fill={
@@ -181,8 +183,8 @@ export function StatusWidgetPreview({
                     src={avatarImageUrl}
                     alt=""
                     style={{
-                      width: TILE_ICON_SIZE * scale,
-                      height: TILE_ICON_SIZE * scale,
+                      width: WIDGET_TILE_ICON_SIZE * scale,
+                      height: WIDGET_TILE_ICON_SIZE * scale,
                       borderRadius: "50%",
                       objectFit: "cover",
                       filter: flattened
@@ -192,7 +194,7 @@ export function StatusWidgetPreview({
                   />
                 ) : (
                   <VellumVGlyph
-                    size={TILE_ICON_SIZE * scale}
+                    size={WIDGET_TILE_ICON_SIZE * scale}
                     color={
                       flattened
                         ? "#FFFFFF"
@@ -202,7 +204,7 @@ export function StatusWidgetPreview({
                 )
               }
             />
-            <Tile
+            <WidgetActionTile
               scale={scale}
               label="Voice"
               fill={
@@ -213,7 +215,7 @@ export function StatusWidgetPreview({
               labelColor={textPrimary}
               icon={
                 <WaveformGlyph
-                  size={TILE_ICON_SIZE * scale}
+                  size={WIDGET_TILE_ICON_SIZE * scale}
                   color={textPrimary}
                 />
               }
@@ -278,76 +280,6 @@ function CountLine({
         }}
       >
         {text}
-      </span>
-    </div>
-  );
-}
-
-function Circle({
-  diameter,
-  fill,
-  label,
-  children,
-}: {
-  diameter: number;
-  fill: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      role="img"
-      aria-label={label}
-      style={{
-        width: diameter,
-        height: diameter,
-        borderRadius: "50%",
-        background: fill,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Tile({
-  scale,
-  label,
-  fill,
-  labelColor,
-  icon,
-}: {
-  scale: number;
-  label: string;
-  fill: string;
-  labelColor: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        borderRadius: TILE_CORNER_RADIUS * scale,
-        background: fill,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 4 * scale,
-      }}
-    >
-      {icon}
-      <span
-        style={{
-          fontSize: TILE_LABEL_SIZE * scale,
-          fontWeight: 500,
-          color: labelColor,
-        }}
-      >
-        {label}
       </span>
     </div>
   );

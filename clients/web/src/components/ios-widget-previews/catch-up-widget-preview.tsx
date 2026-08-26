@@ -24,6 +24,10 @@ import {
   VellumVGlyph,
   WaveformGlyph,
 } from "./widget-glyphs";
+import {
+  WidgetActionTile,
+  WIDGET_TILE_ICON_SIZE,
+} from "./widget-action-controls";
 import { WidgetCard } from "./widget-card";
 import {
   FLATTENED_CARD_GROUND,
@@ -49,9 +53,6 @@ const ROW_GLYPH_TEXT_GAP = 7;
 /** Where the glyph hangs, by whether the row carries a subtitle. */
 const GLYPH_TWO_LINE_TOP_INSET = 12.5;
 const GLYPH_TITLE_ONLY_TOP_INSET = 7;
-const TILE_CORNER_RADIUS = 12;
-const TILE_ICON_SIZE = 24;
-const TILE_LABEL_SIZE = 8;
 const FLATTENED_TILE_FILL = "rgba(255, 255, 255, 0.12)";
 
 export interface CatchUpConversation {
@@ -129,7 +130,7 @@ export function CatchUpWidgetPreview({
             height: "100%",
           }}
         >
-          <Tile
+          <WidgetActionTile
             scale={scale}
             label="New Chat"
             fill={
@@ -144,8 +145,8 @@ export function CatchUpWidgetPreview({
                   src={avatarImageUrl}
                   alt=""
                   style={{
-                    width: TILE_ICON_SIZE * scale,
-                    height: TILE_ICON_SIZE * scale,
+                    width: WIDGET_TILE_ICON_SIZE * scale,
+                    height: WIDGET_TILE_ICON_SIZE * scale,
                     borderRadius: "50%",
                     objectFit: "cover",
                     filter: flattened
@@ -155,7 +156,7 @@ export function CatchUpWidgetPreview({
                 />
               ) : (
                 <VellumVGlyph
-                  size={TILE_ICON_SIZE * scale}
+                  size={WIDGET_TILE_ICON_SIZE * scale}
                   color={
                     flattened
                       ? "#FFFFFF"
@@ -165,7 +166,7 @@ export function CatchUpWidgetPreview({
               )
             }
           />
-          <Tile
+          <WidgetActionTile
             scale={scale}
             label="Voice"
             fill={
@@ -176,7 +177,7 @@ export function CatchUpWidgetPreview({
             labelColor={textPrimary}
             icon={
               <WaveformGlyph
-                size={TILE_ICON_SIZE * scale}
+                size={WIDGET_TILE_ICON_SIZE * scale}
                 color={textPrimary}
               />
             }
@@ -257,7 +258,11 @@ function Row({
   textPrimary: string;
   textSecondary: string;
 }) {
-  const subtitle = conversation.subtitle ?? null;
+  // `renderedSubtitle`: a group the producer sent as an empty string is a
+  // subtitle with nothing in it to draw, and the glyph's inset asks the same
+  // question, so the two answer from one place.
+  const rawSubtitle = conversation.subtitle ?? "";
+  const subtitle = rawSubtitle.length > 0 ? rawSubtitle : null;
   const glyphTopInset =
     subtitle === null ? GLYPH_TITLE_ONLY_TOP_INSET : GLYPH_TWO_LINE_TOP_INSET;
   // Working beats unread, and staleness beats working.
@@ -340,46 +345,6 @@ function Row({
             {subtitle}
           </span>
         ) : null}
-      </span>
-    </div>
-  );
-}
-
-function Tile({
-  scale,
-  label,
-  fill,
-  labelColor,
-  icon,
-}: {
-  scale: number;
-  label: string;
-  fill: string;
-  labelColor: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        borderRadius: TILE_CORNER_RADIUS * scale,
-        background: fill,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 4 * scale,
-      }}
-    >
-      {icon}
-      <span
-        style={{
-          fontSize: TILE_LABEL_SIZE * scale,
-          fontWeight: 500,
-          color: labelColor,
-        }}
-      >
-        {label}
       </span>
     </div>
   );

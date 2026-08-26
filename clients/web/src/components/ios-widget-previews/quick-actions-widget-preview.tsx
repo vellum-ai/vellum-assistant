@@ -24,6 +24,7 @@ import {
   EYE_PAIR_ASPECT,
   WidgetAvatarEyes,
 } from "./widget-avatar-eyes";
+import { WidgetCircleAction } from "./widget-action-controls";
 import { WidgetCard } from "./widget-card";
 import { WidgetUnreadMark } from "./widget-unread-mark";
 import { SURFACE_GROUND } from "@/utils/avatar-tone";
@@ -205,7 +206,7 @@ export function QuickActionsWidgetPreview({
         )}
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", gap: CONTROL_GAP * scale }}>
-          <CircleAction
+          <WidgetCircleAction
             diameter={CONTROL_DIAMETER * scale}
             fill={controlFill}
             label="Take a photo"
@@ -214,8 +215,8 @@ export function QuickActionsWidgetPreview({
               size={CONTROL_DIAMETER * scale * 0.4}
               color={onSurface}
             />
-          </CircleAction>
-          <CircleAction
+          </WidgetCircleAction>
+          <WidgetCircleAction
             diameter={CONTROL_DIAMETER * scale}
             fill={controlFill}
             label="New voice conversation"
@@ -224,7 +225,7 @@ export function QuickActionsWidgetPreview({
               size={CONTROL_DIAMETER * scale * 0.4}
               color={onSurface}
             />
-          </CircleAction>
+          </WidgetCircleAction>
         </div>
       </div>
     </WidgetCard>
@@ -330,36 +331,6 @@ function UnreadChip({
       >
         {count > 99 ? "99+" : count}
       </span>
-    </div>
-  );
-}
-
-function CircleAction({
-  diameter,
-  fill,
-  label,
-  children,
-}: {
-  diameter: number;
-  fill: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      role="img"
-      aria-label={label}
-      style={{
-        width: diameter,
-        height: diameter,
-        borderRadius: "50%",
-        background: fill,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      {children}
     </div>
   );
 }
