@@ -16,6 +16,7 @@ const flavor: SentryFlavor = {
   init: initMock,
   close: closeMock,
   getClientEnabled: () => clientEnabled,
+  setUser: () => {},
 };
 const selectSentryFlavorMock = mock(() => flavor);
 

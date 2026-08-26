@@ -78,4 +78,9 @@ export const capacitorFlavor: SentryFlavor = {
     const client = Capacitor.getClient();
     return client !== undefined && client.getOptions().enabled !== false;
   },
+  setUser(user) {
+    // `@sentry/capacitor` forwards the scope user to the native SDKs too,
+    // so native crash envelopes carry the same identity as JS events.
+    Capacitor.setUser(user);
+  },
 };

@@ -19,6 +19,9 @@ mock.module("@/lib/sentry/consent-gate", () => ({
 mock.module("@/runtime/diagnostics", () => ({
   syncDiagnosticsToMain: () => {},
 }));
+mock.module("@/lib/sentry/user-sync", () => ({
+  installSentryUserSync: () => () => {},
+}));
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: () => false,
   watchDeviceSetting: () => () => {},
@@ -102,7 +105,8 @@ describe("initSentry client_os tag", () => {
   function clientOsTag(): unknown {
     return (
       syncedOptions?.initialScope as
-        { tags?: Record<string, unknown> } | undefined
+        | { tags?: Record<string, unknown> }
+        | undefined
     )?.tags?.client_os;
   }
 
@@ -151,7 +155,8 @@ describe("initSentry commit-pressure enrichment", () => {
     );
 
     const pressure = sent?.contexts?.commit_pressure as
-      { updates: number; sources: Record<string, number> } | undefined;
+      | { updates: number; sources: Record<string, number> }
+      | undefined;
     expect(pressure?.updates).toBe(3);
     expect(pressure?.sources["smooth-stream"]).toBe(2);
   });
