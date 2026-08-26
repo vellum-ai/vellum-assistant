@@ -23,7 +23,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -1589,33 +1589,25 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       </Wrapper>,
     );
 
-    // WHEN the user picks the free-text option (the Model dropdown is the only
-    // one offering it) and types an id absent from the catalog, then saves
-    let pickedCustom = false;
-    for (const trigger of selectTriggers()) {
-      fireEvent.click(trigger);
-      const customOption = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).find((o) => o.textContent?.trim() === "Enter a custom model ID…");
-      if (customOption) {
-        fireEvent.click(customOption);
-        pickedCustom = true;
-        break;
-      }
-      fireEvent.click(trigger);
-    }
-    expect(pickedCustom).toBe(true);
+    // WHEN the user picks the free-text option on the Model field, types an
+    // id absent from the catalog, then validates it before saving
+    fireEvent.click(screen.getByLabelText("Model"));
+    fireEvent.click(
+      screen.getByRole("option", { name: /Enter a custom model ID/ }),
+    );
 
-    const modelInput = getInputByPlaceholder("provider/model-id");
+    const modelInput = screen.getByLabelText("Custom model ID");
     fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
+    expect((modelInput as HTMLInputElement).value).toBe("tencent/hy3");
 
-    // OpenRouter ids stay unselected until Add validates them against the API.
-    expect(getSaveBtn().disabled).toBe(true);
-    fireEvent.click(getButton("Add"));
+    // OpenRouter keeps the previously bound catalog id until Add validates
+    // the typed one, so Save can stay enabled on the original model.
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
-    await waitFor(() => {
-      expect(getSaveBtn().disabled).toBe(false);
-    });
+    // The Model select returns once OpenRouter accepts the id.
+    const modelTrigger = await screen.findByLabelText("Model");
+    expect(modelTrigger.textContent).toContain("tencent/hy3");
+    expect(getSaveBtn().disabled).toBe(false);
     fireEvent.click(getSaveBtn());
 
     // THEN the validated id is persisted, marked as an unlisted catalog id
