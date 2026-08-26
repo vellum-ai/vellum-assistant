@@ -25,8 +25,8 @@ import {
   getIngressConfigResult,
   isVelayManagedIngress,
   loadPairingTunnelRecord,
-  loadRestartTunnelRecord,
   loadRecordedAssistantId,
+  loadRestartTunnelRecord,
 } from "../../daemon/handlers/config-ingress.js";
 import { probeTunnel } from "../../inbound/tunnel-probe.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
