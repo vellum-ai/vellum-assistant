@@ -74,14 +74,15 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   atlascloud: "Atlas Cloud",
   together: "Together AI",
   litellm: "LiteLLM",
+  opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
 };
 
-// litellm is deliberately excluded: it has no fixed default model (proxied
-// endpoints vary per deployment), so it cannot back llm.defaultProvider
+// litellm and opencode are deliberately excluded: they have no fixed default
+// model (endpoint-supplied catalogs), so they cannot back llm.defaultProvider
 // (see DEFAULT_PROVIDER_CHOICES in assistant/src/config/schemas/llm.ts).
-// Picking it here would collect a key the assistant then never uses, since
+// Picking them here would collect a key the assistant then never uses, since
 // resolveHatchDefaultProvider falls back to anthropic instead.
 export const HATCH_PROVIDER_CHOICES: readonly LlmProviderId[] = [
   "anthropic",

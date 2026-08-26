@@ -86,7 +86,7 @@ const savedConnectionResponseSchema = ProviderConnectionSchema.extend({
  * Parse and validate `base_url` and `models` from the request body.
  *
  * `base_url` is only accepted for providers in
- * `PROVIDERS_ALLOWING_CUSTOM_BASE_URL` (openai-compatible and ollama).
+ * `PROVIDERS_ALLOWING_CUSTOM_BASE_URL` (openai-compatible, ollama, opencode).
  * For all other providers, supplying `base_url` returns a 400. This prevents
  * API-key exfiltration: an attacker cannot create an `anthropic` connection
  * with a `base_url` pointing to their own server, which would redirect all
@@ -119,7 +119,7 @@ async function parseCustomProviderFields(
       !PROVIDERS_ALLOWING_CUSTOM_BASE_URL.has(provider)
     ) {
       throw new BadRequestError(
-        `base_url is only valid for openai-compatible and ollama providers. Remove base_url or use a provider that accepts a custom endpoint.`,
+        `base_url is only valid for openai-compatible, ollama, and opencode providers. Remove base_url or use a provider that accepts a custom endpoint.`,
       );
     }
 

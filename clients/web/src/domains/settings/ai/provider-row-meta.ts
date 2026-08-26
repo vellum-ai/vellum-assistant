@@ -94,7 +94,7 @@ export function providerRowMeta(conn: ProviderConnection): string {
     return customProviderMeta(conn);
   }
   const parts: string[] = [];
-  if (conn.provider === "ollama") {
+  if (conn.provider === "ollama" || conn.provider === "opencode") {
     const host = connectionHost(conn);
     if (host) {
       parts.push(host);
