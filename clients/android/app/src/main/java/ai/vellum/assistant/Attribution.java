@@ -36,14 +36,33 @@ final class Attribution {
     private Attribution() {}
 
     /**
-     * Allowlisted fields of a raw `key=value&...` string, in the order they
-     * appear. Never null: a malformed pair is skipped so one garbage segment
-     * cannot discard the whole referrer.
+     * Allowlisted, non-empty, truncated fields of {@code raw}, in
+     * {@link #KEYS} order. Anything else the caller supplied is dropped.
      */
-    static Map<String, String> parseQuery(String raw) {
+    static Map<String, String> filter(Map<String, String> raw) {
         Map<String, String> fields = new LinkedHashMap<>();
         if (raw == null) {
             return fields;
+        }
+        for (String key : KEYS) {
+            String value = raw.get(key);
+            if (value == null || value.isEmpty()) {
+                continue;
+            }
+            fields.put(key, truncate(value));
+        }
+        return fields;
+    }
+
+    /**
+     * {@link #filter} applied to a raw `key=value&...` string. Never null: a
+     * malformed pair is skipped so one garbage segment cannot discard the
+     * whole referrer.
+     */
+    static Map<String, String> parseQuery(String raw) {
+        Map<String, String> decoded = new LinkedHashMap<>();
+        if (raw == null) {
+            return decoded;
         }
         for (String pair : raw.split("&")) {
             int separator = pair.indexOf('=');
@@ -52,12 +71,11 @@ final class Attribution {
             }
             String key = decode(pair.substring(0, separator));
             String value = decode(pair.substring(separator + 1));
-            if (key == null || value == null || value.isEmpty() || !isAllowed(key)) {
-                continue;
+            if (key != null && value != null) {
+                decoded.put(key, value);
             }
-            fields.put(key, truncate(value));
         }
-        return fields;
+        return filter(decoded);
     }
 
     /** Re-encodes `fields` as a query string in {@link #KEYS} order. */
@@ -77,15 +95,6 @@ final class Attribution {
             query.append(encode(key)).append('=').append(encode(value));
         }
         return query.toString();
-    }
-
-    private static boolean isAllowed(String key) {
-        for (String allowed : KEYS) {
-            if (allowed.equals(key)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static String truncate(String value) {

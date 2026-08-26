@@ -3,31 +3,11 @@ import XCTest
 /// Covers the pure `Attribution` helper in `App/WorkOSAuth.swift`, which the
 /// provider-token exchange uses to put campaign params on the wire.
 ///
-/// Mirrors `AttributionTest.java` in the Android shell; the two allowlists and
-/// truncation lengths have to stay identical, so the drift a test would catch
-/// is the same drift on both platforms.
+/// Mirrors `AttributionTest.java` in the Android shell. The allowlist and
+/// truncation length themselves are pinned to the web source of truth by
+/// `clients/ios/scripts/__tests__/attribution-allowlist.test.ts`, so they are
+/// not restated here.
 final class AttributionTests: XCTestCase {
-    /// Character-for-character, in order, from `ATTRIBUTION_PARAMS` in
-    /// `clients/web/src/domains/account/social-auth.ts`.
-    func testAllowlistMatchesTheWebSourceOfTruth() {
-        XCTAssertEqual(Attribution.keys, [
-            "utm_source",
-            "utm_medium",
-            "utm_campaign",
-            "utm_content",
-            "utm_term",
-            "gclid",
-            "gbraid",
-            "wbraid",
-            "msclkid",
-            "fbclid",
-            "ttclid",
-            "li_fat_id",
-            "twclid",
-        ])
-        XCTAssertEqual(Attribution.valueMaxLength, 512)
-    }
-
     func testFieldsKeepsOnlyAllowlistedKeys() {
         let fields = Attribution.fields(from: [
             "utm_source": "google",
