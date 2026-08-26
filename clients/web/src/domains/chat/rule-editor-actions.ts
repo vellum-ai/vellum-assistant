@@ -141,10 +141,42 @@ function buildFullCommandText(input?: Record<string, unknown>): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Persist the editor's rule through the trust-rules API: update the rule
+ * being edited, or create a new one. Errors surface as the save-failed toast.
+ */
+async function persistRule(
+  assistantId: string,
+  strategy: "update-or-create" | "always-create",
+  rule: TrustRulePayload,
+  existingRule: TrustRuleItem | undefined,
+  errorContext: string,
+): Promise<void> {
+  try {
+    if (strategy === "update-or-create" && existingRule) {
+      await updateTrustRule(assistantId, existingRule.id, {
+        risk: rule.riskLevel,
+      });
+    } else {
+      await addTrustRule(assistantId, {
+        tool: rule.toolName,
+        pattern: rule.pattern,
+        risk: rule.riskLevel,
+        description: `${rule.toolName} - ${rule.pattern}`,
+      });
+    }
+  } catch (err) {
+    captureError(err, { context: errorContext });
+    useChatSessionStore
+      .getState()
+      .setError({ message: t("chat:ruleEditorActions.saveFailed") });
+  }
+}
+
+/**
  * Unified save-rule logic. Strategy determines how the rule is persisted:
  * - `update-or-create`: updates an existing rule if one is being edited,
  *   otherwise creates a new one. If a pending confirmation exists (requestId),
- *   resolves it via the confirmation API instead.
+ *   the pending tool call is approved first, then the rule is persisted.
  * - `always-create`: always creates a new rule regardless of existing context.
  */
 async function executeSaveRule(
@@ -158,7 +190,12 @@ async function executeSaveRule(
     return;
   }
 
-  // Confirmation path: resolve via the interaction API rather than direct save.
+  // Confirmation path: approve the pending tool call, then persist the rule.
+  // Two writes on purpose: the confirm route only resolves the interaction,
+  // and the trust-rules API is the one write that carries the rule's risk
+  // level. Approval goes first so a rule-save failure never leaves the tool
+  // call hanging; a failed rule save surfaces as the save-failed toast while
+  // the approved call proceeds.
   if (strategy === "update-or-create" && context.requestId) {
     useRuleEditorStore.getState().setIsSavingRule(true);
     useInteractionStore
@@ -169,7 +206,6 @@ async function executeSaveRule(
         ctx.assistantId,
         context.requestId,
         "allow",
-        { selectedPattern: rule.pattern, selectedScope: "everywhere" },
       );
       if (!result.ok) {
         useRuleEditorStore.getState().dismissRuleEditor();
@@ -191,11 +227,19 @@ async function executeSaveRule(
       );
       return;
     } finally {
-      useRuleEditorStore.getState().setIsSavingRule(false);
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", context.requestId);
     }
+
+    await persistRule(
+      ctx.assistantId,
+      strategy,
+      rule,
+      context.existingRule,
+      "save_trust_rule",
+    );
+    useRuleEditorStore.getState().setIsSavingRule(false);
 
     useInteractionStore
       .getState()
@@ -219,33 +263,17 @@ async function executeSaveRule(
 
   // Direct save path: persist rule to the trust-rules API.
   useRuleEditorStore.getState().setIsSavingRule(true);
-  try {
-    if (strategy === "update-or-create" && context.existingRule) {
-      await updateTrustRule(ctx.assistantId, context.existingRule.id, {
-        risk: rule.riskLevel,
-      });
-    } else {
-      await addTrustRule(ctx.assistantId, {
-        tool: rule.toolName,
-        pattern: rule.pattern,
-        risk: rule.riskLevel,
-        description: `${rule.toolName} — ${rule.pattern}`,
-      });
-    }
-  } catch (err) {
-    captureError(err, {
-      context:
-        strategy === "always-create"
-          ? "save_as_new_trust_rule"
-          : "save_trust_rule_direct",
-    });
-    useChatSessionStore
-      .getState()
-      .setError({ message: t("chat:ruleEditorActions.saveFailed") });
-  } finally {
-    useRuleEditorStore.getState().setIsSavingRule(false);
-    useRuleEditorStore.getState().dismissRuleEditor();
-  }
+  await persistRule(
+    ctx.assistantId,
+    strategy,
+    rule,
+    context.existingRule,
+    strategy === "always-create"
+      ? "save_as_new_trust_rule"
+      : "save_trust_rule_direct",
+  );
+  useRuleEditorStore.getState().setIsSavingRule(false);
+  useRuleEditorStore.getState().dismissRuleEditor();
 }
 
 // ---------------------------------------------------------------------------
