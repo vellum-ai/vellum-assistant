@@ -20,6 +20,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -300,9 +301,10 @@ public class NativeAuthPlugin extends Plugin {
                 String sessionResponse;
                 try {
                     sessionResponse = postJson(
-                        WorkOSAuth.withAttribution(
-                            buildPlatformURL(expected.baseURL, PROVIDER_TOKEN_PATH),
-                            expected.attribution
+                        buildPlatformURL(
+                            expected.baseURL,
+                            PROVIDER_TOKEN_PATH,
+                            Attribution.toQuery(expected.attribution)
                         ),
                         sessionBody
                     );
@@ -386,12 +388,27 @@ public class NativeAuthPlugin extends Plugin {
     }
 
     private URL buildPlatformURL(Uri baseURL, String path) throws IOException {
-        Uri uri = new Uri.Builder()
+        return buildPlatformURL(baseURL, path, null);
+    }
+
+    /**
+     * {@code path} on {@code baseURL}'s origin, carrying {@code encodedQuery}
+     * verbatim when there is one.
+     *
+     * <p>Attribution rides the query string rather than the JSON body because
+     * allauth headless posts {@code application/json}, which leaves Django's
+     * {@code request.POST} empty; the platform reads these off
+     * {@code request.GET} even for a POST.
+     */
+    private URL buildPlatformURL(Uri baseURL, String path, String encodedQuery) throws IOException {
+        Uri.Builder builder = new Uri.Builder()
             .scheme(baseURL.getScheme())
             .encodedAuthority(baseURL.getEncodedAuthority())
-            .encodedPath(path)
-            .build();
-        return new URL(uri.toString());
+            .encodedPath(path);
+        if (encodedQuery != null && !encodedQuery.isEmpty()) {
+            builder.encodedQuery(encodedQuery);
+        }
+        return new URL(builder.build().toString());
     }
 
     /**
@@ -534,17 +551,11 @@ public class NativeAuthPlugin extends Plugin {
         if (pendingFlow.clientId == null) {
             return false;
         }
-        return authStateStore()
-            .edit()
-            .clear()
-            .putString(FLOW_ATTRIBUTION_KEY, Attribution.toQuery(pendingFlow.attribution))
-            .putString(FLOW_BASE_URL_KEY, pendingFlow.baseURL.toString())
-            .putString(FLOW_CLIENT_ID_KEY, pendingFlow.clientId)
-            .putString(FLOW_CODE_VERIFIER_KEY, pendingFlow.codeVerifier)
-            .putLong(FLOW_CREATED_AT_KEY, System.currentTimeMillis())
-            .putString(FLOW_DESTINATION_KEY, pendingFlow.postAuthDestination)
-            .putString(FLOW_STATE_KEY, pendingFlow.state)
-            .commit();
+        SharedPreferences.Editor editor = authStateStore().edit().clear();
+        for (Map.Entry<String, String> field : pendingFlow.persisted().toFields().entrySet()) {
+            editor.putString(field.getKey(), field.getValue());
+        }
+        return editor.putLong(FLOW_CREATED_AT_KEY, System.currentTimeMillis()).commit();
     }
 
     private AuthFlow restorePendingFlow() {
@@ -556,16 +567,14 @@ public class NativeAuthPlugin extends Plugin {
             return null;
         }
 
-        Uri baseURL = Uri.parse(store.getString(FLOW_BASE_URL_KEY, ""));
-        String clientId = nonEmpty(store.getString(FLOW_CLIENT_ID_KEY, null));
-        String codeVerifier = nonEmpty(store.getString(FLOW_CODE_VERIFIER_KEY, null));
-        String state = nonEmpty(store.getString(FLOW_STATE_KEY, null));
+        PersistedFlow persisted = PersistedFlow.fromFields(storedFields(store));
+        Uri baseURL = Uri.parse(persisted.baseURL);
         if (
             !"https".equals(baseURL.getScheme()) ||
             !isAllowedBaseURL(baseURL) ||
-            clientId == null ||
-            codeVerifier == null ||
-            state == null
+            persisted.clientId == null ||
+            persisted.codeVerifier == null ||
+            persisted.state == null
         ) {
             clearPendingFlow();
             return null;
@@ -574,14 +583,25 @@ public class NativeAuthPlugin extends Plugin {
         AuthFlow restored = new AuthFlow(
             null,
             baseURL,
-            state,
-            codeVerifier,
-            sanitizePostAuthDestination(store.getString(FLOW_DESTINATION_KEY, null)),
-            Attribution.parseQuery(store.getString(FLOW_ATTRIBUTION_KEY, null))
+            persisted.state,
+            persisted.codeVerifier,
+            persisted.postAuthDestination,
+            persisted.attribution
         );
-        restored.clientId = clientId;
+        restored.clientId = persisted.clientId;
         restored.browserLaunched = true;
         return restored;
+    }
+
+    /** String-valued entries of {@code store}; the created-at stamp is a long. */
+    private static Map<String, String> storedFields(SharedPreferences store) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        for (Map.Entry<String, ?> entry : store.getAll().entrySet()) {
+            if (entry.getValue() instanceof String) {
+                fields.put(entry.getKey(), (String) entry.getValue());
+            }
+        }
+        return fields;
     }
 
     private SharedPreferences authStateStore() {
@@ -593,28 +613,22 @@ public class NativeAuthPlugin extends Plugin {
     }
 
     /**
-     * Allowlisted campaign attribution from a {@code startAuth} call. Unwrapped
-     * here so {@link Attribution} stays free of Capacitor and Android types, and
-     * so stays testable on the JVM.
+     * Allowlisted campaign attribution from a {@code startAuth} call. The
+     * {@link JSObject} unwrap happens here so {@link Attribution} stays free of
+     * Capacitor and Android types, and so stays testable on the JVM.
      */
-    private static Map<String, String> readAttribution(JSObject source) {
-        Map<String, String> fields = new LinkedHashMap<>();
-        if (source == null) {
-            return fields;
-        }
-        for (String key : Attribution.KEYS) {
-            String value = source.getString(key, "");
-            if (value.isEmpty()) {
-                continue;
+    static Map<String, String> readAttribution(JSObject source) {
+        Map<String, String> raw = new LinkedHashMap<>();
+        if (source != null) {
+            for (Iterator<String> keys = source.keys(); keys.hasNext(); ) {
+                String key = keys.next();
+                String value = source.getString(key, null);
+                if (value != null) {
+                    raw.put(key, value);
+                }
             }
-            fields.put(
-                key,
-                value.length() <= Attribution.VALUE_MAX_LENGTH
-                    ? value
-                    : value.substring(0, Attribution.VALUE_MAX_LENGTH)
-            );
         }
-        return fields;
+        return Attribution.filter(raw);
     }
 
     private static String sanitizePostAuthDestination(String value) {
@@ -685,6 +699,75 @@ public class NativeAuthPlugin extends Plugin {
             this.codeVerifier = codeVerifier;
             this.postAuthDestination = postAuthDestination;
             this.attribution = attribution;
+        }
+
+        PersistedFlow persisted() {
+            return new PersistedFlow(
+                baseURL.toString(),
+                clientId,
+                codeVerifier,
+                state,
+                postAuthDestination,
+                attribution
+            );
+        }
+    }
+
+    /**
+     * The half of an {@link AuthFlow} that outlives the process, in the form the
+     * auth state store holds it. Free of Android types, so the pairing of
+     * {@link #toFields} with {@link #fromFields} is covered by JVM tests.
+     */
+    static final class PersistedFlow {
+        final String baseURL;
+        final String clientId;
+        final String codeVerifier;
+        final String state;
+        final String postAuthDestination;
+        final Map<String, String> attribution;
+
+        PersistedFlow(
+            String baseURL,
+            String clientId,
+            String codeVerifier,
+            String state,
+            String postAuthDestination,
+            Map<String, String> attribution
+        ) {
+            this.baseURL = baseURL;
+            this.clientId = clientId;
+            this.codeVerifier = codeVerifier;
+            this.state = state;
+            this.postAuthDestination = postAuthDestination;
+            this.attribution = attribution;
+        }
+
+        Map<String, String> toFields() {
+            Map<String, String> fields = new LinkedHashMap<>();
+            fields.put(FLOW_ATTRIBUTION_KEY, Attribution.toQuery(attribution));
+            fields.put(FLOW_BASE_URL_KEY, baseURL);
+            fields.put(FLOW_CLIENT_ID_KEY, clientId);
+            fields.put(FLOW_CODE_VERIFIER_KEY, codeVerifier);
+            fields.put(FLOW_DESTINATION_KEY, postAuthDestination);
+            fields.put(FLOW_STATE_KEY, state);
+            return fields;
+        }
+
+        /**
+         * What {@link #toFields} wrote, read back. A value no flow can run on
+         * comes back null so the caller rejects the flow; a missing attribution
+         * degrades to an empty map instead.
+         */
+        static PersistedFlow fromFields(Map<String, String> fields) {
+            String baseURL = fields.get(FLOW_BASE_URL_KEY);
+            return new PersistedFlow(
+                baseURL == null ? "" : baseURL,
+                nonEmpty(fields.get(FLOW_CLIENT_ID_KEY)),
+                nonEmpty(fields.get(FLOW_CODE_VERIFIER_KEY)),
+                nonEmpty(fields.get(FLOW_STATE_KEY)),
+                sanitizePostAuthDestination(fields.get(FLOW_DESTINATION_KEY)),
+                Attribution.parseQuery(fields.get(FLOW_ATTRIBUTION_KEY))
+            );
         }
     }
 

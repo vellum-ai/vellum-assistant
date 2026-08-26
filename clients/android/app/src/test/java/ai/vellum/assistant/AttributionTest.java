@@ -3,6 +3,7 @@ package ai.vellum.assistant;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.Test;
@@ -67,6 +68,51 @@ public class AttributionTest {
         assertEquals(2, fields.size());
         assertEquals("google", fields.get("utm_source"));
         assertEquals("abc123", fields.get("gclid"));
+    }
+
+    @Test
+    public void filterKeepsOnlyAllowlistedNonEmptyValues() {
+        Map<String, String> raw = new LinkedHashMap<>();
+        raw.put("gclid", "abc123");
+        raw.put("sessionToken", "secret");
+        raw.put("utm_source", "google");
+        raw.put("utm_medium", "");
+
+        Map<String, String> fields = Attribution.filter(raw);
+
+        assertEquals(2, fields.size());
+        assertEquals("google", fields.get("utm_source"));
+        assertEquals("abc123", fields.get("gclid"));
+    }
+
+    @Test
+    public void filterTruncatesOverlongValues() {
+        String overlong = repeat('a', Attribution.VALUE_MAX_LENGTH + 88);
+
+        String value = Attribution.filter(
+            Collections.singletonMap("utm_campaign", overlong)
+        ).get("utm_campaign");
+
+        assertEquals(overlong.substring(0, Attribution.VALUE_MAX_LENGTH), value);
+    }
+
+    @Test
+    public void filterReturnsAnEmptyMapForUnusableInput() {
+        assertTrue(Attribution.filter(null).isEmpty());
+        assertTrue(Attribution.filter(new LinkedHashMap<String, String>()).isEmpty());
+        assertTrue(Attribution.filter(Collections.singletonMap("ref", "friend")).isEmpty());
+    }
+
+    @Test
+    public void toQueryPercentEncodesReservedCharacters() {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("utm_campaign", "spring sale & more");
+        fields.put("utm_term", "a=b#c");
+
+        assertEquals(
+            "utm_campaign=spring+sale+%26+more&utm_term=a%3Db%23c",
+            Attribution.toQuery(fields)
+        );
     }
 
     @Test

@@ -2,13 +2,10 @@ package ai.vellum.assistant;
 
 import android.net.Uri;
 import android.util.Base64;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -102,24 +99,6 @@ final class WorkOSAuth {
 
     static String accessToken(String authenticateBody) throws JSONException {
         return nonEmpty(new JSONObject(authenticateBody).optString("access_token", null));
-    }
-
-    /**
-     * {@code base} carrying {@code attribution} as its query, or {@code base}
-     * unchanged when there is nothing to carry.
-     *
-     * <p>Attribution rides the query string rather than the JSON body because
-     * allauth headless posts {@code application/json}, which leaves Django's
-     * {@code request.POST} empty; the platform reads these off {@code request.GET}
-     * even for a POST.
-     */
-    static URL withAttribution(URL base, Map<String, String> attribution)
-        throws MalformedURLException {
-        String query = Attribution.toQuery(attribution);
-        if (query.isEmpty()) {
-            return base;
-        }
-        return new URL(base + "?" + query);
     }
 
     static JSONObject providerTokenRequestBody(String clientId, String accessToken)
