@@ -99,6 +99,21 @@ adb shell am start -a android.intent.action.VIEW \
 
 Use the suffixed application ID and matching host when checking staging or dev.
 
+## Billing
+
+The Android shell renders the same billing surfaces as iOS (plan card, plans
+takeover, billing settings) but sells nothing in-app: there is no Google Play
+Billing integration, and every purchase CTA opens the matching page on the
+hosted web app in the system browser instead of starting a checkout inside the
+WebView. The handoff lives in
+`clients/web/src/lib/billing/android-billing-handoff.ts`; it goes through the
+Capacitor Browser plugin because a plain navigation would stay in the WebView
+and a bare VIEW intent would bounce straight back via the verified App Links
+above. Because the purchase runs on the hosted web app in a plain browser
+context, Stripe returns to the hosted web page there rather than through the
+custom-scheme `billing/checkout-complete` deep link; the manifest still claims
+that scheme for checkouts launched from a native context.
+
 ## Native Auth
 
 The `NativeAuth` Capacitor plugin opens WorkOS AuthKit in the system browser,

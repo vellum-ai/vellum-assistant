@@ -2,8 +2,7 @@
   "assistantChannelsList": {
     "drawerTitle": "Channels",
     "disconnectTitle": "Disconnect {channel}?",
-    "disconnectConfirm": "Disconnect",
-    "confirmFallback": "Confirm"
+    "disconnectConfirm": "Disconnect"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, from a plugin"
@@ -45,7 +44,37 @@
     "loading": "Loading…",
     "loadFailed": "Couldn’t load this setting. Try reopening this page.",
     "selectAria": "Who can message {assistant}",
-    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts."
+    "trustedContactsNotice": "People you haven’t verified yet (even teammates in the same channel) can’t get through: {assistant} lets them know they need to be verified and notifies you. You can verify people ahead of time in Contacts.",
+    "confirmFallback": "Confirm",
+    "noOne": {
+      "label": "No one",
+      "description": "No one can message {assistant} on this channel: every message is blocked, including yours.",
+      "confirmTitle": "Block all messages?",
+      "confirmMessage": "Setting this channel to “No one” hard-denies every inbound message, including messages from you.\n\nYou can reverse this at any time.",
+      "confirmAction": "Block all"
+    },
+    "guardianOnly": {
+      "label": "Only you",
+      "description": "Only you can message {assistant}. Everyone else is turned away."
+    },
+    "trustedContacts": {
+      "label": "Verified contacts",
+      "description": "You and the people you’ve verified can message {assistant}. Anyone else is asked to verify first, and you’re notified."
+    },
+    "anyContact": {
+      "label": "Any contact",
+      "description": "You and any known contact can message {assistant}, including contacts you haven’t verified yet. Strangers are asked to verify first.",
+      "confirmTitle": "Allow any contact?",
+      "confirmMessage": "“Any contact” admits every matched contact in this channel (including pending, unverified ones), not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
+      "confirmAction": "Allow any contact"
+    },
+    "strangers": {
+      "label": "Strangers",
+      "description": "Anyone can message {assistant}, including complete strangers.",
+      "confirmTitle": "Allow strangers?",
+      "confirmMessage": "Are you sure you want to allow strangers to contact your assistant through this channel?\n\nDoing so could cost you money and open you up to security and privacy vulnerabilities.\n\nEnable with extreme caution.",
+      "confirmAction": "Allow strangers"
+    }
   },
   "slackChannelTypeDefaults": {
     "heading": "Default access",
