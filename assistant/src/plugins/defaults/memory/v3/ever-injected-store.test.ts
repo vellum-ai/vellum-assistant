@@ -387,6 +387,42 @@ describe("fail-soft without a memory database", () => {
     expect(residentBytes("conv-1")).toBe(140);
   });
 
+  test("retains durable reconciliation until the memory database recovers", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    memoryDbAvailable = false;
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
+    ]);
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(residentBytes("conv-1")).toBe(140);
+
+    memoryDbAvailable = true;
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(residentBytes("conv-1")).toBe(140);
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 140,
+      prunedAt: null,
+    });
+  });
+
+  test("retains a newer prune after queued reconciliation recovers", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    memoryDbAvailable = false;
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 100, injectedAt: 1_500 },
+    ]);
+
+    memoryDbAvailable = true;
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+  });
+
   test("does not recover a persisted card older than its prune", () => {
     recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
     markPruned("conv-1", ["topics/page-a"], 2_000);
