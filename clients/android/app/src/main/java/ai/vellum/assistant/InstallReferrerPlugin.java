@@ -30,11 +30,12 @@ public class InstallReferrerPlugin extends Plugin {
     private static final String RESOLVED_KEY = "resolved";
 
     /**
-     * Bound on the service bind. The web layer spends this value on the auth
-     * critical path, and a bind that connects but never calls back would
-     * otherwise leave the call unresolved for the life of the process.
+     * Bound on the service bind, and the only bound on this read: the web layer
+     * awaits the call on the auth critical path, ahead of the sign-in sheet. A
+     * bind that connects but never calls back resolves empty here, uncached, so
+     * a later launch retries.
      */
-    private static final long BIND_TIMEOUT_MS = 5000L;
+    private static final long BIND_TIMEOUT_MS = 2500L;
 
     @PluginMethod
     public void read(PluginCall call) {
@@ -48,7 +49,6 @@ public class InstallReferrerPlugin extends Plugin {
         // One connection can fire both setup-finished and service-disconnected,
         // and a call resolves once.
         final AtomicBoolean answered = new AtomicBoolean();
-        // A timed-out bind is transient, so it resolves empty without caching.
         final Handler timeoutHandler = new Handler(Looper.getMainLooper());
         timeoutHandler.postDelayed(
             () -> {

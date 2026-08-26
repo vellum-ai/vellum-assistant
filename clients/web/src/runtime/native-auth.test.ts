@@ -408,8 +408,6 @@ describe("startAuthFlow attribution on native", () => {
     expect(lastStartAuthOptions().attribution).toEqual({
       utm_source: "google-play",
     });
-    // Emptied, not removed: the key that remains is what keeps the shell from
-    // handing the same referrer to the next user who signs up here.
     expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe("");
     expect(window.location.href).toBe("/assistant/onboarding/privacy");
   });
@@ -439,6 +437,32 @@ describe("startAuthFlow attribution on native", () => {
       utm_medium: "organic",
     });
     expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe("");
+  });
+
+  test("a login that captured no referrer leaves the next one retryable", async () => {
+    // The shell answered nothing here, so this login had nothing to spend and
+    // the next flow gets to ask again.
+    await runSignup();
+    expect(lastStartAuthOptions().attribution).toBeUndefined();
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBeNull();
+
+    readInstallReferrer.mockResolvedValueOnce({
+      referrer: "utm_source=google-play&utm_medium=organic",
+    });
+    await runSignup();
+
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "google-play",
+      utm_medium: "organic",
+    });
+  });
+
+  test("an iOS login records no spend", async () => {
+    platform = "ios";
+
+    await runSignup();
+
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBeNull();
   });
 
   test("leaves the stored referrer in place when native auth fails", async () => {

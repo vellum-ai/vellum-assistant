@@ -26,77 +26,53 @@ const InstallReferrer =
   registerPlugin<InstallReferrerPlugin>("InstallReferrer");
 
 /**
- * Bound on the bridge read. It sits on the auth critical path, so a Play
- * Store that binds but never answers must not hold the sign-in button.
- */
-const READ_TIMEOUT_MS = 2_000;
-
-/**
- * Capture the Play install referrer into device storage, filtered to the
- * allowlist. A missing plugin degrades to storing nothing, never an error
- * (docs/CAPACITOR.md, "The skew rule").
+ * Allowlisted attribution from this install's Play referrer, captured into
+ * device storage on the way out and returned to the caller. `{}` on every
+ * other platform, on a shell whose plugin predates this bundle, and when the
+ * bridge answers nothing (docs/CAPACITOR.md, "The skew rule").
  *
- * The stored key's presence, an empty value included, is the record that this
- * install's referrer has been asked for. The shell answers `read()` with the
- * same value forever, so a spent referrer must never re-arm the bridge onto
- * the next user to sign up here. A read that answers nothing stores nothing,
- * leaving a later attempt free to retry.
+ * The shell bounds its own read and always answers, so this awaits it with no
+ * bound of its own; a shorter bound here would abandon a referrer the shell
+ * goes on to cache forever.
  */
-export async function captureInstallReferrer(): Promise<void> {
+export async function captureInstallReferrer(): Promise<
+  Record<string, string>
+> {
   if (Capacitor.getPlatform() !== "android") {
-    return;
+    return {};
   }
   if (hasDeviceSetting("installReferrer")) {
-    return;
+    // Re-filtered on read so a hand-edited or stale stored value can never
+    // widen what reaches the wire.
+    return readAttributionParams(getDeviceSetting("installReferrer", ""));
   }
   try {
-    const attribution = new URLSearchParams(
-      readAttributionParams(await readReferrer()),
-    ).toString();
-    if (!attribution) {
-      return;
+    const { referrer } = await InstallReferrer.read();
+    const attribution = readAttributionParams(referrer ?? "");
+    const captured = new URLSearchParams(attribution).toString();
+    if (captured) {
+      setDeviceSetting("installReferrer", captured);
     }
-    setDeviceSetting("installReferrer", attribution);
+    return attribution;
   } catch (error) {
     console.debug("[install-referrer] read unavailable:", error);
-  }
-}
-
-/** The shell's referrer, or `""` when it does not answer within the bound. */
-async function readReferrer(): Promise<string> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const { referrer } = await Promise.race([
-      InstallReferrer.read(),
-      new Promise<{ referrer?: string }>((resolve) => {
-        timer = setTimeout(() => {
-          console.debug(
-            `[install-referrer] read did not answer in ${READ_TIMEOUT_MS}ms`,
-          );
-          resolve({});
-        }, READ_TIMEOUT_MS);
-      }),
-    ]);
-    return referrer ?? "";
-  } finally {
-    clearTimeout(timer);
+    return {};
   }
 }
 
 /**
- * Allowlisted attribution captured from the install referrer, or `{}` when
- * this device has none. Re-filtered on read so a hand-edited or stale stored
- * value can never widen what reaches the wire.
- */
-export function readStoredInstallReferrer(): Record<string, string> {
-  return readAttributionParams(getDeviceSetting("installReferrer", ""));
-}
-
-/**
- * Record that a native auth flow has spent the referrer. The emptied key stays
- * behind as that record, so the next signup on this device starts
- * unattributed instead of inheriting this install's campaign.
+ * Record that a native auth flow has spent a captured referrer. The emptied
+ * key stays behind as that record: its presence, an empty value included, is
+ * what stops the next signup on this device from re-reading the bridge (the
+ * shell answers `read()` with the same value forever) and inheriting this
+ * install's campaign.
+ *
+ * A flow that captured nothing has nothing to spend, so it leaves the key
+ * absent and a later attempt free to retry.
  */
 export function markInstallReferrerSpent(): void {
+  if (getDeviceSetting("installReferrer", "") === "") {
+    return;
+  }
   setDeviceSetting("installReferrer", "");
 }

@@ -19,7 +19,6 @@ import { primeElectronSessionToken } from "@/runtime/session-token";
 import {
   captureInstallReferrer,
   markInstallReferrerSpent,
-  readStoredInstallReferrer,
 } from "@/runtime/install-referrer";
 import {
   isBiometricEnabled,
@@ -229,9 +228,6 @@ async function completeNativeLogin(
     await waitForNativeSessionCookie();
   }
 
-  // The referrer is spent: it rode this flow's `startAuth` call. Recorded on
-  // login too, since we can't tell signup from login here and a retained value
-  // would attach this install's campaign to the next user to sign up here.
   markInstallReferrerSpent();
 
   // Persist the token in native secure storage for biometric session recovery.
@@ -403,9 +399,8 @@ async function resolveNativeAttribution(
   if (Object.keys(current).length > 0) {
     return current;
   }
-  await captureInstallReferrer();
-  const stored = readStoredInstallReferrer();
-  return Object.keys(stored).length > 0 ? stored : undefined;
+  const referrer = await captureInstallReferrer();
+  return Object.keys(referrer).length > 0 ? referrer : undefined;
 }
 
 /**
@@ -422,8 +417,6 @@ async function resolveNativeAttribution(
  * path, `USER_CANCELLED` (user tapped cancel on the auth sheet) is
  * swallowed since it's a routine dismissal, and all other errors are
  * re-thrown for the caller to handle.
- *
- * The native and web paths both forward marketing attribution.
  */
 export async function startAuthFlow(
   providerId: string,
