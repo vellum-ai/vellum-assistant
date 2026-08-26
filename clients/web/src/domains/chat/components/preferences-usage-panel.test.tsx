@@ -250,16 +250,18 @@ describe("PreferencesUsagePanel", () => {
     expect(getByText("Add credits to continue.")).toBeTruthy();
   });
 
-  test("a used-up grant with purchased credits stays red without a strip", async () => {
+  test("a used-up grant with purchased credits names the extra credits", async () => {
     // The grant is gone, but bought credits still cover the next turn, so the
-    // reading is negative and nothing is being offered.
+    // panel says what it is drawing on and offers nothing.
     subscription = { ...proSubscription(), plan_id: "base", package: null };
     totalUsageBalance = "5.00";
     availableUsageBalance = "0.00";
-    const { findByTestId, queryByText, queryByTestId } = renderPanel();
+    const { findByTestId, getByText, queryByText, queryByTestId } =
+      renderPanel();
 
     const panel = await findByTestId("preferences-usage");
-    expect(panel.textContent).toContain("100% used");
+    expect(getByText("Now using extra usage credits")).toBeTruthy();
+    expect(panel.textContent).not.toContain("100% used");
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });
@@ -276,10 +278,14 @@ describe("PreferencesUsagePanel", () => {
     usageTotalUsd = "25";
     creditsExhausted = true;
     const onAddCredits = mock(() => {});
-    const { findByTestId, getByText } = renderPanel({ onAddCredits });
+    const { findByTestId, getByText, queryByText } = renderPanel({
+      onAddCredits,
+    });
 
     const panel = await findByTestId("preferences-usage");
+    // Exhausted keeps the red reading: there are no extra credits to name.
     expect(panel.textContent).toContain("100% used");
+    expect(queryByText("Now using extra usage credits")).toBeNull();
     expect(getByText("Add credits to continue.")).toBeTruthy();
     expect(
       panel
@@ -304,25 +310,23 @@ describe("PreferencesUsagePanel", () => {
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });
 
-  test("a spent bundle turns negative with credits still in hand", async () => {
+  test("a spent bundle swaps the bar for the extra-credits line", async () => {
     usageTotalUsd = "25";
     const { findByTestId, getByText, queryByTestId, queryByText } =
       renderPanel();
 
     const panel = await findByTestId("preferences-usage");
     await waitFor(() => {
-      expect(panel.textContent).toContain("100% used");
+      expect(getByText("Now using extra usage credits")).toBeTruthy();
     });
-    // Red bar and red percentage, but nothing has gone wrong yet: the wallet
-    // behind the bundle still has something to draw on, so no strip.
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).toContain("--system-negative-strong");
-    expect(getByText("100% used").className).toContain(
-      "--system-negative-strong",
+    // Amber, not red: nothing has gone wrong yet, the wallet behind the
+    // bundle still has something to draw on, so the line names it while the
+    // percentage, the bar, and the strip all stay away.
+    expect(getByText("Now using extra usage credits").className).toContain(
+      "--system-mid-strong",
     );
+    expect(panel.textContent).not.toContain("100% used");
+    expect(panel.querySelector('[data-slot="progress-bar-fill"]')).toBeNull();
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });

@@ -1113,6 +1113,7 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Add credits",
     "exhausted": "Add credits to continue.",
+    "extraCredits": "Now using extra usage credits",
     "pctUsed": "{pct}% used",
     "resets": "Resets {date}",
     "settingsAriaLabel": "Usage and billing settings",

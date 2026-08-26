@@ -42,9 +42,11 @@ export function PreferencesUsagePanel({
   const resetDate = usage.resetsAt
     ? formatUsageResetDate(usage.resetsAt, i18n.language)
     : null;
-  // Spending the whole bundle is the negative reading in its own right; the
-  // strip below it waits until the wallet behind the bundle is empty too.
+  // A spent bundle with credits still behind it is not an alarm: the next
+  // turn draws on extra usage credits, and the amber line below says so in
+  // the bar's place. Red waits for `exhausted`, when the wallet is empty too.
   const { spent, exhausted } = usage;
+  const usingExtraCredits = spent && !exhausted;
 
   return (
     <div className="my-2 flex flex-col gap-1" data-testid="preferences-usage">
@@ -58,17 +60,19 @@ export function PreferencesUsagePanel({
             {title}
           </Typography>
           <div className="flex shrink-0 items-center gap-1.5">
-            <Typography
-              as="span"
-              variant="body-small-default"
-              className={
-                spent
-                  ? "whitespace-nowrap text-[var(--system-negative-strong)]"
-                  : "whitespace-nowrap text-[var(--content-secondary)]"
-              }
-            >
-              {t("preferencesUsagePanel.pctUsed", { pct })}
-            </Typography>
+            {usingExtraCredits ? null : (
+              <Typography
+                as="span"
+                variant="body-small-default"
+                className={
+                  spent
+                    ? "whitespace-nowrap text-[var(--system-negative-strong)]"
+                    : "whitespace-nowrap text-[var(--content-secondary)]"
+                }
+              >
+                {t("preferencesUsagePanel.pctUsed", { pct })}
+              </Typography>
+            )}
             <Button
               variant="ghost"
               size="compact"
@@ -80,13 +84,26 @@ export function PreferencesUsagePanel({
             />
           </div>
         </div>
-        <ProgressBar
-          value={usage.ratio}
-          height={10}
-          aria-label={title}
-          fillColor={spent ? "var(--system-negative-strong)" : undefined}
-          className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-        />
+        {usingExtraCredits ? (
+          /* Body-small: at 14px the line would wrap inside the w-64 popover,
+             and at 12px it still spans close to the bar's full width.
+             `truncate` guards the longer locales against wrapping. */
+          <Typography
+            as="span"
+            variant="body-small-default"
+            className="w-full truncate text-[var(--system-mid-strong)]"
+          >
+            {t("preferencesUsagePanel.extraCredits")}
+          </Typography>
+        ) : (
+          <ProgressBar
+            value={usage.ratio}
+            height={10}
+            aria-label={title}
+            fillColor={spent ? "var(--system-negative-strong)" : undefined}
+            className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
+          />
+        )}
         {resetDate ? (
           <Typography
             as="span"

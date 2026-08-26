@@ -308,12 +308,12 @@ export const MidCycle: Story = {
 };
 
 /**
- * The bundle spent with credits still in the wallet behind it. The bar and the
- * percentage read negative the moment the allowance runs out, and no strip
- * appears: the next turn still has something to draw on.
+ * The bundle spent with credits still in the wallet behind it. The percentage
+ * steps aside and the amber extra-credits line takes the bar's place, and no
+ * strip appears: the next turn still has something to draw on.
  */
-export const FullBar: Story = {
-  name: "Full bar, credits remaining",
+export const SpentBundle: Story = {
+  name: "Spent bundle, extra credits",
   args: { spentUsd: "25", balanceUsd: "18.00" },
 };
 
@@ -328,13 +328,14 @@ export const Exhausted: Story = {
 };
 
 /**
- * The same spent bundle as `FullBar`, now with the menu around it: the wallet
- * still holds credits, so `showsMenuCredits` brings the compact credits row
- * back below the bar. The red bar and "100% used" say the included allowance
- * is gone, and the row says what the next turn draws on instead.
+ * The same spent bundle as `SpentBundle`, now with the menu's composition
+ * around it: the panel's amber line already names what the next turn draws
+ * on, so `showsMenuCredits` keeps the compact credits row off screen. The
+ * row only appears when there is no usage reading for the flag to hide the
+ * dollar balance behind.
  */
-export const FullWithCredits: Story = {
-  name: "Full bar with the credits row",
+export const SpentWithoutCreditsRow: Story = {
+  name: "Spent bundle, no credits row",
   args: { spentUsd: "25", balanceUsd: "18.00" },
   render: (args) => (
     <SeededPanel args={args}>
