@@ -539,8 +539,13 @@ describe("execute-mode failure notifications", () => {
     const alert = emitted[0];
     expect(alert.sourceEventName).toBe("activity.failed");
     expect(alert.sourceContextId).toBe(schedule.id);
+    // Schedules always resolve a concrete inference profile at creation, and
+    // that profile is the alert's provider scope.
+    const scope = schedule.inferenceProfile ?? "default";
     expect(alert.dedupeKey).toMatch(
-      /^activity-failed:cause:PROVIDER_BILLING:default:\d{4}-\d{2}-\d{2}$/,
+      new RegExp(
+        `^activity-failed:cause:PROVIDER_BILLING:${scope}:\\d{4}-\\d{2}-\\d{2}$`,
+      ),
     );
     expect(alert.contextPayload).toMatchObject({
       jobName: "schedule:Billing victim",
