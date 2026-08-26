@@ -115,13 +115,6 @@
     "searching": "Buscando…",
     "shortcutHint": "⌘K"
   },
-  "appIconMatchPrompt": {
-    "title": "¿Quieres que el icono de la app sea tu avatar?",
-    "message": "El icono de tu pantalla de inicio pasa a ser este avatar. Puedes volver a cambiarlo cuando quieras desde la configuración.",
-    "error": "iOS no cambió el icono de tu pantalla de inicio. Puedes intentarlo de nuevo.",
-    "apply": "Aplicar",
-    "notNow": "Ahora no"
-  },
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",
     "done": "Entendido",

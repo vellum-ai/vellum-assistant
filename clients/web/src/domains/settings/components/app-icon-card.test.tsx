@@ -1,8 +1,7 @@
 /**
- * The settings card is the user-initiated half of the feature: it ignores the
- * prompt's decline memory, and it is the only way back to the default icon, so
- * Reset stays reachable for as long as one of our icons is applied, and a swap
- * iOS refuses is reported rather than swallowed.
+ * The settings card is where every swap starts, and it is the only way back to
+ * the default icon, so Reset stays reachable for as long as one of our icons is
+ * applied, and a swap iOS refuses is reported rather than swallowed.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -128,9 +127,7 @@ describe("AppIconCard", () => {
     expect(getAppIconState).not.toHaveBeenCalled();
   });
 
-  test("matches a name the user already declined in the prompt", async () => {
-    localStorage.setItem(`vellum:appIcon:declined:${ICON}`, "1");
-
+  test("matches the icon the avatar maps to", async () => {
     await renderCard();
 
     await waitFor(() => {

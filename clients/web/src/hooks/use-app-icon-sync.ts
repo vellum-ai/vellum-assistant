@@ -1,27 +1,28 @@
 /**
- * Reconciles the iOS home-screen icon with the assistant's avatar.
+ * Puts a bundled iOS home-screen icon on the device, on request.
  *
- * The hook only ever *offers*. iOS shows a system alert the app cannot
- * suppress on every icon swap, so `apply` and `reset` are the two functions in
- * this repo allowed to reach `setAppIcon`, and both are bound to an explicit
- * user tap (the match prompt's Apply, the settings card's Match / Reset).
- * Nothing here fires on its own.
+ * The hook only ever acts on a user gesture. iOS shows a system alert the app
+ * cannot suppress on every icon swap, so `apply` and `reset` are the two
+ * functions in this repo allowed to reach `setAppIcon`, and both are bound to
+ * an explicit user tap in Settings. Nothing here fires on its own.
  *
- * Every name comes from `appIconNameForAvatar` through
- * {@link resolveAppIconTarget}, so an uploaded image, an AI-generated avatar,
- * or no avatar at all resolves to `null` and can never be offered.
+ * `apply` takes any name the installed shell reports as bundled, so a user with
+ * an uploaded or AI-generated avatar can still choose an icon deliberately.
+ * That gate is where version skew becomes a no-op rather than an error: a web
+ * build that knows a name the installed binary has no bundle for refuses it.
+ *
+ * `targetIcon` stays the name the assistant's own avatar maps to, null for
+ * anything but a character avatar, and `canSyncAvatar` reports whether that
+ * name is bundled and not already applied. Together they drive the one-tap
+ * "match my avatar" shortcut beside the picker.
  *
  * The whole surface reports `enabled: false`, and therefore draws nothing, off
  * native iOS, with the `ios-avatar-app-icon` flag off, or when the installed
  * shell answers `supported: false` (`docs/CAPACITOR.md` § The skew rule).
- * A shell that supports alternates but bundles none this avatar maps to stays
- * enabled: {@link resolveAppIconTarget} reports no match, so `canOffer` is
- * false and nothing is ever offered, while the settings card still has a real
- * status to report.
  *
  * The shell's answer is one fact about one device, so it lives in
- * {@link useAppIconStore} rather than in per-instance state: an apply from the
- * root prompt has to reach the settings card mounted beside it.
+ * {@link useAppIconStore} rather than in per-instance state: an apply from one
+ * mounted surface has to reach every other.
  */
 import { useCallback, useEffect } from "react";
 
@@ -40,17 +41,24 @@ export interface AppIconSync {
   currentIcon: string | null;
   /** The icon this avatar maps to, or null when it maps to none. */
   targetIcon: string | null;
+  /** Every alternate icon the installed shell bundles; empty when disabled. */
+  availableIcons: string[];
   /** True when the shell bundles `targetIcon` and it is not already applied. */
-  canOffer: boolean;
+  canSyncAvatar: boolean;
   /**
-   * Apply `targetIcon`. User-initiated only. Resolves true only when a re-read
-   * of the shell finds the icon on the home screen, so callers can keep their
-   * action on screen.
+   * Apply a bundled alternate icon. User-initiated only. Resolves false without
+   * reaching the shell when the surface is disabled or the name is not one the
+   * installed build bundles. Otherwise resolves true only when a re-read of the
+   * shell finds the icon on the home screen, so callers can keep their action
+   * on screen.
    */
-  apply: () => Promise<boolean>;
+  apply: (name: string) => Promise<boolean>;
   /** Restore the default icon. User-initiated only. Resolves as `apply` does. */
   reset: () => Promise<boolean>;
 }
+
+/** Shared empty list, so a disabled surface hands back a stable identity. */
+const NO_ICONS: string[] = [];
 
 export function useAppIconSync(assistantId: string | null): AppIconSync {
   const isNativeIOS = useIsNativeIOS();
@@ -86,7 +94,8 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
 
   const enabled = gateOpen && iconState.supported;
   const { target, availableMatch } = resolveAppIconTarget(state, iconState);
-  const canOffer = availableMatch && target !== iconState.current;
+  const canSyncAvatar = availableMatch && target !== iconState.current;
+  const available = iconState.available;
 
   // iOS can refuse a swap outright, and it can also take one and leave the home
   // screen alone (the app backgrounded mid-swap, the iOS 26 regressions). The
@@ -96,14 +105,17 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
   // screen rather than on the request. A read that degrades, an old shell or a
   // bridge fault, cannot verify anything, so both callbacks report failure
   // instead of throwing.
-  const apply = useCallback(async () => {
-    if (!enabled || !availableMatch || target === null) {
-      return false;
-    }
-    await setAppIcon(target);
-    const applied = await refresh();
-    return applied.supported && applied.current === target;
-  }, [enabled, availableMatch, target, refresh]);
+  const apply = useCallback(
+    async (name: string) => {
+      if (!enabled || !available.includes(name)) {
+        return false;
+      }
+      await setAppIcon(name);
+      const applied = await refresh();
+      return applied.supported && applied.current === name;
+    },
+    [enabled, available, refresh],
+  );
 
   const reset = useCallback(async () => {
     if (!enabled) {
@@ -118,7 +130,8 @@ export function useAppIconSync(assistantId: string | null): AppIconSync {
     enabled,
     currentIcon: enabled ? iconState.current : null,
     targetIcon: enabled ? target : null,
-    canOffer,
+    availableIcons: enabled ? available : NO_ICONS,
+    canSyncAvatar,
     apply,
     reset,
   };
