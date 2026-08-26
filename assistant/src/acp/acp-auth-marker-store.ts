@@ -91,8 +91,19 @@ let publishedClaudeTokenDigest: string | undefined;
  * symmetric. Suppressing recovery during a write that then fails leaves the
  * user holding a rejected token with no Connect card, and no later event to
  * raise one, since the rejection that would have raised it has already been
- * consumed. Allowing it costs at most a card offering to connect auth that
- * already works, which the next successful write retires.
+ * consumed. Allowing it raises a card for auth that may already work, which
+ * is an affordance the user can act on or dismiss.
+ *
+ * One case that costs more than the usual spurious card, and is accepted
+ * rather than solved: a claim stays live while a *different* write publishes
+ * and retires. A rejection of the still-claimed token then raises a card that
+ * the retirement has already passed by, and if that claim's write goes on to
+ * fail, no later write retires it. Reversing the guard there is worse, not
+ * better, because the same interleaving can end with that write succeeding,
+ * and then storage holds exactly the rejected token the suppression left with
+ * no route back to auth. Retiring such a raise on the claim's failure needs
+ * the raise recorded per token, which is a follow-up rather than something to
+ * bolt onto this path.
  */
 const pendingClaudeTokenDigests = new Map<string, number>();
 
