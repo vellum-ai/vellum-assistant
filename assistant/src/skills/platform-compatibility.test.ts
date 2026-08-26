@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  filterSkillsByClientPlatform,
   filterSkillsByPlatform,
+  isSkillCompatibleWithClientPlatform,
   isSkillCompatibleWithPlatform,
   normalizeSkillPlatforms,
+  skillPlatformForClientOs,
   skillPlatformForNodePlatform,
 } from "./platform-compatibility.js";
 
@@ -13,6 +16,12 @@ describe("skill platform compatibility", () => {
     expect(skillPlatformForNodePlatform("win32")).toBe("windows");
     expect(skillPlatformForNodePlatform("linux")).toBe("linux");
     expect(skillPlatformForNodePlatform("freebsd")).toBeNull();
+  });
+
+  test("maps desktop client operating systems to skill platforms", () => {
+    expect(skillPlatformForClientOs("macos")).toBe("macos");
+    expect(skillPlatformForClientOs("windows")).toBe("windows");
+    expect(skillPlatformForClientOs("web")).toBeNull();
   });
 
   test("treats missing platform metadata as portable", () => {
@@ -27,6 +36,16 @@ describe("skill platform compatibility", () => {
     expect(isSkillCompatibleWithPlatform(skill, "win32")).toBe(false);
   });
 
+  test("matches the connected client when the assistant host differs", () => {
+    const skill = { platforms: ["windows"] as const };
+    expect(isSkillCompatibleWithClientPlatform(skill, "windows", "linux")).toBe(
+      true,
+    );
+    expect(isSkillCompatibleWithClientPlatform(skill, "macos", "linux")).toBe(
+      false,
+    );
+  });
+
   test("filters incompatible skills from offer surfaces", () => {
     const skills = [
       { id: "portable" },
@@ -37,6 +56,20 @@ describe("skill platform compatibility", () => {
     expect(
       filterSkillsByPlatform(skills, "win32").map((skill) => skill.id),
     ).toEqual(["portable", "windows-only"]);
+  });
+
+  test("filters offer surfaces by assistant or connected client platform", () => {
+    const skills = [
+      { id: "linux-only", platforms: ["linux"] as const },
+      { id: "windows-only", platforms: ["windows"] as const },
+      { id: "mac-only", platforms: ["macos"] as const },
+    ];
+
+    expect(
+      filterSkillsByClientPlatform(skills, "windows", "linux").map(
+        (skill) => skill.id,
+      ),
+    ).toEqual(["linux-only", "windows-only"]);
   });
 
   test("normalizes valid unique metadata values", () => {

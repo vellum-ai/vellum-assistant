@@ -24,7 +24,7 @@ import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
 import { getCachedCatalogSync } from "../skills/catalog-cache.js";
 import { readInstallMeta, touchSkillLastUsed } from "../skills/install-meta.js";
-import { isSkillCompatibleWithPlatform } from "../skills/platform-compatibility.js";
+import { isSkillCompatibleWithClientPlatform } from "../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
@@ -103,6 +103,8 @@ export interface SkillProjectionCache {
 export interface ProjectSkillToolsOptions {
   /** Skill IDs that should be treated as active regardless of history markers. */
   preactivatedSkillIds?: string[];
+  /** Operating system reported by the client driving the current turn. */
+  clientOs?: string;
   /**
    * Conversation-scoped tracking map of previously active skill IDs to their
    * version hashes (or the no-tools sentinel for active skills without a
@@ -383,7 +385,8 @@ export function projectSkillTools(
     const skill = catalogById.get(id);
     const flagKey = skill ? skillFlagKey(skill) : undefined;
     if (
-      (!skill || isSkillCompatibleWithPlatform(skill)) &&
+      (!skill ||
+        isSkillCompatibleWithClientPlatform(skill, options?.clientOs)) &&
       (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config))
     ) {
       activeIds.add(id);

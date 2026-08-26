@@ -22,7 +22,7 @@ import {
 } from "../../skills/include-graph.js";
 import { renderInlineCommands } from "../../skills/inline-command-render.js";
 import {
-  isSkillCompatibleWithPlatform,
+  isSkillCompatibleWithClientPlatform,
   skillPlatformUnavailableMessage,
 } from "../../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
@@ -188,7 +188,11 @@ export const skillLoadTool = {
       (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
     ) {
       try {
-        const installed = await autoInstallFromCatalog(selector);
+        const installed = await autoInstallFromCatalog(
+          selector,
+          undefined,
+          context.clientOs,
+        );
         if (installed) {
           log.info({ skillId: selector }, "Auto-installed skill from catalog");
           loaded = loadSkillBySelector(selector);
@@ -215,7 +219,7 @@ export const skillLoadTool = {
 
     const skill = loaded.skill;
 
-    if (!isSkillCompatibleWithPlatform(skill)) {
+    if (!isSkillCompatibleWithClientPlatform(skill, context.clientOs)) {
       return {
         content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
         isError: true,
@@ -305,6 +309,7 @@ export const skillLoadTool = {
             const installed = await autoInstallFromCatalog(
               missingId,
               remoteCatalog,
+              context.clientOs,
             );
             if (installed) {
               log.info(
@@ -433,7 +438,7 @@ export const skillLoadTool = {
         if (childOutOfPluginScope(child)) {
           continue;
         }
-        if (!isSkillCompatibleWithPlatform(child)) {
+        if (!isSkillCompatibleWithClientPlatform(child, context.clientOs)) {
           continue;
         }
         const childFlagKey = skillFlagKey(child);

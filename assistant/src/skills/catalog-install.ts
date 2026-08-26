@@ -20,7 +20,7 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import {
-  isSkillCompatibleWithPlatform,
+  isSkillCompatibleWithClientPlatform,
   normalizeSkillPlatforms,
   type SkillPlatform,
   skillPlatformUnavailableMessage,
@@ -633,6 +633,7 @@ export async function resolveCatalog(
 export async function autoInstallFromCatalog(
   skillId: string,
   catalog?: CatalogSkill[],
+  clientOs?: string,
 ): Promise<boolean> {
   let skills: CatalogSkill[];
 
@@ -654,7 +655,7 @@ export async function autoInstallFromCatalog(
   if (!entry) {
     return false;
   }
-  if (!isSkillCompatibleWithPlatform(entry)) {
+  if (!isSkillCompatibleWithClientPlatform(entry, clientOs)) {
     throw new Error(skillPlatformUnavailableMessage(skillId, entry));
   }
 

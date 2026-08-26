@@ -87,12 +87,14 @@ function writeToolsJson(
 
 async function executeSkillLoad(
   input: Record<string, unknown>,
+  clientOs?: string,
 ): Promise<{ content: string; isError: boolean }> {
   const tool = skillLoadTool;
 
   const result = await tool.execute(input, {
     workingDir: "/tmp",
     conversationId: "conversation-1",
+    clientOs,
     trustClass: "guardian",
   });
   return { content: result.content, isError: result.isError };
@@ -140,6 +142,28 @@ describe("skill_load tool", () => {
       /<loaded_skill id="release-checklist" version="(v1:[a-f0-9]{64})" \/>/,
     );
     expect(markerMatch).not.toBeNull();
+  });
+
+  test("loads a skill for a connected client on a different assistant host", async () => {
+    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
+    const skillDir = join(TEST_DIR, "skills", "client-platform-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: "Client Platform Skill"\ndescription: "Uses the connected host"\nmetadata: ${JSON.stringify({ vellum: { platforms: [clientPlatform] } })}\n---\n\nBody.\n`,
+    );
+
+    const withoutClient = await executeSkillLoad({
+      skill: "client-platform-skill",
+    });
+    expect(withoutClient.isError).toBe(true);
+
+    const withClient = await executeSkillLoad(
+      { skill: "client-platform-skill" },
+      clientPlatform,
+    );
+    expect(withClient.isError).toBe(false);
+    expect(withClient.content).toContain("Body.");
   });
 
   test("loads a skill by exact name (case-insensitive)", async () => {

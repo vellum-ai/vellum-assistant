@@ -392,6 +392,7 @@ export function createToolExecutor(
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
       conversationId: ctx.conversationId,
+      clientOs: ctx.currentTurnClientOs,
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
@@ -1040,6 +1041,7 @@ export function createResolveToolsCallback(
     ];
     const projection = projectSkillTools(history, {
       preactivatedSkillIds: effectivePreactivated,
+      clientOs: ctx.currentTurnClientOs,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
       // Scope plugin-contributed skills to the conversation's per-chat plugin

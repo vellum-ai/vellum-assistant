@@ -189,6 +189,8 @@ export interface ToolContext {
   conversationId: string;
   /** Working directory the daemon was launched from. */
   workingDir: string;
+  /** Operating system reported by the client driving the current turn. */
+  clientOs?: string;
   /** Per-turn request id for cross-component log correlation. */
   requestId?: string;
   /** Cooperative cancellation signal for long-running tools. Tools should check `signal.aborted` periodically (or forward `signal` to fetch / child-process options). */

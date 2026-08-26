@@ -37,6 +37,13 @@ export function skillPlatformForNodePlatform(
   return null;
 }
 
+export function skillPlatformForClientOs(value: unknown): SkillPlatform | null {
+  return typeof value === "string" &&
+    (SKILL_PLATFORM_VALUES as readonly string[]).includes(value)
+    ? (value as SkillPlatform)
+    : null;
+}
+
 export function isSkillCompatibleWithPlatform(
   skill: PlatformScopedSkill,
   platform: NodeJS.Platform = process.platform,
@@ -48,12 +55,37 @@ export function isSkillCompatibleWithPlatform(
   return skillPlatform !== null && skill.platforms.includes(skillPlatform);
 }
 
+export function isSkillCompatibleWithClientPlatform(
+  skill: PlatformScopedSkill,
+  clientOs: unknown,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (isSkillCompatibleWithPlatform(skill, platform)) {
+    return true;
+  }
+  const clientPlatform = skillPlatformForClientOs(clientOs);
+  return (
+    clientPlatform !== null &&
+    skill.platforms?.includes(clientPlatform) === true
+  );
+}
+
 export function filterSkillsByPlatform<T extends PlatformScopedSkill>(
   skills: readonly T[],
   platform: NodeJS.Platform = process.platform,
 ): T[] {
   return skills.filter((skill) =>
     isSkillCompatibleWithPlatform(skill, platform),
+  );
+}
+
+export function filterSkillsByClientPlatform<T extends PlatformScopedSkill>(
+  skills: readonly T[],
+  clientOs: unknown,
+  platform: NodeJS.Platform = process.platform,
+): T[] {
+  return skills.filter((skill) =>
+    isSkillCompatibleWithClientPlatform(skill, clientOs, platform),
   );
 }
 
