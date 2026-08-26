@@ -210,22 +210,27 @@ export type TelephonySttCapability =
     };
 
 /**
- * Validate whether the configured `services.stt` provider is eligible for
- * future real-time telephony call ingestion.
+ * Validate whether the STT provider serving telephony is eligible for
+ * real-time call ingestion.
  *
- * This resolver does **not** create a live transcriber — it only validates
+ * This resolver does **not** create a live transcriber: it only validates
  * that the configuration, catalog entry, and credentials are all in order.
- * The actual wiring is deferred to a future media-stream call adapter PR.
+ *
+ * The provider is the telephony role's, which is the one a call actually
+ * dials. Reading the global provider instead would answer about a provider
+ * no call uses: a credentialed role selection would be turned away for the
+ * global's missing key, and the inverse would pass preflight and fail at the
+ * dial.
  *
  * Callers can branch on the discriminated `status` field:
- * - `"supported"` — the provider is telephony-eligible and credentials exist.
- * - `"unsupported"` — the provider exists but has `telephonyMode: "none"`.
- * - `"unconfigured"` — the provider is unknown or missing from the catalog.
- * - `"missing-credentials"` — the provider is eligible but has no API key.
+ * - `"supported"`: the provider is telephony-eligible and credentials exist.
+ * - `"unsupported"`: the provider exists but has `telephonyMode: "none"`.
+ * - `"unconfigured"`: the provider is unknown or missing from the catalog.
+ * - `"missing-credentials"`: the provider is eligible but has no API key.
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = resolveSttCatalogKey(config.services.stt);
+  const provider = sttCatalogKeyForRole(config.services.stt, "telephony");
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {

@@ -77,17 +77,15 @@ export type SttProviders = z.infer<typeof SttProvidersSchema>;
 /**
  * Per-consumer provider overrides: `services.stt.roles.<role>`.
  *
- * Sparse. An unset role falls back to `services.stt.provider`, so an install
- * that never touches this behaves exactly as it does today. The point is that
- * capability is per boundary while the base setting is global: a provider
- * that is right for live voice can be incapable of batch transcription, and
- * before this there was no way to say so.
+ * Sparse: an unset role falls back to `services.stt.provider`. Capability is
+ * per boundary while the base setting is global, so a provider that is right
+ * for live voice can be incapable of batch transcription. A role is how one
+ * consumer says which provider and model family it needs without moving the
+ * others onto it.
  *
- * A pair the provider cannot serve is rejected here rather than at dial time.
- * Fail-closed is the right trade because these keys are new: no existing
- * config can hold a bad pair, so nothing that loads today can start failing.
- * The alternative — accept it and fall back at resolve time — is the silent
- * substitution this config exists to make visible.
+ * Validation is fail-closed: a pair the provider cannot serve is rejected
+ * here rather than at dial time. Accepting it and falling back at resolve
+ * time is the silent substitution this config exists to make visible.
  */
 export const SttRolesSchema = z
   .partialRecord(

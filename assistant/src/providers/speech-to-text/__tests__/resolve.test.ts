@@ -510,6 +510,58 @@ describe("resolveTelephonySttCapability", () => {
       expect(result.credentialProvider).toBe("gemini");
     }
   });
+
+  test("answers about the telephony role, not the global provider", async () => {
+    // The role's provider is the one a call dials, so preflight must judge
+    // that one: a credentialed role behind an uncredentialed global would
+    // otherwise be turned away from a call it can serve.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { telephony: { provider: "deepgram" } },
+    });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("deepgram");
+      expect(result.telephonyMode).toBe("realtime-ws");
+    }
+  });
+
+  test("reports the telephony role's missing credential, not the global's", async () => {
+    // The inverse: a credentialed global must not vouch for a role that
+    // cannot dial, which passes preflight and then fails at the dial.
+    mockProviderKeys = { openai: "oai-key" };
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { telephony: { provider: "deepgram" } },
+    });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("deepgram");
+      expect(result.credentialProvider).toBe("deepgram");
+    }
+  });
+
+  test("an unset telephony role still reads the global provider", async () => {
+    mockProviderKeys = { openai: "oai-key" };
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { liveVoice: { provider: "deepgram" } },
+    });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("openai-whisper");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1809,7 +1861,7 @@ describe("the multilingual default reaches configs with no stt block", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — per-consumer role selection
+// Tests: per-consumer role selection
 // ---------------------------------------------------------------------------
 
 describe("services.stt.roles selection", () => {
@@ -1837,7 +1889,7 @@ describe("services.stt.roles selection", () => {
   });
 
   test("a role with no override falls back to the global provider", async () => {
-    // The invariant that keeps every untouched install behaving as before.
+    // The invariant that keeps an install with no role set on one provider.
     applyConfig({
       provider: "openai-whisper",
       roles: { dictation: { provider: "deepgram" } },

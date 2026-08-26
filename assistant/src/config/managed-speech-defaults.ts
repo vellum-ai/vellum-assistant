@@ -102,7 +102,7 @@ export interface EffectiveSpeechProviders {
  * `config` selects the configuration to read the configured providers from,
  * for callers already holding one (defaults to the loaded config). `role`
  * selects which consumer's STT override applies; omitting it reads the global
- * provider, which is what every caller did before roles existed.
+ * provider.
  */
 export async function resolveEffectiveSpeechProviders(
   config?: AssistantConfig,
