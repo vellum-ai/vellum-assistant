@@ -111,13 +111,16 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run build:web   # builds clients/web into resources/web-dist
-bun run pack        # electron-vite build + electron-builder --win (NSIS)
+bun run pack        # runtime + native helper + preview handler + electron-vite build + electron-builder --win (NSIS)
+bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 ```
 
-Local and CI packs are unsigned. `bun run pack` skips the Explorer preview
-handler, which `.github/workflows/windows-package-smoke.yaml` builds before
-packaging and then install-, launch-, and uninstall-tests.
+`pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
+`build:preview-handler`) before `electron-builder`, so the Explorer preview
+handler DLL that `electron-builder.config.cjs` requires is always present.
+Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
+runs the same steps per architecture, then install-, launch-, and
+uninstall-tests the installer.
 
 ## Release
 
