@@ -8,6 +8,7 @@ import {
   Plus,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { refreshPlatformAssistantsIfStale } from "@/assistant/platform-assistants-sync";
@@ -162,6 +163,7 @@ function withoutRegisterParams(params: URLSearchParams): URLSearchParams {
 export function SelectAssistantScreen() {
   const { t } = useTranslation("onboarding");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
   const noAutoSkip = searchParams.get("noAutoSkip") === "1";
@@ -471,7 +473,7 @@ export function SelectAssistantScreen() {
     setRecoveryPending(true);
     setRecoveryError(null);
     try {
-      const outcome = await retireAssistant(recoveryAssistant.id);
+      const outcome = await retireAssistant(queryClient, recoveryAssistant.id);
       if (outcome.ok) {
         clearRecoveryState();
         void navigate(outcome.nextRoute, { replace: true });
@@ -503,7 +505,7 @@ export function SelectAssistantScreen() {
       // The shared service owns the paired sequence (lockfile removal plus
       // lifecycle active-id cleanup); its chooser-route outcome is ignored
       // because this screen is already the chooser.
-      const outcome = await removePairedAssistant(removeTarget.id);
+      const outcome = await removePairedAssistant(queryClient, removeTarget.id);
       if (outcome.ok) {
         removedThisVisitRef.current = true;
         setRemoveTarget(null);

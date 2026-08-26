@@ -1,13 +1,15 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import {
   deleteLastSeenAvatar,
   lastSeenAvatarGenerations,
   writeLastSeenAvatar,
 } from "@/lib/avatar-last-seen-cache";
-import type { CharacterTraits } from "@/types/avatar";
+import type { AvatarRead } from "@/types/avatar";
 
-export interface LiveAvatarResolution {
-  traits: CharacterTraits | null;
-  imageUrl: string | null;
+/** The chooser's query over the last-seen cache; invalidated after every persist. */
+export function chooserRowAvatarCacheQueryKey(assistantId: string) {
+  return ["chooserRowAvatarCache", assistantId] as const;
 }
 
 /**
@@ -16,12 +18,14 @@ export interface LiveAvatarResolution {
  * and the chooser's per-row fetch) so the cache fills whenever an avatar is
  * read, not only while the chooser is mounted. Claims a persistence generation
  * up front so a blob read that resolves after a newer write or delete
- * (including a retire) commits nothing. Best-effort like the cache: never
- * throws.
+ * (including a retire) commits nothing. Invalidates the chooser's cache query
+ * once committed so a row that falls back later reads the fresh entry.
+ * Best-effort like the cache: never throws.
  */
 export async function persistLastSeenAvatar(
+  queryClient: QueryClient,
   assistantId: string,
-  avatar: LiveAvatarResolution,
+  avatar: AvatarRead,
 ): Promise<void> {
   const generation = lastSeenAvatarGenerations.claim(assistantId);
   try {
@@ -46,5 +50,9 @@ export async function persistLastSeenAvatar(
     }
   } catch {
     // A blob that cannot be read back is simply not cached.
+    return;
   }
+  void queryClient.invalidateQueries({
+    queryKey: chooserRowAvatarCacheQueryKey(assistantId),
+  });
 }

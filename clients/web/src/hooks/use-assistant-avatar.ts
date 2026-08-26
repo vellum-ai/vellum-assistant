@@ -10,7 +10,9 @@ import {
 import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import { persistLastSeenAvatar } from "@/lib/persist-last-seen-avatar";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type {
+  AvatarRead,
   AvatarState,
   CharacterComponents,
   CharacterTraits,
@@ -49,11 +51,6 @@ export interface AssistantAvatarOptions {
    * `canFetchRowAvatarViaPlatformProxy` in `use-chooser-row-avatar`).
    */
   enabled?: boolean;
-}
-
-export interface AvatarRead {
-  traits: CharacterTraits | null;
-  imageUrl: string | null;
 }
 
 /**
@@ -184,7 +181,7 @@ export function useAssistantAvatar(
 
   const { data, isLoading, isSuccess } = useQuery<AvatarData>({
     queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],
-    queryFn: async () => {
+    queryFn: async ({ client }) => {
       const id = assistantId!;
       const [components, { traits, imageUrl }] = await Promise.all([
         fetchCharacterComponents(id),
@@ -204,7 +201,11 @@ export function useAssistantAvatar(
       trackBlobUrl(activeBlobUrls, id, imageUrl);
       // A resolved read is conclusive (both paths throw otherwise), so it is
       // what the chooser falls back to once this assistant is unreachable.
-      void persistLastSeenAvatar(id, { traits, imageUrl });
+      // Only the active assistant's read is trusted here: a sibling behind a
+      // transport that ignores the id would cache the wrong avatar.
+      if (id === useResolvedAssistantsStore.getState().activeAssistantId) {
+        void persistLastSeenAvatar(client, id, { traits, imageUrl });
+      }
 
       return { components, traits, customImageUrl: imageUrl };
     },

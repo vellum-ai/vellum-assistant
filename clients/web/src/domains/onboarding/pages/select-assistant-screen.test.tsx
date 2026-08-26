@@ -13,15 +13,16 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutProviders,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
 import type * as ChooserAvatarChipModule from "@/components/avatar/chooser-avatar-chip";
-import type { AvatarRead } from "@/hooks/use-assistant-avatar";
+import type { AvatarRead } from "@/types/avatar";
 import type * as UseChooserRowAvatarModule from "@/hooks/use-chooser-row-avatar";
 import type { RememberedOrigin } from "@/stores/remembered-origins-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
@@ -259,7 +260,7 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
 const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
   useChooserRowAvatar: (assistant) =>
     rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null },
-  releaseRowAvatarUrls: () => {},
+  forgetAssistantAvatar: () => {},
 };
 mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
 
@@ -415,6 +416,19 @@ const { __resetConnectDialogForTesting, useConnectDialogStore } = await import(
 const { SelectAssistantScreen } = await import(
   "@/domains/onboarding/pages/select-assistant-screen"
 );
+
+/** The screen reads the query client for post-removal avatar cleanup. */
+function render(ui: ReactNode) {
+  const queryClient = new QueryClient();
+  const withProviders = (node: ReactNode) => (
+    <QueryClientProvider client={queryClient}>{node}</QueryClientProvider>
+  );
+  const result = renderWithoutProviders(withProviders(ui));
+  return {
+    ...result,
+    rerender: (node: ReactNode) => result.rerender(withProviders(node)),
+  };
+}
 
 // --- Helpers ------------------------------------------------------------------
 

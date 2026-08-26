@@ -12,7 +12,9 @@ import type {
 } from "@/types/avatar";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
+import { chooserRowAvatarCacheQueryKey } from "@/lib/persist-last-seen-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -100,10 +102,11 @@ mock.module(
 
 const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar");
 
-function createWrapper() {
-  const queryClient = new QueryClient({
+function createWrapper(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  }),
+) {
 
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -116,11 +119,13 @@ beforeEach(() => {
   // Default to a manifest-capable assistant so the `/avatar/state` path is
   // exercised; legacy-path tests override the version explicitly.
   useAssistantIdentityStore.getState().setIdentity("test-asst", MIN_VERSION);
+  useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
 });
 
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   fetchCharacterComponents.mockClear();
   fetchAvatarState.mockClear();
   fetchAvatarImageUrlResult.mockClear();
@@ -167,6 +172,37 @@ describe("useAssistantAvatar", () => {
         );
       });
       expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a persist invalidates the chooser's cache query for that id", async () => {
+      fetchAvatarState.mockResolvedValueOnce(characterState);
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const cacheKey = chooserRowAvatarCacheQueryKey("asst-1");
+      queryClient.setQueryData(cacheKey, { traits: null, imageUrl: null });
+      renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(queryClient),
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(queryClient.getQueryState(cacheKey)?.isInvalidated).toBe(true);
+      });
+    });
+
+    test("a sibling's read never touches the cache, only the active assistant's does", async () => {
+      fetchAvatarState.mockResolvedValueOnce(characterState);
+      const { result } = renderHook(() => useAssistantAvatar("asst-2"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
     });
 
     test("an inconclusive read touches nothing", async () => {
