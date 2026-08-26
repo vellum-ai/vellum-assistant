@@ -10,6 +10,7 @@
  */
 
 import { normalizeTitle } from "../util/short-title.js";
+import { truncate } from "../util/truncate.js";
 import {
   accessRequestCardTitle,
   buildAccessRequestContractText,
@@ -365,14 +366,18 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     // The classifier's authored user-facing message rides the payload as
     // `failureSummary` when the failing turn carried its classification;
     // it already says what happened and what to do about it.
-    const summary =
-      typeof payload.failureSummary === "string" &&
-      payload.failureSummary.trim().length > 0
+    // Authored messages are short by construction, but the classifier's
+    // fallback branches can embed provider error text, so bound the body
+    // like any other untrusted payload string.
+    const summary = truncate(
+      typeof payload.failureSummary === "string"
         ? payload.failureSummary.trim()
-        : undefined;
+        : "",
+      300,
+    );
     return {
       title: `Background job failed: ${jobName}`,
-      body: summary ?? describeUnclassifiedFailure(payload),
+      body: summary !== "" ? summary : describeUnclassifiedFailure(payload),
     };
   },
 

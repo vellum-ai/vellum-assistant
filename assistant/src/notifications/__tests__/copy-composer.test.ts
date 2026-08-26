@@ -64,6 +64,20 @@ describe("activity.failed copy", () => {
     );
   });
 
+  test("an oversized carried summary is bounded", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "job",
+        errorKind: "model_provider",
+        errorMessage: "irrelevant",
+        failureSummary: "x".repeat(400),
+      }),
+      CHANNELS,
+    );
+    expect((copy.vellum?.body ?? "").length).toBeLessThanOrEqual(303);
+    expect(copy.vellum?.body).toEndWith("...");
+  });
+
   test("constant-shaped raw detail never reaches the body", () => {
     const copy = composeFallbackCopy(
       failedSignal({

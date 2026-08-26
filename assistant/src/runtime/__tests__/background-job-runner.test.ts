@@ -278,7 +278,7 @@ describe("runBackgroundJob", () => {
     expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
     // The stable classified code rides the result so callers can branch on
     // the failure class without parsing the error message.
-    expect(result.failureCode).toBe("PROVIDER_BILLING");
+    expect(result.turnFailure?.failureCode).toBe("PROVIDER_BILLING");
 
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].sourceEventName).toBe("activity.failed");
@@ -347,7 +347,7 @@ describe("runBackgroundJob", () => {
     const result = await runBackgroundJob(baseOpts());
 
     expect(result.ok).toBe(false);
-    expect(result.failureCode).toBe("CONTEXT_TOO_LARGE");
+    expect(result.turnFailure?.failureCode).toBe("CONTEXT_TOO_LARGE");
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].dedupeKey as string).toMatch(
       /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,

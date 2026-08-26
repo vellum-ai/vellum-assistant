@@ -204,20 +204,12 @@ export interface RunBackgroundJobResult {
   error?: Error;
   errorKind?: BackgroundJobErrorKind;
   /**
-   * Stable classified error code (`ConversationErrorCode`, e.g.
-   * `"PROVIDER_BILLING"`) when the turn failed without throwing. Absent for
-   * timeouts and thrown exceptions. Lets callers branch on the failure class
-   * (e.g. billing vs transient) without depending on error identity or
-   * message text. Convenience projection of `turnFailure.failureCode`.
-   */
-  failureCode?: string;
-  /**
-   * The failing turn's full carried classification (authored user message,
-   * category, connection/profile attribution), when the failure was a
-   * non-throwing turn failure. Callers that report the failure onward
-   * (e.g. the scheduler's retries-exhausted alert) forward this so the
-   * notification renders the authored prose and scopes by the route that
-   * actually served the turn.
+   * The failing turn's full carried classification (stable failureCode,
+   * authored user message, category, connection/profile attribution), when
+   * the failure was a non-throwing turn failure. Absent for timeouts and
+   * thrown exceptions. The single classification field on the result:
+   * callers branch on `turnFailure?.failureCode` and forward the object
+   * wholesale when reporting the failure onward.
    */
   turnFailure?: TurnFailure;
   /**
@@ -470,7 +462,6 @@ export async function runBackgroundJob(
       ok: false,
       error,
       errorKind,
-      ...(failureCode !== undefined ? { failureCode } : {}),
       ...(turnFailure !== undefined ? { turnFailure } : {}),
     };
   } finally {
