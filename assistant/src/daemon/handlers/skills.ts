@@ -1397,7 +1397,7 @@ export async function installSkill(spec: {
       if (!isSkillCompatibleWithContext(catalogSkill, spec)) {
         return {
           success: false,
-          error: skillPlatformUnavailableMessage(spec.slug, catalogSkill),
+          error: skillPlatformUnavailableMessage(spec.slug, catalogSkill, spec),
         };
       }
       const flagKey = skillFlagKey(catalogSkill);
@@ -1449,7 +1449,11 @@ export async function installSkill(spec: {
           if (!isSkillCompatibleWithContext(catalogEntry, spec)) {
             return {
               success: false,
-              error: skillPlatformUnavailableMessage(spec.slug, catalogEntry),
+              error: skillPlatformUnavailableMessage(
+                spec.slug,
+                catalogEntry,
+                spec,
+              ),
             };
           }
           // Default `overwrite` to true at the handler boundary to preserve

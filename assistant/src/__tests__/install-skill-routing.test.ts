@@ -476,6 +476,34 @@ Body.
     expect(mockEnsureSkillEntry).not.toHaveBeenCalled();
   });
 
+  test("asks the user to reconnect a missing capable host", async () => {
+    mockCatalogSkills.mockReturnValue([
+      {
+        id: "windows-automation",
+        displayName: "Windows Automation",
+        description: "Uses a connected Windows host",
+        source: "bundled",
+        directoryPath: "/tmp/test-bundled-skills/windows-automation",
+        platforms: ["windows"],
+        requiredHostCapabilities: ["host_bash"],
+      },
+    ]);
+
+    const result = await installSkill({
+      slug: "windows-automation",
+      clientOs: "windows",
+      sourceActorPrincipalId: "actor-a",
+      isInteractive: true,
+      hostPlatforms: [],
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible desktop app and try again.',
+    });
+  });
+
   test("skills.sh install failure propagates error", async () => {
     mockInstallExternalSkill.mockRejectedValue(
       new Error("Skill not found in repo"),

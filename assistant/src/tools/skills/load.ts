@@ -245,7 +245,11 @@ export const skillLoadTool = {
       })
     ) {
       return {
-        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
+        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill, {
+          clientOs: context.clientOs,
+          isInteractive: context.isInteractive,
+          sourceActorPrincipalId: context.sourceActorPrincipalId,
+        })}`,
         isError: true,
       };
     }

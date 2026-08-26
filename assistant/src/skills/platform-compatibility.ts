@@ -176,16 +176,30 @@ export function isSkillCompatibleWithContext(
   skill: PlatformScopedSkill,
   context: SkillPlatformContext,
 ): boolean {
+  return skillCompatibilityIssue(skill, context) === null;
+}
+
+type SkillCompatibilityIssue =
+  | "unsupported-capabilities"
+  | "interactive-turn-required"
+  | "actor-required"
+  | "host-capabilities-required"
+  | "platform";
+
+function skillCompatibilityIssue(
+  skill: PlatformScopedSkill,
+  context: SkillPlatformContext,
+): SkillCompatibilityIssue | null {
   if ((skill.unsupportedHostCapabilities?.length ?? 0) > 0) {
-    return false;
+    return "unsupported-capabilities";
   }
   const requiredCapabilities = skill.requiredHostCapabilities ?? [];
   if (requiredCapabilities.length > 0) {
-    if (
-      context.isInteractive !== true ||
-      context.sourceActorPrincipalId == null
-    ) {
-      return false;
+    if (context.isInteractive !== true) {
+      return "interactive-turn-required";
+    }
+    if (context.sourceActorPrincipalId == null) {
+      return "actor-required";
     }
     const capableHostPlatforms = context.hostPlatforms
       ? provenHostPlatforms(context.hostPlatforms, requiredCapabilities)
@@ -193,17 +207,24 @@ export function isSkillCompatibleWithContext(
           context.sourceActorPrincipalId,
           requiredCapabilities,
         );
+    if (capableHostPlatforms.length === 0) {
+      return "host-capabilities-required";
+    }
     return capableHostPlatforms.some(
       (platform) => !skill.platforms || skill.platforms.includes(platform),
-    );
+    )
+      ? null
+      : "platform";
   }
   if (!skill.platforms || skill.platforms.length === 0) {
-    return true;
+    return null;
   }
   const daemonPlatform = skillPlatformForNodePlatform(
     context.daemonPlatform ?? process.platform,
   );
-  return daemonPlatform !== null && skill.platforms.includes(daemonPlatform);
+  return daemonPlatform !== null && skill.platforms.includes(daemonPlatform)
+    ? null
+    : "platform";
 }
 
 export function filterSkillsByContext<T extends PlatformScopedSkill>(
@@ -216,6 +237,22 @@ export function filterSkillsByContext<T extends PlatformScopedSkill>(
 export function skillPlatformUnavailableMessage(
   skillId: string,
   skill: PlatformScopedSkill,
+  context: SkillPlatformContext = {},
 ): string {
+  const issue = skillCompatibilityIssue(skill, context);
+  const requiredCapabilities = skill.requiredHostCapabilities ?? [];
+  const capabilities = requiredCapabilities.join(", ");
+  if (issue === "unsupported-capabilities") {
+    return `Skill "${skillId}" has unsupported host capability requirements.`;
+  }
+  if (issue === "interactive-turn-required") {
+    return `Skill "${skillId}" requires an interactive turn and a connected host that provides: ${capabilities}.`;
+  }
+  if (issue === "actor-required") {
+    return `Skill "${skillId}" requires an authenticated user and a connected host that provides: ${capabilities}.`;
+  }
+  if (issue === "host-capabilities-required") {
+    return `Skill "${skillId}" requires a connected host that provides: ${capabilities}. Reconnect a compatible desktop app and try again.`;
+  }
   return `Skill "${skillId}" is unavailable on this operating system. Supported platforms: ${(skill.platforms ?? []).join(", ")}.`;
 }

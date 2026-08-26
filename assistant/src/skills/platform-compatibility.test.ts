@@ -9,6 +9,7 @@ import {
   resolveSkillTurnIsInteractive,
   skillPlatformForClientOs,
   skillPlatformForNodePlatform,
+  skillPlatformUnavailableMessage,
 } from "./platform-compatibility.js";
 
 describe("skill platform compatibility", () => {
@@ -145,6 +146,39 @@ describe("skill platform compatibility", () => {
         hostPlatforms: ["windows"],
       }),
     ).toBe(false);
+  });
+
+  test("reports missing host access separately from an operating system mismatch", () => {
+    const skill = {
+      platforms: ["windows"] as const,
+      requiredHostCapabilities: ["host_bash"] as const,
+    };
+    expect(
+      skillPlatformUnavailableMessage("windows-automation", skill, {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: [],
+      }),
+    ).toBe(
+      'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible desktop app and try again.',
+    );
+    expect(
+      skillPlatformUnavailableMessage("windows-automation", skill, {
+        clientOs: "windows",
+        isInteractive: false,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: ["windows"],
+      }),
+    ).toContain("requires an interactive turn");
+    expect(
+      skillPlatformUnavailableMessage("windows-automation", skill, {
+        clientOs: "macos",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: ["macos"],
+      }),
+    ).toContain("unavailable on this operating system");
   });
 
   test("does not use another actor's capable host", () => {

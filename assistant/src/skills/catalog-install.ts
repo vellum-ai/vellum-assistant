@@ -681,7 +681,13 @@ export async function autoInstallFromCatalog(
       isInteractive,
     })
   ) {
-    throw new Error(skillPlatformUnavailableMessage(skillId, entry));
+    throw new Error(
+      skillPlatformUnavailableMessage(skillId, entry, {
+        clientOs,
+        sourceActorPrincipalId,
+        isInteractive,
+      }),
+    );
   }
 
   // If the skill already exists on disk, reuse it instead of attempting a
