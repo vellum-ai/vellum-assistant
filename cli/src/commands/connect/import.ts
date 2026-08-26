@@ -21,6 +21,7 @@ import { isRetryablePairingReason } from "@vellumai/service-contracts/remote-web
 import { extractFlag } from "../../lib/arg-utils.js";
 import { getLockfilePaths } from "../../lib/environments/paths.js";
 import { getCurrentEnvironment } from "../../lib/environments/resolve.js";
+import { STALE_CLI_UPDATE_HINT } from "../../lib/stale-cli-hint.js";
 
 function printUsage(): void {
   console.log(`vellum connect import - Pair with an assistant running on another machine
@@ -140,6 +141,24 @@ export async function connectImport(): Promise<void> {
   }
 
   const [nameFlag, args] = extractFlag(rawArgs, "--name");
+
+  // Any `--`-prefixed token left after known-flag extraction is an option this
+  // CLI version doesn't support. Fail loud before any network call rather than
+  // letting it fall through: an unknown flag would otherwise be read as the
+  // address and reported as an unusable one, hiding the real mistake. Neither
+  // an https address nor a pairing link starts with `--`.
+  const unknownFlag = args.find((a) => a.startsWith("--"));
+  if (unknownFlag) {
+    console.error(`Error: unknown option '${unknownFlag}'.`);
+    console.error(
+      "Run `vellum connect import --help` to see available options.",
+    );
+    console.error(
+      `If this option is from newer docs, ${STALE_CLI_UPDATE_HINT}`,
+    );
+    process.exit(1);
+  }
+
   const address = args[0];
   if (!address) {
     console.error("Error: missing assistant address.");

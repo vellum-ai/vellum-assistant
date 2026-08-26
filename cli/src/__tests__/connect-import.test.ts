@@ -506,6 +506,52 @@ describe("connect import", () => {
     expect(out).toContain("USAGE:");
   });
 
+  test("rejects an unknown --flag instead of pairing against it", async () => {
+    process.argv = ["bun", "vellum", "connect", "import", "--qr", HOST];
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+
+    const { exited, out } = await runExpectingExit();
+
+    // The flag is named and the CLI self-update path is offered. An address
+    // error would be a lie: the address was never the problem.
+    expect(exited).toBe(true);
+    expect(out).toContain("unknown option '--qr'");
+    expect(out).toContain("bun install -g vellum@latest");
+    expect(out).not.toContain("pairing link");
+    expect(fetched).toBe(false);
+  });
+
+  test("rejects an unknown --flag even alongside an address and --name", async () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "connect",
+      "import",
+      HOST,
+      "--name",
+      "guarded-box",
+      "--frobnicate",
+    ];
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+
+    const { exited, out } = await runExpectingExit();
+
+    // Known flags and a usable address never rescue an unknown one, and
+    // nothing is registered before the refusal.
+    expect(exited).toBe(true);
+    expect(out).toContain("unknown option '--frobnicate'");
+    expect(fetched).toBe(false);
+    expect(findAssistantByName("guarded-box")).toBeNull();
+  });
+
   test("re-pairing the same host with no --name updates one entry", async () => {
     const outcomes: string[] = [];
     const ids: string[] = [];
