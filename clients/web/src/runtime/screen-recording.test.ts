@@ -1,4 +1,6 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import { supportsRecordingOwnership } from "@/lib/backwards-compat/recording-ownership";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const clientPost = mock(async () => ({
@@ -67,15 +69,17 @@ const startEvent = {
 };
 
 const localTransferDependencies = {
-  claimRecording: async () => true,
+  claimRecording: async () => "claimed" as const,
   maintainClaim: () => () => undefined,
   requiresTransfer: () => false,
+  supportsOwnership: () => true,
   transferRecording: async () => ({}),
   waitBeforeRetry: async () => undefined,
 };
 
 beforeEach(() => {
   clientPost.mockClear();
+  useAssistantIdentityStore.getState().clearIdentity();
   Object.assign(window, {
     vellum: {
       platform: "electron",
@@ -401,7 +405,7 @@ test("streams remote recording chunks before reporting stopped", async () => {
     createRecorder: () => recorder as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => 0,
-    claimRecording: async () => true,
+    claimRecording: async () => "claimed" as const,
     maintainClaim: () => () => undefined,
     reportStatus: async (_assistantId, _event, status, details) => {
       if (status === "stopped") {
@@ -409,6 +413,7 @@ test("streams remote recording chunks before reporting stopped", async () => {
       }
     },
     requiresTransfer: () => true,
+    supportsOwnership: () => true,
     transferRecording: async (
       assistantId,
       _recordingId,
@@ -484,7 +489,7 @@ test("only the client that wins the claim starts capture", async () => {
     if (!election.owner) {
       election.owner = clientId;
     }
-    return election.owner === clientId;
+    return election.owner === clientId ? "claimed" : "occupied";
   };
   const first = new ScreenRecordingController({
     ...dependencies,
@@ -525,7 +530,9 @@ test("a contender takes over after the initial owner disconnects", async () => {
   const recorder = new FakeRecorder();
   const statuses: string[] = [];
   let ownerConnected = true;
-  const claimRecordingMock = mock(async () => !ownerConnected);
+  const claimRecordingMock = mock(async () =>
+    ownerConnected ? ("occupied" as const) : ("claimed" as const),
+  );
   const controller = new ScreenRecordingController({
     ...localTransferDependencies,
     capture: async () => ({
@@ -572,13 +579,131 @@ test("a contender stays eligible after the initial lease window", async () => {
     createRecorder: () => recorder as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => 0,
-    claimRecording: async () => ++attempts > 7,
+    claimRecording: async () =>
+      ++attempts > 7 ? ("claimed" as const) : ("occupied" as const),
     reportStatus: async () => undefined,
   });
 
   await controller.handle(startEvent, "assistant-1");
 
   expect(attempts).toBe(8);
+  expect(recorder.state).toBe("recording");
+});
+
+test("uses the legacy path when an older assistant lacks claim routes", async () => {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test Assistant", "0.11.6", "assistant-1");
+  const claimRecordingMock = mock(async () => {
+    throw new Error("404 Not Found");
+  });
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const statuses: string[] = [];
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: claimRecordingMock,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+    },
+    supportsOwnership: supportsRecordingOwnership,
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+
+  expect(claimRecordingMock).not.toHaveBeenCalled();
+  expect(recorder.state).toBe("recording");
+  expect(statuses).toEqual(["started"]);
+});
+
+test("clears a missing contender so a newer recording can start", async () => {
+  const replacementId = "00000000-0000-4000-8000-000000000002";
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const capture = mock(async () => ({
+    stream: {
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+    } as unknown as MediaStream,
+    close: () => track.stop(),
+  }));
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: async (_assistantId, candidateId) =>
+      candidateId === recordingId ? "missing" : "claimed",
+    reportStatus: async () => undefined,
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+  await controller.handle(
+    { ...startEvent, recordingId: replacementId },
+    "assistant-1",
+  );
+
+  expect(capture).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
+});
+
+test("a newer recording supersedes an obsolete pending contender", async () => {
+  const replacementId = "00000000-0000-4000-8000-000000000002";
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const capture = mock(async () => ({
+    stream: {
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+    } as unknown as MediaStream,
+    close: () => track.stop(),
+  }));
+  let markWaiting!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    markWaiting = resolve;
+  });
+  let continueRetry!: () => void;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: async (_assistantId, candidateId) =>
+      candidateId === recordingId ? "occupied" : "claimed",
+    reportStatus: async () => undefined,
+    waitBeforeRetry: () => {
+      markWaiting();
+      return new Promise<void>((resolve) => {
+        continueRetry = resolve;
+      });
+    },
+  });
+
+  const obsoleteStart = controller.handle(startEvent, "assistant-1");
+  await waiting;
+  await controller.handle(
+    { ...startEvent, recordingId: replacementId },
+    "assistant-1",
+  );
+  continueRetry();
+  await obsoleteStart;
+
+  expect(capture).toHaveBeenCalledTimes(1);
   expect(recorder.state).toBe("recording");
 });
 
@@ -620,7 +745,7 @@ test("stops locally without status after losing the claim", async () => {
 });
 
 test("a busy non-owner stays silent so an idle client can claim", async () => {
-  const busyClaim = mock(async () => true);
+  const busyClaim = mock(async () => "claimed" as const);
   const busyStatuses: string[] = [];
   const makeCapture = async () => {
     const track = new FakeTrack();

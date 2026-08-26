@@ -6,6 +6,7 @@ import type {
 } from "@vellumai/assistant-api";
 
 import { client } from "@/generated/daemon/client.gen";
+import { supportsRecordingOwnership } from "@/lib/backwards-compat/recording-ownership";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -36,6 +37,7 @@ interface ActiveRecording {
 interface PendingRecording {
   recordingId: string;
   cancelled: boolean;
+  claimed: boolean;
   ownershipLost: boolean;
 }
 
@@ -47,6 +49,7 @@ interface CapturedMedia {
 type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
 
 type RecordingTransferOperation = "begin" | "append" | "finish" | "abort";
+type RecordingClaimOutcome = "claimed" | "occupied" | "missing";
 
 const postRecordingRequest = async <T>(
   assistantId: string,
@@ -67,13 +70,16 @@ const postRecordingRequest = async <T>(
 const claimRecording = async (
   assistantId: string,
   recordingId: string,
-): Promise<boolean> => {
-  const result = await postRecordingRequest<{ claimed: boolean }>(
+): Promise<RecordingClaimOutcome> => {
+  const result = await postRecordingRequest<{
+    claimed: boolean;
+    outcome: RecordingClaimOutcome;
+  }>(
     assistantId,
     "claim",
     { recordingId },
   );
-  return result.claimed;
+  return result.outcome;
 };
 
 const encodeChunk = (chunk: Uint8Array): string => {
@@ -111,8 +117,8 @@ const maintainRecordingClaim = (
     }
     checking = true;
     void claimRecording(assistantId, recordingId)
-      .then((claimed) => {
-        if (!claimed && !stopped) {
+      .then((outcome) => {
+        if (outcome !== "claimed" && !stopped) {
           stopped = true;
           clearInterval(timer);
           onLost();
@@ -279,6 +285,7 @@ export class ScreenRecordingController {
       claimRecording: typeof claimRecording;
       maintainClaim: typeof maintainRecordingClaim;
       requiresTransfer: typeof requiresRecordingTransfer;
+      supportsOwnership: typeof supportsRecordingOwnership;
       transferRecording: typeof transferRecording;
       waitBeforeRetry: (delayMs: number) => Promise<void>;
     } = {
@@ -292,6 +299,7 @@ export class ScreenRecordingController {
       claimRecording,
       maintainClaim: maintainRecordingClaim,
       requiresTransfer: requiresRecordingTransfer,
+      supportsOwnership: supportsRecordingOwnership,
       transferRecording,
       waitBeforeRetry: (delayMs) =>
         new Promise((resolve) => setTimeout(resolve, delayMs)),
@@ -330,26 +338,40 @@ export class ScreenRecordingController {
     assistantId: string,
   ): Promise<void> {
     const bridge = window.vellum!.screenRecording!;
-    if (this.active || this.pending) {
+    if (this.active) {
       return;
     }
+    if (this.pending) {
+      if (
+        this.pending.recordingId === event.recordingId ||
+        this.pending.claimed
+      ) {
+        return;
+      }
+      this.pending.cancelled = true;
+      this.pending = null;
+    }
+    const usesOwnership = this.dependencies.supportsOwnership(assistantId);
     const pending: PendingRecording = {
       recordingId: event.recordingId,
       cancelled: false,
+      claimed: !usesOwnership,
       ownershipLost: false,
     };
     this.pending = pending;
-    if (!(await this.claimWithRetry(assistantId, pending))) {
+    if (usesOwnership && !(await this.claimWithRetry(assistantId, pending))) {
       if (this.pending === pending) {
         this.pending = null;
       }
       return;
     }
-    const stopClaimMaintenance = this.dependencies.maintainClaim(
-      assistantId,
-      event.recordingId,
-      () => this.loseOwnership(event.recordingId),
-    );
+    const stopClaimMaintenance = usesOwnership
+      ? this.dependencies.maintainClaim(
+          assistantId,
+          event.recordingId,
+          () => this.loseOwnership(event.recordingId),
+        )
+      : () => undefined;
     let capture: CapturedMedia | null = null;
     let recorder: MediaRecorder | null = null;
     let fileStarted = false;
@@ -590,13 +612,20 @@ export class ScreenRecordingController {
     let retryDelayMs = 1_000;
     while (!pending.cancelled) {
       try {
-        if (
-          await this.dependencies.claimRecording(
-            assistantId,
-            pending.recordingId,
-          )
-        ) {
+        const outcome = await this.dependencies.claimRecording(
+          assistantId,
+          pending.recordingId,
+        );
+        if (pending.cancelled) {
+          return false;
+        }
+        if (outcome === "claimed") {
+          pending.claimed = true;
           return true;
+        }
+        if (outcome === "missing") {
+          pending.cancelled = true;
+          return false;
         }
       } catch {
         // Retry while the recording may still need an owner.

@@ -25562,8 +25562,15 @@ paths:
                 properties:
                   claimed:
                     type: boolean
+                  outcome:
+                    type: string
+                    enum:
+                      - claimed
+                      - occupied
+                      - missing
                 required:
                   - claimed
+                  - outcome
                 additionalProperties: false
   /v1/recordings/pause:
     post:

@@ -154,27 +154,40 @@ export function claimRecording(
     isClientConnected?: (clientId: string) => boolean;
   } = {},
 ): boolean {
+  return claimRecordingOutcome(recordingId, clientId, options) === "claimed";
+}
+
+export type RecordingClaimOutcome = "claimed" | "occupied" | "missing";
+
+export function claimRecordingOutcome(
+  recordingId: string,
+  clientId: string,
+  options: {
+    now?: number;
+    isClientConnected?: (clientId: string) => boolean;
+  } = {},
+): RecordingClaimOutcome {
   if (!standaloneRecordingConversationId.has(recordingId)) {
-    return false;
+    return "missing";
   }
   const now = options.now ?? Date.now();
   const owner = recordingClientClaims.get(recordingId);
   if (owner?.clientId === clientId) {
     owner.expiresAt = now + RECORDING_CLAIM_LEASE_MS;
-    return true;
+    return "claimed";
   }
   if (
     owner &&
     owner.expiresAt > now &&
     (options.isClientConnected?.(owner.clientId) ?? true)
   ) {
-    return false;
+    return "occupied";
   }
   recordingClientClaims.set(recordingId, {
     clientId,
     expiresAt: now + RECORDING_CLAIM_LEASE_MS,
   });
-  return true;
+  return "claimed";
 }
 
 export function ownsRecordingClaim(
@@ -182,6 +195,10 @@ export function ownsRecordingClaim(
   clientId: string,
 ): boolean {
   return recordingClientClaims.get(recordingId)?.clientId === clientId;
+}
+
+export function hasRecordingClaim(recordingId: string): boolean {
+  return recordingClientClaims.has(recordingId);
 }
 
 // ─── Stop ────────────────────────────────────────────────────────────────────

@@ -157,6 +157,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 import {
   __resetRecordingState,
   claimRecording,
+  claimRecordingOutcome,
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
@@ -217,6 +218,9 @@ describe("handleRecordingStart", () => {
     expect(claimRecording(recordingId, "client-1")).toBeTrue();
     expect(claimRecording(recordingId, "client-1")).toBeTrue();
     expect(claimRecording(recordingId, "client-2")).toBeFalse();
+    expect(claimRecordingOutcome("missing-recording", "client-2")).toBe(
+      "missing",
+    );
   });
 
   test("allows reclaim after owner disconnect or lease expiry", () => {

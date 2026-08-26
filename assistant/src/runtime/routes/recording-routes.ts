@@ -15,13 +15,14 @@
 import { z } from "zod";
 
 import {
-  claimRecording,
+  claimRecordingOutcome,
   getActiveRestartToken,
   handleRecordingPause,
   handleRecordingResume,
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
+  hasRecordingClaim,
   isRecordingIdle,
   ownsRecordingClaim,
 } from "../../daemon/handlers/recording.js";
@@ -89,16 +90,28 @@ function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
   if (typeof recordingId !== "string") {
     throw new BadRequestError("recordingId is required");
   }
-  return {
-    claimed: claimRecording(recordingId, requireClientId(headers), {
-      isClientConnected: (clientId) =>
-        Boolean(assistantEventHub.getClientById(clientId)),
-    }),
-  };
+  const outcome = claimRecordingOutcome(recordingId, requireClientId(headers), {
+    isClientConnected: (clientId) =>
+      Boolean(assistantEventHub.getClientById(clientId)),
+  });
+  return { claimed: outcome === "claimed", outcome };
 }
 
 function requireRecordingOwner(recordingId: string, clientId: string): void {
   if (!ownsRecordingClaim(recordingId, clientId)) {
+    throw new ConflictError("Recording belongs to another client");
+  }
+}
+
+function requireStatusOwner(recordingId: string, clientId: string): void {
+  if (ownsRecordingClaim(recordingId, clientId)) {
+    return;
+  }
+  if (hasRecordingClaim(recordingId)) {
+    throw new ConflictError("Recording belongs to another client");
+  }
+  const outcome = claimRecordingOutcome(recordingId, clientId);
+  if (outcome !== "claimed") {
     throw new ConflictError("Recording belongs to another client");
   }
 }
@@ -272,7 +285,7 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError(`Invalid status: ${body.status}`);
   }
 
-  requireRecordingOwner(body.conversationId, requireClientId(headers));
+  requireStatusOwner(body.conversationId, requireClientId(headers));
 
   const msg: RecordingStatus = {
     ...(body as Omit<RecordingStatus, "type">),
@@ -343,6 +356,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       claimed: z.boolean(),
+      outcome: z.enum(["claimed", "occupied", "missing"]),
     }),
     handler: handleClaimRecording,
   },

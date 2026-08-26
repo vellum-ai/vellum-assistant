@@ -5,6 +5,7 @@ import {
   claimRecording,
   handleRecordingStart,
   isRecordingIdle,
+  ownsRecordingClaim,
 } from "../../daemon/handlers/recording.js";
 import { ROUTES } from "./recording-routes.js";
 
@@ -42,4 +43,15 @@ test("rejects status callbacks from a stale recording owner", async () => {
   ).rejects.toThrow("another client");
 
   expect(isRecordingIdle()).toBeFalse();
+});
+
+test("accepts a legacy started status when no client claimed first", async () => {
+  const recordingId = handleRecordingStart("conv-1", undefined)!;
+
+  await statusHandler({
+    body: { conversationId: recordingId, status: "started" },
+    headers: { "x-vellum-client-id": "legacy-client" },
+  } as never);
+
+  expect(ownsRecordingClaim(recordingId, "legacy-client")).toBeTrue();
 });
