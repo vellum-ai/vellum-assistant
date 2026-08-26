@@ -45,6 +45,16 @@ const { installScreenRecording, resolveScreenRecordingDirectory } =
   await import("./screen-recording");
 
 const tempDirs: string[] = [];
+const waitForRemoval = async (filePath: string): Promise<void> => {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (!existsSync(filePath)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for removal: ${filePath}`);
+};
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -191,7 +201,7 @@ test("releases a partial recording when its renderer is destroyed", async () => 
   await invoke("vellum:screenRecording:begin", firstId);
   owner.emit("destroyed");
   await invoke("vellum:screenRecording:begin", secondId);
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await waitForRemoval(firstPath);
 
   expect(existsSync(firstPath)).toBeFalse();
   await invoke("vellum:screenRecording:abort", secondId);
@@ -207,7 +217,7 @@ test("cleans up an active recording before app shutdown", async () => {
 
   await invoke("vellum:screenRecording:begin", recordingId);
   quit();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await waitForRemoval(recordingPath);
 
   expect(existsSync(recordingPath)).toBeFalse();
 });
