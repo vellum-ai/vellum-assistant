@@ -145,7 +145,7 @@
       "disconnectedPitch": "Подключение аккаунта Twilio, чтобы {assistant} мог звонить и отвечать на звонки."
     }
   },
-  "emailServiceCard": {
+  "emailChannelSection": {
     "apiKeyConfigured": "API-ключ {providerName} настроен. Повторная настройка: запуск навыка <code>{setupSkill}</code>.",
     "connecting": "Подключение к платформе Vellum…",
     "openProvider": "Открыть {providerName}",

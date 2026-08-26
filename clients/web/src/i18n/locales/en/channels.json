@@ -145,7 +145,7 @@
       "disconnectedPitch": "Connect your Twilio account so {assistant} can make and answer phone calls."
     }
   },
-  "emailServiceCard": {
+  "emailChannelSection": {
     "apiKeyConfigured": "{providerName} API key configured. To reconfigure, run the <code>{setupSkill}</code> skill.",
     "connecting": "Connecting to the Vellum platform…",
     "openProvider": "Open {providerName}",

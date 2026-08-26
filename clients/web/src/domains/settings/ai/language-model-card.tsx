@@ -80,67 +80,71 @@ export function LanguageModelCard({
 
   return (
     <ByoServiceCard
-      title={t("languageModelCard.title")}
-      subtitle={t("languageModelCard.subtitle")}
-    >
-      <div className="space-y-2">
-        {availability && availability.status !== "ok" && (
-          // The server owns the explainable wording - render its message
-          // verbatim. `unknown` is transient (credential store unreachable),
-          // everything else is a config problem the user must fix.
-          <Notice
-            tone={availability.status === "unknown" ? "warning" : "error"}
-          >
-            {availability.message ??
-              t("languageModelCard.defaultProviderUnavailable")}
-          </Notice>
-        )}
-
-        {assistantId && (
-          <ProfilesSection
-            assistantId={assistantId}
-            config={config}
-            connections={connections}
-            selectedProfileName={panel?.kind === "profile" ? panel.name : null}
-            onOpenProfile={(name) => onOpenPanel({ kind: "profile", name })}
-            onCreateProfile={() => onOpenPanel({ kind: "create-profile" })}
-            onProfileDeleted={(name) => {
-              if (panel?.kind === "profile" && panel.name === name) {
-                onClosePanel();
-              }
-            }}
-          />
-        )}
-
-        {assistantId && (
-          <ProvidersSection
-            assistantId={assistantId}
-            selectedConnectionName={
-              panel?.kind === "provider" ? panel.name : null
-            }
-            onOpenConnection={(name) => onOpenPanel({ kind: "provider", name })}
-            onAddProvider={() => onOpenPanel({ kind: "add-provider" })}
-            onConnectionDeleted={(name) => {
-              if (panel?.kind === "provider" && panel.name === name) {
-                onClosePanel();
-              }
-            }}
-          />
-        )}
-
-        <LanguageModelSection
-          title={t("languageModelCard.overridesTitle")}
-          count={overrideCount}
-          action={
-            <Button
-              variant="outlined"
-              onClick={() => onOpenPanel({ kind: "overrides" })}
+        title={t("languageModelCard.title")}
+        subtitle={t("languageModelCard.subtitle")}
+      >
+        <div className="space-y-2">
+          {availability && availability.status !== "ok" && (
+            // The server owns the explainable wording - render its message
+            // verbatim. `unknown` is transient (credential store unreachable),
+            // everything else is a config problem the user must fix.
+            <Notice
+              tone={availability.status === "unknown" ? "warning" : "error"}
             >
-              {t("languageModelCard.manage")}
-            </Button>
-          }
-        />
-      </div>
+              {availability.message ??
+                t("languageModelCard.defaultProviderUnavailable")}
+            </Notice>
+          )}
+
+          {assistantId && (
+            <ProfilesSection
+              assistantId={assistantId}
+              config={config}
+              connections={connections}
+              selectedProfileName={
+                panel?.kind === "profile" ? panel.name : null
+              }
+              onOpenProfile={(name) => onOpenPanel({ kind: "profile", name })}
+              onCreateProfile={() => onOpenPanel({ kind: "create-profile" })}
+              onProfileDeleted={(name) => {
+                if (panel?.kind === "profile" && panel.name === name) {
+                  onClosePanel();
+                }
+              }}
+            />
+          )}
+
+          {assistantId && (
+            <ProvidersSection
+              assistantId={assistantId}
+              selectedConnectionName={
+                panel?.kind === "provider" ? panel.name : null
+              }
+              onOpenConnection={(name) =>
+                onOpenPanel({ kind: "provider", name })
+              }
+              onAddProvider={() => onOpenPanel({ kind: "add-provider" })}
+              onConnectionDeleted={(name) => {
+                if (panel?.kind === "provider" && panel.name === name) {
+                  onClosePanel();
+                }
+              }}
+            />
+          )}
+
+          <LanguageModelSection
+            title={t("languageModelCard.overridesTitle")}
+            count={overrideCount}
+            action={
+              <Button
+                variant="outlined"
+                onClick={() => onOpenPanel({ kind: "overrides" })}
+              >
+                {t("languageModelCard.manage")}
+              </Button>
+            }
+          />
+        </div>
     </ByoServiceCard>
   );
 }

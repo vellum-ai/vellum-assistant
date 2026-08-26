@@ -240,7 +240,11 @@ export function WebSearchCard() {
     setDraftWebSearchApiBase("");
     setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
-  }, [webSearchProvider, setDraftWebSearchProvider, setDraftWebSearchApiBase]);
+  }, [
+    webSearchProvider,
+    setDraftWebSearchProvider,
+    setDraftWebSearchApiBase,
+  ]);
 
   return (
     <ByoServiceCard
