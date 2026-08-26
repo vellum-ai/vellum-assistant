@@ -1245,7 +1245,7 @@ describe("deeplink.openCamera", () => {
 });
 
 describe("deeplink.connect", () => {
-  test("a bundle link opens the connect dialog prefilled and navigates to the chooser", () => {
+  test("a legacy bundle link opens the dialog with guidance, never prefilled", () => {
     renderConsumer();
 
     act(() => {
@@ -1254,8 +1254,13 @@ describe("deeplink.connect", () => {
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
-    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
-    expect(dialog.guidanceMessage).toBeNull();
+    // The bundle is secret material with no renderer importer: it must not
+    // reach the address field, where submitting it would fail the parser.
+    expect(dialog.initialAddress).toBeNull();
+    expect(dialog.guidanceMessage).toBe(
+      "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here.",
+    );
+    expect(JSON.stringify(dialog)).not.toContain("eyJnYXRld2F5");
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
@@ -1272,9 +1277,9 @@ describe("deeplink.connect", () => {
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
-    expect(dialog.initialBundle).toBeNull();
+    expect(dialog.initialAddress).toBeNull();
     expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine at office-mac.example:8443 and paste the bundle here.",
+      "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine at office-mac.example:8443 here.",
     );
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
@@ -1290,12 +1295,12 @@ describe("deeplink.connect", () => {
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
     expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine and paste the bundle here.",
+      "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine here.",
     );
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
   });
 
-  test("a bundle wins over guidance when both fields arrive", () => {
+  test("a bundle still routes to the legacy guidance when a url rides along", () => {
     renderConsumer();
 
     act(() => {
@@ -1306,8 +1311,10 @@ describe("deeplink.connect", () => {
     });
 
     const dialog = useConnectDialogStore.getState();
-    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
-    expect(dialog.guidanceMessage).toBeNull();
+    expect(dialog.initialAddress).toBeNull();
+    expect(dialog.guidanceMessage).toBe(
+      "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here.",
+    );
   });
 });
 

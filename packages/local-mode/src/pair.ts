@@ -345,7 +345,15 @@ export type PairingFailureReason =
   | "expired"
   /** The assistant could not be reached. */
   | "unreachable"
-  /** The assistant answered, but not with a pairing response. */
+  /**
+   * The assistant refused the request with a status that left the device code
+   * exchangeable, so the same session is worth another attempt.
+   */
+  | "gateway-retryable"
+  /**
+   * The assistant answered, but with a reply this device cannot use. The code
+   * behind it is spent or unknowable, so the attempt is settled.
+   */
   | "gateway"
   /** The credentials arrived, but registering them locally was refused. */
   | "import";
@@ -405,16 +413,37 @@ interface PendingPairing {
   deviceId: string;
   expiresAtMs: number;
   intervalSeconds: number;
+  /**
+   * Aborted when the session leaves {@link pendingPairings}: it stops the
+   * exchange in flight and marks the session as one no caller is waiting on.
+   * {@link pairingPoll} reads this signal rather than the map so a dead
+   * session is distinguishable from a map lookup that simply raced.
+   */
+  abort: AbortController;
 }
 
+/**
+ * Live pairing sessions by handle.
+ *
+ * The rule for leaving this map: a session that is removed is aborted on the
+ * way out, so an exchange still in flight for it can never persist. That holds
+ * for a cancel, an expiry sweep, and a code the gateway reports dead. The one
+ * exception is the delete that follows an approved 200, whose exchange has
+ * already succeeded and is being persisted by the very call that removes it.
+ */
 const pendingPairings = new Map<string, PendingPairing>();
 
-/** Drop sessions past their challenge's TTL so the map can't grow unbounded. */
+/**
+ * Drop sessions past their challenge's TTL so the map can't grow unbounded.
+ * Each eviction aborts, so an exchange that left while its session was live
+ * cannot persist credentials once the session is gone.
+ */
 function sweepExpiredPairings(): void {
   const now = Date.now();
   for (const [handle, session] of pendingPairings) {
     if (now >= session.expiresAtMs) {
       pendingPairings.delete(handle);
+      session.abort.abort();
     }
   }
 }
@@ -449,6 +478,22 @@ function invalidAddress(
     status: 400,
     error,
     rejection,
+  };
+}
+
+/**
+ * No live session behind a handle: never opened, already settled, or
+ * cancelled. A cancel that lands mid-exchange answers with this too, since
+ * from the caller's side the outcome is the same: the attempt is over and a
+ * retry needs a fresh code. Never retryable, so a caller cannot spin against
+ * a session it just killed.
+ */
+function unknownSession(): PairingFailure {
+  return {
+    ok: false,
+    reason: "unknown-session",
+    status: 404,
+    error: "That pairing attempt is no longer active. Start over.",
   };
 }
 
@@ -491,12 +536,28 @@ function unusableGatewayCredentials(): PairingFailure {
   };
 }
 
-function unexpectedGatewayReply(status: number): PairingFailure {
+function unusableChallengeReply(): PairingFailure {
   return {
     ok: false,
     reason: "gateway",
     status: 502,
-    error: `The assistant's pairing reply could not be used (HTTP ${status}).`,
+    error:
+      "The assistant answered the pairing request with something this device cannot use.",
+  };
+}
+
+/**
+ * A refusal the assistant answered with instead of a reply it completed. The
+ * gateway releases the device code on these (a transient failure, or one that
+ * needs repair), so the code stays exchangeable and the caller is meant to try
+ * the same session again.
+ */
+function retryableGatewayReply(status: number): PairingFailure {
+  return {
+    ok: false,
+    reason: "gateway-retryable",
+    status: 502,
+    error: `The assistant could not finish the pairing (HTTP ${status}). Trying again may work.`,
   };
 }
 
@@ -560,12 +621,18 @@ async function readPairingBody(response: Response): Promise<PairingBody> {
  * loopback or plaintext target could be reached through a validated public
  * URL. A pairing endpoint has no reason to redirect, and fetch rejects the
  * attempt as a transport failure.
+ *
+ * `cancelSignal` cuts a request short when its session is cancelled. An abort
+ * reads as a transport failure here, so the caller that owns the signal has to
+ * report the cancellation itself rather than passing this failure on.
  */
 async function postPairingRequest(
   publicBaseUrl: string,
   routePath: string,
   body: unknown,
+  cancelSignal?: AbortSignal,
 ): Promise<PairingPost> {
+  const timeout = AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${publicBaseUrl}${routePath}`, {
@@ -573,7 +640,7 @@ async function postPairingRequest(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       redirect: "error",
-      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS),
+      signal: cancelSignal ? AbortSignal.any([timeout, cancelSignal]) : timeout,
     });
   } catch {
     return { ok: false, failure: unreachableAssistant() };
@@ -690,11 +757,11 @@ function positiveSeconds(value: unknown, fallback: number): number {
 }
 
 function openPairingSession(
-  session: PendingPairing,
+  session: Omit<PendingPairing, "abort">,
   userCode: string | null,
 ): PairingStarted {
   const handle = nanoid();
-  pendingPairings.set(handle, session);
+  pendingPairings.set(handle, { ...session, abort: new AbortController() });
   return {
     ok: true,
     handle,
@@ -761,8 +828,13 @@ export async function pairingStart(
   if (!posted.ok) {
     return posted.failure;
   }
-  if (posted.status !== 200 || !isChallengeResponse(posted.body)) {
-    return unexpectedGatewayReply(posted.status);
+  // A refused mint leaves nothing spent, so the same address is worth another
+  // attempt; a 200 that is not a challenge is a reply this device cannot use.
+  if (posted.status !== 200) {
+    return retryableGatewayReply(posted.status);
+  }
+  if (!isChallengeResponse(posted.body)) {
+    return unusableChallengeReply();
   }
 
   const challenge = posted.body;
@@ -797,6 +869,10 @@ export interface PairingPollOptions {
  * One device-code exchange attempt for a live session. Still-pending
  * challenges resolve with the cadence to wait before trying again; an approved
  * one is registered through {@link pairAssistant} in the same call.
+ *
+ * A {@link pairingCancel} that lands while the exchange is in flight ends the
+ * attempt with nothing persisted, so a dismissed dialog or an interrupted CLI
+ * never leaves credentials for an assistant the user declined to pair.
  */
 export async function pairingPoll(
   lockfilePaths: string[],
@@ -806,15 +882,11 @@ export async function pairingPoll(
   const key = typeof handle === "string" ? handle : "";
   const session = pendingPairings.get(key);
   if (!session) {
-    return {
-      ok: false,
-      reason: "unknown-session",
-      status: 404,
-      error: "That pairing attempt is no longer active. Start over.",
-    };
+    return unknownSession();
   }
   if (Date.now() >= session.expiresAtMs) {
     pendingPairings.delete(key);
+    session.abort.abort();
     return expiredCode();
   }
 
@@ -826,7 +898,23 @@ export async function pairingPoll(
       deviceId: session.deviceId,
       platform: resolveRemoteWebPairingPlatform(platform),
     } satisfies RemoteWebPairingTokenRequest,
+    session.abort.signal,
   );
+  // A cancel that lands while the gateway is answering: the caller closed the
+  // dialog or interrupted the CLI, so the attempt is over and NOTHING is
+  // persisted. This is the only guard the import needs, because no await sits
+  // between here and `pairAssistant` below. It also outranks the transport
+  // failure an aborted request produces, which would otherwise read as the
+  // retryable `unreachable`.
+  //
+  // Residual: a cancel landing after the gateway recorded the device leaves
+  // the code spent and a device credential registered gateway-side with
+  // nothing local behind it. That row is visible and revocable in the host's
+  // paired-devices list, which is where it belongs; keeping nothing locally is
+  // what the user asked for.
+  if (session.abort.signal.aborted) {
+    return unknownSession();
+  }
   // The session survives a transport failure so the caller can simply poll
   // again; the device code is untouched until the gateway answers.
   if (!posted.ok) {
@@ -853,17 +941,21 @@ export async function pairingPoll(
   // code alike: the attempt is over and needs a fresh code.
   if (posted.status === 401 || posted.status === 404 || posted.status === 410) {
     pendingPairings.delete(key);
+    session.abort.abort();
     return expiredCode();
   }
   // Anything else left the code exchangeable (the gateway releases it on a
-  // repairable failure), so the session stays pollable.
+  // repairable failure), so the session stays pollable and the failure is
+  // reported as one the caller should retry.
   if (posted.status !== 200) {
-    return unexpectedGatewayReply(posted.status);
+    return retryableGatewayReply(posted.status);
   }
 
   // Past here the gateway has spent the code, so the session goes whether or
   // not the reply is usable and whether or not the local write succeeds; a
-  // retry starts from a fresh code.
+  // retry starts from a fresh code. This is the one removal that does NOT
+  // abort: the exchange it drops the session for has already succeeded and is
+  // persisted right below.
   pendingPairings.delete(key);
   const approved = approvedCredentials(posted.body);
   if (!approved) {
@@ -898,10 +990,28 @@ export async function pairingPoll(
   };
 }
 
-/** Forget a pending pairing. True when a live session was dropped. */
+/**
+ * Forget a pending pairing. True when a live session was dropped.
+ *
+ * Aborting the session also cuts short an exchange already in flight, so a
+ * cancel that beats the gateway's reply can leave the device code unspent, and
+ * one that does not still stops {@link pairingPoll} short of persisting
+ * anything.
+ */
 export function pairingCancel(handle: unknown): boolean {
+  let dropped = false;
+  if (typeof handle === "string") {
+    const session = pendingPairings.get(handle);
+    if (session) {
+      pendingPairings.delete(handle);
+      session.abort.abort();
+      dropped = true;
+    }
+  }
+  // Swept after the named session goes, so a cancel still aborts an exchange
+  // whose session crossed its expiry while the gateway was answering.
   sweepExpiredPairings();
-  return typeof handle === "string" && pendingPairings.delete(handle);
+  return dropped;
 }
 
 // ── Legacy base64 bundle import ─────────────────────────────────────────────

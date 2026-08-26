@@ -1,13 +1,16 @@
 /**
- * Behavioral tests for the paste-a-bundle connect dialog: the host import op
- * receives the trimmed bundle and optional name, host failures render their
- * structured error copy verbatim, an access-only pairing interposes the expiry
- * warning before `onImported`, and a refresh-capable pairing completes
- * immediately. Self-contained mocks: run this file solo (`mock.module` leaks
- * across a shared `bun test` run).
+ * Behavioral tests for the one-field connect dialog: a pairing link imports on
+ * the first poll with no intermediate state, a bare address shows its approval
+ * code and polls until the host approves, host failures render their structured
+ * error copy verbatim, an unreachable host is polled through without losing
+ * the approval code, an access-only pairing interposes the expiry warning
+ * before `onImported`, and cancelling drops the host-side session.
+ * Self-contained mocks: run this file solo (`mock.module` leaks across a shared
+ * `bun test` run).
  */
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -19,25 +22,69 @@ import type { ComponentProps, ReactNode } from "react";
 
 // --- Mutable per-test state, reset in beforeEach ------------------------------
 
-type ImportResult =
-  | { ok: true; assistantId: string; accessOnly: boolean }
+type StartResult =
+  | {
+      ok: true;
+      handle: string;
+      userCode: string | null;
+      expiresAt: string;
+      intervalSeconds: number;
+    }
   | { ok: false; error: string };
 
-const importPairedAssistantBundleMock = mock(
-  async (_bundle: string, _name?: string): Promise<ImportResult> => ({
+type PairingFailureReason =
+  | "invalid-address"
+  | "unknown-session"
+  | "expired"
+  | "unreachable"
+  | "gateway-retryable"
+  | "gateway"
+  | "import";
+
+type PollResult =
+  | { ok: true; status: "pending"; expiresAt: string; intervalSeconds: number }
+  | { ok: true; status: "imported"; assistantId: string; accessOnly: boolean }
+  | { ok: false; error: string; reason?: PairingFailureReason };
+
+const startedFromLink: StartResult = {
+  ok: true,
+  handle: "handle-1",
+  userCode: null,
+  expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  // Zero keeps a polling test from waiting on a real timer: the loop yields to
+  // the microtask queue and comes straight back.
+  intervalSeconds: 0,
+};
+
+const startAssistantPairingMock = mock(
+  async (_address: string): Promise<StartResult> => startedFromLink,
+);
+
+const pollAssistantPairingMock = mock(
+  async (_handle: string, _name?: string): Promise<PollResult> => ({
     ok: true,
+    status: "imported",
     assistantId: "paired-new",
     accessOnly: false,
   }),
 );
+
+const cancelAssistantPairingMock = mock(async (_handle: string) => {});
 
 const onCloseMock = mock(() => {});
 const onImportedMock = mock((_assistantId: string) => {});
 
 // --- Mocks --------------------------------------------------------------------
 
+// Mirrors the real classifier, which is covered against every reason in
+// `src/lib/local-mode.test.ts`; restated here because this file replaces the
+// whole module rather than pulling its transport dependencies in.
 mock.module("@/lib/local-mode", () => ({
-  importPairedAssistantBundle: importPairedAssistantBundleMock,
+  startAssistantPairing: startAssistantPairingMock,
+  pollAssistantPairing: pollAssistantPairingMock,
+  cancelAssistantPairing: cancelAssistantPairingMock,
+  isRetryablePairingFailure: (failure: { reason?: PairingFailureReason }) =>
+    failure.reason === "unreachable" || failure.reason === "gateway-retryable",
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
@@ -61,12 +108,6 @@ mock.module("@vellumai/design-library/components/input", () => ({
     fullWidth: _fullWidth,
     ...props
   }: ComponentProps<"input"> & { fullWidth?: boolean }) => <input {...props} />,
-  Textarea: ({
-    fullWidth: _fullWidth,
-    ...props
-  }: ComponentProps<"textarea"> & { fullWidth?: boolean }) => (
-    <textarea {...props} />
-  ),
 }));
 
 mock.module("@vellumai/design-library/components/modal", () => ({
@@ -86,16 +127,13 @@ mock.module("@vellumai/design-library/components/notice", () => ({
   Notice: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-const { ConnectAssistantDialog } = await import(
-  "@/domains/onboarding/components/connect-assistant-dialog"
-);
+const { ConnectAssistantDialog } =
+  await import("@/domains/onboarding/components/connect-assistant-dialog");
 
 // --- Helpers ------------------------------------------------------------------
 
 function renderDialog(
-  overrides: Partial<
-    ComponentProps<typeof ConnectAssistantDialog>
-  > = {},
+  overrides: Partial<ComponentProps<typeof ConnectAssistantDialog>> = {},
 ) {
   return render(
     <ConnectAssistantDialog
@@ -107,8 +145,8 @@ function renderDialog(
   );
 }
 
-function fillBundle(value: string): void {
-  fireEvent.change(screen.getByLabelText("Pairing bundle"), {
+function fillAddress(value: string): void {
+  fireEvent.change(screen.getByLabelText("Address or pairing link"), {
     target: { value },
   });
 }
@@ -117,98 +155,342 @@ function fillBundle(value: string): void {
 
 describe("ConnectAssistantDialog", () => {
   beforeEach(() => {
-    importPairedAssistantBundleMock.mockClear();
-    importPairedAssistantBundleMock.mockImplementation(async () => ({
+    startAssistantPairingMock.mockClear();
+    startAssistantPairingMock.mockImplementation(async () => startedFromLink);
+    pollAssistantPairingMock.mockClear();
+    pollAssistantPairingMock.mockImplementation(async () => ({
       ok: true,
+      status: "imported",
       assistantId: "paired-new",
       accessOnly: false,
     }));
+    cancelAssistantPairingMock.mockClear();
     onCloseMock.mockClear();
     onImportedMock.mockClear();
   });
 
   afterEach(cleanup);
 
-  test("submits the trimmed bundle and name and completes via onImported", async () => {
+  test("a pairing link imports on the first poll with no approval step", async () => {
     renderDialog();
 
-    fillBundle("  eyJnYXRld2F5...  ");
+    fillAddress("  https://gw.example.com/assistant/pair#device_code=abc  ");
     fireEvent.change(screen.getByLabelText("Name (optional)"), {
       target: { value: "  desk  " },
     });
     fireEvent.click(screen.getByText("Connect"));
 
     await waitFor(() =>
-      expect(importPairedAssistantBundleMock).toHaveBeenCalledWith(
-        "eyJnYXRld2F5...",
-        "desk",
+      expect(startAssistantPairingMock).toHaveBeenCalledWith(
+        "https://gw.example.com/assistant/pair#device_code=abc",
       ),
     );
     await waitFor(() =>
       expect(onImportedMock).toHaveBeenCalledWith("paired-new"),
     );
+    expect(pollAssistantPairingMock).toHaveBeenCalledWith("handle-1", "desk");
+    expect(screen.queryByText(/Waiting for approval/)).toBeNull();
   });
 
   test("a blank name is passed as undefined", async () => {
     renderDialog();
 
-    fillBundle("eyJnYXRld2F5...");
+    fillAddress("https://gw.example.com");
     fireEvent.click(screen.getByText("Connect"));
 
     await waitFor(() =>
-      expect(importPairedAssistantBundleMock).toHaveBeenCalledWith(
-        "eyJnYXRld2F5...",
+      expect(pollAssistantPairingMock).toHaveBeenCalledWith(
+        "handle-1",
         undefined,
       ),
     );
   });
 
-  test("Connect stays disabled until a bundle is pasted", () => {
+  test("a bare address shows its approval code and polls until approved", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    let polls = 0;
+    pollAssistantPairingMock.mockImplementation(async () => {
+      polls += 1;
+      if (polls === 1) {
+        return {
+          ok: true,
+          status: "pending",
+          expiresAt: startedFromLink.expiresAt,
+          intervalSeconds: 0,
+        };
+      }
+      return {
+        ok: true,
+        status: "imported",
+        assistantId: "paired-new",
+        accessOnly: false,
+      };
+    });
     renderDialog();
 
-    expect(
-      (screen.getByText("Connect") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
 
-    fillBundle("eyJnYXRld2F5...");
-
+    await waitFor(() => expect(screen.getByText("ABCD-EFGH")).toBeTruthy());
     expect(
-      (screen.getByText("Connect") as HTMLButtonElement).disabled,
-    ).toBe(false);
+      screen.getByText(
+        "Approve this code on the assistant's machine to finish connecting.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Waiting for approval…")).toBeTruthy();
+    expect(screen.getByText(/Expires in \d+:\d\d/)).toBeTruthy();
+
+    await waitFor(() =>
+      expect(onImportedMock).toHaveBeenCalledWith("paired-new"),
+    );
+  });
+
+  test("Connect stays disabled until an address is entered", () => {
+    renderDialog();
+
+    expect((screen.getByText("Connect") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    fillAddress("https://gw.example.com");
+
+    expect((screen.getByText("Connect") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 
   test.each([
-    "invalid pairing bundle. Paste the full base64 string printed by vellum pair.",
+    "That address points back at this machine. Use the assistant's public https address.",
     "an assistant named 'desk' already exists locally. Choose a different name to avoid overwriting it.",
     "Connecting a paired assistant is not supported by this app version",
   ])("a host failure renders its error copy verbatim: %s", async (error) => {
-    importPairedAssistantBundleMock.mockImplementation(async () => ({
+    startAssistantPairingMock.mockImplementation(async () => ({
       ok: false,
       error,
     }));
     renderDialog();
 
-    fillBundle("eyJnYXRld2F5...");
+    fillAddress("https://gw.example.com");
     fireEvent.click(screen.getByText("Connect"));
 
     await waitFor(() => expect(screen.getByText(error)).toBeTruthy());
     expect(onImportedMock).not.toHaveBeenCalled();
   });
 
+  test("an expired code returns to the form with the host's error", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    pollAssistantPairingMock.mockImplementation(async () => ({
+      ok: false,
+      error:
+        "The pairing code expired or was denied. Start over to get a new one.",
+    }));
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/The pairing code expired or was denied/),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("ABCD-EFGH")).toBeNull();
+    expect(screen.getByLabelText("Address or pairing link")).toBeTruthy();
+    expect(onImportedMock).not.toHaveBeenCalled();
+  });
+
+  test("a transient unreachable poll retries without losing the approval code", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    let resolveRetry: (result: PollResult) => void = () => {};
+    let polls = 0;
+    pollAssistantPairingMock.mockImplementation(() => {
+      polls += 1;
+      if (polls === 1) {
+        return Promise.resolve<PollResult>({
+          ok: false,
+          reason: "unreachable",
+          error:
+            "Could not reach that assistant. Check the address and that it is online.",
+        });
+      }
+      // Parked so the retry state stays on screen long enough to assert.
+      return new Promise<PollResult>((resolve) => {
+        resolveRetry = resolve;
+      });
+    });
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "The assistant isn't ready to pair yet. Still trying until the code expires.",
+        ),
+      ).toBeTruthy(),
+    );
+    // The host-side session and the code it minted both survive the blip.
+    expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
+    expect(screen.getByText("ABCD-EFGH")).toBeTruthy();
+    expect(screen.getByText(/Expires in \d+:\d\d/)).toBeTruthy();
+    expect(screen.queryByLabelText("Address or pairing link")).toBeNull();
+
+    await act(async () => {
+      resolveRetry({
+        ok: true,
+        status: "imported",
+        assistantId: "paired-new",
+        accessOnly: false,
+      });
+    });
+
+    await waitFor(() =>
+      expect(onImportedMock).toHaveBeenCalledWith("paired-new"),
+    );
+    expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
+  });
+
+  test("a repairable gateway refusal retries without losing the approval code", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    let polls = 0;
+    pollAssistantPairingMock.mockImplementation(async () => {
+      polls += 1;
+      if (polls === 1) {
+        return {
+          ok: false,
+          reason: "gateway-retryable",
+          error: "The assistant could not finish the pairing (HTTP 503).",
+        };
+      }
+      return {
+        ok: true,
+        status: "imported",
+        assistantId: "paired-new",
+        accessOnly: false,
+      };
+    });
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    // The gateway released the code, so the approved session finishes on the
+    // next attempt rather than sending the user back to mint another code.
+    await waitFor(() =>
+      expect(onImportedMock).toHaveBeenCalledWith("paired-new"),
+    );
+    expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
+    expect(pollAssistantPairingMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a settled failure ends the session and returns to the form", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    pollAssistantPairingMock.mockImplementation(async () => ({
+      ok: false,
+      reason: "gateway",
+      error:
+        "The assistant approved the pairing but returned credentials this device cannot use.",
+    }));
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "The assistant approved the pairing but returned credentials this device cannot use.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(pollAssistantPairingMock).toHaveBeenCalledTimes(1);
+    expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-1");
+    expect(screen.queryByText("ABCD-EFGH")).toBeNull();
+    expect(onImportedMock).not.toHaveBeenCalled();
+  });
+
+  test("retrying stops once the pairing code has expired", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+      expiresAt: new Date(Date.now() - 1_000).toISOString(),
+    }));
+    pollAssistantPairingMock.mockImplementation(async () => ({
+      ok: false,
+      reason: "unreachable",
+      error:
+        "Could not reach that assistant. Check the address and that it is online.",
+    }));
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "The pairing code expired before the assistant was ready to pair. Start over to get a new one.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(pollAssistantPairingMock).toHaveBeenCalledTimes(1);
+    expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-1");
+    expect(screen.getByLabelText("Address or pairing link")).toBeTruthy();
+    expect(onImportedMock).not.toHaveBeenCalled();
+  });
+
+  test("an unreachable host ends a pairing-link attempt at once", async () => {
+    pollAssistantPairingMock.mockImplementation(async () => ({
+      ok: false,
+      reason: "unreachable",
+      error:
+        "Could not reach that assistant. Check the address and that it is online.",
+    }));
+    renderDialog();
+
+    fillAddress("https://gw.example.com/assistant/pair#device_code=abc");
+    fireEvent.click(screen.getByText("Connect"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Could not reach that assistant/)).toBeTruthy(),
+    );
+    expect(pollAssistantPairingMock).toHaveBeenCalledTimes(1);
+    expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-1");
+  });
+
   test("an access-only pairing interposes the expiry warning before onImported", async () => {
-    importPairedAssistantBundleMock.mockImplementation(async () => ({
+    pollAssistantPairingMock.mockImplementation(async () => ({
       ok: true,
+      status: "imported",
       assistantId: "paired-new",
       accessOnly: true,
     }));
     renderDialog();
 
-    fillBundle("eyJnYXRld2F5...");
+    fillAddress("https://gw.example.com");
     fireEvent.click(screen.getByText("Connect"));
 
     await waitFor(() =>
       expect(
-        screen.getByText(/access-only: its access expires and cannot renew/),
+        screen.getByText(
+          /access-only: it works now, but its access expires and cannot renew itself\. When it does, generate a fresh pairing link/,
+        ),
       ).toBeTruthy(),
     );
     expect(onImportedMock).not.toHaveBeenCalled();
@@ -218,26 +500,129 @@ describe("ConnectAssistantDialog", () => {
     expect(onImportedMock).toHaveBeenCalledWith("paired-new");
   });
 
-  test("initialBundle prefills the paste field and guidanceMessage renders", () => {
+  test("initialAddress prefills the field and guidanceMessage renders", () => {
     renderDialog({
-      initialBundle: "eyJwcmVmaWxs...",
+      initialAddress: "https://gw.example.com",
       guidanceMessage: "Open this page from a pairing link to prefill it.",
     });
 
     expect(
-      (screen.getByLabelText("Pairing bundle") as HTMLTextAreaElement).value,
-    ).toBe("eyJwcmVmaWxs...");
+      (screen.getByLabelText("Address or pairing link") as HTMLInputElement)
+        .value,
+    ).toBe("https://gw.example.com");
     expect(
       screen.getByText("Open this page from a pairing link to prefill it."),
     ).toBeTruthy();
   });
 
-  test("Cancel closes without importing", () => {
+  test("Cancel closes without starting a pairing", () => {
     renderDialog();
 
     fireEvent.click(screen.getByText("Cancel"));
 
     expect(onCloseMock).toHaveBeenCalled();
-    expect(importPairedAssistantBundleMock).not.toHaveBeenCalled();
+    expect(startAssistantPairingMock).not.toHaveBeenCalled();
+  });
+
+  test("closing mid-approval drops the host-side session", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    pollAssistantPairingMock.mockImplementation(async () => ({
+      ok: true,
+      status: "pending",
+      expiresAt: startedFromLink.expiresAt,
+      intervalSeconds: 60,
+    }));
+    const { rerender } = renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(screen.getByText("ABCD-EFGH")).toBeTruthy());
+
+    rerender(
+      <ConnectAssistantDialog
+        open={false}
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-1"),
+    );
+  });
+
+  test("closing before the host answers drops the session it hands back", async () => {
+    let answer: (result: StartResult) => void = () => {};
+    startAssistantPairingMock.mockImplementation(
+      () =>
+        new Promise<StartResult>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { rerender } = renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(startAssistantPairingMock).toHaveBeenCalled());
+
+    rerender(
+      <ConnectAssistantDialog
+        open={false}
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+    // Nothing to cancel yet: the handle only exists once the host answers.
+    expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
+
+    answer({ ...startedFromLink, handle: "handle-late" });
+
+    await waitFor(() =>
+      expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-late"),
+    );
+    expect(cancelAssistantPairingMock).toHaveBeenCalledTimes(1);
+    expect(pollAssistantPairingMock).not.toHaveBeenCalled();
+    expect(onImportedMock).not.toHaveBeenCalled();
+  });
+
+  test("reopening does not resume the attempt abandoned by the close", async () => {
+    let answer: (result: StartResult) => void = () => {};
+    startAssistantPairingMock.mockImplementation(
+      () =>
+        new Promise<StartResult>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const { rerender } = renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(startAssistantPairingMock).toHaveBeenCalled());
+
+    rerender(
+      <ConnectAssistantDialog
+        open={false}
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+    rerender(
+      <ConnectAssistantDialog
+        open
+        onClose={onCloseMock}
+        onImported={onImportedMock}
+      />,
+    );
+
+    answer({ ...startedFromLink, handle: "handle-late" });
+
+    await waitFor(() =>
+      expect(cancelAssistantPairingMock).toHaveBeenCalledWith("handle-late"),
+    );
+    expect(pollAssistantPairingMock).not.toHaveBeenCalled();
+    expect(onImportedMock).not.toHaveBeenCalled();
   });
 });

@@ -1218,7 +1218,7 @@
     "publicUrlHelperTunnel": "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL.",
     "publicUrlLabel": "Public URL",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Scan with another device's camera, or open the link on it, to use {name} there.",
+    "subtitle": "Scan it with a phone's camera, or paste the link into another computer, to use {name} there.",
     "subtitleFallbackName": "this assistant",
     "title": "Pair a device"
   },
