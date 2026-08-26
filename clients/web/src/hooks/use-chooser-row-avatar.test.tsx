@@ -657,6 +657,30 @@ describe("useChooserRowAvatar", () => {
       expect(writeLastSeenAvatar).not.toHaveBeenCalled();
     });
 
+    test("a stale host none does not evict an entry persisted while it was in flight", async () => {
+      let resolveHost!: (v: { ok: true; avatar: null }) => void;
+      readAssistantAvatarHost.mockReturnValue(
+        new Promise((resolve) => {
+          resolveHost = resolve;
+        }),
+      );
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(readAssistantAvatarHost).toHaveBeenCalledTimes(1);
+      });
+      // A newer live persist supersedes the host read's claim.
+      actualLastSeenCache.lastSeenAvatarGenerations.claim("other");
+      resolveHost({ ok: true, avatar: null });
+      await settle();
+      expect(result.current).toEqual({ traits: null, imageUrl: null });
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
     test("resolves to nulls when the host and the cache have nothing", async () => {
       const { result } = renderHook(
         () => useChooserRowAvatar(localRow("other")),

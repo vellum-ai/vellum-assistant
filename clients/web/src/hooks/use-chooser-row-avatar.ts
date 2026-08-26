@@ -18,6 +18,7 @@ import {
 } from "@/lib/avatar-last-seen-cache";
 import { versionSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
+import { lastSeenAvatarGenerations } from "@/lib/avatar-last-seen-cache";
 import { createGenerationGuard } from "@/lib/generation-guard";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
 import {
@@ -181,12 +182,17 @@ async function readRowAvatarViaHost(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<LegacyAvatarRead> {
+  // Claimed before the read so a live persist that lands mid-flight outranks
+  // a stale host "none"; the eviction only runs while this claim is current.
+  const generation = lastSeenAvatarGenerations.claim(assistantId);
   const result = await readAssistantAvatarHost(assistantId);
   if (!result.ok) {
     return { ...EMPTY_AVATAR, conclusive: false };
   }
   if (result.avatar === null) {
-    void persistLastSeenAvatar(queryClient, assistantId, EMPTY_AVATAR);
+    if (lastSeenAvatarGenerations.isCurrent(assistantId, generation)) {
+      void persistLastSeenAvatar(queryClient, assistantId, EMPTY_AVATAR);
+    }
     return conclusive(EMPTY_AVATAR);
   }
   return conclusive(
