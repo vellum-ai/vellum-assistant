@@ -98,21 +98,20 @@ const DEFAULT_AT_BOTTOM_THRESHOLD = 64;
  * callback returns a truthy follow mode only while the user is already at the
  * bottom, so streaming never yanks a user who has scrolled up back down.
  *
- * A falsy prop disables following by resolving to `false`, and it must be
- * `false`, never `undefined`. Virtuoso applies every prop that is *present*
- * (`"followOutput" in props`), so an explicit `undefined` overrides its own
- * `false` default, and its internal checks are all strict `!== false` /
- * truthiness tests that read `undefined` as follow-output ON: the list then
- * re-pins itself to the bottom whenever its size grows or its viewport
- * shrinks. In a list whose `endReached` loads more rows that is a
- * self-sustaining loop: append, auto-scroll to bottom, `endReached`, append
- * (LUM-3466, the sidebar draining every conversation and parking at the
- * oldest row on cold boot).
+ * A falsy prop resolves to an explicit `false`, never `undefined`. Virtuoso
+ * applies every prop that is present (`"followOutput" in props`), so an
+ * explicit `undefined` overrides its own `false` default, and its internal
+ * checks are strict `!== false` / truthiness tests that read `undefined` as
+ * follow-output ON: the list then re-pins itself to the bottom whenever its
+ * size grows or its viewport shrinks, and paired with an `endReached` that
+ * loads more rows that is a self-sustaining drain loop.
  */
 export function resolveFollowOutput(
   followOutput: VirtualListProps<unknown>["followOutput"],
 ): FollowOutput {
-  if (!followOutput) return false;
+  if (!followOutput) {
+    return false;
+  }
   const mode = followOutput === "smooth" ? "smooth" : true;
   return (isAtBottom: boolean) => (isAtBottom ? mode : false);
 }

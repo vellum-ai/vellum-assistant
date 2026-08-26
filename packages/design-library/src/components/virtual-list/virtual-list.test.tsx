@@ -25,8 +25,7 @@ describe("resolveFollowOutput", () => {
     // `false` exactly, not merely falsy: virtuoso applies every prop that is
     // present on the element, so an explicit `undefined` overrides its own
     // `false` default and its strict `!== false` checks then read it as
-    // follow-output ON. That pinned the sidebar sections to the bottom and
-    // made endReached drain every page on cold boot (LUM-3466).
+    // follow-output ON, pinning a growing list to the bottom.
     expect(resolveFollowOutput(undefined)).toBe(false);
     expect(resolveFollowOutput(false)).toBe(false);
   });
