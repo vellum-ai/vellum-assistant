@@ -33,6 +33,9 @@ export const acpSessionHistory = sqliteTable(
     // Usage metadata. Null for rows written before these columns existed.
     task: text("task"),
     parentToolUseId: text("parent_tool_use_id"),
+    /** Credential failure that ended the run, when one did. Drives the inline
+     *  Connect card on reopen; cleared when a replacement token is stored. */
+    authErrorCode: text("auth_error_code"),
     usedTokens: integer("used_tokens"),
     contextSize: integer("context_size"),
     costAmount: real("cost_amount"),

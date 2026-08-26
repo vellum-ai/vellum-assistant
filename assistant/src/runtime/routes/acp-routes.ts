@@ -58,6 +58,9 @@ const sessionEntrySchema = z.object({
   stopReason: z.string().nullable().optional(),
   task: z.string().optional(),
   parentToolUseId: z.string().optional(),
+  /** Credential failure that ended the run, when one did. Drives the inline
+   *  Connect card on reopen; cleared when a replacement token is stored. */
+  authErrorCode: z.string().optional(),
   usedTokens: z.number().optional(),
   contextSize: z.number().optional(),
   costAmount: z.number().optional(),
@@ -725,6 +728,7 @@ function listMergedSessions(opts: {
       stopReason: s.stopReason ?? null,
       task: s.task,
       parentToolUseId: s.parentToolUseId,
+      authErrorCode: s.authErrorCode,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,
@@ -783,6 +787,7 @@ function listMergedSessions(opts: {
       stopReason: row.stopReason,
       task: row.task ?? undefined,
       parentToolUseId: row.parentToolUseId ?? undefined,
+      authErrorCode: row.authErrorCode ?? undefined,
       usedTokens: row.usedTokens ?? undefined,
       contextSize: row.contextSize ?? undefined,
       costAmount: row.costAmount ?? undefined,

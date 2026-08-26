@@ -32,6 +32,12 @@ export interface AcpSessionState {
   task?: string;
   /** Tool-use id of the `acp_spawn` call that spawned this session, if any. */
   parentToolUseId?: string;
+  /**
+   * Credential failure that ended the run, when one did. Persisted on the
+   * history row so a client that reopens the conversation can re-raise the
+   * inline Connect card, and cleared there when a replacement token lands.
+   */
+  authErrorCode?: string;
   /** Latest context-window usage gauge, from the most recent `usage_update`. */
   latestUsage?: AcpUsageSnapshot;
 }

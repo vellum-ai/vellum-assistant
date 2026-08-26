@@ -33,6 +33,8 @@ import {
   type AcpRunRawEvent,
 } from "@/domains/chat/acp-run-store";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 
 interface AcpSessionEventLogItem {
   updateType?: AcpRunRawEvent["updateType"];
@@ -57,6 +59,7 @@ interface AcpSessionRow {
   agent?: string;
   parentConversationId?: string;
   parentToolUseId?: string;
+  authErrorCode?: string;
   task?: string;
   status: string;
   stopReason?: string | null;
@@ -141,6 +144,7 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     startedAt: row.startedAt ?? Date.now(),
     completedAt: isTerminal ? (row.completedAt ?? undefined) : undefined,
     parentToolUseId: row.parentToolUseId,
+    authErrorCode: row.authErrorCode,
     usedTokens: row.usedTokens ?? 0,
     contextSize: row.contextSize ?? 0,
     inputTokens: row.inputTokens,
@@ -188,6 +192,38 @@ export async function fetchAcpSessions(
   }
 }
 
+/**
+ * Re-raise the inline Connect card for a run the daemon says died on a
+ * credential failure.
+ *
+ * The snapshot is the authoritative source for this, not the transcript. The
+ * row carries the failure, the conversation that owns it and the spawning tool
+ * call the card anchors to, and the daemon clears the failure when a
+ * replacement token is stored, so a repaired rejection stops re-raising on its
+ * own. The live `acp_auth_required` event covers the session that watched the
+ * failure happen; this covers every reopen after it.
+ *
+ * Newest last so the most recent failure wins when several are in the
+ * snapshot. `showAcpConnect` no-ops a prompt already retired this session, so
+ * a reconcile cannot resurrect one the user dismissed.
+ */
+export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
+  for (const entry of entries) {
+    if (
+      entry.authErrorCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE ||
+      entry.status === "cancelled" ||
+      !entry.parentToolUseId
+    ) {
+      continue;
+    }
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: entry.parentToolUseId,
+      reason: "auth_required",
+      conversationId: entry.parentConversationId || null,
+    });
+  }
+}
+
 /** Active run ids in the store that belong to `conversationId`. */
 function activeRunIdsFor(conversationId: string): string[] {
   const { byId, orderedIds } = useAcpRunStore.getState();
@@ -223,6 +259,7 @@ function applyAcpSnapshot(
   const store = useAcpRunStore.getState();
   if (entries.length > 0) {
     store.seedFromHistory(entries);
+    raiseAcpConnectFromSnapshot(entries);
   }
   if (entries.length >= ACP_SNAPSHOT_LIMIT) {
     return;

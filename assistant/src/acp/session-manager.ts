@@ -15,7 +15,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
-import { stampAcpAuthRequiredOnAnchor } from "./acp-auth-anchor-marker.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
@@ -973,6 +972,7 @@ export class AcpSessionManager {
     const usageColumns = {
       task: entry.state.task ?? null,
       parentToolUseId: entry.state.parentToolUseId ?? null,
+      authErrorCode: entry.state.authErrorCode ?? null,
       usedTokens: usage?.usedTokens ?? null,
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,
@@ -1171,13 +1171,11 @@ export class AcpSessionManager {
             // credential-prompt route redirects a redundant secure prompt at
             // the card instead of stacking a second one.
             markAcpConnectCardRaised(current.parentConversationId);
-            // The event above only reaches clients that are listening now. The
-            // registry outlives them, so without a persisted marker a client
-            // that reloads loses the card and still gets redirected at it.
-            void stampAcpAuthRequiredOnAnchor(
-              current.parentConversationId,
-              recoveryAnchor,
-            );
+            // The event above only reaches clients listening right now. The
+            // code goes on the state so `persistTerminal` (called just below)
+            // carries it to the history row, which is what a client that
+            // reopens the conversation re-raises the card from.
+            current.state.authErrorCode = errorCode;
           }
 
           // Persist the terminal row before teardown clears the buffer.

@@ -299,32 +299,6 @@ describe("renderHistoryContent", () => {
     expect(output.toolCalls[0].errorCode).toBe("acp_claude_oauth_missing");
   });
 
-  test("projects the tool_use auth rider onto a spawn call that succeeded", () => {
-    // A mid-run Claude auth rejection kills a run whose spawn call already
-    // completed clean, so the classification has no failed tool result to ride.
-    // It is stamped on the tool_use block and must surface as the same
-    // `errorCode`, leaving the call's own success untouched: the spawn worked,
-    // the run died later.
-    const output = renderHistoryContent([
-      {
-        type: "tool_use",
-        id: "tu_1",
-        name: "acp_spawn",
-        input: {},
-        _acpAuthErrorCode: "acp_claude_auth_required",
-      },
-      {
-        type: "tool_result",
-        tool_use_id: "tu_1",
-        content: '{"status":"running"}',
-        is_error: false,
-      },
-    ]);
-
-    expect(output.toolCalls[0].errorCode).toBe("acp_claude_auth_required");
-    expect(output.toolCalls[0].isError).toBe(false);
-  });
-
   test("emits the attachment id for a workspace_ref tool-result image", async () => {
     // "aGVsbG8=" = "hello" — a stand-in for screenshot bytes.
     const stored = await uploadAttachment("shot.png", "image/png", "aGVsbG8=");
