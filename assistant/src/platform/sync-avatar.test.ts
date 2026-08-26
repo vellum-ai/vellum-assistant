@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -7,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AvatarState } from "../avatar/avatar-manifest.js";
@@ -54,6 +55,7 @@ mock.module("../avatar/resvg-lazy.js", () => ({
 
 import {
   _resetSyncAvatarStateForTests,
+  AVATAR_SYNC_KEY_TTL_MS,
   syncAvatarToPlatform,
 } from "./sync-avatar.js";
 
@@ -62,7 +64,7 @@ const OVERSIZED = Buffer.alloc(256 * 1024 + 1);
 
 const dir = mkdtempSync(join(tmpdir(), "sync-avatar-test-"));
 const workspaceDir = join(dir, "workspace");
-const syncStatePath = join(workspaceDir, "data", "avatar", "avatar-sync.json");
+const syncStatePath = join(dir, "protected", "platform-sync", "avatar.json");
 const prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
 afterAll(() => {
@@ -124,6 +126,7 @@ async function settle(): Promise<void> {
 describe("syncAvatarToPlatform", () => {
   beforeEach(() => {
     rmSync(workspaceDir, { recursive: true, force: true });
+    rmSync(join(dir, "protected"), { recursive: true, force: true });
     mkdirSync(join(workspaceDir, "data", "avatar"), { recursive: true });
     _resetSyncAvatarStateForTests();
     patches = [];
@@ -281,7 +284,11 @@ describe("syncAvatarToPlatform", () => {
     await settle();
     expect(JSON.parse(readFileSync(syncStatePath, "utf-8"))).toEqual({
       key: expect.stringMatching(/^https:\/\/platform\.a\|asst-1\|image:/),
+      syncedAt: expect.any(Number),
     });
+    expect(
+      existsSync(join(workspaceDir, "data", "avatar", "avatar-sync.json")),
+    ).toBe(false);
 
     _resetSyncAvatarStateForTests();
     syncAvatarToPlatform();
@@ -312,6 +319,35 @@ describe("syncAvatarToPlatform", () => {
     expect(patches[2].body.avatar_base64).toBe(
       Buffer.from("png-a-rewritten").toString("base64"),
     );
+  });
+
+  test("a persisted key older than the TTL re-uploads once and is refreshed", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    const stale = JSON.parse(readFileSync(syncStatePath, "utf-8"));
+    stale.syncedAt = Date.now() - AVATAR_SYNC_KEY_TTL_MS - 24 * 60 * 60 * 1000;
+    writeFileSync(syncStatePath, JSON.stringify(stale));
+
+    _resetSyncAvatarStateForTests();
+    syncAvatarToPlatform();
+    await settle();
+    _resetSyncAvatarStateForTests();
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    const refreshed = JSON.parse(readFileSync(syncStatePath, "utf-8"));
+    expect(refreshed.key).toBe(stale.key);
+    expect(refreshed.syncedAt).toBeGreaterThan(stale.syncedAt);
+  });
+
+  test("a corrupt persisted key re-uploads", async () => {
+    mkdirSync(dirname(syncStatePath), { recursive: true });
+    writeFileSync(syncStatePath, "{not json");
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
   });
 
   test("a failed PATCH leaves the persisted key untouched", async () => {
