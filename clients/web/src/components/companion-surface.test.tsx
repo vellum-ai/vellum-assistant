@@ -359,7 +359,7 @@ describe("the companion surface's custom avatar", () => {
 });
 
 /**
- * Where the avatar sits inside the canvas.
+ * Where the avatar sits inside the canvas, and where the pill hangs off it.
  *
  * The canvas is not symmetric about the avatar: the card's height is reserved
  * on whichever side it grows into, and only the avatar's own box and its shadow
@@ -368,26 +368,36 @@ describe("the companion surface's custom avatar", () => {
  * main flip the direction near the top of a display without the renderer
  * learning the canvas's height (JARVIS-1548).
  */
-/** The pill itself, which is also the surface's drag handle. */
+/** The pill, which is the one element on the surface whose width animates. */
 const surfaceOf = (container: HTMLElement): HTMLElement => {
-  const found = container.querySelector<HTMLElement>(".cursor-grab");
+  const found = container.querySelector<HTMLElement>(".transition-\\[width\\]");
   if (!found) {
     throw new Error("Expected the surface to render");
   }
   return found;
 };
 
+/** The avatar's own box, which is the point the host positions the window by. */
+const avatarOf = (container: HTMLElement): HTMLElement => {
+  const found = container.querySelector<HTMLElement>(".size-11");
+  if (!found) {
+    throw new Error("Expected the avatar to render");
+  }
+  return found;
+};
+
 describe("the companion surface's anchor in the canvas", () => {
-  test("hangs off the canvas's bottom edge while the card grows up", () => {
+  test("hangs the avatar off the canvas's bottom edge while the card grows up", () => {
     const { container } = render(<CompanionSurface phase="resting" />);
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 46px)");
+    expect(avatarOf(container).style.top).toBe("calc(100% - 46px)");
+    expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
   });
 
-  test("sits against the canvas's top edge while the card grows down", () => {
+  test("sits the avatar against the canvas's top edge while the card grows down", () => {
     const { container } = render(
       <CompanionSurface phase="resting" cardGrowth="down" />,
     );
-    expect(surfaceOf(container).style.top).toBe("46px");
+    expect(avatarOf(container).style.top).toBe("46px");
   });
 
   test("grows up by default, which is where the surface normally lives", () => {
@@ -395,26 +405,47 @@ describe("the companion surface's anchor in the canvas", () => {
     const { container: explicit } = render(
       <CompanionSurface phase="resting" cardGrowth="up" />,
     );
-    expect(surfaceOf(container).style.top).toBe(surfaceOf(explicit).style.top);
+    expect(avatarOf(container).style.top).toBe(avatarOf(explicit).style.top);
   });
 
   /**
-   * The avatar's line is the fixed point in both directions. Growing up, the
-   * card's bottom row sits on it; growing down, its top row does. Either way
-   * the mascot is where it was before Type was pressed.
+   * The avatar's bottom line is the fixed point. The pill's bottom sits on it,
+   * which at this size puts the pill's own centre on the avatar's centre too,
+   * and the mascot never moves whichever way the pill or the card grows.
+   */
+  test("sits the pill's bottom on the avatar's bottom", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    // 46 from the canvas edge to the avatar's centre, 22 further to its bottom.
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 24px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+  });
+
+  test("keeps that line against the canvas's top edge too", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" cardGrowth="down" />,
+    );
+    expect(surfaceOf(container).style.top).toBe("68px");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+  });
+
+  /**
+   * The composer row is the card's last child growing up and its first growing
+   * down, so the row's bottom is the avatar's bottom either way and the card
+   * hangs off it in whichever direction the host picked.
    */
   test("hangs the card off the avatar's line when it grows up", () => {
     const { container } = render(<CompanionSurface phase="typing" />);
-    expect(surfaceOf(container).style.transform).toBe(
-      "translateY(calc(-100% + 22px))",
-    );
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 24px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
   });
 
   test("drops the card from the avatar's line when it grows down", () => {
     const { container } = render(
       <CompanionSurface phase="typing" cardGrowth="down" />,
     );
-    expect(surfaceOf(container).style.transform).toBe("translateY(-22px)");
+    // The row starts on the avatar's top line and the card falls away from it.
+    expect(surfaceOf(container).style.top).toBe("24px");
+    expect(surfaceOf(container).style.transform).toBe("none");
   });
 
   /**
@@ -436,13 +467,54 @@ describe("the companion surface's anchor in the canvas", () => {
     expect(className).not.toContain("flex-col-reverse");
   });
 
-  /** The pill is centred on the avatar's line whichever way the card would go. */
-  test("centres the resting pill on the avatar's line either way", () => {
+  /**
+   * The two are siblings with a gap between them, which is what the host's
+   * union hit-test is built on. A pill that contained the avatar would make a
+   * bounding box the honest answer and take the gap's dead corners with it.
+   */
+  test("draws the avatar beside the pill rather than inside it", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(surfaceOf(container).contains(avatarOf(container))).toBe(false);
+    expect(avatarOf(container).parentElement).toBe(
+      surfaceOf(container).parentElement,
+    );
+  });
+
+  /** The pill's avatar-facing edge: the avatar's half box, then the gap. */
+  test("steps the pill off the avatar's edge by the gap", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    expect(surfaceOf(container).style.left).toBe("calc(50% + 34px)");
+  });
+
+  /**
+   * The property everything else here is in service of: the host positions the
+   * window by the creature, so the creature has to sit on the same point in
+   * every state the surface can be in.
+   */
+  test("keeps the avatar's own point in every phase", () => {
+    for (const phase of [
+      "resting",
+      "hover",
+      "watching",
+      "summary",
+      "call",
+      "typing",
+    ] as const) {
+      const { container } = render(<CompanionSurface phase={phase} />);
+      expect(avatarOf(container).style.left).toBe("50%");
+      expect(avatarOf(container).style.top).toBe("calc(100% - 46px)");
+      expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
+      cleanup();
+    }
+  });
+
+  test("keeps it whichever way the card would go", () => {
     for (const cardGrowth of ["up", "down"] as const) {
       const { container } = render(
         <CompanionSurface phase="resting" cardGrowth={cardGrowth} />,
       );
-      expect(surfaceOf(container).style.transform).toBe("translateY(-50%)");
+      expect(avatarOf(container).style.left).toBe("50%");
+      expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
       cleanup();
     }
   });
@@ -945,8 +1017,8 @@ describe("the summary a finished watch session leaves on the surface", () => {
 });
 
 describe("the companion surface's width ceiling", () => {
-  /** `BASE_MAX_PILL_WIDTH` in `clients/macos/src/main/companion-window.ts`. */
-  const CANVAS_CEILING = 360;
+  /** `BASE_MAX_BODY_WIDTH` in `clients/macos/src/main/companion-window.ts`. */
+  const CANVAS_CEILING = 316;
 
   test("holds for every phase", () => {
     const over = Object.entries(FALLBACK_WIDTHS).filter(
@@ -1016,78 +1088,55 @@ describe("the companion surface's capture indicator across phases", () => {
 });
 
 /**
- * Growing leftward is two halves, and the surface is only in the right place
- * when both happen.
+ * Growing leftward moves the pill and nothing else.
  *
  * Main positions the window by the *avatar's* centre and measures every later
  * drag, clamp and direction check from it. The renderer's half of that bargain
- * is to draw the avatar on the point the host aimed at: the surface anchors by
- * the edge the avatar is on, and the row the avatar sits in mirrors so the
- * avatar ends up against that edge.
- *
- * Anchoring without mirroring is the failure this covers. It draws the avatar
- * at the far end of the pill instead, up to a card's width from where main
- * believes it is, so the mascot teleports at the direction flip, the labels
- * sweep under a held pointer, and the point main hands presses to lands on a
- * control that refuses them. The surface reads as dead (JARVIS-1582).
+ * is to draw the avatar on the point the host aimed at, in both directions: the
+ * avatar keeps its place and the pill swaps which of its edges is pinned to the
+ * gap. A flip that moved the mascot instead would put it up to a card's width
+ * from where main believes it is, so it would teleport at the threshold, the
+ * labels would sweep under a held pointer, and the point main hands presses to
+ * would land on a control that refuses them. The surface reads as dead
+ * (JARVIS-1582).
  */
 describe("the companion surface growing leftward", () => {
-  /**
-   * The row the avatar is on, found through the avatar rather than by its own
-   * classes: it is the row's job to order the avatar, so the avatar is what
-   * says which row it is.
-   */
-  const avatarRowOf = (container: HTMLElement): HTMLElement => {
-    const avatar = container.querySelector<HTMLElement>(".size-11");
-    if (!avatar?.parentElement) {
-      throw new Error("Expected the avatar to render inside a row");
-    }
-    return avatar.parentElement;
-  };
-
-  test("mirrors the row the avatar is on", () => {
+  test("anchors the pill by its right edge, a gap off the avatar", () => {
     const { container } = render(
       <CompanionSurface phase="hover" growth="left" />,
     );
-    expect(avatarRowOf(container).className).toContain("flex-row-reverse");
+    expect(surfaceOf(container).style.right).toBe("calc(50% + 34px)");
+    expect(surfaceOf(container).style.left).toBe("");
   });
 
-  test("leaves that row alone growing the ordinary way", () => {
+  test("anchors it by its left edge growing the ordinary way", () => {
     const { container } = render(
       <CompanionSurface phase="hover" growth="right" />,
     );
-    expect(avatarRowOf(container).className).not.toContain("flex-row-reverse");
+    expect(surfaceOf(container).style.left).toBe("calc(50% + 34px)");
+    expect(surfaceOf(container).style.right).toBe("");
   });
 
   /**
-   * The card is anchored by the same edge as the pill and is eight times the
-   * avatar's width, so an unmirrored card puts the mascot further from where
-   * main is measuring than any other state.
+   * The card is anchored by the same edge as the pill and is seven times the
+   * avatar's width, so it is the state where a flip that moved the mascot would
+   * move it furthest.
    */
-  test("mirrors the card's row too", () => {
+  test("mirrors the card the same way", () => {
     const { container } = render(
       <CompanionSurface phase="typing" growth="left" />,
     );
-    expect(avatarRowOf(container).className).toContain("flex-row-reverse");
+    expect(surfaceOf(container).style.right).toBe("calc(50% + 34px)");
   });
 
-  /**
-   * The other half. The row is `INNER_GAP` narrower than the pill, because that
-   * gap is trailing space past the last control, so the row has to sit against
-   * the anchored end and leave the slack at the other.
-   */
-  test("holds the row against the edge the pill is anchored by", () => {
-    const { container } = render(
-      <CompanionSurface phase="hover" growth="left" />,
-    );
-    expect(surfaceOf(container).className).toContain("flex-row-reverse");
-  });
-
-  test("anchors the pill by its right edge", () => {
-    const { container } = render(
-      <CompanionSurface phase="hover" growth="left" />,
-    );
-    expect(surfaceOf(container).style.right).toBe("50%");
+  test("leaves the avatar on its own point either way", () => {
+    for (const growth of ["left", "right"] as const) {
+      const { container } = render(
+        <CompanionSurface phase="hover" growth={growth} />,
+      );
+      expect(avatarOf(container).style.left).toBe("50%");
+      cleanup();
+    }
   });
 });
 
@@ -1242,5 +1291,19 @@ describe("the resting avatar's idle motion", () => {
 
     const bob = container.querySelector<HTMLElement>(".companion-avatar-bob");
     expect(bob?.parentElement?.className).toContain("size-11");
+  });
+
+  /**
+   * The glow is the creature's own light and the creature is on screen in every
+   * phase, so it is lit in every phase. Nothing stacks under it: the pill is a
+   * separate shape a gap away rather than a body the halo would read as a
+   * second ring around.
+   */
+  test("glows in every phase, not only at rest", () => {
+    for (const phase of ["resting", "hover", "call", "typing"] as const) {
+      const { container } = render(<CompanionSurface phase={phase} />);
+      expect(container.querySelector(".companion-glow")).not.toBeNull();
+      cleanup();
+    }
   });
 });

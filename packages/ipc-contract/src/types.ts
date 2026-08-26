@@ -812,6 +812,39 @@ export const COMPANION_NEAR_EDGE =
   COMPANION_BASE_AVATAR_BOX / 2 + COMPANION_BASE_CANVAS_PAD;
 
 /**
+ * The room between the avatar's edge and the options pill beside it, at the
+ * base size.
+ *
+ * A gap rather than a shared edge. The avatar is a creature standing on the
+ * desktop and the pill is what it is holding out, so the two read as one
+ * surface by sitting near each other rather than by being fused into a single
+ * outline. It is also what gives the glow somewhere to fall off into, instead
+ * of ending against the pill's border.
+ */
+export const COMPANION_BASE_GAP = 12;
+
+/**
+ * That gap for a given pair of boxes.
+ *
+ * Scaled by the smaller of the two, because the gap is breathing room and the
+ * smaller object is the one that decides how much of it there is: a modest
+ * avatar beside an enormous pill wants the modest avatar's clearance, not the
+ * chasm the pill's own scale would ask for.
+ *
+ * Derived here rather than on each side of the bridge, for the reason
+ * {@link COMPANION_NEAR_EDGE} is: main sizes the canvas to hold the pill's
+ * reach past the avatar and the renderer positions the pill by the same
+ * distance, so two copies of this drifting is a pill drawn somewhere main did
+ * not leave room for.
+ */
+export const companionGapFor = (
+  avatarBox: number,
+  optionsBox: number,
+): number =>
+  (COMPANION_BASE_GAP * Math.min(avatarBox, optionsBox)) /
+  COMPANION_BASE_AVATAR_BOX;
+
+/**
  * The assistant's character, as the three trait ids it is composed from.
  *
  * Structurally the fields of the web layer's `CharacterTraits` that

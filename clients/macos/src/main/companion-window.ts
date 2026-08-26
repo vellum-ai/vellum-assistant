@@ -13,6 +13,7 @@ import {
   COMPANION_SIZES,
   COMPANION_NEAR_EDGE,
   COMPANION_SIZE_BOXES,
+  companionGapFor,
   WATCH_FLAG,
   type CompanionCardGrowth,
   type CompanionGrowth,
@@ -126,14 +127,16 @@ const COMPANION_KIND = "companion";
 const COMPANION_ROUTE = "/floating/companion";
 
 /**
- * The widest the pill gets at {@link COMPANION_BASE_AVATAR_BOX}, matching
- * `FALLBACK_WIDTHS.call` in the renderer.
+ * The widest the pill's body gets at {@link COMPANION_BASE_AVATAR_BOX}, which
+ * is the ceiling every entry in the renderer's `FALLBACK_WIDTHS` stays under.
  *
- * A ceiling rather than a width: the pill measures its own content, so this is
- * what the canvas is sized to hold, and content wider than it is clipped by the
- * window. The call's approval row is the widest thing the surface renders.
+ * The body alone, because the avatar floats beside the pill rather than inside
+ * it: what the canvas has to hold on the growth side is the avatar's half box,
+ * the gap, and this. A ceiling rather than a width, since the pill measures its
+ * own content, and content wider than it is clipped by the window. The call's
+ * approval row is the widest thing the surface renders.
  */
-const BASE_MAX_PILL_WIDTH = 360;
+const BASE_MAX_BODY_WIDTH = 316;
 
 /**
  * The tallest the surface gets, which is the typing card.
@@ -146,7 +149,7 @@ const BASE_MAX_PILL_WIDTH = 360;
  * renderer and a canvas a few points short clips the top of the card off.
  *
  * Matched to `CompanionSurface`'s card in `companion-surface.tsx`, the way
- * {@link BASE_MAX_PILL_WIDTH} is matched to its widths.
+ * {@link BASE_MAX_BODY_WIDTH} is matched to its widths.
  */
 const BASE_MAX_CARD_HEIGHT = 290;
 
@@ -168,8 +171,10 @@ export interface CompanionGeometry {
   riseAbove: number;
   /** How much the other side needs: the avatar and its shadow, and no more. */
   dropBelow: number;
-  /** What {@link growthFor} measures the room against. */
-  maxPillWidth: number;
+  /** The room between the avatar's edge and the pill, at this size. */
+  gap: number;
+  /** The widest the pill's body draws at this size, gap not included. */
+  maxBodyWidth: number;
 }
 
 /**
@@ -193,11 +198,13 @@ export const geometryFor = (size: CompanionSize): CompanionGeometry => {
   const avatarBox = COMPANION_SIZE_BOXES[size];
   const scale = avatarBox / COMPANION_BASE_AVATAR_BOX;
   const pad = COMPANION_BASE_CANVAS_PAD * scale;
-  const maxPillWidth = BASE_MAX_PILL_WIDTH * scale;
-  // The avatar holds its place and the body runs off one side of it, so the
-  // reach is almost the pill's whole width. The canvas has to hold it in
-  // whichever direction main later picks, so it is sized for both sides.
-  const maxReach = maxPillWidth - avatarBox / 2;
+  const gap = companionGapFor(avatarBox, avatarBox);
+  const maxBodyWidth = BASE_MAX_BODY_WIDTH * scale;
+  // The avatar holds its place and the pill hangs off one side of it across the
+  // gap, so the reach is the avatar's half box, the gap, and the widest body.
+  // The canvas has to hold it in whichever direction main later picks, so it is
+  // sized for both sides.
+  const maxReach = avatarBox / 2 + gap + maxBodyWidth;
   const riseAbove = BASE_MAX_CARD_HEIGHT * scale - avatarBox / 2 + pad;
   // The invariant the renderer anchors by, at this size. Scaled rather than
   // recomputed, so the formula lives in one place for both processes.
@@ -208,7 +215,8 @@ export const geometryFor = (size: CompanionSize): CompanionGeometry => {
     canvasHeight: Math.round(riseAbove + dropBelow),
     riseAbove,
     dropBelow,
-    maxPillWidth,
+    gap,
+    maxBodyWidth,
   };
 };
 
@@ -369,10 +377,10 @@ export const callOnUpdate = (
 /**
  * Which way the pill grows, from where the avatar actually sits.
  *
- * The body needs `maxPillWidth - avatarBox` of clearance on the side it
- * grows into. Rightward is the default and leftward is what it flips to when
- * the right edge is too close, so the avatar stays exactly where the user put
- * it instead of the controls running off the display.
+ * The pill needs the gap and its widest body of clearance beyond the avatar's
+ * edge on the side it grows into. Rightward is the default and leftward is what
+ * it flips to when the right edge is too close, so the avatar stays exactly
+ * where the user put it instead of the controls running off the display.
  *
  * A display too narrow for either direction still grows right, because the
  * clipping is then unavoidable and the user can drag the surface somewhere it
@@ -383,7 +391,7 @@ export const growthFor = (
   workArea: { x: number; width: number },
   geometry: CompanionGeometry,
 ): CompanionGrowth => {
-  const needed = geometry.maxPillWidth - geometry.avatarBox;
+  const needed = geometry.gap + geometry.maxBodyWidth;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
   const roomLeft = avatarCentreX - workArea.x;
   if (roomRight < needed && roomLeft >= needed) {

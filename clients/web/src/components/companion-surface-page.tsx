@@ -54,6 +54,45 @@ const DRAG_SLOP = 3;
  */
 const BASE_AVATAR_BOX = 44;
 
+/** As much of a rect as hit-testing a point against it needs. */
+type SurfaceRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
+
+/**
+ * The gap between the avatar and the pill, as a rect of its own.
+ *
+ * **The surface is a union of rects, never the box around them.** The avatar
+ * and the pill are separate elements, and a bounding box over the pair would
+ * claim the empty canvas above and below the gap as well: a click-through
+ * window told it is interactive there swallows the presses meant for whatever
+ * is behind it, which is the failure every note in this file is about. So the
+ * gap is tested as exactly what it is, a strip between the two facing edges,
+ * running the pill's own height.
+ *
+ * It has to be part of the surface at all because the pointer crosses it on the
+ * way from the creature to the controls. A window that went click-through
+ * halfway would drop the press the user was travelling to make.
+ *
+ * Degenerate when the two overlap, which reads as no bridge at all: the strip's
+ * left edge lands past its right, and no point is inside it.
+ */
+export const bridgeRect = (
+  avatar: SurfaceRect,
+  pill: SurfaceRect,
+): SurfaceRect =>
+  pill.left >= avatar.right
+    ? {
+        left: avatar.right,
+        right: pill.left,
+        top: pill.top,
+        bottom: pill.bottom,
+      }
+    : {
+        left: pill.right,
+        right: avatar.left,
+        top: pill.top,
+        bottom: pill.bottom,
+      };
+
 /**
  * The companion surface inside its Electron canvas
  * (`clients/macos/src/main/companion-window.ts`).
@@ -134,6 +173,10 @@ export function CompanionSurfacePage() {
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
+  // The creature's own box, hit-tested beside the pill rather than inside it:
+  // the two are siblings with a gap between them, and at rest the avatar is the
+  // only part of the surface drawn at all.
+  const avatarRef = useRef<HTMLDivElement | null>(null);
   // The introduction's card, hit-tested alongside the pill: it carries the only
   // two controls in the run, and a click-through window would drop presses on
   // them onto whatever is behind it.
@@ -273,15 +316,58 @@ export function CompanionSurfacePage() {
     setStarted(false);
   };
 
+  // **An open composer outranks everything, and a running call outranks the
+  // pointer.** The surface is otherwise a circle that only becomes a pill while
+  // it is being pointed at, and a live microphone that hides itself the moment
+  // the pointer leaves is a live microphone the user cannot see. So the call
+  // holds the pill open, and hovering it changes nothing: the controls it wants
+  // are already there.
+  //
+  // The composer sits above even that, because it is the one state holding
+  // something of the user's. A call starting from the app while a sentence is
+  // half-typed must not collapse the card and take the sentence with it.
+  //
+  // A watch session holds the pill open for the same reason the call does, and
+  // ranks below both: they are things the user is in the middle of, where this
+  // one runs beside whatever they are doing. Being outranked costs the session
+  // nothing, since the phase is only what the pill is drawing and the indicator
+  // reads `watching` instead.
+  //
+  // The summary of a finished session sits between the two: it outranks hover
+  // because it is a wait the user is owed an answer to and then a question
+  // waiting on one, and it is outranked by a session still recording, which is
+  // the one thing on this surface a user must always be able to see and stop.
+  // The introduction sits above the pointer and below everything the user is in
+  // the middle of. A beat that names a control has to have that control on
+  // screen to name, so it holds the pill open the way a call does; but a run
+  // still going when a call starts or the composer opens must give way, because
+  // those are the user's own business and this is a caption.
+  const introHeld = introPhase(intro);
+  const phase: CompanionSurfacePhase = typing
+    ? "typing"
+    : call !== null
+      ? "call"
+      : watching
+        ? "watching"
+        : watchRetro !== undefined
+          ? "summary"
+          : (introHeld ?? (hovered ? "hover" : "resting"));
+  const expanded = phase !== "resting";
+
   /**
-   * Hit-test the pointer against the pill on every move.
+   * Hit-test the pointer against the surface on every move.
    *
    * Not `mouseenter`: a click-through window delivers forwarded mouse-move and
    * little else, so entering and leaving have to be derived from coordinates.
    * `dictation-overlay-page.tsx` measures its stop button the same way for the
-   * same reason. The rect is read live rather than cached because the pill
+   * same reason. The rects are read live rather than cached because the pill
    * changes width as it expands, and a stale rect would collapse the surface
    * the moment it finished growing.
+   *
+   * **The surface is several rects, and the answer is their union.** The
+   * creature, the pill beside it, the strip of gap between them, and the
+   * introduction's card while it is drawn; see {@link bridgeRect} for why the
+   * box around them all is the wrong shape.
    */
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     // **A drag whose release this window never saw ends here.**
@@ -325,71 +411,39 @@ export function CompanionSurfacePage() {
       return;
     }
     const pill = pillRef.current;
-    if (!pill) {
+    const avatar = avatarRef.current;
+    if (!pill || !avatar) {
       return;
     }
-    const within = (element: HTMLElement | null): boolean => {
-      if (!element) {
-        return false;
-      }
-      const rect = element.getBoundingClientRect();
-      return (
-        event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom
-      );
-    };
-    const onPill = within(pill);
+    const inside = (rect: SurfaceRect): boolean =>
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+    // Each box read once. Reading one forces layout, and this runs on every
+    // pixel of every mouse-move the host forwards.
+    const avatarRect = avatar.getBoundingClientRect();
+    const pillRect = pill.getBoundingClientRect();
+    const onAvatar = inside(avatarRect);
+    // The pill and the gap only count once there is a pill: at rest its box is
+    // nothing, and a rect of nothing beside the avatar is not somewhere a
+    // pointer can be.
+    const onPill = expanded && inside(pillRect);
+    const onBridge = expanded && inside(bridgeRect(avatarRect, pillRect));
     // The introduction's card is part of the surface for as long as it is
-    // drawn. Testing only the pill would leave the window click-through over
+    // drawn. Testing only the surface would leave the window click-through over
     // Next and Skip, so the presses meant to end the run would land on whatever
     // application is behind it instead.
-    const onIntro = within(introRef.current);
+    const introCard = introRef.current;
+    const onIntro =
+      introCard !== null && inside(introCard.getBoundingClientRect());
     // Hover is the creature noticing a hand on *it*, so the card does not feed
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
-    setHovered(onPill);
-    setInteractive(onPill || onIntro);
+    setHovered(onAvatar || onPill || onBridge);
+    setInteractive(onAvatar || onPill || onBridge || onIntro);
   };
-
-  // **An open composer outranks everything, and a running call outranks the
-  // pointer.** The surface is otherwise a circle that only becomes a pill while
-  // it is being pointed at, and a live microphone that hides itself the moment
-  // the pointer leaves is a live microphone the user cannot see. So the call
-  // holds the pill open, and hovering it changes nothing: the controls it wants
-  // are already there.
-  //
-  // The composer sits above even that, because it is the one state holding
-  // something of the user's. A call starting from the app while a sentence is
-  // half-typed must not collapse the card and take the sentence with it.
-  //
-  // A watch session holds the pill open for the same reason the call does, and
-  // ranks below both: they are things the user is in the middle of, where this
-  // one runs beside whatever they are doing. Being outranked costs the session
-  // nothing, since the phase is only what the pill is drawing and the indicator
-  // reads `watching` instead.
-  //
-  // The summary of a finished session sits between the two: it outranks hover
-  // because it is a wait the user is owed an answer to and then a question
-  // waiting on one, and it is outranked by a session still recording, which is
-  // the one thing on this surface a user must always be able to see and stop.
-  // The introduction sits above the pointer and below everything the user is in
-  // the middle of. A beat that names a control has to have that control on
-  // screen to name, so it holds the pill open the way a call does; but a run
-  // still going when a call starts or the composer opens must give way, because
-  // those are the user's own business and this is a caption.
-  const introHeld = introPhase(intro);
-  const phase: CompanionSurfacePhase = typing
-    ? "typing"
-    : call !== null
-      ? "call"
-      : watching
-        ? "watching"
-        : watchRetro !== undefined
-          ? "summary"
-          : (introHeld ?? (hovered ? "hover" : "resting"));
 
   // The avatar's own colour. A running call publishes one, and it wins: it is
   // the colour the call surfaces elsewhere are already tinted with. Outside a
@@ -532,6 +586,7 @@ export function CompanionSurfacePage() {
             )
           }
           rootRef={pillRef}
+          avatarRef={avatarRef}
           onSurfaceMouseDown={(event) => {
             // A right-click is a menu, not a grab. Left alone it would arm the
             // drag and then never be released by a `mouseup` this window sees,
