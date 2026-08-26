@@ -15,6 +15,7 @@ import {
   contacts,
   conversationThresholdOverrides,
 } from "../db/schema.js";
+import { ipcCallAssistant } from "./assistant-client.js";
 import type { IpcRoute } from "./server.js";
 
 const GLOBAL_DEFAULTS = {
@@ -149,6 +150,9 @@ export const thresholdRoutes: IpcRoute[] = [
         })
         .where(eq(contacts.id, parsed.contactId))
         .run();
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
       return {
         ok: true,
         contactId: parsed.contactId,

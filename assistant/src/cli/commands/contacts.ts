@@ -251,47 +251,6 @@ export function registerContactsCommand(program: Command): void {
       );
 
       // -----------------------------------------------------------------------
-      // set-threshold
-      // -----------------------------------------------------------------------
-
-      subcommand(contacts, "set-threshold").action(
-        async (
-          contactId: string,
-          opts: { threshold: string },
-          cmd: Command,
-        ) => {
-          const threshold =
-            opts.threshold === "inherit" ? null : opts.threshold;
-          const r = await cliIpcCall<{
-            ok: boolean;
-            contactId: string;
-            threshold: string | null;
-          }>("set_contact_threshold", {
-            body: {
-              contactId,
-              threshold,
-            },
-          });
-
-          if (!r.ok) {
-            return exitFromIpcResult(
-              r as { ok: false; error?: string; statusCode?: number },
-              cmd,
-            );
-          }
-
-          if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, r.result);
-          } else {
-            const ceiling = r.result?.threshold ?? "inherit";
-            process.stdout.write(
-              `Set assistant access for ${contactId} to ${ceiling}\n`,
-            );
-          }
-        },
-      );
-
-      // -----------------------------------------------------------------------
       // prompt
       // -----------------------------------------------------------------------
 

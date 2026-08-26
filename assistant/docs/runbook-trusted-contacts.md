@@ -37,6 +37,9 @@ assistant contacts list --role contact
 assistant contacts list --role guardian
 assistant contacts list --channel-type telegram
 assistant contacts get <contactId>
+gateway contacts list
+gateway contacts get <contactId>
+vellum gateway contacts list
 ```
 
 ### Via HTTP API
@@ -141,6 +144,19 @@ sqlite3 "file:$GW_DB?mode=ro" \
 ```
 
 `verification_purpose` is `guardian` for guardian binding flows and `trusted_contact` for the access-request handshake.
+
+## 3b. Set a Contact Assistant-Access Ceiling
+
+The ceiling is gateway-owned. Write it from the gateway CLI, not `assistant contacts`.
+
+```bash
+gateway contacts set-threshold <contactId> --threshold high
+gateway contacts set-threshold <contactId> --threshold inherit
+vellum gateway contacts set-threshold <contactId> --threshold high
+vellum exec --service gateway -- gateway contacts set-threshold <contactId> --threshold high
+```
+
+`inherit` clears the ceiling so the contact follows room and trust-class settings. Stored vocabulary is `none`, `low`, `medium`, or `high`.
 
 ## 4. Force-Revoke a Trusted Contact
 

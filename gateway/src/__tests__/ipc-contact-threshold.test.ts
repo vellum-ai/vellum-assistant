@@ -6,9 +6,24 @@
  * assistant-DB mirror that ContactStore.upsertContact performs.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import "./test-preload.js";
+
+const assistantIpcCalls: Array<{
+  method: string;
+  params?: Record<string, unknown>;
+}> = [];
+
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    assistantIpcCalls.push({ method, params });
+    return undefined;
+  },
+}));
 
 import {
   getGatewayDb,
@@ -24,6 +39,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   getGatewayDb().delete(contacts).run();
+  assistantIpcCalls.length = 0;
 });
 
 afterAll(() => {
@@ -126,6 +142,12 @@ describe("set_contact_threshold IPC", () => {
     expect(
       await getContactThresholdHandler()({ contactId: "contact-1" }),
     ).toEqual({ threshold: "high" });
+    expect(assistantIpcCalls).toEqual([
+      {
+        method: "emit_event",
+        params: { body: { kind: "contacts_changed" } },
+      },
+    ]);
   });
 
   test("clears a contact ceiling when threshold is null", async () => {
@@ -144,6 +166,8 @@ describe("set_contact_threshold IPC", () => {
     expect(
       await getContactThresholdHandler()({ contactId: "contact-1" }),
     ).toBeNull();
+    expect(assistantIpcCalls).toHaveLength(1);
+    expect(assistantIpcCalls[0]?.method).toBe("emit_event");
   });
 
   test("returns not_found for an unknown contact", async () => {
@@ -153,6 +177,7 @@ describe("set_contact_threshold IPC", () => {
     });
 
     expect(result).toEqual({ ok: false, error: "not_found" });
+    expect(assistantIpcCalls).toEqual([]);
   });
 
   test("rejects an invalid threshold", async () => {

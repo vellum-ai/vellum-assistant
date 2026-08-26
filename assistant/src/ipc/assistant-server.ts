@@ -57,7 +57,6 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
-import { CONTACT_THRESHOLD_IPC_METHODS } from "./routes/contact-threshold-ipc-routes.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -214,7 +213,6 @@ export class AssistantIpcServer {
     // never in ROUTES.
     for (const methodMap of [
       INVITE_IPC_METHODS,
-      CONTACT_THRESHOLD_IPC_METHODS,
       CONTACTS_INFO_IPC_METHODS,
       CONTACTS_MIRROR_IPC_METHODS,
       GUARDIAN_LABEL_IPC_METHODS,

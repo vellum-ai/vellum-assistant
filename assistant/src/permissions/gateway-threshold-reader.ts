@@ -205,12 +205,18 @@ export function _clearGlobalCacheForTesting(): void {
 }
 
 /**
- * Drop the cached ceiling for one contact. The contact write path calls
- * this after a successful set so the next approval sees the new value
- * without waiting out the 5s TTL.
+ * Drop the cached ceiling for one contact.
  */
 export function invalidateContactThresholdCache(contactId: string): void {
   contactThresholdCache.delete(contactId);
+}
+
+/**
+ * Drop every cached contact ceiling. `contacts_changed` calls this so the
+ * next approval re-reads after any contact ACL write.
+ */
+export function invalidateAllContactThresholdCaches(): void {
+  contactThresholdCache.clear();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -583,8 +589,8 @@ async function fetchGlobalThresholds(options?: {
  * user just made (for example switching to Full access) because no
  * conversation or global write path invalidates those caches (the web
  * picker writes through the gateway HTTP route, the desktop picker
- * through the `set_conversation_threshold` IPC). The contact-ceiling
- * write path deletes that contact's cache entry after a successful set.
+ * through the `set_conversation_threshold` IPC). A `contacts_changed`
+ * event clears every cached contact ceiling after a contact ACL write.
  * Prompting from a stale threshold directly contradicts the user's
  * visible setting. A prompt is already a rare, user-visible
  * interruption, so the extra IPC round-trip is cheap relative to a

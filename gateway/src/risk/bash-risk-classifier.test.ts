@@ -1124,6 +1124,26 @@ describe("assistant subcommand classification", () => {
   });
 });
 
+describe("gateway contacts classification", () => {
+  const classifier = makeClassifier();
+
+  test("gateway contacts list → low", async () => {
+    const result = await classifier.classify({
+      command: "gateway contacts list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("gateway contacts set-threshold → medium", async () => {
+    const result = await classifier.classify({
+      command: "gateway contacts set-threshold contact-1 --threshold high",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+});
+
 // ── Scope options ────────────────────────────────────────────────────────────
 
 describe("scope options", () => {
