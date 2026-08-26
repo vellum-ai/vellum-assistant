@@ -12,6 +12,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
@@ -1186,6 +1187,12 @@ function Composer({
  * into the desktop rather than ending on an edge. A halo sized to its own
  * source has nowhere to fall off and reads as a ring around the avatar rather
  * than as light coming off it.
+ *
+ * **The bob is a wrapper, not a class on the artwork.** `AnimatedAvatar` owns
+ * `transform` on its own `<svg>` for the breathe and the morph, and a second
+ * animation on that node would silently replace one of them. Everything that
+ * belongs to the creature rides inside the wrapper, glow included, so the light
+ * travels with what is casting it.
  */
 function Avatar({
   glow,
@@ -1206,6 +1213,11 @@ function Avatar({
   onMouseEnter?: () => void;
   onClick?: () => void;
 }) {
+  // Belt and braces alongside the `prefers-reduced-motion` block beside the
+  // keyframes: the class is what a stylesheet-only reader sees, this is what a
+  // reader of the component sees.
+  const reduce = useReducedMotion();
+
   return (
     // A div rather than a button even when it is pressable: it is the drag
     // handle for the whole surface, and the press that starts a drag must not
@@ -1216,51 +1228,59 @@ function Avatar({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
     >
-      {glow && (
-        <span
-          className="absolute size-10 animate-pulse rounded-full blur-lg"
-          style={{ background: accentHex, opacity: 0.4 }}
-          aria-hidden
-        />
-      )}
-      {character !== undefined ? (
-        // The live creature, composed here rather than shipped as pixels. It
-        // blinks, twitches and breathes on its own, which is the whole reason
-        // the traits cross the bridge instead of a still.
-        <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
-          <AnimatedAvatar
-            components={BUNDLED_COMPONENTS}
-            traits={character}
-            size={AVATAR_IMAGE}
-            isAssistantBusy={busy}
-            attentive={attentive}
+      <div
+        className="companion-avatar-bob relative grid place-items-center"
+        style={{ animation: reduce ? "none" : undefined }}
+      >
+        {glow && (
+          <span
+            className="companion-glow absolute size-10 rounded-full blur-lg"
+            style={{
+              background: accentHex,
+              animation: reduce ? "none" : undefined,
+            }}
+            aria-hidden
           />
-        </div>
-      ) : avatarSrc === undefined ? (
-        // Until the avatar resolves, a disc in its colour. Same size, so
-        // nothing about the geometry moves when the image lands.
-        <span
-          className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
-          style={{ background: accentHex }}
-          aria-hidden
-        />
-      ) : (
-        // A custom uploaded image, which has no traits to compose and so no
-        // eyes to animate.
-        //
-        // Undraggable, because the avatar is the surface's drag handle. An
-        // image is natively draggable, and the platform's own HTML5 image drag
-        // takes the pointer and ends the `mousemove` stream the surface's drag
-        // runs on, so pressing a custom avatar would move nothing where
-        // pressing a composed creature moves the window. WebKit honours the CSS
-        // on paths where it ignores the attribute, so both are needed.
-        <img
-          src={avatarSrc}
-          alt=""
-          draggable={false}
-          className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
-        />
-      )}
+        )}
+        {character !== undefined ? (
+          // The live creature, composed here rather than shipped as pixels. It
+          // blinks, twitches and breathes on its own, which is the whole reason
+          // the traits cross the bridge instead of a still.
+          <div className="relative drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
+            <AnimatedAvatar
+              components={BUNDLED_COMPONENTS}
+              traits={character}
+              size={AVATAR_IMAGE}
+              isAssistantBusy={busy}
+              attentive={attentive}
+            />
+          </div>
+        ) : avatarSrc === undefined ? (
+          // Until the avatar resolves, a disc in its colour. Same size, so
+          // nothing about the geometry moves when the image lands.
+          <span
+            className="relative size-7 rounded-full drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+            style={{ background: accentHex }}
+            aria-hidden
+          />
+        ) : (
+          // A custom uploaded image, which has no traits to compose and so no
+          // eyes to animate.
+          //
+          // Undraggable, because the avatar is the surface's drag handle. An
+          // image is natively draggable, and the platform's own HTML5 image drag
+          // takes the pointer and ends the `mousemove` stream the surface's drag
+          // runs on, so pressing a custom avatar would move nothing where
+          // pressing a composed creature moves the window. WebKit honours the CSS
+          // on paths where it ignores the attribute, so both are needed.
+          <img
+            src={avatarSrc}
+            alt=""
+            draggable={false}
+            className="relative size-7 rounded-full object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)] [-webkit-user-drag:none]"
+          />
+        )}
+      </div>
     </div>
   );
 }

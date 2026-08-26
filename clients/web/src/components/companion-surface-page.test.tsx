@@ -41,6 +41,7 @@ const resetState = () => {
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
+  delete STATE.character;
 };
 
 /**
@@ -779,5 +780,103 @@ describe("the companion's own menu", () => {
     });
 
     expect(moveByMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The glow is the assistant's own light, not the surface's: an idle companion
+ * with no call running glows its character's accent, and a running call's
+ * accent wins over it.
+ */
+describe("the companion's accent colour", () => {
+  const CHARACTER = {
+    bodyShape: "blob",
+    eyeStyle: "curious",
+    color: "orange",
+  } as const;
+
+  /** A call running, carrying whatever accent the case is about. */
+  const listening = (accentHex: string): CompanionSurfaceState["call"] => ({
+    phase: "listening",
+    label: "Listening",
+    accentHex,
+    muted: false,
+    outputMuted: false,
+    detail: "",
+    approvalRequestId: "",
+    assistantName: "Ziggy",
+  });
+
+  /**
+   * The pill carries `--accent` in every phase; the glow only draws at rest.
+   *
+   * Awaited, because the state the colour comes from arrives after mount, so
+   * the first render is always the default.
+   */
+  const expectAccent = async (
+    container: HTMLElement,
+    hex: string,
+  ): Promise<void> => {
+    await waitFor(() => {
+      const pill = container.querySelector<HTMLElement>(".cursor-grab");
+      if (!pill) {
+        throw new Error("Expected the pill to render");
+      }
+      expect(pill.style.getPropertyValue("--accent").trim().toLowerCase()).toBe(
+        hex,
+      );
+    });
+  };
+
+  const expectGlow = async (
+    container: HTMLElement,
+    hex: string,
+  ): Promise<void> => {
+    await waitFor(() => {
+      const glow = container.querySelector<HTMLElement>(".companion-glow");
+      if (!glow) {
+        throw new Error("Expected the glow to render");
+      }
+      expect(glow.style.background.trim().toLowerCase()).toContain(hex);
+    });
+  };
+
+  test("resolves the character's palette colour with no call running", async () => {
+    STATE.character = { ...CHARACTER };
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#e9642f");
+    await expectGlow(container, "#e9642f");
+  });
+
+  test("lets a running call's accent win", async () => {
+    STATE.character = { ...CHARACTER };
+    STATE.call = listening("#123456");
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#123456");
+  });
+
+  /**
+   * The contract makes no promise the call's hex parses, and CSS drops an
+   * invalid custom property silently, so an unusable accent falls through to
+   * the character rather than being handed on.
+   */
+  test("ignores a call accent that is not a hex", async () => {
+    STATE.character = { ...CHARACTER };
+    STATE.call = listening("");
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#e9642f");
+  });
+
+  /**
+   * An uploaded image has no palette colour to resolve, so the component's own
+   * default is the last word rather than a colour guessed from nothing.
+   */
+  test("falls back to the component default without a character", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectAccent(container, "#5eead4");
   });
 });
