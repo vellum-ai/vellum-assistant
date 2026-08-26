@@ -567,7 +567,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.verifiedVia).toBe("challenge");
   });
 
-  test("verifying a plugin-discovered channel writes the inbound plugin identity", async () => {
+  test("verifying a plugin-discovered channel attests only that row", async () => {
     seedContact("c1");
     seedChannel({
       id: "ch-imessage",
@@ -582,54 +582,11 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.didWrite).toBe(true);
     expect(result!.channel.status).toBe("active");
     expect(result!.channel.type).toBe("imessage");
+    expect(result!.channel.verifiedVia).toBe("manual");
 
-    const inbound = getGatewayDb()
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.type, "plugin"))
-      .get();
-    expect(inbound).toBeDefined();
-    expect(inbound!.contactId).toBe("c1");
-    expect(inbound!.address).toBe("imessage:+12025550142");
-    expect(inbound!.status).toBe("active");
-    expect(inbound!.verifiedVia).toBe("manual");
-  });
-
-  test("revoking a plugin-discovered channel revokes the inbound identity", async () => {
-    seedContact("c1", "contact");
-    seedChannel({
-      id: "ch-imessage",
-      contactId: "c1",
-      type: "imessage",
-      status: "active",
-      verifiedAt: 1000,
-      verifiedVia: "manual",
-      address: "+12025550142",
-    });
-    seedChannel({
-      id: "ch-plugin",
-      contactId: "c1",
-      type: "plugin",
-      status: "active",
-      verifiedAt: 1000,
-      verifiedVia: "manual",
-      address: "imessage:+12025550142",
-    });
-
-    const updated = await new ContactStore().updateChannelStatus(
-      "ch-imessage",
-      { status: "revoked", reason: "disconnected" },
-    );
-    expect(updated).not.toBeNull();
-    expect(updated!.status).toBe("revoked");
-
-    const inbound = getGatewayDb()
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, "ch-plugin"))
-      .get();
-    expect(inbound!.status).toBe("revoked");
-    expect(inbound!.revokedReason).toBe("disconnected");
+    const rows = getGatewayDb().select().from(contactChannels).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("imessage");
   });
 });
 
@@ -701,7 +658,7 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
     expect(row!.verifiedAt).toBe(999);
   });
 
-  test("upserting a plugin-discovered channel also writes the inbound identity", async () => {
+  test("upserting a plugin-discovered channel writes only that channel", async () => {
     seedContact("c1", "contact");
 
     await new ContactStore().upsertContact({
@@ -710,13 +667,10 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
     });
 
     const rows = getGatewayDb().select().from(contactChannels).all();
-    expect(rows).toHaveLength(2);
-    const discovered = rows.find((row) => row.type === "imessage");
-    const inbound = rows.find((row) => row.type === "plugin");
-    expect(discovered?.address).toBe("+12025550142");
-    expect(discovered?.status).toBe("unverified");
-    expect(inbound?.address).toBe("imessage:+12025550142");
-    expect(inbound?.status).toBe("unverified");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("imessage");
+    expect(rows[0]!.address).toBe("+12025550142");
+    expect(rows[0]!.status).toBe("unverified");
   });
 });
 

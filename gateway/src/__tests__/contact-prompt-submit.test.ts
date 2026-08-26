@@ -229,15 +229,14 @@ describe("handleContactPromptSubmit", () => {
     expect(discovered).toBeDefined();
     expect(discovered!.status).toBe("active");
     expect(discovered!.verifiedVia).toBe("manual");
+    expect(discovered!.address).toBe("+12025550142");
 
-    const inbound = getGatewayDb()
+    const pluginRows = getGatewayDb()
       .select()
       .from(gwContactChannels)
       .where(eq(gwContactChannels.type, "plugin"))
-      .get();
-    expect(inbound).toBeDefined();
-    expect(inbound!.address).toBe("imessage:+12025550142");
-    expect(inbound!.status).toBe("active");
+      .all();
+    expect(pluginRows).toHaveLength(0);
 
     const flags = callsFor(ipcMock, "contact_prompt_flags");
     expect(flags).toHaveLength(1);

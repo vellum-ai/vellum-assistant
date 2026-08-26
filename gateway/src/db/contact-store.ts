@@ -30,11 +30,6 @@ import {
   listContactUserFileSlugs,
 } from "../ipc/contacts-info-client.js";
 import { getLogger } from "../logger.js";
-import {
-  withPluginInboundIdentities,
-  isPluginDiscoveredChannelType,
-  pluginInboundAddress,
-} from "../channels/plugin-contact-identity.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
 const log = getLogger("contact-store");
@@ -658,14 +653,6 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannel.id))
       .get()!;
 
-    if (params.status === "revoked" || params.status === "blocked") {
-      this.syncPluginInboundIdentity(after, {
-        status: after.status,
-        revokedReason: after.revokedReason,
-        blockedReason: after.blockedReason,
-      });
-    }
-
     return after;
   }
 
@@ -794,22 +781,7 @@ export class ContactStore {
     if (!after) return null;
     const didWrite = result.changes > 0;
 
-    this.syncPluginInboundIdentity(after, {
-      status: "active",
-      verifiedVia,
-      verifiedAt: after.verifiedAt,
-    });
-
-    const verified = this.db
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.id, gwChannelId))
-      .get();
-    if (!verified) {
-      return null;
-    }
-
-    return { channel: verified, didWrite };
+    return { channel: after, didWrite };
   }
 
   /**
@@ -905,11 +877,6 @@ export class ContactStore {
     if (!after) {
       return null;
     }
-
-    this.syncPluginInboundIdentity(after, {
-      status: "revoked",
-      revokedReason: after.revokedReason,
-    });
 
     return { channel: after, didWrite: true };
   }
@@ -1315,13 +1282,11 @@ export class ContactStore {
     // (gateway DB, assistant mirror op, conflict checks) uses the canonical
     // form.
     const canonicalChannels = params.channels
-      ? withPluginInboundIdentities(
-          params.channels.map((ch) => ({
-            ...ch,
-            address:
-              canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
-          })),
-        )
+      ? params.channels.map((ch) => ({
+          ...ch,
+          address:
+            canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+        }))
       : undefined;
 
     // Fallback name for a brand-new contact created without an explicit
@@ -1698,52 +1663,6 @@ export class ContactStore {
         })
         .run();
     }
-  }
-
-  /**
-   * Keep the inbound `(plugin, plugin:address)` identity in sync with a
-   * Contacts-page plugin channel (`imessage`, `meeting-bot`, …). The
-   * identifier is the one stored on that channel, not a sibling phone.
-   */
-  private syncPluginInboundIdentity(
-    channel: ContactChannel,
-    opts: {
-      status: ContactChannel["status"];
-      verifiedVia?: string | null;
-      verifiedAt?: number | null;
-      revokedReason?: string | null;
-      blockedReason?: string | null;
-    },
-  ): void {
-    if (!isPluginDiscoveredChannelType(channel.type)) {
-      return;
-    }
-
-    const address = channel.address.trim();
-    if (!address) {
-      return;
-    }
-
-    const scoped = pluginInboundAddress(channel.type, address);
-    if (!scoped) {
-      return;
-    }
-
-    this.syncChannels(
-      channel.contactId,
-      [
-        {
-          type: "plugin",
-          address: scoped,
-          status: opts.status,
-          verifiedVia: opts.verifiedVia ?? undefined,
-          verifiedAt: opts.verifiedAt ?? undefined,
-          revokedReason: opts.revokedReason ?? undefined,
-          blockedReason: opts.blockedReason ?? undefined,
-        },
-      ],
-      Date.now(),
-    );
   }
 
   // ---------------------------------------------------------------------------
