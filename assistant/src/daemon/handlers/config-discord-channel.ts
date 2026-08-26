@@ -271,9 +271,10 @@ export async function setDiscordChannelConfig(
 /**
  * Clear the stored credential, which disconnects the bot.
  *
- * The allow-list in config is deliberately left alone. It names rooms rather
- * than credentials, and someone reconnecting the same bot would otherwise find
- * their room choices silently discarded.
+ * A legacy `discord.allowedChannelIds` entry, where one exists, is left
+ * alone on purpose: the gateway still enforces it as persisted operator
+ * intent, so reconnecting the same bot must not silently widen its room
+ * scope by clearing it here.
  */
 export async function clearDiscordChannelConfig(): Promise<DiscordChannelConfigResult> {
   const deleted = await deleteSecureKeyAsync(
