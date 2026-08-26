@@ -7,6 +7,7 @@ import { installCsp } from "@vellumai/electron-desktop/csp";
 import { installCommandPaletteWindow } from "@vellumai/electron-desktop/command-palette-window";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { installDictationOverlay } from "@vellumai/electron-desktop/dictation-overlay-window";
+import { installDownloads } from "@vellumai/electron-desktop/downloads";
 import {
   forwardGatewayRequest,
   forwardPairedGatewayRequest,
@@ -64,7 +65,6 @@ import {
 } from "@vellumai/electron-desktop/status";
 import "./auxiliary-windows.client";
 import { installDock } from "./dock";
-import { installDownloads } from "./downloads";
 import { installShare } from "./share";
 import {
   installEscapeMonitor,
@@ -454,7 +454,10 @@ app
     installShare();
     // Files renderer downloads into ~/Downloads instead of prompting a Save
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
-    installDownloads();
+    // Completion bounces the Dock's Downloads stack, as a browser would.
+    installDownloads({
+      onCompleted: (savePath) => app.dock?.downloadFinished(savePath),
+    });
     installPowerEvents();
     configureNotifications({
       ipc: { handle },

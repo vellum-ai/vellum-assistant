@@ -3,7 +3,7 @@ import path from "node:path";
 
 // `node:fs` is mocked so the save-path resolution is asserted structurally,
 // with no real disk access. `node:path` stays real (pure helper), so the
-// asserted paths match what production builds. Mirrors `share.test.ts`.
+// asserted paths match what production builds.
 const existsSyncMock = mock((_p: string) => false);
 const mkdirSyncMock = mock((_p: string, _opts: unknown) => undefined);
 mock.module("node:fs", () => ({
@@ -15,13 +15,9 @@ mock.module("node:fs", () => ({
 // a real Electron session.
 type DownloadListener = (event: unknown, item: FakeItem) => void;
 const willDownloadListeners: DownloadListener[] = [];
-const downloadFinishedMock = mock((_p: string) => undefined);
 const getPathMock = mock((_name: string) => "/Users/tester/Downloads");
 mock.module("electron", () => ({
-  app: {
-    getPath: getPathMock,
-    dock: { downloadFinished: downloadFinishedMock },
-  },
+  app: { getPath: getPathMock },
   session: {
     defaultSession: {
       on: (channel: string, listener: DownloadListener) => {
@@ -64,8 +60,10 @@ class FakeItem {
 const { installDownloads, uniqueDownloadPath, __resetForTesting } =
   await import("./downloads");
 
+const onCompletedMock = mock((_p: string) => undefined);
+
 // Idempotent: a second call must not double-register (module-level flag).
-installDownloads();
+installDownloads({ onCompleted: onCompletedMock });
 installDownloads();
 
 const DOWNLOADS = "/Users/tester/Downloads";
@@ -81,7 +79,7 @@ beforeEach(() => {
   existsSyncMock.mockReturnValue(false);
   mkdirSyncMock.mockClear();
   mkdirSyncMock.mockImplementation(() => undefined);
-  downloadFinishedMock.mockClear();
+  onCompletedMock.mockClear();
   getPathMock.mockClear();
   getPathMock.mockReturnValue(DOWNLOADS);
 });
@@ -155,15 +153,13 @@ describe("will-download handling", () => {
     expect(item.savePaths).toEqual([inDownloads("report (1).pdf")]);
   });
 
-  test("bounces the Dock's Downloads stack once the download completes", () => {
+  test("fires onCompleted with the saved path once the download completes", () => {
     const item = new FakeItem("report.pdf");
     fire(item);
 
     item.finish("completed");
 
-    expect(downloadFinishedMock).toHaveBeenCalledWith(
-      inDownloads("report.pdf"),
-    );
+    expect(onCompletedMock).toHaveBeenCalledWith(inDownloads("report.pdf"));
   });
 
   test("stays quiet for a cancelled or interrupted download", () => {
@@ -173,7 +169,7 @@ describe("will-download handling", () => {
     item.finish("cancelled");
     item.finish("interrupted");
 
-    expect(downloadFinishedMock).not.toHaveBeenCalled();
+    expect(onCompletedMock).not.toHaveBeenCalled();
   });
 
   test("defers to Electron's default save routine when the directory is unusable", () => {

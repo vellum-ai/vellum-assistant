@@ -4,7 +4,7 @@ import path from "node:path";
 import { app, session } from "electron";
 
 /**
- * Downloads: files a renderer download into `~/Downloads`.
+ * Downloads: files a renderer download into the OS downloads directory.
  *
  * The renderer's `saveFile` (clients/web/src/runtime/native-file.ts) downloads
  * the browser way, an `<a download>` click on a blob URL, which Chromium turns
@@ -33,13 +33,13 @@ import { app, session } from "electron";
  *     panel appears. Hence the synchronous `existsSync` collision check rather
  *     than the `node:fs/promises` style used elsewhere in the main process.
  *
- * On completion the Dock's Downloads stack bounces
- * (`app.dock.downloadFinished`, the same NSApplication signal a browser sends),
- * so the download is acknowledged without an in-app toast the renderer would
- * have to own.
+ * On completion the optional `onCompleted` hook fires with the saved path, so
+ * a client can acknowledge the download its platform's way (macOS bounces the
+ * Dock's Downloads stack) without an in-app toast the renderer would own.
  *
- * The share sheet is the other intent and lives in `share.ts`: the renderer
- * calls `shareFile` for it, and it never reaches this path.
+ * The share sheet is the other intent and lives in each client's share
+ * module: the renderer calls `shareFile` for it, and it never reaches this
+ * path.
  *
  * Refs:
  * - https://www.electronjs.org/docs/latest/api/download-item#downloaditemsetsavepathpath
@@ -87,10 +87,17 @@ export const uniqueDownloadPath = (
   return null;
 };
 
+export type DownloadsOptions = {
+  /** Called with the saved path once a download completes. */
+  onCompleted?: (savePath: string) => void;
+};
+
 let installed = false;
 
 /** Wire the download handler. Call once from `whenReady`; idempotent. */
-export const installDownloads = (): void => {
+export const installDownloads = ({
+  onCompleted,
+}: DownloadsOptions = {}): void => {
   if (installed) {
     return;
   }
@@ -120,10 +127,9 @@ export const installDownloads = (): void => {
         // Released on every terminal state: a cancelled or interrupted
         // download leaves the name free for the next one.
         reserved.delete(savePath);
-        if (state !== "completed") {
-          return;
+        if (state === "completed") {
+          onCompleted?.(savePath);
         }
-        app.dock?.downloadFinished(savePath);
       });
     } catch {
       // Fall through to Electron's default save routine.
