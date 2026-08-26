@@ -527,7 +527,7 @@
       "license": "MIT",
       "icon": "⚓"
     },
-    {
+       {
       "name": "octolens",
       "source": {
         "source": "github",
@@ -538,6 +538,19 @@
       "category": "growth",
       "homepage": "https://github.com/vellum-ai/octolens",
       "license": "MIT"
+    },
+    {
+      "name": "vellum-outcome-gate",
+      "source": {
+        "source": "github",
+        "repo": "jsfranklin221/vellum-outcome-gate",
+        "ref": "d94a6ea1dcbd9ce36decda7cd90afa485c6abb0d"
+      },
+      "description": "Check delivered work against explicit acceptance criteria before payment or another consequential action. Returns what passed, what failed, what was earned, and a signed Outcome Receipt through the Spoolis API, with a keyless sandbox for demos.",
+      "category": "finance",
+      "homepage": "https://github.com/jsfranklin221/vellum-outcome-gate",
+      "license": "MIT",
+      "icon": "🚦"
     }
   ]
 }
