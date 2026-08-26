@@ -85,18 +85,23 @@ public static class DictationServiceTests
         Assert(events.Any(e => e.Method == "dictation.finalized" &&
             e.Json.Contains("final text", StringComparison.Ordinal)));
 
-        // Device loss mid-session surfaces dictation.error, not finalized.
+        // Device loss mid-tap-session surfaces dictation.error, not
+        // finalized, and moves the session to the server path.
         events.Clear();
         engine = new FakeEngine();
+        var server = new FakeEngine();
+        manager = new DictationSessionManager(
+            request => request.RequireOnDevice ? engine : server, Notify);
         Assert(Json(manager.SetPartials(true, false, 16000))
             .Contains("\"enabled\":true", StringComparison.Ordinal));
         engine.EmitFailure("audio device lost");
         Assert(events.Any(e => e.Method == "dictation.error" &&
-            e.Json.Contains("audio device lost", StringComparison.Ordinal)));
+            e.Json.Contains("audio device lost", StringComparison.Ordinal) &&
+            e.Json.Contains("\"willRetryServer\":true", StringComparison.Ordinal)));
         Assert(!events.Any(e => e.Method == "dictation.finalized"));
         Assert(SpinWait.SpinUntil(() => engine.Disposed, TimeSpan.FromSeconds(1)));
         manager.AppendAudio(Convert.ToBase64String(new byte[] { 3, 4 }));
-        Assert(engine.Chunks.Count == 0);
+        Assert(engine.Chunks.Count == 0 && server.Chunks.Count == 1);
 
         // A tap session that stays silent is retried once on the server
         // path; a session that spoke up is left alone.
@@ -149,6 +154,7 @@ public static class DictationServiceTests
         // Restarting cancels the replaced session: it is torn down and its
         // late events are dropped without a finalized transcript.
         events.Clear();
+        manager = new DictationSessionManager(_ => engine, Notify);
         var first = engine = new FakeEngine();
         manager.SetPartials(true, true, 16000);
         engine = new FakeEngine();
