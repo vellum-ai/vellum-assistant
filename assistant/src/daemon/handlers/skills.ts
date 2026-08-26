@@ -728,6 +728,16 @@ function findSkillById(
   ).found;
 }
 
+function unavailableSkillResponse(skillId: string): {
+  error: string;
+  status: 404;
+} {
+  return {
+    error: `Skill "${skillId}" is unavailable for this request`,
+    status: 404,
+  };
+}
+
 /**
  * Whether a skill currently resolves locally (bundled, managed, workspace, or
  * extra). Callers that serve data ABOUT a skill use this to keep to the same
@@ -769,10 +779,7 @@ export async function getSkill(
   const found = lookup.found;
   if (!found) {
     if (lookup.incompatibleLocal) {
-      return {
-        error: `Skill "${skillId}" is unavailable for this request`,
-        status: 404,
-      };
+      return unavailableSkillResponse(skillId);
     }
     // Fallback: skill is not installed. Try all file providers.
     for (const provider of getFileProviders()) {
@@ -1120,13 +1127,17 @@ export async function getSkillFileContent(
     return { error: "Invalid path", status: 400 };
   }
 
-  const found = findSkillById(
+  const lookup = resolveSkillById(
     skillId,
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
     hostPlatforms,
   );
+  const found = lookup.found;
+  if (lookup.incompatibleLocal) {
+    return unavailableSkillResponse(skillId);
+  }
   if (found) {
     if (!existsSync(found.summary.directoryPath)) {
       // Resolver lists the skill as installed but the directory is missing
@@ -1241,13 +1252,17 @@ export async function getSkillFiles(
   // Preferred path: the skill is resolved locally (bundled, managed,
   // workspace, or extra) AND its directory exists on disk. Read files
   // eagerly with inline content.
-  const found = findSkillById(
+  const lookup = resolveSkillById(
     skillId,
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
     hostPlatforms,
   );
+  const found = lookup.found;
+  if (lookup.incompatibleLocal) {
+    return unavailableSkillResponse(skillId);
+  }
   if (found) {
     if (existsSync(found.summary.directoryPath)) {
       const dirPath = found.summary.directoryPath;

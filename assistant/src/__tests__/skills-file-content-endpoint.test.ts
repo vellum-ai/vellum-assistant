@@ -326,7 +326,10 @@ function writeFile(dir: string, relPath: string, content: string | Buffer) {
   writeFileSync(abs, content);
 }
 
-function installedSkill(id: string, directoryPath: string) {
+function installedSkill(
+  id: string,
+  directoryPath: string,
+): { summary: SkillSummary; state: "enabled" } {
   return {
     summary: {
       id,
@@ -464,6 +467,43 @@ describe("getSkillFileContent — installed skill", () => {
 // ---------------------------------------------------------------------------
 
 describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
+  test("does not expose content for an incompatible installed skill", async () => {
+    const skillDir = makeTempSkillDir("windows-automation");
+    writeFile(skillDir, "SKILL.md", "# Windows Automation\n");
+    const skill = installedSkill("windows-automation", skillDir);
+    skill.summary.platforms = ["windows"];
+    skill.summary.requiredHostCapabilities = ["host_bash"];
+    mockResolvedSkills = [skill];
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => [],
+      readFileContent: async () => ({
+        path: "SKILL.md",
+        name: "SKILL.md",
+        size: 1,
+        mimeType: "text/markdown",
+        isBinary: false,
+        content: "remote",
+      }),
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFileContent(
+      "windows-automation",
+      "SKILL.md",
+      "windows",
+      "actor-a",
+      true,
+      [],
+    );
+
+    expect(result).toEqual({
+      error: 'Skill "windows-automation" is unavailable for this request',
+      status: 404,
+    });
+    expect(providerReadCalls).toEqual([]);
+  });
+
   test("delegates to vellum provider and returns the payload", async () => {
     mockResolvedSkills = [];
     installFetchForbidden();

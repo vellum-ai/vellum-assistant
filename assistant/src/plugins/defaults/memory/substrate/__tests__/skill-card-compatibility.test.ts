@@ -7,6 +7,26 @@ import {
 } from "../skill-card-suppression.js";
 
 describe("skill card suppression", () => {
+  test("preserves unrelated cards in legacy unframed v3 blocks", () => {
+    const block = [
+      "# memory/concepts/project.md\nKeep this concept, including its full body.",
+      "# Skill: windows-automation\nAutomates Windows applications.",
+      "# Skill: other-skill\nKeep this unrelated skill.",
+    ].join("\n\n");
+
+    const filtered = stripSuppressedSkillCards(
+      block,
+      new Set(["windows-automation"]),
+    );
+
+    expect(filtered).toContain("# memory/concepts/project.md");
+    expect(filtered).toContain("Keep this concept, including its full body.");
+    expect(filtered).not.toContain("# Skill: windows-automation");
+    expect(filtered).not.toContain("Automates Windows applications.");
+    expect(filtered).toContain("# Skill: other-skill");
+    expect(filtered).toContain("Keep this unrelated skill.");
+  });
+
   test("strips headerless v1 skill entries by their embedded id", () => {
     const block = [
       '- [skill] The "Windows Automation" skill (windows-automation) is available. Automates Windows applications. → use skill_load to activate',

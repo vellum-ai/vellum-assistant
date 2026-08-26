@@ -86,7 +86,7 @@ function makeNoopProvider(name: string): SkillFileProvider {
 // ---------------------------------------------------------------------------
 
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: () => [],
+  loadSkillCatalog: () => mockResolvedStates.map((entry) => entry.summary),
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -242,6 +242,8 @@ function makeSummary(overrides: Partial<SkillSummary>): SkillSummary {
     activationHints: overrides.activationHints,
     avoidWhen: overrides.avoidWhen,
     inlineCommandExpansions: overrides.inlineCommandExpansions,
+    platforms: overrides.platforms,
+    requiredHostCapabilities: overrides.requiredHostCapabilities,
   };
 }
 
@@ -337,6 +339,39 @@ describe("getSkillFiles — provider chain fallback", () => {
     }
     expect(result.status).toBe(404);
     expect(result.error).toContain("ghost-skill");
+  });
+
+  test("does not expose files for an incompatible installed skill", async () => {
+    mockResolvedStates = [
+      {
+        summary: makeSummary({
+          id: "windows-automation",
+          platforms: ["windows"],
+          requiredHostCapabilities: ["host_bash"],
+        }),
+        state: "enabled",
+      },
+    ];
+    mockVellumProvider = {
+      canHandle: () => true,
+      listFiles: async () => [],
+      readFileContent: async () => null,
+      toSlimSkill: async () => null,
+    };
+
+    const result = await getSkillFiles(
+      "windows-automation",
+      "windows",
+      "actor-a",
+      true,
+      [],
+    );
+
+    expect(result).toEqual({
+      error: 'Skill "windows-automation" is unavailable for this request',
+      status: 404,
+    });
+    expect(providerCalls).toEqual([]);
   });
 
   test("returns 404 with 'files unavailable' when vellum provider canHandle returns true but listFiles returns null", async () => {

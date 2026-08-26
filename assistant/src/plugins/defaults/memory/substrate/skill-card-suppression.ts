@@ -71,9 +71,7 @@ export function stripSuppressedSkillCards(
   const withoutV3 =
     kept.length === pieces.length
       ? inner
-      : !framed
-        ? ""
-        : renderCardSections(preamble, kept, true);
+      : renderCardSections(preamble, kept, framed);
   return stripV1SkillEntries(
     stripV2SkillSection(withoutV3, suppressedIds),
     suppressedIds,
