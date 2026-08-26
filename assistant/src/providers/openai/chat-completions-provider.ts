@@ -725,6 +725,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+    const perRequestHeaders = configObj?.requestHeaders as
+      | Record<string, string>
+      | undefined;
 
     // Per-tool keys whose object schemas were rewritten to JSON strings for the
     // wire, to be decoded back on the response. Empty unless
@@ -913,6 +916,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         const requestHeaders = {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
+          ...(perRequestHeaders ?? {}),
         };
         const createStream = () =>
           this.client.chat.completions.create(params, {

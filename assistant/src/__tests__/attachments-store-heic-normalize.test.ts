@@ -4,7 +4,7 @@
  * register and assistant-outbound paths keep content verbatim.
  *
  * The converter module is mocked (keyed on the declared mime type) so these
- * tests run identically with and without macOS sips; real conversion is
+ * tests run independently of the installed image encoder; real conversion is
  * covered in image-conversion.test.ts. mock.module is process-global — keep
  * these cases in this file.
  */

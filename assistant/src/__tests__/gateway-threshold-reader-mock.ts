@@ -35,6 +35,8 @@ export interface ThresholdReaderMockState {
     executionContext?: string;
     cellQuery?: Record<string, unknown>;
   }>;
+  /** Resolved by `getContactAutoApproveThreshold`. */
+  contactThreshold: string | null;
   /** How many times the cell was looked up. */
   cellLookups: number;
 }
@@ -45,6 +47,7 @@ export const thresholdReaderMock: ThresholdReaderMockState = {
   cell: { ok: true, resolved: null },
   roomDefault: "low",
   thresholdReads: [],
+  contactThreshold: null,
   cellLookups: 0,
 };
 
@@ -58,6 +61,7 @@ export function resetThresholdReaderMock(): void {
   thresholdReaderMock.cell = { ok: true, resolved: null };
   thresholdReaderMock.roomDefault = "low";
   thresholdReaderMock.thresholdReads.length = 0;
+  thresholdReaderMock.contactThreshold = null;
   thresholdReaderMock.cellLookups = 0;
 }
 
@@ -81,6 +85,8 @@ export function installThresholdReaderMock(): void {
       return thresholdReaderMock.threshold;
     },
     refreshAutoApproveThreshold: async () => thresholdReaderMock.refreshed,
+    getContactAutoApproveThreshold: async () =>
+      thresholdReaderMock.contactThreshold,
     resolveChannelPermissionCell: async () => {
       thresholdReaderMock.cellLookups += 1;
       return thresholdReaderMock.cell;

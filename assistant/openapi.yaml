@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.5
+  version: 0.11.6
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2766,8 +2766,8 @@ paths:
       operationId: backup_destinations_get
       summary: List configured offsite backup destinations
       description:
-        Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit
-        array is configured.
+        Returns the current offsite destinations array. When no explicit array is configured, macOS materializes
+        its encrypted iCloud Drive default while Windows and Linux return no implicit destination.
       tags:
         - backups
       responses:
@@ -2799,8 +2799,8 @@ paths:
       operationId: backup_destinations_add_post
       summary: Add an offsite backup destination
       description:
-        Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors
-        if the path already exists.
+        Appends a new destination. Materializes the platform default first if destinations is currently null.
+        Errors if the path already exists.
       tags:
         - backups
       requestBody:
@@ -14905,7 +14905,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside"
       responses:
         "200":
           description: Successful response
@@ -15177,7 +15177,8 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum, chatgpt"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, vellum,
+            chatgpt"
       responses:
         "200":
           description: Successful response
@@ -35006,6 +35007,7 @@ components:
         - openrouter
         - vercel-ai-gateway
         - litellm
+        - opencode
         - openai-compatible
         - minimax
         - atlascloud

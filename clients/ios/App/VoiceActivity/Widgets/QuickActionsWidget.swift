@@ -284,6 +284,11 @@ struct QuickActionsWidgetView: View {
     /// has rather than a claim about right now, so a snapshot too old to count
     /// with is still new enough to say whose face it is.
     ///
+    /// It gates the chip and the row layout built around it, and nothing else.
+    /// The mark is drawn either way: the eyes are which assistant this account
+    /// has rather than a claim about right now, so a snapshot too old to count
+    /// with is still new enough to say whose face it is.
+    ///
     /// `CatchUpRow` keeps its unread dot past that same threshold, and the two
     /// are consistent rather than in tension. A dot says "this conversation
     /// has something in it you have not read", which stays true until someone

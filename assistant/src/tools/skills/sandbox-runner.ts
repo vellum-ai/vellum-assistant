@@ -5,6 +5,10 @@ import { join, resolve } from "node:path";
 
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
+import {
+  buildShellInvocation,
+  terminateProcessTree,
+} from "../../util/host-process.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -139,7 +143,7 @@ function spawnRunner(
     let timedOut = false;
 
     const bunRunCmd = "bun run __skill_runner.ts";
-    const wrapped = { command: "bash", args: ["-c", "--", bunRunCmd] };
+    const wrapped = buildShellInvocation(bunRunCmd);
 
     const env = buildSanitizedEnv();
     env.__SKILL_INPUT_JSON = JSON.stringify(input);
@@ -161,28 +165,16 @@ function spawnRunner(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        process.kill(-child.pid!, "SIGKILL");
-      } catch {
-        // Process group may have already exited.
-      }
+      terminateProcessTree(child);
     }, timeoutMs);
 
     // Cooperative cancellation via AbortSignal
     const onAbort = () => {
-      try {
-        process.kill(-child.pid!, "SIGKILL");
-      } catch {
-        // Process group may have already exited.
-      }
+      terminateProcessTree(child);
     };
     if (context.signal) {
       if (context.signal.aborted) {
-        try {
-          process.kill(-child.pid!, "SIGKILL");
-        } catch {
-          // Process group may have already exited.
-        }
+        terminateProcessTree(child);
       } else {
         context.signal.addEventListener("abort", onAbort, { once: true });
       }

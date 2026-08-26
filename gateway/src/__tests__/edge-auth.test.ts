@@ -613,3 +613,159 @@ describe("requireEdgeAuth: device last-used stamping", () => {
     expect(readLastUsedAt("dead-token")).toBeNull();
   });
 });
+
+// =========================================================================
+// handleCreateToken: derived actor-token rows carry device identity forward
+// =========================================================================
+
+const { handleCreateToken } = await import("../http/routes/auth-token.js");
+const { initSigningKey, mintToken } =
+  await import("../auth/token-service.js");
+const { CURRENT_POLICY_EPOCH } = await import("../auth/policy.js");
+const { contacts } = await import("../db/schema.js");
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
+
+initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
+
+describe("handleCreateToken: derived actor-token identity carry-forward", () => {
+  const GUARDIAN_PRINCIPAL = "guardian-derived-001";
+  const DERIVED_ORIGIN = "http://localhost:5173";
+
+  let dbRoot: string;
+  let savedSecurityDir: string | undefined;
+
+  function makeTokenReq(bearerToken: string): Request {
+    return new Request("http://gateway.local/auth/token", {
+      method: "POST",
+      headers: {
+        origin: DERIVED_ORIGIN,
+        authorization: `Bearer ${bearerToken}`,
+      },
+    });
+  }
+
+  function mintSourceToken(): string {
+    return mintToken({
+      aud: "vellum-gateway",
+      sub: `actor:self:${GUARDIAN_PRINCIPAL}`,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+  }
+
+  function seedSourceActorToken(
+    rawToken: string,
+    identity: {
+      pairingUserAgent: string | null;
+      clientReportedName: string | null;
+    },
+  ) {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(actorTokenRecords)
+      .values({
+        id: `row-${rawToken}`,
+        tokenHash: actorTokenRecordHash(rawToken),
+        guardianPrincipalId: GUARDIAN_PRINCIPAL,
+        hashedDeviceId: "hashed-device-derived",
+        platform: "macos",
+        pairingUserAgent: identity.pairingUserAgent,
+        clientReportedName: identity.clientReportedName,
+        status: "active",
+        issuedAt: now,
+        expiresAt: now + 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  function findDerivedRow() {
+    return getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.status, "derived"))
+      .get();
+  }
+
+  beforeEach(async () => {
+    savedSecurityDir = process.env.GATEWAY_SECURITY_DIR;
+    dbRoot = mkdtempSync(join(tmpdir(), "auth-token-derived-"));
+    const securityDir = join(dbRoot, "protected");
+    mkdirSync(securityDir, { recursive: true });
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    await initGatewayDb();
+
+    // Seed a guardian contact so guardianIntegrityState() reads "ok"; a
+    // missing guardian row would 401 before the mint is ever reached.
+    const now = Date.now();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "contact-guardian",
+        displayName: "guardian",
+        role: "guardian",
+        principalId: GUARDIAN_PRINCIPAL,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    bustGuardianIntegrityCache();
+  });
+
+  afterEach(() => {
+    resetGatewayDb();
+    bustGuardianIntegrityCache();
+    if (savedSecurityDir === undefined) {
+      delete process.env.GATEWAY_SECURITY_DIR;
+    } else {
+      process.env.GATEWAY_SECURITY_DIR = savedSecurityDir;
+    }
+    try {
+      rmSync(dbRoot, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  });
+
+  test("copies both identity fields from a source row onto the derived row", async () => {
+    const sourceToken = mintSourceToken();
+    seedSourceActorToken(sourceToken, {
+      pairingUserAgent: "Vellum/1.2 (Macintosh; Intel Mac OS X 10_15_7)",
+      clientReportedName: "Alice's MacBook Pro",
+    });
+
+    const res = await handleCreateToken(
+      makeTokenReq(sourceToken),
+      makeLoopbackServer(),
+    );
+
+    expect(res.status).toBe(200);
+    const derived = findDerivedRow();
+    expect(derived?.platform).toBe("macos");
+    expect(derived?.pairingUserAgent).toBe(
+      "Vellum/1.2 (Macintosh; Intel Mac OS X 10_15_7)",
+    );
+    expect(derived?.clientReportedName).toBe("Alice's MacBook Pro");
+  });
+
+  test("a null-identity source row produces a derived row with nulls and does not throw", async () => {
+    const sourceToken = mintSourceToken();
+    seedSourceActorToken(sourceToken, {
+      pairingUserAgent: null,
+      clientReportedName: null,
+    });
+
+    const res = await handleCreateToken(
+      makeTokenReq(sourceToken),
+      makeLoopbackServer(),
+    );
+
+    expect(res.status).toBe(200);
+    const derived = findDerivedRow();
+    expect(derived?.pairingUserAgent).toBeNull();
+    expect(derived?.clientReportedName).toBeNull();
+  });
+});

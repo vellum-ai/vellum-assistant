@@ -823,7 +823,10 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
 describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
   beforeEach(() => {
     setConfig("services", {
-      stt: { provider: "deepgram-flux", providers: {} },
+      stt: {
+        provider: "deepgram",
+        providers: { deepgram: { model: "flux" } },
+      },
     });
   });
 
@@ -916,7 +919,7 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     const gate = createDialGate();
     const { frames, session, transcribers, turnCalls } = createHarness({
       // No fluxConfig: `turnEnd.enabled` keeps its schema default of false
-      // while config still names deepgram-flux as the provider.
+      // while config still selects the flux model family.
       silenceThresholdMs: 40,
       resolveGate: gate.promise,
       startVoiceTurn: autoCompletingTurn(),

@@ -2,8 +2,7 @@
   "assistantChannelsList": {
     "drawerTitle": "Canales",
     "disconnectTitle": "¿Desconectar {channel}?",
-    "disconnectConfirm": "Desconectar",
-    "confirmFallback": "Confirmar"
+    "disconnectConfirm": "Desconectar"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, de un plugin"
@@ -45,7 +44,37 @@
     "loading": "Cargando…",
     "loadFailed": "No se pudo cargar este ajuste. Prueba a volver a abrir esta página.",
     "selectAria": "Quién puede escribir a {assistant}",
-    "trustedContactsNotice": "Las personas que aún no has verificado (incluso compañeros del mismo canal) no pueden pasar: {assistant} les avisa de que necesitan verificarse y te lo notifica. Puedes verificar personas por adelantado en Contactos."
+    "trustedContactsNotice": "Las personas que aún no has verificado (incluso compañeros del mismo canal) no pueden pasar: {assistant} les avisa de que necesitan verificarse y te lo notifica. Puedes verificar personas por adelantado en Contactos.",
+    "confirmFallback": "Confirmar",
+    "noOne": {
+      "label": "Nadie",
+      "description": "Nadie puede escribir a {assistant} en este canal: se bloquean todos los mensajes, incluidos los tuyos.",
+      "confirmTitle": "¿Bloquear todos los mensajes?",
+      "confirmMessage": "Poner este canal en “Nadie” rechaza de plano todos los mensajes entrantes, incluidos los tuyos.\n\nPuedes revertirlo en cualquier momento.",
+      "confirmAction": "Bloquear todo"
+    },
+    "guardianOnly": {
+      "label": "Solo tú",
+      "description": "Solo tú puedes escribir a {assistant}. Todos los demás son rechazados."
+    },
+    "trustedContacts": {
+      "label": "Contactos verificados",
+      "description": "Tú y las personas que has verificado pueden escribir a {assistant}. A cualquier otra persona se le pide verificarse primero, y se te notifica."
+    },
+    "anyContact": {
+      "label": "Cualquier contacto",
+      "description": "Tú y cualquier contacto conocido pueden escribir a {assistant}, incluidos contactos que aún no has verificado. A los desconocidos se les pide verificarse primero.",
+      "confirmTitle": "¿Permitir cualquier contacto?",
+      "confirmMessage": "“Cualquier contacto” admite a todos los contactos detectados en este canal (incluidos los pendientes sin verificar), no solo a tus contactos verificados.\n\nIdeal para canales formados solo por personas en las que ya confías.",
+      "confirmAction": "Permitir cualquier contacto"
+    },
+    "strangers": {
+      "label": "Desconocidos",
+      "description": "Cualquiera puede escribir a {assistant}, incluidos completos desconocidos.",
+      "confirmTitle": "¿Permitir desconocidos?",
+      "confirmMessage": "¿Seguro que quieres permitir que desconocidos contacten con tu asistente por este canal?\n\nHacerlo podría costarte dinero y exponerte a vulnerabilidades de seguridad y privacidad.\n\nActívalo con extrema precaución.",
+      "confirmAction": "Permitir desconocidos"
+    }
   },
   "slackChannelTypeDefaults": {
     "heading": "Acceso predeterminado",

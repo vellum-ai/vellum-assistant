@@ -233,6 +233,7 @@ const UNCONNECTED_PROVIDER_LABELS = [
   "MiniMax",
   "Atlas Cloud",
   "LiteLLM",
+  "OpenCode",
   "Baseten",
   "Poolside",
 ];

@@ -11,7 +11,12 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 
-import { readProcessCommand } from "../util/process-tree.js";
+import {
+  getProcessTableRows,
+  type ProcessTableOptions,
+  type ProcessTableRow,
+} from "../util/process-table.js";
+import { deriveName, readProcessCommand } from "../util/process-tree.js";
 
 /** Linux page size assumed when converting `/proc/<pid>/statm` pages to bytes. */
 const PAGE_SIZE_BYTES = 4096;
@@ -82,11 +87,38 @@ function readProcessMemory(pid: number): SmapsRollup | null {
 
 /**
  * Best-effort snapshot of the top `limit` processes by PSS (RSS when PSS is
- * unavailable), largest first. Empty when `/proc` is unavailable (e.g. macOS)
- * — the high-memory snapshot's process *tree* still captures what was running
- * in that case.
+ * unavailable), largest first. Windows uses Win32 working-set sizes. Other
+ * hosts without `/proc` return an empty list while the process tree still
+ * captures what was running.
  */
-export function topProcessesByMemory(limit: number): ProcessMemory[] {
+export function topProcessesByMemory(
+  limit: number,
+  options: ProcessTableOptions = {},
+): ProcessMemory[] {
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    try {
+      return getProcessTableRows(options)
+        .filter(
+          (row): row is ProcessTableRow & { rssBytes: number } =>
+            row.rssBytes != null,
+        )
+        .map((row) => ({
+          pid: row.pid,
+          command: deriveName(row.command),
+          rssBytes: row.rssBytes,
+          pssBytes: null,
+          pssAnonBytes: null,
+          pssFileBytes: null,
+          pssShmemBytes: null,
+        }))
+        .sort((a, b) => b.rssBytes - a.rssBytes)
+        .slice(0, limit);
+    } catch {
+      return [];
+    }
+  }
+
   let pids: string[];
   try {
     pids = readdirSync("/proc").filter((e) => /^\d+$/.test(e));

@@ -147,6 +147,8 @@ describe("vellum devices", () => {
               issuedAt: 1_700_000_000_000,
               expiresAt: 1_800_000_000_000,
               lastUsedAt: 1_750_000_000_000,
+              clientReportedName: "Alice's Laptop",
+              pairingUserAgent: "vellum-cli/1.2.3 (darwin)",
             },
             {
               hashedDeviceId: "hashBBB222",
@@ -171,6 +173,13 @@ describe("vellum devices", () => {
     expect(logs).toContain("cli");
     expect(logs).toContain("webview");
     expect(logs).toContain("never");
+    // Reported name + user agent print verbatim when present.
+    expect(logs).toContain("Alice's Laptop");
+    expect(logs).toContain("vellum-cli/1.2.3 (darwin)");
+    // Missing fields print plain-word placeholders, not a dash or "undefined".
+    expect(logs).toContain("not reported");
+    expect(logs).toContain("not recorded");
+    expect(logs).not.toContain("undefined");
 
     expect(fetchCalls).toHaveLength(1);
     const call = fetchCalls[0];
@@ -377,6 +386,8 @@ describe("vellum devices", () => {
         issuedAt: 1_700_000_000_000,
         expiresAt: 1_800_000_000_000,
         lastUsedAt: null,
+        clientReportedName: "Alice's Laptop",
+        pairingUserAgent: "vellum-cli/1.2.3 (darwin)",
       },
     ];
     stubFetch((url) =>
@@ -392,6 +403,7 @@ describe("vellum devices", () => {
     expect(errors).toBe("");
     // Exactly one line on stdout, parseable, and zero prose.
     expect(logs).not.toContain("\n");
+    // Round-trips clientReportedName/pairingUserAgent with no writer change.
     expect(JSON.parse(logs)).toEqual({ devices: records });
     expect(logs).not.toContain("Devices paired to");
   });

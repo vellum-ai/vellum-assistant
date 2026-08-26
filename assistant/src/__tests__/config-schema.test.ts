@@ -960,7 +960,6 @@ describe("AssistantConfigSchema", () => {
       },
       flux: {
         turnEnd: { enabled: false },
-        model: "flux-general-en",
         eotThreshold: 0.7,
         eotTimeoutMs: 5000,
       },

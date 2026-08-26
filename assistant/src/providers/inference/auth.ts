@@ -190,6 +190,7 @@ export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
 export const PROVIDERS_ALLOWING_CUSTOM_BASE_URL: ReadonlySet<string> = new Set([
   ...PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   "ollama",
+  "opencode",
 ]);
 
 // ---------------------------------------------------------------------------

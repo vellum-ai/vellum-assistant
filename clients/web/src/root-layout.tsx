@@ -95,6 +95,7 @@ import {
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
+import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
 /**
@@ -123,6 +124,7 @@ import { toast } from "@vellumai/design-library/components/toast";
  */
 export function RootLayout() {
   useAppTheme();
+  const { t } = useTranslation();
   const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
 
@@ -270,7 +272,7 @@ export function RootLayout() {
           .connectLocalAssistant(id)
           .catch((err: unknown) => {
             console.error("rePair.connectLocalAssistant failed", err);
-            toast.error("Failed to connect to the assistant.");
+            toast.error(t("assistantConnect.failed"));
             void navigate(routes.selectAssistant);
           });
       }
@@ -590,7 +592,7 @@ export function RootLayout() {
         kind="paired"
         assistantName={
           (removePairedId && getLockfileAssistant(removePairedId)?.name) ||
-          "the assistant"
+          t("rootLayout.unnamedAssistant")
         }
         isPending={removePairedPending}
         onConfirm={() => void handleConfirmRemovePaired()}

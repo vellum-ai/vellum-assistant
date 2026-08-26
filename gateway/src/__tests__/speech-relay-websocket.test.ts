@@ -239,6 +239,51 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     expect(upstream.searchParams.has("key")).toBe(false);
   });
 
+  test("routes managed STT v2 to velay's v2 path with the Flux params", async () => {
+    const server = makeFakeServer();
+    const handler = createSpeechRelayUpgradeHandler(
+      makeConfig(),
+      "stt",
+      { credentials: makeCredentials("vk-1") },
+      "v2",
+    );
+    const req = new Request(
+      `http://127.0.0.1:7830/v2/speech/stt/stream?key=${TOKEN}&encoding=linear16&sample_rate=16000&language=multi&contract=flux&eot_threshold=0.7&eager_eot_threshold=0.5&eot_timeout_ms=5000`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    expect(await handler(req, server)).toBeUndefined();
+    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
+    const upstream = new URL(data.data.upstreamWsUrl);
+    expect(upstream.pathname).toBe("/v2/speech/stt/stream");
+    expect(upstream.searchParams.get("contract")).toBe("flux");
+    // Without eager_eot_threshold reaching Deepgram there are no eager turn
+    // ends at all, which is the point of the native contract.
+    expect(upstream.searchParams.get("eager_eot_threshold")).toBe("0.5");
+    expect(upstream.searchParams.get("eot_threshold")).toBe("0.7");
+    expect(upstream.searchParams.get("eot_timeout_ms")).toBe("5000");
+    expect(upstream.searchParams.get("language")).toBe("multi");
+    expect(upstream.searchParams.has("key")).toBe(false);
+  });
+
+  test("v1 STT still rejects the Flux-only params", async () => {
+    // A nova-3 session must not be able to forward params its upstream does
+    // not accept.
+    const handler = createSpeechRelayUpgradeHandler(makeConfig(), "stt", {
+      credentials: makeCredentials("vk-1"),
+    });
+    for (const param of ["contract=flux", "eager_eot_threshold=0.5"]) {
+      const req = new Request(
+        `http://127.0.0.1:7830/v1/speech/stt/stream?key=${TOKEN}&${param}`,
+        { headers: { upgrade: "websocket" } },
+      );
+      const res = (await handler(req, makeFakeServer()))!;
+      expect(res.status).toBe(400);
+      expect((await bodyOf(res)).code).toBe("invalid_request");
+    }
+  });
+
   test("routes the tts operation to velay's tts path", async () => {
     const server = makeFakeServer();
     const handler = createSpeechRelayUpgradeHandler(makeConfig(), "tts", {

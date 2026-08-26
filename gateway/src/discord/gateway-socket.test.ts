@@ -115,7 +115,6 @@ function harness(options: { allowed?: string[]; responses?: Response[] } = {}) {
   const client = new DiscordGatewayClient(
     {
       botToken: "token-abc",
-      readAllowedChannelIds: () => new Set(options.allowed ?? ["channel-1"]),
       fetchFn: (async (url: string | URL | Request, init?: RequestInit) => {
         fetchCalls.push({
           url: String(url),
@@ -405,7 +404,7 @@ describe("server-directed recovery", () => {
 });
 
 describe("message admission and normalization", () => {
-  test("a mention in an allow-listed channel is emitted", async () => {
+  test("a mention in a visible channel is emitted", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message(messageCreate());
@@ -418,19 +417,18 @@ describe("message admission and normalization", () => {
     expect(event.message.content).toBe("<@bot-1> hello");
   });
 
-  test("non-mentions, other channels, and bot authors are dropped", async () => {
+  test("non-mentions and bot authors are dropped", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
 
     ws.message(messageCreate({ mentions: [] }));
-    ws.message(messageCreate({ channel_id: "channel-other" }));
     ws.message(messageCreate({ author: { id: "other-bot", bot: true } }));
     // The bot's own echo.
     ws.message(messageCreate({ author: { id: "bot-1" } }));
     expect(h.events).toHaveLength(0);
   });
 
-  test("a thread message inherits its parent's allow-list entry", async () => {
+  test("a thread message delivers on its parent conversation", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message({
@@ -450,7 +448,7 @@ describe("message admission and normalization", () => {
     expect(event.source.threadId).toBe("thread-9");
   });
 
-  test("a THREAD_CREATE feeds later thread admission", async () => {
+  test("a THREAD_CREATE feeds later parent resolution", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message({
@@ -461,19 +459,7 @@ describe("message admission and normalization", () => {
     });
     ws.message(messageCreate({ channel_id: "thread-5" }));
     expect(h.events).toHaveLength(1);
-  });
-
-  test("a thread in a non-listed channel stays out", async () => {
-    const h = harness();
-    const ws = await connectAndReady(h);
-    ws.message({
-      op: 0,
-      t: "THREAD_CREATE",
-      s: 2,
-      d: { id: "thread-6", type: 11, parent_id: "channel-other" },
-    });
-    ws.message(messageCreate({ channel_id: "thread-6" }));
-    expect(h.events).toHaveLength(0);
+    expect(h.events[0]?.message.conversationExternalId).toBe("channel-1");
   });
 });
 

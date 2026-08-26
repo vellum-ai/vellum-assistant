@@ -408,6 +408,8 @@ export type ClassifyRiskSkillMetadata = z.infer<
 export const ClassifyRiskIpcParamsSchema = z.object({
   tool: z.string().min(1),
   command: z.string().optional(),
+  /** Shell grammar used by host_bash on the target desktop. */
+  shell: z.enum(["bash", "powershell"]).optional(),
   url: z.string().optional(),
   path: z.string().optional(),
   /**

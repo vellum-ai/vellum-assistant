@@ -1,4 +1,3 @@
-import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
 import { z } from "zod";
@@ -10,6 +9,10 @@ import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
+import {
+  buildShellInvocation,
+  terminateProcessTree,
+} from "../../util/host-process.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -296,7 +299,7 @@ export const shellTool = {
       Object.assign(env, proxyEnv);
     }
 
-    const wrapped = { command: "bash", args: ["-c", "--", command] };
+    const wrapped = buildShellInvocation(command);
 
     // -----------------------------------------------------------------------
     // Background mode: spawn and return immediately. The process output is
@@ -644,12 +647,11 @@ export const shellTool = {
 
 /**
  * Structured teardown log. Pairs with the `"Executing shell command"`
- * start log: every shell invocation now produces a start/exit pair so
+ * start log: every shell invocation produces a start/exit pair so
  * orphan-leak post-mortems can correlate command + exitCode + signal +
  * timedOut + duration without spelunking through prose hints. The
- * `signal === "SIGKILL"` + `timedOut === true` combination is the
- * fingerprint left by the timeout watcher SIGKILLing the process group
- * — i.e. the moment that creates the orphans.
+ * `signal === "SIGKILL"` + `timedOut === true` combination identifies a
+ * timeout-driven process termination.
  */
 function logShellExit(args: {
   toolName: string;
@@ -681,19 +683,10 @@ function logShellExit(args: {
 }
 
 /**
- * Kill the entire process tree of a child process. Tries the process group
- * first (negative PID), then falls back to killing the direct child if the
- * PID is unavailable or the group kill fails.
- *
- * Emits a structured `warn` log on every invocation: this is the
- * ground-truth event that creates orphaned subprocesses (the SIGKILL hits
- * the entire group, so the immediate bash child has no chance to reap its
- * grandchildren; under bun-as-PID-1 they accumulate as `<defunct>`).
- * `reason` lets the next zombie report point at a specific call site (the
- * timeout watcher in the foreground/background branches, or an abort).
+ * Terminate the process tree and record the call site for timeout diagnostics.
  */
 function buildKillTree(
-  child: ChildProcess,
+  child: ReturnType<typeof spawn>,
   context: {
     toolName: string;
     conversationId: string;
@@ -715,20 +708,8 @@ function buildKillTree(
         groupPid,
         invocationId: context.invocationId,
       },
-      "Shell process group SIGKILL'd — orphans expected to reparent to PID 1",
+      "Shell process group SIGKILL'd",
     );
-    if (groupPid != null) {
-      try {
-        process.kill(-groupPid, "SIGKILL");
-        return;
-      } catch {
-        // Process group may have already exited — fall through.
-      }
-    }
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // Child may have already exited.
-    }
+    terminateProcessTree(child);
   };
 }

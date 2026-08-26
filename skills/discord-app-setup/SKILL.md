@@ -170,25 +170,22 @@ Discord connected.
 Connected: {bot_username} (application: {application_name})
 Intents: Guilds, Guild Messages, Direct Messages (no privileged intents)
 
-⚠️ The bot will not respond yet. It only acts in channels you explicitly
-   allow, and that list starts empty.
+Ready. Mention the bot in any channel it can see and it will reply
+(for senders its admission policy accepts; see below when verification
+was skipped).
 ```
 
-Then tell the user how to finish:
+Then tell the user how it is scoped:
 
-> In a server the bot replies only when it is **@mentioned in an allow-listed channel**. The allow-list is empty by default, which means it currently ignores everything there, and being invited to a server is not consent to every channel in it.
->
-> DMs are separate: the bot can be messaged directly without any allow-list entry, because a DM is already addressed to it alone. Who it answers in a DM is still governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
->
-> To allow a channel: enable Developer Mode in Discord (**User Settings → Advanced → Developer Mode**), right-click the channel and choose **Copy Channel ID**, then run:
->
-> ```bash
-> assistant config set discord.allowedChannelIds '["<channel id>"]'
-> ```
->
-> Pass the full list to allow more than one channel. Once a channel is on the list, mention the bot there and it will reply.
+> In a server the bot replies when it is **@mentioned in a channel it can see**. Which channels those are is Discord's own setting, not ours: a bot reads a channel only where its role has **View Channel**, exactly as it would for a person.
 
-Two things still gate a reply after that, and are worth naming if the bot stays silent: the mention itself (it does not respond to unmentioned messages), and the channel's admission policy, which by default admits trusted contacts rather than anyone in the server.
+If identity verification was skipped in Step 6, also say so plainly: the default Who-can-message policy admits trusted contacts, so until the user verifies (or the guardian widens the Discord policy in Channels), the bot will see mentions but decline to answer them. Do not present a skipped verification as a fully working setup.
+
+> To keep it out of a channel, deny **View Channel** to the bot's role there, or move the bot's role so it does not have access to a category. To let it in, grant the same permission. Discord's channel settings are the one place that lives, so there is nothing to configure on our side.
+>
+> DMs are separate: the bot can be messaged directly, because a DM is already addressed to it alone. Who it answers there is governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
+
+Two things gate a reply and are worth naming if the bot stays silent: the mention itself (it does not respond to unmentioned messages), and the channel's admission policy, which by default admits trusted contacts rather than anyone in the server.
 
 ## Implementation Rules
 
@@ -197,7 +194,7 @@ Two things still gate a reply after that, and are worth naming if the bot stays 
 - **Do NOT collect the bot token before Step 3.** The token is shown once and cannot be retrieved later, so it must be collected in the same turn the user generates it, with the secure prompt already open.
 - **Do NOT request the `Administrator` permission** on the OAuth invite URL. The default permission integer was chosen with the principle of least privilege — only request more if a downstream feature explicitly requires it, and document why.
 - **Do NOT enable any privileged intent.** The client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, and nothing reads presence, member, or non-mention guild-message events. Enabling one grants access the software never uses and opts the app into Discord's privileged-intent review past 10,000 users.
-- **Do NOT claim the bot can reply once setup finishes.** It goes online, and looks working, while ignoring every message until a channel is on `discord.allowedChannelIds`. Always report that gap (Step 7).
+- **Do NOT claim the bot replies everywhere once setup finishes.** It answers only where it is @mentioned, in channels Discord lets it see. Say which server it joined rather than implying the whole account is wired up (Step 7).
 - **Do NOT instruct the user to set an Interactions Endpoint URL.** Gateway-connected bots receive interactions over the WebSocket — the HTTP endpoint is only needed for HTTP-only interaction handlers.
 - **Do NOT end setup without offering identity verification.** A connected bot that recognises nobody treats its own owner as a stranger. Step 6 is a skip the user declines explicitly, never one taken on their behalf.
 - **Do NOT persist the application ID, public key, or bot user metadata** anywhere outside the credential vault. They are derivable from the bot token on demand and persisting them risks staleness after a token reset.

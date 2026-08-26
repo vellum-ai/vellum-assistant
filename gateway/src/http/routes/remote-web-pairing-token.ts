@@ -19,9 +19,9 @@ import {
   remoteWebRefreshCookiePathForPublicBaseUrl,
 } from "../browser-auth-cookies.js";
 import { errorResponse } from "../loopback-guard.js";
-import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
+import { methodNotAllowed, readJsonStringFields } from "../route-helpers.js";
 
-const MAX_TOKEN_BODY_BYTES = 512;
+const MAX_TOKEN_BODY_BYTES = 1024;
 const REMOTE_WEB_PLATFORM = "web";
 
 /** Token-exchange JSON responses, errors included, are never cacheable. */
@@ -47,14 +47,17 @@ export async function handleRemoteWebPairingToken(
     return methodNotAllowed("POST");
   }
 
-  const deviceCode = await readJsonStringField(
+  const fields = await readJsonStringFields(
     req,
     MAX_TOKEN_BODY_BYTES,
     "deviceCode",
+    ["clientReportedName"],
   );
-  if (deviceCode instanceof Response) {
-    return noStore(deviceCode);
+  if (fields instanceof Response) {
+    return noStore(fields);
   }
+  const deviceCode = fields.deviceCode as string;
+  const clientReportedName = fields.clientReportedName;
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
   if (challenge.status === "pending") {
@@ -79,6 +82,11 @@ export async function handleRemoteWebPairingToken(
   const refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(
     challenge.publicBaseUrl,
   );
+  // The exchange request's own User-Agent, not the challenge's stored
+  // requesterUserAgent: in the app-handoff flow the phone's browser mints
+  // the code but the app performs the exchange and holds the credential, so
+  // the exchange request is the one that observed the actual device.
+  const exchangeUserAgent = req.headers.get("user-agent");
   let guardianPrincipalId: string;
   let pair: ReturnType<typeof mintAndRecordBrowserTokenPair>;
   try {
@@ -87,6 +95,10 @@ export async function handleRemoteWebPairingToken(
       guardianPrincipalId,
       platform: REMOTE_WEB_PLATFORM,
       browserRefreshCookiePath: refreshCookiePath,
+      identity: {
+        pairingUserAgent: exchangeUserAgent,
+        clientReportedName,
+      },
     });
   } catch (err) {
     // Release so the approved code stays exchangeable after the failure is

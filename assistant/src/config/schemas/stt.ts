@@ -1,12 +1,14 @@
 import { z } from "zod";
 
+import { listProviderModelFamilies } from "../../providers/speech-to-text/provider-catalog.js";
+import type { SttProviderId } from "../../stt/types.js";
+
 /**
  * Valid STT provider identifiers. New providers append here and register
  * an adapter.
  */
 export const VALID_STT_PROVIDERS = [
   "deepgram",
-  "deepgram-flux",
   "google-gemini",
   "openai-whisper",
   "xai",
@@ -38,10 +40,32 @@ const STT_PROVIDER_ALIASES: Record<
  * The map only holds entries the user has explicitly configured — it is
  * NOT required to enumerate every known provider.
  */
-export const SttProvidersSchema = z.record(
-  z.string(),
-  z.record(z.string(), z.unknown()).default({}),
-);
+export const SttProvidersSchema = z
+  .record(z.string(), z.record(z.string(), z.unknown()).default({}))
+  .check((ctx) => {
+    // `model` is only meaningful for providers the catalog knows, and the map
+    // is deliberately open to ids it does not: entries for future providers
+    // must keep round-tripping untouched. So validate the key where it means
+    // something and leave the rest alone.
+    for (const [providerId, settings] of Object.entries(ctx.value)) {
+      const model = settings?.model;
+      if (model === undefined) {
+        continue;
+      }
+      const families = listProviderModelFamilies(providerId as SttProviderId);
+      if (families.length === 0) {
+        continue;
+      }
+      if (typeof model !== "string" || !families.includes(model as never)) {
+        ctx.issues.push({
+          code: "custom",
+          path: [providerId, "model"],
+          message: `services.stt.providers.${providerId}.model must be one of: ${families.join(", ")}`,
+          input: model,
+        });
+      }
+    }
+  });
 export type SttProviders = z.infer<typeof SttProvidersSchema>;
 
 /**

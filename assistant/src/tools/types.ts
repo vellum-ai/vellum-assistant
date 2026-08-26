@@ -6,7 +6,11 @@ import type {
 import { z } from "zod";
 
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
-import type { InterfaceId } from "../channels/types.js";
+import {
+  CLIENT_OS_VALUES,
+  type ClientOs,
+  type InterfaceId,
+} from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
@@ -368,6 +372,12 @@ export interface ToolContext {
    */
   requesterIdentifier?: string;
   /**
+   * Contact ID of the requester's member record. Approval resolution looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
+   * @legacy
+   */
+  requesterContactId?: string;
+  /**
    * Preferred display name for the requester.
    * @legacy
    */
@@ -406,6 +416,8 @@ export interface ToolContext {
    * @legacy
    */
   transportInterface?: InterfaceId;
+  /** Operating system reported by the client for the current turn. */
+  clientOs?: ClientOs;
   /**
    * The per-turn inference-profile override the agent loop is currently
    * running under, propagated through tool context so subagent-spawn tools
@@ -504,6 +516,8 @@ export const ToolDefinitionSchema = z.object({
   category: z.string().min(1).optional(),
   /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
   executionTarget: z.enum(["sandbox", "host"]).optional(),
+  /** Client operating systems that may expose this tool. Unset means all. */
+  supportedClientOs: z.array(z.enum(CLIENT_OS_VALUES)).optional(),
   /**
    * Implementation invoked when the model calls the tool. Optional
    * because some `ToolDefinition` instances are schema-only (e.g.
@@ -551,8 +565,10 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
  * it, and the agent loop reads it as `?.exclusive === true`, so forcing every
  * hand-built `Tool` (MCP/meet/test fixtures) to carry it would be noise.
  */
-export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
-  Pick<ToolDefinition, "exclusive">;
+export type Tool = Required<
+  Omit<ToolDefinition, "exclusive" | "supportedClientOs">
+> &
+  Pick<ToolDefinition, "exclusive" | "supportedClientOs">;
 
 /**
  * The kind of entity that owns a tool. `"default"` is the built-in tool set

@@ -779,7 +779,12 @@ describe("vellum:localMode:listDevices handler", () => {
       Buffer.from(JSON.stringify({ devices: [device] })),
     );
     lastChild.emit("close", 0);
-    expect(await pending).toEqual({ ok: true, devices: [device] });
+    expect(await pending).toEqual({
+      ok: true,
+      devices: [
+        { ...device, pairingUserAgent: null, clientReportedName: null },
+      ],
+    });
   });
 
   test("a non-zero exit resolves to a failure carrying the CLI's stderr", async () => {

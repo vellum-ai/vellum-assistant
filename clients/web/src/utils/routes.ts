@@ -274,6 +274,7 @@ export const routes = {
 
   docs: {
     hostingOptions: r("/docs/hosting-options"),
+    pairADevice: r("/docs/hosting-options/pair-a-device"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),

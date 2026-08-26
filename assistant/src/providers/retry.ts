@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   resolveCallSiteConfig,
   selectWinningProfile,
@@ -40,6 +42,7 @@ import {
   isAdaptiveThinkingOnlyModel,
   isAdaptiveThinkingUnsupportedModel,
 } from "./model-catalog.js";
+import { buildOpenCodeRequestHeaders } from "./opencode/client.js";
 import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import {
   isThinkingConfigAdaptive,
@@ -618,6 +621,7 @@ function normalizeSendMessageOptions(
   // must never leak into provider JSON request bodies.
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
+  delete nextConfig.requestHeaders;
 
   // Preserve the per-conversation prompt-cache key before `selectionSeed` is
   // stripped below. Gated to providers whose Responses transport consumes it
@@ -634,6 +638,20 @@ function normalizeSendMessageOptions(
     config.selectionSeed.length > 0
   ) {
     nextConfig.promptCacheKey = config.selectionSeed;
+  }
+
+  if (providerName === "opencode") {
+    const conversationId =
+      typeof config.conversationId === "string"
+        ? config.conversationId
+        : undefined;
+    const requestHeaders = buildOpenCodeRequestHeaders({
+      conversationId,
+      requestId: randomUUID(),
+    });
+    if (Object.keys(requestHeaders).length > 0) {
+      nextConfig.requestHeaders = requestHeaders;
+    }
   }
 
   // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`,

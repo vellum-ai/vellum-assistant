@@ -96,6 +96,10 @@ export interface LocalPairedDeviceRecord {
   issuedAt: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  /** Raw User-Agent observed when this device paired, or null. */
+  pairingUserAgent?: string | null;
+  /** Name the device reported for itself when pairing, or null. */
+  clientReportedName?: string | null;
   /** True when this row is the hosting machine's own guardian credential. */
   isCurrentHost?: boolean;
 }

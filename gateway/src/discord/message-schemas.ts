@@ -97,8 +97,8 @@ export const DiscordMessageCreateSchema = z.object({
    * the tolerant fields around them.
    *
    * Absence is load-bearing here: it is the only thing that marks a message as
-   * a DM, and a DM is admitted without an allow-list entry and without a
-   * mention. Collapsing a malformed value to `undefined` would therefore turn
+   * a DM, and a DM is admitted without a mention. Collapsing a malformed
+   * value to `undefined` would therefore turn
    * a parse failure into a guild message admitted as private, skipping both
    * controls that stand between a public server and the assistant. The
    * sentinel keeps it on the guild path, where it must still clear them.

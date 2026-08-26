@@ -9,7 +9,9 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
 
 - `src/main/index.ts` boots the hardened shell (single-instance lock,
   per-environment `userData`, `app://` serving with path-traversal protection,
-  platform API forwarding) and then composes `src/main/features/*`.
+  local, paired, and platform request forwarding, paired-request frame-origin
+  enforcement, CSP, a permission allowlist, and sandboxed `vellumapp://`
+  serving) and then composes `src/main/features/*`.
 - `src/main/features/*` and `src/preload/features/*` are capability modules
   installed through the registries in `@vellumai/electron-desktop`. Every
   `.ts` file in those directories is picked up automatically; a new capability
@@ -63,6 +65,18 @@ Packaged Windows startup installs the bundled CLI runtime for the current user:
 background archive uses PowerShell and the built-in `tar.exe`; other platforms
 use the existing POSIX archive process.
 
+## Automated backups
+
+The packaged Windows client does not expose automated backup configuration yet.
+The installed `vellum backup <name>` command creates an on-demand local export,
+but the internal `assistant backup` command is not installed on the user PATH.
+
+Windows has no implicit offsite destination. A future automated backup surface
+must ask the user to select a OneDrive folder, external drive, or network
+location explicitly. OneDrive environment variables are insufficient because
+a machine can expose personal and organization-managed accounts at the same
+time.
+
 ## Updates and troubleshooting
 
 Packaged builds poll the channel-, platform-, and architecture-isolated feed
@@ -97,13 +111,16 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run build:web   # builds clients/web into resources/web-dist
-bun run pack        # electron-vite build + electron-builder --win (NSIS)
+bun run pack        # runtime + native helper + preview handler + electron-vite build + electron-builder --win (NSIS)
+bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 ```
 
-Local and CI packs are unsigned. `bun run pack` skips the Explorer preview
-handler, which `.github/workflows/windows-package-smoke.yaml` builds before
-packaging and then install-, launch-, and uninstall-tests.
+`pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
+`build:preview-handler`) before `electron-builder`, so the Explorer preview
+handler DLL that `electron-builder.config.cjs` requires is always present.
+Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
+runs the same steps per architecture, then install-, launch-, and
+uninstall-tests the installer.
 
 ## Release
 

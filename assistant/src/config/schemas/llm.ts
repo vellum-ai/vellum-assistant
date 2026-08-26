@@ -55,6 +55,7 @@ export const KNOWN_LLM_PROVIDERS = [
   "atlascloud",
   "together",
   "litellm",
+  "opencode",
   "baseten",
   "poolside",
   // Routing identities rather than adapters: "vellum" = the platform-managed
@@ -86,7 +87,8 @@ export function unknownLlmProviderIssue(provider: string): string | null {
  * connection can serve the shared BYOK templates (fixed base URL, and a
  * non-empty catalog `defaultModel` for the intent fallback in
  * `resolveModelIntent`). Deliberately narrower than `LLMProvider`: keyless
- * (ollama) and endpoint-supplied (openai-compatible, litellm) providers have
+ * (ollama) and endpoint-supplied (openai-compatible, litellm, opencode)
+ * providers have
  * no code-resolvable default profile implementation.
  */
 export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [

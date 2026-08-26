@@ -25,28 +25,31 @@
 
 import type { AdmissionDropReason } from "./admit.js";
 
-/** Levels this policy selects between. All three exist on the gateway logger. */
-export type AdmissionDropLogLevel = "warn" | "info" | "debug";
+/** Levels this policy selects between. Both exist on the gateway logger. */
+export type AdmissionDropLogLevel = "info" | "debug";
 
 /**
  * The level a reason logs at on its first occurrence for a channel.
  *
- * `channel_not_allowed` is the only operator-actionable denial. It fires when
- * a channel is missing from the allow-list, when the setting holds a shape the
- * reader cannot use, or when a snowflake is malformed. In each case a human
- * intends the bot to work somewhere and it silently does not, so it warns.
+ * Every remaining reason is ordinary traffic rather than a misconfiguration:
+ * which rooms the bot can see is Discord's decision, expressed as channel
+ * permissions, so a message it never receives produces no denial here to log.
  *
  * `bot_not_mentioned` is a person making a channel remark that does not
  * address the bot. It is not a fault, but it is evidence that events reach the
  * client at all.
+ *
+ * `channel_not_allowed` exists only under a legacy install's persisted
+ * allow-list, where dropping unlisted rooms is the configured behavior
+ * rather than a fault, so it surfaces like ordinary denied traffic.
  *
  * `self_authored` and `bot_authored` never promote. They are the bot's own
  * echo and other machines' traffic, they scale with how chatty a room is, and
  * no misconfiguration produces them, so a visible line would carry no signal.
  */
 const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
-  channel_not_allowed: "warn",
   bot_not_mentioned: "info",
+  channel_not_allowed: "info",
   self_authored: "debug",
   bot_authored: "debug",
 };
@@ -55,9 +58,9 @@ const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
  * Channels tracked per reason before that reason stops promoting.
  *
  * The budget is per reason rather than shared because reasons differ in key
- * cardinality, and a shared budget would let a flood of one reason exhaust it
- * and silence `channel_not_allowed`, the one reason an operator needs.
- * Separate budgets mean a flood of one reason can only ever silence itself.
+ * cardinality, and a shared budget would let a flood of one reason exhaust
+ * it and silence another. Separate budgets mean a flood of one reason can
+ * only ever silence itself.
  */
 const MAX_TRACKED_CHANNELS_PER_REASON = 512;
 

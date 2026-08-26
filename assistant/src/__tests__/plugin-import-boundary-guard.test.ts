@@ -173,6 +173,10 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../context/strip-injections.js",
     "../../../context/token-estimator.js",
     "../../../conversations/job-handlers/summarization.js",
+    // The standalone memory worker hosts real agent conversations, so its
+    // entry point starts the same eviction sweep the daemon starts at
+    // startup. No plugin-api equivalent.
+    "../../../daemon/conversation-evictor.js",
     "../../../daemon/date-context.js",
     "../../../daemon/disk-pressure-background-gate.js",
     "../../../daemon/embedding-reconcile.js",
