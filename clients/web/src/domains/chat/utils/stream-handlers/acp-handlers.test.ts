@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "bun:test";
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 import {
   handleAcpAuthRequired,
@@ -273,10 +274,13 @@ describe("handleAcpAuthRequired", () => {
     authRequired();
 
     // Anchored to the acp_spawn call, not the run: that is the transcript row
-    // the affordance renders under.
+    // the affordance renders under. The conversation rides along because the
+    // prompt outlives a conversation switch, and placement renders nothing in
+    // any conversation but its own.
     expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
       toolUseId: "tool-1",
       reason: "auth_required",
+      conversationId: useConversationStore.getState().activeConversationId,
     });
   });
 
