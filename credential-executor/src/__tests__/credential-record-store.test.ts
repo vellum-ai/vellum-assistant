@@ -4,13 +4,13 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { credentialKey } from "@vellumai/credential-storage";
 import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
 
 import {
-  CesCredentialRecordStore,
-  getCredentialRecordsPath,
-} from "../records/credential-record-store.js";
+  CesMetadataStore,
+  getMetadataPath,
+  parseCredentialAccount,
+} from "../records/metadata-store.js";
 
 function makeRecord(
   service: string,
@@ -29,10 +29,10 @@ function makeRecord(
   };
 }
 
-describe("CesCredentialRecordStore", () => {
+describe("CesMetadataStore", () => {
   test("round-trips a record by account key", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ces-records-"));
-    const store = new CesCredentialRecordStore(getCredentialRecordsPath(dir));
+    const dir = mkdtempSync(join(tmpdir(), "ces-metadata-"));
+    const store = new CesMetadataStore(getMetadataPath(dir));
     const record = makeRecord("github", "token", {
       injectionTemplates: [
         {
@@ -43,7 +43,7 @@ describe("CesCredentialRecordStore", () => {
         },
       ],
     });
-    const account = credentialKey("github", "token");
+    const account = "credential/github/token";
 
     expect(store.setByAccount(account, record)).toBe(true);
     expect(store.getByAccount(account)).toEqual(record);
@@ -53,13 +53,39 @@ describe("CesCredentialRecordStore", () => {
   });
 
   test("rejects an account that does not match the record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ces-records-"));
-    const store = new CesCredentialRecordStore(getCredentialRecordsPath(dir));
+    const dir = mkdtempSync(join(tmpdir(), "ces-metadata-"));
+    const store = new CesMetadataStore(getMetadataPath(dir));
     expect(
       store.setByAccount(
-        credentialKey("github", "token"),
+        "credential/github/token",
         makeRecord("gitlab", "token"),
       ),
     ).toBe(false);
+  });
+
+  test("writes metadata.json under the CES data root", () => {
+    expect(getMetadataPath("/tmp/ces-data")).toBe("/tmp/ces-data/metadata.json");
+  });
+});
+
+describe("parseCredentialAccount", () => {
+  test("splits credential/{service}/{field}", () => {
+    expect(parseCredentialAccount("credential/github/token")).toEqual({
+      service: "github",
+      field: "token",
+    });
+  });
+
+  test("keeps slashes inside the service name", () => {
+    expect(
+      parseCredentialAccount("credential/integration:google/access_token"),
+    ).toEqual({
+      service: "integration:google",
+      field: "access_token",
+    });
+  });
+
+  test("rejects non-credential accounts", () => {
+    expect(parseCredentialAccount("oauth/google/access")).toBeUndefined();
   });
 });

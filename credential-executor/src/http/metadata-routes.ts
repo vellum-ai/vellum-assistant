@@ -1,11 +1,11 @@
 /**
- * HTTP endpoints for CES credential records (identity + policy).
+ * HTTP endpoints for CES credential metadata (identity + policy).
  *
- * - `GET    /v1/credential-records`              : list records
- * - `POST   /v1/credential-records/bulk`         : bulk set records
- * - `GET    /v1/credential-records/:account`     : get one record
- * - `PUT    /v1/credential-records/:account`     : set one record
- * - `DELETE /v1/credential-records/:account`     : delete one record
+ * - `GET    /v1/metadata`              : list records
+ * - `POST   /v1/metadata/bulk`         : bulk set records
+ * - `GET    /v1/metadata/:account`     : get one record
+ * - `PUT    /v1/metadata/:account`     : set one record
+ * - `DELETE /v1/metadata/:account`     : delete one record
  *
  * Auth: same `CES_SERVICE_TOKEN` bearer as secret CRUD.
  */
@@ -14,16 +14,23 @@ import { timingSafeEqual } from "node:crypto";
 
 import { CredentialRecordSchema } from "@vellumai/service-contracts/credential-rpc";
 
-import type { CesCredentialRecordStore } from "../records/credential-record-store.js";
+import { getMetadataStore } from "../records/metadata-store.js";
 
-const RECORD_PATH_PREFIX = "/v1/credential-records";
+const METADATA_PATH_PREFIX = "/v1/metadata";
 
-export interface CredentialRecordRouteDeps {
-  recordStore: CesCredentialRecordStore;
-  serviceToken: string;
+function serviceToken(): string {
+  return process.env["CES_SERVICE_TOKEN"] ?? "";
 }
 
-function checkAuth(req: Request, serviceToken: string): Response | null {
+function checkAuth(req: Request): Response | null {
+  const expectedToken = serviceToken();
+  if (!expectedToken) {
+    return new Response(JSON.stringify({ error: "Missing service token" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const authHeader = req.headers.get("authorization");
   if (!authHeader) {
     return new Response(
@@ -43,7 +50,7 @@ function checkAuth(req: Request, serviceToken: string): Response | null {
   }
 
   const provided = Buffer.from(parts[1]!);
-  const expected = Buffer.from(serviceToken);
+  const expected = Buffer.from(expectedToken);
   if (
     provided.length !== expected.length ||
     !timingSafeEqual(provided, expected)
@@ -64,24 +71,23 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-export async function handleCredentialRecordRoute(
+export async function handleMetadataRoute(
   req: Request,
-  deps: CredentialRecordRouteDeps,
 ): Promise<Response | null> {
   const url = new URL(req.url);
   const { pathname } = url;
 
-  if (!pathname.startsWith(RECORD_PATH_PREFIX)) {
+  if (!pathname.startsWith(METADATA_PATH_PREFIX)) {
     return null;
   }
 
-  const authError = checkAuth(req, deps.serviceToken);
+  const authError = checkAuth(req);
   if (authError) {
     return authError;
   }
 
-  const { recordStore } = deps;
-  const rest = pathname.slice(RECORD_PATH_PREFIX.length);
+  const recordStore = getMetadataStore();
+  const rest = pathname.slice(METADATA_PATH_PREFIX.length);
 
   if ((rest === "" || rest === "/") && req.method === "GET") {
     return json({ records: recordStore.list() });
@@ -95,10 +101,7 @@ export async function handleCredentialRecordRoute(
       return json({ error: "Invalid JSON body" }, 400);
     }
     if (!Array.isArray(body.records)) {
-      return json(
-        { error: "Body must contain a 'records' array field" },
-        400,
-      );
+      return json({ error: "Body must contain a 'records' array field" }, 400);
     }
     const results: Array<{ account: string; ok: boolean }> = [];
     for (const entry of body.records) {
@@ -116,7 +119,10 @@ export async function handleCredentialRecordRoute(
         (entry as { record?: unknown }).record,
       );
       if (!parsed.success) {
-        return json({ error: "Each record entry must have a valid record" }, 400);
+        return json(
+          { error: "Each record entry must have a valid record" },
+          400,
+        );
       }
       const account = (entry as { account: string }).account;
       const ok = recordStore.setByAccount(account, parsed.data);
@@ -138,7 +144,10 @@ export async function handleCredentialRecordRoute(
     case "GET": {
       const record = recordStore.getByAccount(rawAccount);
       if (!record) {
-        return json({ error: "Credential record not found", account: rawAccount }, 404);
+        return json(
+          { error: "Credential metadata not found", account: rawAccount },
+          404,
+        );
       }
       return json({ account: rawAccount, record });
     }
@@ -158,7 +167,7 @@ export async function handleCredentialRecordRoute(
         return json(
           {
             error:
-              "Failed to set credential record (account must match record service/field)",
+              "Failed to set credential metadata (account must match record service/field)",
             account: rawAccount,
           },
           400,
@@ -169,10 +178,16 @@ export async function handleCredentialRecordRoute(
     case "DELETE": {
       const result = recordStore.deleteByAccount(rawAccount);
       if (result === "not-found") {
-        return json({ error: "Credential record not found", account: rawAccount }, 404);
+        return json(
+          { error: "Credential metadata not found", account: rawAccount },
+          404,
+        );
       }
       if (result === "error") {
-        return json({ error: "Failed to delete credential record", account: rawAccount }, 400);
+        return json(
+          { error: "Failed to delete credential metadata", account: rawAccount },
+          400,
+        );
       }
       return json({ ok: true, account: rawAccount });
     }

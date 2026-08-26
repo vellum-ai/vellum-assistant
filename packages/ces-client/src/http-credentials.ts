@@ -325,7 +325,7 @@ export function createCesHttpCredentialClient(
           config,
           logger,
           "GET",
-          `/v1/credential-records/${encodeURIComponent(account)}`,
+          `/v1/metadata/${encodeURIComponent(account)}`,
         );
         if (!res) {
           return { record: undefined, unreachable: true };
@@ -357,7 +357,7 @@ export function createCesHttpCredentialClient(
           config,
           logger,
           "PUT",
-          `/v1/credential-records/${encodeURIComponent(account)}`,
+          `/v1/metadata/${encodeURIComponent(account)}`,
           { record },
         );
         return !!res?.ok;
@@ -376,7 +376,7 @@ export function createCesHttpCredentialClient(
           config,
           logger,
           "DELETE",
-          `/v1/credential-records/${encodeURIComponent(account)}`,
+          `/v1/metadata/${encodeURIComponent(account)}`,
         );
         if (!res) {
           return "error";
@@ -403,7 +403,7 @@ export function createCesHttpCredentialClient(
           config,
           logger,
           "GET",
-          "/v1/credential-records",
+          "/v1/metadata",
         );
         if (!res) {
           return { records: [], unreachable: true };
@@ -432,7 +432,7 @@ export function createCesHttpCredentialClient(
           config,
           logger,
           "POST",
-          "/v1/credential-records/bulk",
+          "/v1/metadata/bulk",
           { records },
         );
         if (!res?.ok) {

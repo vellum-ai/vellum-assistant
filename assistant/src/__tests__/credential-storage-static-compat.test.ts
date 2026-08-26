@@ -18,7 +18,6 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   credentialKey,
-  parseCredentialAccount,
   StaticCredentialMetadataStore,
 } from "@vellumai/credential-storage";
 
@@ -421,63 +420,5 @@ describe("static credential storage compatibility", () => {
       expect(store.getByServiceField("github", "token")).toBeDefined();
       expect(store.getByServiceField("fal", "key")).toBeUndefined();
     });
-  });
-
-  describe("in-memory backing and put", () => {
-    test("useMemory does not write the file path", () => {
-      store.useMemory([
-        {
-          credentialId: "mem-1",
-          service: "github",
-          field: "token",
-          allowedTools: ["bash"],
-          allowedDomains: [],
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      ]);
-      expect(store.isMemoryBacked()).toBe(true);
-      expect(store.getByServiceField("github", "token")?.credentialId).toBe(
-        "mem-1",
-      );
-      store.upsert("github", "token", { allowedTools: ["publish_page"] });
-      expect(existsSync(META_PATH)).toBe(false);
-    });
-
-    test("put preserves credentialId and timestamps", () => {
-      const record = {
-        credentialId: "stable-id",
-        service: "vercel",
-        field: "api_token",
-        allowedTools: ["publish_page"],
-        allowedDomains: [] as string[],
-        createdAt: 10,
-        updatedAt: 20,
-      };
-      store.put(record);
-      expect(store.getByServiceField("vercel", "api_token")).toEqual(record);
-    });
-  });
-});
-
-describe("parseCredentialAccount", () => {
-  test("splits credential/{service}/{field}", () => {
-    expect(parseCredentialAccount(credentialKey("github", "token"))).toEqual({
-      service: "github",
-      field: "token",
-    });
-  });
-
-  test("keeps slashes inside the service name", () => {
-    expect(
-      parseCredentialAccount("credential/integration:google/access_token"),
-    ).toEqual({
-      service: "integration:google",
-      field: "access_token",
-    });
-  });
-
-  test("rejects non-credential accounts", () => {
-    expect(parseCredentialAccount("oauth/google/access")).toBeUndefined();
   });
 });
