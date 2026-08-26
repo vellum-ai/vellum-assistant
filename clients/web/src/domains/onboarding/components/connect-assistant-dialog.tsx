@@ -8,6 +8,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 import {
   cancelAssistantPairing,
+  isRetryablePairingFailure,
   pollAssistantPairing,
   startAssistantPairing,
 } from "@/lib/local-mode";
@@ -39,6 +40,15 @@ interface ApprovalSession {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Caps a retry backoff so a long attempt still polls on a useful cadence. */
+const MAX_RETRY_BACKOFF_SECONDS = 30;
+
+/** True once the attempt's deadline has passed; an unparseable one never is. */
+const isPastDeadline = (expiresAt: string): boolean => {
+  const expiresAtMs = Date.parse(expiresAt);
+  return Number.isFinite(expiresAtMs) && Date.now() >= expiresAtMs;
+};
+
 /**
  * One-field dialog for connecting an assistant running on another machine.
  * The field takes either artifact the host hands out: a pairing link, which
@@ -48,9 +58,10 @@ const sleep = (ms: number): Promise<void> =>
  *
  * The exchange itself runs in the local-mode host, so the device code and the
  * credentials it buys never reach the renderer; this component holds only the
- * opaque session handle. Host failures (an unusable address, an expired code,
- * a name collision) render inline, and an access-only pairing interposes an
- * expiry warning before completing.
+ * opaque session handle. Settled host failures (an unusable address, an
+ * expired code, a name collision) render inline and end the attempt, an
+ * unreachable host is polled through until the code expires, and an
+ * access-only pairing interposes an expiry warning before completing.
  */
 function ConnectAssistantDialog({
   open,
@@ -68,6 +79,9 @@ function ConnectAssistantDialog({
   // for the code and polls until it is approved.
   const [session, setSession] = useState<ApprovalSession | null>(null);
   const [remainingMs, setRemainingMs] = useState(0);
+  // Set while the host is unreachable and the attempt is polling through it,
+  // so the countdown is not left ticking with no explanation.
+  const [retrying, setRetrying] = useState(false);
   // Set when an access-only pairing was imported: the dialog holds on the
   // expiry warning until the user continues into the connect flow.
   const [accessOnlyAssistantId, setAccessOnlyAssistantId] = useState<
@@ -100,6 +114,7 @@ function ConnectAssistantDialog({
     setPending(false);
     setError(null);
     setSession(null);
+    setRetrying(false);
     setAccessOnlyAssistantId(null);
     const attempt = { abandoned: false };
     attemptRef.current = attempt;
@@ -161,6 +176,21 @@ function ConnectAssistantDialog({
         setRemainingMs(Date.parse(started.expiresAt) - Date.now());
       }
 
+      // The approval wait promises to run until the code is approved or
+      // expires, so an unreachable host backs off and polls again rather than
+      // abandoning a session the host is deliberately keeping alive. Minting
+      // the challenge already proved this address reachable, so a later
+      // failure to reach it is transient.
+      //
+      // A pairing link is the other case: it opens a session without any
+      // request, so nothing has proved the host is up, and there is no
+      // approval to wait for. An unreachable host is reported at once there
+      // instead of hanging for the link's full TTL.
+      const retryTransientFailures = started.userCode !== null;
+      let expiresAt = started.expiresAt;
+      let intervalSeconds = started.intervalSeconds;
+      let consecutiveFailures = 0;
+
       for (;;) {
         const polled = await pollAssistantPairing(started.handle, trimmedName);
         if (attempt.abandoned) {
@@ -169,12 +199,38 @@ function ConnectAssistantDialog({
           return;
         }
         if (!polled.ok) {
-          // A transport failure leaves the code exchangeable host-side, so the
+          const retryable =
+            retryTransientFailures && isRetryablePairingFailure(polled);
+          if (retryable && !isPastDeadline(expiresAt)) {
+            consecutiveFailures += 1;
+            if (consecutiveFailures === 1) {
+              setRetrying(true);
+            }
+            await sleep(
+              Math.min(
+                intervalSeconds * consecutiveFailures,
+                MAX_RETRY_BACKOFF_SECONDS,
+              ) * 1000,
+            );
+            if (attempt.abandoned) {
+              return;
+            }
+            continue;
+          }
+          // Settled, or the code ran out with the host still unreachable. A
+          // transport failure leaves the code exchangeable host-side, so the
           // abandoned session is dropped rather than left to time out.
           releaseSession();
           setSession(null);
-          setError(polled.error);
+          setRetrying(false);
+          setError(
+            retryable ? t("connectAssistantDialog.retryExpired") : polled.error,
+          );
           break;
+        }
+        if (consecutiveFailures > 0) {
+          consecutiveFailures = 0;
+          setRetrying(false);
         }
         if (polled.status === "imported") {
           handleRef.current = null;
@@ -186,7 +242,11 @@ function ConnectAssistantDialog({
           onImported(polled.assistantId);
           return;
         }
-        await sleep(polled.intervalSeconds * 1000);
+        // Pending: the gateway names the deadline and the cadence, and the
+        // host reports the attempt expired once that deadline passes.
+        expiresAt = polled.expiresAt;
+        intervalSeconds = polled.intervalSeconds;
+        await sleep(intervalSeconds * 1000);
         if (attempt.abandoned) {
           return;
         }
@@ -195,6 +255,7 @@ function ConnectAssistantDialog({
       console.error("connectAssistantDialog.pairing failed", err);
       releaseSession();
       setSession(null);
+      setRetrying(false);
       setError(t("connectAssistantDialog.submitError"));
     }
     setPending(false);
@@ -264,7 +325,17 @@ function ConnectAssistantDialog({
                   {t("connectAssistantDialog.approveOnHost")}
                 </p>
                 <div className="flex flex-wrap gap-x-2 text-body-small-default text-[var(--content-tertiary)]">
-                  <span>{t("connectAssistantDialog.waitingForApproval")}</span>
+                  <span
+                    className={
+                      retrying
+                        ? "text-[color:var(--system-warning-strong)]"
+                        : undefined
+                    }
+                  >
+                    {retrying
+                      ? t("connectAssistantDialog.retrying")
+                      : t("connectAssistantDialog.waitingForApproval")}
+                  </span>
                   <span>
                     {t("connectAssistantDialog.expiresIn", {
                       time: formatCountdown(remainingMs),

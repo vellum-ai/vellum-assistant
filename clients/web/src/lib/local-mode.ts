@@ -44,6 +44,8 @@ import type {
   Lockfile,
   LockfileAssistant,
   LocalAssistantResources,
+  LocalPairingFailure,
+  LocalPairingFailureReason,
   LocalPairingPollResult,
   LocalPairingStartResult,
   LocalRetireResult,
@@ -503,6 +505,35 @@ export async function removePairedAssistantFromLockfile(
 
 /** Stands in when a host reports a failure with no message of its own. */
 const PAIRING_FALLBACK_ERROR = "Failed to connect to that assistant.";
+
+/**
+ * Pairing failures worth another attempt: the assistant could not be reached
+ * at all, which is the transport class (a thrown fetch, a timeout, a refused
+ * redirect, a body that errored mid-stream). The host leaves the session and
+ * the device code untouched on those, so polling simply continues.
+ *
+ * Everything else is settled and ends the attempt. `invalid-address` and
+ * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
+ * one-time code is already spent; and `gateway` means the assistant ANSWERED
+ * with something unusable (an over-cap body, credentials this device cannot
+ * persist, an unexpected status), which is a definitive rejection rather than
+ * a dropped connection. `vellum connect import` classifies the same way.
+ */
+const RETRYABLE_PAIRING_REASONS: ReadonlySet<LocalPairingFailureReason> =
+  new Set(["unreachable"]);
+
+/**
+ * Whether a refused pairing step is worth polling through. A host too old to
+ * name a reason reads as settled, so an unlabelled failure ends the attempt
+ * rather than spinning against a host that cannot say why it refused.
+ */
+export function isRetryablePairingFailure(
+  failure: LocalPairingFailure,
+): boolean {
+  return (
+    failure.reason != null && RETRYABLE_PAIRING_REASONS.has(failure.reason)
+  );
+}
 
 /**
  * Begin pairing with the assistant at `address`, a pairing link or a bare

@@ -97,10 +97,12 @@
     "nameLabel": "Nombre (opcional)",
     "approveOnHost": "Aprueba este código en la máquina del asistente para terminar de conectar.",
     "waitingForApproval": "Esperando la aprobación…",
+    "retrying": "No se puede acceder al asistente. Se seguirá intentando hasta que caduque el código.",
     "expiresIn": "Caduca en {time}",
+    "retryExpired": "El código de emparejamiento caducó antes de poder acceder al asistente. Empieza de nuevo para obtener uno nuevo.",
     "submitError": "No se pudo conectar con ese asistente. Inténtalo de nuevo.",
     "importedTitle": "Emparejamiento importado",
-    "importedBody": "Este emparejamiento es solo de acceso: su acceso caduca y no puede renovarse por sí solo. Vuelve a ejecutar vellum pair en la máquina del asistente e importa el nuevo paquete cuando caduque."
+    "importedBody": "Este emparejamiento es solo de acceso: funciona ahora, pero su acceso caduca y no puede renovarse por sí solo. Cuando caduque, genera un nuevo enlace de emparejamiento en la máquina del asistente y pégalo aquí para volver a emparejar."
   },
   "connectRecoveryDialog": {
     "repairTitle": "¿Reparar el asistente?",

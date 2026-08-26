@@ -104,6 +104,7 @@ import {
   isPairedAssistant,
   isPlatformAssistant,
   isRemoteGatewayMode,
+  isRetryablePairingFailure,
   loadLockfile,
   LOCAL_GATEWAY_STARTUP_RETRY,
   primeLocalGatewayConnection,
@@ -648,6 +649,32 @@ describe("assistant pairing", () => {
     pairingCancelHost.mockRejectedValueOnce(new Error("no such session"));
 
     expect(await cancelAssistantPairing("handle-1")).toBeUndefined();
+  });
+
+  test("only an unreachable host is worth polling through", () => {
+    expect(
+      isRetryablePairingFailure({
+        ok: false,
+        reason: "unreachable",
+        error: "Could not reach that assistant.",
+      }),
+    ).toBe(true);
+  });
+
+  test.each([
+    "invalid-address",
+    "unknown-session",
+    "expired",
+    "gateway",
+    "import",
+  ] as const)("a %s failure ends the attempt", (reason) => {
+    expect(isRetryablePairingFailure({ ok: false, reason, error: "no" })).toBe(
+      false,
+    );
+  });
+
+  test("a host too old to name a reason ends the attempt", () => {
+    expect(isRetryablePairingFailure({ ok: false, error: "no" })).toBe(false);
   });
 });
 

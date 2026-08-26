@@ -97,10 +97,12 @@
     "nameLabel": "Name (optional)",
     "approveOnHost": "Approve this code on the assistant's machine to finish connecting.",
     "waitingForApproval": "Waiting for approval…",
+    "retrying": "Can't reach the assistant. Still trying until the code expires.",
     "expiresIn": "Expires in {time}",
+    "retryExpired": "The pairing code expired before the assistant could be reached. Start over to get a new one.",
     "submitError": "Failed to connect to that assistant. Please try again.",
     "importedTitle": "Pairing Imported",
-    "importedBody": "This pairing is access-only: its access expires and cannot renew itself. Re-run vellum pair on the assistant’s machine and import the new bundle when it expires."
+    "importedBody": "This pairing is access-only: it works now, but its access expires and cannot renew itself. When it does, generate a fresh pairing link on the assistant's machine and paste it here to pair again."
   },
   "connectRecoveryDialog": {
     "repairTitle": "Repair Assistant?",

@@ -2,6 +2,8 @@ import type {
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairedDeviceRecord,
+  LocalPairingFailure,
+  LocalPairingFailureReason,
   LocalPairingPollResult,
   LocalPairingStartResult,
   LocalRevokeDeviceResult,
@@ -91,6 +93,8 @@ export interface LocalUpgradeResult {
 export type { LocalAssistantStatusResult };
 export type { LocalListDevicesResult };
 export type { LocalPairedDeviceRecord };
+export type { LocalPairingFailure };
+export type { LocalPairingFailureReason };
 export type { LocalPairingPollResult };
 export type { LocalPairingStartResult };
 export type { LocalRevokeDeviceResult };
