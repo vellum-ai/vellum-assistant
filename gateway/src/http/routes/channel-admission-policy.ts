@@ -3,8 +3,7 @@
  *
  * Mutations invalidate the in-memory admission policy cache so subsequent
  * `handle-inbound` evaluations see the new value within the same gateway
- * process (no restart). The cache is wired in P2 so the P3 admission gate
- * can read from it with no further infrastructure work.
+ * process (no restart).
  *
  * Mirrors the trust-rule routes — same zod / Response.json / error
  * conventions.

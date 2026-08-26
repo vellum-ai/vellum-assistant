@@ -49,6 +49,20 @@ export type ChannelActionState =
   | { kind: "setup" }
   | { kind: "none" };
 
+/**
+ * Manual guardian attest on Contacts (the Verify me button).
+ *
+ * `supportsVerification` is the outbound challenge flow (voice/DM code).
+ * Plugin channels have no challenge, but they still use the same one-click
+ * attest Phone already has on this page.
+ */
+export function offersManualVerify(info: ChannelInfo): boolean {
+  return (
+    info.supportsVerification ||
+    (typeof info.source === "string" && info.source.startsWith("plugin:"))
+  );
+}
+
 export function getChannelActionState(
   info: ChannelInfo,
   existing: ContactChannelPayload | undefined,
@@ -256,7 +270,7 @@ export function ContactChannelsSection({
                   onSetupChannel ? () => onSetupChannel(info.id) : undefined
                 }
                 onVerify={
-                  onVerifyChannel && info.supportsVerification
+                  onVerifyChannel && offersManualVerify(info)
                     ? () => setVerifyPending(info)
                     : undefined
                 }

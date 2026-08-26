@@ -598,6 +598,57 @@ describe("resolveTrustVerdict", () => {
     // No active guardian binding exists, so guardian label fields are absent.
     expect(verdict.guardianExternalUserId).toBeUndefined();
   });
+
+  test("plugin inbound matches the plugin's own contact row", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-imessage",
+      contactId: "c-guardian",
+      type: "imessage",
+      address: "+12025550142",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: "plugin",
+      actorExternalId: "imessage:+12025550142",
+    });
+
+    expect(verdict.trustClass).toBe("guardian");
+    expect(verdict.canonicalSenderId).toBe("+12025550142");
+    expect(verdict.contactId).toBe("c-guardian");
+    expect(verdict.type).toBe("imessage");
+    expect(verdict.address).toBe("+12025550142");
+  });
+
+  test("plugin inbound does not inherit a Phone Calling row", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-phone",
+      contactId: "c-guardian",
+      type: "phone",
+      address: "+12025550142",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: "plugin",
+      actorExternalId: "imessage:+12025550142",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.contactId).toBeUndefined();
+  });
 });
 
 describe("resolveTrustVerdict — hasInterceptableVerificationSession stamp", () => {

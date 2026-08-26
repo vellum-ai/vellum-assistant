@@ -15,6 +15,7 @@ import {
   contacts,
   conversationThresholdOverrides,
 } from "../db/schema.js";
+import { ipcCallAssistant } from "./assistant-client.js";
 import type { IpcRoute } from "./server.js";
 
 const GLOBAL_DEFAULTS = {
@@ -34,6 +35,11 @@ const GetContactThresholdSchema = z.object({
 const SetConversationThresholdSchema = z.object({
   conversationId: z.string().min(1),
   threshold: z.enum(["none", "low", "medium", "high"]),
+});
+
+const SetContactThresholdSchema = z.object({
+  contactId: z.string().min(1),
+  threshold: z.enum(["none", "low", "medium", "high"]).nullable(),
 });
 
 export const thresholdRoutes: IpcRoute[] = [
@@ -119,6 +125,37 @@ export const thresholdRoutes: IpcRoute[] = [
         .run();
       return {
         conversationId: parsed.conversationId,
+        threshold: parsed.threshold,
+      };
+    },
+  },
+  {
+    method: "set_contact_threshold",
+    schema: SetContactThresholdSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = SetContactThresholdSchema.parse(params ?? {});
+      const db = getGatewayDb();
+      const existing = db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.id, parsed.contactId))
+        .get();
+      if (!existing) {
+        return { ok: false, error: "not_found" };
+      }
+      db.update(contacts)
+        .set({
+          autoApproveThreshold: parsed.threshold,
+          updatedAt: Date.now(),
+        })
+        .where(eq(contacts.id, parsed.contactId))
+        .run();
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
+      return {
+        ok: true,
+        contactId: parsed.contactId,
         threshold: parsed.threshold,
       };
     },

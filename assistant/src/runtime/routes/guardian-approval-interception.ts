@@ -45,7 +45,8 @@ export interface ApprovalInterceptionParams {
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
-  /** Original approval message timestamp (Slack ts) for editing after resolution. */
+  /** Id of the channel message holding the approval buttons (Slack ts,
+   * Telegram message id), for editing the card after resolution. */
   approvalMessageId?: string;
 }
 
@@ -242,7 +243,7 @@ export async function handleApprovalInterception(
             "Callback request ID does not match any pending interaction, ignoring stale button press",
           );
 
-          // Edit the original Slack approval message to remove stale buttons
+          // Edit the original approval message to remove stale buttons
           if (approvalMessageId) {
             editStaleApprovalMessage({
               replyCallbackUrl,
@@ -260,8 +261,10 @@ export async function handleApprovalInterception(
       const result = await handleChannelDecision(conversationId, cbDecision);
 
       if (result.applied) {
-        // Edit the original Slack approval message to show the decision
-        // and remove stale action buttons.
+        // Edit the original approval message to show the decision and drop
+        // its action buttons. Routed by the callback URL through the channel
+        // edit capability; a transport without edit declines, so this is
+        // safe to attempt on every channel.
         if (approvalMessageId) {
           const decisionOutcome: "approved" | "denied" =
             cbDecision.action === "reject" ? "denied" : "approved";
@@ -276,7 +279,7 @@ export async function handleApprovalInterception(
           }).catch((err) => {
             log.error(
               { err, conversationId, messageTs: approvalMessageId },
-              "Failed to edit Slack approval message after decision",
+              "Failed to edit approval message after decision",
             );
           });
         }
@@ -287,8 +290,8 @@ export async function handleApprovalInterception(
       }
 
       // Race condition: request was already resolved between the stale check
-      // above and the decision attempt.
-      // Edit the original Slack approval message to remove stale buttons
+      // above and the decision attempt. Edit the original approval message to
+      // remove stale buttons
       if (approvalMessageId) {
         editStaleApprovalMessage({
           replyCallbackUrl,
@@ -368,7 +371,7 @@ export async function handleApprovalInterception(
 }
 
 // ---------------------------------------------------------------------------
-// Slack approval message edit helper
+// Approval message edit helper
 // ---------------------------------------------------------------------------
 
 /**
@@ -399,7 +402,7 @@ function editStaleApprovalMessage(params: {
         conversationId: params.conversationId,
         messageId: params.messageId,
       },
-      "Failed to edit stale Slack approval message",
+      "Failed to edit stale approval message",
     );
   });
 }

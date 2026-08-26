@@ -357,7 +357,12 @@ const FLUX_MODEL_MULTILINGUAL = "flux-general-multi";
  * Deepgram documents this roster for `flux-general-multi`; anything outside it
  * has no model to run on.
  */
-const FLUX_MULTILINGUAL_SUBTAGS: ReadonlySet<string> = new Set([
+/**
+ * Exported so the provider catalog can report it. A client deciding whether to
+ * offer turn detection needs the same roster, and copying it there would make
+ * a third place to keep in step with this one and the relay's.
+ */
+export const FLUX_MULTILINGUAL_SUBTAGS: ReadonlySet<string> = new Set([
   "de",
   "en",
   "es",

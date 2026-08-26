@@ -144,6 +144,18 @@ function accessibleText(root: Element): string {
   return out.join(" | ");
 }
 
+/**
+ * The numeric hint on each option row. Decorative, so it is the one
+ * `aria-hidden` span inside an unselected option's button.
+ */
+function hotkeyBadges(container: HTMLElement): Element[] {
+  return Array.from(
+    container.querySelectorAll(
+      'button[aria-label^="Option "] span[aria-hidden="true"]',
+    ),
+  );
+}
+
 /** The card's drag surface, which owns the touch handlers. */
 function dragSurface(): HTMLElement {
   const el = document.querySelector<HTMLElement>(
@@ -287,14 +299,34 @@ describe("QuestionPromptCard minimize", () => {
     expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
   });
 
-  test("the position counter leaves with the pager it counts for", () => {
+  test("a batch announces its position rather than drawing it", () => {
+    // The pager offers movement without saying where from, and the header has
+    // a wrapped question to fit on a phone. The count is carried by a status
+    // line a reader hears and a screen does not show.
     renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
-    expect(screen.getByText("1 of 2")).toBeDefined();
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("1 of 2");
+    expect(status.className).toContain("sr-only");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
+
+    // A live region, so paging is heard rather than only reachable.
+    expect(screen.getByRole("status").textContent).toBe("2 of 2");
+  });
+
+  test("a minimized batch has no position to report", () => {
+    renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
     fireEvent.click(toggleButton());
 
-    expect(screen.queryByText("1 of 2")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  test("a single question announces no position at all", () => {
+    renderCard();
+
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   test("a minimized card keeps no chevron of its own", () => {
@@ -401,29 +433,19 @@ describe("QuestionPromptCard minimize", () => {
     expect(document.activeElement).toBe(toggleButton());
   });
 
-  test("the swipe grabber renders only where a swipe can happen", () => {
-    const GRABBER = '[data-slot="question-card-grabber"]';
-
-    const fine = renderCard();
-    expect(fine.container.querySelector(GRABBER)).toBeNull();
-
-    cleanup();
-    setPointer(true);
-    const coarse = renderCard();
-    expect(coarse.container.querySelector(GRABBER)).not.toBeNull();
-  });
-
-  test("the grabber follows the pointer changing under a mounted card", () => {
-    const GRABBER = '[data-slot="question-card-grabber"]';
+  test("the hotkey badges follow the pointer changing under a mounted card", () => {
+    // The pointer read is subscribed rather than sampled once, so a convertible
+    // folding into tablet mode reaches a card that is already on screen.
+    // `useSwipeEngine` reads the same signal, so the badges standing down is
+    // the gesture arming.
     const { container } = renderCard();
 
-    expect(container.querySelector(GRABBER)).toBeNull();
+    expect(hotkeyBadges(container)).not.toHaveLength(0);
 
-    // A convertible folding into tablet mode, with the card already on screen.
     setPointer(true);
-    expect(container.querySelector(GRABBER)).not.toBeNull();
+    expect(hotkeyBadges(container)).toHaveLength(0);
 
     setPointer(false);
-    expect(container.querySelector(GRABBER)).toBeNull();
+    expect(hotkeyBadges(container)).not.toHaveLength(0);
   });
 });

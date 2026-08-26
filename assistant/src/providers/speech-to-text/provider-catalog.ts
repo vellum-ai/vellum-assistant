@@ -19,6 +19,7 @@ import type {
   TelephonySttMode,
 } from "../../stt/types.js";
 import { baseLanguageSubtag } from "../../util/language-subtag.js";
+import { FLUX_MULTILINGUAL_SUBTAGS } from "./deepgram-flux-frames.js";
 
 // ---------------------------------------------------------------------------
 // Client display metadata
@@ -593,6 +594,23 @@ export function sttConfigForCatalogKey(id: SttProviderId): {
  * write an explicit value rather than leave a stale one in place. Providers
  * with a single family have no name to write and return undefined.
  */
+/**
+ * The spoken languages a provider's turn-detecting model family serves, or
+ * undefined when it has no such family.
+ *
+ * A family that owns the turn boundary does not necessarily cover the
+ * provider's whole language roster, and dialing it outside that set fails
+ * rather than degrades. Reported from here so the answer has one home.
+ */
+export function turnDetectionLanguagesFor(
+  id: SttProviderId,
+): readonly string[] | undefined {
+  const variant = [...CATALOG.values()].find(
+    (entry) => entry.variantOf === id && entry.turnDetection === "provider",
+  );
+  return variant ? [...FLUX_MULTILINGUAL_SUBTAGS].sort() : undefined;
+}
+
 export function baseModelFamilyFor(
   id: SttProviderId,
 ): SttModelFamily | undefined {

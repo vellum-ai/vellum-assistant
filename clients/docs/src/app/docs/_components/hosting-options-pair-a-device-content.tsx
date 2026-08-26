@@ -306,22 +306,59 @@ export function HostingOptionsPairADeviceContent() {
             <p className={paraClass}>
               <strong>No desktop app on the host.</strong>{" "}
               If you hatched the assistant over SSH on a VPS, pair from the CLI
-              instead. It prints the QR straight into the terminal, using the
-              address from <code className={codeClass}>vellum tunnel</code>:
+              instead. It prints a pairing link and the same link as a QR
+              code, using the address from{" "}
+              <code className={codeClass}>vellum tunnel</code>:
             </p>
             <div className={blockClass}>
               <pre className={preClass}>
-<code>{`vellum pair --qr`}</code>
+<code>{`vellum pair`}</code>
+              </pre>
+            </div>
+            <p className={paraClass}>
+              Add <code className={codeClass}>--app</code> to point the QR at
+              the mobile app instead of a browser,{" "}
+              <code className={codeClass}>--url</code> to pair against a
+              different address,{" "}
+              <code className={codeClass}>--label</code> to name the pairing, or{" "}
+              <code className={codeClass}>--json</code> for scripting.
+            </p>
+            <p className={paraClass}>
+              <strong>Pair another computer.</strong>{" "}
+              A second machine with the{" "}
+              <code className={codeClass}>vellum</code> CLI joins with that
+              link rather than a browser, and{" "}
+              <code className={codeClass}>vellum pair</code> prints the exact
+              command to run under it. The link already carries an approved
+              code, so the import finishes right away and registers the
+              assistant locally for{" "}
+              <code className={codeClass}>vellum client</code>:
+            </p>
+            <div className={blockClass}>
+              <pre className={preClass}>
+<code>{`vellum connect import "https://your-assistant.ngrok.app/assistant/pair#device_code=..."`}</code>
+              </pre>
+            </div>
+            <p className={paraClass}>
+              No link handy? Give it your tunnel address on its own. That
+              machine mints its own code, prints it, and waits for you to
+              approve it on the host, from{" "}
+              <span className={uiClass}>Pairing requests</span> in the card or
+              with{" "}
+              <code className={codeClass}>vellum pair --web-approve &lt;code&gt;</code>:
+            </p>
+            <div className={blockClass}>
+              <pre className={preClass}>
+<code>{`vellum connect import https://your-assistant.ngrok.app`}</code>
               </pre>
             </div>
             <p className={lastParaClass}>
-              Add <code className={codeClass}>--app</code> to open the mobile
-              app instead of a browser,{" "}
-              <code className={codeClass}>--url</code> to pair against a
-              different address,{" "}
-              <code className={codeClass}>--web</code> to print a link and a
-              short code instead of a QR, or{" "}
-              <code className={codeClass}>--json</code> for scripting.
+              Ctrl+C on the waiting machine stops only that side. The request
+              stays in the host&apos;s pending list, still approvable, until it
+              expires 10 minutes after it was minted. To withdraw it sooner,
+              click <span className={uiClass}>Deny</span> beside it in the{" "}
+              <span className={uiClass}>Pair a device</span> card; the CLI has
+              no deny command.
             </p>
           </div>
 
@@ -438,7 +475,7 @@ export function HostingOptionsPairADeviceContent() {
               <dd className={cardBodyClass}>
                 Codes last 10 minutes and work once. Generate a fresh one from
                 the settings card or with{" "}
-                <code className={codeClass}>vellum pair --qr</code>.
+                <code className={codeClass}>vellum pair</code>.
               </dd>
             </div>
           </dl>

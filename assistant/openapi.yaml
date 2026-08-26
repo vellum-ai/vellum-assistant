@@ -5333,12 +5333,6 @@ paths:
                 decision:
                   type: string
                   description: "One of: allow, deny"
-                selectedPattern:
-                  type: string
-                  description: Allowlist pattern for persistent decisions
-                selectedScope:
-                  type: string
-                  description: Scope for persistent decisions
               required:
                 - requestId
                 - decision
@@ -5536,6 +5530,38 @@ paths:
                 required:
                   - runs
                   - nextCursor
+                additionalProperties: false
+  /v1/contact_prompt_flags:
+    post:
+      operationId: contact_prompt_flags_post
+      summary: Read flags for a pending contact prompt
+      description: Returns whether the pending prompt asked the gateway to mark the submitted channel verified.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: The pending contact_request id.
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verify:
+                    type: boolean
+                required:
+                  - verify
                 additionalProperties: false
   /v1/contact-channels/{contactChannelId}:
     patch:
@@ -6461,6 +6487,9 @@ paths:
                     - guardian
                     - trusted-contact
                     - unknown
+                verify:
+                  description: When true, submitting the address also marks the channel verified. Same attest as Contacts Verify me.
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -31226,6 +31255,16 @@ paths:
                           enum:
                             - manual
                             - auto
+                        modelFamilies:
+                          type: array
+                          items:
+                            type: string
+                        baseModelFamily:
+                          type: string
+                        turnDetectionLanguages:
+                          type: array
+                          items:
+                            type: string
                         credentialsGuide:
                           type: string
                       required:

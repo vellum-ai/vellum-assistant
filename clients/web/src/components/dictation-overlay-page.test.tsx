@@ -138,7 +138,7 @@ describe("DictationOverlayPage", () => {
     try {
       const { getByLabelText } = render(<DictationOverlayPage />);
       const stopButton = await waitFor(() => getByLabelText("Stop recording"));
-      expect(observerCallbacks.length).toBeGreaterThan(0);
+      await waitFor(() => expect(observerCallbacks.length).toBeGreaterThan(0));
 
       stopButton.getBoundingClientRect = () =>
         ({

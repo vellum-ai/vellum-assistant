@@ -33,8 +33,6 @@ export interface ConfirmationResponse {
   type: "confirmation_response";
   requestId: string;
   decision: "allow" | "deny";
-  selectedPattern?: string;
-  selectedScope?: string;
 }
 
 export interface SecretResponse {

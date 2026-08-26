@@ -17,7 +17,7 @@ import { type ChannelId, isChannelId } from "../channels/types.js";
 /**
  * Per-channel inbound admission policy — ordered from most-restrictive
  * (`no_one`, hard kill switch) to most-permissive (`strangers`, admits any
- * sender). See plan section 2.3.
+ * sender).
  *
  * Vocabulary is centralized in `@vellumai/gateway-client` so the gateway
  * (storage + kill switch) and the runtime (admission stage) share one
@@ -35,7 +35,7 @@ export const VALID_ADMISSION_POLICY_VALUES: ReadonlySet<string> = new Set(
 /**
  * Read-side default applied when a channel has no row in the DB. Matches
  * today's effective semantics: guardian + active contacts admitted,
- * strangers denied. See plan section 2.2.
+ * strangers denied.
  */
 export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy =
   ADMISSION_POLICY_DEFAULT_CONTRACT;
@@ -43,7 +43,7 @@ export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy =
 /**
  * Minimum trust rank required for each policy. Higher rank = more trusted.
  * `no_one` is 5 — above the maximum guardian rank (4) — so no class is ever
- * admitted. See plan section 2.4 for the rank table (guardian=4,
+ * admitted. Rank table: guardian=4,
  * trusted_contact=3, unverified_contact=2, unknown=1; blocked/revoked=0).
  */
 export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> =

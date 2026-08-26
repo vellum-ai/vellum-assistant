@@ -1,8 +1,11 @@
 import type {
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
   LocalListDevicesResult,
   LocalPairedDeviceRecord,
+  LocalPairingFailure,
+  LocalPairingFailureReason,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
   LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
@@ -89,9 +92,12 @@ export interface LocalUpgradeResult {
 }
 
 export type { LocalAssistantStatusResult };
-export type { LocalConnectImportResult };
 export type { LocalListDevicesResult };
 export type { LocalPairedDeviceRecord };
+export type { LocalPairingFailure };
+export type { LocalPairingFailureReason };
+export type { LocalPairingPollResult };
+export type { LocalPairingStartResult };
 export type { LocalRevokeDeviceResult };
 export type { LocalUpgradeOptions };
 
@@ -394,34 +400,75 @@ export async function unpairAssistantHost(
   );
 }
 
+/** Shared fallback for Electron preloads that predate the pairing channels. */
+const PAIRING_UNSUPPORTED_ERROR =
+  "Connecting a paired assistant is not supported by this app version";
+
 /**
- * Register a pairing bundle printed by `vellum pair` on another machine:
- * persist its guardian token and create a `cloud: "paired"` lockfile entry on
- * this machine, the write counterpart of {@link unpairAssistantHost}. Both
- * hosts run the shared package's `pairAssistant` in a trusted process and
- * return the same `{ ok, assistantId, accessOnly }` contract. Older Electron
- * hosts that predate the IPC channel degrade to a structured unsupported
- * error, mirroring {@link unpairAssistantHost}.
+ * Begin pairing with the assistant at `address`, a pairing link copied from
+ * its "Pair a device" card or a bare `https://host` URL. The device-code
+ * exchange runs in the trusted host, so the renderer holds only the opaque
+ * `handle` (and the approval code to display, when the address carried no
+ * approved code of its own). Older Electron hosts that predate the IPC
+ * channel degrade to a structured unsupported error, mirroring
+ * {@link unpairAssistantHost}.
  */
-export async function connectImportHost(
-  bundle: string,
-  name?: string,
-): Promise<LocalConnectImportResult> {
+export async function pairingStartHost(
+  address: string,
+): Promise<LocalPairingStartResult> {
   if (isElectron()) {
-    const connectImport = window.vellum!.localMode.connectImport;
-    if (!connectImport) {
-      return {
-        ok: false,
-        error:
-          "Connecting a paired assistant is not supported by this app version",
-      };
+    const pairingStart = window.vellum!.localMode.pairingStart;
+    if (!pairingStart) {
+      return { ok: false, error: PAIRING_UNSUPPORTED_ERROR };
     }
-    return connectImport(bundle, name);
+    return pairingStart(address);
   }
 
-  return postLocalCommand<LocalConnectImportResult>(
-    "/assistant/__local/connect-import",
-    { bundle, name },
+  return postLocalCommand<LocalPairingStartResult>(
+    "/assistant/__local/pairing-start",
+    { address },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * One exchange attempt for a live pairing session. An approved code persists
+ * the guardian token and creates a `cloud: "paired"` lockfile entry in the
+ * same call, the write counterpart of {@link unpairAssistantHost}; a still
+ * pending one carries the cadence to wait before the next attempt.
+ */
+export async function pairingPollHost(
+  handle: string,
+  name?: string,
+): Promise<LocalPairingPollResult> {
+  if (isElectron()) {
+    const pairingPoll = window.vellum!.localMode.pairingPoll;
+    if (!pairingPoll) {
+      return { ok: false, error: PAIRING_UNSUPPORTED_ERROR };
+    }
+    return pairingPoll(handle, name);
+  }
+
+  return postLocalCommand<LocalPairingPollResult>(
+    "/assistant/__local/pairing-poll",
+    { handle, name },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+}
+
+/**
+ * Forget a pending pairing session. Fire-and-forget: a host that never had
+ * the session, or is too old to know the channel, has nothing to drop.
+ */
+export async function pairingCancelHost(handle: string): Promise<void> {
+  if (isElectron()) {
+    await window.vellum!.localMode.pairingCancel?.(handle);
+    return;
+  }
+
+  await postLocalCommand<{ ok: boolean }>(
+    "/assistant/__local/pairing-cancel",
+    { handle },
     LOCAL_HOST_UNAVAILABLE_ERROR,
   );
 }

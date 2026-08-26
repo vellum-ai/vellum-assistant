@@ -647,11 +647,13 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannel.id))
       .run();
 
-    return this.db
+    const after = this.db
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannel.id))
       .get()!;
+
+    return after;
   }
 
   /**
@@ -1279,10 +1281,13 @@ export class ContactStore {
     // Canonicalize all channel addresses up front so every downstream path
     // (gateway DB, assistant mirror op, conflict checks) uses the canonical
     // form.
-    const canonicalChannels = params.channels?.map((ch) => ({
-      ...ch,
-      address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
-    }));
+    const canonicalChannels = params.channels
+      ? params.channels.map((ch) => ({
+          ...ch,
+          address:
+            canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+        }))
+      : undefined;
 
     // Fallback name for a brand-new contact created without an explicit
     // displayName: the first channel's canonical address, else "Unknown".

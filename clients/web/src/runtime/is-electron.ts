@@ -42,8 +42,9 @@ import type {
   HotkeyEventState,
   HotkeyScope,
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
   LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
@@ -170,9 +171,7 @@ declare global {
           onFinalized?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
-          transcribe?(
-            audio: ArrayBuffer,
-          ): Promise<DictationTranscribeResult>;
+          transcribe?(audio: ArrayBuffer): Promise<DictationTranscribeResult>;
           onTranscribed?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
@@ -244,10 +243,12 @@ declare global {
           hashedDeviceId: string,
         ): Promise<LocalRevokeDeviceResult>;
         unpair?(assistantId: string): Promise<LockfileWriteResult>;
-        connectImport?(
-          bundle: string,
+        pairingStart?(address: string): Promise<LocalPairingStartResult>;
+        pairingPoll?(
+          handle: string,
           name?: string,
-        ): Promise<LocalConnectImportResult>;
+        ): Promise<LocalPairingPollResult>;
+        pairingCancel?(handle: string): Promise<{ ok: boolean }>;
         sleep?(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,

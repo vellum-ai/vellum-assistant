@@ -204,6 +204,21 @@ export function _clearGlobalCacheForTesting(): void {
   channelPermissionCellCache.clear();
 }
 
+/**
+ * Drop the cached ceiling for one contact.
+ */
+export function invalidateContactThresholdCache(contactId: string): void {
+  contactThresholdCache.delete(contactId);
+}
+
+/**
+ * Drop every cached contact ceiling. `contacts_changed` calls this so the
+ * next approval re-reads after any contact ACL write.
+ */
+export function invalidateAllContactThresholdCaches(): void {
+  contactThresholdCache.clear();
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapExecutionContextToField(
@@ -571,13 +586,15 @@ async function fetchGlobalThresholds(options?: {
  * Used by the permission checker immediately before surfacing an
  * interactive prompt: the cached snapshot (5s conversation TTL with
  * negative caching, 30s global TTL) may predate a threshold change the
- * user just made — e.g. switching to Full access — because no threshold
- * write path invalidates these in-process caches (the web picker writes
- * through the gateway HTTP route, the desktop picker through the
- * `set_conversation_threshold` IPC). Prompting from a stale threshold
- * directly contradicts the user's visible setting. A prompt is already a
- * rare, user-visible interruption, so the extra IPC round-trip is cheap
- * relative to a wrong prompt.
+ * user just made (for example switching to Full access) because no
+ * conversation or global write path invalidates those caches (the web
+ * picker writes through the gateway HTTP route, the desktop picker
+ * through the `set_conversation_threshold` IPC). A `contacts_changed`
+ * event clears every cached contact ceiling after a contact ACL write.
+ * Prompting from a stale threshold directly contradicts the user's
+ * visible setting. A prompt is already a rare, user-visible
+ * interruption, so the extra IPC round-trip is cheap relative to a
+ * wrong prompt.
  *
  * Returns the freshly-resolved threshold, or `null` when the gateway
  * could not be reached. Callers must keep their original decision on

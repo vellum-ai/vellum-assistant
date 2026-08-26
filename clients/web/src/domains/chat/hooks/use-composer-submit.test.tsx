@@ -1,8 +1,10 @@
 /**
- * Tests for `useComposerSubmit`, focused on the optional `beforeSend` gate:
- * a blocking gate must cancel the send losslessly (draft, attachments, and
- * staged quotes untouched), while a passing or omitted gate leaves the
- * submit path unchanged. Uses the real composer and quote-reply stores,
+ * Tests for `useComposerSubmit`: the optional `beforeSend` gate (a blocking
+ * gate must cancel the send losslessly, with draft, attachments, staged
+ * quotes, and the staged channel reference untouched, while a passing or
+ * omitted gate leaves the submit path unchanged) and the staged channel
+ * reference's send behavior (sendable alone, leads mixed content, clears on
+ * send). Uses the real composer, quote-reply, and channel-reference stores,
  * reset between tests. The token below is a synthetic value invented for
  * these tests.
  */
@@ -10,6 +12,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
+import type { ChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
+import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
 import {
   useComposerStore,
   type UploadedAttachment,
@@ -71,10 +75,21 @@ async function submit(result: {
   });
 }
 
+const stagedChannelReference: ChannelReference = {
+  messageId: "msg-ext-1",
+  conversationId: "conv-1",
+  channelId: "slack",
+  channelLabel: "Slack",
+  senderName: "Alice",
+  snippet: "deploy went red on the last step",
+  isTruncated: false,
+};
+
 beforeEach(() => {
   useComposerStore.getState().setInput("");
   useComposerStore.getState().resetAttachments();
   useQuoteReplyStore.getState().clearStagedQuotes();
+  useChannelReferenceStore.setState({ reference: null });
 });
 
 afterEach(() => {
@@ -153,6 +168,49 @@ describe("useComposerSubmit beforeSend gate", () => {
 
     expect(beforeSend).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("useComposerSubmit staged channel reference", () => {
+  test("a staged reference alone is sendable, leads the content, and clears on send", async () => {
+    useChannelReferenceStore.getState().setReference(stagedChannelReference);
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const sent = sendMessage.mock.calls[0]?.[0];
+    expect(sent?.startsWith("> [vellum:channel-reference]")).toBe(true);
+    expect(sent).toContain("deploy went red on the last step");
+    expect(useChannelReferenceStore.getState().reference).toBeNull();
+  });
+
+  test("reference plus typed text sends the reference block first, then the remark", async () => {
+    useChannelReferenceStore.getState().setReference(stagedChannelReference);
+    useComposerStore.getState().setInput("what broke here?");
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    const sent = sendMessage.mock.calls[0]?.[0];
+    expect(sent?.startsWith("> [vellum:channel-reference]")).toBe(true);
+    expect(sent?.endsWith("what broke here?")).toBe(true);
+    expect(useChannelReferenceStore.getState().reference).toBeNull();
+    expect(useComposerStore.getState().input).toBe("");
+  });
+
+  test("a blocking gate leaves the staged reference intact", async () => {
+    useChannelReferenceStore.getState().setReference(stagedChannelReference);
+
+    const beforeSend = mock((_content: string) => false);
+    const { result, sendMessage } = renderSubmit({ beforeSend });
+    await submit(result);
+
+    expect(beforeSend).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(useChannelReferenceStore.getState().reference).toEqual(
+      stagedChannelReference,
+    );
   });
 });
 

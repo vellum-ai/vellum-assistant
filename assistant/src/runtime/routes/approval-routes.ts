@@ -46,8 +46,6 @@ function canonicalizeConfirmDecision(params: {
 function handleConfirm({ body }: RouteHandlerArgs) {
   const requestId = body?.requestId as string | undefined;
   const decision = body?.decision as string | undefined;
-  const selectedPattern = body?.selectedPattern as string | undefined;
-  const selectedScope = body?.selectedScope as string | undefined;
 
   if (!requestId || typeof requestId !== "string") {
     throw new BadRequestError("requestId is required");
@@ -107,8 +105,6 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     requestId,
     effectiveDecision as UserDecision,
     {
-      selectedPattern,
-      selectedScope,
       emissionContext: { source: "button" },
     },
   );
@@ -342,14 +338,6 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       requestId: z.string().describe("Pending interaction request ID"),
       decision: z.string().describe("One of: allow, deny"),
-      selectedPattern: z
-        .string()
-        .describe("Allowlist pattern for persistent decisions")
-        .optional(),
-      selectedScope: z
-        .string()
-        .describe("Scope for persistent decisions")
-        .optional(),
     }),
     responseBody: z.object({
       accepted: z.boolean(),

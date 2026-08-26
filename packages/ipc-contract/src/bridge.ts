@@ -16,6 +16,11 @@
  * in its ambient declaration.
  */
 import type {
+  PairingFailureReason,
+  PublicBaseUrlRejection,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
+import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
@@ -74,13 +79,54 @@ export interface LocalUpgradeOptions {
 export type ElectronHostOS = "macos" | "windows";
 
 /**
- * Result of `localMode.connectImport`. On success `assistantId` is the unique
- * local id the pairing was registered under, and `accessOnly` is true when the
- * bundle carried no refresh credential (the token expires without renewal).
+ * What a pairing step failed on, for callers picking recovery copy. The
+ * bridge's name for `@vellumai/service-contracts`'s `PairingFailureReason`,
+ * which owns the union and the retryable classification read off it. That
+ * package is zod-only and environment-neutral, so the preload takes on nothing
+ * at runtime: this is a type-only import.
  */
-export type LocalConnectImportResult =
-  | { ok: true; assistantId: string; accessOnly: boolean }
-  | { ok: false; error: string };
+export type LocalPairingFailureReason = PairingFailureReason;
+
+/**
+ * A refused pairing step. `error` is ready to display, and is what a caller
+ * with no copy of its own shows. `rejection` accompanies an `invalid-address`
+ * refusal and says why the address was refused, so a localized caller renders
+ * its own catalog copy instead of the host's English.
+ */
+export interface LocalPairingFailure {
+  ok: false;
+  error: string;
+  reason?: LocalPairingFailureReason;
+  rejection?: PublicBaseUrlRejection;
+}
+
+/**
+ * Result of `localMode.pairingStart`. `handle` is an opaque key for the
+ * follow-up `pairingPoll` / `pairingCancel`; the device code it stands for
+ * stays in the host process. `userCode` is the code to approve on the
+ * assistant's machine, or null when the address already carried an approved
+ * device code and the first poll imports outright.
+ */
+export type LocalPairingStartResult =
+  | {
+      ok: true;
+      handle: string;
+      userCode: string | null;
+      expiresAt: string;
+      intervalSeconds: number;
+    }
+  | LocalPairingFailure;
+
+/**
+ * Result of one `localMode.pairingPoll` attempt. `pending` carries the cadence
+ * to wait before the next one; `imported` means the pairing is registered
+ * under `assistantId`, with `accessOnly` true when the exchange yielded no
+ * refresh credential (the access expires without renewal).
+ */
+export type LocalPairingPollResult =
+  | { ok: true; status: "pending"; expiresAt: string; intervalSeconds: number }
+  | { ok: true; status: "imported"; assistantId: string; accessOnly: boolean }
+  | LocalPairingFailure;
 
 /**
  * One paired-device row as returned by `localMode.listDevices`. Structural
@@ -110,7 +156,8 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  { ok: true } | { ok: false; error: string };
+  | { ok: true }
+  | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -200,9 +247,7 @@ export interface VellumBridge {
        * PCM — the offline transcript authority. Result arrives via
        * `onTranscribed`.
        */
-      transcribe?(
-        audio: ArrayBuffer,
-      ): Promise<DictationTranscribeResult>;
+      transcribe?(audio: ArrayBuffer): Promise<DictationTranscribeResult>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
@@ -294,15 +339,22 @@ export interface VellumBridge {
      */
     unpair(assistantId: string): Promise<LockfileWriteResult>;
     /**
-     * Register a pairing bundle printed by `vellum pair` on another machine:
-     * persist the guardian token and create a `cloud: "paired"` lockfile
-     * entry, the write counterpart of `unpair`. `name` picks the local id
-     * (its slug); omitted, the id derives from the bundle's device id.
+     * Begin pairing with the assistant at `address`, either a pairing link
+     * copied from its "Pair a device" card or a bare `https://host` URL. The
+     * host runs the device-code exchange, so neither the device code nor the
+     * credentials it buys cross this boundary.
      */
-    connectImport(
-      bundle: string,
-      name?: string,
-    ): Promise<LocalConnectImportResult>;
+    pairingStart(address: string): Promise<LocalPairingStartResult>;
+    /**
+     * One exchange attempt for a live pairing session. An approved code
+     * persists the guardian token and creates a `cloud: "paired"` lockfile
+     * entry in the same call, the write counterpart of `unpair`. `name` picks
+     * the local id (its slug); omitted, the id derives from the assistant's
+     * address.
+     */
+    pairingPoll(handle: string, name?: string): Promise<LocalPairingPollResult>;
+    /** Forget a pending pairing session. */
+    pairingCancel(handle: string): Promise<{ ok: boolean }>;
     sleep(assistantId: string): Promise<{ ok: boolean; error?: string }>;
     wake(
       assistantId: string,

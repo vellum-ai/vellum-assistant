@@ -595,7 +595,8 @@
     "save": "Save",
     "saveError": "Failed to save daily credit limit. Please try again.",
     "skippedNotice": "Skipped for today. This limit resumes at {time}.",
-    "toggleLabel": "Daily Credit Limit"
+    "toggleLabel": "Daily Credit Limit",
+    "toggleSubtitle": "Daily limit only applies to extra usage credits"
   },
   "debugControlsPanel": {
     "backups": "Backups",
@@ -1180,7 +1181,7 @@
     "publicUrlHelperTunnel": "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL.",
     "publicUrlLabel": "Public URL",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Scan with another device's camera, or open the link on it, to use {name} there.",
+    "subtitle": "Scan it with a phone's camera, or paste the link into another computer, to use {name} there.",
     "subtitleFallbackName": "this assistant",
     "title": "Pair a device"
   },
@@ -1202,6 +1203,7 @@
   "pairDeviceUrl": {
     "loopback": "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
     "nonHttps": "The URL must use https so your devices can connect securely.",
+    "privateAddress": "This address points at a private network address. Enter the assistant's public https URL so your devices can reach it.",
     "serviceFallbackName": "the tunnel provider",
     "serviceWebsite": "This is {service}'s website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
     "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."
@@ -1814,6 +1816,19 @@
     "subtitle": "Configure how your assistant transcribes speech",
     "title": "Speech-to-Text"
   },
+  "sttRoleOverrides": {
+    "clear": "Reset",
+    "clearAria": "Reset {feature}",
+    "clearFailed": "Could not reset",
+    "role": {
+      "batch": "File transcription",
+      "dictation": "Dictation",
+      "liveVoice": "Live voice",
+      "telephony": "Phone calls",
+      "watch": "Watch"
+    },
+    "title": "Per feature"
+  },
   "systemTasksSection": {
     "consolidationName": "Consolidation",
     "consolidationPausedHelper": "Memory is off, so consolidation is paused.",
@@ -2137,6 +2152,10 @@
     "speechServicesBannerLink": "Set it up in Models & Services",
     "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
     "systemDefault": "System Default",
+    "turnDetectionDescription": "The speech model decides when you have finished, instead of the pause timer above.",
+    "turnDetectionFailed": "Could not change turn taking",
+    "turnDetectionLabel": "Model-native turn taking",
+    "turnDetectionLanguageUnsupported": "Not available in the selected spoken language.",
     "turnTakingSubtitle": "Where your turn ends and the assistant's begins. Applies to hands-free conversations. Under push to talk, the key decides.",
     "turnTakingTitle": "Turn taking",
     "voiceShortcutSubtitle": "Press the shortcut to start or end a voice conversation, from anywhere in the app.",

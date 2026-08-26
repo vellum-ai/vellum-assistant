@@ -402,7 +402,9 @@ export function clearAllActiveConversations(): number {
  * Evict in-memory conversations after a config/prompt/skills reload so the next
  * turn rebuilds them against the new config. Idle conversations are disposed and
  * dropped; busy ones are marked stale so they're rebuilt once their current turn
- * finishes. Also used when provider credentials change.
+ * finishes. Conversations with in-flight subagents are left in place so a
+ * reload does not abort those children. Also used when provider credentials
+ * change.
  */
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();
@@ -413,6 +415,11 @@ export function evictConversationsForReload(): void {
     // would silently drop the queued messages, so mark it stale instead and
     // let it rebuild once the queue has run.
     if (!conversation.isProcessing() && !conversation.hasQueuedMessages()) {
+      // Same protection the TTL/LRU evictor applies: an idle parent still
+      // owns mid-task children, and aborting them here would kill that work.
+      if (subagentManager.hasActiveChildren(id)) {
+        continue;
+      }
       subagentManager.abortAllForParent(id);
       conversation.dispose();
       deleteConversation(id);

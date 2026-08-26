@@ -595,7 +595,8 @@
     "save": "Guardar",
     "saveError": "No se pudo guardar el límite diario de créditos. Inténtalo de nuevo.",
     "skippedNotice": "Omitido por hoy. Este límite se reanuda a las {time}.",
-    "toggleLabel": "Límite diario de créditos"
+    "toggleLabel": "Límite diario de créditos",
+    "toggleSubtitle": "El límite diario solo se aplica a los créditos de uso adicional"
   },
   "debugControlsPanel": {
     "backups": "Copias de seguridad",
@@ -1180,7 +1181,7 @@
     "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
     "publicUrlLabel": "URL pública",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Escanéalo con la cámara de otro dispositivo, o abre el enlace en él, para usar {name} allí.",
+    "subtitle": "Escanéalo con la cámara de un teléfono, o pega el enlace en otro ordenador, para usar {name} allí.",
     "subtitleFallbackName": "este asistente",
     "title": "Vincular un dispositivo"
   },
@@ -1202,6 +1203,7 @@
   "pairDeviceUrl": {
     "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
     "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
+    "privateAddress": "Esta dirección apunta a una dirección de red privada. Introduce la URL https pública del asistente para que tus dispositivos puedan alcanzarlo.",
     "serviceFallbackName": "el proveedor del túnel",
     "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Inicia un túnel en el host para obtener una; `vellum tunnel --help` lista los proveedores.",
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
@@ -1814,6 +1816,19 @@
     "subtitle": "Configura cómo tu asistente transcribe el habla",
     "title": "Voz a texto"
   },
+  "sttRoleOverrides": {
+    "clear": "Restablecer",
+    "clearAria": "Restablecer {feature}",
+    "clearFailed": "No se pudo restablecer",
+    "role": {
+      "batch": "Transcripción de archivos",
+      "dictation": "Dictado",
+      "liveVoice": "Voz en vivo",
+      "telephony": "Llamadas",
+      "watch": "Observación"
+    },
+    "title": "Por función"
+  },
   "systemTasksSection": {
     "consolidationName": "Consolidación",
     "consolidationPausedHelper": "La memoria está desactivada, así que la consolidación está en pausa.",
@@ -2137,6 +2152,10 @@
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",
+    "turnDetectionDescription": "El modelo de voz decide cuándo has terminado, en lugar del temporizador de pausa de arriba.",
+    "turnDetectionFailed": "No se pudo cambiar el modo de turnos",
+    "turnDetectionLabel": "Turnos detectados por el modelo",
+    "turnDetectionLanguageUnsupported": "No disponible en el idioma hablado seleccionado.",
     "turnTakingSubtitle": "Dónde termina tu turno y comienza el del asistente. Se aplica a conversaciones manos libres. Con pulsar para hablar, lo decide la tecla.",
     "turnTakingTitle": "Turnos de conversación",
     "voiceShortcutSubtitle": "Pulsa el atajo para iniciar o terminar una conversación de voz, desde cualquier parte de la aplicación.",

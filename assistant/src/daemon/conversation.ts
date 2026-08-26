@@ -1917,8 +1917,6 @@ export class Conversation {
     requestId: string,
     decision: UserDecision,
     options?: {
-      selectedPattern?: string;
-      selectedScope?: string;
       decisionContext?: string;
       emissionContext?: {
         source?: ConfirmationStateChangedEvent["source"];
@@ -1937,8 +1935,6 @@ export class Conversation {
     const toolUseId = this.prompter.getToolUseId(requestId);
 
     this.prompter.resolveConfirmation(requestId, decision, {
-      selectedPattern: options?.selectedPattern,
-      selectedScope: options?.selectedScope,
       decisionContext: options?.decisionContext,
     });
 

@@ -95,7 +95,9 @@ export function QuestionPromptCard(props: QuestionPromptCardProps) {
  * question and an option count docked above the composer. Three ways through
  * it, all driving the same state: the header's chevron minimizes, a vertical
  * swipe anywhere on the card goes either way, and a minimized card reopens
- * from its own header.
+ * from its own header. The swipe carries no grabber of its own, so it is a
+ * shortcut for whoever finds it rather than the advertised way through; the
+ * chevron and the summary are what the card actually offers.
  *
  * `useQuestionCardMinimize` reduces all of that to one `progress` value, which
  * every moving part below reads. Mid-drag it tracks the finger; at rest it is
@@ -205,14 +207,11 @@ export function QuestionPromptBody({
   const hasFreeText = currentFreeText.trim().length > 0;
 
   // The pointer axis, subscribed rather than sampled: a convertible folding
-  // into tablet mode changes it under a card that is already on screen, and
-  // both things it gates are rendered. The grabber advertises a swipe only
-  // touch can perform, and the numeric badges hint at a hardware-keyboard
-  // affordance a thumb can't reach, so a stale read leaves one of them making
-  // a promise the device can no longer keep. `useSwipeEngine` reads the same
-  // subscribed signal, so the grabber and the gesture it advertises arrive and
-  // leave together. The pencil icon on the free-text row is iconography, not a
-  // hint, and stays either way.
+  // into tablet mode changes it under a card that is already on screen. The
+  // numeric badges hint at a hardware-keyboard affordance a thumb can't reach,
+  // so a stale read leaves them promising something the device can no longer
+  // deliver. The pencil icon on the free-text row is iconography, not a hint,
+  // and stays either way.
   const isTouch = usePointerCoarse();
   const showHotkeyBadges = !isTouch;
 
@@ -421,24 +420,6 @@ export function QuestionPromptBody({
       onTouchCancel={minimize.dragHandlers.onTouchCancel}
       onClickCapture={minimize.dragHandlers.onClickCapture}
     >
-      {isTouch && (
-        // The swipe is the fastest way out of the card's way, and nothing else
-        // on screen says it exists. Touch only: on a mouse the same bar would
-        // advertise a gesture that never fires (see `docs/PLATFORM_ADAPTATION.md`).
-        //
-        // Absolute, so it sits inside the inset the card already has rather
-        // than adding a band of its own above it. In flow it would push the
-        // header down while the floor below stayed where it was, and the card
-        // would be visibly lopsided on exactly the devices that show it.
-        <div
-          aria-hidden="true"
-          data-slot="question-card-grabber"
-          className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-center"
-        >
-          <span className="h-1 w-9 rounded-full bg-[var(--border-element)]" />
-        </div>
-      )}
-
       <div
         className={cn(
           "flex items-start gap-2",
@@ -534,9 +515,9 @@ export function QuestionPromptBody({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {!isMinimized && (
-            // Everything in here acts on rows that are on screen: the pager
-            // pages between them, the counter says which one is showing, and
-            // the chevron puts them away. So all three leave with the rows,
+            // Everything in here belongs to rows that are on screen: the pager
+            // pages between them, the chevron puts them away, and the status
+            // line says which of them you are on. So they leave with the rows,
             // fading out over the first half of the collapse and unmounting
             // once the state commits, by which point they are already
             // invisible. The chevron points down and stays there: reopening is
@@ -548,16 +529,16 @@ export function QuestionPromptBody({
               data-dragging={dragAttr}
             >
               {isBatched && (
-                <Typography
-                  variant="label-small-default"
-                  as="span"
-                  className="px-1 text-[color:var(--content-tertiary)]"
-                >
+                // The pager offers movement without saying where from. A
+                // sighted reader takes that from the options changing under
+                // them, which is nothing a reader paging by button can see, so
+                // the count is announced rather than drawn.
+                <span role="status" className="sr-only">
                   {t("questionPromptCard.position", {
                     current: currentIndex + 1,
                     total: entries.length,
                   })}
-                </Typography>
+                </span>
               )}
               <Button
                 variant="ghost"

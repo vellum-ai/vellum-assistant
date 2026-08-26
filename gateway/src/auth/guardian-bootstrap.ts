@@ -105,6 +105,18 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * Hash a raw device id into its stored binding.
+ *
+ * A device id is only ever compared as a hash, so any difference in the raw
+ * bytes is a different device. Every mint and every redeem goes through here
+ * so surrounding whitespace cannot make one route's binding unmatchable by
+ * another's.
+ */
+export function hashDeviceId(deviceId: string): string {
+  return hashToken(deviceId.trim());
+}
+
 function uuid(): string {
   return crypto.randomUUID();
 }
@@ -782,6 +794,10 @@ function mintRefreshToken(
  * needs a full refreshable credential). The device binding enforces one active
  * token per (guardianPrincipalId, hashedDeviceId) via a unique index, so
  * re-minting for the same device first revokes the prior tokens.
+ *
+ * The device id is normalized here rather than at each route, so every entry
+ * point records the same binding. A blank one throws instead of minting
+ * against an empty identity.
  */
 export function mintAndRecordDeviceBoundTokenPair(params: {
   guardianPrincipalId: string;
@@ -789,7 +805,10 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
   platform: string;
   identity?: DeviceIdentityInput;
 }): DeviceBoundTokenPair {
-  const hashedDeviceId = hashToken(params.deviceId);
+  if (!params.deviceId.trim()) {
+    throw new Error("deviceId is required to mint a device-bound token pair");
+  }
+  const hashedDeviceId = hashDeviceId(params.deviceId);
 
   revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
   revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);

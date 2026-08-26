@@ -256,3 +256,21 @@ export function parsePendingConfirmationData(
 export function newTurnId(): string {
   return `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/**
+ * The milliseconds {@link newTurnId} embedded in a turn id, or null for any
+ * other shape. The embedded stamp is the send time, so `now - turnStartMs`
+ * bounds how long the turn ran before an observer (e.g. the silent-stall
+ * rescue) looked at it.
+ */
+export function turnStartMsFromId(turnId: string | null): number | null {
+  if (!turnId) {
+    return null;
+  }
+  const match = /^turn-(\d{10,})-/.exec(turnId);
+  if (!match) {
+    return null;
+  }
+  const ms = Number(match[1]);
+  return Number.isFinite(ms) ? ms : null;
+}

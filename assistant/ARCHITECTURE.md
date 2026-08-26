@@ -1659,7 +1659,7 @@ graph TB
 
 ### Auto-Approve Threshold
 
-Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
+Auto-approve thresholds are **gateway-owned**: they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`). A contact ceiling is written via `set_contact_threshold` (`gateway contacts set-risk-threshold` or `POST /v1/contacts`). Users also control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict): fail-closed with no local fallback.
 
 | `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
 | ----------------- | -------------- | ----------------- | --------------- |

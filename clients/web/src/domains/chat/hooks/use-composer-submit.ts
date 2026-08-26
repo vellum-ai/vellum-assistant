@@ -28,6 +28,8 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { prependChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
+import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
 import {
   useQuoteReplyStore,
   type StagedQuote,
@@ -60,9 +62,10 @@ export interface UseComposerSubmitParams {
   activeConversationId: string | null;
   /**
    * Pre-send gate, invoked with the fully assembled outgoing content
-   * (quotes and path references included) before any composer state is
-   * cleared. Return `false` to block the send — the draft, attachments,
-   * and staged quotes are left fully intact. Omitted = always proceed.
+   * (quotes, a staged channel reference, and path references included)
+   * before any composer state is cleared. Return `false` to block the send:
+   * the draft, attachments, staged quotes, and the staged channel reference
+   * are left fully intact. Omitted = always proceed.
    */
   beforeSend?: (content: string) => boolean;
 }
@@ -125,15 +128,20 @@ export function useComposerSubmit({
       const pathReferences = selectPathReferencePaths(chatAttachments);
 
       const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
+      const channelReference = useChannelReferenceStore.getState().reference;
       const trimmed = (inputOverride ?? input).trim();
       if (sendDisabled) {
         return;
       }
+      // A staged channel reference is content in its own right: "look at this
+      // message" is a complete instruction, so it makes an otherwise empty
+      // composer sendable exactly as a staged quote does.
       if (
         !trimmed &&
         uploadedIds.length === 0 &&
         pathReferences.length === 0 &&
-        stagedQuotes.length === 0
+        stagedQuotes.length === 0 &&
+        channelReference === null
       ) {
         return;
       }
@@ -144,8 +152,14 @@ export function useComposerSubmit({
       // Assemble the outgoing content before touching any state so the gate
       // below can veto the send with the draft/attachments/quotes intact.
       const contentWithQuotes = buildContentWithQuotes(stagedQuotes, trimmed);
-      const finalContent = appendPathReferences(
+      // The channel reference leads the message: it is the thing being talked
+      // about, and everything the user typed is their remark on it.
+      const contentWithReference = prependChannelReference(
         contentWithQuotes,
+        channelReference,
+      );
+      const finalContent = appendPathReferences(
+        contentWithReference,
         pathReferences,
       );
       if (beforeSend && !beforeSend(finalContent)) {
@@ -175,6 +189,7 @@ export function useComposerSubmit({
       }
       useComposerStore.getState().resetAttachments();
       useQuoteReplyStore.getState().clearStagedQuotes();
+      useChannelReferenceStore.getState().clearReference();
 
       if (!isPointerCoarse()) {
         shouldFocusInputRef.current = true;
