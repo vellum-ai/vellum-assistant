@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { createCesHttpCredentialClient } from "@vellumai/ces-client/http-credentials";
 import { credentialKey } from "./credential-key.js";
 import { getLogger } from "./logger.js";
-import { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
+import { getGatewaySecurityDir } from "./paths.js";
 
 export { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
 
@@ -138,10 +138,6 @@ export function getEncryptedStorePath(): string {
   return join(getGatewaySecurityDir(), "keys.enc");
 }
 
-export function getMetadataPath(): string {
-  return join(getWorkspaceDir(), "data", "credentials", "metadata.json");
-}
-
 // ---------------------------------------------------------------------------
 // Encrypted store reader
 // ---------------------------------------------------------------------------
@@ -230,49 +226,28 @@ export async function readCredential(
 }
 
 export type ServiceCredentialSpec = {
-  /** Service name as it appears in metadata.json (e.g., "telegram", "slack_channel") */
+  /** Service name as it appears in the credential account key (e.g., "telegram", "slack_channel") */
   service: string;
   /** Field names required for this service (e.g., ["bot_token", "webhook_secret"]) */
   requiredFields: readonly string[];
 };
 
 /**
- * Generic credential reader that checks metadata for the given service and
- * reads the required fields from the encrypted store.
+ * Generic credential reader that loads every required field from CES or
+ * the encrypted store. A service is ready when every required secret
+ * value can be read.
  *
  * Returns a `Record<string, string>` mapping field names to their values if
- * all required fields are present in metadata and readable from the store.
- * Returns `null` if metadata is missing, any required field is absent from
- * metadata, or any secret value can't be read.
+ * all required secrets are readable. Returns `null` if any secret is missing.
  */
 export async function readServiceCredentials(
   spec: ServiceCredentialSpec,
 ): Promise<Record<string, string> | null> {
   try {
-    const metadataPath = getMetadataPath();
-    if (!existsSync(metadataPath)) return null;
-
-    const raw = readFileSync(metadataPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || !Array.isArray(data.credentials)) return null;
-
-    // Check that all required fields exist in metadata
-    for (const field of spec.requiredFields) {
-      const found = data.credentials.some(
-        (c: { service?: string; field?: string }) =>
-          c.service === spec.service && c.field === field,
-      );
-      if (!found) return null;
-    }
-
-    // Read each credential from the store
     const result: Record<string, string> = {};
     for (const field of spec.requiredFields) {
       const value = await readCredential(credentialKey(spec.service, field));
       if (!value) {
-        log.warn(
-          `${spec.service} credential metadata exists but secrets could not be read`,
-        );
         return null;
       }
       result[field] = value;

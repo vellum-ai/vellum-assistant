@@ -749,6 +749,19 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     }
   }
 
+  try {
+    const { hydrateCredentialRecordsFromCes } = await import(
+      "../../tools/credentials/metadata-store.js"
+    );
+    await hydrateCredentialRecordsFromCes();
+  } catch (err) {
+    warnings.push(
+      `Failed to import credential records into CES: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
   // Build final report
   const report: ImportCommitReport = {
     success: true,
