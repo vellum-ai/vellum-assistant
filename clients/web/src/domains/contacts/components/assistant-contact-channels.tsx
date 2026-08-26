@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { routes } from "@/utils/routes";
 import { useTranslation } from "@/i18n";
@@ -104,7 +104,6 @@ function ChannelRow({
   onDisconnect,
 }: ChannelRowProps) {
   const { t } = useTranslation("contacts");
-  const navigate = useNavigate();
   // Two axes, two decisions. `configured` owns the action and the address,
   // because a channel that is merely not delivering still has credentials
   // worth keeping and an address worth showing, and offering Connect would
@@ -154,13 +153,10 @@ function ChannelRow({
                 {pending ? t("actions.disconnecting") : t("actions.disconnect")}
               </Button>
             ) : (
-              <Button
-                variant="outlined"
-                onClick={() =>
-                  navigate(`${routes.channels}?setup=${channel.key}`)
-                }
-              >
-                {t("actions.manage")}
+              <Button variant="outlined" asChild>
+                <Link to={`${routes.channels}?setup=${channel.key}`}>
+                  {t("actions.manage")}
+                </Link>
               </Button>
             )}
           </>
