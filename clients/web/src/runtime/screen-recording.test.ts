@@ -240,6 +240,40 @@ test("reports the full lifecycle to the initiating assistant", async () => {
   expect(track.stopped).toBeTrue();
 });
 
+test("finalizes the source recording when the selected assistant changes", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const statuses: Array<{ assistantId: string; status: string }> = [];
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (assistantId, _event, status) => {
+      statuses.push({ assistantId, status });
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-a");
+  await controller.handleAssistantChange("assistant-b");
+
+  expect(statuses).toEqual([
+    { assistantId: "assistant-a", status: "started" },
+    { assistantId: "assistant-a", status: "stopped" },
+  ]);
+  expect(recorder.state).toBe("inactive");
+  expect(track.stopped).toBeTrue();
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+});
+
 test("reports restart cancellation when the source picker is denied", async () => {
   const statuses: string[] = [];
   const controller = new ScreenRecordingController({

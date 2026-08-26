@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -17,6 +23,7 @@ import {
   linkAttachmentToMessage,
   MAX_UPLOAD_BYTES,
   uploadAttachment,
+  uploadFileBackedAttachment,
   validateAttachmentUpload,
 } from "../persistence/attachments-store.js";
 import {
@@ -28,7 +35,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawGet, rawRun } from "../persistence/raw-query.js";
 import { mediaSourceBytes } from "../providers/media-resolve.js";
-import { getConversationsDir } from "../util/platform.js";
+import { getConversationsDir, getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // Disable memory so addMessage skips background indexing of test messages.
@@ -509,6 +516,35 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     expect(getFilePathForAttachment(stored.id)).toContain("/conversations/");
   });
 
+  test("removes a nested transfer staging file after materialization", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "Recording complete");
+    const transferDir = join(
+      getWorkspaceDir(),
+      "data",
+      "attachments",
+      "recordings",
+    );
+    mkdirSync(transferDir, { recursive: true });
+    const stagedPath = join(transferDir, `recording-${conv.id}.webm`);
+    writeFileSync(stagedPath, new Uint8Array([1, 2, 3]));
+    const stored = uploadFileBackedAttachment(
+      "recording.webm",
+      "video/webm",
+      stagedPath,
+      3,
+    );
+
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+
+    const materializedPath = getFilePathForAttachment(stored.id)!;
+    expect(materializedPath).toContain("/conversations/");
+    expect(readFileSync(materializedPath)).toEqual(
+      Buffer.from(new Uint8Array([1, 2, 3])),
+    );
+    expect(existsSync(stagedPath)).toBeFalse();
+  });
+
   test("uses timestamp-first conversation directory and does not recreate a legacy sibling", async () => {
     const conv = createConversation();
     const msg = await addMessage(conv.id, "assistant", "Disk view repaired");
@@ -735,9 +771,9 @@ describe("validateAttachmentUpload", () => {
   test("accepts shell scripts as text attachments", () => {
     expect(validateAttachmentUpload("script.sh", "text/plain").ok).toBe(true);
     expect(validateAttachmentUpload("script.SH", "text/plain").ok).toBe(true);
-    expect(
-      validateAttachmentUpload("setup.sh", "application/x-sh").ok,
-    ).toBe(true);
+    expect(validateAttachmentUpload("setup.sh", "application/x-sh").ok).toBe(
+      true,
+    );
     expect(
       validateAttachmentUpload("run.sh", "application/x-shellscript").ok,
     ).toBe(true);
@@ -760,9 +796,9 @@ describe("validateAttachmentUpload", () => {
     expect(
       validateAttachmentUpload("PROGRAM.EXE", "application/octet-stream").ok,
     ).toBe(false);
-    expect(validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok).toBe(
-      false,
-    );
+    expect(
+      validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok,
+    ).toBe(false);
   });
 
   test("rejects unsupported MIME types", () => {

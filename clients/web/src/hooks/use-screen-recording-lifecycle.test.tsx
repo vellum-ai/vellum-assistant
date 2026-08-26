@@ -7,7 +7,9 @@ import {
 } from "@/lib/event-bus";
 
 const handleScreenRecordingEvent = mock(async () => undefined);
+const handleScreenRecordingAssistantChange = mock(async () => undefined);
 mock.module("@/runtime/screen-recording", () => ({
+  handleScreenRecordingAssistantChange,
   handleScreenRecordingEvent,
 }));
 
@@ -21,7 +23,7 @@ function RootSubscriber({
   route: "chat" | "settings";
   selectedAssistantId?: string;
 }) {
-  useScreenRecordingLifecycle();
+  useScreenRecordingLifecycle(selectedAssistantId);
   return route === "chat" ? (
     <ChatRoute />
   ) : (
@@ -47,7 +49,22 @@ function publishRecordingStop(): void {
 
 beforeEach(() => {
   __resetForTesting();
+  handleScreenRecordingAssistantChange.mockClear();
   handleScreenRecordingEvent.mockClear();
+});
+
+test("stops source-assistant recording control during a switch", () => {
+  const view = render(
+    <RootSubscriber route="chat" selectedAssistantId="assistant-old" />,
+  );
+
+  view.rerender(
+    <RootSubscriber route="chat" selectedAssistantId="assistant-new" />,
+  );
+
+  expect(handleScreenRecordingAssistantChange).toHaveBeenLastCalledWith(
+    "assistant-new",
+  );
 });
 
 test("routes a buffered event to its source assistant during a switch", () => {

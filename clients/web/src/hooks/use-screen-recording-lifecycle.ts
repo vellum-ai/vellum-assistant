@@ -1,8 +1,12 @@
 import type { AssistantEvent } from "@vellumai/assistant-api";
+import { useEffect } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { captureError } from "@/lib/sentry/capture-error";
-import { handleScreenRecordingEvent } from "@/runtime/screen-recording";
+import {
+  handleScreenRecordingAssistantChange,
+  handleScreenRecordingEvent,
+} from "@/runtime/screen-recording";
 
 type RecordingLifecycleEvent = Extract<
   AssistantEvent,
@@ -23,7 +27,15 @@ const isRecordingLifecycleEvent = (
   event.type === "recording_pause" ||
   event.type === "recording_resume";
 
-export function useScreenRecordingLifecycle(): void {
+export function useScreenRecordingLifecycle(assistantId: string | null): void {
+  useEffect(() => {
+    void handleScreenRecordingAssistantChange(assistantId).catch((error) => {
+      captureError(error, {
+        context: "screen_recording_assistant_change",
+      });
+    });
+  }, [assistantId]);
+
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
     if (!isRecordingLifecycleEvent(event)) {

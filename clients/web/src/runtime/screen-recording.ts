@@ -376,6 +376,31 @@ export class ScreenRecordingController {
     }
   }
 
+  async handleAssistantChange(assistantId: string | null): Promise<void> {
+    if (
+      !assistantId ||
+      !isElectron() ||
+      !window.vellum?.screenRecording ||
+      !this.dependencies.ownsLifecycle()
+    ) {
+      return;
+    }
+    if (this.pending && this.pending.assistantId !== assistantId) {
+      this.pending.cancelled = true;
+    }
+    const queuedCancellations = [...this.queuedStarts.values()]
+      .filter((queued) => queued.assistantId !== assistantId)
+      .map((queued) =>
+        this.cancelQueuedStart(queued.event.recordingId, queued.assistantId),
+      );
+    const active = this.active;
+    const activeStop =
+      active && active.assistantId !== assistantId
+        ? this.stop(active.event.recordingId, active.assistantId)
+        : Promise.resolve();
+    await Promise.all([activeStop, ...queuedCancellations]);
+  }
+
   private async start(
     event: RecordingStartEvent,
     assistantId: string,
@@ -1114,3 +1139,7 @@ export const handleScreenRecordingEvent = (
   event: RecordingLifecycleEvent,
   assistantId: string,
 ): Promise<void> => controller.handle(event, assistantId);
+
+export const handleScreenRecordingAssistantChange = (
+  assistantId: string | null,
+): Promise<void> => controller.handleAssistantChange(assistantId);
