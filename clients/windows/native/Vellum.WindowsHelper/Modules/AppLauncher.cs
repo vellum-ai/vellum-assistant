@@ -122,7 +122,9 @@ public static partial class AppLauncher
     }
 
     // Brings forward the first visible top-level window whose process name or
-    // title matches; a minimized window is restored first.
+    // title matches; a minimized window is restored first. A found window counts
+    // as activated even if foreground-lock rules reject the switch, so a live
+    // app is never relaunched into a duplicate instance.
     private static bool ActivateRunning(string name, string resolved)
     {
         foreach (var process in Process.GetProcesses())
@@ -137,7 +139,8 @@ public static partial class AppLauncher
                 {
                     _ = ShowWindow(process.MainWindowHandle, 9); // SW_RESTORE
                 }
-                return SetForegroundWindow(process.MainWindowHandle);
+                _ = SetForegroundWindow(process.MainWindowHandle);
+                return true;
             }
         }
         return false;

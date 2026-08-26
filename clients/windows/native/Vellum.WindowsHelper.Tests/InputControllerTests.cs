@@ -86,7 +86,7 @@ public static class InputControllerTests
         };
         Check(AppLauncher.FindMatch(apps, "chrome", "Google Chrome") == "chrome.lnk", "app alias match");
         Check(AppLauncher.FindMatch(apps, "slack", "slack") == "slack.lnk", "app exact beats prefix");
-        Check(AppLauncher.FindMatch(apps, "sla", "sla") == "slack-beta.lnk", "app unique prefix");
+        Check(AppLauncher.FindMatch(apps, "goog", "goog") == "chrome.lnk", "app unique prefix");
         Check(AppLauncher.FindMatch(apps, "zoom", "zoom") is null, "app missing");
         try
         {
