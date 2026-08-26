@@ -88,10 +88,11 @@ describe("publishElectronDeepLinksSource", () => {
       sessionId: null,
       flow: "top_up",
     });
-    activeCallback!({ kind: "connect", bundle: "eyJnYXRld2F5" });
+    activeCallback!({ kind: "connect", legacy: true });
     activeCallback!({
       kind: "connect",
       url: "https://assistant.example.com",
+      code: "DEVICE-CODE-1",
     });
     activeCallback!({ kind: "unknown", url: "javascript:alert(1)" });
 
@@ -106,8 +107,15 @@ describe("publishElectronDeepLinksSource", () => {
         "deeplink.billingCheckoutComplete",
         { status: "cancel", sessionId: null, flow: "top_up" },
       ],
-      ["deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" }],
-      ["deeplink.connect", { url: "https://assistant.example.com", bundle: null }],
+      ["deeplink.connect", { url: null, code: null, legacy: true }],
+      [
+        "deeplink.connect",
+        {
+          url: "https://assistant.example.com",
+          code: "DEVICE-CODE-1",
+          legacy: false,
+        },
+      ],
       ["deeplink.unknown", { url: "javascript:alert(1)" }],
     ]);
   });
@@ -154,7 +162,9 @@ describe("publishElectronDeepLinksSource", () => {
   });
 
   test("latches the drain-settled flag only after the backlog has published", async () => {
-    pendingFixture = [{ kind: "connect", bundle: "eyJnYXRld2F5" }];
+    pendingFixture = [
+      { kind: "connect", url: "https://assistant.example.com", code: "CODE-1" },
+    ];
 
     publishElectronDeepLinksSource();
     expect(useConnectDialogStore.getState().deepLinkDrainSettled).toBe(false);
@@ -162,7 +172,14 @@ describe("publishElectronDeepLinksSource", () => {
     await settleDrain();
 
     expect(publishSpy.mock.calls).toEqual([
-      ["deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" }],
+      [
+        "deeplink.connect",
+        {
+          url: "https://assistant.example.com",
+          code: "CODE-1",
+          legacy: false,
+        },
+      ],
     ]);
     expect(useConnectDialogStore.getState().deepLinkDrainSettled).toBe(true);
   });
