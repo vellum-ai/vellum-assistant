@@ -56,7 +56,7 @@ function extractAllowlist(language: Language): string[] {
   const body = ALLOWLIST_DECLARATIONS[language].exec(read(language))?.[1];
   if (body === undefined) {
     throw new Error(
-      `${SOURCES[language]} no longer declares its attribution allowlist in the shape this guard parses`,
+      `${SOURCES[language]} does not declare its attribution allowlist in the shape this guard parses`,
     );
   }
   const keys = [...body.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
@@ -72,7 +72,7 @@ function extractMaxLength(language: Language): number {
   const value = MAX_LENGTH_DECLARATIONS[language].exec(read(language))?.[1];
   if (value === undefined) {
     throw new Error(
-      `${SOURCES[language]} no longer declares its attribution truncation length in the shape this guard parses`,
+      `${SOURCES[language]} does not declare its attribution truncation length in the shape this guard parses`,
     );
   }
   return Number(value);

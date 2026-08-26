@@ -242,9 +242,8 @@ enum Attribution {
     }
 
     /// Percent-encoded `key=value` pairs in ``keys`` order, or `""` when
-    /// nothing survives. Callers must leave the query untouched on `""` so a
-    /// call without attribution stays byte-identical to one from a shell that
-    /// predates this.
+    /// nothing survives. Callers leave the request query unset on `""`, so a
+    /// call without attribution carries no query string.
     static func query(from fields: [String: String]) -> String {
         keys.compactMap { key in
             guard let value = fields[key], !value.isEmpty else { return nil }

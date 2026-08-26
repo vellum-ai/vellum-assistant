@@ -102,8 +102,7 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let loginHint = call.getString("loginHint")
         let intent = call.getString("intent")
-        // Absent on a web bundle that predates this, which must stay
-        // byte-identical on the wire.
+        // Optional: with no attribution the token request carries no query.
         let attribution = Attribution.fields(from: call.getObject("attribution"))
 
         guard let codeVerifier = WorkOSAuth.generateCodeVerifier() else {
