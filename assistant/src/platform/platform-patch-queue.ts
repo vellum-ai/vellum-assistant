@@ -6,10 +6,10 @@
  * stale in-flight response cannot overwrite a newer value. The dedup key is
  * scoped to the platform destination (base URL + assistant id), so
  * re-registering elsewhere re-sends an unchanged payload. With `maxAgeMs`, a
- * key only dedups while its last success is younger than that, checked on
- * every run so a long-lived process re-sends too. Best-effort: failures are
- * logged, never thrown, and leave the dedup key untouched so the next enqueue
- * retries.
+ * key only dedups while its last success is younger than that, and an unref'd
+ * timer re-enqueues the last input at expiry so an idle long-lived process
+ * re-sends without any caller. Best-effort: failures are logged, never
+ * thrown, and leave the dedup key untouched so the next enqueue retries.
  */
 
 import type { getLogger } from "../util/logger.js";
@@ -45,12 +45,14 @@ export interface PlatformPatchQueueOptions<T> {
   loadSyncedKey?: () => SyncedKey | null;
   /** Called after each successful PATCH. */
   saveSyncedKey?: (synced: SyncedKey) => void;
-  /** A matching key older than this re-sends; omit to never expire. */
+  /** A matching key older than this re-sends, via a timer; omit to never expire. */
   maxAgeMs?: number;
 }
 
 export interface PlatformPatchQueue<T> {
   enqueue: (input: T) => void;
+  /** Cancels the expiry timer; queued requests still run. */
+  dispose: () => void;
 }
 
 export function createPlatformPatchQueue<T = void>(
@@ -61,6 +63,17 @@ export function createPlatformPatchQueue<T = void>(
   let lastSynced: SyncedKey | null | undefined;
   let seq = 0;
   let pending: Promise<void> = Promise.resolve();
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function armExpiry(input: T): void {
+    if (maxAgeMs === undefined || !lastSynced) {
+      return;
+    }
+    clearTimeout(expiryTimer);
+    const delay = Math.max(0, lastSynced.syncedAt + maxAgeMs - Date.now());
+    expiryTimer = setTimeout(() => enqueue(input), delay);
+    expiryTimer.unref?.();
+  }
 
   async function run(input: T, requestSeq: number): Promise<void> {
     try {
@@ -83,6 +96,7 @@ export function createPlatformPatchQueue<T = void>(
         lastSynced?.key === key &&
         (maxAgeMs === undefined || Date.now() - lastSynced.syncedAt < maxAgeMs)
       ) {
+        armExpiry(input);
         return;
       }
       const body =
@@ -106,6 +120,7 @@ export function createPlatformPatchQueue<T = void>(
       if (resp.ok) {
         lastSynced = { key, syncedAt: Date.now() };
         saveSyncedKey?.(lastSynced);
+        armExpiry(input);
         log.info(
           { key: payload.key, assistantId },
           `Synced ${label} to platform`,
@@ -121,10 +136,15 @@ export function createPlatformPatchQueue<T = void>(
     }
   }
 
+  function enqueue(input: T): void {
+    const mySeq = ++seq;
+    pending = pending.then(() => run(input, mySeq)).catch(() => {});
+  }
+
   return {
-    enqueue(input: T): void {
-      const mySeq = ++seq;
-      pending = pending.then(() => run(input, mySeq)).catch(() => {});
+    enqueue,
+    dispose(): void {
+      clearTimeout(expiryTimer);
     },
   };
 }

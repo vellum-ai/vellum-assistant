@@ -1,4 +1,5 @@
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -31,6 +32,7 @@ interface Patch {
 let patches: Patch[];
 let respond: () => Response;
 let builds: number;
+let queues: Array<{ dispose: () => void }>;
 
 function makeClient(assistantId = "asst-1", baseUrl = "https://platform.a") {
   return {
@@ -50,7 +52,7 @@ function makeQueue(
     maxAgeMs?: number;
   } = {},
 ) {
-  return createPlatformPatchQueue<string | undefined>({
+  const queue = createPlatformPatchQueue<string | undefined>({
     log: getLogger("test"),
     label: "value",
     buildPayload: (value) => {
@@ -59,6 +61,8 @@ function makeQueue(
     },
     ...opts,
   });
+  queues.push(queue);
+  return queue;
 }
 
 async function settle(): Promise<void> {
@@ -73,6 +77,13 @@ describe("createPlatformPatchQueue", () => {
     builds = 0;
     respond = () => new Response("{}", { status: 200 });
     mockClient = makeClient();
+    queues = [];
+  });
+
+  afterEach(() => {
+    for (const queue of queues) {
+      queue.dispose();
+    }
   });
 
   test("PATCHes once and dedups an unchanged key", async () => {
@@ -222,6 +233,40 @@ describe("createPlatformPatchQueue", () => {
     queue.enqueue("a");
     await settle();
 
+    expect(patches).toHaveLength(1);
+  });
+
+  test("re-sends at expiry with no enqueue call, and dispose cancels that", async () => {
+    const queue = makeQueue({ maxAgeMs: 300 });
+    queue.enqueue("a");
+    await settle();
+    expect(patches).toHaveLength(1);
+
+    await new Promise((r) => setTimeout(r, 300));
+    await settle();
+    expect(patches).toHaveLength(2);
+    expect(builds).toBe(2);
+
+    queue.dispose();
+    await new Promise((r) => setTimeout(r, 300));
+    await settle();
+    expect(patches).toHaveLength(2);
+  });
+
+  test("a seeded, still-fresh key arms the expiry re-send", async () => {
+    const queue = makeQueue({
+      maxAgeMs: 300,
+      loadSyncedKey: () => ({
+        key: "https://platform.a|asst-1|a",
+        syncedAt: Date.now(),
+      }),
+    });
+    queue.enqueue("a");
+    await settle();
+    expect(patches).toHaveLength(0);
+
+    await new Promise((r) => setTimeout(r, 300));
+    await settle();
     expect(patches).toHaveLength(1);
   });
 
