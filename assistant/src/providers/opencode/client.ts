@@ -2,7 +2,6 @@ import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provid
 
 export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
-export const OPENCODE_API_KEY_ENV_VAR = "OPENCODE_API_KEY";
 export const OPENCODE_SESSION_HEADER = "x-opencode-session";
 export const OPENCODE_REQUEST_HEADER = "x-opencode-request";
 
