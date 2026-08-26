@@ -125,6 +125,7 @@ const GATE_DEFAULTS = MemoryV3GateSchema.parse({});
 const CAPABILITY_SLUG = "skills/example";
 const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 let capabilityPlatforms: ["windows"] | undefined;
+let capabilityRequiredHostCapabilities: ["host_bash"] | undefined;
 
 // The orchestrate result the spy returns. `lanes` records where each pooled
 // slug lived: page-core in the core lane, page-hot in the hot lane, page-fresh
@@ -388,6 +389,7 @@ mock.module("../../substrate/skill-store.js", () => ({
             id: "example",
             content: CAPABILITY_CONTENT,
             platforms: capabilityPlatforms,
+            requiredHostCapabilities: capabilityRequiredHostCapabilities,
           }
         : null
       : realSkillStore.getSkillCapability(idOrSlug),
@@ -559,6 +561,7 @@ beforeEach(() => {
   ensureCollectionThrows = false;
   capturedPageBody = null;
   capabilityPlatforms = undefined;
+  capabilityRequiredHostCapabilities = undefined;
   coreSetSlugs = [];
   hotSetResult = [];
   hotSetOpts = null;
@@ -943,6 +946,7 @@ describe("memory-v3 engine", () => {
   test("live on injects a Windows capability only for its interactive host actor", async () => {
     liveEnabled = true;
     capabilityPlatforms = ["windows"];
+    capabilityRequiredHostCapabilities = ["host_bash"];
     const capabilityResult = async (): Promise<OrchestrateResult> => ({
       selections: [{ slug: CAPABILITY_SLUG, pinned: false }],
       matchedSections: new Map(),

@@ -16,6 +16,7 @@
 
 import { z } from "zod";
 
+import type { HostProxyCapability } from "../../../../channels/types.js";
 import type { SkillPlatform } from "../../../../skills/platform-compatibility.js";
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,7 @@ export interface SkillEntry {
   id: string;
   content: string;
   platforms?: SkillPlatform[];
+  requiredHostCapabilities?: HostProxyCapability[];
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,8 @@ metadata:
     display-name: "Windows Automation"
     platforms:
       - windows
+    required-host-capabilities:
+      - host_bash
     activation-hints:
       - "Interacting with native Windows apps or system settings"
       - "Automating Microsoft Office desktop apps via PowerShell or COM"

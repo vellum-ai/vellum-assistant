@@ -5,7 +5,7 @@ import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import {
   filterSkillsByContext,
-  type SkillPlatform,
+  type PlatformScopedSkill,
 } from "../../skills/platform-compatibility.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -43,14 +43,13 @@ export async function executeFindSimilarSkills(
   context: ToolContext,
   deps: {
     nearestExistingSkills?: typeof nearestExistingSkills;
-    loadCatalog?: () => {
+    loadCatalog?: () => (PlatformScopedSkill & {
       id: string;
       name: string;
       description: string;
       source: SkillSource;
       owner?: OwnerInfo;
-      platforms?: SkillPlatform[];
-    }[];
+    })[];
   } = {},
 ): Promise<ToolExecutionResult> {
   const goal = input.goal;

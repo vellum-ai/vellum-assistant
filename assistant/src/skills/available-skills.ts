@@ -1,3 +1,4 @@
+import type { HostProxyCapability } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { SkillSource } from "../config/skills.js";
 import type { SkillInstallMeta } from "./install-meta.js";
@@ -31,6 +32,8 @@ export interface ResolvedSkillEntry {
   alwaysCandidate?: boolean;
   /** Host operating systems on which this skill may be used. */
   platforms?: SkillPlatform[];
+  /** Connected host capabilities required before this skill may be used. */
+  requiredHostCapabilities?: HostProxyCapability[];
   /** True for locally installed skills; false for remote catalog entries. */
   installed: boolean;
   /** Where the installed skill comes from. Unset for remote catalog entries. */
@@ -81,6 +84,7 @@ export async function listInstalledSkills(): Promise<ResolvedSkillEntry[]> {
       avoidWhen: summary.avoidWhen,
       alwaysCandidate: summary.alwaysCandidate,
       platforms: summary.platforms,
+      requiredHostCapabilities: summary.requiredHostCapabilities,
       installed: true,
       source: summary.source,
       state: stateById.get(summary.id) ?? "unavailable",
@@ -132,6 +136,7 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       activationHints: entry.metadata?.vellum?.["activation-hints"],
       avoidWhen: entry.metadata?.vellum?.["avoid-when"],
       platforms: entry.platforms,
+      requiredHostCapabilities: entry.requiredHostCapabilities,
       installed: false,
       state: gated ? "unavailable" : "available",
     };

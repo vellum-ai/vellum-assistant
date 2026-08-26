@@ -53,6 +53,7 @@ describe("fetchCatalog normalization", () => {
           icon: "🛒",
           category: "commerce",
           platforms: ["windows"],
+          required_host_capabilities: ["host_bash"],
           updated_at: "2026-04-19T19:26:17Z",
         },
       ],
@@ -70,6 +71,10 @@ describe("fetchCatalog normalization", () => {
     expect(skill.updatedAt).toBe("2026-04-19T19:26:17Z");
     expect(skill.platforms).toEqual(["windows"]);
     expect(skill.metadata?.vellum?.platforms).toEqual(["windows"]);
+    expect(skill.requiredHostCapabilities).toEqual(["host_bash"]);
+    expect(skill.metadata?.vellum?.["required-host-capabilities"]).toEqual([
+      "host_bash",
+    ]);
   });
 
   test("leaves category undefined when the API omits it", async () => {
@@ -122,6 +127,7 @@ describe("readLocalCatalog normalization", () => {
                   "display-name": "Tasks",
                   category: "productivity",
                   platforms: ["macos", "linux"],
+                  "required-host-capabilities": ["host_bash"],
                 },
               },
             },
@@ -135,6 +141,7 @@ describe("readLocalCatalog normalization", () => {
       expect(catalog[0].metadata?.vellum?.category).toBe("productivity");
       expect(catalog[0].metadata?.vellum?.["display-name"]).toBe("Tasks");
       expect(catalog[0].platforms).toEqual(["macos", "linux"]);
+      expect(catalog[0].requiredHostCapabilities).toEqual(["host_bash"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -24,6 +24,7 @@ These are the fields the `SKILL.md` frontmatter can set. Only `name` and `descri
 | `metadata.vellum.avoid-when`       | `string[]` | No       | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests.                                                                                                                                                                                    |
 | `metadata.vellum.category`         | `string`   | No       | Grouping used when the skill is listed in a client. Defaults to "system".                                                                                                                                                                                                                      |
 | `metadata.vellum.platforms`        | `string[]` | No       | Host operating systems where the skill may be offered and loaded. Supported values are `macos`, `windows`, and `linux`; omission means all platforms.                                                                                                                                          |
+| `metadata.vellum.required-host-capabilities` | `string[]` | No | Connected host capabilities the requesting actor must provide before the skill may be offered or loaded. Omit for skills that run on the assistant host. |
 
 ## Resolution order
 

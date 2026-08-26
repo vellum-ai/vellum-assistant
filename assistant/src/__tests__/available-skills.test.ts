@@ -273,7 +273,13 @@ describe("listCatalogSkills", () => {
         name: "windows-automation",
         description: "Automates native Windows applications",
         platforms: ["windows"],
-        metadata: { vellum: { platforms: ["windows"] } },
+        requiredHostCapabilities: ["host_bash"],
+        metadata: {
+          vellum: {
+            platforms: ["windows"],
+            "required-host-capabilities": ["host_bash"],
+          },
+        },
       },
     ];
 
@@ -286,6 +292,7 @@ describe("listCatalogSkills", () => {
         activationHints: undefined,
         avoidWhen: undefined,
         platforms: ["windows"],
+        requiredHostCapabilities: ["host_bash"],
         installed: false,
         state: "available",
       },

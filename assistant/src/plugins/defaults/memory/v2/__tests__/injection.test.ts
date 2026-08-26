@@ -1003,6 +1003,7 @@ describe("injectMemoryV2Block", () => {
         id: "windows-automation",
         content: "Automates native Windows applications.",
         platforms: ["windows"],
+        requiredHostCapabilities: ["host_bash"],
       },
     ]);
     const hostClient = assistantEventHub.subscribe({
@@ -1044,6 +1045,7 @@ describe("injectMemoryV2Block", () => {
         id: "windows-automation",
         content: "Automates native Windows applications.",
         platforms: ["windows"],
+        requiredHostCapabilities: ["host_bash"],
       },
     ]);
     const hostClient = assistantEventHub.subscribe({

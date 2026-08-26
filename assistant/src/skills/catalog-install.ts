@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import type { HostProxyCapability } from "../channels/types.js";
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { getLogger } from "../util/logger.js";
@@ -21,6 +22,7 @@ import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import {
   isSkillCompatibleWithContext,
+  normalizeRequiredHostCapabilities,
   normalizeSkillPlatforms,
   type SkillPlatform,
   skillPlatformUnavailableMessage,
@@ -40,6 +42,7 @@ export interface CatalogSkill {
   version?: string;
   updatedAt?: string;
   platforms?: SkillPlatform[];
+  requiredHostCapabilities?: HostProxyCapability[];
   metadata?: {
     icon?: string;
     emoji?: string;
@@ -50,6 +53,7 @@ export interface CatalogSkill {
       "feature-flag"?: string;
       category?: string;
       platforms?: SkillPlatform[];
+      "required-host-capabilities"?: HostProxyCapability[];
     };
   };
 }
@@ -120,6 +124,7 @@ interface RawCatalogEntry {
   display_name?: unknown;
   category?: unknown;
   platforms?: unknown;
+  required_host_capabilities?: unknown;
   updated_at?: unknown;
   metadata?: CatalogSkill["metadata"];
 }
@@ -156,6 +161,9 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
   const platforms = normalizeSkillPlatforms(
     nested?.platforms ?? entry.platforms,
   );
+  const requiredHostCapabilities = normalizeRequiredHostCapabilities(
+    nested?.["required-host-capabilities"] ?? entry.required_host_capabilities,
+  );
 
   return {
     id,
@@ -167,6 +175,7 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
     ...(entry.version ? { version: entry.version } : {}),
     ...(updatedAt ? { updatedAt } : {}),
     ...(platforms ? { platforms } : {}),
+    ...(requiredHostCapabilities ? { requiredHostCapabilities } : {}),
     metadata: {
       ...entry.metadata,
       ...(icon ? { icon } : {}),
@@ -175,6 +184,9 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
         ...(displayName ? { "display-name": displayName } : {}),
         ...(category ? { category } : {}),
         ...(platforms ? { platforms } : {}),
+        ...(requiredHostCapabilities
+          ? { "required-host-capabilities": requiredHostCapabilities }
+          : {}),
       },
     },
   };

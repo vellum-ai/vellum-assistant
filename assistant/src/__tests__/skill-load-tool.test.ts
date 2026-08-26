@@ -155,7 +155,7 @@ describe("skill_load tool", () => {
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(
       join(skillDir, "SKILL.md"),
-      `---\nname: "Client Platform Skill"\ndescription: "Uses the connected host"\nmetadata: ${JSON.stringify({ vellum: { platforms: [clientPlatform] } })}\n---\n\nBody.\n`,
+      `---\nname: "Client Platform Skill"\ndescription: "Uses the connected host"\nmetadata: ${JSON.stringify({ vellum: { platforms: [clientPlatform], "required-host-capabilities": ["host_bash"] } })}\n---\n\nBody.\n`,
     );
 
     const withoutClient = await executeSkillLoad({
@@ -183,6 +183,31 @@ describe("skill_load tool", () => {
     } finally {
       hostClient.dispose();
     }
+  });
+
+  test("loads a daemon-host skill for a browser turn", async () => {
+    const daemonPlatform =
+      process.platform === "darwin"
+        ? "macos"
+        : process.platform === "win32"
+          ? "windows"
+          : "linux";
+    const skillDir = join(TEST_DIR, "skills", "daemon-platform-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: "Daemon Platform Skill"\ndescription: "Runs on the assistant host"\nmetadata: ${JSON.stringify({ vellum: { platforms: [daemonPlatform] } })}\n---\n\nDaemon body.\n`,
+    );
+
+    const result = await executeSkillLoad(
+      { skill: "daemon-platform-skill" },
+      "web",
+      undefined,
+      true,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Daemon body.");
   });
 
   test("loads a skill by exact name (case-insensitive)", async () => {

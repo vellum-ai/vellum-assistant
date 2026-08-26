@@ -494,6 +494,8 @@ describe("seedV2SkillEntries", () => {
     const skillA = makeSummary({
       id: "example-skill-a",
       displayName: "Skill A",
+      platforms: ["windows"],
+      requiredHostCapabilities: ["host_bash"],
     });
     state.catalog = [skillA];
     state.resolved = [{ summary: skillA, state: "enabled" }];
@@ -509,6 +511,8 @@ describe("seedV2SkillEntries", () => {
     expect(byId).not.toBeNull();
     expect(byId?.id).toBe("example-skill-a");
     expect(byId?.content).toContain("Skill A");
+    expect(byId?.platforms).toEqual(["windows"]);
+    expect(byId?.requiredHostCapabilities).toEqual(["host_bash"]);
     expect(bySlug).toEqual(byId);
 
     expect(getSkillCapability("unknown-skill")).toBeNull();

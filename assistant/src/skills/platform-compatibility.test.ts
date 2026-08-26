@@ -4,8 +4,10 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   filterSkillsByContext,
   isSkillCompatibleWithContext,
+  normalizeRequiredHostCapabilities,
   normalizeSkillPlatforms,
   skillPlatformForClientOs,
+  skillPlatformForNodePlatform,
 } from "./platform-compatibility.js";
 
 describe("skill platform compatibility", () => {
@@ -13,17 +15,39 @@ describe("skill platform compatibility", () => {
     expect(skillPlatformForClientOs("macos")).toBe("macos");
     expect(skillPlatformForClientOs("windows")).toBe("windows");
     expect(skillPlatformForClientOs("web")).toBeNull();
+    expect(skillPlatformForNodePlatform("linux")).toBe("linux");
   });
 
   test("treats missing platform metadata as portable", () => {
     expect(isSkillCompatibleWithContext({}, {})).toBe(true);
   });
 
-  test("matches a capable connected host when the assistant host differs", () => {
-    const skill = { platforms: ["windows"] as const };
+  test("allows daemon-host skills for browser turns on a supported daemon OS", () => {
+    const skill = { platforms: ["macos", "linux"] as const };
     expect(
       isSkillCompatibleWithContext(skill, {
-        clientOs: "windows",
+        clientOs: "web",
+        isInteractive: true,
+        daemonPlatform: "linux",
+      }),
+    ).toBe(true);
+    expect(
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "web",
+        isInteractive: true,
+        daemonPlatform: "win32",
+      }),
+    ).toBe(false);
+  });
+
+  test("matches a required capable host when the assistant host differs", () => {
+    const skill = {
+      platforms: ["windows"] as const,
+      requiredHostCapabilities: ["host_bash"] as const,
+    };
+    expect(
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "web",
         isInteractive: true,
         sourceActorPrincipalId: "actor-a",
         hostPlatforms: ["windows"],
@@ -31,24 +55,19 @@ describe("skill platform compatibility", () => {
     ).toBe(true);
     expect(
       isSkillCompatibleWithContext(skill, {
-        clientOs: "windows",
+        clientOs: "web",
         isInteractive: true,
         sourceActorPrincipalId: "actor-a",
         hostPlatforms: [],
       }),
     ).toBe(false);
-    expect(
-      isSkillCompatibleWithContext(skill, {
-        clientOs: "macos",
-        isInteractive: true,
-        sourceActorPrincipalId: "actor-a",
-        hostPlatforms: ["windows"],
-      }),
-    ).toBe(false);
   });
 
   test("rejects a Windows browser without a capable host on Windows", () => {
-    const skill = { platforms: ["windows"] as const };
+    const skill = {
+      platforms: ["windows"] as const,
+      requiredHostCapabilities: ["host_bash"] as const,
+    };
     expect(
       isSkillCompatibleWithContext(skill, {
         clientOs: "windows",
@@ -60,7 +79,10 @@ describe("skill platform compatibility", () => {
   });
 
   test("rejects clientless turns even when a capable host is connected", () => {
-    const skill = { platforms: ["windows"] as const };
+    const skill = {
+      platforms: ["windows"] as const,
+      requiredHostCapabilities: ["host_bash"] as const,
+    };
     expect(
       isSkillCompatibleWithContext(skill, {
         clientOs: "windows",
@@ -81,7 +103,10 @@ describe("skill platform compatibility", () => {
       callback: () => {},
     });
     try {
-      const skill = { platforms: ["windows"] as const };
+      const skill = {
+        platforms: ["windows"] as const,
+        requiredHostCapabilities: ["host_bash"] as const,
+      };
       expect(
         isSkillCompatibleWithContext(skill, {
           clientOs: "windows",
@@ -104,7 +129,11 @@ describe("skill platform compatibility", () => {
   test("filters client-routed surfaces by the capable host platform", () => {
     const skills = [
       { id: "linux-only", platforms: ["linux"] as const },
-      { id: "windows-only", platforms: ["windows"] as const },
+      {
+        id: "windows-host",
+        platforms: ["windows"] as const,
+        requiredHostCapabilities: ["host_bash"] as const,
+      },
       { id: "mac-only", platforms: ["macos"] as const },
     ];
 
@@ -114,8 +143,9 @@ describe("skill platform compatibility", () => {
         isInteractive: true,
         sourceActorPrincipalId: "actor-a",
         hostPlatforms: ["windows"],
+        daemonPlatform: "linux",
       }).map((skill) => skill.id),
-    ).toEqual(["windows-only"]);
+    ).toEqual(["linux-only", "windows-host"]);
   });
 
   test("normalizes valid unique metadata values", () => {
@@ -124,5 +154,12 @@ describe("skill platform compatibility", () => {
       "linux",
     ]);
     expect(normalizeSkillPlatforms(["android", 42])).toBeUndefined();
+    expect(
+      normalizeRequiredHostCapabilities([
+        "host_bash",
+        "host_bash",
+        "not-a-capability",
+      ]),
+    ).toEqual(["host_bash"]);
   });
 });

@@ -34,7 +34,7 @@ import { memorySummaries } from "../../../../persistence/schema/index.js";
 import { getCachedCatalogSync } from "../../../../skills/catalog-cache.js";
 import {
   isSkillCompatibleWithContext,
-  type SkillPlatform,
+  type PlatformScopedSkill,
   type SkillPlatformContext,
 } from "../../../../skills/platform-compatibility.js";
 import { getLogger } from "../logging.js";
@@ -102,12 +102,7 @@ function filterSkillCapabilityNodes(
   nodes: readonly ScoredNode[],
   context?: SkillPlatformContext,
 ): ScoredNode[] {
-  let catalog:
-    | Array<{
-        id: string;
-        platforms?: readonly SkillPlatform[];
-      }>
-    | undefined;
+  let catalog: Array<PlatformScopedSkill & { id: string }> | undefined;
   return nodes.filter((scored) => {
     const skillId = skillIdForCapabilityNode(scored);
     if (skillId === null) {
