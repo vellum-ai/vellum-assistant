@@ -363,22 +363,7 @@ export function useTranscriptScroll(
       // Gate on the synchronous in-flight lock so a chain-load sequence
       // (response prepends → items change → effect re-runs near top) cannot
       // double-fire on a single render cycle.
-      //
-      // Also gate on the item set actually having changed: an upstream
-      // projection can filter every row of a fetched page (the channel
-      // sidecar's Vellum lane, confirmation visibility), so the items array
-      // gets a new identity while holding the same rows. Re-firing on such a
-      // no-progress update would chain-load history the transcript will not
-      // show. A real user gesture still reaches load-older through the
-      // scroll handler below.
-      const itemKeysUnchanged =
-        prev.length === items.length &&
-        prev.every((p, i) => p.key === items[i]?.key);
-      if (
-        classification.shouldLoadOlder &&
-        !loadOlderInFlightRef.current &&
-        !itemKeysUnchanged
-      ) {
+      if (classification.shouldLoadOlder && !loadOlderInFlightRef.current) {
         if (!shouldAutoPinRef.current) {
           const firstItem = items[0];
           if (firstItem) {
