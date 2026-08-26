@@ -490,15 +490,31 @@ test("only the client that wins the claim starts capture", async () => {
     ...dependencies,
     claimRecording: claimAs("client-1"),
   });
+  let continueRetry!: () => void;
+  let markRetryWaiting!: () => void;
+  const retryWaiting = new Promise<void>((resolve) => {
+    markRetryWaiting = resolve;
+  });
   const second = new ScreenRecordingController({
     ...dependencies,
     claimRecording: claimAs("client-2"),
+    waitBeforeRetry: () => {
+      markRetryWaiting();
+      return new Promise<void>((resolve) => {
+        continueRetry = resolve;
+      });
+    },
   });
 
-  await Promise.all([
-    first.handle(startEvent, "assistant-1"),
-    second.handle(startEvent, "assistant-1"),
-  ]);
+  const firstStart = first.handle(startEvent, "assistant-1");
+  const secondStart = second.handle(startEvent, "assistant-1");
+  await Promise.all([firstStart, retryWaiting]);
+  await second.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  continueRetry();
+  await secondStart;
 
   expect(capture).toHaveBeenCalledTimes(1);
   expect(election.owner).toBe("client-1");
@@ -537,6 +553,33 @@ test("a contender takes over after the initial owner disconnects", async () => {
   expect(claimRecordingMock).toHaveBeenCalledTimes(2);
   expect(recorder.state).toBe("recording");
   expect(statuses).toEqual(["started"]);
+});
+
+test("a contender stays eligible after the initial lease window", async () => {
+  const track = new FakeTrack();
+  const recorder = new FakeRecorder();
+  let attempts = 0;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: async () => ++attempts > 7,
+    reportStatus: async () => undefined,
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+
+  expect(attempts).toBe(8);
+  expect(recorder.state).toBe("recording");
 });
 
 test("stops locally without status after losing the claim", async () => {

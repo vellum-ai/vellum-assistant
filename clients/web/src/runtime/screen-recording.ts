@@ -587,11 +587,8 @@ export class ScreenRecordingController {
     assistantId: string,
     pending: PendingRecording,
   ): Promise<boolean> {
-    const maxAttempts = 7;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      if (pending.cancelled) {
-        return false;
-      }
+    let retryDelayMs = 1_000;
+    while (!pending.cancelled) {
       try {
         if (
           await this.dependencies.claimRecording(
@@ -604,10 +601,8 @@ export class ScreenRecordingController {
       } catch {
         // Retry while the recording may still need an owner.
       }
-      if (attempt === maxAttempts - 1) {
-        return false;
-      }
-      await this.dependencies.waitBeforeRetry(5_000);
+      await this.dependencies.waitBeforeRetry(retryDelayMs);
+      retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
     }
     return false;
   }
