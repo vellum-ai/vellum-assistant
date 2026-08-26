@@ -81,3 +81,9 @@ export const getRendererRootUrl = (isPackaged: boolean): string =>
   usesAppProtocolRenderer(isPackaged)
     ? RENDERER_BASE_PROD
     : `${getDevRendererBase()}/`;
+
+// Mirrors `appId` in electron-builder.config.cjs.
+export const windowsAppUserModelId = (releaseChannel: string): string =>
+  releaseChannel === "production"
+    ? "com.vellum.vellum-assistant-electron"
+    : `com.vellum.vellum-assistant-electron-${releaseChannel}`;

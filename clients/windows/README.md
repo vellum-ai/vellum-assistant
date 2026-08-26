@@ -115,6 +115,11 @@ bun run build:web   # builds clients/web into resources/web-dist
 bun run pack        # electron-vite build + electron-builder --win (NSIS)
 ```
 
+`build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
+is used when its sha256 matches `scripts/bun-release.ts`, otherwise the
+matching GitHub release is downloaded and verified. Bump the pins there when
+the Bun version changes.
+
 Local and CI packs are unsigned. `bun run pack` skips the Explorer preview
 handler, which `.github/workflows/windows-package-smoke.yaml` builds before
 packaging and then install-, launch-, and uninstall-tests.

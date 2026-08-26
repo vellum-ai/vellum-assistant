@@ -15,6 +15,7 @@ import {
 } from "@vellumai/electron-desktop/commands";
 import { installGlobalShortcuts } from "@vellumai/electron-desktop/global-shortcuts";
 import { installHotkeysIpc } from "@vellumai/electron-desktop/hotkeys";
+import { getName, onNameChange } from "@vellumai/electron-desktop/identity";
 import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 
@@ -35,6 +36,8 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
 
     configureAboutRuntime({
       rendererBase: () => getRendererBase(app.isPackaged),
+      getAssistantName: getName,
+      onAssistantNameChange: onNameChange,
     });
     installAbout({ handle });
 

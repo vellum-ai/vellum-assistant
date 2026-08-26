@@ -38,6 +38,7 @@ import {
   APP_PROTOCOL,
   WINDOWS_RELEASE_INFO,
   usesAppProtocolRenderer,
+  windowsAppUserModelId,
 } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin.client";
 import { provisionCliForCurrentUser } from "./cli-path-flow";
@@ -65,6 +66,12 @@ import { installWebContentsSecurity } from "./windows.client";
 if (!app.isPackaged) {
   app.setName("Vellum Electron Windows");
 }
+
+// Toasts and taskbar grouping key off the AppUserModelID. Packaged builds
+// get it from the installer shortcut; dev would otherwise show "electron.app".
+app.setAppUserModelId(
+  windowsAppUserModelId(WINDOWS_RELEASE_INFO.releaseChannel),
+);
 
 // Packaged builds all share the same package.json `name`, so Electron
 // resolves `app.getPath("userData")` to the same directory for every
@@ -295,6 +302,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
+  // Feature modules each attach cleanup listeners; lift the default cap of
+  // 10 so they don't trip MaxListenersExceededWarning.
+  contents.setMaxListeners(20);
   installWebContentsSecurity(contents, {
     cookies: () => session.defaultSession.cookies,
     logger: log,
