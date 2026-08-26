@@ -130,6 +130,20 @@ describe("sttRoleCapabilityGap", () => {
     expect(gap).not.toBeNull();
   });
 
+  test("watch accepts a streaming-only family, having no batch leg", () => {
+    // Watch shares dictation's transport but not its batch fallback, so a
+    // family dictation must reject is legal here.
+    expect(
+      sttRoleCapabilityGap("watch", { provider: "deepgram", model: "flux" }),
+    ).toBeNull();
+    expect(
+      sttRoleCapabilityGap("dictation", {
+        provider: "deepgram",
+        model: "flux",
+      }),
+    ).not.toBeNull();
+  });
+
   test("an unknown provider is named rather than silently accepted", () => {
     expect(sttRoleCapabilityGap("batch", { provider: "not-a-provider" })).toBe(
       '"not-a-provider" is not in the STT provider catalog',

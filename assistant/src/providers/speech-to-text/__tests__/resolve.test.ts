@@ -1960,6 +1960,21 @@ describe("services.stt.roles selection", () => {
     expect(batch?.providerId).toBe("deepgram");
   });
 
+  test("the watch session resolves its own role", async () => {
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { watch: { provider: "deepgram" } },
+    });
+
+    const transcriber = await resolveStreamingTranscriber({
+      role: "watch",
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("deepgram");
+    expect(whisperCtorCalls).toHaveLength(0);
+  });
+
   test("roles route two consumers to different providers at once", async () => {
     // The failure this whole change exists to prevent: one global forcing
     // every consumer onto a provider that only suits one of them.

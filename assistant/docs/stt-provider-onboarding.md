@@ -86,7 +86,7 @@ Clients derive shared-vs-exclusive key behavior from the catalog automatically: 
 
 The `services.stt` block is the single source of truth for all STT routing, including telephony. There is no separate telephony STT config path.
 
-Routing has two levels. `services.stt.provider`, plus that provider's `services.stt.providers.<id>.model` family, is the global selection every consumer falls back to. `services.stt.roles.<role>` overrides it for one consumer, naming a `{provider, model?}` pair. The roles are `liveVoice`, `telephony`, `dictation` and `batch`; `src/stt/roles.ts` maps each to the boundaries its call sites resolve on, and `ARCHITECTURE.md` lists the consumers per role. A new provider needs no per-role registration: a role may name any provider in the catalog whose row covers the boundaries that role requires.
+Routing has two levels. `services.stt.provider`, plus that provider's `services.stt.providers.<id>.model` family, is the global selection every consumer falls back to. `services.stt.roles.<role>` overrides it for one consumer, naming a `{provider, model?}` pair. The roles are `liveVoice`, `telephony`, `dictation`, `watch` and `batch`; `src/stt/roles.ts` maps each to the boundaries its call sites resolve on, and `ARCHITECTURE.md` lists the consumers per role. A new provider needs no per-role registration: a role may name any provider in the catalog whose row covers the boundaries that role requires.
 
 Before submitting the PR, verify that:
 

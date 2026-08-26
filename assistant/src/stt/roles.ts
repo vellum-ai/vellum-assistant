@@ -25,6 +25,7 @@ export const STT_ROLES = [
   "liveVoice",
   "telephony",
   "dictation",
+  "watch",
   "batch",
 ] as const;
 
@@ -71,6 +72,17 @@ export const STT_ROLE_REQUIREMENTS: Record<SttRole, SttRoleRequirements> = {
     boundaries: ["daemon-streaming", "daemon-batch"],
     requiresTelephony: false,
     label: "dictation",
+  },
+  /**
+   * A watch session streams the user's narration continuously while they
+   * work and files each final on the timeline. It shares dictation's
+   * transport but none of its fallback: there is no batch leg to catch a
+   * provider that cannot stream, so streaming alone is the requirement.
+   */
+  watch: {
+    boundaries: ["daemon-streaming"],
+    requiresTelephony: false,
+    label: "watch",
   },
   /** File, attachment and skill transcription. Batch only. */
   batch: {
