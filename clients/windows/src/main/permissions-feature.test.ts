@@ -129,6 +129,12 @@ test("requests notifications by probing instead of opening settings", async () =
     handlers.get(PERMISSIONS_REQUEST)!(["notifications"]),
   ).resolves.toMatchObject({ status: "denied", canOpenSettings: true });
   expect(openExternal).not.toHaveBeenCalled();
+
+  // A Settings change seen by the helper supersedes the probe result.
+  helperCall.mockImplementation(async () => ({ notifications: "granted" }));
+  await expect(handlers.get(PERMISSIONS_GET_STATE)!([])).resolves.toMatchObject(
+    { notifications: { status: "granted", canRequest: false } },
+  );
 });
 
 test("requesting a settings-only kind opens its settings page", async () => {

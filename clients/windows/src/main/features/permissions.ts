@@ -117,7 +117,12 @@ const allWindowsWebContents = () =>
 
 class WindowsPermissionsService {
   private lastStateJson: string | null = null;
-  private notificationStatus: SystemPermissionStatus | null = null;
+  // Probe result plus the native status seen when probing; a later native
+  // change (the user toggled Settings) invalidates it.
+  private notificationProbe: {
+    status: SystemPermissionStatus;
+    nativeStatus: SystemPermissionStatus | undefined;
+  } | null = null;
 
   async state(): Promise<SystemPermissionsState> {
     const native = await this.readNativeStatuses();
@@ -139,7 +144,11 @@ class WindowsPermissionsService {
     kind: SystemPermissionKind,
   ): Promise<SystemPermissionStateItem> {
     if (kind === "notifications") {
-      await this.requestNotifications();
+      const native = await this.readNativeStatuses();
+      this.notificationProbe = {
+        status: await this.probeNotifications(),
+        nativeStatus: native.notifications,
+      };
       return (await this.refresh())[kind];
     }
     return this.openSettings(kind);
@@ -198,9 +207,13 @@ class WindowsPermissionsService {
     if (NOT_APPLICABLE_KINDS.has(kind)) {
       return "not-applicable";
     }
-    // A probe result is fresher than the registry toggle the helper reads.
-    if (kind === "notifications" && this.notificationStatus) {
-      return this.notificationStatus;
+    const probe = this.notificationProbe;
+    if (
+      kind === "notifications" &&
+      probe &&
+      probe.nativeStatus === native.notifications
+    ) {
+      return probe.status;
     }
     if (native[kind]) {
       return native[kind];
@@ -211,10 +224,9 @@ class WindowsPermissionsService {
     return "unknown";
   }
 
-  private requestNotifications(): Promise<void> {
+  private probeNotifications(): Promise<SystemPermissionStatus> {
     if (!Notification.isSupported()) {
-      this.notificationStatus = "restricted";
-      return Promise.resolve();
+      return Promise.resolve("restricted");
     }
     return new Promise((resolve) => {
       let settled = false;
@@ -224,8 +236,7 @@ class WindowsPermissionsService {
         }
         settled = true;
         clearTimeout(timeout);
-        this.notificationStatus = status;
-        resolve();
+        resolve(status);
       };
       const timeout = setTimeout(() => settle("unknown"), 30_000);
       timeout.unref?.();

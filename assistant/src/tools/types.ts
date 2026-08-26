@@ -221,12 +221,6 @@ export interface ToolContext {
    */
   supportsGuardianQuestionCards?: boolean;
   /**
-   * OS of the connected client driving this turn (e.g. "macos", "windows",
-   * "ios"). Platform-specific tools use it to pick the right remediation
-   * surface. `undefined` when no client identified itself.
-   */
-  clientOS?: string;
-  /**
    * When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules.
    * @legacy
    */

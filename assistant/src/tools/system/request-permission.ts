@@ -46,22 +46,18 @@ const MACOS_SETTINGS_URLS: Record<PermissionType, string> = {
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
 };
 
-// Windows has no Full Disk Access or Accessibility grant for desktop apps.
+// Only the pages the Windows desktop client can route through its
+// permissions bridge; other kinds have no in-app remediation there yet.
 const WINDOWS_SETTINGS_URLS: Partial<Record<PermissionType, string>> = {
   screen_recording: "ms-settings:privacy-graphicscaptureprogrammatic",
-  calendar: "ms-settings:privacy-calendar",
-  contacts: "ms-settings:privacy-contacts",
-  photos: "ms-settings:privacy-pictures",
-  location: "ms-settings:privacy-location",
   microphone: "ms-settings:privacy-microphone",
-  camera: "ms-settings:privacy-webcam",
 };
 
 export const resolveSystemPermissionSettingsUrl = (
   permType: PermissionType,
-  clientOS: string | undefined,
+  clientOs: string | undefined,
 ): string | undefined =>
-  clientOS === "windows"
+  clientOs === "windows"
     ? WINDOWS_SETTINGS_URLS[permType]
     : MACOS_SETTINGS_URLS[permType];
 
@@ -124,11 +120,11 @@ export const requestSystemPermissionTool = {
     const friendly = FRIENDLY_NAMES[permType];
     const settingsUrl = resolveSystemPermissionSettingsUrl(
       permType,
-      context.clientOS,
+      context.clientOs,
     );
     if (!settingsUrl) {
       return {
-        content: `${friendly} has no equivalent permission on ${context.clientOS}; desktop apps are not gated by it there.`,
+        content: `${friendly} cannot be requested in-app on ${context.clientOs}. Ask the user to check the matching Privacy page in Windows Settings.`,
         isError: true,
       };
     }
