@@ -18,10 +18,16 @@
 export const APP_PROTOCOL = "app";
 export const APP_HOST = "vellum.ai";
 
+declare const __VELLUM_APP_USER_MODEL_ID__: string;
 declare const __VELLUM_BUILD_SHA__: string;
 declare const __VELLUM_ENVIRONMENT__: string;
 
 export const WINDOWS_RELEASE_INFO = {
+  // Injected from electron-builder.config.cjs `appId` at build time.
+  appUserModelId:
+    typeof __VELLUM_APP_USER_MODEL_ID__ === "string"
+      ? __VELLUM_APP_USER_MODEL_ID__
+      : "com.vellum.vellum-assistant-electron",
   commitSha:
     typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown",
   releaseChannel:
@@ -81,9 +87,3 @@ export const getRendererRootUrl = (isPackaged: boolean): string =>
   usesAppProtocolRenderer(isPackaged)
     ? RENDERER_BASE_PROD
     : `${getDevRendererBase()}/`;
-
-// Mirrors `appId` in electron-builder.config.cjs.
-export const windowsAppUserModelId = (releaseChannel: string): string =>
-  releaseChannel === "production"
-    ? "com.vellum.vellum-assistant-electron"
-    : `com.vellum.vellum-assistant-electron-${releaseChannel}`;

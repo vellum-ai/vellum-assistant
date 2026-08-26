@@ -38,7 +38,6 @@ import {
   APP_PROTOCOL,
   WINDOWS_RELEASE_INFO,
   usesAppProtocolRenderer,
-  windowsAppUserModelId,
 } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin.client";
 import { provisionCliForCurrentUser } from "./cli-path-flow";
@@ -69,9 +68,7 @@ if (!app.isPackaged) {
 
 // Toasts and taskbar grouping key off the AppUserModelID. Packaged builds
 // get it from the installer shortcut; dev would otherwise show "electron.app".
-app.setAppUserModelId(
-  windowsAppUserModelId(WINDOWS_RELEASE_INFO.releaseChannel),
-);
+app.setAppUserModelId(WINDOWS_RELEASE_INFO.appUserModelId);
 
 // Packaged builds all share the same package.json `name`, so Electron
 // resolves `app.getPath("userData")` to the same directory for every

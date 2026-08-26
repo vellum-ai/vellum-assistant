@@ -8,6 +8,7 @@ const decode = (png: string, scaleFactor: number): NativeImage =>
 // Repaint every opaque pixel white, keeping the alpha channel, so a black
 // glyph reads on a dark context menu.
 const invert = (image: NativeImage, scaleFactor: number): NativeImage => {
+  // getSize() is logical; the bitmap is physical pixels.
   const { width, height } = image.getSize();
   const bitmap = image.toBitmap({ scaleFactor });
   for (let offset = 0; offset < bitmap.length; offset += 4) {
@@ -15,7 +16,11 @@ const invert = (image: NativeImage, scaleFactor: number): NativeImage => {
     bitmap[offset + 1] = 255;
     bitmap[offset + 2] = 255;
   }
-  return nativeImage.createFromBitmap(bitmap, { width, height, scaleFactor });
+  return nativeImage.createFromBitmap(bitmap, {
+    width: Math.round(width * scaleFactor),
+    height: Math.round(height * scaleFactor),
+    scaleFactor,
+  });
 };
 
 const build = (pair: MenuIconPair, dark: boolean): NativeImage => {
