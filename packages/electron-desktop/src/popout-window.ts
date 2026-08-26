@@ -84,7 +84,7 @@ export const openPopout = (conversationId: string): void => {
 
   const stateKey = `thread.${conversationId}`;
   // `maximized` is not a BrowserWindow option; apply it once shown.
-  const { maximized, ...sizing } =
+  const { maximized, ...sizing }: RestoredBounds =
     restoreBounds?.(stateKey, POPOUT_DEFAULT_BOUNDS) ?? POPOUT_DEFAULT_BOUNDS;
 
   const win = createWindow({
