@@ -27,7 +27,8 @@ describe("injectLocalActorHeader principal resolution", () => {
   });
 
   test("a direct IPC caller (no proxy marker, no principal) defaults to local", () => {
-    const out = injectLocalActorHeader({ headers: {} });
+    const out = injectLocalActorHeader({ headers: {}, transport: "http" });
     expect(out.headers?.["x-vellum-principal-type"]).toBe("local");
+    expect(out.transport).toBe("ipc");
   });
 });

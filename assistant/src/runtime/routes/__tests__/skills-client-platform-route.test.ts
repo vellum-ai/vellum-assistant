@@ -137,12 +137,21 @@ describe("skill management client platform routing", () => {
       "x-vellum-actor-principal-id": "actor-a",
     };
 
-    await listHandler({ headers });
-    await searchHandler({ queryParams: { q: "automation" }, headers });
-    await installHandler({ body: { slug: "windows-automation" }, headers });
+    await listHandler({ headers, transport: "ipc" });
+    await searchHandler({
+      queryParams: { q: "automation" },
+      headers,
+      transport: "ipc",
+    });
+    await installHandler({
+      body: { slug: "windows-automation" },
+      headers,
+      transport: "ipc",
+    });
     await localInspectHandler({
       pathParams: { id: "windows-automation" },
       headers,
+      transport: "ipc",
     });
 
     expect(listSkillsMock).toHaveBeenCalledWith(
@@ -172,6 +181,65 @@ describe("skill management client platform routing", () => {
       "actor-a",
       true,
       [daemonPlatform],
+    );
+  });
+
+  test("does not grant direct IPC host capabilities to local browser HTTP", async () => {
+    const daemonPlatform =
+      process.platform === "darwin"
+        ? "macos"
+        : process.platform === "win32"
+          ? "windows"
+          : "linux";
+    const headers = {
+      "x-vellum-principal-type": "local",
+      "x-vellum-actor-principal-id": "actor-a",
+    };
+
+    await listHandler({ headers, transport: "http" });
+    await searchHandler({
+      queryParams: { q: "automation" },
+      headers,
+      transport: "http",
+    });
+    await installHandler({
+      body: { slug: "windows-automation" },
+      headers,
+      transport: "http",
+    });
+    await localInspectHandler({
+      pathParams: { id: "windows-automation" },
+      headers,
+      transport: "http",
+    });
+
+    expect(listSkillsMock).toHaveBeenCalledWith(
+      daemonPlatform,
+      "actor-a",
+      true,
+      undefined,
+    );
+    expect(searchSkillsMock).toHaveBeenCalledWith(
+      "automation",
+      25,
+      daemonPlatform,
+      "actor-a",
+      true,
+      undefined,
+    );
+    expect(installSkillMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientOs: daemonPlatform,
+        hostPlatforms: undefined,
+        sourceActorPrincipalId: "actor-a",
+      }),
+    );
+    expect(getSkillLocalDetailMock).toHaveBeenCalledWith(
+      "windows-automation",
+      daemonPlatform,
+      "actor-a",
+      true,
+      undefined,
     );
   });
 });

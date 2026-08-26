@@ -101,6 +101,8 @@ export interface RouteHandlerArgs {
   queryParams?: Record<string, string>;
   body?: Record<string, unknown>;
   rawBody?: Uint8Array;
+  /** Trusted transport assigned by the HTTP or IPC adapter. */
+  transport?: "http" | "ipc";
   /**
    * Caller identity headers, including `x-vellum-principal-type` (the verified
    * principal type) and `x-vellum-actor-principal-id`. Both adapters derive

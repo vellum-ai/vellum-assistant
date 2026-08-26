@@ -726,7 +726,7 @@ export function injectLocalActorHeader(
     }
   }
 
-  return { ...args, headers };
+  return { ...args, transport: "ipc", headers };
 }
 
 // ── Process-level singleton ───────────────────────────────────────────────

@@ -53,8 +53,9 @@ function requestClientOs(
 
 function requestLocalHostPlatforms(
   headers: Record<string, string> | undefined,
+  transport: RouteHandlerArgs["transport"],
 ): SkillPlatform[] | undefined {
-  if (headers?.["x-vellum-principal-type"] !== "local") {
+  if (transport !== "ipc" || headers?.["x-vellum-principal-type"] !== "local") {
     return undefined;
   }
   const platform = skillPlatformForNodePlatform(process.platform);
@@ -249,7 +250,11 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe("Total number of skills matching non-category filters"),
     }),
-    handler: async ({ queryParams = {}, headers }: RouteHandlerArgs) => {
+    handler: async ({
+      queryParams = {},
+      headers,
+      transport,
+    }: RouteHandlerArgs) => {
       const clientOs = requestClientOs(headers);
       const include = queryParams.include;
       const origin = queryParams.origin;
@@ -271,7 +276,7 @@ export const ROUTES: RouteDefinition[] = [
           clientOs,
           requestActorPrincipalId(headers),
           true,
-          requestLocalHostPlatforms(headers),
+          requestLocalHostPlatforms(headers, transport),
         );
         return {
           skills: result.skills,
@@ -284,7 +289,7 @@ export const ROUTES: RouteDefinition[] = [
         clientOs,
         requestActorPrincipalId(headers),
         true,
-        requestLocalHostPlatforms(headers),
+        requestLocalHostPlatforms(headers, transport),
       );
       return { skills };
     },
@@ -348,6 +353,7 @@ export const ROUTES: RouteDefinition[] = [
       pathParams,
       queryParams = {},
       headers,
+      transport,
     }: RouteHandlerArgs) => {
       const path = queryParams.path;
       if (!path) {
@@ -359,7 +365,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
-        requestLocalHostPlatforms(headers),
+        requestLocalHostPlatforms(headers, transport),
       );
       if ("error" in result) {
         if (result.status === 400) {
@@ -399,13 +405,13 @@ export const ROUTES: RouteDefinition[] = [
         )
         .describe("Directory contents"),
     }),
-    handler: async ({ pathParams, headers }: RouteHandlerArgs) => {
+    handler: async ({ pathParams, headers, transport }: RouteHandlerArgs) => {
       const result = await getSkillFiles(
         pathParams!.id,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
-        requestLocalHostPlatforms(headers),
+        requestLocalHostPlatforms(headers, transport),
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -459,7 +465,12 @@ export const ROUTES: RouteDefinition[] = [
           "Older history was squashed away, so the oldest entry is a floor rather than the skill's creation",
         ),
     }),
-    handler: async ({ pathParams, queryParams, headers }: RouteHandlerArgs) => {
+    handler: async ({
+      pathParams,
+      queryParams,
+      headers,
+      transport,
+    }: RouteHandlerArgs) => {
       const rawLimit = queryParams?.limit;
       const limit =
         typeof rawLimit === "string" && rawLimit.trim().length > 0
@@ -478,7 +489,7 @@ export const ROUTES: RouteDefinition[] = [
             requestClientOs(headers),
             requestActorPrincipalId(headers),
             true,
-            requestLocalHostPlatforms(headers),
+            requestLocalHostPlatforms(headers, transport),
           )
         ) {
           throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
@@ -620,7 +631,11 @@ export const ROUTES: RouteDefinition[] = [
         .array(slimSkillSchema)
         .describe("Skill objects matching the search query"),
     }),
-    handler: async ({ queryParams = {}, headers }: RouteHandlerArgs) => {
+    handler: async ({
+      queryParams = {},
+      headers,
+      transport,
+    }: RouteHandlerArgs) => {
       const query = queryParams.q ?? "";
       if (!query) {
         throw new BadRequestError("q query parameter is required");
@@ -635,7 +650,7 @@ export const ROUTES: RouteDefinition[] = [
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
-        requestLocalHostPlatforms(headers),
+        requestLocalHostPlatforms(headers, transport),
       );
       if (!result.success) {
         throw new InternalError(result.error);
@@ -732,13 +747,13 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       skill: skillDetailSchema.describe("Skill detail object"),
     }),
-    handler: async ({ pathParams, headers }: RouteHandlerArgs) => {
+    handler: async ({ pathParams, headers, transport }: RouteHandlerArgs) => {
       const result = await getSkill(
         pathParams!.id,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
-        requestLocalHostPlatforms(headers),
+        requestLocalHostPlatforms(headers, transport),
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -817,7 +832,7 @@ export const ROUTES: RouteDefinition[] = [
       ok: z.boolean(),
       skillId: z.string().optional(),
     }),
-    handler: async ({ body = {}, headers }: RouteHandlerArgs) => {
+    handler: async ({ body = {}, headers, transport }: RouteHandlerArgs) => {
       const slug =
         (body.slug as string) ?? (body.url as string) ?? (body.spec as string);
       if (!slug || typeof slug !== "string") {
@@ -832,7 +847,7 @@ export const ROUTES: RouteDefinition[] = [
         clientOs: requestClientOs(headers),
         sourceActorPrincipalId: requestActorPrincipalId(headers),
         isInteractive: true,
-        hostPlatforms: requestLocalHostPlatforms(headers),
+        hostPlatforms: requestLocalHostPlatforms(headers, transport),
       });
       if (!result.success) {
         throw new InternalError(result.error);
@@ -893,13 +908,13 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.",
     tags: ["skills"],
-    handler: ({ pathParams, headers }: RouteHandlerArgs) => {
+    handler: ({ pathParams, headers, transport }: RouteHandlerArgs) => {
       const result = getSkillLocalDetail(
         pathParams!.id,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
         true,
-        requestLocalHostPlatforms(headers),
+        requestLocalHostPlatforms(headers, transport),
       );
       if (!result.ok) {
         if (result.status === 404) {
