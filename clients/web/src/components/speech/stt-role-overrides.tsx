@@ -45,6 +45,24 @@ export interface SttConfigShape {
   roles?: Record<string, SttRoleSelection | undefined>;
 }
 
+/**
+ * The label key for each role, written out per role rather than built from the
+ * role id.
+ *
+ * The catalog guard (`i18n/catalogs.test.ts`) decides a key is dead copy by
+ * searching source text for it quoted, so a key assembled from a template
+ * literal reads as unreferenced and the five role labels would be deleted as
+ * orphans. Writing them out also means a role the daemon adds later renders
+ * its raw id instead of a missing-key placeholder.
+ */
+const ROLE_LABEL_KEYS = {
+  batch: "sttRoleOverrides.role.batch",
+  dictation: "sttRoleOverrides.role.dictation",
+  liveVoice: "sttRoleOverrides.role.liveVoice",
+  telephony: "sttRoleOverrides.role.telephony",
+  watch: "sttRoleOverrides.role.watch",
+} as const;
+
 /** A consumer whose provider differs from the global one. */
 export interface SttRoleOverrideEntry {
   role: string;
@@ -153,31 +171,33 @@ export function SttRoleOverrides({ assistantId }: { assistantId: string }) {
         {t("sttRoleOverrides.title")}
       </span>
       <ul className="flex flex-col gap-1">
-        {entries.map((entry) => (
-          <li
-            key={entry.role}
-            className="flex items-center gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2"
-          >
-            <span className="min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]">
-              {t(`sttRoleOverrides.role.${entry.role}`, {
-                defaultValue: entry.role,
-              })}
-            </span>
-            <span className="min-w-0 truncate text-body-small-default text-[var(--content-tertiary)]">
-              {entry.model
-                ? `${displayNameFor(entry.provider)} · ${entry.model}`
-                : displayNameFor(entry.provider)}
-            </span>
-            <Button
-              variant="ghost"
-              size="compact"
-              disabled={clearing === entry.role}
-              onClick={() => void clearRole(entry.role)}
+        {entries.map((entry) => {
+          const labelKey =
+            ROLE_LABEL_KEYS[entry.role as keyof typeof ROLE_LABEL_KEYS];
+          return (
+            <li
+              key={entry.role}
+              className="flex items-center gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2"
             >
-              {t("sttRoleOverrides.clear")}
-            </Button>
-          </li>
-        ))}
+              <span className="min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]">
+                {labelKey ? t(labelKey) : entry.role}
+              </span>
+              <span className="min-w-0 truncate text-body-small-default text-[var(--content-tertiary)]">
+                {entry.model
+                  ? `${displayNameFor(entry.provider)} · ${entry.model}`
+                  : displayNameFor(entry.provider)}
+              </span>
+              <Button
+                variant="ghost"
+                size="compact"
+                disabled={clearing === entry.role}
+                onClick={() => void clearRole(entry.role)}
+              >
+                {t("sttRoleOverrides.clear")}
+              </Button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
