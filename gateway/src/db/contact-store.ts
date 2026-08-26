@@ -31,14 +31,11 @@ import {
 } from "../ipc/contacts-info-client.js";
 import { getLogger } from "../logger.js";
 import {
-  expandPluginChannelTwins,
+  withPluginInboundIdentities,
   isPluginDiscoveredChannelType,
   pluginInboundAddress,
 } from "../channels/plugin-contact-identity.js";
-import {
-  canonicalizeIdentityAs,
-  canonicalizeInboundIdentity,
-} from "../verification/identity.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
 const log = getLogger("contact-store");
 
@@ -662,11 +659,10 @@ export class ContactStore {
       .get()!;
 
     if (params.status === "revoked" || params.status === "blocked") {
-      this.syncPluginInboundTwin(after, {
+      this.syncPluginInboundIdentity(after, {
         status: after.status,
         revokedReason: after.revokedReason,
         blockedReason: after.blockedReason,
-        writeBackAddress: false,
       });
     }
 
@@ -798,11 +794,10 @@ export class ContactStore {
     if (!after) return null;
     const didWrite = result.changes > 0;
 
-    this.syncPluginInboundTwin(after, {
+    this.syncPluginInboundIdentity(after, {
       status: "active",
       verifiedVia,
       verifiedAt: after.verifiedAt,
-      writeBackAddress: true,
     });
 
     const verified = this.db
@@ -911,10 +906,9 @@ export class ContactStore {
       return null;
     }
 
-    this.syncPluginInboundTwin(after, {
+    this.syncPluginInboundIdentity(after, {
       status: "revoked",
       revokedReason: after.revokedReason,
-      writeBackAddress: false,
     });
 
     return { channel: after, didWrite: true };
@@ -1321,7 +1315,7 @@ export class ContactStore {
     // (gateway DB, assistant mirror op, conflict checks) uses the canonical
     // form.
     const canonicalChannels = params.channels
-      ? expandPluginChannelTwins(
+      ? withPluginInboundIdentities(
           params.channels.map((ch) => ({
             ...ch,
             address:
@@ -1707,46 +1701,11 @@ export class ContactStore {
   }
 
   /**
-   * The first usable phone address on a contact, preferring an active row.
-   * Used when a plugin-discovered channel has no address of its own.
+   * Keep the inbound `(plugin, plugin:address)` identity in sync with a
+   * Contacts-page plugin channel (`imessage`, `meeting-bot`, …). The
+   * identifier is the one stored on that channel, not a sibling phone.
    */
-  private siblingPhoneAddress(contactId: string): string | null {
-    const rows = this.db
-      .select()
-      .from(contactChannels)
-      .where(
-        and(
-          eq(contactChannels.contactId, contactId),
-          eq(contactChannels.type, "phone"),
-        ),
-      )
-      .all();
-    const usable = rows.filter(
-      (row) =>
-        row.status !== "revoked" &&
-        row.status !== "blocked" &&
-        row.address.trim().length > 0,
-    );
-    const preferred =
-      usable.find((row) => row.status === "active") ?? usable[0];
-    if (!preferred) {
-      return null;
-    }
-    return (
-      canonicalizeIdentityAs("phone", preferred.address) ?? preferred.address
-    );
-  }
-
-  /**
-   * Keep the inbound `(plugin, plugin:address)` twin in sync with a
-   * Contacts-page plugin channel (`imessage`, `meeting-bot`, …).
-   *
-   * `writeBackAddress` fills an empty discovered-row address from the
-   * contact's phone channel. Verify does that so a stub iMessage row becomes
-   * the number inbound will present. Revoke does not, so a stub is not
-   * given an address as it is being disconnected.
-   */
-  private syncPluginInboundTwin(
+  private syncPluginInboundIdentity(
     channel: ContactChannel,
     opts: {
       status: ContactChannel["status"];
@@ -1754,26 +1713,13 @@ export class ContactStore {
       verifiedAt?: number | null;
       revokedReason?: string | null;
       blockedReason?: string | null;
-      writeBackAddress: boolean;
     },
   ): void {
     if (!isPluginDiscoveredChannelType(channel.type)) {
       return;
     }
 
-    let address = channel.address.trim();
-    if (!address && opts.writeBackAddress) {
-      const phone = this.siblingPhoneAddress(channel.contactId);
-      if (!phone) {
-        return;
-      }
-      address = phone;
-      this.db
-        .update(contactChannels)
-        .set({ address, updatedAt: Date.now() })
-        .where(eq(contactChannels.id, channel.id))
-        .run();
-    }
+    const address = channel.address.trim();
     if (!address) {
       return;
     }

@@ -19,7 +19,6 @@ import { LinkAccountDialog } from "@/domains/contacts/components/link-account-di
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
   deleteContact as gatewayDeleteContact,
-  linkContactChannelAccount,
   upsertContact,
   verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
@@ -411,33 +410,8 @@ export function ContactsPage({
   );
 
   const verifyChannelMutation = useMutation({
-    mutationFn: async (args: { type: string; channelId?: string }) => {
-      if (args.channelId) {
-        await verifyContactChannel(assistantId, args.channelId);
-        return;
-      }
-      if (!selectedContact) {
-        throw new Error(t("contactsPage.verifyFailed"));
-      }
-      const phone = selectedContact.channels.find(
-        (ch) =>
-          ch.type === "phone" &&
-          ch.status !== "revoked" &&
-          ch.status !== "blocked" &&
-          Boolean(ch.address?.trim()),
-      );
-      if (!phone?.address) {
-        throw new Error(t("contactsPage.verifyNeedsAddress"));
-      }
-      await linkContactChannelAccount(
-        assistantId,
-        {
-          id: selectedContact.id,
-          displayName: selectedContact.displayName,
-        },
-        { type: args.type, address: phone.address },
-      );
-    },
+    mutationFn: (args: { channelId: string }) =>
+      verifyContactChannel(assistantId, args.channelId),
     onSuccess: () => invalidateContacts(),
     onError: toastOnError(t("contactsPage.verifyFailed")),
   });
@@ -450,10 +424,10 @@ export function ContactsPage({
       const channel = selectedContact.channels.find(
         (ch) => ch.type === type && ch.status !== "revoked",
       );
-      verifyChannelMutation.mutate({
-        type,
-        channelId: channel?.id,
-      });
+      if (!channel) {
+        return;
+      }
+      verifyChannelMutation.mutate({ channelId: channel.id });
     },
     [selectedContact, verifyChannelMutation],
   );

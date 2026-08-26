@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  expandPluginChannelTwins,
+  withPluginInboundIdentities,
   isPluginDiscoveredChannelType,
   pluginInboundAddress,
 } from "./plugin-contact-identity.js";
@@ -45,9 +45,9 @@ describe("pluginInboundAddress", () => {
   });
 });
 
-describe("expandPluginChannelTwins", () => {
-  test("adds a plugin twin and drops the discovered row's id", () => {
-    const expanded = expandPluginChannelTwins([
+describe("withPluginInboundIdentities", () => {
+  test("adds the inbound identity and drops the discovered row's id", () => {
+    const expanded = withPluginInboundIdentities([
       {
         id: "ch-imessage",
         type: "imessage",
@@ -71,11 +71,11 @@ describe("expandPluginChannelTwins", () => {
 
   test("leaves built-in channels unchanged", () => {
     const channels = [{ type: "phone", address: "+12025550142" }];
-    expect(expandPluginChannelTwins(channels)).toEqual(channels);
+    expect(withPluginInboundIdentities(channels)).toEqual(channels);
   });
 
   test("skips a discovered channel with no address", () => {
     const channels = [{ type: "imessage", address: "" }];
-    expect(expandPluginChannelTwins(channels)).toEqual(channels);
+    expect(withPluginInboundIdentities(channels)).toEqual(channels);
   });
 });

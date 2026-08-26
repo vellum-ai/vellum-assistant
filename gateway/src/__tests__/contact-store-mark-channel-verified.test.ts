@@ -567,7 +567,7 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.verifiedVia).toBe("challenge");
   });
 
-  test("verifying a plugin-discovered channel writes the inbound plugin twin", async () => {
+  test("verifying a plugin-discovered channel writes the inbound plugin identity", async () => {
     seedContact("c1");
     seedChannel({
       id: "ch-imessage",
@@ -583,52 +583,19 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.status).toBe("active");
     expect(result!.channel.type).toBe("imessage");
 
-    const twin = getGatewayDb()
+    const inbound = getGatewayDb()
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.type, "plugin"))
       .get();
-    expect(twin).toBeDefined();
-    expect(twin!.contactId).toBe("c1");
-    expect(twin!.address).toBe("imessage:+12025550142");
-    expect(twin!.status).toBe("active");
-    expect(twin!.verifiedVia).toBe("manual");
+    expect(inbound).toBeDefined();
+    expect(inbound!.contactId).toBe("c1");
+    expect(inbound!.address).toBe("imessage:+12025550142");
+    expect(inbound!.status).toBe("active");
+    expect(inbound!.verifiedVia).toBe("manual");
   });
 
-  test("verifying a stub plugin channel copies the sibling phone onto both rows", async () => {
-    seedContact("c1");
-    seedChannel({
-      id: "ch-phone",
-      contactId: "c1",
-      type: "phone",
-      status: "active",
-      verifiedAt: 1000,
-      verifiedVia: "manual",
-      address: "+12025550142",
-    });
-    seedChannel({
-      id: "ch-imessage",
-      contactId: "c1",
-      type: "imessage",
-      status: "unverified",
-      address: "",
-    });
-
-    const result = await new ContactStore().markChannelVerified("ch-imessage");
-    expect(result).not.toBeNull();
-    expect(result!.channel.address).toBe("+12025550142");
-
-    const twin = getGatewayDb()
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.type, "plugin"))
-      .get();
-    expect(twin).toBeDefined();
-    expect(twin!.address).toBe("imessage:+12025550142");
-    expect(twin!.status).toBe("active");
-  });
-
-  test("revoking a plugin-discovered channel revokes the inbound twin", async () => {
+  test("revoking a plugin-discovered channel revokes the inbound identity", async () => {
     seedContact("c1", "contact");
     seedChannel({
       id: "ch-imessage",
@@ -656,13 +623,13 @@ describe("ContactStore.markChannelVerified", () => {
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe("revoked");
 
-    const twin = getGatewayDb()
+    const inbound = getGatewayDb()
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, "ch-plugin"))
       .get();
-    expect(twin!.status).toBe("revoked");
-    expect(twin!.revokedReason).toBe("disconnected");
+    expect(inbound!.status).toBe("revoked");
+    expect(inbound!.revokedReason).toBe("disconnected");
   });
 });
 
@@ -734,7 +701,7 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
     expect(row!.verifiedAt).toBe(999);
   });
 
-  test("upserting a plugin-discovered channel also writes the inbound twin", async () => {
+  test("upserting a plugin-discovered channel also writes the inbound identity", async () => {
     seedContact("c1", "contact");
 
     await new ContactStore().upsertContact({
@@ -745,11 +712,11 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
     const rows = getGatewayDb().select().from(contactChannels).all();
     expect(rows).toHaveLength(2);
     const discovered = rows.find((row) => row.type === "imessage");
-    const twin = rows.find((row) => row.type === "plugin");
+    const inbound = rows.find((row) => row.type === "plugin");
     expect(discovered?.address).toBe("+12025550142");
     expect(discovered?.status).toBe("unverified");
-    expect(twin?.address).toBe("imessage:+12025550142");
-    expect(twin?.status).toBe("unverified");
+    expect(inbound?.address).toBe("imessage:+12025550142");
+    expect(inbound?.status).toBe("unverified");
   });
 });
 

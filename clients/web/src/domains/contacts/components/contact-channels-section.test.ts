@@ -72,23 +72,9 @@ describe("getChannelActionState", () => {
     });
   });
 
-  test("shows Verify me for a plugin channel with no row when a phone can be copied", () => {
-    expect(getChannelActionState(channel(), undefined, true)).toEqual({
-      kind: "unverified",
+  test("keeps a plugin channel on setup when there is no row yet", () => {
+    expect(getChannelActionState(channel(), undefined)).toEqual({
+      kind: "setup",
     });
-  });
-
-  test("keeps Slack on setup when there is no row, even if a phone exists", () => {
-    expect(
-      getChannelActionState(
-        channel({
-          id: "slack",
-          source: "default",
-          supportsVerification: true,
-        }),
-        undefined,
-        true,
-      ),
-    ).toEqual({ kind: "setup" });
   });
 });

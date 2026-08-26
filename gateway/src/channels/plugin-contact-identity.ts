@@ -8,7 +8,7 @@ import { isChannelId } from "./types.js";
  *
  * Inbound trust is stored as `(plugin, ${plugin}:${address})`. A row the
  * Contacts page keys as `imessage` / `+15550100` is not the row the
- * admission floor looks up, so verifying one has to write that inbound twin.
+ * admission floor looks up, so verifying one has to write that inbound identity.
  */
 export function isPluginDiscoveredChannelType(type: string): boolean {
   return type.length > 0 && !isChannelId(type);
@@ -38,14 +38,14 @@ export function pluginInboundAddress(
 }
 
 /**
- * Append the inbound twin for each plugin-discovered channel so a Contacts
+ * Append the inbound identity for each plugin-discovered channel so a Contacts
  * upsert of `imessage` / `+15550100` also writes `plugin` /
  * `imessage:+15550100`.
  *
- * Twin rows omit any caller-supplied `id` so they never share the
- * discovered row's primary key.
+ * Inbound identity rows omit any caller-supplied `id` so they never share
+ * the discovered row's primary key.
  */
-export function expandPluginChannelTwins<
+export function withPluginInboundIdentities<
   T extends { type: string; address: string; id?: string },
 >(channels: T[]): T[] {
   const extras: T[] = [];
@@ -57,9 +57,9 @@ export function expandPluginChannelTwins<
     if (!scoped) {
       continue;
     }
-    const twin = { ...channel, type: "plugin" as const, address: scoped };
-    delete twin.id;
-    extras.push(twin);
+    const inbound = { ...channel, type: "plugin" as const, address: scoped };
+    delete inbound.id;
+    extras.push(inbound);
   }
   if (extras.length === 0) {
     return channels;

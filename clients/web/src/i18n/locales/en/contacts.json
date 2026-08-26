@@ -41,7 +41,6 @@
     "deleteFailed": "Failed to delete contact",
     "saveFailed": "Failed to save contact",
     "verifyFailed": "Failed to verify channel",
-    "verifyNeedsAddress": "Save a phone number on this contact first, then verify the channel.",
     "rosterLoadFailed": "Couldn’t load the workspace roster. Check the Slack connection and try again.",
     "emptyBody": "Select a contact"
   },
