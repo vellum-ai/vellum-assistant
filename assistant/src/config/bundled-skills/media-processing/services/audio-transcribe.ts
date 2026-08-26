@@ -40,7 +40,9 @@ export async function transcribeSegmentAudio(
     // Use the provided transcriber or resolve on demand.
     // null = "already resolved, no provider"; only re-resolve when undefined (not passed).
     const resolved =
-      transcriber === undefined ? await resolveBatchTranscriber() : transcriber;
+      transcriber === undefined
+        ? await resolveBatchTranscriber({ role: "batch" })
+        : transcriber;
     if (!resolved) {
       return "";
     }

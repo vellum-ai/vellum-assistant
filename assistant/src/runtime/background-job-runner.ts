@@ -18,15 +18,19 @@
  * `suppressFailureNotifications`.
  */
 
+import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { activityFailedDedupeKey } from "../notifications/activity-failed-dedupe.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import type { TitleOrigin } from "../persistence/conversation-title-service.js";
+import { dispatchProviderResolvable } from "../providers/provider-resolvability.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -99,9 +103,9 @@ export interface RunBackgroundJobOptions {
   timeoutMs: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
-   * Use for jobs that own their own failure UX (e.g. heartbeat's alerter)
-   * or for "quiet" scheduled jobs that the user has explicitly asked to
-   * suppress notifications for.
+   * Use for jobs whose failure alerting is owned elsewhere: heartbeat's
+   * alerter banner, and the scheduler's retry policy (which alerts once,
+   * when retries are exhausted, instead of once per attempt).
    */
   suppressFailureNotifications?: boolean;
   /** Conversation grouping id. Defaults to `"system:background"`. */
@@ -410,12 +414,36 @@ export async function runBackgroundJob(
         isAsyncBackground: true,
         visibleInSourceNow: false,
       };
-      // Dedupe by jobName + UTC date so repeated failures of the same
-      // background job (e.g. a watcher whose credentials are revoked)
-      // collapse into a single home-feed entry per day rather than
-      // spamming on every tick.
-      const day = new Date().toISOString().slice(0, 10);
-      const dedupeKey = `activity-failed:${opts.jobName}:${day}`;
+      // The provider scope is the profile key the resolver actually used for
+      // this call site (the override when usable, else the site's own
+      // winner), resolved with the same provider-resolvability predicate
+      // dispatch uses, so this recomputation cannot accept a profile that
+      // dispatch rejected (e.g. a pin whose connection was force-deleted).
+      // A mix winner, no named winner, or a config read failing on this path
+      // all yield no scope, and the key falls back to per-job: a mix's arm
+      // is picked per conversation and can span providers, so no single
+      // route can be named for it after the fact.
+      let providerScope: string | undefined;
+      try {
+        providerScope = resolveSingleRouteProfileKey(
+          opts.callSite,
+          getConfig().llm,
+          {
+            ...(opts.overrideProfile
+              ? { overrideProfile: opts.overrideProfile }
+              : {}),
+            isResolvableProvider: dispatchProviderResolvable,
+          },
+        );
+      } catch {
+        providerScope = undefined;
+      }
+      const dedupeKey = activityFailedDedupeKey({
+        jobName: opts.jobName,
+        errorKind,
+        ...(failureCode !== undefined ? { failureCode } : {}),
+        ...(providerScope !== undefined ? { providerScope } : {}),
+      });
       emitNotificationSignal({
         sourceChannel: "assistant_tool",
         sourceContextId: conversationId,

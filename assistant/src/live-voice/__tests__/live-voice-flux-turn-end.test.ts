@@ -915,6 +915,48 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     await session.close("client_end");
   });
 
+  test("seeds the latch from the live-voice role, not the global provider", async () => {
+    // The configuration roles exist for: live voice on flux while the global
+    // stays on a family that owns no turn boundary. Seeding from the global
+    // leaves the latch false, and the opening utterance closes its silence
+    // boundary on the caller's side before the dial can correct it.
+    setConfig("services", {
+      stt: {
+        provider: "deepgram",
+        providers: { deepgram: {} },
+        roles: { liveVoice: { provider: "deepgram", model: "flux" } },
+      },
+    });
+    const gate = createDialGate();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      resolveGate: gate.promise,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    // Deferred under the seeded latch: Flux owns this boundary.
+    expect(countFrames(frames, "utterance_end")).toBe(0);
+    expect(turnCalls).toHaveLength(0);
+
+    gate.open();
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.endOfTurn("what is the weather");
+
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The opening utterance never committed on the Flux end-of-turn",
+    );
+    expect(turnCalls[0]?.content).toBe("what is the weather");
+    expect(countFrames(frames, "utterance_end")).toBe(1);
+
+    await session.close("client_end");
+  });
+
   test("never seeds the latch when the flag is off", async () => {
     const gate = createDialGate();
     const { frames, session, transcribers, turnCalls } = createHarness({

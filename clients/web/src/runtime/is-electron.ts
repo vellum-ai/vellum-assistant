@@ -33,6 +33,7 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
+  DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
@@ -84,6 +85,7 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -202,6 +204,10 @@ declare global {
       };
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+      };
+      downloads?: {
+        onDone(callback: (event: DownloadDoneEvent) => void): () => void;
+        reveal(id: string): Promise<void>;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;

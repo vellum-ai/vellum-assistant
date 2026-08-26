@@ -261,6 +261,14 @@
     "warningBodyWithUpgrade": "Libera espacio o añade más almacenamiento para evitar interrupciones.",
     "warningTitle": "Tu almacenamiento está casi lleno"
   },
+  "downloadFeedback": {
+    "failed": "No se pudo descargar el archivo",
+    "revealMac": "Mostrar en Finder",
+    "revealWindows": "Mostrar en el Explorador de archivos",
+    "saved": "Guardado en Descargas",
+    "started": "Descarga iniciada",
+    "startedDescription": "Busca {filename} en las descargas de tu navegador."
+  },
   "editFooter": {
     "discard": "Descartar",
     "save": "Guardar",

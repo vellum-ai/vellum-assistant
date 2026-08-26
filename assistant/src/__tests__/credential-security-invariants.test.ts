@@ -471,23 +471,23 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
   });
 
   // PR 18 — vault policy fields with strict defaults
-  test("credential without explicit policy gets strict defaults (deny all)", () => {
+  test("credential without explicit policy gets strict defaults (deny all)", async () => {
     // A credential stored without allowed_tools defaults to empty array,
     // which the broker's isToolAllowed check fails closed on.
     upsertCredentialMetadata("test-svc", "pass", {});
 
-    const result = broker.authorize({
+    const result = await broker.browserFill({
       service: "test-svc",
       field: "pass",
       toolName: "browser_fill_credential",
+      fill: async () => {},
     });
 
-    expect(result.authorized).toBe(false);
-    expect(!result.authorized && result.reason).toContain(
-      "No tools are currently allowed",
-    );
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain("No tools are currently allowed");
   });
 });
+
 
 // ---------------------------------------------------------------------------
 // Invariant 6 — oauth2ClientSecret never in plaintext metadata

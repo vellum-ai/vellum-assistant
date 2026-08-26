@@ -283,8 +283,9 @@ experience works. Do not enable it.
 The Xcode project has three _app_ targets — one per environment. Each has its own
 bundle ID, display name, and icon colour so they can be installed side by
 side on the same device. Each also embeds its own `VoiceActivity` widget
-extension target (`<app bundle id>.VoiceActivity`), so `xcodegen generate`
-produces six targets in total; only the three app schemes are worth
+extension target (`<app bundle id>.VoiceActivity`). With the host-less
+`AppTests` logic-test bundle, `xcodegen generate` produces seven targets and
+four schemes in total; of those, the three app schemes are the ones worth
 building, since the extensions build as embedded dependencies. See
 [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for what the extension
 contains and [Signing: two profiles per environment](#signing-two-profiles-per-environment)
@@ -421,6 +422,25 @@ bunx cap update ios   # only if @capacitor/ios major changed; re-run ios:setup a
 `@capacitor/ios` major bumps may require updating the SPM pin in
 `CapApp-SPM/Package.swift` (`exact:` version) — `cap sync` writes
 that for you when the npm package version changes.
+
+### Run the logic tests
+
+`AppTests` is a host-less XCTest bundle over the framework-free helpers under
+`App/`. It links no app target, so it finishes in seconds. `pr-ios.yaml` runs
+it on every PR; locally, against any installed simulator (`xcrun simctl list
+devices available` names them):
+
+```bash
+cd clients/ios/App
+xcodebuild test \
+  -project App.xcodeproj \
+  -scheme AppTests \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+The bundle compiles only the sources listed under the `AppTests` target in
+`App/project.yml`, so a newly covered file goes there first.
 
 ## Testing checklist
 
@@ -741,7 +761,7 @@ clients/
     │   └── NATIVE_VOICE.md           # Live Activity, App Intents, deep links
     ├── App/
     │   ├── App.xcodeproj/            # Open this in Xcode
-    │   │   └── xcshareddata/xcschemes/  # Shared schemes for all 3 targets
+    │   │   └── xcshareddata/xcschemes/  # Shared schemes: 3 apps + AppTests
     │   ├── App/
     │   │   ├── Config/               # xcconfig files (Base + per-target)
     │   │   ├── AppIcon.icon/         # Production icon (green)
@@ -763,6 +783,8 @@ clients/
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
+    │   ├── AppTests/                 # XCTest bundle for the framework-free
+    │   │                             # helpers under App/ (no host app)
     │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
     │   │   │                         # presentations + Control Center controls
     │   │   └── Widgets/              # Catch Up, Status, and Quick Actions

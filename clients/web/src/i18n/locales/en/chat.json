@@ -1160,7 +1160,6 @@
   },
   "questionPromptCard": {
     "closeQuestionAria": "Close question",
-    "expandAria": "Reopen question",
     "minimizeAria": "Minimize question",
     "minimizedSummary": "{count, plural, one {# option} other {# options}} · Tap to reopen",
     "nextQuestionAria": "Next question",

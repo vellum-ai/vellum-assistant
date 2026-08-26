@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 
 import {
   type ProviderRedirectOptions,
+  readAttributionParams,
   startProviderRedirect,
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
@@ -15,6 +16,10 @@ import { isLocalClient } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
+import {
+  captureInstallReferrer,
+  markInstallReferrerSpent,
+} from "@/runtime/install-referrer";
 import {
   isBiometricEnabled,
   setBiometricEnabled,
@@ -42,6 +47,13 @@ interface NativeAuthPlugin {
     baseURL: string;
     loginHint?: string;
     intent?: string;
+    /**
+     * Allowlisted campaign params. The shell appends them as query params on
+     * its token POST: allauth headless posts JSON, so the platform reads
+     * attribution off `request.GET`. Omitted when empty, so a shell that
+     * predates this field sees an unchanged call.
+     */
+    attribution?: Record<string, string>;
     postAuthDestination: string;
   }): Promise<{ sessionToken: string }>;
   consumeRestoredAuth(): Promise<{
@@ -121,12 +133,16 @@ export function useIsNativePlatform(): boolean {
  *
  * Throws on user cancellation (`USER_CANCELLED`) and any other error; the
  * caller decides whether to surface or swallow.
+ *
+ * `attribution` is an explicit override; absent it, this resolves the flow's
+ * attribution itself, so every native entry carries one.
  */
 export async function startNativeLogin(options?: {
   baseURL?: string;
   returnTo?: string | null;
   loginHint?: string;
   intent?: string;
+  attribution?: Record<string, string>;
 }): Promise<void> {
   // Every native auth entry routes through the shared stale-stash cleanup. The
   // direct login form (`login-page.tsx`) calls this without going through
@@ -134,6 +150,11 @@ export async function startNativeLogin(options?: {
   // prior native checkout-signup could leak into a later login and wrongly
   // resume checkout from privacy.
   clearStaleNativeCheckoutStash(options?.intent, options?.returnTo);
+
+  // Attribution resolves here for the same reason: the direct login form is
+  // the auth entry a fresh Play install reaches, and the install referrer is
+  // the only attribution such an install carries.
+  const attribution = await resolveNativeAttribution(options?.attribution);
 
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
   const destination = sanitizeReturnTo(
@@ -144,6 +165,7 @@ export async function startNativeLogin(options?: {
     baseURL,
     ...(options?.loginHint ? { loginHint: options.loginHint } : {}),
     ...(options?.intent ? { intent: options.intent } : {}),
+    ...(attribution ? { attribution } : {}),
     postAuthDestination: destination,
   });
 
@@ -205,6 +227,8 @@ async function completeNativeLogin(
   if (isNativePlatform()) {
     await waitForNativeSessionCookie();
   }
+
+  markInstallReferrerSpent();
 
   // Persist the token in native secure storage for biometric session recovery.
   // Respects the user's opt-out preference; storeBiometricToken is also
@@ -356,6 +380,30 @@ export function clearStaleNativeCheckoutStash(
 }
 
 /**
+ * Attribution to hand the native shell, drawn from exactly one source.
+ *
+ * A caller's override wins outright, then URL params: they carry the user's
+ * current, explicit campaign context. The Play install referrer is the
+ * fallback, and it is the only attribution a Play install carries at all (such
+ * an install arrives with no URL params).
+ *
+ * The two are never merged: `persist_attribution` on the platform stores a row
+ * as one coherent unit from a single source, so it must not be handed fields
+ * spliced from two. First touch across repeat signups is already held there by
+ * the empty-row backfill guard.
+ */
+async function resolveNativeAttribution(
+  override: Record<string, string> | undefined,
+): Promise<Record<string, string> | undefined> {
+  const current = override ?? readAttributionParams(window.location.search);
+  if (Object.keys(current).length > 0) {
+    return current;
+  }
+  const referrer = await captureInstallReferrer();
+  return Object.keys(referrer).length > 0 ? referrer : undefined;
+}
+
+/**
  * Unified auth-flow entry point that transparently chooses between the
  * native plugin path and the web form-POST path.
  *
@@ -384,6 +432,7 @@ export async function startAuthFlow(
         ),
         loginHint: options.loginHint,
         intent: options.intent,
+        attribution: options.attribution,
       });
     } catch (err) {
       // Capacitor translates native `call.reject(msg, code)` into a

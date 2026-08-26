@@ -100,10 +100,18 @@ function renderCard(
   );
 }
 
+/**
+ * Whichever control currently carries the collapse state. Expanded that is the
+ * header chevron; minimized it is the summary itself, which is named by its own
+ * contents rather than a label, so `aria-expanded` is what identifies it in
+ * both states.
+ */
 function toggleButton(): HTMLElement {
-  return screen.getByRole("button", {
-    name: /Minimize question|Reopen question/,
-  });
+  const control = document.querySelector<HTMLElement>("[aria-expanded]");
+  if (!control) {
+    throw new Error("the card rendered no collapse control");
+  }
+  return control;
 }
 
 /**
@@ -136,6 +144,29 @@ function accessibleText(root: Element): string {
   return out.join(" | ");
 }
 
+/** The card's drag surface, which owns the touch handlers. */
+function dragSurface(): HTMLElement {
+  const el = document.querySelector<HTMLElement>(
+    '[data-slot="question-card-surface"]',
+  );
+  if (!el) {
+    throw new Error("the card rendered no drag surface");
+  }
+  return el;
+}
+
+/**
+ * A downward drag past the commit threshold, released. `MINIMIZE_COMMIT_PX` is
+ * 64, so 100px is comfortably a commit rather than a spring-back.
+ */
+function swipeDown(): void {
+  const surface = dragSurface();
+  const at = (clientY: number) => [{ identifier: 1, clientX: 0, clientY }];
+  fireEvent.touchStart(surface, { touches: at(200) });
+  fireEvent.touchMove(surface, { touches: at(300) });
+  fireEvent.touchEnd(surface, { changedTouches: at(300) });
+}
+
 function collapsibleRegion(): HTMLElement {
   const id = toggleButton().getAttribute("aria-controls");
   expect(id).toBeTruthy();
@@ -162,7 +193,6 @@ describe("QuestionPromptCard minimize", () => {
     fireEvent.click(toggleButton());
 
     expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
-    expect(toggleButton().getAttribute("aria-label")).toBe("Reopen question");
     // The question itself stays: it is what the summary row is a summary of.
     expect(
       screen.getByText("What should we build first for MarkOne?"),
@@ -255,6 +285,120 @@ describe("QuestionPromptCard minimize", () => {
     fireEvent.click(toggleButton());
 
     expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
+  });
+
+  test("the position counter leaves with the pager it counts for", () => {
+    renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
+
+    expect(screen.getByText("1 of 2")).toBeDefined();
+
+    fireEvent.click(toggleButton());
+
+    expect(screen.queryByText("1 of 2")).toBeNull();
+  });
+
+  test("a minimized card keeps no chevron of its own", () => {
+    const { container } = renderCard({ onClose: () => {} });
+
+    fireEvent.click(toggleButton());
+
+    expect(
+      Array.from(container.querySelectorAll("button")).filter((button) => {
+        const label = button.getAttribute("aria-label");
+        return label === "Minimize question" || label === "Reopen question";
+      }),
+    ).toHaveLength(0);
+    // What reopens the card is the summary itself, not a second chevron
+    // pointing the other way.
+    expect(toggleButton().tagName).not.toBe("BUTTON");
+  });
+
+  test("a minimized card is announced as the question it stands for", () => {
+    renderCard();
+
+    fireEvent.click(toggleButton());
+
+    // Descendants of a `role="button"` are flattened into its accessible name,
+    // so an `aria-label` here would trade the question and the option count for
+    // a generic phrase and a reader would lose both. Name-from-content is what
+    // keeps them, and it is the whole reason the label is absent.
+    expect(
+      screen.getByRole("button", {
+        name: /What should we build first for MarkOne\?.*4 options/,
+      }),
+    ).toBeDefined();
+  });
+
+  test("the keyboard reopens a minimized card", () => {
+    renderCard();
+
+    fireEvent.click(toggleButton());
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
+
+    // The summary is a `role="button"` div, so it handles the keystrokes a
+    // real button would have taken care of on its own.
+    fireEvent.keyDown(toggleButton(), { key: "Enter" });
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(toggleButton());
+    fireEvent.keyDown(toggleButton(), { key: " " });
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("focus follows the control that replaces the one it was on", () => {
+    renderCard();
+
+    const chevron = toggleButton();
+    chevron.focus();
+    fireEvent.click(chevron);
+
+    // The chevron has just unmounted. Left alone, focus would land on the
+    // document body and the next Tab would restart from the top of the page.
+    expect(document.activeElement).toBe(toggleButton());
+
+    fireEvent.keyDown(toggleButton(), { key: "Enter" });
+
+    // And back: the summary keeps the DOM node but loses its role and tab
+    // stop, so focus has to move to the chevron that took over from it.
+    expect(document.activeElement).toBe(toggleButton());
+    expect(toggleButton().tagName).toBe("BUTTON");
+  });
+
+  test("mounting does not pull focus into the card", () => {
+    renderCard();
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  test("a swipe leaves focus where the user put it", () => {
+    // A thumb collapses the card while the free-text row holds focus. The
+    // gesture crosses the same state the chevron does, but focus is not its to
+    // move: it belongs to wherever the user left it.
+    setPointer(true);
+    renderCard();
+    screen.getByLabelText("Type a different answer").focus();
+
+    swipeDown();
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).not.toBe(toggleButton());
+  });
+
+  test("a swipe carries focus when it is the focused control being retired", () => {
+    // The hybrid keyboard-and-touch case: focus has been tabbed onto the
+    // chevron, and a thumb then swipes the card shut underneath it. The
+    // chevron unmounts, so focus has to land on what replaced it.
+    setPointer(true);
+    renderCard();
+    toggleButton().focus();
+    expect(document.activeElement).toBe(toggleButton());
+
+    swipeDown();
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggleButton());
   });
 
   test("the swipe grabber renders only where a swipe can happen", () => {

@@ -1,5 +1,7 @@
 import type { ChildProcess } from "child_process";
 
+import { selectRestartTunnelRecord } from "@vellumai/service-contracts/ingress";
+
 import {
   loadAllAssistants,
   loadAllAssistantsAcrossEnvs,
@@ -21,6 +23,7 @@ import {
 } from "./nginx-ingress.js";
 import { waitForDaemonReady } from "./http-client.js";
 import { hasWebhookIntegrations, maybeStartNgrokTunnel } from "./ngrok.js";
+import { shellArg } from "./shell-arg.js";
 
 /** Matches the Docker hatch path's service-readiness allowance. */
 export const DOCKER_GATEWAY_READY_TIMEOUT_MS = 5 * 60_000;
@@ -52,6 +55,32 @@ function wantsTunnelEdge(workspaceDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The `vellum tunnel` invocation that rebuilds this assistant's edge. That
+ * command requires `--provider`, and a `<provider>` placeholder would be shell
+ * redirection rather than something to paste, so name the provider recorded
+ * here; with none recorded, point at the help that lists them.
+ *
+ * The assistant is named too: an unqualified run targets the active assistant,
+ * which on a computer running several is not the one being restored.
+ */
+function tunnelRestartCommand(
+  workspaceDir: string,
+  assistantId: string,
+): string {
+  try {
+    const record = selectRestartTunnelRecord(
+      loadRawConfig(workspaceDir).ingress,
+    );
+    if (record) {
+      return `vellum tunnel ${shellArg(assistantId)} --provider ${record.provider}`;
+    }
+  } catch {
+    // An unreadable config names no provider; the help pointer still holds.
+  }
+  return "vellum tunnel --help";
 }
 
 /**
@@ -123,7 +152,7 @@ export async function restoreTunnelEdge(
           ? "Webhooks still work, but the web app is not being served."
           : "The web app and webhook delivery are unavailable until it is rebuilt.";
     console.warn(
-      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`vellum tunnel\` to rebuild the edge.`,
+      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`${tunnelRestartCommand(workspaceDir, assistantId)}\` to rebuild the edge.`,
     );
     return survivingPort;
   }
@@ -226,7 +255,7 @@ export async function restoreContainerTunnelEdge(
     !(await waitForDaemonReady(gatewayPort, gatewayReadyTimeoutMs))
   ) {
     console.warn(
-      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`vellum tunnel\` once it is running.`,
+      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`${tunnelRestartCommand(workspaceDir, entry.assistantId)}\` once it is running.`,
     );
     return;
   }

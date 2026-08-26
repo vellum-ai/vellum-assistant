@@ -261,6 +261,14 @@
     "warningBodyWithUpgrade": "Free up space or add more storage to avoid interruptions.",
     "warningTitle": "Your storage is almost full"
   },
+  "downloadFeedback": {
+    "failed": "Download failed",
+    "revealMac": "Show in Finder",
+    "revealWindows": "Show in File Explorer",
+    "saved": "Saved to Downloads",
+    "started": "Download started",
+    "startedDescription": "Look for {filename} in your browser's downloads."
+  },
   "editFooter": {
     "discard": "Discard",
     "save": "Save",

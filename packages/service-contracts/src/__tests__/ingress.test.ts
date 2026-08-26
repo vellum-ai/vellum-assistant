@@ -6,8 +6,10 @@ import {
   normalizePublicBaseUrl,
   parseRecordedAssistantId,
   parseTunnelRecord,
+  selectRestartTunnelRecord,
   trimmedNonEmptyString,
   TUNNEL_PROVIDERS,
+  type TunnelRecord,
   velayHostForPlatformHost,
 } from "../ingress.js";
 import {
@@ -218,6 +220,41 @@ describe("parseTunnelRecord", () => {
         parseTunnelRecord({ provider: "ngrok", publicBaseUrl }),
       ).toBeNull();
     }
+  });
+});
+
+describe("selectRestartTunnelRecord", () => {
+  const PAIRING: TunnelRecord = {
+    provider: "tailscale",
+    publicBaseUrl: "https://assistant-1.example.ts.net",
+  };
+  const LAST: TunnelRecord = {
+    provider: "ngrok",
+    publicBaseUrl: "https://assistant-1.ngrok.app",
+  };
+
+  test("prefers the pairing tunnel over the last one that ran", () => {
+    // The pairing tunnel deliberately left the older public record beside it,
+    // so naming that one would point at an ingress nobody is using.
+    expect(
+      selectRestartTunnelRecord({ lastTunnel: LAST, pairingTunnel: PAIRING }),
+    ).toEqual(PAIRING);
+  });
+
+  test("falls back to the last tunnel and to null", () => {
+    expect(selectRestartTunnelRecord({ lastTunnel: LAST })).toEqual(LAST);
+    for (const ingress of [undefined, null, {}, "nonsense", 42]) {
+      expect(selectRestartTunnelRecord(ingress)).toBeNull();
+    }
+  });
+
+  test("skips a malformed pairing record for a usable last one", () => {
+    expect(
+      selectRestartTunnelRecord({
+        lastTunnel: LAST,
+        pairingTunnel: { provider: "wireguard", publicBaseUrl: "nope" },
+      }),
+    ).toEqual(LAST);
   });
 });
 

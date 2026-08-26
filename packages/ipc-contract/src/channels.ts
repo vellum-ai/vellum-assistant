@@ -78,6 +78,10 @@ export const ICON_SET_CHARACTER = "vellum:icon:setCharacter";
 // Dock
 export const DOCK_SET_BADGE = "vellum:dock:setBadge";
 
+// Downloads
+export const DOWNLOADS_DONE_EVENT = "vellum:downloads:done";
+export const DOWNLOADS_REVEAL = "vellum:downloads:reveal";
+
 // Local mode
 export const LOCAL_MODE_HATCH = "vellum:localMode:hatch";
 export const LOCAL_MODE_READ_LOCKFILE = "vellum:localMode:readLockfile";

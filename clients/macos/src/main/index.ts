@@ -51,6 +51,7 @@ import {
 } from "./file-open.client";
 import { installAvatarIpc } from "@vellumai/electron-desktop/avatar";
 import { installConnectivityProbe } from "@vellumai/electron-desktop/connectivity-probe";
+import { installDownloads } from "@vellumai/electron-desktop/downloads";
 import { installIdentityIpc } from "@vellumai/electron-desktop/identity";
 import {
   configureNotifications,
@@ -64,7 +65,6 @@ import {
 } from "@vellumai/electron-desktop/status";
 import "./auxiliary-windows.client";
 import { installDock } from "./dock";
-import { installDownloads } from "./downloads";
 import { installShare } from "./share";
 import {
   installEscapeMonitor,
@@ -454,7 +454,7 @@ app
     installShare();
     // Files renderer downloads into ~/Downloads instead of prompting a Save
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
-    installDownloads();
+    installDownloads({ handle });
     installPowerEvents();
     configureNotifications({
       ipc: { handle },

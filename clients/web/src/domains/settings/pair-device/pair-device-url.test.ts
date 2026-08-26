@@ -108,7 +108,7 @@ describe("publicBaseUrlRejectionMessage", () => {
         "https://login.tailscale.com/admin/invite/abc",
       ),
     ).toBe(
-      "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+      "This is Tailscale's website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
     );
     expect(
       publicBaseUrlRejectionMessage("service-website", "https://ngrok.com"),
