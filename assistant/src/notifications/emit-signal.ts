@@ -22,6 +22,7 @@ import { isPlatformClientConfigured } from "../platform/client.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
+import { DiscordAdapter } from "./adapters/discord.js";
 import { VellumAdapter } from "./adapters/macos.js";
 import { PlatformPushAdapter } from "./adapters/platform.js";
 import { SlackAdapter } from "./adapters/slack.js";
@@ -64,6 +65,7 @@ export function getBroadcaster(): NotificationBroadcaster {
       new VellumAdapter(broadcastMessage),
       new TelegramAdapter(),
       new SlackAdapter(),
+      new DiscordAdapter(),
       new PlatformPushAdapter(),
     ]);
 
@@ -117,9 +119,6 @@ export async function getConnectedChannels(): Promise<NotificationChannel[]> {
   // unreachable, so binding-based connectivity falls back to the local read.
   const guardians = await getGuardianDelivery();
 
-  // getDeliverableChannels() returns ChannelId[] but every returned channel
-  // has deliveryEnabled: true, making it a valid NotificationChannel at
-  // runtime. We iterate over the broad type and narrow via the switch.
   for (const channel of getDeliverableChannels()) {
     switch (channel) {
       case "vellum":
@@ -153,9 +152,24 @@ export async function getConnectedChannels(): Promise<NotificationChannel[]> {
         }
         break;
       }
+      case "discord": {
+        // Connected when a verified guardian binding names a user to DM,
+        // mirroring destination-resolver: the person is the endpoint, and
+        // the adapter resolves the DM channel from them at send time.
+        const guardian = guardians
+          ? guardianForChannel(guardians, channel)
+          : undefined;
+        if (guardian?.address) {
+          channels.push(channel);
+        }
+        break;
+      }
       default:
-        // Future deliverable channels — skip until a connectivity check
-        // is implemented for them.
+        // Exhaustive over NotificationChannel: a channel whose policy turns
+        // deliveryEnabled on must answer connectivity here at compile time.
+        // A silent skip is how a half-wired channel disappears without a
+        // trace, so the compiler holds the door instead.
+        channel satisfies never;
         break;
     }
   }
