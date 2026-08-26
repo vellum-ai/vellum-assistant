@@ -47,7 +47,6 @@ function slackEntry({
     id,
     role,
     text,
-    isTruncated: false,
     timestamp: T0 + minute * 60_000,
     provenance: {
       channelId: "slack",
@@ -122,16 +121,16 @@ function reactionEntry(): ChannelTranscriptEntry {
 }
 
 /**
- * Slack rows with the optional provenance fields absent: no sender, no
- * timestamp, and a body cut at the snippet bound. Each is a field Slack can
- * genuinely omit, so the rows exercise degradation, not error handling.
+ * Slack rows with the optional provenance fields absent (no sender, no
+ * timestamp) and a long pasted body, which the drawer renders in full. Each
+ * is a shape Slack can genuinely produce, so the rows exercise degradation
+ * and wrapping, not error handling.
  */
 export const SLACK_SPARSE_ENTRIES: ChannelTranscriptEntry[] = [
   {
     id: "sparse-1",
     role: "user",
     text: "Message from a sender Slack reported nothing about.",
-    isTruncated: false,
     timestamp: undefined,
     provenance: {
       channelId: "slack",
@@ -143,10 +142,7 @@ export const SLACK_SPARSE_ENTRIES: ChannelTranscriptEntry[] = [
   {
     id: "sparse-2",
     role: "user",
-    // Same shape `boundedText` produces: at most the 400-char snippet bound,
-    // then the ellipsis it appends.
-    text: `${"Long context pasted into the thread, cut where the snippet bound cuts it. ".repeat(5).trimEnd()}…`,
-    isTruncated: true,
+    text: "Long context pasted into the thread, rendered in full because the drawer is the canonical home of the rows it holds. ".repeat(6).trimEnd(),
     timestamp: T0 + 6 * 60_000,
     provenance: {
       channelId: "slack",

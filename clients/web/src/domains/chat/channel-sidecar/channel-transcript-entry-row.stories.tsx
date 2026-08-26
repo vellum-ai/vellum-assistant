@@ -115,9 +115,9 @@ export const Thread: Story = {
 };
 
 /**
- * What the row degrades to when the channel reports less: no sender, no
- * timestamp, a body cut at the snippet bound. Each is a field Slack can
- * genuinely omit, not an error.
+ * What the row degrades to when the channel reports less (no sender, no
+ * timestamp), plus a long pasted body rendered in full. Each is a shape Slack
+ * can genuinely produce, not an error.
  */
 export const SparseMetadata: Story = {
   parameters: { controls: { disable: true } },

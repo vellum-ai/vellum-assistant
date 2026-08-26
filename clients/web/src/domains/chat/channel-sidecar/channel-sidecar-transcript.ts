@@ -20,23 +20,17 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ChannelSidecarRef } from "@/stores/viewer-store";
 import { getExternalLinkUrl } from "@/utils/external-source-link";
 
-/**
- * Longest snippet the client carries into a composer reference or a drawer
- * preview. Bounded so a pasted wall of text cannot dominate the outgoing
- * message, and stated once so the chip, the drawer, and the encoded reference
- * all cut at the same place.
- */
-export const CHANNEL_REFERENCE_SNIPPET_MAX = 400;
-
 /** One row of the external-channel transcript, as the drawer renders it. */
 export interface ChannelTranscriptEntry {
   /** Transcript row id, reused as the React key and the reference identity. */
   id: string;
   provenance: ChannelMessageProvenance;
-  /** Flat body text, already bounded to {@link CHANNEL_REFERENCE_SNIPPET_MAX}. */
+  /**
+   * The row's complete flat body text. The drawer is the canonical home of
+   * the rows it holds, so nothing is cut here; the composer reference applies
+   * its own snippet bound (see `toChannelReference`).
+   */
   text: string;
-  /** Whether {@link text} was cut to fit the bound. */
-  isTruncated: boolean;
   timestamp?: number;
   /** `user` rows read as the channel's participants, everything else as the assistant. */
   role: DisplayMessage["role"];
@@ -68,25 +62,30 @@ export function channelTimestampToIso(
   return new Date(timestamp).toISOString();
 }
 
-function boundedText(value: string): { text: string; isTruncated: boolean } {
-  const collapsed = value.trim();
-  if (collapsed.length <= CHANNEL_REFERENCE_SNIPPET_MAX) {
-    return { text: collapsed, isTruncated: false };
+/**
+ * Whether the drawer's plain-text row is a lossless rendering of a message.
+ *
+ * The drawer draws sender, time, and body text. A row carrying anything else
+ * a reader can see (attachments, or non-text content blocks such as tool
+ * activity, thinking, or surfaces) would lose that content if it left the
+ * Vellum lane, so the partition keeps such rows in the lane even when the
+ * channel attributes them.
+ */
+function isLosslessAsPlainText(message: DisplayMessage): boolean {
+  if (message.attachments && message.attachments.length > 0) {
+    return false;
   }
-  return {
-    text: `${collapsed.slice(0, CHANNEL_REFERENCE_SNIPPET_MAX).trimEnd()}…`,
-    isTruncated: true,
-  };
+  return (message.contentBlocks ?? []).every((block) => block.type === "text");
 }
 
 /**
  * Split one transcript into the Vellum lane and the external-channel lane.
  *
  * A row moves to the channel lane only when the client can attribute it (see
- * `readChannelMessageProvenance`). Unattributable rows stay in the Vellum
- * lane, so the failure mode of a channel with no per-row envelope is a lane
- * identical to the unpartitioned transcript, never a row that vanishes from
- * both lanes.
+ * `readChannelMessageProvenance`) AND the drawer can render it losslessly
+ * (see {@link isLosslessAsPlainText}). Every other row stays in the Vellum
+ * lane, so the failure mode is a lane identical to the unpartitioned
+ * transcript, never content that vanishes from both lanes.
  *
  * Returns the input array by reference when nothing moved, so the chat lane's
  * downstream memos see no change on conversations the sidecar does not touch.
@@ -110,16 +109,14 @@ export function partitionChannelTranscript({
   const entries: ChannelTranscriptEntry[] = [];
   for (const message of messages) {
     const provenance = readChannelMessageProvenance(message, conversation);
-    if (!provenance) {
+    if (!provenance || !isLosslessAsPlainText(message)) {
       vellumMessages.push(message);
       continue;
     }
-    const { text, isTruncated } = boundedText(messagePlainText(message));
     entries.push({
       id: message.id,
       provenance,
-      text,
-      isTruncated,
+      text: messagePlainText(message).trim(),
       timestamp: message.timestamp,
       role: message.role,
     });

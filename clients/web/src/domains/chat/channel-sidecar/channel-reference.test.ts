@@ -4,6 +4,7 @@ import {
   formatChannelReference,
   prependChannelReference,
   toChannelReference,
+  CHANNEL_REFERENCE_SNIPPET_MAX,
   type ChannelReference,
 } from "@/domains/chat/channel-sidecar/channel-reference";
 import type { ChannelTranscriptEntry } from "@/domains/chat/channel-sidecar/channel-sidecar-transcript";
@@ -116,7 +117,6 @@ describe("toChannelReference", () => {
     id: "msg-9",
     role: "user",
     text: "deploy is red",
-    isTruncated: false,
     timestamp: 1_700_000_000_000,
     provenance: {
       channelId: "slack",
@@ -144,6 +144,21 @@ describe("toChannelReference", () => {
     expect(reference.messageId).toBe("msg-9");
     expect(reference.threadName).toBe("general");
     expect(reference.channelLabel).toBe("Slack");
+  });
+
+  test("bounds the snippet and flags the cut; the entry keeps its full text", () => {
+    const long = "x".repeat(CHANNEL_REFERENCE_SNIPPET_MAX + 50);
+    const reference = toChannelReference({
+      entry: { ...entry, text: long },
+      target: { conversationId: "conv-1", channelId: "slack" },
+      channelLabel: "Slack",
+    });
+
+    expect(reference.isTruncated).toBe(true);
+    expect(reference.snippet.length).toBeLessThanOrEqual(
+      CHANNEL_REFERENCE_SNIPPET_MAX + 1,
+    );
+    expect(reference.snippet.endsWith("…")).toBe(true);
   });
 
   test("falls back to the thread's link when the row has none", () => {

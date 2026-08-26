@@ -51,10 +51,31 @@ export interface ChannelReference {
   /** Epoch ms, when the row carries one. */
   timestamp?: number;
   sourceHref?: string;
-  /** Bounded body text, already cut by `partitionChannelTranscript`. */
+  /** Body text, bounded to {@link CHANNEL_REFERENCE_SNIPPET_MAX}. */
   snippet: string;
   /** Whether {@link snippet} was cut. */
   isTruncated: boolean;
+}
+
+/**
+ * Longest snippet a reference carries into the outgoing message. Bounded so a
+ * referenced wall of text cannot dominate what the user sends; the drawer
+ * itself renders the row in full, so the cut applies only here.
+ */
+export const CHANNEL_REFERENCE_SNIPPET_MAX = 400;
+
+function boundedSnippet(value: string): {
+  snippet: string;
+  isTruncated: boolean;
+} {
+  const collapsed = value.trim();
+  if (collapsed.length <= CHANNEL_REFERENCE_SNIPPET_MAX) {
+    return { snippet: collapsed, isTruncated: false };
+  }
+  return {
+    snippet: `${collapsed.slice(0, CHANNEL_REFERENCE_SNIPPET_MAX).trimEnd()}…`,
+    isTruncated: true,
+  };
 }
 
 /** Build a reference from a drawer row plus the thread it belongs to. */
@@ -68,13 +89,14 @@ export function toChannelReference({
   channelLabel: string;
 }): ChannelReference {
   const provenance: ChannelMessageProvenance = entry.provenance;
+  const { snippet, isTruncated } = boundedSnippet(entry.text);
   const reference: ChannelReference = {
     messageId: entry.id,
     conversationId: target.conversationId,
     channelId: provenance.channelId,
     channelLabel,
-    snippet: entry.text,
-    isTruncated: entry.isTruncated,
+    snippet,
+    isTruncated,
   };
   if (target.threadName) {
     reference.threadName = target.threadName;

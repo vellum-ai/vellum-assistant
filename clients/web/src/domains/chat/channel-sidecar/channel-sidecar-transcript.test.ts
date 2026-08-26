@@ -5,7 +5,6 @@ import {
   isReferenceableChannelEntry,
   partitionChannelTranscript,
   resolveChannelSidecarTarget,
-  CHANNEL_REFERENCE_SNIPPET_MAX,
 } from "@/domains/chat/channel-sidecar/channel-sidecar-transcript";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { Conversation } from "@/types/conversation-types";
@@ -136,18 +135,52 @@ describe("partitionChannelTranscript", () => {
     expect(entries).toEqual([]);
   });
 
-  test("bounds a long body and flags that it was cut", () => {
-    const long = "x".repeat(CHANNEL_REFERENCE_SNIPPET_MAX + 50);
+  test("keeps the full body on drawer entries", () => {
+    // The drawer is the canonical home of the rows it holds, so no display
+    // truncation: only the composer reference bounds its snippet.
+    const long = "x".repeat(5_000);
 
     const { entries } = partitionChannelTranscript({
       messages: [slackRow("s1", long)],
       conversation: slackConversation,
     });
 
-    expect(entries[0]!.isTruncated).toBe(true);
-    expect(entries[0]!.text.length).toBeLessThanOrEqual(
-      CHANNEL_REFERENCE_SNIPPET_MAX + 1,
-    );
+    expect(entries[0]!.text).toBe(long);
+  });
+
+  test("keeps attributed rows the drawer cannot render losslessly", () => {
+    // Rows carrying more than plain text (non-text blocks, attachments) stay
+    // in the Vellum lane even when the channel attributes them: moving them
+    // would drop the content the drawer's text row cannot show.
+    const withThinking: DisplayMessage = {
+      ...slackRow("s1", "final reply text"),
+      contentBlocks: [
+        { type: "thinking", thinking: "reasoning" },
+        { type: "text", text: "final reply text" },
+      ],
+    };
+    const withAttachment: DisplayMessage = {
+      ...slackRow("s2", "see attached"),
+      attachments: [
+        {
+          id: "attachment-1",
+          filename: "notes.txt",
+          mimeType: "text/plain",
+          sizeBytes: 12,
+          previewUrl: null,
+          thumbnailUrl: null,
+        },
+      ],
+    };
+    const plain = slackRow("s3", "plain text row");
+
+    const { vellumMessages, entries } = partitionChannelTranscript({
+      messages: [withThinking, withAttachment, plain],
+      conversation: slackConversation,
+    });
+
+    expect(vellumMessages.map((m) => m.id)).toEqual(["s1", "s2"]);
+    expect(entries.map((e) => e.id)).toEqual(["s3"]);
   });
 
   test("carries reaction events through as their own kind", () => {

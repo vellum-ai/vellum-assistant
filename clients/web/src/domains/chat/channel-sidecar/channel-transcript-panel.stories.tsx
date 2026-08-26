@@ -94,9 +94,10 @@ export const ReferencedRow: Story = {
 };
 
 /**
- * Rows whose optional provenance fields are absent: an unknown sender, a
- * missing timestamp, a body cut at the snippet bound. Slack can genuinely
- * omit each of these, so this is degradation, not an error state.
+ * Rows whose optional provenance fields are absent (an unknown sender, a
+ * missing timestamp) and a long pasted body rendered in full. Slack can
+ * genuinely produce each of these, so this is degradation and wrapping, not
+ * an error state.
  */
 export const SparseRows: Story = {
   ...Default,
