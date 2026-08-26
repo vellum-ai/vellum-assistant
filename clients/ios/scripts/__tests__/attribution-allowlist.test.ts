@@ -5,7 +5,7 @@
  * `clients/web/src/domains/account/social-auth.ts` are the source of truth for
  * which campaign params reach the platform and how long each may be. Neither
  * Swift nor Java can import TypeScript, so both native shells embed the list
- * verbatim: `Attribution` in `clients/ios/App/App/WorkOSAuth.swift` and
+ * verbatim: `Attribution` in `clients/ios/App/App/Attribution.swift` and
  * `Attribution` in
  * `clients/android/app/src/main/java/ai/vellum/assistant/Attribution.java`.
  * Without this test, a key added to the web contract would leave CI green
@@ -26,7 +26,7 @@ const REPO_ROOT = join(import.meta.dir, "../../../..");
 
 const SOURCES = {
   typescript: join(REPO_ROOT, "clients/web/src/domains/account/social-auth.ts"),
-  swift: join(REPO_ROOT, "clients/ios/App/App/WorkOSAuth.swift"),
+  swift: join(REPO_ROOT, "clients/ios/App/App/Attribution.swift"),
   java: join(
     REPO_ROOT,
     "clients/android/app/src/main/java/ai/vellum/assistant/Attribution.java",

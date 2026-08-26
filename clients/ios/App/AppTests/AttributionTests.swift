@@ -1,6 +1,6 @@
 import XCTest
 
-/// Covers the pure `Attribution` helper in `App/WorkOSAuth.swift`, which the
+/// Covers the pure `Attribution` helper in `App/Attribution.swift`, which the
 /// provider-token exchange uses to put campaign params on the wire.
 ///
 /// Mirrors `AttributionTest.java` in the Android shell. The allowlist and
