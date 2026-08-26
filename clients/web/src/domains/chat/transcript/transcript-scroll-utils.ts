@@ -92,6 +92,32 @@ export function haveSameItemKeys(
   return a.length === b.length && a.every((item, i) => item.key === b[i]?.key);
 }
 
+/**
+ * Whether a history-seeking user gesture should page in older history.
+ *
+ * An underfilled scroll element is pinned at scrollTop 0 and never fires
+ * `scroll`, so the scroll-handler load-older path is unreachable there and
+ * the no-progress guard (see {@link haveSameItemKeys}) has stopped the
+ * automatic chain. Gestures are the only remaining signal of intent, and
+ * each one pages in at most one fetch.
+ */
+export function shouldGestureLoadOlder(
+  metrics: ScrollMetrics,
+  flags: {
+    hasMore: boolean;
+    isLoadingOlder: boolean;
+    hasConversation: boolean;
+  },
+): boolean {
+  const underfilled = metrics.scrollHeight <= metrics.clientHeight;
+  return (
+    underfilled &&
+    flags.hasConversation &&
+    flags.hasMore &&
+    !flags.isLoadingOlder
+  );
+}
+
 /** Find the new index of a previously saved anchor key inside a refreshed
  *  items list. Returns -1 if the key is no longer present. */
 export function findAnchorIndex(

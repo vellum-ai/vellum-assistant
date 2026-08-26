@@ -22,6 +22,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
   haveSameItemKeys,
+  shouldGestureLoadOlder,
   decideItemsChangeAction,
   findAnchorIndex,
   findLatestUserAnchorKey,
@@ -745,5 +746,47 @@ describe("haveSameItemKeys", () => {
     const prev = [makeMessage("m1"), makeMessage("m2")];
     const next = [makeMessage("m1"), makeMessage("m3")];
     expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldGestureLoadOlder — the underfilled-transcript gesture load path
+// ---------------------------------------------------------------------------
+
+describe("shouldGestureLoadOlder", () => {
+  const UNDERFILLED = { scrollTop: 0, scrollHeight: 400, clientHeight: 600 };
+  const READY = { hasMore: true, isLoadingOlder: false, hasConversation: true };
+
+  test("underfilled element with more history loads on a gesture", () => {
+    expect(shouldGestureLoadOlder(UNDERFILLED, READY)).toBe(true);
+  });
+
+  test("a scrollable element defers to the scroll handler", () => {
+    // Filled past the viewport: scroll events fire normally, so the gesture
+    // path stands down.
+    expect(
+      shouldGestureLoadOlder(
+        { scrollTop: 100, scrollHeight: 2_000, clientHeight: 600 },
+        READY,
+      ),
+    ).toBe(false);
+  });
+
+  test("no further history means no fetch", () => {
+    expect(
+      shouldGestureLoadOlder(UNDERFILLED, { ...READY, hasMore: false }),
+    ).toBe(false);
+  });
+
+  test("an in-flight load is not doubled", () => {
+    expect(
+      shouldGestureLoadOlder(UNDERFILLED, { ...READY, isLoadingOlder: true }),
+    ).toBe(false);
+  });
+
+  test("no conversation means no fetch", () => {
+    expect(
+      shouldGestureLoadOlder(UNDERFILLED, { ...READY, hasConversation: false }),
+    ).toBe(false);
   });
 });
