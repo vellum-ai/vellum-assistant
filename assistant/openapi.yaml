@@ -467,6 +467,8 @@ paths:
                           type: string
                         parentToolUseId:
                           type: string
+                        authErrorCode:
+                          type: string
                         usedTokens:
                           type: number
                         contextSize:
