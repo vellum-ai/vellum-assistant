@@ -208,6 +208,7 @@ async function executeSaveRule(
         "allow",
       );
       if (!result.ok) {
+        useRuleEditorStore.getState().setIsSavingRule(false);
         useRuleEditorStore.getState().dismissRuleEditor();
         captureSubmissionRejection("save_trust_rule", result);
         reportSubmissionFailure(
@@ -219,6 +220,7 @@ async function executeSaveRule(
       }
     } catch (err) {
       captureError(err, { context: "save_trust_rule" });
+      useRuleEditorStore.getState().setIsSavingRule(false);
       useRuleEditorStore.getState().dismissRuleEditor();
       reportSubmissionFailure(
         "confirmation",
@@ -227,6 +229,10 @@ async function executeSaveRule(
       );
       return;
     } finally {
+      // The saving flag deliberately stays true on the success path until
+      // the rule persists below, so the Save button cannot double-fire
+      // between approval and persistence; both failure branches reset it
+      // before returning.
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", context.requestId);
