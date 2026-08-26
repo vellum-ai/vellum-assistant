@@ -161,7 +161,7 @@ describe("skill platform compatibility", () => {
         hostPlatforms: [],
       }),
     ).toBe(
-      'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible desktop app and try again.',
+      'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible host client and try again.',
     );
     expect(
       skillPlatformUnavailableMessage("windows-automation", skill, {

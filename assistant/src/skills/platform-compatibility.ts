@@ -275,7 +275,7 @@ export function skillPlatformUnavailableMessage(
     return `Skill "${skillId}" requires an authenticated user and a connected host that provides: ${capabilities}.`;
   }
   if (issue === "host-capabilities-required") {
-    return `Skill "${skillId}" requires a connected host that provides: ${capabilities}. Reconnect a compatible desktop app and try again.`;
+    return `Skill "${skillId}" requires a connected host that provides: ${capabilities}. Reconnect a compatible host client and try again.`;
   }
   return `Skill "${skillId}" is unavailable on this operating system. Supported platforms: ${(skill.platforms ?? []).join(", ")}.`;
 }

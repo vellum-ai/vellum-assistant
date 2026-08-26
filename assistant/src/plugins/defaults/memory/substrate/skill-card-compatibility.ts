@@ -53,6 +53,7 @@ async function persistIncompatibleSkillSuppressions(
   conversationId: string,
   incompatibleIds: ReadonlySet<string>,
   strippedLegacyBlocks: ReadonlySet<string>,
+  normalizePersistedLegacyBlock: (inner: string) => string,
 ): Promise<void> {
   const rows = await getMessages(conversationId);
   await Promise.all(
@@ -72,7 +73,8 @@ async function persistIncompatibleSkillSuppressions(
         v3Inner.length > 0 &&
         !parseCardSections(v3Inner).framed &&
         !legacyCardSlugs &&
-        strippedLegacyBlocks.has(v3Inner);
+        (strippedLegacyBlocks.has(v3Inner) ||
+          strippedLegacyBlocks.has(normalizePersistedLegacyBlock(v3Inner)));
       const rowIncompatibleIds = [...incompatibleIds].filter((id) =>
         PERSISTED_BLOCK_KEYS.some((key) => {
           const block = metadata?.[key];
@@ -127,7 +129,10 @@ async function persistIncompatibleSkillSuppressions(
 export async function stripIncompatibleSkillCardsFromMessages(
   messages: Message[],
   context: SkillPlatformContext,
-  options: { conversationId?: string } = {},
+  options: {
+    conversationId?: string;
+    normalizePersistedLegacyBlock?: (inner: string) => string;
+  } = {},
 ): Promise<number> {
   await ensureSkillEntriesAvailable();
   const incompatibleSkills = listSkillEntries().filter(
@@ -179,6 +184,7 @@ export async function stripIncompatibleSkillCardsFromMessages(
       options.conversationId,
       incompatibleIds,
       strippedLegacyBlocks,
+      options.normalizePersistedLegacyBlock ?? ((inner) => inner),
     );
   }
   return strippedBlocks;

@@ -2,8 +2,10 @@ import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 
 const realPluginApi = await import("@vellumai/plugin-api");
 const realSkillStore = await import("../skill-store.js");
+const realEverInjectedStore = await import("../../v3/ever-injected-store.js");
 
 let mockActive = true;
+let mockPrunedSlugs = new Set<string>();
 const WINDOWS_CARD =
   '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates native Windows applications.';
 const persistedRow = {
@@ -58,11 +60,21 @@ mock.module("../skill-store.js", () => ({
       : realSkillStore.listSkillEntries(),
 }));
 
+mock.module("../../v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSlugs: (conversationId: string) =>
+    mockActive
+      ? mockPrunedSlugs
+      : realEverInjectedStore.getPrunedSlugs(conversationId),
+}));
+
 const { stripIncompatibleSkillCardsFromMessages } =
-  await import("../skill-card-compatibility.js");
+  await import("../../v3/skill-card-compatibility.js");
+const { filterPrunedCardSections } = await import("../../v3/prune.js");
 
 beforeEach(() => {
   persistedRows = [persistedRow];
+  mockPrunedSlugs = new Set();
   getMessagesMock.mockClear();
   updateMessageMetadataMock.mockClear();
 });
@@ -112,6 +124,43 @@ test("persists row suppression for a stripped metadata-less legacy block", async
   expect(messages[0]!.content).toEqual([]);
   expect(updateMessageMetadataMock).toHaveBeenCalledTimes(1);
   expect(updateMessageMetadataMock).toHaveBeenCalledWith("row-legacy", {
+    memoryV3LegacyBlockSuppressions: ["conv-1"],
+  });
+});
+
+test("matches a metadata-less legacy block after concept pruning", async () => {
+  const legacyBlock = [
+    "# memory/concepts/project.md",
+    "Pruned concept content.",
+    "# Skill: windows-automation",
+    'The "Windows Automation" skill (windows-automation) is available.',
+  ].join("\n\n");
+  persistedRows = [
+    {
+      id: "row-pruned-legacy",
+      metadata: JSON.stringify({ memoryV3InjectedBlock: legacyBlock }),
+    },
+  ];
+  mockPrunedSlugs = new Set(["project"]);
+  const liveBlock = filterPrunedCardSections(legacyBlock, mockPrunedSlugs);
+
+  await stripIncompatibleSkillCardsFromMessages(
+    [
+      {
+        role: "user",
+        content: [{ type: "text", text: `<memory>\n${liveBlock}\n</memory>` }],
+      },
+    ],
+    {
+      clientOs: "windows",
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+      hostPlatforms: [],
+    },
+    { conversationId: "conv-1" },
+  );
+
+  expect(updateMessageMetadataMock).toHaveBeenCalledWith("row-pruned-legacy", {
     memoryV3LegacyBlockSuppressions: ["conv-1"],
   });
 });

@@ -500,7 +500,7 @@ Body.
     expect(result).toEqual({
       success: false,
       error:
-        'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible desktop app and try again.',
+        'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible host client and try again.',
     });
   });
 
