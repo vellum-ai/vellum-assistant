@@ -33,7 +33,7 @@ import Foundation
 ///  1. `setActive`, so each in-app path inherits the drop without a call of its
 ///     own: the plugin's `switchTo`, `switchToPath` and `remove`, the `connect`
 ///     deep link on both a warm open and a cold launch, and the
-///     unreachable-server alert's "Use Vellum Cloud" fallback.
+///     unreachable-server alert's "Choose Assistant" fallback.
 ///  2. `MyViewController.reloadIfConfiguredOriginChanged()`, for the iOS
 ///     Settings pane, the one writer that goes straight to `UserDefaults`
 ///     behind this type's back while the app is running.

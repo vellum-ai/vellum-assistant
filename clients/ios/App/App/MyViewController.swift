@@ -51,11 +51,19 @@ class MyViewController: CAPBridgeViewController {
     private static let textSelectionHandlerName = "vellumTextSelection"
     private static let surfaceOverlayHandlerName = "vellumSurfaceOverlay"
 
+    /// The way out of an origin that cannot be reached, as a route under the
+    /// app entry: the baked Vellum Cloud origin serves the chooser whether or
+    /// not the configured one is up, and the chooser lists every remembered
+    /// origin, so the unreachable one is still one tap away once it recovers.
+    /// `noAutoSkip` keeps it from connecting straight through a lone assistant.
+    /// Mirrors the pairing page's cancel route.
+    private static let chooserRoutePath = "select-assistant?noAutoSkip=1"
+
     // MARK: - Self-hosted server origin
 
     /// The baked Vellum Cloud URL from `capacitor.config.json`, captured before
-    /// any self-hosted override is applied so a cleared preference and the "Use
-    /// Vellum Cloud" fallback can always return here.
+    /// any self-hosted override is applied so a cleared preference and the
+    /// unreachable alert's "Choose Assistant" fallback can always return here.
     private var bakedServerURL: URL?
 
     /// The baked Vellum Cloud URL as a string, exposed for the
@@ -68,6 +76,11 @@ class MyViewController: CAPBridgeViewController {
     /// `navigationDelegate` weakly, so the proxy must be owned here to stay
     /// alive for the view controller's lifetime.
     private var navigationDelegateProxy: NavigationDelegateProxy?
+
+    /// The live unreachable-server alert, so a second failure for the same load
+    /// does not stack another one. Weak: the presentation owns it, and the
+    /// reference going nil is what re-arms the alert for the next failure.
+    private weak var unreachableAlert: UIAlertController?
 
     /// The full server URL the web view was last loaded against — the effective
     /// self-hosted override or the baked default. Foreground change detection
@@ -466,16 +479,21 @@ extension MyViewController: WKScriptMessageHandler {
 
 extension MyViewController: WebViewNavigationFailureObserver {
     /// Present a single native alert when the configured self-hosted server's
-    /// main document fails to load. A no-op when no override is active (the baked
-    /// Vellum Cloud URL keeps its existing behavior), when the failure is a
-    /// programmatic cancellation (e.g. a superseding navigation), or when the
-    /// failed navigation targeted some other host.
+    /// main document fails to load, or comes back an HTTP error. A no-op when no
+    /// override is active (the baked Vellum Cloud URL keeps its existing
+    /// behavior), when the failure is a programmatic cancellation (e.g. a
+    /// superseding navigation), or when the failed navigation targeted some
+    /// other host.
     ///
     /// The host check matters because the shell loads other URLs into the same
     /// web view — most notably Universal Links via `AppDelegate.navigateWebView`.
     /// Without it, an unrelated failure would offer to clear a valid preference.
     /// The configured server's own failures (boot load, foreground reload, the
     /// deferred connect pair-page load — all to the configured host) still alert.
+    ///
+    /// Cancelling an error response in the proxy makes WebKit report a second,
+    /// `WebKitErrorDomain` failure for the same load; the alert's own liveness
+    /// check collapses the pair into one alert.
     func webViewNavigationDidFail(_ error: Error) {
         guard let configured = SelfHostedServer.configuredURL() else { return }
         let nsError = error as NSError
@@ -492,7 +510,8 @@ extension MyViewController: WebViewNavigationFailureObserver {
 
     /// The URL whose load failed, read from the navigation error. Populated on
     /// the `NSURLErrorDomain` failures the unreachable alert cares about
-    /// (unreachable host, TLS, timeout).
+    /// (unreachable host, TLS, timeout) and on the synthesized HTTP-status
+    /// failure, which carries the same key.
     private static func failingURL(for error: NSError) -> URL? {
         if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
             return url
@@ -507,28 +526,45 @@ extension MyViewController: WebViewNavigationFailureObserver {
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.viewIfLoaded?.window != nil,
-                  self.presentedViewController == nil
+                  self.unreachableAlert == nil
             else { return }
 
             let host = origin.host ?? origin.absoluteString
             let alert = UIAlertController(
-                title: nil,
-                message: "Can't reach \(host).",
+                title: "Can't reach \(host)",
+                message: "The assistant may be offline or unreachable from this device.",
                 preferredStyle: .alert
             )
             alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
                 self?.appliedServerURL = origin
                 self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: origin)))
             })
-            alert.addAction(UIAlertAction(title: "Use Vellum Cloud", style: .default) { [weak self] _ in
-                SelfHostedServer.clear()
-                if let baked = self?.bakedServerURL {
-                    self?.appliedServerURL = baked
-                    self?.webView?.load(URLRequest(url: Self.appEntryURL(forBase: baked)))
-                }
+            alert.addAction(UIAlertAction(title: "Choose Assistant", style: .default) { [weak self] _ in
+                self?.openAssistantChooser()
             })
-            self.present(alert, animated: true)
+            self.unreachableAlert = alert
+            self.topMostPresenter().present(alert, animated: true)
         }
+    }
+
+    /// Leave the unreachable origin for the chooser on the baked Vellum Cloud
+    /// origin. Clearing unsets only the active slot, so the remembered list
+    /// keeps the origin and the chooser offers it back once it recovers.
+    private func openAssistantChooser() {
+        SelfHostedServer.clear()
+        applyConfiguredOrigin(path: Self.chooserRoutePath)
+    }
+
+    /// The controller to present from. The shell presents its own sheets (the
+    /// camera, a share sheet) over this one, and presenting on a controller
+    /// that already has a presentation is a UIKit no-op, which would leave the
+    /// failure with no alert and the user with no way out.
+    private func topMostPresenter() -> UIViewController {
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController, !presented.isBeingDismissed {
+            presenter = presented
+        }
+        return presenter
     }
 }
 
@@ -552,7 +588,9 @@ protocol WebViewNavigationFailureObserver: AnyObject {
 ///     link) load in-app instead of being handed to Safari. The scope is exactly
 ///     the currently-configured host; everything else defers to Capacitor.
 ///  2. Main-document load failures are reported to `failureObserver` so the
-///     shell can show a native "can't reach server" alert.
+///     shell can show a native "can't reach server" alert. That covers both a
+///     navigation that fails outright and one the configured origin answers
+///     with an HTTP error.
 final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
     private weak var target: WebViewDelegationHandler?
     private weak var failureObserver: WebViewNavigationFailureObserver?
@@ -591,6 +629,48 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
             return
         }
         target.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+    }
+
+    /// Refuse a main document the configured self-hosted origin answers with an
+    /// HTTP error, and report it as a load failure.
+    ///
+    /// A dead tunnel usually answers rather than refusing the connection: ngrok
+    /// serves its own `ERR_NGROK_*` page with a 4xx, which is a perfectly good
+    /// navigation as far as WebKit is concerned, so no `didFail` callback fires
+    /// and the provider's page renders with no way back to the app. Cancelling
+    /// keeps that page off screen, leaving the shell's own alert as the whole
+    /// error state. Android reaches the same alert via `onReceivedHttpError`.
+    ///
+    /// Capacitor's `WebViewDelegationHandler` does not implement this callback,
+    /// so nothing is forwarded; implementing it here does take the selector out
+    /// of the message forwarding above, so re-check that on a Capacitor upgrade.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        guard navigationResponse.isForMainFrame,
+              let response = navigationResponse.response as? HTTPURLResponse,
+              response.statusCode >= 400,
+              let url = response.url,
+              let configuredHost = SelfHostedServer.configuredURL()?.host?.lowercased(),
+              url.host?.lowercased() == configuredHost
+        else {
+            decisionHandler(.allow)
+            return
+        }
+        decisionHandler(.cancel)
+        failureObserver?.webViewNavigationDidFail(Self.errorStatusFailure(for: url))
+    }
+
+    /// An HTTP error response as the kind of error `webViewNavigationDidFail`
+    /// already reads, so both failure shapes land on one alert path.
+    private static func errorStatusFailure(for url: URL) -> NSError {
+        return NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorBadServerResponse,
+            userInfo: [NSURLErrorFailingURLErrorKey: url]
+        )
     }
 
     // The force unwrap is part of the WKNavigationDelegate declaration.
