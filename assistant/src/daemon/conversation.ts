@@ -74,7 +74,7 @@ import {
 import {
   stripSuppressedSkillCards,
   suppressedSkillIdsForConversation,
-} from "../plugins/defaults/memory/substrate/skill-card-suppression.js";
+} from "../plugins/defaults/memory/skill-card-suppression.js";
 import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,

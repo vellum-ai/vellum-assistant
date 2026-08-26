@@ -88,7 +88,7 @@ import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
-import { SKILL_CARD_SUPPRESSIONS_METADATA_KEY } from "../plugins/defaults/memory/substrate/skill-card-suppression.js";
+import { SKILL_CARD_SUPPRESSIONS_METADATA_KEY } from "../plugins/defaults/memory/skill-card-suppression.js";
 import { renderCardsBlockInner } from "../plugins/defaults/memory/v3/render-injection.js";
 
 beforeEach(() => {
