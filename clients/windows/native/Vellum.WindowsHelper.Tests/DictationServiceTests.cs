@@ -103,6 +103,25 @@ public static class DictationServiceTests
         manager.AppendAudio(Convert.ToBase64String(new byte[] { 3, 4 }));
         Assert(engine.Chunks.Count == 0 && server.Chunks.Count == 1);
 
+        // A failure racing a graceful stop reports terminally instead of
+        // reopening the microphone on the server path.
+        events.Clear();
+        engine = new FakeEngine { FinalizeOnFinish = false };
+        var serverStarts = 0;
+        manager = new DictationSessionManager(
+            request =>
+            {
+                serverStarts += request.RequireOnDevice ? 0 : 1;
+                return engine;
+            },
+            Notify);
+        manager.SetPartials(true, false, 16000);
+        manager.SetPartials(false, false, 16000);
+        engine.EmitFailure("late failure");
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":false", StringComparison.Ordinal)));
+        Assert(serverStarts == 0);
+
         // A tap session that stays silent is retried once on the server
         // path; a session that spoke up is left alone.
         events.Clear();

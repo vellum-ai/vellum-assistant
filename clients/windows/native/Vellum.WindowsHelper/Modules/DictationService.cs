@@ -154,16 +154,19 @@ public sealed class DictationSessionManager(
         });
         engine.Failed += message =>
         {
-            ReleaseIfCurrent(generation, engine, () =>
+            // A session already stopped by SetPartials(false) must not
+            // retry: that would reopen the microphone after the user let go.
+            ReleaseIfCurrent(generation, engine, wasActive =>
             {
                 _sawActivity = true;
+                var retry = canRetryServer && wasActive;
                 notify("dictation.error", new
                 {
                     message,
                     onDevice = request.RequireOnDevice,
-                    willRetryServer = canRetryServer,
+                    willRetryServer = retry,
                 });
-                if (canRetryServer)
+                if (retry)
                 {
                     RetryOnServerLocked(request);
                 }
@@ -172,7 +175,7 @@ public sealed class DictationSessionManager(
         };
         engine.Finalized += text =>
         {
-            ReleaseIfCurrent(generation, engine, () =>
+            ReleaseIfCurrent(generation, engine, _ =>
             {
                 _sawActivity = true;
                 notify("dictation.finalized", new { text });
@@ -372,10 +375,14 @@ public sealed class DictationSessionManager(
         }
     }
 
+    /// <summary>
+    /// Runs `action` for a same-generation callback, passing whether the
+    /// engine was still the active session (false after a graceful stop).
+    /// </summary>
     private void ReleaseIfCurrent(
         int generation,
         IDictationEngine engine,
-        Action action)
+        Action<bool> action)
     {
         lock (_gate)
         {
@@ -383,11 +390,12 @@ public sealed class DictationSessionManager(
             {
                 return;
             }
-            if (ReferenceEquals(_engine, engine))
+            var wasActive = ReferenceEquals(_engine, engine);
+            if (wasActive)
             {
                 _engine = null;
             }
-            action();
+            action(wasActive);
         }
     }
 
