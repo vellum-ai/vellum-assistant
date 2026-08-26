@@ -20,7 +20,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONException;
@@ -36,6 +38,7 @@ public class NativeAuthPlugin extends Plugin {
     private static final String AUTH_STATE_STORE = "native_auth_state";
     private static final String CONFIG_PATH = "/_allauth/app/v1/config";
     private static final long FLOW_MAX_AGE_MS = 10 * 60 * 1000L;
+    private static final String FLOW_ATTRIBUTION_KEY = "attribution";
     private static final String FLOW_BASE_URL_KEY = "base_url";
     private static final String FLOW_CLIENT_ID_KEY = "client_id";
     private static final String FLOW_CODE_VERIFIER_KEY = "code_verifier";
@@ -86,7 +89,8 @@ public class NativeAuthPlugin extends Plugin {
             baseURL,
             WorkOSAuth.generateBase64UrlToken(),
             WorkOSAuth.generateBase64UrlToken(),
-            sanitizePostAuthDestination(call.getString("postAuthDestination"))
+            sanitizePostAuthDestination(call.getString("postAuthDestination")),
+            readAttribution(call.getObject("attribution"))
         );
         replaceFlow(nextFlow);
 
@@ -296,7 +300,10 @@ public class NativeAuthPlugin extends Plugin {
                 String sessionResponse;
                 try {
                     sessionResponse = postJson(
-                        buildPlatformURL(expected.baseURL, PROVIDER_TOKEN_PATH),
+                        WorkOSAuth.withAttribution(
+                            buildPlatformURL(expected.baseURL, PROVIDER_TOKEN_PATH),
+                            expected.attribution
+                        ),
                         sessionBody
                     );
                 } catch (HttpException e) {
@@ -530,6 +537,7 @@ public class NativeAuthPlugin extends Plugin {
         return authStateStore()
             .edit()
             .clear()
+            .putString(FLOW_ATTRIBUTION_KEY, Attribution.toQuery(pendingFlow.attribution))
             .putString(FLOW_BASE_URL_KEY, pendingFlow.baseURL.toString())
             .putString(FLOW_CLIENT_ID_KEY, pendingFlow.clientId)
             .putString(FLOW_CODE_VERIFIER_KEY, pendingFlow.codeVerifier)
@@ -568,7 +576,8 @@ public class NativeAuthPlugin extends Plugin {
             baseURL,
             state,
             codeVerifier,
-            sanitizePostAuthDestination(store.getString(FLOW_DESTINATION_KEY, null))
+            sanitizePostAuthDestination(store.getString(FLOW_DESTINATION_KEY, null)),
+            Attribution.parseQuery(store.getString(FLOW_ATTRIBUTION_KEY, null))
         );
         restored.clientId = clientId;
         restored.browserLaunched = true;
@@ -581,6 +590,31 @@ public class NativeAuthPlugin extends Plugin {
 
     private void clearPendingFlow() {
         authStateStore().edit().clear().commit();
+    }
+
+    /**
+     * Allowlisted campaign attribution from a {@code startAuth} call. Unwrapped
+     * here so {@link Attribution} stays free of Capacitor and Android types, and
+     * so stays testable on the JVM.
+     */
+    private static Map<String, String> readAttribution(JSObject source) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        if (source == null) {
+            return fields;
+        }
+        for (String key : Attribution.KEYS) {
+            String value = source.getString(key, "");
+            if (value.isEmpty()) {
+                continue;
+            }
+            fields.put(
+                key,
+                value.length() <= Attribution.VALUE_MAX_LENGTH
+                    ? value
+                    : value.substring(0, Attribution.VALUE_MAX_LENGTH)
+            );
+        }
+        return fields;
     }
 
     private static String sanitizePostAuthDestination(String value) {
@@ -630,18 +664,27 @@ public class NativeAuthPlugin extends Plugin {
         final String state;
         final String codeVerifier;
         final String postAuthDestination;
+        final Map<String, String> attribution;
 
         String clientId;
         boolean browserLaunched;
         boolean callbackReceived;
         long browserLaunchTimeMs;
 
-        AuthFlow(PluginCall call, Uri baseURL, String state, String codeVerifier, String postAuthDestination) {
+        AuthFlow(
+            PluginCall call,
+            Uri baseURL,
+            String state,
+            String codeVerifier,
+            String postAuthDestination,
+            Map<String, String> attribution
+        ) {
             this.call = call;
             this.baseURL = baseURL;
             this.state = state;
             this.codeVerifier = codeVerifier;
             this.postAuthDestination = postAuthDestination;
+            this.attribution = attribution;
         }
     }
 
