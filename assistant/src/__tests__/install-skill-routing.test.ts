@@ -13,6 +13,7 @@ const mockCatalogSkills = mock(
     description: string;
     source: string;
     directoryPath?: string;
+    platforms?: Array<"macos" | "windows" | "linux">;
   }> => [],
 );
 const mockClawhubInstall = mock(
@@ -110,6 +111,7 @@ mock.module("../providers/provider-send-message.js", () => ({
   userMessage: () => ({}),
 }));
 mock.module("../skills/catalog-cache.js", () => ({
+  getCachedCatalogSync: () => [],
   getCatalog: mockGetCatalog,
 }));
 mock.module("../skills/catalog-install.js", () => ({
@@ -380,6 +382,29 @@ Body.
     // Should have auto-enabled via ensureSkillEntry, not called external install
     expect(mockInstallExternalSkill).not.toHaveBeenCalled();
     expect(mockClawhubInstall).not.toHaveBeenCalled();
+  });
+
+  test("rejects bundled skills that do not support the host platform", async () => {
+    const incompatiblePlatform =
+      process.platform === "darwin" ? "windows" : "macos";
+    mockCatalogSkills.mockReturnValue([
+      {
+        id: "platform-skill",
+        displayName: "Platform Skill",
+        description: "A platform-specific skill",
+        source: "bundled",
+        directoryPath: "/tmp/test-bundled-skills/platform-skill",
+        platforms: [incompatiblePlatform],
+      },
+    ]);
+
+    const result = await installSkill({ slug: "platform-skill" });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("unavailable on this operating system");
+    }
+    expect(mockEnsureSkillEntry).not.toHaveBeenCalled();
   });
 
   test("skills.sh install failure propagates error", async () => {

@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  collectFdUsage,
   createFdPressureState,
   evaluateFdPressure,
   parseOpenFileLimits,
@@ -65,6 +66,37 @@ describe("parseOpenFileLimits", () => {
       parseOpenFileLimits("Max cpu time  unlimited  unlimited  seconds\n"),
     ).toEqual({ soft: null, hard: null });
     expect(parseOpenFileLimits("")).toEqual({ soft: null, hard: null });
+  });
+});
+
+describe("collectFdUsage", () => {
+  test("uses Win32 handle counts on Windows", () => {
+    expect(
+      collectFdUsage({
+        platform: "win32",
+        processTable: [
+          { pid: 10, ppid: 4, command: "low.exe", handleCount: 5 },
+          { pid: 11, ppid: 4, command: "high.exe", handleCount: 20 },
+        ],
+      }),
+    ).toEqual([
+      {
+        pid: 11,
+        command: "high.exe",
+        openCount: 20,
+        softLimit: null,
+        hardLimit: null,
+        ratio: null,
+      },
+      {
+        pid: 10,
+        command: "low.exe",
+        openCount: 5,
+        softLimit: null,
+        hardLimit: null,
+        ratio: null,
+      },
+    ]);
   });
 });
 

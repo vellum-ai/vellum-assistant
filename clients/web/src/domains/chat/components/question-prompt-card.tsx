@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Pencil,
@@ -10,16 +11,25 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
 
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
+import {
+  expandedChromeOpacity,
+  minimizedChromeOpacity,
+  useQuestionCardMinimize,
+} from "@/domains/chat/hooks/use-question-card-minimize";
+import { useTranslation } from "@/i18n";
 import { useOptionHotkeys } from "@/hooks/use-option-hotkeys";
 import type { QuestionEntry } from "@/types/interaction-ui-types";
-import { isPointerCoarse } from "@/utils/pointer";
-import { Button, Card, Typography } from "@vellumai/design-library";
-import { useTranslation } from "@/i18n";
+import { usePointerCoarse } from "@/utils/pointer";
+import { Button, Card, cn, Typography } from "@vellumai/design-library";
+
+/** Stable no-op for the hotkeys the minimized card has nothing to act on. */
+const NOOP = () => {};
 
 export interface QuestionPromptCardProps {
   /** The daemon-supplied request id; needed by the owner for batched POST. */
@@ -56,10 +66,13 @@ export interface QuestionPromptCardProps {
  * `.private/plans/ask-question-batched-ui.md` (PR 2).
  */
 export function QuestionPromptCard(props: QuestionPromptCardProps) {
+  // The card owns its own padding: the bottom inset has to sit above the
+  // collapsing rows rather than below them, or minimizing would leave the
+  // expanded card's floor behind as dead space under the summary line.
   return (
-    <Card>
+    <Card.Root noPadding>
       <QuestionPromptBody {...props} />
-    </Card>
+    </Card.Root>
   );
 }
 
@@ -72,6 +85,19 @@ export function QuestionPromptCard(props: QuestionPromptCardProps) {
  * (N+1) focuses the inline input. Numeric badges are hidden on coarse-pointer
  * (touch) devices — the pencil icon stays since it's iconography, not a
  * hotkey hint.
+ *
+ * ## Minimized state
+ *
+ * At full height the card covers the assistant message the question is about,
+ * which on a phone is most of what is left of the transcript (LUM-3390). The
+ * header stays put and everything below it collapses to nothing, leaving the
+ * question and an option count docked above the composer. Three ways in and
+ * out, all driving the same state: the header's chevron, a vertical swipe
+ * anywhere on the card, and a tap on a minimized card's header.
+ *
+ * `useQuestionCardMinimize` reduces all of that to one `progress` value, which
+ * every moving part below reads. Mid-drag it tracks the finger; at rest it is
+ * the state and CSS eases between the two.
  */
 export function QuestionPromptBody({
   entries,
@@ -80,6 +106,7 @@ export function QuestionPromptBody({
   onClose,
 }: QuestionPromptCardProps) {
   const { t } = useTranslation("chat");
+
   // Defensive: schema requires ≥1 entry, but real-world streams can deliver
   // malformed payloads. Warn so QA notices, but still render something.
   useEffect(() => {
@@ -96,6 +123,10 @@ export function QuestionPromptBody({
     {},
   );
   const inputRef = useRef<HTMLInputElement>(null);
+  const collapsibleId = useId();
+
+  const minimize = useQuestionCardMinimize();
+  const { isMinimized, progress, dragAttr } = minimize;
 
   const isBatched = entries.length > 1;
   const currentEntry = entries[currentIndex];
@@ -104,10 +135,17 @@ export function QuestionPromptBody({
     : "";
   const hasFreeText = currentFreeText.trim().length > 0;
 
-  // Hide the numeric badges on coarse-pointer (touch) devices — they hint at
-  // a hardware-keyboard affordance the user can't trigger. The pencil icon on
-  // the free-text row is iconography (not a hotkey hint) and stays visible.
-  const [showHotkeyBadges] = useState(() => !isPointerCoarse());
+  // The pointer axis, subscribed rather than sampled: a convertible folding
+  // into tablet mode changes it under a card that is already on screen, and
+  // both things it gates are rendered. The grabber advertises a swipe only
+  // touch can perform, and the numeric badges hint at a hardware-keyboard
+  // affordance a thumb can't reach, so a stale read leaves one of them making
+  // a promise the device can no longer keep. `useSwipeEngine` reads the same
+  // subscribed signal, so the grabber and the gesture it advertises arrive and
+  // leave together. The pencil icon on the free-text row is iconography, not a
+  // hint, and stays either way.
+  const isTouch = usePointerCoarse();
+  const showHotkeyBadges = !isTouch;
 
   const recordResponse = useCallback(
     (entry: QuestionEntry, response: QuestionResponseEntry) => {
@@ -215,19 +253,24 @@ export function QuestionPromptBody({
   }, [canGoNext]);
 
   useOptionHotkeys(
-    currentEntry?.options.length ?? 0,
+    // A minimized card has no rows on screen, so the option, free-text, skip
+    // and pagination hotkeys would act invisibly: zero options means no digit
+    // resolves to one, and the free-text digit lands on a no-op. Escape is the
+    // exception and stays wired in both states, because it is the keyboard's
+    // way out of the card and the X beside it is the only other one.
+    isMinimized ? 0 : (currentEntry?.options.length ?? 0),
     handleSelectByIndex,
-    handleFocusFreeText,
+    isMinimized ? NOOP : handleFocusFreeText,
     !isSubmitting && currentEntry !== undefined,
     {
-      onPrev: isBatched ? handlePrev : undefined,
-      onNext: isBatched ? handleNext : undefined,
+      onPrev: isBatched && !isMinimized ? handlePrev : undefined,
+      onNext: isBatched && !isMinimized ? handleNext : undefined,
       // Only register `s` when in a batched UX *and* skipping is meaningful
       // for the current row. The legacy single-question card had no `s`
       // hotkey at all — preserve that parity by gating on `isBatched`. The
       // `hasFreeText` gate is a UX safety net (`recordResponse` itself also
       // guards `hasFreeText`).
-      onSkip: !hasFreeText ? handleSkip : undefined,
+      onSkip: !hasFreeText && !isMinimized ? handleSkip : undefined,
       onClose,
     },
   );
@@ -290,26 +333,109 @@ export function QuestionPromptBody({
       : null;
   const isSkipped = currentDraft?.kind === "skip";
 
+  const expandedOpacity = expandedChromeOpacity(progress);
+  const minimizedOpacity = minimizedChromeOpacity(progress);
+
   return (
-    <>
-      <div className="flex items-start gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+    <div
+      // `pan-x pinch-zoom` hands the browser everything except the axis this
+      // card drags on. Without it a downward swipe can be claimed as native
+      // viewport or ancestor panning, and the touch stream is cancelled before
+      // `touchend`: the card would follow the finger and then snap back with
+      // nothing committed. Zoom and horizontal panning are left alone, since
+      // neither is a gesture the card wants.
+      className="relative flex flex-col p-4 [touch-action:pan-x_pinch-zoom]"
+      onTouchStart={minimize.dragHandlers.onTouchStart}
+      onTouchMove={minimize.dragHandlers.onTouchMove}
+      onTouchEnd={minimize.dragHandlers.onTouchEnd}
+      onTouchCancel={minimize.dragHandlers.onTouchCancel}
+      onClickCapture={minimize.dragHandlers.onClickCapture}
+    >
+      {isTouch && (
+        // The swipe is the fastest way out of the card's way, and nothing else
+        // on screen says it exists. Touch only: on a mouse the same bar would
+        // advertise a gesture that never fires (see `docs/PLATFORM_ADAPTATION.md`).
+        //
+        // Absolute, so it sits inside the inset the card already has rather
+        // than adding a band of its own above it. In flow it would push the
+        // header down while the floor below stayed where it was, and the card
+        // would be visibly lopsided on exactly the devices that show it.
+        <div
+          aria-hidden="true"
+          data-slot="question-card-grabber"
+          className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-center"
+        >
+          <span className="h-1 w-9 rounded-full bg-[var(--border-element)]" />
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "flex items-start gap-2",
+          // Only where a drag can start: elsewhere this would take away the
+          // ability to select the question text and give nothing back.
+          isTouch && "select-none",
+          isMinimized && "cursor-pointer",
+        )}
+        // A minimized card reopens from anywhere in its header, which is the
+        // whole card. Left off while expanded so the header's own buttons
+        // aren't shadowed by a handler that would undo them on the way up.
+        onClick={isMinimized ? minimize.expand : undefined}
+      >
+        <div className="flex min-w-0 flex-1 flex-col">
           <Typography
             variant="body-medium-default"
             as="div"
-            className="text-[color:var(--content-default)]"
+            className={cn(
+              "text-[color:var(--content-default)]",
+              isMinimized && "truncate",
+            )}
           >
             {currentEntry.question}
           </Typography>
           {currentEntry.description && (
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-[color:var(--content-tertiary)]"
+            <div
+              className="question-card-motion grid"
+              style={{ gridTemplateRows: `${progress}fr` }}
+              data-dragging={dragAttr}
+              // Collapsed to nothing is invisible, not absent. Without this the
+              // description is still read out under a minimized card, and the
+              // summary line below it under an expanded one.
+              aria-hidden={isMinimized || undefined}
             >
-              {currentEntry.description}
-            </Typography>
+              <div className="min-h-0 overflow-hidden">
+                <Typography
+                  variant="body-small-default"
+                  as="p"
+                  className="question-card-motion pt-1 text-[color:var(--content-tertiary)]"
+                  style={{ opacity: expandedOpacity }}
+                  data-dragging={dragAttr}
+                >
+                  {currentEntry.description}
+                </Typography>
+              </div>
+            </div>
           )}
+          <div
+            className="question-card-motion grid"
+            style={{ gridTemplateRows: `${1 - progress}fr` }}
+            data-dragging={dragAttr}
+            aria-hidden={!isMinimized || undefined}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="question-card-motion pt-1 text-[color:var(--content-tertiary)]"
+                style={{ opacity: minimizedOpacity }}
+                data-dragging={dragAttr}
+              >
+                {t("questionPromptCard.minimizedSummary", {
+                  count: currentEntry.options.length,
+                })}
+              </Typography>
+            </div>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {isBatched && (
@@ -318,24 +444,58 @@ export function QuestionPromptBody({
               as="span"
               className="px-1 text-[color:var(--content-tertiary)]"
             >
-              {t("questionPromptCard.position", { current: currentIndex + 1, total: entries.length })}
+              {t("questionPromptCard.position", {
+                current: currentIndex + 1,
+                total: entries.length,
+              })}
             </Typography>
+          )}
+          {!isMinimized && (
+            // Paging through a batch is an expanded-card action, so the pager
+            // leaves with the rows it pages between. It fades out over the
+            // first half of the collapse and unmounts once the state commits,
+            // by which point it is already invisible.
+            <div
+              className="question-card-motion flex items-center gap-1"
+              style={{ opacity: expandedOpacity }}
+              data-dragging={dragAttr}
+            >
+              <Button
+                variant="ghost"
+                size="compact"
+                iconOnly={<ChevronLeft />}
+                onClick={handlePrev}
+                disabled={!canGoPrev || isSubmitting}
+                aria-label={t("questionPromptCard.previousQuestionAria")}
+              />
+              <Button
+                variant="ghost"
+                size="compact"
+                iconOnly={<ChevronRight />}
+                onClick={handleNext}
+                disabled={!canGoNext || isSubmitting}
+                aria-label={t("questionPromptCard.nextQuestionAria")}
+              />
+            </div>
           )}
           <Button
             variant="ghost"
             size="compact"
-            iconOnly={<ChevronLeft />}
-            onClick={handlePrev}
-            disabled={!canGoPrev || isSubmitting}
-            aria-label={t("questionPromptCard.previousQuestionAria")}
-          />
-          <Button
-            variant="ghost"
-            size="compact"
-            iconOnly={<ChevronRight />}
-            onClick={handleNext}
-            disabled={!canGoNext || isSubmitting}
-            aria-label={t("questionPromptCard.nextQuestionAria")}
+            iconOnly={
+              <ChevronDown
+                className="question-card-motion"
+                style={{ transform: `rotate(${(1 - progress) * 180}deg)` }}
+                data-dragging={dragAttr}
+              />
+            }
+            onClick={minimize.toggle}
+            aria-expanded={!isMinimized}
+            aria-controls={collapsibleId}
+            aria-label={
+              isMinimized
+                ? t("questionPromptCard.expandAria")
+                : t("questionPromptCard.minimizeAria")
+            }
           />
           {onClose && (
             <Button
@@ -351,89 +511,107 @@ export function QuestionPromptBody({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-col gap-1.5">
-        {currentEntry.options.map((option, index) => {
-          const badgeNumber = index + 1;
-          const isSelected = selectedOptionId === option.id;
-          return (
-            <Button
-              key={option.id}
-              variant="ghost"
-              fullWidth
-              disabled={isSubmitting || hasFreeText}
-              onClick={() => handleOptionClick(option.id)}
-              className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
-              aria-label={t("questionPromptCard.optionAria", { number: badgeNumber, label: option.label })}
+      <div
+        id={collapsibleId}
+        className="question-card-motion grid"
+        style={{ gridTemplateRows: `${progress}fr` }}
+        data-dragging={dragAttr}
+        // Zero-height rows are still reachable by a screen reader and still in
+        // the tab order, so the collapse has to say so as well as show it.
+        inert={isMinimized}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="mt-3 flex flex-col gap-1.5">
+            {currentEntry.options.map((option, index) => {
+              const badgeNumber = index + 1;
+              const isSelected = selectedOptionId === option.id;
+              return (
+                <Button
+                  key={option.id}
+                  variant="ghost"
+                  fullWidth
+                  disabled={isSubmitting || hasFreeText}
+                  onClick={() => handleOptionClick(option.id)}
+                  className="h-auto justify-start whitespace-normal px-3 py-2 text-left"
+                  aria-label={t("questionPromptCard.optionAria", {
+                    number: badgeNumber,
+                    label: option.label,
+                  })}
+                >
+                  <QuestionRowContents
+                    badgeNumber={badgeNumber}
+                    showBadge={showHotkeyBadges}
+                    label={option.label}
+                    description={option.description}
+                    showCheck={isSelected}
+                  />
+                </Button>
+              );
+            })}
+
+            <div
+              className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors ${
+                hasFreeText ? "bg-[var(--surface-base)]" : ""
+              }`}
             >
-              <QuestionRowContents
-                badgeNumber={badgeNumber}
-                showBadge={showHotkeyBadges}
-                label={option.label}
-                description={option.description}
-                showCheck={isSelected}
+              <span
+                aria-hidden="true"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)] text-[color:var(--content-secondary)]"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={currentFreeText}
+                onChange={(event) => handleFreeTextChange(event.target.value)}
+                onKeyDown={handleInputKeyDown}
+                placeholder={
+                  currentEntry.freeTextPlaceholder ??
+                  t("questionPromptCard.typeSomethingElsePlaceholder")
+                }
+                disabled={isSubmitting}
+                aria-label={t("questionPromptCard.typeDifferentAnswerAria")}
+                className="text-body-medium-default min-w-0 flex-1 bg-transparent text-[color:var(--content-default)] placeholder:text-[color:var(--content-tertiary)] focus:outline-none disabled:opacity-50"
               />
-            </Button>
-          );
-        })}
+              {hasFreeText ? (
+                <Button
+                  variant="primary"
+                  size="compact"
+                  iconOnly={<ArrowRight />}
+                  onClick={handleSubmitFreeText}
+                  disabled={isSubmitting}
+                  aria-label={t("questionPromptCard.sendResponseAria")}
+                  className="shrink-0"
+                />
+              ) : (
+                <Button
+                  variant="outlined"
+                  onClick={handleSkip}
+                  disabled={isSubmitting}
+                  aria-label={t("questionPromptCard.skipAria")}
+                  className="shrink-0"
+                >
+                  {isSkipped
+                    ? t("questionPromptCard.skipped")
+                    : t("questionPromptCard.skip")}
+                </Button>
+              )}
+            </div>
 
-        <div
-          className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors ${
-            hasFreeText ? "bg-[var(--surface-base)]" : ""
-          }`}
-        >
-          <span
-            aria-hidden="true"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)] text-[color:var(--content-secondary)]"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={currentFreeText}
-            onChange={(event) => handleFreeTextChange(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            placeholder={
-              currentEntry.freeTextPlaceholder ?? t("questionPromptCard.typeSomethingElsePlaceholder")
-            }
-            disabled={isSubmitting}
-            aria-label={t("questionPromptCard.typeDifferentAnswerAria")}
-            className="text-body-medium-default min-w-0 flex-1 bg-transparent text-[color:var(--content-default)] placeholder:text-[color:var(--content-tertiary)] focus:outline-none disabled:opacity-50"
-          />
-          {hasFreeText ? (
-            <Button
-              variant="primary"
-              size="compact"
-              iconOnly={<ArrowRight />}
-              onClick={handleSubmitFreeText}
-              disabled={isSubmitting}
-              aria-label={t("questionPromptCard.sendResponseAria")}
-              className="shrink-0"
-            />
-          ) : (
-            <Button
-              variant="outlined"
-              onClick={handleSkip}
-              disabled={isSubmitting}
-              aria-label={t("questionPromptCard.skipAria")}
-              className="shrink-0"
-            >
-              {isSkipped ? t("questionPromptCard.skipped") : t("questionPromptCard.skip")}
-            </Button>
-          )}
+            {isSkipped && !hasFreeText && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="px-3 text-[color:var(--content-tertiary)]"
+              >
+                {t("questionPromptCard.skippedHint")}
+              </Typography>
+            )}
+          </div>
         </div>
-
-        {isSkipped && !hasFreeText && (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="px-3 text-[color:var(--content-tertiary)]"
-          >
-            {t("questionPromptCard.skippedHint")}
-          </Typography>
-        )}
       </div>
-    </>
+    </div>
   );
 }
 

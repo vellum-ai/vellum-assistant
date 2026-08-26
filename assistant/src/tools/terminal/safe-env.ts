@@ -7,6 +7,8 @@
  */
 import { readdirSync } from "node:fs";
 
+import { pathListDelimiter } from "@vellumai/environments/shell";
+
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 
@@ -74,6 +76,18 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MINIKUBE_STORAGE_SIZE",
   "VELLUM_BACKUP_DIR",
   "VELLUM_BACKUP_KEY_PATH",
+] as const;
+
+export const WINDOWS_SAFE_ENV_VARS = [
+  "SystemRoot",
+  "COMSPEC",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "TEMP",
+  "TMP",
+  "PATHEXT",
+  "SystemDrive",
 ] as const;
 
 export const KATA_SAFE_ENV_VARS = [
@@ -165,26 +179,42 @@ export const ALWAYS_INJECTED_ENV_VARS = [
 function appendUniquePathEntries(
   value: string | undefined,
   entries: readonly string[],
+  separator = pathListDelimiter(),
 ): string {
-  const parts = value ? value.split(":").filter(Boolean) : [];
+  const parts = value ? value.split(separator).filter(Boolean) : [];
   for (const entry of entries) {
     if (!parts.includes(entry)) {
       parts.push(entry);
     }
   }
-  return parts.join(":");
+  return parts.join(separator);
 }
 
-export function buildSanitizedEnv(): Record<string, string> {
+export function buildSanitizedEnv(
+  hostPlatform: NodeJS.Platform = process.platform,
+  sourceEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
   const env: Record<string, string> = {};
-  const isKataRuntime = isKataFamilyRuntime(process.env.VELLUM_SANDBOX_RUNTIME);
+  const isKataRuntime = isKataFamilyRuntime(sourceEnv.VELLUM_SANDBOX_RUNTIME);
+  const platformVars =
+    hostPlatform === "win32" ? WINDOWS_SAFE_ENV_VARS : ([] as const);
   const safeEnvVars = isKataRuntime
-    ? [...SAFE_ENV_VARS, ...KATA_SAFE_ENV_VARS]
-    : SAFE_ENV_VARS;
+    ? [...SAFE_ENV_VARS, ...platformVars, ...KATA_SAFE_ENV_VARS]
+    : [...SAFE_ENV_VARS, ...platformVars];
 
+  const windowsEnv =
+    hostPlatform === "win32"
+      ? new Map(
+          Object.entries(sourceEnv).map(([key, value]) => [
+            key.toLowerCase(),
+            value,
+          ]),
+        )
+      : null;
   for (const key of safeEnvVars) {
-    if (process.env[key] != null) {
-      env[key] = process.env[key]!;
+    const value = windowsEnv?.get(key.toLowerCase()) ?? sourceEnv[key];
+    if (value != null) {
+      env[key] = value;
     }
   }
   if (isKataRuntime) {
@@ -207,7 +237,7 @@ export function buildSanitizedEnv(): Record<string, string> {
       env.BUN_INSTALL = `${env.HOME}/.bun`;
       env.PATH = appendUniquePathEntries(
         `${env.PYTHONUSERBASE}/bin:${env.BUN_INSTALL}/bin`,
-        env.PATH.split(":").filter(Boolean),
+        env.PATH.split(pathListDelimiter()).filter(Boolean),
       );
     }
   }

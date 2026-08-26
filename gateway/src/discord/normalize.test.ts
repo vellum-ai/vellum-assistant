@@ -77,10 +77,10 @@ describe("DiscordMessageCreateSchema", () => {
   });
 
   test("a malformed guild id fails closed, not to absent", () => {
-    // Absence marks a DM, and a DM is admitted with no allow-list entry and
-    // no mention. Collapsing a parse failure to undefined would hand a guild
-    // message both exemptions, so it collapses to a truthy sentinel instead
-    // and stays on the guild path. Same reasoning as the bot indicators.
+    // Absence marks a DM, and a DM is admitted without a mention. Collapsing
+    // a parse failure to undefined would hand a guild message that exemption,
+    // so it collapses to a truthy sentinel instead and stays on the guild
+    // path. Same reasoning as the bot indicators.
     const message = parse(messagePayload({ guild_id: 42 }));
     expect(message.guild_id).toBeDefined();
     expect(message.guild_id).not.toBeUndefined();
@@ -277,6 +277,7 @@ describe("normalizeDiscordMessage", () => {
   test("thread messages deliver on the parent with the thread as threadId", () => {
     const raw = messagePayload({ channel_id: "thread-1" });
     const event = normalizeDiscordMessage(parse(raw), {
+      parentChannelId: "channel-1",
       raw,
     });
     expect(event?.message.conversationExternalId).toBe("channel-1");

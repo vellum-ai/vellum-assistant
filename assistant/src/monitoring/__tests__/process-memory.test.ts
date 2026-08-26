@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { effectiveSizeBytes, parseSmapsRollup } from "../process-memory.js";
+import {
+  effectiveSizeBytes,
+  parseSmapsRollup,
+  topProcessesByMemory,
+} from "../process-memory.js";
 
 const SMAPS_ROLLUP = `555c98516000-7ffe248ca000 ---p 00000000 00:00 0                          [rollup]
 Rss:              524288 kB
@@ -63,5 +67,34 @@ describe("effectiveSizeBytes", () => {
     expect(
       effectiveSizeBytes({ ...base, rssBytes: null, pssBytes: null }),
     ).toBe(0);
+  });
+});
+
+describe("topProcessesByMemory", () => {
+  test("uses Win32 working-set data on Windows", () => {
+    const result = topProcessesByMemory(1, {
+      platform: "win32",
+      processTable: [
+        { pid: 10, ppid: 4, command: "helper.exe", rssBytes: 1024 },
+        {
+          pid: 11,
+          ppid: 4,
+          command: '"C:\\Program Files\\Bun\\bun.exe" worker.ts',
+          rssBytes: 4096,
+        },
+      ],
+    });
+
+    expect(result).toEqual([
+      {
+        pid: 11,
+        command: "worker",
+        rssBytes: 4096,
+        pssBytes: null,
+        pssAnonBytes: null,
+        pssFileBytes: null,
+        pssShmemBytes: null,
+      },
+    ]);
   });
 });

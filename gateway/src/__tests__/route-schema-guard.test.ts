@@ -222,6 +222,7 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // Managed-speech relay — daemon-only WS egress to velay, rejected on any
   // ingress path; not part of the public gateway API
   "/v1/speech/stt/stream",
+  "/v2/speech/stt/stream",
   "/v1/speech/tts/stream",
   // Plugin-declared webhooks — which paths exist is decided at runtime by the
   // installed plugins and the guardian's approvals, so there is no fixed set

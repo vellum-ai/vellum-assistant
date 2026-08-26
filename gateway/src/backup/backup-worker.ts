@@ -69,8 +69,13 @@ interface BackupConfig {
 
 /** Default iCloud Drive destination (macOS) with encryption enabled. */
 function defaultOffsiteDestinations(): BackupDestination[] {
+  if (process.platform !== "darwin") {
+    return [];
+  }
   const home = process.env.HOME || "";
-  if (!home) return [];
+  if (!home) {
+    return [];
+  }
   return [
     {
       path: join(

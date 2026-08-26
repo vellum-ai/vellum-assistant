@@ -132,6 +132,12 @@ export interface RemoteWebPairingRequestDenyResponse {
 export interface RemoteWebPairingTokenRequest {
   /** The `deviceCode` from the challenge. */
   deviceCode: string;
+  /**
+   * Optional self-reported device name, for example "Vellum iOS app". The gateway
+   * stores it verbatim (capped) and never trusts it for authorization. Absent from
+   * clients that predate this field.
+   */
+  clientReportedName?: string;
 }
 
 /**

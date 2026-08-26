@@ -13,8 +13,13 @@
  */
 import { writeFileSync } from "node:fs";
 
+import {
+  initFeatureFlagOverrides,
+  refreshOverridesFromGateway,
+} from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
+import { startConversationEvictor } from "../daemon/conversation-evictor.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { registerWorkerPluginSurface } from "../plugins/worker-plugin-surface.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
@@ -32,6 +37,9 @@ const log = getLogger("schedule-worker-process");
 /** Same cadence as the daemon scheduler's tick. */
 const TICK_INTERVAL_MS = 15_000;
 
+/** How often this process re-reads flag overrides from the gateway. */
+const FLAG_REFRESH_INTERVAL_MS = 60_000;
+
 async function main(): Promise<void> {
   // Only the daemon stamps SSE seqs and writes the shared reservation file.
   disableStreamSeqStamping();
@@ -43,6 +51,29 @@ async function main(): Promise<void> {
   // Write PID file so `status` and `stop` can find us.
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Schedule worker process started");
+
+  // The override cache is per-process, so this worker has to populate its own
+  // even though the daemon already populated the daemon's. Without it every
+  // flag check here resolves to its registry default and ignores both remote
+  // values and local overrides, which decides at fire time whether a schedule
+  // runs at all. Awaited so the first tick reads real values, and best-effort:
+  // a gateway that never answers leaves the cache unset and the worker falls
+  // back to registry defaults rather than failing to start.
+  // Bounded to one short attempt: a gateway that accepts the socket but never
+  // answers would otherwise hold the first tick for the full production retry
+  // schedule. A miss here leaves the cache unset (registry defaults) and the
+  // periodic refresh below converges to real values within a minute.
+  try {
+    await initFeatureFlagOverrides({
+      retryBackoffsMs: [],
+      callTimeoutMs: 2_000,
+    });
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to load feature flag overrides in schedule worker; continuing on registry defaults",
+    );
+  }
 
   // Rehydrate the platform base URL and IDs from the credential store before
   // the first tick. The daemon does this in initializeProvidersAndTools(); this
@@ -71,15 +102,24 @@ async function main(): Promise<void> {
     );
   }
 
+  // Sweep idle conversations out of the in-memory pool. The daemon starts
+  // this at startup; this process hosts conversations too, so without it
+  // every scheduled run's conversation is retained for the process lifetime.
+  startConversationEvictor();
+
   let stopped = false;
   let tickRunning = false;
   let timer: ReturnType<typeof setInterval> | null = null;
+  let flagRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let disposePidGuard: (() => void) | null = null;
   const shutdown = (signal: string) => {
     log.info({ signal }, "Schedule worker process shutting down");
     stopped = true;
     if (timer != null) {
       clearInterval(timer);
+    }
+    if (flagRefreshTimer != null) {
+      clearInterval(flagRefreshTimer);
     }
     disposePidGuard?.();
     cleanupWorkerPidFile(pidPath);
@@ -127,6 +167,20 @@ async function main(): Promise<void> {
   }, TICK_INTERVAL_MS);
   void tick();
 
+  // This process outlives any single flag value, so poll the gateway instead of
+  // holding whatever was cached at startup. The daemon's gateway flag listener
+  // is not reusable here: it also reconciles managed profiles and broadcasts
+  // sync events, both of which belong to the daemon alone. The refresh swaps the
+  // cache atomically, so a tick reading a flag mid-refresh still sees the last
+  // known values. Unref'd so the tick interval above stays the one thing
+  // keeping this process alive.
+  flagRefreshTimer = setInterval(() => {
+    void refreshOverridesFromGateway().catch((err) => {
+      log.warn({ err }, "Failed to refresh feature flag overrides");
+    });
+  }, FLAG_REFRESH_INTERVAL_MS);
+  flagRefreshTimer.unref();
+
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
     resetDb();
@@ -154,6 +208,9 @@ async function main(): Promise<void> {
     stopped = true;
     if (timer != null) {
       clearInterval(timer);
+    }
+    if (flagRefreshTimer != null) {
+      clearInterval(flagRefreshTimer);
     }
     cleanupWorkerPidFile(getScheduleWorkerPidPath());
   });

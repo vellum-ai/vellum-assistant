@@ -221,7 +221,7 @@ const LiveVoiceFluxTurnEndConfigSchema = z
       .boolean({ error: "liveVoice.flux.turnEnd.enabled must be a boolean" })
       .default(false)
       .describe(
-        "Commit the live-voice turn on Flux's EndOfTurn instead of the front-door [0] hold verdict. Requires services.stt.provider to be deepgram-flux; ignored otherwise.",
+        "Commit the live-voice turn on Flux's EndOfTurn instead of the front-door [0] hold verdict. Requires the active STT provider to be running the flux model family (services.stt.providers.<provider>.model); ignored otherwise.",
       ),
   })
   .describe(
@@ -235,8 +235,10 @@ export const LiveVoiceFluxConfigSchema = z
     ),
     model: z
       .string({ error: "liveVoice.flux.model must be a string" })
-      .default("flux-general-en")
-      .describe("Deepgram Flux model requested when opening the STT stream"),
+      .optional()
+      .describe(
+        "Deepgram Flux model to pin when opening the STT stream. Unset (the default) selects the model from services.stt.language: English and unset use the English model, everything else uses the multilingual one",
+      ),
     eotThreshold: z
       .number({ error: "liveVoice.flux.eotThreshold must be a number" })
       .min(0.5, "liveVoice.flux.eotThreshold must be >= 0.5")

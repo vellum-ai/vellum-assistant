@@ -33,6 +33,7 @@ import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { fileEditInputSchema } from "./filesystem/edit.js";
 import { fileWriteInputSchema } from "./filesystem/write.js";
+import { getHostShell } from "./host-shell.js";
 import { PermissionChecker } from "./permission-checker.js";
 import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
@@ -89,6 +90,7 @@ export class ToolExecutor {
         undefined,
         undefined,
         context.signal,
+        getHostShell(context, input),
       );
     } catch {
       // Stays undefined; the audit row records RISK_LEVEL_UNCLASSIFIED.

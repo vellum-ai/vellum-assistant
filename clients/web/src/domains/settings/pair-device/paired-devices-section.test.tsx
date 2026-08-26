@@ -191,7 +191,7 @@ describe("PairedDevicesSection", () => {
 
     expect(screen.getByText("Revoke this device?")).toBeTruthy();
     expect(
-      screen.getByText(new RegExp(`Ios device ${HASH_A.slice(0, 12)}`)),
+      screen.getByText(new RegExp(`Ios \\(${HASH_A.slice(0, 12)}\\)`)),
     ).toBeTruthy();
     expect(revokeCalls).toHaveLength(0);
   });
@@ -321,6 +321,63 @@ describe("PairedDevicesSection", () => {
         { assistantId: "self", hashedDeviceId: HASH_B },
       ]),
     );
+  });
+
+  test("a device with a client-reported name shows it verbatim, hash hidden but kept in the title", async () => {
+    await renderExpanded([device({ clientReportedName: "Alice's Laptop" })]);
+
+    const name = screen.getByText("Alice's Laptop");
+    expect(name.getAttribute("title")).toBe(HASH_A);
+    expect(screen.queryByText(HASH_A.slice(0, 12))).toBeNull();
+  });
+
+  test("a device with only a pairing User-Agent shows a composed browser and OS label", async () => {
+    await renderExpanded([
+      device({
+        pairingUserAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128.0 Safari/537.36",
+      }),
+    ]);
+
+    const name = screen.getByText("Chrome on macOS");
+    expect(name.getAttribute("title")).toBe(HASH_A);
+    expect(screen.queryByText(HASH_A.slice(0, 12))).toBeNull();
+  });
+
+  test("a device with neither a reported name nor a User-Agent still renders the platform label with the hash inline", async () => {
+    await renderExpanded([device()]);
+
+    expect(screen.getByText("Ios")).toBeTruthy();
+    const shortA = screen.getByText(HASH_A.slice(0, 12));
+    expect(shortA.getAttribute("title")).toBe(HASH_A);
+  });
+
+  test("the revoke confirmation leads with a client-reported name", async () => {
+    await renderExpanded([device({ clientReportedName: "Alice's Laptop" })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+
+    expect(
+      screen.getByText(
+        new RegExp(`Alice's Laptop \\(${HASH_A.slice(0, 12)}\\)`),
+      ),
+    ).toBeTruthy();
+  });
+
+  test('a device self-reporting as "This machine" cannot spoof the host marker or disable its own Revoke', async () => {
+    await renderExpanded([
+      device({ clientReportedName: "This machine", isCurrentHost: false }),
+    ]);
+
+    // Exactly one occurrence: the reported name, not a second host marker.
+    expect(screen.getAllByText("This machine")).toHaveLength(1);
+    const revokeButton = screen.getByRole("button", {
+      name: "Revoke",
+    }) as HTMLButtonElement;
+    expect(revokeButton.disabled).toBe(false);
+
+    fireEvent.click(revokeButton);
+    expect(screen.getByText("Revoke this device?")).toBeTruthy();
   });
 
   test("polls while a pairing code is live and refreshes once more when it ends", async () => {
@@ -610,7 +667,7 @@ describe("PairedDevicesSection", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]!);
 
     expect(
-      screen.getByText(new RegExp(`Android device ${HASH_B.slice(0, 12)}`)),
+      screen.getByText(new RegExp(`Android \\(${HASH_B.slice(0, 12)}\\)`)),
     ).toBeTruthy();
     clickConfirm();
 

@@ -28,6 +28,8 @@ The Vellum gateway listens locally and needs a publicly reachable URL for:
 
 This skill installs ngrok, configures authentication, starts a tunnel, discovers the public URL, and saves it to the assistant's ingress config.
 
+On Windows, use the PowerShell blocks instead of the POSIX ones.
+
 ## Step 0: Reject Managed Callback Environments
 
 Check whether managed platform callback routing is available:
@@ -56,6 +58,12 @@ The commands return:
 
 If `publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
 
+On Windows, check the tunnel with:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:4040/api/tunnels
+```
+
 ## Step 2: Install ngrok
 
 Check if ngrok is installed:
@@ -70,6 +78,12 @@ If not installed, install it:
 
 ```bash
 brew install ngrok/ngrok/ngrok
+```
+
+**Windows (Microsoft Store via WinGet):**
+
+```powershell
+winget install ngrok -s msstore
 ```
 
 **Linux (snap):**
@@ -114,6 +128,13 @@ If not authenticated:
    ngrok config add-authtoken "$(assistant credentials reveal --service ngrok --field authtoken)"
    ```
 
+   On Windows:
+
+   ```powershell
+   $token = assistant credentials reveal --service ngrok --field authtoken
+   ngrok config add-authtoken $token
+   ```
+
    If no value is returned, re-run `assistant credentials prompt` and try again.
 
 Verify authentication succeeded by checking `ngrok config check` again.
@@ -126,11 +147,24 @@ Before starting, check for an existing ngrok process to avoid duplicates:
 curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null
 ```
 
+On Windows:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:4040/api/tunnels -ErrorAction SilentlyContinue
+```
+
 If a tunnel is already running, check whether it points to the correct local target. If so, skip to Step 5. If it points elsewhere, stop it first:
 
 ```bash
 pkill -f ngrok || true
 sleep 1
+```
+
+On Windows:
+
+```powershell
+Get-Process ngrok -ErrorAction SilentlyContinue | Stop-Process
+Start-Sleep -Seconds 1
 ```
 
 Start ngrok in the background tunneling to the local gateway URL:
@@ -140,11 +174,15 @@ nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1
 echo $! > /tmp/ngrok.pid
 ```
 
-Wait a few seconds for the tunnel to establish:
+On Windows:
 
-```bash
-sleep 3
+```powershell
+$logPath = Join-Path $env:TEMP "ngrok.log"
+$errorLogPath = Join-Path $env:TEMP "ngrok-error.log"
+Start-Process ngrok -ArgumentList @("http", $env:INTERNAL_GATEWAY_BASE_URL, "--log=stdout") -RedirectStandardOutput $logPath -RedirectStandardError $errorLogPath -WindowStyle Hidden
 ```
+
+Wait a few seconds for the tunnel to establish.
 
 ## Step 4b: Verify Port Alignment
 
@@ -176,9 +214,18 @@ print(match.group(1))
 echo "$INTERNAL_GATEWAY_BASE_URL" | grep -oE '[0-9]+$'
 ```
 
+On Windows, resolve both ports without using the POSIX snippets:
+
+```powershell
+$tunnel = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels[0]
+$tunnelPort = ([uri]$tunnel.config.addr).Port
+$gatewayPort = ([uri]$env:INTERNAL_GATEWAY_BASE_URL).Port
+@{ tunnelPort = $tunnelPort; gatewayPort = $gatewayPort }
+```
+
 Compare the two port numbers. If they differ, warn the user:
 
-> **Port mismatch detected:** ngrok is forwarding to port **X** but the gateway is listening on port **Y**. Webhooks will not reach the gateway. Stop ngrok (`pkill -f ngrok`), then re-run this skill to start ngrok on the correct port.
+> **Port mismatch detected:** ngrok is forwarding to port **X** but the gateway is listening on port **Y**. Webhooks will not reach the gateway. Stop ngrok (Step 4), then re-run this skill to start ngrok on the correct port.
 
 If the ports match, proceed silently to Step 5.
 
@@ -207,6 +254,15 @@ sys.exit(1)
 ```
 
 If no tunnel is found, check `/tmp/ngrok.log` for errors and report them to the user.
+
+On Windows, discover the URL and inspect the logs with:
+
+```powershell
+$tunnel = (Invoke-RestMethod http://127.0.0.1:4040/api/tunnels).tunnels | Where-Object { $_.public_url -like "https://*" } | Select-Object -First 1
+$tunnel.public_url
+Get-Content (Join-Path $env:TEMP "ngrok.log") -ErrorAction SilentlyContinue
+Get-Content (Join-Path $env:TEMP "ngrok-error.log") -ErrorAction SilentlyContinue
+```
 
 ## Step 6: Persist the Ingress Setting
 
@@ -254,11 +310,13 @@ Sign in to https://dashboard.ngrok.com, copy a fresh token from the "Your Authto
 
 ### ngrok API (port 4040) not responding
 
-The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not running, start it per Step 4. If running but 4040 is unresponsive, check `/tmp/ngrok.log` for errors.
+The ngrok process may not be running. On macOS or Linux, check with `ps aux | grep ngrok`. On Windows, use `Get-Process ngrok -ErrorAction SilentlyContinue`. If it is not running, start it per Step 4. If it is running but port 4040 is unresponsive, check `/tmp/ngrok.log` (`$env:TEMP\ngrok.log` on Windows) for errors.
 
 ### Gateway not reachable on local target
 
 Re-check the local gateway target with `echo $INTERNAL_GATEWAY_BASE_URL`. Run `curl -s "$INTERNAL_GATEWAY_BASE_URL/healthz"` to verify it is reachable. If the gateway is not running, start the assistant first.
+
+On Windows, use `$env:INTERNAL_GATEWAY_BASE_URL` and `Invoke-RestMethod "$env:INTERNAL_GATEWAY_BASE_URL/healthz"`.
 
 ### "Too many connections" or tunnel limit errors
 
@@ -270,8 +328,8 @@ ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels befo
 
 **Cause:** ngrok is forwarding to a different port than the gateway is listening on. This can happen if the gateway port was changed after ngrok was started, or if ngrok was started manually with a hardcoded port.
 
-**Fix:** Stop ngrok (`pkill -f ngrok`), verify the gateway URL with `echo $INTERNAL_GATEWAY_BASE_URL`, then re-run this skill to start ngrok on the correct port.
+**Fix:** Stop ngrok (Step 4), verify the gateway URL with `echo $INTERNAL_GATEWAY_BASE_URL`, then re-run this skill to start ngrok on the correct port.
 
 ### ngrok automatically restarts with wrong port
 
-If after killing the ngrok process, it automatically re-spawns and is still attached to the incorrect port, check to see if there is a launch agent process configured to auto-restart it. This might exist at `~/Library/LaunchAgents/com.ngrok.tunnel.plist`. If so, it needs to be either removed or updated.
+On macOS, if the ngrok process automatically re-spawns on the incorrect port, check for a launch agent at `~/Library/LaunchAgents/com.ngrok.tunnel.plist`. If it exists, remove or update it.

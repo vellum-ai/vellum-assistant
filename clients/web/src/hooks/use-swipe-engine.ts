@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { TouchEvent as ReactTouchEvent } from "react";
 
-import { isPointerCoarse } from "@/utils/pointer";
+import { usePointerCoarse } from "@/utils/pointer";
 
 /**
  * Minimum travel (px) on the primary axis to commit a swipe. Below this the drag
@@ -106,8 +106,12 @@ export function useSwipeEngine({
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Evaluated once — on a given device the pointer type doesn't change.
-  const [isTouch] = useState(() => isPointerCoarse());
+  // Subscribed, not sampled once. The pointer type does change on a
+  // convertible folding into tablet mode, and a gesture armed on the reading
+  // taken at mount stays inert (or stays armed) until whatever it lives on
+  // remounts. Callers gate rendered affordances on the same signal, so the
+  // affordance and the gesture it advertises agree.
+  const isTouch = usePointerCoarse();
 
   // Mutable per-gesture state kept in a ref so touchmove/touchend read fresh
   // values without re-subscribing or re-rendering on every move. `touchId`

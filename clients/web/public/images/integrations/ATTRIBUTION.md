@@ -9,12 +9,17 @@ doesn't tell a third party which providers a user is looking at.
 ## Verified provenance
 
 Downloaded from the URL each one replaces, so the bytes match the source
-exactly.
+exactly (except where noted).
 
-| Assets                                                                                                | Source                                                       | Licence                                          |
-| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------ |
-| `airtable`, `asana`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons) | CC0-1.0 (public domain, no attribution required) |
-| `salesforce`                                                                                          | [glincker/thesvg](https://github.com/glincker/thesvg)        | MIT (notice below)                               |
+| Assets                                                                                                | Source                                                        | Licence                                                          |
+| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons)   | CC0-1.0 (public domain, no attribution required)                  |
+| `eventbrite`, `salesforce`                                                                            | [glincker/thesvg](https://github.com/glincker/thesvg)          | MIT (notice below)                                                |
+| `monday`                                                                                              | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1)   | Trademark of monday.com; no software licence granted (see Trademark, below) |
+
+`monday`'s path data and fill colours are byte-identical to the source. Only
+the outer `viewBox` and a wrapping group transform were changed, to fit the
+source's wide mark into a square icon slot.
 
 ## Unrecorded provenance
 

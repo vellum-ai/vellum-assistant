@@ -90,4 +90,9 @@ export interface PolicyContext {
    * grant then never fires.
    */
   procToSkillsActive?: boolean;
+  /**
+   * Contact ID of the requester's member record. The threshold reader looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
+   */
+  requesterContactId?: string;
 }

@@ -72,7 +72,8 @@ function scrubSecret(secret: string | undefined): string {
   if (secret.length <= 4) {
     return "****";
   }
-  return "****" + secret.slice(-4);
+  // Keep the leading 4 characters so vendor prefixes stay visible.
+  return secret.slice(0, 4) + "****";
 }
 
 function safeGetConnectionByProvider(
