@@ -97,7 +97,7 @@ function ChannelSidecarSlice({
               <ChatColumn className="pt-1 pb-2 sm:pb-0">
                 <ChannelReferenceChip />
                 <StagedQuotesStrip />
-                <StoryComposer />
+                <StoryComposer placeholder="What would you like to do?" />
               </ChatColumn>
             </div>
           }

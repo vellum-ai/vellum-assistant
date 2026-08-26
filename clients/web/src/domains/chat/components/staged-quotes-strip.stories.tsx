@@ -75,7 +75,7 @@ const meta: Meta<typeof StagedQuotesStrip> = {
       <div className="flex h-screen flex-col justify-end">
         <ChatColumn className="pt-1 pb-2 sm:pb-0">
           <Story />
-          <StoryComposer />
+          <StoryComposer placeholder="What would you like to do?" />
         </ChatColumn>
         {/* Harness control, deliberately outside the app column. */}
         <div className="px-3 py-3 sm:px-6">
