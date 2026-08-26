@@ -7,7 +7,7 @@ import {
   LanguageModelCard,
   type LanguageModelPanelState,
 } from "@/domains/settings/ai/language-model-card";
-import { ManagedServicesBanner } from "@/components/service-card-ui";
+import { ManagedServicesBanner } from "@/components/managed-services-banner";
 import { ProfileDetailPanel } from "@/domains/settings/ai/profile-detail-panel";
 import { OverridesDetailPanel } from "@/domains/settings/ai/overrides-detail-panel";
 import { ProviderDetailPanel } from "@/domains/settings/ai/provider-detail-panel";

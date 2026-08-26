@@ -30,7 +30,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { Trans, useTranslation } from "@/i18n";
 
-import { DomainVerificationChip } from "@/components/service-card-ui";
+import { DomainVerificationChip } from "@/components/domain-verification-chip";
 
 const CONFIRM_CODE_CLASS =
   "rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]";
@@ -414,7 +414,6 @@ export function EmailManagedContent({
             </span>
             <DomainVerificationChip
               status={verificationQuery.data?.status}
-              message={verificationQuery.data?.message}
               isLoading={verificationQuery.isLoading}
             />
             <Button
@@ -505,7 +504,6 @@ export function EmailManagedContent({
           </span>
           <DomainVerificationChip
             status={verificationQuery.data?.status}
-            message={verificationQuery.data?.message}
             isLoading={verificationQuery.isLoading}
           />
           <Button
