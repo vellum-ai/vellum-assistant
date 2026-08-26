@@ -25532,6 +25532,39 @@ paths:
                 required:
                   - success
                 additionalProperties: false
+  /v1/recordings/claim:
+    post:
+      operationId: recordings_claim_post
+      summary: Claim recording
+      description: Atomically claim a recording for one connected client.
+      tags:
+        - recordings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                recordingId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - recordingId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claimed:
+                    type: boolean
+                required:
+                  - claimed
+                additionalProperties: false
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post
@@ -25738,6 +25771,51 @@ paths:
                 required:
                   - recordingId
                   - stopped
+                additionalProperties: false
+  /v1/recordings/transfer:
+    post:
+      operationId: recordings_transfer_post
+      summary: Transfer recording
+      description: Append recording chunks into a file-backed attachment.
+      tags:
+        - recordings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                recordingId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                operation:
+                  type: string
+                  enum:
+                    - begin
+                    - append
+                    - finish
+                    - abort
+                data:
+                  type: string
+              required:
+                - recordingId
+                - operation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  attachmentId:
+                    type: string
+                required:
+                  - ok
                 additionalProperties: false
   /v1/resolve_contact_prompt:
     post:

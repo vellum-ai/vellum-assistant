@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rm, type FileHandle } from "node:fs/promises";
+import { mkdir, open, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -186,18 +186,13 @@ export const installScreenRecording = ({
 
   handle(
     SCREEN_RECORDING_FINISH,
-    z.tuple([RecordingIdSchema, z.boolean()]),
-    async ([recordingId, includeBytes], event) => {
+    z.tuple([RecordingIdSchema]),
+    async ([recordingId], event) => {
       const recording = getOwnedSession(recordingId, event.sender);
       releaseSession(recordingId, recording);
       await recording.write;
       await recording.file.close();
-      return {
-        filePath: recording.filePath,
-        ...(includeBytes
-          ? { bytes: new Uint8Array(await readFile(recording.filePath)) }
-          : {}),
-      };
+      return { filePath: recording.filePath };
     },
   );
 

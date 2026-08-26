@@ -6,7 +6,6 @@ import type {
 } from "@vellumai/assistant-api";
 
 import { client } from "@/generated/daemon/client.gen";
-import { uploadChatAttachment } from "@/domains/chat/api/messages";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -43,6 +42,56 @@ interface CapturedMedia {
 }
 
 type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
+
+type RecordingTransferOperation = "begin" | "append" | "finish" | "abort";
+
+const postRecordingRequest = async <T>(
+  assistantId: string,
+  endpoint: "claim" | "transfer",
+  body: Record<string, unknown>,
+): Promise<T> => {
+  const { data, response } = await client.post({
+    url: `/v1/assistants/{assistant_id}/recordings/${endpoint}` as KnownDaemonUrl,
+    path: { assistant_id: assistantId },
+    body,
+  });
+  if (!response?.ok) {
+    throw new Error(`Screen recording request failed: ${response?.status}`);
+  }
+  return data as T;
+};
+
+const claimRecording = async (
+  assistantId: string,
+  recordingId: string,
+): Promise<boolean> => {
+  const result = await postRecordingRequest<{ claimed: boolean }>(
+    assistantId,
+    "claim",
+    { recordingId },
+  );
+  return result.claimed;
+};
+
+const encodeChunk = (chunk: Uint8Array): string => {
+  let binary = "";
+  for (let offset = 0; offset < chunk.length; offset += 32_768) {
+    binary += String.fromCharCode(...chunk.subarray(offset, offset + 32_768));
+  }
+  return btoa(binary);
+};
+
+export const transferRecording = async (
+  assistantId: string,
+  recordingId: string,
+  operation: RecordingTransferOperation,
+  chunk?: Uint8Array,
+): Promise<{ attachmentId?: string }> =>
+  postRecordingRequest(assistantId, "transfer", {
+    recordingId,
+    operation,
+    ...(chunk ? { data: encodeChunk(chunk) } : {}),
+  });
 
 const postStatus = async (
   assistantId: string,
@@ -82,7 +131,7 @@ const recorderMimeType = (): string | null => {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
 };
 
-const captureSelectedSource = async (
+export const captureSelectedSource = async (
   event: RecordingStartEvent,
 ): Promise<MediaStream> => {
   const bridge = window.vellum?.screenRecording;
@@ -93,13 +142,6 @@ const captureSelectedSource = async (
   const hasSelectedSource =
     options.displayId !== undefined || options.windowId !== undefined;
   const promptForSource = options.promptForSource ?? !hasSelectedSource;
-
-  if (promptForSource && window.vellum?.hostOS !== "windows") {
-    return navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: options.includeAudio ?? false,
-    });
-  }
 
   const sourceId = await bridge.resolveSource({
     captureScope: options.captureScope,
@@ -179,7 +221,7 @@ const isPickerCancellation = (error: unknown): boolean =>
   error instanceof DOMException &&
   ["AbortError", "NotAllowedError"].includes(error.name);
 
-export const requiresRecordingUpload = (assistantId: string): boolean => {
+export const requiresRecordingTransfer = (assistantId: string): boolean => {
   const assistant = useResolvedAssistantsStore
     .getState()
     .assistants.find((entry) => entry.id === assistantId);
@@ -198,8 +240,9 @@ export class ScreenRecordingController {
       ownsLifecycle: () => boolean;
       now: () => number;
       reportStatus: typeof postStatus;
-      requiresUpload: typeof requiresRecordingUpload;
-      uploadAttachment: typeof uploadChatAttachment;
+      claimRecording: typeof claimRecording;
+      requiresTransfer: typeof requiresRecordingTransfer;
+      transferRecording: typeof transferRecording;
     } = {
       capture: captureStream,
       chooseMimeType: recorderMimeType,
@@ -208,8 +251,9 @@ export class ScreenRecordingController {
       ownsLifecycle: () => !isPopoutWindowLifetime(),
       now: Date.now,
       reportStatus: postStatus,
-      requiresUpload: requiresRecordingUpload,
-      uploadAttachment: uploadChatAttachment,
+      claimRecording,
+      requiresTransfer: requiresRecordingTransfer,
+      transferRecording,
     },
   ) {}
 
@@ -251,6 +295,11 @@ export class ScreenRecordingController {
       });
       return;
     }
+    if (
+      !(await this.dependencies.claimRecording(assistantId, event.recordingId))
+    ) {
+      return;
+    }
 
     const pending: PendingRecording = {
       recordingId: event.recordingId,
@@ -260,6 +309,8 @@ export class ScreenRecordingController {
     let capture: CapturedMedia | null = null;
     let recorder: MediaRecorder | null = null;
     let fileStarted = false;
+    let transferStarted = false;
+    const requiresTransfer = this.dependencies.requiresTransfer(assistantId);
     try {
       const mimeType = this.dependencies.chooseMimeType();
       if (!mimeType) {
@@ -272,6 +323,14 @@ export class ScreenRecordingController {
         await this.dependencies.reportStatus(assistantId, event, "stopped");
         return;
       }
+      if (requiresTransfer) {
+        await this.dependencies.transferRecording(
+          assistantId,
+          event.recordingId,
+          "begin",
+        );
+        transferStarted = true;
+      }
       await bridge.begin(event.recordingId);
       fileStarted = true;
       if (pending.cancelled) {
@@ -279,6 +338,14 @@ export class ScreenRecordingController {
         capture = null;
         await bridge.abort(event.recordingId);
         fileStarted = false;
+        if (transferStarted) {
+          await this.dependencies.transferRecording(
+            assistantId,
+            event.recordingId,
+            "abort",
+          );
+          transferStarted = false;
+        }
         await this.dependencies.reportStatus(assistantId, event, "stopped");
         return;
       }
@@ -292,6 +359,14 @@ export class ScreenRecordingController {
         writes = writes.then(async () => {
           const bytes = new Uint8Array(await dataEvent.data.arrayBuffer());
           await bridge.append(event.recordingId, bytes);
+          if (requiresTransfer) {
+            await this.dependencies.transferRecording(
+              assistantId,
+              event.recordingId,
+              "append",
+              bytes,
+            );
+          }
         });
       };
 
@@ -316,30 +391,21 @@ export class ScreenRecordingController {
         void (async () => {
           try {
             await writes;
-            const requiresUpload =
-              this.dependencies.requiresUpload(assistantId);
-            const { filePath, bytes } = await bridge.finish(event.recordingId, {
-              includeBytes: requiresUpload,
-            });
+            const { filePath } = await bridge.finish(event.recordingId);
             let attachmentId: string | undefined;
-            if (requiresUpload) {
-              if (!bytes) {
-                throw new Error("Recording bytes are unavailable for upload");
-              }
-              const uploaded = await this.dependencies.uploadAttachment(
+            if (requiresTransfer) {
+              const uploaded = await this.dependencies.transferRecording(
                 assistantId,
-                new File(
-                  [bytes as Uint8Array<ArrayBuffer>],
-                  `screen-recording-${event.recordingId}.webm`,
-                  { type: "video/webm" },
-                ),
+                event.recordingId,
+                "finish",
               );
-              if (!uploaded.ok) {
+              if (!uploaded.attachmentId) {
                 throw new Error(
-                  uploaded.error.detail ?? "Recording upload failed",
+                  "Recording transfer did not return an attachment",
                 );
               }
-              attachmentId = uploaded.id;
+              attachmentId = uploaded.attachmentId;
+              transferStarted = false;
             }
             this.release(active);
             await this.dependencies.reportStatus(
@@ -354,6 +420,12 @@ export class ScreenRecordingController {
             resolveStopped();
           } catch (error) {
             await bridge.abort(event.recordingId);
+            if (transferStarted) {
+              await this.dependencies
+                .transferRecording(assistantId, event.recordingId, "abort")
+                .catch(() => undefined);
+              transferStarted = false;
+            }
             this.release(active);
             await this.dependencies
               .reportStatus(assistantId, event, "failed", {
@@ -390,6 +462,11 @@ export class ScreenRecordingController {
       capture?.close();
       if (fileStarted) {
         await bridge.abort(event.recordingId);
+      }
+      if (transferStarted) {
+        await this.dependencies
+          .transferRecording(assistantId, event.recordingId, "abort")
+          .catch(() => undefined);
       }
       if (pending.cancelled) {
         await this.dependencies.reportStatus(assistantId, event, "stopped");

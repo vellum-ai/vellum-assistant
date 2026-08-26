@@ -79,10 +79,6 @@ export interface ScreenRecordingSourceOptions {
   promptForSource?: boolean;
 }
 
-export interface ScreenRecordingFinishOptions {
-  includeBytes?: boolean;
-}
-
 /**
  * Result of `localMode.connectImport`. On success `assistantId` is the unique
  * local id the pairing was registered under, and `accessOnly` is true when the
@@ -234,10 +230,7 @@ export interface VellumBridge {
   screenRecording: {
     begin(recordingId: string): Promise<void>;
     append(recordingId: string, chunk: Uint8Array): Promise<void>;
-    finish(
-      recordingId: string,
-      options?: ScreenRecordingFinishOptions,
-    ): Promise<{ filePath: string; bytes?: Uint8Array }>;
+    finish(recordingId: string): Promise<{ filePath: string }>;
     abort(recordingId: string): Promise<void>;
     resolveSource(
       options: ScreenRecordingSourceOptions,

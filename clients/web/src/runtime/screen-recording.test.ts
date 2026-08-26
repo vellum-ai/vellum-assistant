@@ -1,12 +1,20 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
+const clientPost = mock(async () => ({
+  data: {} as unknown,
+  response: { ok: true, status: 200 },
+}));
 mock.module("@/generated/daemon/client.gen", () => ({
-  client: { post: mock(async () => ({ response: { ok: true } })) },
+  client: { post: clientPost },
 }));
 
-const { ScreenRecordingController, requiresRecordingUpload } =
-  await import("./screen-recording");
+const {
+  ScreenRecordingController,
+  captureSelectedSource,
+  requiresRecordingTransfer,
+  transferRecording,
+} = await import("./screen-recording");
 
 class FakeTrack {
   stopped = false;
@@ -59,11 +67,13 @@ const startEvent = {
 };
 
 const localTransferDependencies = {
-  requiresUpload: () => false,
-  uploadAttachment: async () => ({ ok: true as const, id: "attachment-1" }),
+  claimRecording: async () => true,
+  requiresTransfer: () => false,
+  transferRecording: async () => ({}),
 };
 
 beforeEach(() => {
+  clientPost.mockClear();
   Object.assign(window, {
     vellum: {
       platform: "electron",
@@ -76,6 +86,25 @@ beforeEach(() => {
       },
     },
   });
+});
+
+test("encodes each remote transfer chunk in its own request", async () => {
+  await transferRecording(
+    "assistant-remote",
+    recordingId,
+    "append",
+    new Uint8Array([1, 2, 3]),
+  );
+
+  expect(clientPost).toHaveBeenCalledWith(
+    expect.objectContaining({
+      body: {
+        recordingId,
+        operation: "append",
+        data: "AQID",
+      },
+    }),
+  );
 });
 
 test("reports the full lifecycle to the initiating assistant", async () => {
@@ -338,13 +367,14 @@ test("releases the prior recorder before a synchronous restart start", async () 
   expect(recorders[1].state).toBe("recording");
 });
 
-test("uploads remote recordings before reporting stopped", async () => {
+test("streams remote recording chunks before reporting stopped", async () => {
   const recorder = new FakeRecorder();
   const track = new FakeTrack();
-  const uploadAttachment = mock(async (_assistantId: string, _file: File) => ({
-    ok: true as const,
-    id: "attachment-remote",
-  }));
+  const transfers: Array<{
+    assistantId: string;
+    operation: string;
+    chunk?: number[];
+  }> = [];
   const stoppedDetails: Array<{
     attachmentId?: string;
     filePath?: string;
@@ -352,7 +382,6 @@ test("uploads remote recordings before reporting stopped", async () => {
   }> = [];
   window.vellum!.screenRecording!.finish = mock(async () => ({
     filePath: "/recordings/capture.webm",
-    bytes: new Uint8Array([1, 2, 3]),
   }));
   const controller = new ScreenRecordingController({
     capture: async () => ({
@@ -366,13 +395,23 @@ test("uploads remote recordings before reporting stopped", async () => {
     createRecorder: () => recorder as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => 0,
+    claimRecording: async () => true,
     reportStatus: async (_assistantId, _event, status, details) => {
       if (status === "stopped") {
         stoppedDetails.push(details ?? {});
       }
     },
-    requiresUpload: () => true,
-    uploadAttachment,
+    requiresTransfer: () => true,
+    transferRecording: async (assistantId, _recordingId, operation, chunk) => {
+      transfers.push({
+        assistantId,
+        operation,
+        ...(chunk ? { chunk: [...chunk] } : {}),
+      });
+      return operation === "finish"
+        ? { attachmentId: "attachment-remote" }
+        : {};
+    },
   });
 
   await controller.handle(startEvent, "assistant-remote");
@@ -381,21 +420,92 @@ test("uploads remote recordings before reporting stopped", async () => {
     "assistant-remote",
   );
 
-  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledWith(
-    recordingId,
-    { includeBytes: true },
-  );
-  expect(uploadAttachment).toHaveBeenCalledTimes(1);
-  expect(uploadAttachment.mock.calls[0]?.[0]).toBe("assistant-remote");
-  expect(uploadAttachment.mock.calls[0]?.[1].name).toBe(
-    `screen-recording-${recordingId}.webm`,
-  );
-  expect([
-    ...new Uint8Array(await uploadAttachment.mock.calls[0]![1].arrayBuffer()),
-  ]).toEqual([1, 2, 3]);
+  expect(transfers).toEqual([
+    { assistantId: "assistant-remote", operation: "begin" },
+    {
+      assistantId: "assistant-remote",
+      operation: "append",
+      chunk: [1, 2, 3],
+    },
+    { assistantId: "assistant-remote", operation: "finish" },
+  ]);
   expect(stoppedDetails).toEqual([
     { attachmentId: "attachment-remote", durationMs: 0 },
   ]);
+});
+
+test("only the client that wins the claim starts capture", async () => {
+  const election: { owner: string | null } = { owner: null };
+  const capture = mock(async () => {
+    const track = new FakeTrack();
+    return {
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    };
+  });
+  const dependencies = {
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async () => undefined,
+  };
+  const claimAs = (clientId: string) => async () => {
+    if (!election.owner) {
+      election.owner = clientId;
+    }
+    return election.owner === clientId;
+  };
+  const first = new ScreenRecordingController({
+    ...dependencies,
+    claimRecording: claimAs("client-1"),
+  });
+  const second = new ScreenRecordingController({
+    ...dependencies,
+    claimRecording: claimAs("client-2"),
+  });
+
+  await Promise.all([
+    first.handle(startEvent, "assistant-1"),
+    second.handle(startEvent, "assistant-1"),
+  ]);
+
+  expect(capture).toHaveBeenCalledTimes(1);
+  expect(election.owner).toBe("client-1");
+});
+
+test("uses the main-process picker for prompted macOS capture", async () => {
+  const stream = {} as MediaStream;
+  Object.assign(window.vellum!, {
+    hostOS: "macos",
+    screenRecording: {
+      ...window.vellum!.screenRecording!,
+      resolveSource: mock(async () => "screen:1:0"),
+    },
+  });
+  const getDisplayMedia = mock(async () => {
+    throw new Error("getDisplayMedia should not be called");
+  });
+  const getUserMedia = mock(async () => stream);
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: { getDisplayMedia, getUserMedia },
+  });
+
+  await expect(captureSelectedSource(startEvent)).resolves.toBe(stream);
+
+  expect(window.vellum!.screenRecording!.resolveSource).toHaveBeenCalledWith({
+    captureScope: undefined,
+    displayId: undefined,
+    windowId: undefined,
+    promptForSource: true,
+  });
+  expect(getDisplayMedia).not.toHaveBeenCalled();
 });
 
 test("requires transfer for paired assistants but not local assistants", () => {
@@ -416,6 +526,6 @@ test("requires transfer for paired assistants but not local assistants", () => {
     ],
   });
 
-  expect(requiresRecordingUpload("assistant-paired")).toBeTrue();
-  expect(requiresRecordingUpload("assistant-local")).toBeFalse();
+  expect(requiresRecordingTransfer("assistant-paired")).toBeTrue();
+  expect(requiresRecordingTransfer("assistant-local")).toBeFalse();
 });

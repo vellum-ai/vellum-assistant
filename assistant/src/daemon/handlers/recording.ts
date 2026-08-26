@@ -45,6 +45,9 @@ const standaloneRecordingConversationId = new Map<string, string>();
 /** Maps conversationId -> recordingId (active recording). */
 const recordingOwnerByConversation = new Map<string, string>();
 
+/** Maps recordingId -> the client that won capture ownership. */
+const recordingClientClaims = new Map<string, string>();
+
 /** Pending stop-acknowledgement timeouts keyed by recordingId. */
 const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
 
@@ -134,6 +137,18 @@ export function handleRecordingStart(
     "Standalone recording started",
   );
   return recordingId;
+}
+
+export function claimRecording(recordingId: string, clientId: string): boolean {
+  if (!standaloneRecordingConversationId.has(recordingId)) {
+    return false;
+  }
+  const owner = recordingClientClaims.get(recordingId);
+  if (owner) {
+    return owner === clientId;
+  }
+  recordingClientClaims.set(recordingId, clientId);
+  return true;
 }
 
 // ─── Stop ────────────────────────────────────────────────────────────────────
@@ -319,6 +334,7 @@ function cleanupMaps(
   conversationId: string | undefined,
 ): void {
   standaloneRecordingConversationId.delete(recordingId);
+  recordingClientClaims.delete(recordingId);
   if (conversationId) {
     const current = recordingOwnerByConversation.get(conversationId);
     if (current === recordingId) {
@@ -946,6 +962,7 @@ export function __resetRecordingState(): void {
   pendingStopTimeouts.clear();
   standaloneRecordingConversationId.clear();
   recordingOwnerByConversation.clear();
+  recordingClientClaims.clear();
   pendingRestartByConversation.clear();
   deferredRestartByConversation.clear();
   finalizedRecordingIds.clear();

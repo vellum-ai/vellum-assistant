@@ -51,7 +51,6 @@ import type {
   PowerEvent,
   PowerEventKind,
   ResolvedHotkey,
-  ScreenRecordingFinishOptions,
   ScreenRecordingSourceOptions,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -209,10 +208,7 @@ declare global {
       screenRecording?: {
         begin(recordingId: string): Promise<void>;
         append(recordingId: string, chunk: Uint8Array): Promise<void>;
-        finish(
-          recordingId: string,
-          options?: ScreenRecordingFinishOptions,
-        ): Promise<{ filePath: string; bytes?: Uint8Array }>;
+        finish(recordingId: string): Promise<{ filePath: string }>;
         abort(recordingId: string): Promise<void>;
         resolveSource(
           options: ScreenRecordingSourceOptions,

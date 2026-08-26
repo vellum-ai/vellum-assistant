@@ -156,6 +156,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 import {
   __resetRecordingState,
+  claimRecording,
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
@@ -208,6 +209,14 @@ describe("handleRecordingStart", () => {
     handleRecordingStart("conv-2", options);
 
     expect(sent[0].options).toEqual(options);
+  });
+
+  test("elects one client to own a recording", () => {
+    const recordingId = handleRecordingStart("conv-claim", undefined)!;
+
+    expect(claimRecording(recordingId, "client-1")).toBeTrue();
+    expect(claimRecording(recordingId, "client-1")).toBeTrue();
+    expect(claimRecording(recordingId, "client-2")).toBeFalse();
   });
 
   test("returns null when recording already active and sends no messages", () => {

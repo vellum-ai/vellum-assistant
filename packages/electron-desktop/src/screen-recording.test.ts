@@ -124,17 +124,15 @@ test("writes ordered chunks and returns a file in the shared recordings director
       new Uint8Array([3, 4]),
     ),
   ]);
-  const result = await invoke<{ filePath: string; bytes?: Uint8Array }>(
+  const result = await invoke<{ filePath: string }>(
     "vellum:screenRecording:finish",
     recordingId,
-    true,
   );
 
   expect(
     result.filePath.startsWith(resolveScreenRecordingDirectory(appDataDir)),
   ).toBeTrue();
   expect([...readFileSync(result.filePath)]).toEqual([1, 2, 3, 4]);
-  expect([...(result.bytes ?? [])]).toEqual([1, 2, 3, 4]);
 });
 
 test("aborts partial files and releases the single-recording guard", async () => {
@@ -155,7 +153,6 @@ test("aborts partial files and releases the single-recording guard", async () =>
   const second = await invoke<{ filePath: string }>(
     "vellum:screenRecording:finish",
     secondId,
-    false,
   );
 
   expect(existsSync(firstPath)).toBeFalse();
