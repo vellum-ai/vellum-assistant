@@ -30,7 +30,6 @@ import {
   NOTIFICATION_TITLE_MAX_LENGTH,
   readPayloadString,
   sanitizeIdentityField,
-  sanitizeMessagePreview,
 } from "./notification-utils.js";
 import type {
   NotificationSignal,
@@ -46,36 +45,6 @@ function str(value: unknown, fallback: string): string {
     return value;
   }
   return fallback;
-}
-
-/**
- * Read an untrusted payload string for interpolation into copy: sanitized
- * like an identity field, undefined when the value is absent, not a string,
- * or sanitizes down to nothing.
- */
-function optionalSanitizedPayloadField(value: unknown): string | undefined {
-  return typeof value === "string"
-    ? nonEmpty(sanitizeIdentityField(value))
-    : undefined;
-}
-
-/** {@link optionalSanitizedPayloadField} with a fallback for the empty case. */
-function sanitizedPayloadField(value: unknown, fallback: string): string {
-  return optionalSanitizedPayloadField(value) ?? fallback;
-}
-
-/**
- * Plugin and schedule names from a `schedule.*` payload, with the fallbacks
- * every schedule template shares.
- */
-function schedulePayloadNames(payload: Record<string, unknown>): {
-  scheduleName: string;
-  pluginName: string;
-} {
-  return {
-    scheduleName: sanitizedPayloadField(payload.scheduleName, "a schedule"),
-    pluginName: sanitizedPayloadField(payload.pluginName, "A plugin"),
-  };
 }
 
 /**
@@ -146,43 +115,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.message, "A reminder has fired"),
   }),
 
-  // The schedule.* fields below (names, cadence, error reason) originate in
-  // plugin-authored declaration files, so they are sanitized like any other
-  // untrusted actor-controlled string before interpolation.
-  "schedule.declared": (payload) => {
-    const { scheduleName, pluginName } = schedulePayloadNames(payload);
-    const cadence = optionalSanitizedPayloadField(payload.cadence);
-    const cadenceSuffix = cadence ? ` (${cadence})` : "";
-    return {
-      title: `New plugin schedule: ${scheduleName}`,
-      body: `Plugin "${pluginName}" armed the schedule "${scheduleName}"${cadenceSuffix}. It will run automatically; you can disable it from your schedules.`,
-    };
-  },
-
-  "schedule.definition_changed": (payload) => {
-    const { scheduleName, pluginName } = schedulePayloadNames(payload);
-    return {
-      title: `Plugin schedule changed: ${scheduleName}`,
-      body: `Plugin "${pluginName}" changed the definition of its schedule "${scheduleName}".`,
-    };
-  },
-
-  "schedule.definition_error": (payload) => {
-    const { scheduleName, pluginName } = schedulePayloadNames(payload);
-    const reason = sanitizeMessagePreview(
-      str(payload.reason, "the declaration is invalid"),
-    );
-    // `paused` says the schedule stopped running over this error rather than
-    // carrying on with what it last loaded, which is the part the user acts on.
-    const pausedSuffix =
-      payload.paused === true
-        ? " It is paused until the declaration loads again."
-        : "";
-    return {
-      title: `Plugin schedule error: ${scheduleName}`,
-      body: `Plugin "${pluginName}" has a schedule "${scheduleName}" that could not be loaded: ${reason}${pausedSuffix}`,
-    };
-  },
 
   "guardian.question": (payload) => {
     const question = str(
@@ -328,34 +260,25 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.toolName, "A tool") + " requires your confirmation",
   }),
 
-  "activity.complete": (payload) => ({
-    title: "Activity Complete",
-    body: str(payload.summary, "An activity has completed"),
+  // Run transitions. Titles are noun phrases naming the work, never the
+  // state, so the row reads as "Competitor research" rather than "Run
+  // finished". The state is what the body and the row's own treatment say.
+  "run.needs_input": (payload) => ({
+    title: str(payload.runLabel, "Waiting on you"),
+    body: str(
+      payload.progressNote,
+      "This work is blocked until you answer.",
+    ),
   }),
 
-  "activity.failed": (payload) => {
-    const jobName = str(payload.jobName, "background job");
-    const errorKind = str(payload.errorKind, "exception");
-    const rawMessage =
-      typeof payload.errorMessage === "string"
-        ? payload.errorMessage
-        : "no message";
-    const truncated =
-      rawMessage.length > 200 ? rawMessage.slice(0, 200) + "…" : rawMessage;
-    return {
-      title: `Background job failed: ${jobName}`,
-      body: `${errorKind}: ${truncated}`,
-    };
-  },
-
-  "quick_chat.response_ready": (payload) => ({
-    title: "Response Ready",
-    body: str(payload.preview, "Your quick chat response is ready"),
+  "run.failed": (payload) => ({
+    title: str(payload.runLabel, "Run failed"),
+    body: str(payload.failureReason, "It stopped before finishing."),
   }),
 
-  "voice.response_ready": (payload) => ({
-    title: "Voice Response",
-    body: str(payload.preview, "A voice response is ready"),
+  "run.finished_notable": (payload) => ({
+    title: str(payload.runLabel, "Run finished"),
+    body: str(payload.summary, "It finished and produced something to see."),
   }),
 };
 

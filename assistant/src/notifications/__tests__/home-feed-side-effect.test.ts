@@ -191,7 +191,11 @@ describe("writeHomeFeedItemForSignal", () => {
     // without those fields.
     expect((appended as { source?: unknown }).source).toBeUndefined();
     expect((appended as { author?: unknown }).author).toBeUndefined();
-    expect(appended.priority).toBe(50);
+    // `priority` is a projection of the bucket now, not an independent
+    // ranking dimension: an Activity row sorts below Worth knowing, which
+    // sorts below Needs you.
+    expect(appended.bucket).toBe("worth_knowing");
+    expect(appended.priority).toBe(60);
     expect(appended.status).toBe("new");
     expect(appended.title).toBe("Background job done");
     expect(appended.summary).toBe("Summary of what happened.");
@@ -281,7 +285,10 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]!.title).toBe("Shared from CLI");
-    expect(appendCalls[0]!.noteworthy).toBe(true);
+    // Buckets are derived from the event, not from who emitted it: a share
+    // with nothing to decide is Activity, and `noteworthy` follows.
+    expect(appendCalls[0]!.bucket).toBe("activity");
+    expect(appendCalls[0]!.noteworthy).toBe(false);
     expect(appendCalls[0]!.conversationId).toBeUndefined();
     expect(conversationLookups).toEqual(["cli-12345"]);
   });
@@ -404,9 +411,11 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(0);
   });
 
-  test("derives a title from the summary when only the body is available", async () => {
-    // With no authored candidate at all, the title is derived from the
-    // summary rather than left off: every row carries a headline.
+  test("names an untitled row by its kind rather than slicing the body", async () => {
+    // Nothing is derived from the summary any more. A header sliced off a
+    // first-person body is where rows like "I wrote something about the
+    // rendere…" came from; an untitled row gets the written headline for its
+    // kind instead, with the body right underneath saying the specific part.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
@@ -417,8 +426,20 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
-    expect(appendCalls[0]!.title).toBe("Real body");
+    expect(appendCalls[0]!.title).toBe("Notification");
     expect(appendCalls[0]!.summary).toBe("Real body");
+  });
+
+  test("names a known event by its written headline", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "credential.health_alert",
+      contextPayload: { body: "Google Calendar lost its scopes." },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item?.title).toBe("Connection needs attention");
   });
 
   test("uses the LLM-rendered title when no payload title was supplied", async () => {
@@ -535,13 +556,13 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, decision);
 
-    expect(item?.title).toBe("Disk usage crossed 90 percent.");
+    expect(item?.title).toBe("Notification");
     expect(appendCalls[0]!.title).toBeTruthy();
   });
 
-  test("derives a single-line plain title from a markdown-headed conversation seed", async () => {
+  test("keeps a markdown conversation seed as the summary without deriving a title from it", async () => {
     // The summary prefers `conversationSeedMessage`, which carries structured
-    // markdown and hard line breaks. The derived title must not.
+    // markdown and hard line breaks. None of it reaches the title.
     conversationRow = { conversationType: "background" };
     const seed =
       "## Nightly Backup Report\n\nThe backup job on db-primary failed at 02:14.";
@@ -558,52 +579,7 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, decision);
 
-    expect(item?.title).toBe(
-      "Nightly Backup Report The backup job on db-primary failed at…",
-    );
-    expect(item?.summary).toBe(seed);
-  });
-
-  test("strips tilde fences and indented headings, matching migration 138", async () => {
-    // Workspace migration 138 backfills titles with its own self-contained copy
-    // of these rules. A backfilled title and a freshly written one must match
-    // for the same summary, so both accept CommonMark's 3-space indent and both
-    // fence styles.
-    conversationRow = { conversationType: "background" };
-    const seed = "   ## Indented heading\n\n~~~\ntilde fence\n~~~\nBody text.";
-    const signal = makeSignal({ sourceEventName: "example.event" });
-    const decision = makeDecision({
-      renderedCopy: {
-        vellum: {
-          title: "",
-          body: "Body text.",
-          conversationSeedMessage: seed,
-        },
-      },
-    });
-
-    const item = await writeHomeFeedItemForSignal(signal, decision);
-
-    expect(item?.title).toBe("Indented heading tilde fence Body text.");
-  });
-
-  test("derives a single-line plain title from a markdown-list conversation seed", async () => {
-    conversationRow = { conversationType: "background" };
-    const seed = "- Ran 12 checks\n- 3 failed\n\nSee the log for details.";
-    const signal = makeSignal({ sourceEventName: "example.event" });
-    const decision = makeDecision({
-      renderedCopy: {
-        vellum: {
-          title: "",
-          body: "Check run finished.",
-          conversationSeedMessage: seed,
-        },
-      },
-    });
-
-    const item = await writeHomeFeedItemForSignal(signal, decision);
-
-    expect(item?.title).toBe("Ran 12 checks 3 failed See the log for details.");
+    expect(item?.title).toBe("Notification");
     expect(item?.summary).toBe(seed);
   });
 
@@ -751,9 +727,9 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(1);
   });
 
-  // ── noteworthy derivation ────────────────────────────────────────────
+  // ── bucket derivation ──────────────────────────────────────────────
 
-  test("assistant_tool source marks the feed item noteworthy", async () => {
+  test("an assistant share is worth knowing", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
@@ -763,8 +739,9 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
+    expect(item?.bucket).toBe("worth_knowing");
     expect(item?.noteworthy).toBe(true);
-    expect(appendCalls[0]!.noteworthy).toBe(true);
+    expect(appendCalls[0]!.priority).toBe(60);
   });
 
   test("assistant_tool source sets fromAssistant=true", async () => {
@@ -795,7 +772,7 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.fromAssistant).toBe(false);
   });
 
-  test("scheduler source with schedule.notify is not noteworthy", async () => {
+  test("a reminder is worth knowing", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "scheduler",
@@ -805,11 +782,10 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
-    expect(item?.noteworthy).toBe(false);
-    expect(appendCalls[0]!.noteworthy).toBe(false);
+    expect(item?.bucket).toBe("worth_knowing");
   });
 
-  test("assistant_tool source with guardian.question event still wins (noteworthy true)", async () => {
+  test("a guardian question needs you, whatever emitted it", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
@@ -819,99 +795,34 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
+    expect(item?.bucket).toBe("needs_you");
     expect(item?.noteworthy).toBe(true);
-    expect(appendCalls[0]!.noteworthy).toBe(true);
+    expect(appendCalls[0]!.priority).toBe(90);
   });
 
-  test("activity.failed with critical urgency is noteworthy (scheduler source)", async () => {
+  test("a signal that declares it blocks the user needs you, whatever it is named", async () => {
+    // The bucket is a property of the signal, not only of the registry: a
+    // producer that says its work is blocked gets the top section even if its
+    // event name is not one of the known blocking ones.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
-      sourceChannel: "scheduler",
-      sourceEventName: "activity.failed",
-      contextPayload: { title: "Job failed", body: "Critical failure" },
+      sourceChannel: "watcher",
+      sourceEventName: "example.event",
+      contextPayload: { title: "Decide", body: "Which one?" },
       attentionHints: {
-        requiresAction: false,
-        urgency: "critical",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-    });
-
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
-
-    expect(item?.noteworthy).toBe(true);
-    expect(appendCalls[0]!.noteworthy).toBe(true);
-  });
-
-  test("activity.failed with low urgency is not noteworthy (scheduler source)", async () => {
-    conversationRow = { conversationType: "background" };
-    const signal = makeSignal({
-      sourceChannel: "scheduler",
-      sourceEventName: "activity.failed",
-      contextPayload: { title: "Job failed", body: "Routine failure" },
-      attentionHints: {
-        requiresAction: false,
-        urgency: "low",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-    });
-
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
-
-    expect(item?.noteworthy).toBe(false);
-    expect(appendCalls[0]!.noteworthy).toBe(false);
-  });
-
-  test("activity.failed from background-job-runner shape (assistant_tool + medium) is NOT noteworthy", async () => {
-    // Regression: `runtime/background-job-runner.ts` emits activity.failed
-    // with `sourceChannel: "assistant_tool"` and `urgency: "medium"`. Before
-    // the fix, the assistant_tool short-circuit short-circuited noteworthy
-    // to true, so every routine watcher/heartbeat failure landed in the
-    // Inbox. The activity.failed rule must run first and require critical
-    // urgency.
-    conversationRow = { conversationType: "background" };
-    const signal = makeSignal({
-      sourceChannel: "assistant_tool",
-      sourceEventName: "activity.failed",
-      contextPayload: { title: "Job failed", body: "Routine failure" },
-      attentionHints: {
-        requiresAction: false,
+        requiresAction: true,
         urgency: "medium",
-        isAsyncBackground: true,
+        isAsyncBackground: false,
         visibleInSourceNow: false,
       },
     });
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
-    expect(item?.noteworthy).toBe(false);
-    expect(appendCalls[0]!.noteworthy).toBe(false);
+    expect(item?.bucket).toBe("needs_you");
   });
 
-  test("activity.failed from assistant_tool with critical urgency IS noteworthy", async () => {
-    // Companion to the regression test above: a background-job-runner
-    // shape that opts up to critical urgency should still reach the Inbox.
-    conversationRow = { conversationType: "background" };
-    const signal = makeSignal({
-      sourceChannel: "assistant_tool",
-      sourceEventName: "activity.failed",
-      contextPayload: { title: "Job failed", body: "Critical failure" },
-      attentionHints: {
-        requiresAction: false,
-        urgency: "critical",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      },
-    });
-
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
-
-    expect(item?.noteworthy).toBe(true);
-    expect(appendCalls[0]!.noteworthy).toBe(true);
-  });
-
-  test("credential.health_alert is noteworthy regardless of source channel", async () => {
+  test("credential health needs you: a connection has to be reconnected", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "watcher",
@@ -921,8 +832,38 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
+    expect(item?.bucket).toBe("needs_you");
     expect(item?.noteworthy).toBe(true);
-    expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
+
+  test("an unknown routine event is activity, and expires on the Activity clock", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "watcher",
+      sourceEventName: "example.event",
+      contextPayload: { title: "Something", body: "Happened" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item?.bucket).toBe("activity");
+    expect(item?.noteworthy).toBe(false);
+    expect(item?.expiresAt).toBeTruthy();
+  });
+
+  test("a needs-you row carries no clock expiry", async () => {
+    // It expires on resolution. A pending approval that aged out of the bell
+    // would be a silent loss of the thing the top section exists for.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "guardian.question",
+      contextPayload: { title: "Question", body: "Approve?" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item?.expiresAt).toBeUndefined();
   });
 
   describe("body append into the feed item's conversation", () => {

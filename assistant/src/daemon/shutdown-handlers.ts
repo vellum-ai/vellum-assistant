@@ -16,6 +16,7 @@ import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
 import { stopRouteHost } from "../routes/control.js";
+import { stopRunSweeps } from "../runs/run-sweeps.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -169,6 +170,7 @@ async function shutdown(): Promise<void> {
   await browserManager.closeAllPages();
   cleanupShellOutputTempFiles();
   stopScheduler();
+  stopRunSweeps();
 
   // The memory jobs worker process is SIGTERM'd by the memory plugin's own
   // `shutdown` hook (fired via runHook(HOOKS.SHUTDOWN) above), which owns that

@@ -2,6 +2,28 @@
 
 All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
 
+## Every notification ships with a user action
+
+**No action, no notification.** Before adding a source event name, answer: could the user do anything differently because of it? If not, it is a log line, a status, or nothing, and it goes to one of the surfaces built for those instead:
+
+| It is | Where it goes |
+| --- | --- |
+| Async work with a lifecycle | A **run** (`runs/run-store.ts`). One row, rewritten in place. Only `needs_input`, `failed`, and a notable success re-enter this pipeline |
+| A subsystem failing repeatedly | A **System health** counter (`home/system-health.ts`). It counts, it never pushes, and it clears itself after a run of successes |
+| A lifecycle transition nobody can act on | A log line |
+
+Anything that fires repeatedly for the same underlying cause must collapse into a counter rather than sending again. Per-failure notifications for background jobs, plugin schedules, and channel webhooks were the majority of the bell's volume and are gone; do not reintroduce the shape under a new event name.
+
+## Bucket, not priority
+
+`notifications/bucket.ts` derives which of the three sections a signal lands in (`needs_you` / `worth_knowing` / `activity`) from fixed rules, **before** the decision engine runs. The model keeps channel selection and wording; it has no say in importance, which has to be predictable for the sections to mean anything.
+
+`priority`, `noteworthy`, and `category` still ride the wire, but only as projections of the bucket (`bucketCompat`) for clients built against the pre-bucket contract. Nothing derives them independently. Do not add a fourth ranking dimension, and do not read them in new client code.
+
+## Titles are written, never derived
+
+A row's headline comes from the producer, the decision engine, or the written per-event headline in `home/feed-headline.ts`. Nothing slices a title off the front of a body: that is where rows reading like the truncated middle of a sentence came from. `notifications/copy-contract.ts` enforces the rest as a pre-send pass, repairing what it can (a first-person title, a title that is only the opening of the body, a raw error constant) and rejecting only copy with no usable body.
+
 Guardian-request cards (approvals, questions) ride this pipeline end to end -- the full lifecycle map is [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). Card actions (`actions[]`) are built **once, centrally** in the broadcaster's context resolvers (`resolveApprovalContext` / `resolveQuestionOptionsContext`); channel adapters render only. Adding buttons for a new request kind = a broadcaster context branch, never adapter parsing.
 
 When a notification flow creates a server-side conversation (e.g. guardian question conversations, task run conversations), the conversation and initial message **MUST** be persisted before the conversation-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.

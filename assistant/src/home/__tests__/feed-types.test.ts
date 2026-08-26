@@ -190,12 +190,28 @@ describe("feedItemSchema — enum validation", () => {
     ).toThrow();
   });
 
-  test("rejects legacy v1 `type` values (nudge/digest/action/thread)", () => {
-    for (const legacy of ["nudge", "digest", "action", "thread"] as const) {
+  test("rejects the legacy v1 `type` values the vocabulary does not reuse", () => {
+    for (const legacy of ["nudge", "action", "thread"] as const) {
       expect(() =>
         feedItemSchema.parse({ ...minimalNotification(), type: legacy }),
       ).toThrow();
     }
+  });
+
+  test("accepts the row kinds alongside a notification", () => {
+    // `digest` was also a v1 type, with different semantics. Reusing the name
+    // is safe because workspace migration 079 rewrote every pre-v2 file on
+    // first boot, so no v1 row survives to be read back as a new one.
+    for (const kind of ["notification", "run", "digest", "system_health"] as const) {
+      expect(() =>
+        feedItemSchema.parse({ ...minimalNotification(), type: kind }),
+      ).not.toThrow();
+    }
+  });
+
+  test("defaults an absent `type` to a notification", () => {
+    const { type: _type, ...withoutType } = minimalNotification();
+    expect(feedItemSchema.parse(withoutType).type).toBe("notification");
   });
 
   test("rejects unknown `category`", () => {

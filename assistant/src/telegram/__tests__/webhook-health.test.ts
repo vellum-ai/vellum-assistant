@@ -84,34 +84,19 @@ mock.module("../../inbound/platform-callback-registration.js", () => ({
   }),
 }));
 
-// Mirrors the real `emitNotificationSignal` contract: it swallows pipeline
-// errors and resolves with `dispatched: false` UNLESS `throwOnError` is set.
-// The mock reproduces that conditional rather than throwing unconditionally —
-// otherwise it would validate a contract the real function does not have, and
-// the caller's retry path could be dead in production while tests pass.
-mock.module("../../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (params: Record<string, unknown>) => {
+// A webhook outage is a System health counter, not a notification: a webhook
+// cannot be repaired from a banner, and the dedupe window resetting daily used
+// to turn one persistent fault into an endless stream of identical rows. The
+// throwing case pins the caller's latch-release retry path, which would be
+// dead code if the recorder could never fail.
+mock.module("../../home/system-health.js", () => ({
+  recordSubsystemFailure: async (failure: Record<string, unknown>) => {
     if (emitFails) {
-      if (params.throwOnError) {
-        throw new Error("emit failed");
-      }
-      return {
-        signalId: "sig",
-        deduplicated: false,
-        dispatched: false,
-        reason: "Signal pipeline failed: emit failed",
-        deliveryResults: [],
-      };
+      throw new Error("record failed");
     }
-    emittedSignals.push(params);
-    return {
-      signalId: "sig",
-      deduplicated: false,
-      dispatched: true,
-      reason: "ok",
-      deliveryResults: [],
-    };
+    emittedSignals.push(failure);
   },
+  recordSubsystemSuccess: async () => {},
 }));
 
 const originalFetch = globalThis.fetch;
@@ -444,49 +429,25 @@ describe("alerting", () => {
     await runTelegramWebhookHealthCheck();
 
     expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("telegram.webhook_health_alert");
-    // Never routed as if it came from Telegram — that channel is the broken one.
-    // "assistant_tool" specifically, because that plus requestedMessage is what
-    // takes the decision engine's verbatim pass-through and skips the LLM
-    // classifier. AGENTS.md forbids LLM work on unconditional timers, and a
-    // classifier could also suppress the alert outright.
-    expect(signal.sourceChannel).toBe("assistant_tool");
-    // Pins the emitNotificationSignal contract: without this the pipeline
-    // swallows failures and the latch-release retry path below is dead code.
-    expect(signal.throwOnError).toBe(true);
-    expect(signal.attentionHints).toMatchObject({
-      requiresAction: true,
-      urgency: "high",
-      isAsyncBackground: true,
+    const record = emittedSignals[0]!;
+    expect(record.subsystem).toBe("telegram_webhook");
+    expect(record.label).toBe("Telegram");
+    expect(String(record.errorSummary)).toContain("Telegram (@test_bot)");
+    expect(String(record.errorSummary)).toContain("404 Not Found");
+    // The one thing that would actually help, offered on the row.
+    expect(record.remedy).toEqual({
+      path: "/settings/channels",
+      label: "Reconnect",
     });
-
-    const payload = signal.contextPayload as Record<string, unknown>;
-    expect(payload.channel).toBe("telegram");
-    expect(payload.status).toBe("delivery_failing");
-    expect(payload.pendingUpdateCount).toBe(3);
-    expect(String(payload.body)).toContain("Telegram (@test_bot)");
-    expect(String(payload.body)).toContain("404 Not Found");
-    // The pass-through reads requestedMessage/requestedTitle; the home-feed
-    // writer reads body/title. Both must carry the composed copy or the alert
-    // silently falls back to the LLM path (or renders empty).
-    expect(payload.requestedMessage).toBe(payload.body);
-    expect(payload.requestedTitle).toBe(payload.title);
-    expect(String(payload.requestedMessage)).not.toHaveLength(0);
   });
 
-  test("an unregistered webhook alerts with a title matching that status", async () => {
+  test("an unregistered webhook records the same subsystem", async () => {
     setWebhookInfo({ url: "", pending_update_count: 0 });
 
     await runTelegramWebhookHealthCheck();
 
     expect(emittedSignals).toHaveLength(1);
-    const payload = emittedSignals[0]!.contextPayload as Record<
-      string,
-      unknown
-    >;
-    expect(payload.status).toBe("not_registered");
-    expect(payload.title).toBe("Telegram webhook is not registered");
+    expect(emittedSignals[0]!.subsystem).toBe("telegram_webhook");
   });
 
   test("an ongoing failure does not re-alert on every poll", async () => {
@@ -532,9 +493,10 @@ describe("alerting", () => {
     setFailing();
     await runTelegramWebhookHealthCheck();
 
+    // Two counts, one per outage. The row itself is the same one: counting
+    // is the point, and the second outage is what the count is for.
     expect(emittedSignals).toHaveLength(2);
-    // Distinct dedupe keys, or the pipeline would swallow the second alert.
-    expect(emittedSignals[0]!.dedupeKey).not.toBe(emittedSignals[1]!.dedupeKey);
+    expect(emittedSignals[1]!.subsystem).toBe(emittedSignals[0]!.subsystem);
   });
 
   test("an unknown result neither alerts nor clears an existing alert", async () => {

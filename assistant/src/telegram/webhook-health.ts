@@ -53,7 +53,10 @@ import { z } from "zod";
 import { getConfig } from "../config/loader.js";
 import { hasWebhookRoutingConfigured } from "../config/webhook-routing.js";
 import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import {
+  recordSubsystemFailure,
+  recordSubsystemSuccess,
+} from "../home/system-health.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
@@ -396,69 +399,25 @@ export function _resetTelegramWebhookHealthState(): void {
   episodeSeq = 0;
 }
 
-async function notifyWebhookFailure(
+/**
+ * Record a webhook outage against the Telegram subsystem's health row.
+ *
+ * A webhook is not something the user can repair from a notification, so this
+ * counts rather than pushes. The row carries a Reconnect affordance, which is
+ * the one thing that would actually help, and the count is what tells the
+ * story: a channel that has been dark for two days reads differently from one
+ * that missed a single round.
+ */
+async function recordWebhookFailure(
   result: TelegramWebhookHealthResult,
-  dedupeKey: string,
 ): Promise<void> {
-  const title =
-    result.status === "not_registered"
-      ? "Telegram webhook is not registered"
-      : "Telegram webhook is failing";
-
-  await emitNotificationSignal({
-    sourceEventName: "telegram.webhook_health_alert",
-    // Deliberately NOT "telegram": the Telegram channel is precisely the one
-    // that can't be relied on to carry this news.
-    //
-    // "assistant_tool" specifically (rather than "watcher") is what takes the
-    // decision engine's verbatim pass-through: paired with requestedMessage
-    // below, evaluateSignal skips the LLM classifier entirely. That matters
-    // twice over. AGENTS.md ("No LLM Work at Daemon Startup") forbids invoking
-    // LLM providers from unconditional timers, and this sweep is one — the
-    // heartbeat's exemption does not extend to it. And the copy here is fully
-    // computed already, so a classifier could only re-render it, or decide
-    // shouldNotify: false and suppress a high-urgency outage alert outright.
-    // background-job-runner.ts uses the same channel for the same reason.
-    sourceChannel: "assistant_tool",
-    sourceContextId: "telegram-webhook-health",
-    // Keyed to the episode, not the error text: a redundant emit inside one
-    // outage collapses, while the next outage gets a fresh key and alerts.
-    dedupeKey,
-    // emitNotificationSignal swallows pipeline errors and resolves with
-    // `dispatched: false` unless this is set. Without it the catch in
-    // runTelegramWebhookHealthCheck can never fire, and a failed emit would
-    // latch the episode forever with the guardian never told.
-    throwOnError: true,
-    attentionHints: {
-      requiresAction: true,
-      urgency: "high",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-    contextPayload: {
-      channel: "telegram",
-      status: result.status,
-      // requestedTitle/requestedMessage are the pass-through's contract; title
-      // and body are what the home-feed writer reads. Both carry the same
-      // already-composed copy.
-      requestedTitle: title,
-      requestedMessage: result.detail,
-      title,
-      body: result.detail,
-      ...(result.lastErrorMessage
-        ? { lastErrorMessage: result.lastErrorMessage }
-        : {}),
-      ...(result.lastErrorDate ? { lastErrorDate: result.lastErrorDate } : {}),
-      ...(result.pendingUpdateCount !== undefined
-        ? { pendingUpdateCount: result.pendingUpdateCount }
-        : {}),
-    },
-    routingIntent: "single_channel",
-    conversationMetadata: {
-      source: "telegram-webhook-health",
-      groupId: "system:background",
-      conversationType: "background",
-    },
+  await recordSubsystemFailure({
+    subsystem: "telegram_webhook",
+    label: "Telegram",
+    errorSummary: result.lastErrorMessage
+      ? `${result.detail} ${result.lastErrorMessage}`
+      : result.detail,
+    remedy: { path: "/settings/channels", label: "Reconnect" },
   });
 }
 
@@ -496,6 +455,7 @@ export async function runTelegramWebhookHealthCheck(): Promise<TelegramWebhookHe
       );
       alertedEpisodeKey = null;
     }
+    void recordSubsystemSuccess("telegram_webhook");
     return result;
   }
 
@@ -507,26 +467,18 @@ export async function runTelegramWebhookHealthCheck(): Promise<TelegramWebhookHe
     return result;
   }
 
-  // Latch before awaiting the emit so an overlapping round can't double-fire.
+  // Latch before awaiting the record so an overlapping round can't double-count.
   episodeSeq++;
-  const dedupeKey = `telegram-webhook-health:${Date.now()}:${episodeSeq}`;
-  alertedEpisodeKey = dedupeKey;
+  alertedEpisodeKey = `telegram-webhook-health:${Date.now()}:${episodeSeq}`;
   log.warn({ status: result.status }, result.detail);
 
   try {
-    await notifyWebhookFailure(result, dedupeKey);
+    await recordWebhookFailure(result);
   } catch (err) {
-    // The guardian was never told, so this outage is still un-alerted. Release
-    // the latch and let the next round try again.
-    //
-    // Only thrown failures release it. A signal the pipeline deliberately
-    // suppresses (deterministic checks returning `dispatched: false` without
-    // throwing) keeps the latch, on purpose: releasing it would mint a fresh
-    // episode key next round and re-emit every 5 minutes for as long as the
-    // suppression held. Staying quiet is the better failure mode, and matches
-    // how credential-health alerts behave.
+    // The outage was never recorded, so it is still unreported. Release the
+    // latch and let the next round try again.
     alertedEpisodeKey = null;
-    log.error({ err }, "Failed to emit Telegram webhook health notification");
+    log.error({ err }, "Failed to record the Telegram webhook health failure");
   }
 
   return result;

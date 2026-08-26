@@ -10,7 +10,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { recordSubsystemFailure } from "../home/system-health.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
@@ -282,35 +282,16 @@ export class HeartbeatService {
 
         if (!isDiskPressureBackgroundLocked("heartbeat-startup")) {
           const total = this._startupMissedCount + this._startupCrashedCount;
-          const today = new Date().toISOString().split("T")[0];
-          void emitNotificationSignal({
-            sourceChannel: "scheduler",
-            sourceContextId: "heartbeat",
-            sourceEventName: "activity.failed",
-            dedupeKey: `activity-failed:heartbeat-missed:${today}`,
-            contextPayload: {
-              jobName: "heartbeat",
-              errorMessage: `${total} heartbeat run${
-                total > 1 ? "s were" : " was"
-              } missed while the assistant was offline.`,
-              errorKind: "exception",
-            },
-            attentionHints: {
-              requiresAction: false,
-              urgency: "medium",
-              isAsyncBackground: true,
-              visibleInSourceNow: false,
-            },
-            conversationMetadata: {
-              source: "heartbeat",
-              groupId: "system:background",
-              conversationType: "background",
-            },
-          }).catch((err) => {
-            log.warn(
-              { err },
-              "Failed to emit missed-heartbeat activity.failed notification",
-            );
+          // Runs missed while the assistant was offline are a count, not news:
+          // there is nothing to do about a heartbeat that did not fire while
+          // the process was down, and a notification per restart would be one
+          // more row nobody can act on.
+          void recordSubsystemFailure({
+            subsystem: "heartbeat",
+            label: "Heartbeat",
+            errorSummary: `${total} run${
+              total > 1 ? "s were" : " was"
+            } missed while the assistant was offline.`,
           });
         }
       }
@@ -827,8 +808,8 @@ export class HeartbeatService {
     );
 
     // Centralized boundary wrapper: handles bootstrap, processMessage,
-    // timeout, and emits `activity.failed` on any failure path. Never
-    // re-throws — failures come back as a structured result.
+    // timeout, and counts any failure against the heartbeat's System health
+    // row. Never re-throws: failures come back as a structured result.
     //
     // The runner fires `onConversationCreated` synchronously after
     // bootstrap so the macOS sidebar gets the new conversation
@@ -868,10 +849,9 @@ export class HeartbeatService {
         "Heartbeat completed",
       );
 
-      // Mark the run record as ok. The runner owns failure emission via
-      // `activity.failed`; any user-facing alert the model decided to
-      // raise was emitted in-band via the `notifications` skill during
-      // the turn itself.
+      // Mark the run record as ok. The runner owns the health accounting;
+      // any user-facing alert the model decided to raise was emitted in-band
+      // via the `notifications` skill during the turn itself.
       const transitioned = completeHeartbeatRun(runId, {
         status: "ok",
         conversationId: result.conversationId,
@@ -897,9 +877,9 @@ export class HeartbeatService {
       "Heartbeat failed",
     );
 
-    // The runner has already emitted `activity.failed` for the failure;
-    // we still record the run-level error and broadcast the in-app
-    // heartbeat alert so the existing surfacing keeps working.
+    // The runner has already counted the failure against System health; we
+    // still record the run-level error and broadcast the in-app heartbeat
+    // alert so the existing surfacing keeps working.
     // Map the runner's error classification onto the run-store's status
     // enum so the run history preserves the timeout / error distinction.
     const runStatus = result.errorKind === "timeout" ? "timeout" : "error";

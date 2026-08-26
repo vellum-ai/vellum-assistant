@@ -54,6 +54,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // `conversationId`; clients re-read the app on receipt.
   "app_files_changed",
   "home_feed_updated",
+  // In-app toast for a feed row that wants attention now. Per-user, not
+  // per-conversation, so the conversation gate would drop it.
+  "feed_toast",
   "relationship_state_updated",
   // Workspace-scoped prompt — the `contacts/prompt` IPC route fires it
   // from settings or skill flows that have no conversation binding, so

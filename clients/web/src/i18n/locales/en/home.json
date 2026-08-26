@@ -10,7 +10,8 @@
     "viewSchedule": "View schedule",
     "viewSkill": "View skill",
     "markAllAsRead": "Mark all as read",
-    "clearAll": "Clear all"
+    "clearAll": "Clear all",
+    "clearActivity": "Clear activity"
   },
   "category": {
     "all": "All",
@@ -20,9 +21,15 @@
     "background": "Background",
     "system": "System"
   },
-  "homeRecapRow": { "actionsTitle": "Update Actions" },
-  "homeTopHeader": { "title": "Activity" },
-  "homeFeedFilterBar": { "ariaLabel": "Filter notifications" },
+  "homeRecapRow": {
+    "actionsTitle": "Update Actions"
+  },
+  "homeTopHeader": {
+    "title": "Activity"
+  },
+  "homeFeedFilterBar": {
+    "ariaLabel": "Filter notifications"
+  },
   "homeFeedList": {
     "today": "Today",
     "yesterday": "Yesterday",
@@ -61,7 +68,30 @@
     "heading": "Notifications",
     "loadFailed": "Couldn't load notifications.",
     "empty": "No notifications yet.",
-    "actionFailed": "Couldn't start that conversation. Try again."
+    "actionFailed": "Couldn't start that conversation. Try again.",
+    "loading": "Loading notifications"
   },
-  "notificationsBellDetail": { "back": "Back to notifications" }
+  "notificationsBellDetail": {
+    "back": "Back to notifications"
+  },
+  "bellSection": {
+    "needsYou": "Needs you",
+    "worthKnowing": "Worth knowing",
+    "activity": "Activity",
+    "runningCount": "{running, number} running"
+  },
+  "bellRows": {
+    "retry": "Retry",
+    "retryStarted": "Started it again.",
+    "retryFailed": "Couldn't start it again. Try again.",
+    "retryUnavailable": "There's nothing left to run this again from.",
+    "runQuiet": "No recent activity.",
+    "runChildProgress": "{done, number} of {total, number} done",
+    "openActivityLog": "Open the activity log"
+  },
+  "feedToast": {
+    "collapsedTitle": "{total, plural, one {# update} other {# updates}}",
+    "collapsedBody": "Several runs finished at once. Open Activity to see them.",
+    "close": "Close"
+  }
 }

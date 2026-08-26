@@ -32,23 +32,35 @@ mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
 
-// Background skill updates route through the notification pipeline; record
-// the signals rather than standing up delivery.
+// Skill learning is async work, so a background update opens a run rather
+// than emitting a one-shot notification: the run carries the label, the
+// outcome, and the link back to where the learning happened as one row.
 let emittedSignals: Array<{
-  sourceEventName: string;
-  sourceContextId: string;
-  dedupeKey?: string;
-  contextPayload?: Record<string, unknown>;
+  kind: string;
+  label: string;
+  conversationId?: string;
+  metadata?: Record<string, unknown>;
+  outcome?: Record<string, unknown>;
 }> = [];
-mock.module("../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (params: {
-    sourceEventName: string;
-    sourceContextId: string;
-    dedupeKey?: string;
-    contextPayload?: Record<string, unknown>;
+mock.module("../runs/run-store.js", () => ({
+  startRun: (options: {
+    kind: string;
+    label: string;
+    conversationId?: string;
+    metadata?: Record<string, unknown>;
   }) => {
-    emittedSignals.push(params);
-    return { signalId: "test-signal" };
+    const record: (typeof emittedSignals)[number] = { ...options };
+    emittedSignals.push(record);
+    return {
+      runId: "run-test",
+      progress: () => {},
+      needsInput: async () => {},
+      succeed: async (outcome: Record<string, unknown>) => {
+        record.outcome = outcome;
+      },
+      fail: async () => {},
+      cancel: async () => {},
+    };
   },
 }));
 
@@ -96,7 +108,10 @@ function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
 import { loadSkillCatalog } from "../config/skills.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
 import { validateInputAgainstSchema } from "../skills/validate-input.js";
-import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
+import {
+  executeScaffoldManagedSkill,
+  resetSkillUpdateAnnouncementsForTests,
+} from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
 /**
@@ -1682,6 +1697,7 @@ describe("background skill update notification", () => {
     watchdogEvents.length = 0;
     skillCardJobUpserts = [];
     emittedSignals = [];
+    resetSkillUpdateAnnouncementsForTests();
   }
 
   const lineage = () => ({
@@ -1709,29 +1725,41 @@ describe("background skill update notification", () => {
 
     expect(result.isError).toBe(false);
     expect(emittedSignals).toHaveLength(1);
-    const signal = emittedSignals[0]!;
-    expect(signal.sourceEventName).toBe("activity.complete");
-    // The feed item's "Go to Convo" target resolves through this id, so it
-    // must be the conversation the work came from, not the hidden fork.
-    expect(signal.sourceContextId).toBe("source-conv");
-    expect(signal.contextPayload?.skillId).toBe("weekly-export");
-    expect(String(signal.contextPayload?.summary)).toContain(
-      "Weekly Report Export",
-    );
-    // The home feed falls back to `title`/`body` when no channel copy was
-    // rendered, which is the intended quiet shape for this signal. Without
-    // them a suppressed delivery would leave the feed item unwritten.
+    const run = emittedSignals[0]!;
+    expect(run.kind).toBe("skill_learning");
     // Named so the row is scannable in a feed several entries deep.
-    expect(signal.contextPayload?.title).toBe(
-      "Skill updated: Weekly Report Export",
-    );
-    expect(String(signal.contextPayload?.body)).toContain(
-      "Weekly Report Export",
-    );
-    // Deduped per skill per day so repeated refinements cannot flood the feed.
-    expect(signal.dedupeKey).toBe(
-      `skill-updated:weekly-export:${new Date().toISOString().slice(0, 10)}`,
-    );
+    expect(run.label).toBe("Learned skill: Weekly Report Export");
+    // The row's link resolves through this id, so it must be the conversation
+    // the work came from, not the hidden fork.
+    expect(run.conversationId).toBe("source-conv");
+    expect(run.metadata?.skillId).toBe("weekly-export");
+    // Notable, so it lands in Worth knowing rather than the digest: skill
+    // learning is the highest-signal async event there is.
+    expect(run.outcome?.notable).toBe(true);
+    expect(String(run.outcome?.summary)).toContain("Weekly Report Export");
+  });
+
+  test("a second refinement of the same skill on the same day stays quiet", async () => {
+    // Deduped per skill per day, so a pass that refines the same skill
+    // repeatedly cannot flood the feed.
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    for (let i = 0; i < 2; i++) {
+      await executeScaffoldManagedSkill(
+        {
+          skill_id: "weekly-export",
+          name: "Weekly Report Export",
+          description: "export the weekly usage report",
+          body_markdown: `${i}. Refined steps.`,
+          activation_hints: HINTS,
+          overwrite: true,
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        lineage(),
+      );
+    }
+
+    expect(emittedSignals).toHaveLength(1);
   });
 
   test("it falls back to the run conversation when fork lineage does not resolve", async () => {
@@ -1753,7 +1781,7 @@ describe("background skill update notification", () => {
     // Still a real conversation id, so the deep link resolves rather than
     // falling through to an unrelated target.
     expect(emittedSignals).toHaveLength(1);
-    expect(emittedSignals[0]!.sourceContextId).toBe("retro-run-conv");
+    expect(emittedSignals[0]!.conversationId).toBe("retro-run-conv");
   });
 
   test("a background CREATE gets the skill card instead, with no duplicate signal", async () => {
@@ -1786,6 +1814,7 @@ describe("background skill update notification", () => {
       makeContext(),
     );
     emittedSignals = [];
+    resetSkillUpdateAnnouncementsForTests();
 
     await executeScaffoldManagedSkill(
       {

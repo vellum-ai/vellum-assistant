@@ -30,6 +30,7 @@ import {
   type ConversationCreatedInfo,
   NotificationBroadcaster,
 } from "./broadcaster.js";
+import { applyCopyContractToDecision } from "./copy-contract.js";
 import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
 import { updateDecision } from "./decisions-store.js";
 import {
@@ -219,6 +220,16 @@ export interface EmitSignalParams<TEventName extends string = string> {
    * back to their originating conversation via `sourceContextId`.
    */
   requiresConversation?: boolean;
+  /**
+   * Skip the home-feed mirror for this signal.
+   *
+   * For producers that own their own feed row and are only using the pipeline
+   * for routing, copy, and channel delivery. Runs are the case this exists
+   * for: a run's durable record is its own `run` row, rewritten in place, so
+   * mirroring its notifying transition would put a second, frozen copy of the
+   * same work in the feed beside the live one.
+   */
+  suppressHomeFeedMirror?: boolean;
 }
 
 export interface EmitSignalResult {
@@ -479,6 +490,12 @@ export async function emitNotificationSignal<TEventName extends string>(
       }
     }
 
+    // Step 2.6: Enforce the copy contract. Repairs what it can (a first-person
+    // title, a title that is just the opening of the body, a raw error
+    // constant) and drops a channel whose body nothing could save, leaving the
+    // channel-availability check below to decide what that costs the signal.
+    decision = applyCopyContractToDecision(signal, decision);
+
     // Step 3: Run deterministic pre-send checks
     if (decision.shouldNotify) {
       const checkContext: DeterministicCheckContext = {
@@ -530,14 +547,19 @@ export async function emitNotificationSignal<TEventName extends string>(
     // emits, scheduler retries-exhausted) still get a "Go to Convo" button
     // pointing at the conversation the broadcaster paired, and so the feed can
     // tell whether that delivery left a conversation row an edit can reach.
+    //
+    // Producers that own their own feed row (runs) opt out: the pipeline is
+    // doing their routing and copy, not their persistence.
     const vellumDelivery = dispatchResult.deliveryResults.find(
       (r) => r.channel === "vellum",
     );
-    await writeHomeFeedItemForSignal(signal, decision, vellumDelivery).catch(
-      (err) => {
-        log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
-      },
-    );
+    if (!params.suppressHomeFeedMirror) {
+      await writeHomeFeedItemForSignal(signal, decision, vellumDelivery).catch(
+        (err) => {
+          log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
+        },
+      );
+    }
 
     log.info(
       {

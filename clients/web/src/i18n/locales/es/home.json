@@ -10,7 +10,8 @@
     "viewSchedule": "Ver programación",
     "viewSkill": "Ver habilidad",
     "markAllAsRead": "Marcar todas como leídas",
-    "clearAll": "Borrar todas"
+    "clearAll": "Borrar todas",
+    "clearActivity": "Borrar actividad"
   },
   "category": {
     "all": "Todas",
@@ -20,9 +21,15 @@
     "background": "Segundo plano",
     "system": "Sistema"
   },
-  "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
-  "homeTopHeader": { "title": "Actividad" },
-  "homeFeedFilterBar": { "ariaLabel": "Filtrar notificaciones" },
+  "homeRecapRow": {
+    "actionsTitle": "Acciones de la actualización"
+  },
+  "homeTopHeader": {
+    "title": "Actividad"
+  },
+  "homeFeedFilterBar": {
+    "ariaLabel": "Filtrar notificaciones"
+  },
   "homeFeedList": {
     "today": "Hoy",
     "yesterday": "Ayer",
@@ -61,7 +68,30 @@
     "heading": "Notificaciones",
     "loadFailed": "No se pudieron cargar las notificaciones.",
     "empty": "Todavía no hay notificaciones.",
-    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
+    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo.",
+    "loading": "Cargando notificaciones"
   },
-  "notificationsBellDetail": { "back": "Volver a las notificaciones" }
+  "notificationsBellDetail": {
+    "back": "Volver a las notificaciones"
+  },
+  "bellSection": {
+    "needsYou": "Te necesita",
+    "worthKnowing": "Vale la pena saber",
+    "activity": "Actividad",
+    "runningCount": "{running, number} en curso"
+  },
+  "bellRows": {
+    "retry": "Reintentar",
+    "retryStarted": "Se inició de nuevo.",
+    "retryFailed": "No se pudo iniciar de nuevo. Inténtalo otra vez.",
+    "retryUnavailable": "No queda nada desde donde volver a ejecutarlo.",
+    "runQuiet": "Sin actividad reciente.",
+    "runChildProgress": "{done, number} de {total, number} completados",
+    "openActivityLog": "Abrir el registro de actividad"
+  },
+  "feedToast": {
+    "collapsedTitle": "{total, plural, one {# novedad} other {# novedades}}",
+    "collapsedBody": "Varias ejecuciones terminaron a la vez. Abre Actividad para verlas.",
+    "close": "Cerrar"
+  }
 }

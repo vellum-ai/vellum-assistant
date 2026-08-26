@@ -1,6 +1,8 @@
 /**
  * `useNotificationIntentSync` forwards `notification_intent` SSE events to
- * `postLocalNotification`, including remote-push acceptance metadata.
+ * `postLocalNotification`, including remote-push acceptance metadata, and
+ * stands down while the window is focused so an OS banner never doubles up
+ * with the in-app toast.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -55,7 +57,20 @@ function publishNotificationIntent(overrides: {
   });
 }
 
+/**
+ * Whether this window is the one being used. happy-dom answers `true` by
+ * default, which is the focused case; the tests that want the away case say
+ * so explicitly.
+ */
+function setWindowFocused(focused: boolean): void {
+  Object.defineProperty(document, "hasFocus", {
+    configurable: true,
+    value: () => focused,
+  });
+}
+
 beforeEach(() => {
+  setWindowFocused(false);
   __resetForTesting();
   useConversationStore.getState().reset();
   postedArgs.length = 0;
@@ -100,5 +115,26 @@ describe("useNotificationIntentSync", () => {
     expect(postedArgs).toHaveLength(1);
     expect(postedArgs[0]?.remotePushDispatched).toBeUndefined();
     expect(postedArgs[0]?.remotePushPlatforms).toBeUndefined();
+  });
+
+  test("posts no banner while the window is focused", () => {
+    // In-app and system notifications never both fire. A focused window is
+    // being looked at, so the in-app surfaces own it: a toast for anything
+    // worth interrupting for, the bell for everything else.
+    setWindowFocused(true);
+    renderHook(() => useNotificationIntentSync("assistant-1"));
+
+    publishNotificationIntent({});
+
+    expect(postedArgs).toHaveLength(0);
+  });
+
+  test("still acks a suppressed banner, so the delivery audit stays complete", () => {
+    setWindowFocused(true);
+    renderHook(() => useNotificationIntentSync("assistant-1"));
+
+    publishNotificationIntent({});
+
+    expect(sendAckMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,13 +1,14 @@
 /**
  * Tests for `runBackgroundJob()`.
  *
- * Strategy: stub `bootstrapConversation`, `processMessage`, and
- * `emitNotificationSignal` via `mock.module()` and inspect the recorded
+ * Strategy: stub `bootstrapConversation`, `processMessage`, the run store,
+ * and the System health recorder via `mock.module()` and inspect the recorded
  * calls. We do NOT exercise the real conversation runtime here — the unit
  * under test is the wrapper's contract:
  *  - bootstrap is called once
  *  - processMessage is awaited (or raced against a timeout)
- *  - failure paths emit `activity.failed` (unless suppressed)
+ *  - failure paths increment the job's System health counter (unless
+ *    suppressed) and fail the job's run
  *  - the result is always a structured value, never a thrown error
  */
 
@@ -69,20 +70,35 @@ mock.module("../../daemon/process-message.js", () => ({
 }));
 
 const emitCalls: Array<Record<string, unknown>> = [];
-let emitImpl: (
-  params: Record<string, unknown>,
-) => Promise<unknown> = async () => ({
-  signalId: "sig-1",
-  deduplicated: false,
-  dispatched: true,
-  reason: "ok",
-  deliveryResults: [],
-});
 
-mock.module("../../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: (params: Record<string, unknown>) => {
-    emitCalls.push(params);
-    return emitImpl(params);
+mock.module("../../home/system-health.js", () => ({
+  recordSubsystemFailure: async (failure: Record<string, unknown>) => {
+    emitCalls.push(failure);
+  },
+  recordSubsystemSuccess: async () => {},
+}));
+
+/** Terminal transitions the job's run reached, in order. */
+const runTransitions: Array<{ kind: string; payload?: unknown }> = [];
+let lastRunOptions: Record<string, unknown> | null = null;
+
+mock.module("../../runs/run-store.js", () => ({
+  startRun: (options: Record<string, unknown>) => {
+    lastRunOptions = options;
+    return {
+      runId: "run-stub",
+      progress: () => {},
+      needsInput: async () => {},
+      succeed: async (payload: unknown) => {
+        runTransitions.push({ kind: "succeed", payload });
+      },
+      fail: async (payload: unknown) => {
+        runTransitions.push({ kind: "fail", payload });
+      },
+      cancel: async () => {
+        runTransitions.push({ kind: "cancel" });
+      },
+    };
   },
 }));
 
@@ -122,16 +138,11 @@ beforeEach(() => {
   bootstrapLastArgs = null;
   processMessageCalls.length = 0;
   emitCalls.length = 0;
+  runTransitions.length = 0;
+  lastRunOptions = null;
   addMessageCalls.length = 0;
   preFirstMessageGateOpen = true;
   processMessageImpl = async () => ({ messageId: "msg-1" });
-  emitImpl = async () => ({
-    signalId: "sig-1",
-    deduplicated: false,
-    dispatched: true,
-    reason: "ok",
-    deliveryResults: [],
-  });
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -166,6 +177,36 @@ describe("runBackgroundJob", () => {
         .requestOrigin,
     ).toBeUndefined();
     expect(emitCalls).toHaveLength(0);
+  });
+
+  test("a routine job's run is silent, so its failures never reach the bell", async () => {
+    await runBackgroundJob(baseOpts());
+
+    // Silent by default: routine infrastructure whose outcome the user did
+    // not ask about stays in Activity, and its failures roll into the System
+    // health counter instead of notifying.
+    expect(lastRunOptions).toMatchObject({
+      kind: "test-job",
+      silent: true,
+      collapseKey: "background-job:test-job",
+    });
+    expect(runTransitions).toEqual([
+      { kind: "succeed", payload: { notable: false, conversationId: STUB_CONVERSATION_ID } },
+    ]);
+  });
+
+  test("a job the user asked for opts its run into notifying", async () => {
+    await runBackgroundJob(
+      baseOpts({
+        run: { kind: "scheduled_run", label: "Morning digest", notifies: true },
+      }),
+    );
+
+    expect(lastRunOptions).toMatchObject({
+      kind: "scheduled_run",
+      label: "Morning digest",
+      silent: false,
+    });
   });
 
   test("threads requestOrigin into processMessage options when set", async () => {
@@ -225,7 +266,7 @@ describe("runBackgroundJob", () => {
     expect(opts.skipUserMessageIndexing).toBeUndefined();
   });
 
-  test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {
+  test("generic exception: returns ok=false with errorKind=exception and counts against System health", async () => {
     processMessageImpl = async () => {
       throw new Error("boom");
     };
@@ -238,30 +279,23 @@ describe("runBackgroundJob", () => {
     expect(result.error?.message).toBe("boom");
     expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
 
+    // One durable counter row per failing job, keyed by job name, rather
+    // than one notification per failure.
     expect(emitCalls).toHaveLength(1);
-    const emitted = emitCalls[0];
-    expect(emitted.sourceEventName).toBe("activity.failed");
-    expect(emitted.sourceChannel).toBe("assistant_tool");
-    expect(emitted.sourceContextId).toBe(STUB_CONVERSATION_ID);
-    expect(emitted.contextPayload).toMatchObject({
-      jobName: "test-job",
-      errorMessage: "boom",
-      errorKind: "exception",
-    });
-    expect(emitted.attentionHints).toMatchObject({
-      requiresAction: false,
-      urgency: "medium",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    });
-    // Dedupe key collapses repeated failures of the same job per UTC day.
-    expect(typeof emitted.dedupeKey).toBe("string");
-    expect(emitted.dedupeKey as string).toMatch(
-      /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
-    );
+    const recorded = emitCalls[0];
+    expect(recorded.subsystem).toBe("test-job");
+    expect(recorded.conversationId).toBe(STUB_CONVERSATION_ID);
+    // Prose, not a log line: the classified kind carries the actionable part.
+    expect(recorded.errorSummary).toContain("boom");
+    expect(recorded.errorSummary).not.toContain("exception:");
+
+    // The job's run fails too, so a long job that died is not left spinning.
+    expect(runTransitions).toEqual([
+      { kind: "fail", payload: { reason: recorded.errorSummary, retryable: false } },
+    ]);
   });
 
-  test("non-throwing turn failure: returns ok=false with errorKind=model_provider and emits activity.failed", async () => {
+  test("non-throwing turn failure: returns ok=false with errorKind=model_provider and counts against System health", async () => {
     // A failed LLM call (e.g. an invalid provider) does NOT throw — the turn
     // persists a synthetic error message and processMessage resolves with a
     // `turnFailure`. The runner must surface this as a failure, not ok=true.
@@ -281,13 +315,13 @@ describe("runBackgroundJob", () => {
     expect(result.failureCode).toBe("provider_error");
 
     expect(emitCalls).toHaveLength(1);
-    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
-    expect(
-      (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
-    ).toBe("model_provider");
+    expect(emitCalls[0].subsystem).toBe("test-job");
+    expect(emitCalls[0].errorSummary).toContain(
+      "The model provider did not answer.",
+    );
   });
 
-  test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {
+  test("timeout: returns ok=false with errorKind=timeout and counts against System health", async () => {
     // Never resolve — force timeout to win the race.
     processMessageImpl = () => new Promise(() => {});
 
@@ -297,10 +331,9 @@ describe("runBackgroundJob", () => {
     expect(result.errorKind).toBe("timeout");
     expect(result.error?.message).toContain("timed out after 50ms");
     expect(emitCalls).toHaveLength(1);
-    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
-    expect(
-      (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
-    ).toBe("timeout");
+    expect(emitCalls[0].errorSummary).toContain(
+      "It ran out of time before finishing.",
+    );
   });
 
   test("suppressFailureNotifications: failure returns ok=false but emits nothing", async () => {

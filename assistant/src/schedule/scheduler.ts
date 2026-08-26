@@ -937,9 +937,10 @@ export async function runDueSchedulesOnce(
         errorMsg = err instanceof Error ? err.message : String(err);
       }
     } else {
-      // Fresh-bootstrap path: route through the shared runner so failures
-      // surface via `activity.failed` and we get the standard timeout +
-      // error-classification policy applied to every background producer.
+      // Fresh-bootstrap path: route through the shared runner so the firing
+      // gets a run row, its failures roll into System health, and the standard
+      // timeout + error-classification policy applies as it does to every
+      // background producer.
       // The runner fires `onConversationCreated` synchronously after bootstrap
       // (before `processMessage` starts) so the macOS sidebar gets the new
       // conversation immediately rather than after the up-to-30-min job ends.
@@ -963,6 +964,15 @@ export async function runDueSchedulesOnce(
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
+        // A schedule is work the user asked for, so its failures are worth
+        // knowing about and offer a re-run, unlike routine infrastructure.
+        // A quiet schedule is one they asked to stay silent, so it does not.
+        run: {
+          kind: "scheduled_run",
+          label: job.name,
+          notifies: job.quiet !== true,
+          metadata: { scheduleId: job.id },
+        },
         onConversationCreated: async (newConversationId) => {
           runConversationId = newConversationId;
           await setScheduleRunConversationId(runId, newConversationId);

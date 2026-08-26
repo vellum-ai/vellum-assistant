@@ -1273,15 +1273,18 @@ describe("(g) access_request resolver: requester code delivery", () => {
       "your access request was approved",
     );
 
-    // The off-channel approve path records the verification_sent lifecycle
-    // signal too — parity with the on-channel path.
-    const verificationSent = emittedSignals.filter(
-      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
-    );
-    expect(verificationSent.length).toBe(1);
+    // The verification_sent transition is a log line, not a signal: the
+    // guardian already has the code, so the pipeline suppressed it every
+    // single time it fired. Nothing reaches the pipeline for it now.
+    expect(
+      emittedSignals.filter(
+        (s) =>
+          s.sourceEventName === "ingress.trusted_contact.verification_sent",
+      ),
+    ).toHaveLength(0);
   });
 
-  test("off-channel approval still records verification_sent when the requester DM fails", async () => {
+  test("off-channel approval still hands the guardian the code when the requester DM fails", async () => {
     const req = createAccessRequest();
     // Fail the direct DM and the courier fallback (both target the requester).
     failDeliveryWhen = (payload) => payload.chatId === REQUESTER_UID;
@@ -1297,22 +1300,24 @@ describe("(g) access_request resolver: requester code delivery", () => {
 
     expect(result.applied).toBe(true);
 
-    // The guardian still receives the code via the inline reply, and the
-    // lifecycle signal is recorded even though the requester DM failed — the
-    // session was minted and the request was approved.
+    // The guardian still receives the code via the inline reply even though
+    // the requester DM failed: the session was minted and the request was
+    // approved.
     const replyText = result.applied ? result.resolverReplyText : undefined;
     expect(replyText).toContain("123456");
-    const verificationSent = emittedSignals.filter(
-      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
-    );
-    expect(verificationSent.length).toBe(1);
+    expect(
+      emittedSignals.filter(
+        (s) =>
+          s.sourceEventName === "ingress.trusted_contact.verification_sent",
+      ),
+    ).toHaveLength(0);
   });
 
-  test("off-channel approval on a channel with no deliverable callback (e.g. email) still records verification_sent", async () => {
+  test("off-channel approval on a channel with no deliverable callback (e.g. email) still hands the guardian the code", async () => {
     // `email` has no deliver URL (resolveDeliverCallbackUrlForChannel returns
     // null), so the requester cannot be auto-notified here. The guardian still
-    // receives the code inline, so the lifecycle transition must be recorded —
-    // the emit must not be gated on requester deliverability.
+    // receives the code inline, so the approve must not be gated on requester
+    // deliverability.
     const req = createAccessRequest({
       sourceChannel: "email",
       requesterChatId: "requester@example.com",
@@ -1339,11 +1344,12 @@ describe("(g) access_request resolver: requester code delivery", () => {
     );
     expect(requesterDelivery).toBeUndefined();
 
-    // The audit/lifecycle signal is still recorded for this off-channel approve.
-    const verificationSent = emittedSignals.filter(
-      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
-    );
-    expect(verificationSent.length).toBe(1);
+    expect(
+      emittedSignals.filter(
+        (s) =>
+          s.sourceEventName === "ingress.trusted_contact.verification_sent",
+      ),
+    ).toHaveLength(0);
   });
 
   test("non-Slack channel keeps the courier message and never delivers the code to the requester chat", async () => {

@@ -5,11 +5,66 @@ Signal-driven notification architecture where producers emit free-form events an
 ## Lifecycle
 
 ```
-Producer → NotificationSignal → Source-Active Gate → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
-                                                              ↑                                                            ↓
-                                                      Preference Summary                                    notification_conversation_created SSE event
-                                                      Conversation Candidates                               (creation-only — not emitted on reuse)
+Producer → NotificationSignal → Source-Active Gate → Candidate Generation → Decision Engine (LLM) → Copy Contract → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
+                                                              ↑                                                                                ↓
+                                                      Preference Summary                                                     notification_conversation_created SSE event
+                                                      Conversation Candidates                                                (creation-only, not emitted on reuse)
 ```
+
+## What is NOT a notification
+
+The pipeline is for things a user can act on. Three other surfaces carry
+everything else, and producers pick between them before reaching for a signal:
+
+| Surface | Owner | For |
+| --- | --- | --- |
+| **Run** | `runs/run-store.ts` | Async work with a lifecycle. One feed row, rewritten in place as it progresses. Start and progress never touch this pipeline; only `needs_input`, `failed`, and a notable success do |
+| **System health** | `home/system-health.ts` | A subsystem failing repeatedly. One durable counter row per subsystem that never pushes and clears itself after a run of successes |
+| **Activity digest** | `runs/run-sweeps.ts` | Routine finished work, folded into one row so a day of heartbeats does not bury the rows that mean something |
+
+Per-failure notifications for background jobs, plugin schedule declarations,
+Telegram webhook health, and trusted-contact verification were the majority of
+the bell's volume and produced nothing anyone could act on. They are gone. A new
+event name that repeats for one underlying cause belongs on a counter, not here.
+
+## The three buckets
+
+`bucket.ts` derives placement from fixed rules, applied **before** the decision
+engine runs:
+
+| Order | Bucket | Means | How it arrives | Expires |
+| --- | --- | --- | --- | --- |
+| 1 | `needs_you` | Work is blocked on the user | Toast + banner, every time | On resolution |
+| 2 | `worth_knowing` | A real outcome or observation, nothing blocked | Toast in-app, banner when away, once | 7 days |
+| 3 | `activity` | Routine work, running or finished | Silent | 48 hours |
+
+Rules: anything requiring an action or a decision is `needs_you`. Anything the
+assistant deliberately chose to tell you, plus fixable failures and escalations,
+is `worth_knowing`. Everything else is `activity`.
+
+`priority`, `noteworthy`, and `category` survive on the wire only as projections
+of the bucket (`bucketCompat`), so clients built against the pre-bucket contract
+keep sorting and grouping sensibly. They are no longer independent dimensions.
+
+## The copy contract
+
+Every notification answers three questions in order: **what happened** (title),
+**why you care** (first line of body), **what to do** (an action, or nothing).
+`copy-contract.ts` enforces it as a pre-send pass:
+
+- The title is a noun phrase, at most 8 words, and never starts with "I".
+- The title is not a prefix of the body.
+- The body carries no raw error constants.
+- A `needs_you` row with no action is a bug.
+
+**Repair, then reject.** The pass rewrites what it can fix deterministically and
+fails only when nothing usable is left. Suppressing an approval because a model
+opened its title with "I" would trade a copy defect for a correctness defect.
+Everything it rewrites, and every violation it cannot rewrite, is warn-logged
+against the producing event name.
+
+Titles are never derived from the body. A row with no authored title gets the
+written headline for its kind from `home/feed-headline.ts`.
 
 ### 1. Signal
 
@@ -50,6 +105,14 @@ The LLM is guided to prefer `reuse_existing` when the signal is a continuation o
 - Channels with no conversation action in the decision output default to `start_new`.
 
 When the LLM is unavailable or returns invalid output, a deterministic fallback fires: high-urgency + requires-action signals notify on all channels; everything else is suppressed. The fallback path does not produce conversation actions (all channels use `start_new`).
+
+### 3.5 Copy Contract
+
+`applyCopyContractToDecision` (`copy-contract.ts`) runs over each selected
+channel's rendered copy before the pre-send gate. It repairs what it can and
+drops a channel whose body nothing could save, leaving the channel-availability
+check below to decide what that costs the signal as a whole. The decision is
+rebuilt rather than mutated: it has already been persisted for the audit trail.
 
 ### 4. Deterministic Checks
 
@@ -414,6 +477,13 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `../channels/config.ts`         | Channel policy registry -- single source of truth for per-channel notification behavior                    |
 | `emit-signal.ts`                | Single entry point for producers; orchestrates the full pipeline; runs the source-active pre-decision gate |
+| `bucket.ts`                     | Derives the three-bucket placement from fixed rules, plus the compat projections and per-bucket TTLs       |
+| `copy-contract.ts`              | Pre-send copy repair and enforcement (noun-phrase titles, no derived headlines, no raw error constants)    |
+| `../home/feed-headline.ts`      | Written headline per event name, for rows with no authored title                                          |
+| `../home/system-health.ts`      | One durable counter row per failing subsystem, replacing per-failure notifications                        |
+| `../home/publish-feed-toast.ts` | Publishes `feed_toast` for rows in Needs you and Worth knowing; terminal transitions only                  |
+| `../runs/run-store.ts`          | Run lifecycle: one feed row per unit of async work, rewritten in place                                     |
+| `../runs/run-sweeps.ts`         | Activity digest and orphaned-run reconciliation                                                           |
 | `signal.ts`                     | `NotificationSignal` and `AttentionHints` type definitions                                                 |
 | `types.ts`                      | Channel adapter interfaces, delivery types, decision output contract, `ConversationAction` union           |
 | `conversation-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine              |

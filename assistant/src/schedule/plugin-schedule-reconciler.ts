@@ -28,8 +28,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { getDbMigrationReadiness } from "../daemon/daemon-readiness.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { AttentionHints } from "../notifications/signal.js";
+import { recordSubsystemFailure } from "../home/system-health.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parsePluginManifest } from "../plugins/external-plugin-loader.js";
 import { listInstalledPluginDirs } from "../plugins/installed-plugin-dirs.js";
@@ -113,57 +112,15 @@ async function runReconcilePass(): Promise<void> {
     }
   }
 
-  for (const [sourceKey, { pluginName, declaration }] of desired) {
-    const row = existingByKey.get(sourceKey);
-    const definition = toDefinition(declaration);
-    const definitionChanged =
-      row !== undefined && row.definitionHash !== definition.definitionHash;
-    const changesArmedRow = definitionChanged && row.enabled;
-    // A definition change can also arm a row that was disarmed (e.g. an
-    // upgrade flipping the declared `enabled` from false to true). That
-    // transition gets the arrival notification below; a plain re-enable or
-    // reinstall re-link (hash unchanged) stays quiet.
-    const armsDisarmedRow = definitionChanged && !row.enabled;
-    // The change notice fires once, and by the next pass the new hash is
-    // already stored, so `changesArmedRow` can never bring it back. A pending
-    // entry means the emit never reached a pipeline verdict; it is retried
-    // while the row is still there and still armed for this definition.
-    const pendingChanged =
-      row !== undefined &&
-      row.enabled &&
-      isEmitPending("changed", sourceKey, definition.definitionHash);
-    let applied: ScheduleJob;
+  for (const [sourceKey, { declaration }] of desired) {
     try {
-      applied = await upsertDeclaredSchedule(sourceKey, definition);
+      await upsertDeclaredSchedule(sourceKey, toDefinition(declaration));
     } catch (err) {
       log.error(
         { err, sourceKey },
         "Failed to apply declared schedule, skipping",
       );
       continue;
-    }
-    if (changesArmedRow || pendingChanged) {
-      emitDefinitionChanged(pluginName, declaration);
-    }
-    // A row arming without consent must never be silent: a daemon-route
-    // install/upgrade has no interactive consent prompt, and even a CLI
-    // upgrade only confirms what it staged. The arrival notification is the
-    // consent surface for those paths; a CLI install that already prompted
-    // gets one redundant, hash-deduped notification. A re-linked row (its
-    // `source_key` already existed, e.g. reinstall or re-enable) is not new
-    // unless its definition change is what armed it. A pending entry means a
-    // prior emit for this exact definition never reached a pipeline verdict,
-    // so the notification is re-attempted even though the row already exists.
-    const pendingDeclared = isEmitPending(
-      "declared",
-      sourceKey,
-      definition.definitionHash,
-    );
-    if (
-      applied.enabled &&
-      (row === undefined || armsDisarmedRow || pendingDeclared)
-    ) {
-      emitScheduleDeclared(pluginName, declaration);
     }
   }
 
@@ -350,224 +307,43 @@ function toDefinition(
   };
 }
 
-// Same shape as the background-job failure notification: passive home-feed
-// surfacing, no action required.
-const DEFINITION_NOTIFICATION_HINTS: AttentionHints = {
-  requiresAction: false,
-  urgency: "medium",
-  isAsyncBackground: true,
-  visibleInSourceNow: false,
-};
-
 /**
- * Emit one definition-lifecycle signal. Resolves `true` when the pipeline
- * reached a verdict (dispatched, deduplicated, or suppressed) and `false`
- * when it failed outright, so a caller latching a dedupe guard can retry a
- * transient failure on a later pass.
+ * UTC day of the last recorded definition error per `sourceKey`.
+ *
+ * A broken declaration re-surfaces on every 60s pass. The health row counts,
+ * so without this a single typo would climb into the hundreds overnight and
+ * say nothing more than "1" would. One count per schedule per day.
  */
-async function emitDefinitionSignal(
-  sourceEventName: string,
-  sourceKey: string,
-  dedupeKey: string,
-  contextPayload: Record<string, unknown>,
-): Promise<boolean> {
-  try {
-    const result = await emitNotificationSignal({
-      sourceChannel: "scheduler",
-      sourceContextId: sourceKey,
-      sourceEventName,
-      dedupeKey,
-      contextPayload,
-      attentionHints: DEFINITION_NOTIFICATION_HINTS,
-    });
-    // emitNotificationSignal resolves (never rejects) and flags a pipeline
-    // error as `pipelineFailed`; every other outcome, including dedupe and
-    // suppression, is a verdict.
-    return !result.pipelineFailed;
-  } catch (err) {
-    log.warn(
-      { err, sourceKey, sourceEventName },
-      "Failed to emit schedule definition notification",
-    );
-    return false;
-  }
-}
+const definitionErrorRecordedDay = new Map<string, string>();
 
-/**
- * UTC day of the last completed definition-error emit per `sourceKey`. A
- * persistently broken declaration re-surfaces on every pass (60s sweep); the
- * downstream daily dedupe key would drop the repeats, but this guard skips
- * the emit call entirely so steady-state passes do no notification work.
- */
-const definitionErrorEmittedDay = new Map<string, string>();
-
-/**
- * The definition-lifecycle events whose emit is retried until a pipeline
- * verdict. `declared` is the consent surface for unattended arming
- * (daemon-route install/upgrade) and `changed` is the only notice that an
- * armed schedule's definition was rewritten; both are one-shot per definition
- * hash. `error` is one-shot per UTC day and carries that day in place of a
- * hash. Whatever triggered each is stored before the emit, so a transient
- * pipeline failure leaves a marker the next pass acts on rather than losing
- * the notification.
- */
-type TrackedEmitKind = "declared" | "changed" | "error";
-
-function trackedEmitKey(kind: TrackedEmitKind, sourceKey: string): string {
-  return `${kind}:${sourceKey}`;
-}
-
-/**
- * Token of a tracked emit that has not yet reached a pipeline verdict, keyed
- * by {@link trackedEmitKey}: the definition hash the emit describes, or the
- * UTC day for an `error`. Declared entries are kept across disarm so a
- * reinstall re-delivers a never-delivered consent notification; the map is
- * bounded by distinct declared schedules seen in this process. In-memory only:
- * a daemon restart inside the failure window loses the retry, a residual
- * accepted over persisting a marker.
- */
-const pendingEmits = new Map<string, string>();
-
-/** Keys whose emit is awaiting its pipeline result. */
-const inFlightEmits = new Set<string>();
-
-function isEmitPending(
-  kind: TrackedEmitKind,
-  sourceKey: string,
-  definitionHash: string,
-): boolean {
-  return pendingEmits.get(trackedEmitKey(kind, sourceKey)) === definitionHash;
-}
-
-/**
- * Emit one tracked event, holding a pending marker until the pipeline reaches
- * a verdict. Emits for a key are serialized: while one is still evaluating, a
- * later pass does not start a second. A duplicate would hit event-store dedupe
- * and resolve as a verdict of its own, clearing the marker the original still
- * needs if it goes on to fail and release the dedupe key. Skipping leaves the
- * marker in place, so a pass after the in-flight attempt settles retries it.
- */
-function trackedEmit(
-  kind: TrackedEmitKind,
-  sourceKey: string,
-  token: string,
-  emit: () => Promise<boolean>,
-): void {
-  const key = trackedEmitKey(kind, sourceKey);
-  pendingEmits.set(key, token);
-  if (inFlightEmits.has(key)) {
-    return;
-  }
-  inFlightEmits.add(key);
-  void emit()
-    .then((verdict) => {
-      if (verdict && pendingEmits.get(key) === token) {
-        pendingEmits.delete(key);
-      }
-    })
-    .finally(() => {
-      inFlightEmits.delete(key);
-    });
-}
-
-/** Test-only: forget emit-guard state (error day-latch and tracked emits). */
+/** Test-only: forget the per-day definition-error latch. */
 export function resetDefinitionErrorEmitGuardForTests(): void {
-  definitionErrorEmittedDay.clear();
-  pendingEmits.clear();
-  inFlightEmits.clear();
+  definitionErrorRecordedDay.clear();
 }
 
 /**
- * Surface a malformed declaration (or a manifest failure pausing one), with
- * `paused` set when this pass disarmed the row over it. Deduped per schedule
- * per UTC day so a broken file doesn't spam on every pass. The day guard
- * latches only after the emit resolves with a pipeline verdict; a transient
- * pipeline failure is retried on the next pass instead of being silenced for
- * the rest of the day. Attempts are serialized like the other tracked emits,
- * so a second pass during an in-flight first one cannot latch the day on a
- * deduped verdict while the original goes on to fail.
+ * Record a malformed declaration (or a manifest failure pausing one) against
+ * the plugin-schedules subsystem, with `paused` noted when this pass disarmed
+ * the row over it.
+ *
+ * This is developer-facing: it is a plugin author's problem, not the user's,
+ * and there is nothing for the user to do about it from a notification. It
+ * belongs in the System health counter, which counts without pushing, rather
+ * than in the bell.
  */
 function emitDefinitionError(error: DeclarationError, paused: boolean): void {
   const day = new Date().toISOString().slice(0, 10);
-  if (definitionErrorEmittedDay.get(error.sourceKey) === day) {
+  if (definitionErrorRecordedDay.get(error.sourceKey) === day) {
     return;
   }
-  trackedEmit("error", error.sourceKey, day, () =>
-    emitDefinitionSignal(
-      "schedule.definition_error",
-      error.sourceKey,
-      `schedule-definition-error:${error.sourceKey}:${day}`,
-      {
-        pluginName: error.pluginName,
-        scheduleName: error.scheduleName,
-        sourceKey: error.sourceKey,
-        reason: error.reason,
-        paused,
-      },
-    ).then((completed) => {
-      if (completed) {
-        definitionErrorEmittedDay.set(error.sourceKey, day);
-      }
-      return completed;
-    }),
-  );
-}
-
-/**
- * Surface a plugin upgrade rewriting an armed schedule's definition, so the
- * user learns the thing firing on their behalf changed. Deduped by the new
- * hash so concurrent triggers emit once per change, and retried while the
- * pipeline has not reached a verdict.
- */
-function emitDefinitionChanged(
-  pluginName: string,
-  declaration: ScheduleDeclaration,
-): void {
-  trackedEmit(
-    "changed",
-    declaration.sourceKey,
-    declaration.definitionHash,
-    () =>
-      emitDefinitionSignal(
-        "schedule.definition_changed",
-        declaration.sourceKey,
-        `schedule-definition-changed:${declaration.sourceKey}:${declaration.definitionHash}`,
-        {
-          pluginName,
-          scheduleName: declaration.name,
-          sourceKey: declaration.sourceKey,
-        },
-      ),
-  );
-}
-
-/**
- * Surface a declared schedule arming (its row was created by this pass, or a
- * definition change armed a disarmed row). Deduped by definition hash, so
- * the CLI-install case (which already prompted for consent) collapses to a
- * single notification and concurrent triggers emit once.
- */
-function emitScheduleDeclared(
-  pluginName: string,
-  declaration: ScheduleDeclaration,
-): void {
-  trackedEmit(
-    "declared",
-    declaration.sourceKey,
-    declaration.definitionHash,
-    () =>
-      emitDefinitionSignal(
-        "schedule.declared",
-        declaration.sourceKey,
-        `schedule-declared:${declaration.sourceKey}:${declaration.definitionHash}`,
-        {
-          pluginName,
-          scheduleName: declaration.name,
-          sourceKey: declaration.sourceKey,
-          cadence: declaration.config.expression,
-        },
-      ),
-  );
+  definitionErrorRecordedDay.set(error.sourceKey, day);
+  void recordSubsystemFailure({
+    subsystem: "plugin_schedules",
+    label: "Plugin schedules",
+    errorSummary: `"${error.scheduleName}" from ${error.pluginName} ${
+      paused ? "was paused: " : "could not be read: "
+    }${error.reason}`,
+  });
 }
 
 // ── Periodic backstop sweep ─────────────────────────────────────────────

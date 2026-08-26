@@ -176,32 +176,26 @@ function buildRequesterChannelNotice(params: {
 }
 
 /**
- * Emit the `verification_sent` lifecycle signal on guardian approve.
+ * Record the `verification_sent` lifecycle transition.
  *
- * Always `visibleInSourceNow: true` so the notification pipeline suppresses
- * delivery — the guardian already received the code (on-channel via the channel
- * reply, off-channel via the inline reply text), so this records the lifecycle
- * transition without sending a redundant "approved" message. It also stands in
- * for `guardian_decision` on approve (which would notify), so the pipeline
- * doesn't announce approval before verification.
+ * A log line rather than a notification. It was never delivered: the guardian
+ * already has the code, on-channel via the reply and off-channel via the
+ * inline reply text, so the signal was emitted with `visibleInSourceNow` set
+ * and suppressed by the pipeline every single time it fired. A notification
+ * nobody can receive is not a notification.
  */
-function emitVerificationSentSignal(
+function recordVerificationSent(
   payload: TrustedContactVerificationSentPayload,
   conversationId: string | null | undefined,
 ): void {
-  void emitNotificationSignal({
-    sourceEventName: "ingress.trusted_contact.verification_sent",
-    sourceChannel: payload.sourceChannel,
-    sourceContextId: conversationId ?? "",
-    attentionHints: {
-      requiresAction: false,
-      urgency: "low",
-      isAsyncBackground: true,
-      visibleInSourceNow: true,
+  log.info(
+    {
+      sourceChannel: payload.sourceChannel,
+      verificationSessionId: payload.verificationSessionId,
+      conversationId: conversationId ?? undefined,
     },
-    contextPayload: payload,
-    dedupeKey: `trusted-contact:verification-sent:${payload.verificationSessionId}`,
-  });
+    "Trusted contact verification sent",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1439,7 +1433,7 @@ const accessRequestResolver: GuardianRequestResolver = {
       // receipt rather than requester delivery. Without this, approves on
       // channels with no deliverable callback (e.g. email) would silently skip
       // the audit/lifecycle record.
-      emitVerificationSentSignal(
+      recordVerificationSent(
         {
           sourceChannel: channel,
           requesterExternalUserId,

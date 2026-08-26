@@ -3,10 +3,12 @@
  *
  * Turns daemon-pushed notification intents into local browser or
  * Capacitor notifications. Skips guardian-scoped notifications
- * (the web client does not participate in guardian binding) and
+ * (the web client does not participate in guardian binding),
  * notifications targeting the conversation the user is actively
  * viewing (verified by both store state and URL pathname, since
- * `activeConversationId` persists across route changes).
+ * `activeConversationId` persists across route changes), and anything
+ * arriving while the window is focused, where the in-app surfaces
+ * (`use-feed-toast-sync`, the bell) own it instead.
  *
  * Acks every notification back to the daemon so delivery audit
  * trails stay consistent with the macOS client.
@@ -68,6 +70,19 @@ export function useNotificationIntentSync(assistantId: string | null): void {
     }
 
     void getSoundManager().play("notification");
+
+    // In-app and system notifications never both fire. A focused window is
+    // being looked at, so the in-app surfaces own it: a toast for anything
+    // worth interrupting for (`use-feed-toast-sync`), the bell for everything
+    // else. An OS banner over the app the user is already in is the double
+    // notification the three-bucket model exists to stop.
+    if (typeof document !== "undefined" && document.hasFocus()) {
+      if (assistantId && event.deliveryId) {
+        void sendNotificationIntentAck(assistantId, event.deliveryId, true);
+      }
+      return;
+    }
+
     void postLocalNotification({
       title: event.title,
       body: event.body,

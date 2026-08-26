@@ -8,13 +8,21 @@
  *
  *  - apply a single timeout policy
  *  - classify failures uniformly (timeout / model_provider / generic exception)
- *  - emit a single `activity.failed` notification on any failure path so the
- *    home feed and native notification surfaces light up automatically
+ *  - give every background job a run, so long work is visible while it runs
+ *    instead of only when it fails
+ *  - roll failures into a System health counter rather than emitting one
+ *    notification per occurrence
  *  - never re-throw — the caller always gets a structured result and decides
  *    whether to alert further
  *
+ * **Failures are a counter, not a stream.** A background job failing is
+ * almost never something the user can act on, and because the notification
+ * dedupe window resets daily, one persistent fault used to produce an endless
+ * run of identical rows. Each failure now increments one durable row per
+ * subsystem, which clears itself once the job succeeds a few times running.
+ *
  * Producers that have their own bespoke failure UX (e.g. heartbeat's existing
- * alerter banner) can opt out of the failure-emit via
+ * alerter banner) can opt out of the health record via
  * `suppressFailureNotifications`.
  */
 
@@ -22,11 +30,14 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { AttentionHints } from "../notifications/signal.js";
+import {
+  recordSubsystemFailure,
+  recordSubsystemSuccess,
+} from "../home/system-health.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import type { TitleOrigin } from "../persistence/conversation-title-service.js";
+import { startRun } from "../runs/run-store.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -47,9 +58,9 @@ class BackgroundJobTimeoutError extends Error {
  * call fails (e.g. an invalid provider), `processMessage` resolves normally
  * after persisting a synthetic error message — the failure is reported via
  * `turnFailure` on its result rather than a rejection. We rethrow it as this
- * error so it flows through the same failure path (logging + `activity.failed`
- * emission) as any other background-job failure and the caller gets
- * `ok: false`.
+ * error so it flows through the same failure path (logging, the System health
+ * record, the run's failed transition) as any other background-job failure and
+ * the caller gets `ok: false`.
  */
 class BackgroundJobTurnFailureError extends Error {
   override name = "BackgroundJobTurnFailureError";
@@ -98,12 +109,36 @@ export interface RunBackgroundJobOptions {
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
   /**
-   * When true, failures do NOT emit an `activity.failed` notification.
+   * When true, failures do NOT increment the job's System health counter.
    * Use for jobs that own their own failure UX (e.g. heartbeat's alerter)
    * or for "quiet" scheduled jobs that the user has explicitly asked to
    * suppress notifications for.
    */
   suppressFailureNotifications?: boolean;
+  /**
+   * How this job's run surfaces.
+   *
+   * Every background job gets a run so long work is visible while it runs.
+   * By default the run is silent: routine infrastructure whose outcome the
+   * user did not ask about stays in Activity and never notifies. Jobs that
+   * represent work the user kicked off (a detached subagent, skill learning,
+   * a scheduled run) opt into notifying transitions.
+   */
+  run?: {
+    /** Run kind. Defaults to `jobName`. */
+    kind?: string;
+    /** Human label for the row. Defaults to `systemHint`, then `jobName`. */
+    label?: string;
+    /**
+     * Whether the run's terminal transitions can notify. Defaults to false:
+     * a routine job's failure belongs in System health, not in the bell.
+     */
+    notifies?: boolean;
+    /** Marks a success as worth showing rather than digest-only. */
+    notableOnSuccess?: boolean;
+    /** Free-form metadata carried onto the run row. */
+    metadata?: Record<string, unknown>;
+  };
   /** Conversation grouping id. Defaults to `"system:background"`. */
   groupId?: string;
   /** Title origin tag for `bootstrapConversation`. */
@@ -276,6 +311,16 @@ export async function runBackgroundJob(
     };
   }
 
+  const run = startRun({
+    kind: opts.run?.kind ?? opts.jobName,
+    label: opts.run?.label ?? opts.systemHint ?? opts.jobName,
+    silent: !opts.run?.notifies,
+    // A job re-entered by a retry loop within the collapse window is the same
+    // work, so it rewrites one row rather than stacking a second.
+    collapseKey: `background-job:${opts.jobName}`,
+    ...(opts.run?.metadata ? { metadata: opts.run.metadata } : {}),
+  });
+
   let conversation:
     | Awaited<ReturnType<typeof bootstrapConversation>>
     | undefined;
@@ -381,6 +426,13 @@ export async function runBackgroundJob(
         runResult.turnFailure.failureCode,
       );
     }
+    if (!opts.suppressFailureNotifications) {
+      void recordSubsystemSuccess(opts.jobName);
+    }
+    await run.succeed({
+      notable: opts.run?.notableOnSuccess ?? false,
+      conversationId: conversation.id,
+    });
     return { conversationId: conversation.id, ok: true };
   } catch (err) {
     const errorKind = classifyError(err);
@@ -403,41 +455,25 @@ export async function runBackgroundJob(
       "Background job failed",
     );
 
+    // One durable row per failing job, counting, rather than one notification
+    // per failure. A provider timeout is not something the user can fix, and
+    // the row clears itself once the job succeeds a few times running.
     if (!opts.suppressFailureNotifications) {
-      const hints: AttentionHints = {
-        requiresAction: false,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      };
-      // Dedupe by jobName + UTC date so repeated failures of the same
-      // background job (e.g. a watcher whose credentials are revoked)
-      // collapse into a single home-feed entry per day rather than
-      // spamming on every tick.
-      const day = new Date().toISOString().slice(0, 10);
-      const dedupeKey = `activity-failed:${opts.jobName}:${day}`;
-      emitNotificationSignal({
-        sourceChannel: "assistant_tool",
-        sourceContextId: conversationId,
-        sourceEventName: "activity.failed",
-        dedupeKey,
-        contextPayload: {
-          jobName: opts.jobName,
-          errorMessage: error.message,
-          errorKind,
-        },
-        attentionHints: hints,
-      }).catch((emitErr) => {
-        log.warn(
-          {
-            err: emitErr instanceof Error ? emitErr.message : String(emitErr),
-            jobName: opts.jobName,
-            conversationId,
-          },
-          "Failed to emit activity.failed notification for background job",
-        );
+      void recordSubsystemFailure({
+        subsystem: opts.jobName,
+        label: opts.run?.label ?? humanizeJobName(opts.jobName),
+        errorSummary: describeFailure(errorKind, error.message),
+        ...(conversationId ? { conversationId } : {}),
       });
     }
+
+    await run.fail({
+      reason: describeFailure(errorKind, error.message),
+      // Nothing here re-runs itself, and a routine job is on a timer that will
+      // come round again anyway, so Retry is offered only where a person
+      // asked for the work.
+      retryable: opts.run?.notifies ?? false,
+    });
 
     return {
       conversationId,
@@ -451,4 +487,38 @@ export async function runBackgroundJob(
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * Turn an internal job id into something a person can read on a health row:
+ * `memory_consolidation` becomes `Memory consolidation`.
+ */
+function humanizeJobName(jobName: string): string {
+  const spaced = jobName.replace(/[_-]+/g, " ").trim();
+  return spaced.length === 0
+    ? jobName
+    : spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
+ * A failure in prose rather than as a log line.
+ *
+ * The classified kind carries the part a reader can act on ("the model
+ * provider did not respond"), and the raw message is appended only when it
+ * adds something: a stack-shaped or constant-shaped message says nothing to
+ * the person reading the bell, and the copy contract exists to keep it out.
+ */
+function describeFailure(kind: BackgroundJobErrorKind, message: string): string {
+  const opening =
+    kind === "timeout"
+      ? "It ran out of time before finishing."
+      : kind === "model_provider"
+        ? "The model provider did not answer."
+        : "It stopped with an error.";
+  const detail = message.replace(/\s+/g, " ").trim();
+  const readable =
+    detail.length > 0 &&
+    detail.length <= 140 &&
+    !/^[A-Z][A-Z0-9_]*$/.test(detail);
+  return readable ? `${opening} ${detail}` : opening;
 }

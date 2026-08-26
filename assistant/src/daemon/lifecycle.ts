@@ -38,6 +38,7 @@ import { runProviderConnectionsBackfill } from "../providers/inference/backfill.
 import { repairSharedCredentialSlots } from "../providers/inference/credential-slot-repair.js";
 import { initializeProviders } from "../providers/registry.js";
 import { startRouteHost } from "../routes/control.js";
+import { startRunSweeps } from "../runs/run-sweeps.js";
 import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
 import {
   initAuthSigningKey,
@@ -318,6 +319,11 @@ export async function runDaemon(): Promise<void> {
     // failed. The retry sweep skips its cycles while readiness is unready (see
     // startBackgroundSweeps) so refused replays can't burn dead-letter budget.
     startRuntimeHttpServerBackgroundSweeps();
+    // The run sweeps run their first pass immediately, which is the startup
+    // reconciliation: nothing is live yet, so every non-terminal run row left
+    // on disk by the previous process is closed as interrupted before a client
+    // can render a spinner nothing is driving.
+    startRunSweeps();
   } catch (err) {
     // Sweeps intentionally NOT started on this path: initializeDb() threw, so
     // the DB never opened and every sweep cycle would just error against it.

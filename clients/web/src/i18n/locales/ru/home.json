@@ -10,7 +10,8 @@
     "viewSchedule": "Открыть расписание",
     "viewSkill": "Открыть навык",
     "markAllAsRead": "Отметить всё как прочитанное",
-    "clearAll": "Очистить всё"
+    "clearAll": "Очистить всё",
+    "clearActivity": "Очистить активность"
   },
   "category": {
     "all": "Все",
@@ -20,9 +21,15 @@
     "background": "Фон",
     "system": "Система"
   },
-  "homeRecapRow": { "actionsTitle": "Действия по обновлению" },
-  "homeTopHeader": { "title": "Активность" },
-  "homeFeedFilterBar": { "ariaLabel": "Фильтр уведомлений" },
+  "homeRecapRow": {
+    "actionsTitle": "Действия по обновлению"
+  },
+  "homeTopHeader": {
+    "title": "Активность"
+  },
+  "homeFeedFilterBar": {
+    "ariaLabel": "Фильтр уведомлений"
+  },
   "homeFeedList": {
     "today": "Сегодня",
     "yesterday": "Вчера",
@@ -61,7 +68,30 @@
     "heading": "Уведомления",
     "loadFailed": "Не удалось загрузить уведомления.",
     "empty": "Уведомлений пока нет.",
-    "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
+    "actionFailed": "Не удалось начать этот диалог. Повторите попытку.",
+    "loading": "Загрузка уведомлений"
   },
-  "notificationsBellDetail": { "back": "Назад к уведомлениям" }
+  "notificationsBellDetail": {
+    "back": "Назад к уведомлениям"
+  },
+  "bellSection": {
+    "needsYou": "Требует вас",
+    "worthKnowing": "Стоит знать",
+    "activity": "Активность",
+    "runningCount": "{running, number} выполняется"
+  },
+  "bellRows": {
+    "retry": "Повторить",
+    "retryStarted": "Запущено заново.",
+    "retryFailed": "Не удалось запустить заново. Попробуйте ещё раз.",
+    "retryUnavailable": "Больше неоткуда запустить это заново.",
+    "runQuiet": "Нет недавней активности.",
+    "runChildProgress": "{done, number} из {total, number} готово",
+    "openActivityLog": "Открыть журнал активности"
+  },
+  "feedToast": {
+    "collapsedTitle": "{total, plural, one {# обновление} few {# обновления} many {# обновлений} other {# обновления}}",
+    "collapsedBody": "Несколько задач завершились сразу. Откройте Активность, чтобы посмотреть.",
+    "close": "Закрыть"
+  }
 }
