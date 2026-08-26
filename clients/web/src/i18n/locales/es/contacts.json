@@ -66,6 +66,25 @@
     "deleteConfirmTitle": "¿Eliminar a {name}?",
     "deleteConfirmMessage": "Esto eliminará permanentemente este contacto y todos sus canales. Esta acción no se puede deshacer."
   },
+  "contactAutoApproveThreshold": {
+    "title": "Acceso del asistente",
+    "subtitle": "El riesgo más alto que este contacto puede asumir sin preguntarte.",
+    "inheritLabel": "Heredar el valor predeterminado",
+    "inheritDescription": "Seguir los ajustes de sala y clase de confianza de este contacto.",
+    "saveFailed": "No se pudo actualizar el acceso del asistente",
+    "preset": {
+      "none": "Estricto",
+      "low": "Conservador",
+      "medium": "Relajado",
+      "high": "Acceso completo"
+    },
+    "description": {
+      "none": "Preguntar siempre antes de actuar. Ninguna acción se aprueba automáticamente.",
+      "low": "Aprobar automáticamente acciones de bajo riesgo, como búsquedas web y leer y escribir archivos en su propio espacio de trabajo.",
+      "medium": "Aprobar automáticamente acciones de riesgo bajo y medio, como cambiar archivos fuera de su propio espacio de trabajo.",
+      "high": "Aprobar automáticamente todas las acciones, incluidas las de alto riesgo y los comandos no reconocidos. Tu asistente nunca pedirá permiso."
+    }
+  },
   "guardianDetailView": {
     "namePlaceholder": "Tu nombre",
     "notesPlaceholder": "Notas sobre ti que la IA tendrá en cuenta",

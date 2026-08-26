@@ -5,11 +5,13 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Input } from "@vellumai/design-library/components/input";
 
 import { DetailCard } from "@/components/detail-card";
+import { ContactAutoApproveThresholdSection } from "@/domains/contacts/components/contact-auto-approve-threshold-section";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { isDraftContactName } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 import { useTranslation } from "@/i18n";
+import type { RiskThreshold } from "@/utils/threshold-presets";
 
 interface ContactDetailViewProps {
   contact: ContactPayload;
@@ -21,6 +23,7 @@ interface ContactDetailViewProps {
   availableChannels?: ChannelInfo[];
   channelsLoadFailed?: boolean;
   a2aEnabled?: boolean;
+  thresholdPending?: boolean;
   onSave: (patch: { displayName: string; notes: string }) => void;
   onDelete: () => void;
   onMerge?: () => void;
@@ -29,6 +32,7 @@ interface ContactDetailViewProps {
   onRevokeChannel?: (channelId: string, type: string) => void;
   /** Opens the roster picker for a linkable channel row. */
   onLinkAccount?: (channelId: string) => void;
+  onAutoApproveThresholdChange?: (threshold: RiskThreshold | null) => void;
 }
 
 export function ContactDetailView(props: ContactDetailViewProps) {
@@ -52,6 +56,8 @@ function ContactDetailViewInner({
   onVerifyChannel,
   onRevokeChannel,
   onLinkAccount,
+  thresholdPending = false,
+  onAutoApproveThresholdChange,
 }: ContactDetailViewProps) {
   const { t } = useTranslation("contacts");
   const isNewContactDraft = isDraftContactName(contact.displayName);
@@ -175,6 +181,14 @@ function ContactDetailViewInner({
           </div>
         </div>
       </DetailCard>
+
+      {onAutoApproveThresholdChange ? (
+        <ContactAutoApproveThresholdSection
+          contact={contact}
+          pending={thresholdPending || savePending || deletePending}
+          onChange={onAutoApproveThresholdChange}
+        />
+      ) : null}
 
       <DetailCard
         title={t("contactDetailView.linkedAccountsTitle")}
