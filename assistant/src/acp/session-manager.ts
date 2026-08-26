@@ -15,7 +15,10 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
-import { currentClaudeCredentialGeneration } from "./acp-auth-marker-store.js";
+import {
+  currentClaudeCredentialGeneration,
+  noteConfigClaudeTokenRejected,
+} from "./acp-auth-marker-store.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
@@ -114,6 +117,10 @@ interface SessionEntry {
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
   command: string;
+  /** Whether this session's Claude token came from agent config rather than
+   *  the vault. A rejection of a configured token cannot be repaired by
+   *  writing secure storage, so it marks that source superseded instead. */
+  credentialFromConfig?: boolean;
   /** Claude credential generation this session read its token under, from the
    *  config `prepareAgentEnv` returned. A rejection reported after a newer
    *  token landed describes a credential that has already been replaced, so it
@@ -382,6 +389,7 @@ export class AcpSessionManager {
       task: opts.task,
       command: basename(opts.agentConfig.command),
       credentialGeneration: opts.agentConfig.credentialGeneration,
+      credentialFromConfig: opts.agentConfig.credentialFromConfig === true,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -1179,6 +1187,16 @@ export class AcpSessionManager {
           // Suppress only on positive evidence of supersession. An entry
           // carrying no generation is not proof of anything, and recovery is
           // the user's only route back to auth, so the unknown case raises it.
+          // A configured token Claude rejected is recorded as such, so the
+          // next read stands it down in favour of whatever Connect writes.
+          // Without this the retry resolves the same revoked config value and
+          // raises the card again, forever.
+          if (
+            errorCode !== undefined &&
+            current.credentialFromConfig === true
+          ) {
+            noteConfigClaudeTokenRejected();
+          }
           const credentialStillCurrent =
             typeof current.credentialGeneration !== "number" ||
             current.credentialGeneration ===

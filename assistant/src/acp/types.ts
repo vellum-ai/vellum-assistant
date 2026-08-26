@@ -19,6 +19,13 @@ export interface AcpAgentConfig {
    * pass for current. Absent for agents that read no Claude credential.
    */
   credentialGeneration?: number;
+  /**
+   * Whether the Claude token in `env` came from agent config rather than the
+   * vault. Config wins over the vault, so a rejection of a configured token is
+   * not something writing secure storage can repair on its own: the rejection
+   * marks it superseded so the next read stands it down.
+   */
+  credentialFromConfig?: boolean;
 }
 
 /**

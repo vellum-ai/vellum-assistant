@@ -77,3 +77,40 @@ export function retireAcpAuthRecovery(): void {
   clearAcpAuthMarkers();
   takeConversationsWithAcpConnectCard();
 }
+
+/**
+ * Generation current when a config-supplied Claude token was last rejected, or
+ * `undefined` if that has not happened.
+ *
+ * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` takes precedence over the
+ * vault, so a revoked value there is not something Connect can fix by writing
+ * secure storage: the next spawn resolves the same configured token and raises
+ * the card again. Remembering when it was rejected lets the next read tell a
+ * config token that has since been superseded by a real write from one that is
+ * simply the configured credential.
+ */
+let configTokenRejectedGeneration: number | undefined;
+
+/** Record that the configured Claude token was the one Claude rejected. */
+export function noteConfigClaudeTokenRejected(): void {
+  configTokenRejectedGeneration = claudeCredentialGeneration;
+}
+
+/**
+ * Whether a configured Claude token should stand down in favour of the vault.
+ *
+ * True once a token has been written after the configured one was rejected:
+ * that write is the user completing Connect, and honouring the config value
+ * over it would loop the card forever. Reset when it fires, so a config value
+ * the user later fixes is trusted again.
+ */
+export function configClaudeTokenSuperseded(): boolean {
+  if (
+    configTokenRejectedGeneration === undefined ||
+    claudeCredentialGeneration <= configTokenRejectedGeneration
+  ) {
+    return false;
+  }
+  configTokenRejectedGeneration = undefined;
+  return true;
+}

@@ -11,7 +11,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { currentClaudeCredentialGeneration } from "../acp-auth-marker-store.js";
+import {
+  configClaudeTokenSuperseded,
+  currentClaudeCredentialGeneration,
+  noteConfigClaudeTokenRejected,
+  retireAcpAuthRecovery,
+} from "../acp-auth-marker-store.js";
 
 describe("currentClaudeCredentialGeneration", () => {
   test("reports a stable generation while no token is written", () => {
@@ -31,5 +36,36 @@ describe("currentClaudeCredentialGeneration", () => {
     // Standing in for a token write that happened after the run started.
     const capturedAtSpawn = currentClaudeCredentialGeneration() - 1;
     expect(capturedAtSpawn === currentClaudeCredentialGeneration()).toBe(false);
+  });
+});
+
+describe("config token supersession", () => {
+  test("a configured token stands down only after a later write", () => {
+    // Config wins over the vault, so a revoked configured token would resolve
+    // again on every retry and loop the Connect card. The rejection records
+    // itself; the next real write is what stands the config value down.
+    noteConfigClaudeTokenRejected();
+
+    // No write since the rejection: the configured value is still the one the
+    // user means, so it stays.
+    expect(configClaudeTokenSuperseded()).toBe(false);
+
+    retireAcpAuthRecovery();
+
+    expect(configClaudeTokenSuperseded()).toBe(true);
+  });
+
+  test("supersession fires once, so a later fixed config value is trusted", () => {
+    noteConfigClaudeTokenRejected();
+    retireAcpAuthRecovery();
+
+    expect(configClaudeTokenSuperseded()).toBe(true);
+    expect(configClaudeTokenSuperseded()).toBe(false);
+  });
+
+  test("reports no supersession when no configured token was ever rejected", () => {
+    retireAcpAuthRecovery();
+
+    expect(configClaudeTokenSuperseded()).toBe(false);
   });
 });

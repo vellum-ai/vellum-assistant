@@ -31,7 +31,10 @@ import {
 } from "../tools/credentials/metadata-store.js";
 import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
-import { currentClaudeCredentialGeneration } from "./acp-auth-marker-store.js";
+import {
+  configClaudeTokenSuperseded,
+  currentClaudeCredentialGeneration,
+} from "./acp-auth-marker-store.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
@@ -283,6 +286,7 @@ export async function prepareAgentEnv(
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
   const adapterCommand = basename(agentConfig.command);
   let credentialGeneration: number | undefined;
+  let credentialFromConfig = false;
 
   if (adapterCommand === "claude-agent-acp") {
     // A config `env` override or a legacy vault entry can hold an Anthropic API
@@ -304,6 +308,13 @@ export async function prepareAgentEnv(
     };
 
     dropApiKeyOauthToken();
+    // A configured token that Claude already rejected stands down once a real
+    // token has been written since, which is the user completing Connect.
+    // Config otherwise wins over the vault, so honouring it here would resolve
+    // the same revoked value and raise the card again on every retry.
+    if (env.CLAUDE_CODE_OAUTH_TOKEN && configClaudeTokenSuperseded()) {
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       // Read the generation on both sides of the vault read and keep it only
@@ -322,6 +333,8 @@ export async function prepareAgentEnv(
       if (before === currentClaudeCredentialGeneration()) {
         credentialGeneration = before;
       }
+    } else {
+      credentialFromConfig = true;
     }
     // Any api-key-shaped value still standing here came from the vault read:
     // the config override was already dropped above, and the read only runs
@@ -400,9 +413,11 @@ export async function prepareAgentEnv(
     ]);
   }
 
-  // Only set when the token came from the vault read above and no replacement
-  // raced it. A configured `CLAUDE_CODE_OAUTH_TOKEN` skips that read entirely,
-  // and versioning an unrelated config override would let an unrelated token
-  // write suppress this run's recovery.
-  return { ...agentConfig, env, credentialGeneration };
+  // `credentialGeneration` is set only when the token came from the vault read
+  // above and no replacement raced it. A configured `CLAUDE_CODE_OAUTH_TOKEN`
+  // skips that read entirely, and versioning an unrelated config override
+  // would let an unrelated token write suppress this run's recovery.
+  // `credentialFromConfig` records that provenance so a rejection can mark the
+  // configured value superseded rather than looping the card against it.
+  return { ...agentConfig, env, credentialGeneration, credentialFromConfig };
 }
