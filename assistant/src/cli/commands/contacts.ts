@@ -35,6 +35,7 @@ interface ContactWithChannels {
   createdAt: string | number;
   updatedAt: string | number;
   interactionCount: number | null;
+  autoApproveThreshold?: string | null;
   channels: ContactChannel[];
 }
 
@@ -131,6 +132,7 @@ function formatContactDetail(
     lines.push(`Role:         ${c.role}`);
   }
   lines.push(`Type:         ${c.contactType}`);
+  lines.push(`Access:       ${c.autoApproveThreshold ?? "inherit"}`);
   if (c.notes) {
     lines.push(`Notes:        ${c.notes}`);
   }

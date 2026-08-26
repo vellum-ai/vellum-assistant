@@ -410,7 +410,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `ipc-unix-ndjson`
 - **Auth:** none (local socket)
-- **Description:** Assistant reads auto-approve threshold configuration from the gateway via IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold methods).
+- **Description:** Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.
 
 **Caller files:**
 - `assistant/src/permissions/gateway-threshold-reader.ts`

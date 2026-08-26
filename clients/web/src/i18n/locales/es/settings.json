@@ -252,6 +252,7 @@
     "loadError": "No se pudo cargar la configuración de la recarga automática.",
     "loading": "Cargando…",
     "summary": "Añadir {amount} cuando el saldo baje de {threshold}",
+    "toggleHelper": "Las recargas automáticas solo ocurren cuando se agota el uso incluido en tu plan",
     "toggleLabel": "Activar recarga automática",
     "updateError": "No se pudo guardar la configuración de la recarga automática. Inténtalo de nuevo."
   },
@@ -1179,7 +1180,7 @@
     "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
     "publicUrlLabel": "URL pública",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Escanéalo con la cámara de otro dispositivo, o abre el enlace en él, para usar {name} allí.",
+    "subtitle": "Escanéalo con la cámara de un teléfono, o pega el enlace en otro ordenador, para usar {name} allí.",
     "subtitleFallbackName": "este asistente",
     "title": "Vincular un dispositivo"
   },
@@ -1201,6 +1202,7 @@
   "pairDeviceUrl": {
     "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
     "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
+    "privateAddress": "Esta dirección apunta a una dirección de red privada. Introduce la URL https pública del asistente para que tus dispositivos puedan alcanzarlo.",
     "serviceFallbackName": "el proveedor del túnel",
     "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Inicia un túnel en el host para obtener una; `vellum tunnel --help` lista los proveedores.",
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
@@ -1812,6 +1814,19 @@
   "speechToTextCard": {
     "subtitle": "Configura cómo tu asistente transcribe el habla",
     "title": "Voz a texto"
+  },
+  "sttRoleOverrides": {
+    "clear": "Restablecer",
+    "clearAria": "Restablecer {feature}",
+    "clearFailed": "No se pudo restablecer",
+    "role": {
+      "batch": "Transcripción de archivos",
+      "dictation": "Dictado",
+      "liveVoice": "Voz en vivo",
+      "telephony": "Llamadas",
+      "watch": "Observación"
+    },
+    "title": "Por función"
   },
   "systemTasksSection": {
     "consolidationName": "Consolidación",

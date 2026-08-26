@@ -38,6 +38,8 @@ import {
   _resetFailureCoalesceForTesting,
   getAutoApproveThreshold,
   getContactAutoApproveThreshold,
+  invalidateAllContactThresholdCaches,
+  invalidateContactThresholdCache,
   refreshAutoApproveThreshold,
 } from "./gateway-threshold-reader.js";
 
@@ -780,6 +782,28 @@ describe("contact-level ceiling", () => {
     expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
     expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
     expect(countCalls("get_contact_threshold")).toBe(1);
+  });
+
+  test("invalidateContactThresholdCache drops a cached ceiling", async () => {
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
+
+    invalidateContactThresholdCache("contact-1");
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "low" }));
+
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("low");
+    expect(countCalls("get_contact_threshold")).toBe(2);
+  });
+
+  test("invalidateAllContactThresholdCaches drops every cached ceiling", async () => {
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
+
+    invalidateAllContactThresholdCaches();
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "none" }));
+
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("none");
+    expect(countCalls("get_contact_threshold")).toBe(2);
   });
 
   test("getContactAutoApproveThreshold returns null for an unset contact", async () => {

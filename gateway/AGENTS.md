@@ -242,6 +242,20 @@ The gateway classifies the actor at ingress (keyed on `actorExternalId`) and for
 
 **Intentionally NOT capability-gated** (these are identity / admission-flow decisions, not permissions, and stay raw class checks): `calls/*` guardian-identity call routing, `inbound-message-handler` heartbeat/timezone side-effects, `surface-action-routes` drift-heal re-resolution, and `channel-retry-sweep` trust-class parsing.
 
+## Operator CLI (`gateway contacts`)
+
+The gateway package ships an operator CLI (`gateway/src/cli/`, bin `gateway`) for gateway-owned contact ACL. This is the write surface for a contact's assistant-access ceiling. Do not add that write to `assistant contacts`.
+
+```
+gateway contacts list
+gateway contacts get <contactId>
+gateway contacts set-risk-threshold <contactId> --threshold none|low|medium|high|inherit
+```
+
+The CLI talks to the running gateway over its IPC socket (`set_contact_threshold`, `contacts_list_rich`, `contacts_get_rich`). It does not open `gateway.sqlite` itself.
+
+From the host: `vellum exec --service gateway -- gateway contacts ...`. Do not add a `vellum gateway contacts` verb.
+
 ## Guardian Requests (gateway-owned)
 
 The gateway owns guardian approval requests and their delivery records: the `guardian_requests` and `guardian_request_deliveries` tables (`src/db/guardian-request-store.ts`), fronted by `src/approvals/guardian-request-service.ts` and exposed to the daemon over the `guardian_requests_*` IPC routes (`src/ipc/guardian-request-handlers.ts`; shared contract in `packages/gateway-client/src/guardian-request-contract.ts`). The daemon holds no request state — it relays everything through `assistant/src/channels/gateway-guardian-requests.ts` and keeps the daemon-domain side effects: notifications, card delivery/withdrawal, pending-interaction resume, grant minting into its `scoped_approval_grants`.

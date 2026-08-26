@@ -1,14 +1,29 @@
 /**
- * Tests for the gateway `get_contact_threshold` IPC route.
+ * Tests for the gateway contact-threshold IPC routes.
  *
- * The handler is driven directly against a real gateway DB. Contacts are
+ * The handlers are driven directly against a real gateway DB. Contacts are
  * seeded on the `contacts` table so the test does not depend on the
  * assistant-DB mirror that ContactStore.upsertContact performs.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import "./test-preload.js";
+
+const assistantIpcCalls: Array<{
+  method: string;
+  params?: Record<string, unknown>;
+}> = [];
+
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    assistantIpcCalls.push({ method, params });
+    return undefined;
+  },
+}));
 
 import {
   getGatewayDb,
@@ -24,6 +39,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   getGatewayDb().delete(contacts).run();
+  assistantIpcCalls.length = 0;
 });
 
 afterAll(() => {
@@ -55,6 +71,16 @@ function getContactThresholdHandler() {
   );
   if (!route) {
     throw new Error("get_contact_threshold route is not registered");
+  }
+  return route.handler;
+}
+
+function setContactThresholdHandler() {
+  const route = thresholdRoutes.find(
+    (entry) => entry.method === "set_contact_threshold",
+  );
+  if (!route) {
+    throw new Error("set_contact_threshold route is not registered");
   }
   return route.handler;
 }
@@ -96,5 +122,72 @@ describe("get_contact_threshold IPC", () => {
     });
 
     expect(result).toBeNull();
+  });
+});
+
+describe("set_contact_threshold IPC", () => {
+  test("sets a contact ceiling", async () => {
+    seedContact({ id: "contact-1" });
+
+    const result = await setContactThresholdHandler()({
+      contactId: "contact-1",
+      threshold: "high",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      contactId: "contact-1",
+      threshold: "high",
+    });
+    expect(
+      await getContactThresholdHandler()({ contactId: "contact-1" }),
+    ).toEqual({ threshold: "high" });
+    expect(assistantIpcCalls).toEqual([
+      {
+        method: "emit_event",
+        params: { body: { kind: "contacts_changed" } },
+      },
+    ]);
+  });
+
+  test("clears a contact ceiling when threshold is null", async () => {
+    seedContact({ id: "contact-1", autoApproveThreshold: "high" });
+
+    const result = await setContactThresholdHandler()({
+      contactId: "contact-1",
+      threshold: null,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      contactId: "contact-1",
+      threshold: null,
+    });
+    expect(
+      await getContactThresholdHandler()({ contactId: "contact-1" }),
+    ).toBeNull();
+    expect(assistantIpcCalls).toHaveLength(1);
+    expect(assistantIpcCalls[0]?.method).toBe("emit_event");
+  });
+
+  test("returns not_found for an unknown contact", async () => {
+    const result = await setContactThresholdHandler()({
+      contactId: "contact-missing",
+      threshold: "high",
+    });
+
+    expect(result).toEqual({ ok: false, error: "not_found" });
+    expect(assistantIpcCalls).toEqual([]);
+  });
+
+  test("rejects an invalid threshold", async () => {
+    seedContact({ id: "contact-1" });
+
+    expect(() =>
+      setContactThresholdHandler()({
+        contactId: "contact-1",
+        threshold: "full",
+      }),
+    ).toThrow();
   });
 });

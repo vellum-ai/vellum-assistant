@@ -25,7 +25,6 @@ import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -51,7 +50,6 @@ export interface MultiActivityGroupProps {
     input?: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
-    directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
   // Inline confirmation props (pass-through). Each chip renders its own card
@@ -505,7 +503,6 @@ function UnknownCommandNudge({
                   input: toolCall.input ?? {},
                   allowlistOptions: toolCall.riskAllowlistOptions ?? [],
                   scopeOptions: toolCall.scopeOptions ?? [],
-                  directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
                 })
               }
               // typography: off-scale — inline link within body-small nudge

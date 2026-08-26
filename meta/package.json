@@ -5,7 +5,8 @@
   "description": "Install the full Vellum stack locally",
   "bin": {
     "vellum": "./bin/vellum.js",
-    "assistant": "./bin/assistant.js"
+    "assistant": "./bin/assistant.js",
+    "gateway": "./bin/gateway.js"
   },
   "scripts": {
     "test": "bun test"

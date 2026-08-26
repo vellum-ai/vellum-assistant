@@ -12,7 +12,7 @@ Commands here operate on or across **assistant instances** — creating, startin
 
 For commands scoped to a **single running assistant's** local state (config, memory, contacts), see `assistant/src/cli/AGENTS.md`.
 
-Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `contacts`, `memory` belong in `assistant/src/cli/`.
+Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `memory` belong in `assistant/src/cli/`. Contact ACL writes belong on `gateway contacts` (via `vellum exec --service gateway`), not on `assistant contacts` or `vellum gateway`.
 
 ## Assistant targeting convention
 

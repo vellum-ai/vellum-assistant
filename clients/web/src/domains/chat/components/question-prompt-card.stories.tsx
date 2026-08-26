@@ -12,9 +12,8 @@
  * card is measured against the mock. They are set to the phone viewport, which
  * is where the card is at its most cramped and where the collapse earns its
  * keep. Note that a desktop browser reports a fine pointer at any width, so the
- * swipe grabber stays away and the numeric hotkey badges stay on; open the
- * story in a device-emulated frame, or on a real phone, to see the touch
- * chrome.
+ * numeric hotkey badges stay on; open the story in a device-emulated frame, or
+ * on a real phone, to see the card without them.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
@@ -92,9 +91,10 @@ export const Expanded: Story = {
 };
 
 /**
- * A batch. The counter, the pager and the minimize chevron share the trailing
- * cluster, and all three leave when the card minimizes, since every one of them
- * acts on rows that are on screen.
+ * A batch. The pager shares the trailing cluster with the minimize chevron, and
+ * both leave when the card minimizes, since each of them acts on rows that are
+ * on screen. Which question you are on is announced to a screen reader and not
+ * drawn: a sighted reader has the options changing under them to say it.
  */
 export const Batched: Story = {
   args: { entries: [MARKONE, CADENCE] },
@@ -137,9 +137,8 @@ export const Minimized: Story = {
 };
 
 /**
- * A minimized batch. The `1 of 2` counter is an expanded-card reading, so it
- * leaves with the pager it counts for rather than sitting in a row that has
- * nothing to page.
+ * A minimized batch, which is a plain one-line row: no pager, since there are
+ * no options on screen to page between, and no position to report.
  */
 export const MinimizedBatched: Story = {
   args: { entries: [MARKONE, CADENCE] },
@@ -149,8 +148,8 @@ export const MinimizedBatched: Story = {
 
 /**
  * The expanded card at phone width, to compare the two against each other: the
- * counter, the pager and the one chevron all sit in the trailing cluster, and
- * all of them go away together on the way down.
+ * pager and the one chevron sit in the trailing cluster, and both go away
+ * together on the way down.
  */
 export const BatchedOnAPhone: Story = {
   args: { entries: [MARKONE, CADENCE] },

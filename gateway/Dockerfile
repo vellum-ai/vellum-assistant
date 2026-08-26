@@ -57,6 +57,9 @@ COPY --chown=gateway:gateway packages/slack-text /app/packages/slack-text
 COPY --chown=gateway:gateway packages/twilio-client /app/packages/twilio-client
 COPY --chown=gateway:gateway gateway /app/gateway
 
+RUN ln -sf /app/gateway/src/cli/index.ts /usr/local/bin/gateway \
+    && chmod +x /app/gateway/src/cli/index.ts
+
 RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security
 
 COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/

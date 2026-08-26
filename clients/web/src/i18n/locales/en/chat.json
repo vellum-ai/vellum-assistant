@@ -357,7 +357,6 @@
     "createTitle": "Create Trust Rule",
     "description": "Matching tool calls take this rule's risk level, so your approval tolerance can auto-approve them.",
     "editTitle": "Edit Trust Rule",
-    "everywhere": "Everywhere",
     "narrowerScopeAria": "Narrower scope",
     "orNarrowScope": "Or narrow the scope:",
     "save": "Save",
@@ -365,8 +364,7 @@
     "saveRule": "Save Rule",
     "saving": "Saving…",
     "suggested": "Suggested: {risk}",
-    "treatAs": "Treat as",
-    "where": "Where"
+    "treatAs": "Treat as"
   },
   "choiceSurface": {
     "continue": "Continue",
@@ -1195,8 +1193,8 @@
     "minimizedSummary": "{count, plural, one {# option} other {# options}} · Tap to reopen",
     "nextQuestionAria": "Next question",
     "optionAria": "Option {number}: {label}",
-    "position": "{current} of {total}",
     "previousQuestionAria": "Previous question",
+    "position": "{current} of {total}",
     "sendResponseAria": "Send response",
     "skip": "Skip",
     "skipAria": "Skip this question",

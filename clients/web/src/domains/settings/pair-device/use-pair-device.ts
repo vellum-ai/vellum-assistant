@@ -3,16 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { publicBaseUrlRejectionMessage } from "@/utils/pairing-address";
 
 import {
   mintDevicePairing,
   PairDeviceError,
   type DevicePairing,
 } from "./pair-device-client";
-import {
-  publicBaseUrlRejectionMessage,
-  resolvePublicBaseUrl,
-} from "./pair-device-url";
+import { resolvePublicBaseUrl } from "./pair-device-url";
 
 /** localStorage key for the last public URL that successfully minted a code. */
 const PUBLIC_BASE_URL_STORAGE_KEY = "vellum:pair-device:public-base-url";

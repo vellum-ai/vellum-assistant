@@ -12,6 +12,11 @@ import {
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
+export {
+  parseRemoteWebPairingParams,
+  type RemoteWebPairingParams,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 const PAIRING_TOKEN_PATH = "/v1/remote-web/pairing-token";
 const PAIRING_CHALLENGE_PATH = "/v1/remote-web/pairing-challenge";
 const GUARDIAN_REFRESH_PATH = "/v1/guardian/refresh";
@@ -34,11 +39,6 @@ type RefreshLockRecord = {
 
 let remoteGatewayRefreshAfterMs = 0;
 let refreshRemoteGatewaySessionPromise: Promise<boolean> | null = null;
-
-export interface RemoteWebPairingParams {
-  deviceCode: string | null;
-  userCode: string | null;
-}
 
 /**
  * Credential fields {@link activateRemoteGatewaySession} consumes. Broader than
@@ -71,45 +71,6 @@ export class RemoteWebPairingError extends Error {
 function errorBodyCode(body: unknown): string | null {
   const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
   return typeof code === "string" ? code : null;
-}
-
-function stringParam(
-  params: URLSearchParams,
-  ...names: string[]
-): string | null {
-  for (const name of names) {
-    const value = params.get(name)?.trim();
-    if (value) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function paramsFromUrl(url: URL): URLSearchParams {
-  const merged = new URLSearchParams(url.search);
-  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
-  if (hash) {
-    const hashParams = new URLSearchParams(hash);
-    for (const [key, value] of hashParams) {
-      if (!merged.has(key)) {
-        merged.set(key, value);
-      }
-    }
-  }
-  return merged;
-}
-
-export function parseRemoteWebPairingParams(
-  value: string | URL,
-): RemoteWebPairingParams {
-  const url =
-    typeof value === "string" ? new URL(value, window.location.origin) : value;
-  const params = paramsFromUrl(url);
-  return {
-    deviceCode: stringParam(params, "deviceCode", "device_code"),
-    userCode: stringParam(params, "userCode", "user_code"),
-  };
 }
 
 export function remoteGatewayPublicPathPrefix(

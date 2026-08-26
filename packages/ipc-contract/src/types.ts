@@ -176,7 +176,8 @@ export interface HotkeyEvent {
 }
 
 export type FnPushToTalkResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 // ---------------------------------------------------------------------------
 // System permissions
@@ -252,7 +253,11 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  "suspend" | "resume" | "lock" | "unlock" | "active";
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -313,13 +318,16 @@ export type DeepLink =
     }
   /**
    * `<scheme>://connect`: the pair-page "Open in the Vellum app" hand-off
-   * and `vellum pair --qr --app` QR codes. `url` is a validated https server
-   * base; `bundle` (pairing bundle) is secret material and must never be
-   * logged or breadcrumbed. Fields absent when their query params were
-   * missing or malformed. The link never carries the `code` query param
-   * (device code): the renderer has no consumer for it.
+   * and `vellum pair --app` QR codes. `url` is a validated https server
+   * base and `code` the device code it carries, which the local-mode host
+   * exchanges for pairing credentials. `code` is credential material and
+   * must never be logged or breadcrumbed; it rides only alongside a usable
+   * `url`. `legacy` marks a link that carried a `bundle` param from an app
+   * version whose connect dialog took a pasted pairing bundle: only the
+   * presence crosses this seam, never the payload. Fields absent when
+   * their query params were missing or malformed.
    */
-  | { kind: "connect"; url?: string; bundle?: string }
+  | { kind: "connect"; url?: string; code?: string; legacy?: true }
   | { kind: "unknown"; url: string };
 
 // ---------------------------------------------------------------------------
@@ -327,7 +335,8 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -349,7 +358,8 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  DictationOverlayState | { kind: "dismiss" };
+  | DictationOverlayState
+  | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -587,7 +597,12 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -650,7 +665,8 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
+  | { ok: true; lockfile: Lockfile }
+  | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"

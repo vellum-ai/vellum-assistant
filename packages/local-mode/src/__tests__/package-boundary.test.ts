@@ -2,15 +2,17 @@
  * Package boundary tests for @vellumai/local-mode.
  *
  * This package is the shared local-assistant host surface. It sits one layer
- * above @vellumai/environments and the source-only @vellumai/avatar-manifest
- * (its only allowed @vellumai dependencies) and uses node builtins for
- * filesystem, child-process, and network work.
+ * above @vellumai/environments, @vellumai/service-contracts, and the
+ * source-only @vellumai/avatar-manifest (its only allowed @vellumai
+ * dependencies) and uses node builtins for filesystem, child-process, and
+ * network work.
  *
  * Enforces that the package:
  * 1. Imports only node builtins, its own relative modules,
- *    `@vellumai/environments`, `@vellumai/avatar-manifest`, `zod` (the
- *    lockfile contract's schema library), and `nanoid` (pair's fallback
- *    local-id generator); nothing else.
+ *    `@vellumai/environments`, `@vellumai/service-contracts` (the pairing wire
+ *    contracts), `@vellumai/avatar-manifest`, `zod` (the lockfile contract's
+ *    schema library), and `nanoid` (pair's fallback local-id generator);
+ *    nothing else.
  * 2. Declares exactly those runtime dependencies.
  * 3. Is marked `private`.
  */
@@ -24,6 +26,7 @@ const SRC_DIR = join(PACKAGE_ROOT, "src");
 
 const ALLOWED_PACKAGES = new Set([
   "@vellumai/environments",
+  "@vellumai/service-contracts",
   "@vellumai/avatar-manifest",
   "zod",
   "nanoid",
@@ -52,17 +55,21 @@ function collectSourceFiles(dir: string): string[] {
  * Matches the module specifier of any `import ... from "<spec>"` /
  * `export ... from "<spec>"` / `require("<spec>")` statement.
  */
-const IMPORT_SPEC = /(?:from|require\s*\(\s*)["']([^"']+)["']/g;
+const IMPORT_SPEC = /(?:from\s+|require\s*\(\s*)["']([^"']+)["']/g;
 
 /**
  * A specifier is forbidden when it is neither relative, a node builtin, nor
- * one of the explicitly allowed `@vellumai/*` packages.
+ * an entry point of one of the explicitly allowed packages.
  */
 function isForbiddenSpecifier(spec: string): boolean {
   if (spec.startsWith(".") || spec.startsWith("/")) return false;
   if (spec.startsWith("node:")) return false;
-  if (ALLOWED_PACKAGES.has(spec)) return false;
-  return true;
+  // A subpath export ("pkg/entry") is allowed exactly when its package is.
+  const segments = spec.split("/");
+  const packageName = spec.startsWith("@")
+    ? segments.slice(0, 2).join("/")
+    : segments[0]!;
+  return !ALLOWED_PACKAGES.has(packageName);
 }
 
 describe("package boundary", () => {
@@ -72,7 +79,7 @@ describe("package boundary", () => {
     expect(sourceFiles.length).toBeGreaterThan(0);
   });
 
-  test("imports only node builtins, relative modules, and the allowed @vellumai packages", () => {
+  test("imports only node builtins, relative modules, and its allowed packages", () => {
     const violations: string[] = [];
 
     for (const file of sourceFiles) {
@@ -94,8 +101,9 @@ describe("package boundary", () => {
           violations.map((v) => `  - ${v}`).join("\n") +
           "\n\n@vellumai/local-mode may import only node builtins, its own\n" +
           "relative modules, @vellumai/environments, and\n" +
-          "@vellumai/avatar-manifest. Any other dependency\n" +
-          "would break bundler hosts that inline this source-only package.",
+          "@vellumai/service-contracts, and @vellumai/avatar-manifest. Any\n" +
+          "other dependency would break bundler hosts that inline this\n" +
+          "source-only package.",
       );
     }
   });
@@ -106,8 +114,9 @@ describe("package boundary", () => {
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
-      "@vellumai/avatar-manifest": "file:../avatar-manifest",
-      "@vellumai/environments": "file:../environments",
+      "@vellumai/avatar-manifest": "workspace:*",
+      "@vellumai/environments": "workspace:*",
+      "@vellumai/service-contracts": "workspace:*",
       nanoid: "5.1.7",
       zod: "4.3.6",
     });

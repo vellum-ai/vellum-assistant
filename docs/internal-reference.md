@@ -165,7 +165,7 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 
 ### Auto-Approve Threshold and Trust Rules
 
-The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database, not in config.json. The assistant reads them via IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`). When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
+The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Auto-approve thresholds are **gateway-owned** (they live in the gateway's SQLite database, not in config.json). The assistant reads them via IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`). Operators write a contact ceiling via `gateway contacts set-risk-threshold`. When the gateway is unreachable, the assistant defaults to `"none"` (Strict): fail-closed with no local fallback.
 
 Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. The three execution contexts each have their own default:
 

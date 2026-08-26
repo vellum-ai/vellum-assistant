@@ -4,7 +4,8 @@
  * hatch/retire/wake lifecycle ops) over a loopback HTTP boundary. Consumed by the
  * CLI `client` server and the web app's dev-server middleware so the local
  * endpoint behaviour is defined exactly once instead of one host reaching into
- * another's source tree. `@vellumai/environments` and the source-only
+ * another's source tree. `@vellumai/environments`,
+ * `@vellumai/service-contracts`, and the source-only
  * `@vellumai/avatar-manifest` are its only workspace dependencies.
  */
 export {
@@ -59,7 +60,28 @@ export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireOptions, RetireResult } from "./retire";
 export { unpairAssistant } from "./unpair";
-export { decodePairBundle, pairAssistant, connectImport } from "./pair";
+export {
+  pairAssistant,
+  checkPairedAssistantName,
+  pairingStart,
+  pairingPoll,
+  pairingCancel,
+  connectImport,
+} from "./pair";
+export type {
+  PairedAssistantCredentials,
+  PairOptions,
+  PairResult,
+  PairRefusal,
+  PairingFailure,
+  PairingFailureReason,
+  PairingStarted,
+  PairingStartResult,
+  PairingPollOptions,
+  PairingPollResult,
+  ConnectImportOptions,
+  ConnectImportResult,
+} from "./pair";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";

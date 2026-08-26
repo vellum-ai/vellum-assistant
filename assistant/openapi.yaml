@@ -5333,12 +5333,6 @@ paths:
                 decision:
                   type: string
                   description: "One of: allow, deny"
-                selectedPattern:
-                  type: string
-                  description: Allowlist pattern for persistent decisions
-                selectedScope:
-                  type: string
-                  description: Scope for persistent decisions
               required:
                 - requestId
                 - decision

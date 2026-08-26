@@ -3,8 +3,10 @@ import {
   isLoopbackGatewayCloud,
   isUsableRuntimeUrl,
 } from "@vellumai/local-mode/contract";
+import { isRetryablePairingReason } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { isPublicBaseUrlRejection } from "@/utils/pairing-address";
 import {
   clearSelectedAssistantId,
   readSelectedAssistantId,
@@ -25,11 +27,13 @@ import {
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
-  connectImportHost,
   fetchGuardianTokenHost,
   GuardianTokenError,
   isLocalModeHostAvailable,
   loadLockfileHost,
+  pairingCancelHost,
+  pairingPollHost,
+  pairingStartHost,
   parseLockfile,
   replacePlatformAssistantsHost,
   retireLocalAssistantHost,
@@ -42,7 +46,9 @@ import type {
   Lockfile,
   LockfileAssistant,
   LocalAssistantResources,
-  LocalConnectImportResult,
+  LocalPairingFailure,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
   LocalRetireResult,
 } from "@/runtime/local-mode-host";
 
@@ -498,35 +504,83 @@ export async function removePairedAssistantFromLockfile(
   return { ok: true };
 }
 
+/** Stands in when a host reports a failure with no message of its own. */
+const PAIRING_FALLBACK_ERROR = "Failed to connect to that assistant.";
+
 /**
- * Register a pairing bundle printed by `vellum pair` on another machine: the
- * host persists its guardian token and creates a `cloud: "paired"` lockfile
- * entry, then the lockfile is reloaded so subscribers (the resolved-assistants
- * store) pick up the new entry, the write counterpart of
- * {@link removePairedAssistantFromLockfile}. `accessOnly` is true when the
- * bundle carried no refresh credential, so the pairing's access expires and
- * cannot renew itself.
+ * Whether a refused pairing step is worth polling through, classified by the
+ * shared reason table so the dialog and `vellum connect import` cannot drift.
  */
-export async function importPairedAssistantBundle(
-  bundle: string,
-  name?: string,
-): Promise<LocalConnectImportResult> {
-  const fallbackError = "Failed to import the pairing bundle.";
-  const result = await connectImportHost(bundle, name);
+export function isRetryablePairingFailure(
+  failure: LocalPairingFailure,
+): boolean {
+  return isRetryablePairingReason(failure.reason);
+}
+
+/**
+ * Begin pairing with the assistant at `address`, a pairing link or a bare
+ * `https://host` URL. The host runs the exchange and keeps the device code,
+ * so what comes back is an opaque handle plus, when the address carried no
+ * approved code, the code to approve on the assistant's machine.
+ */
+export async function startAssistantPairing(
+  address: string,
+): Promise<LocalPairingStartResult> {
+  const result = await pairingStartHost(address);
   if (!result.ok) {
-    return { ok: false, error: result.error || fallbackError };
+    return {
+      ...result,
+      error: result.error || PAIRING_FALLBACK_ERROR,
+      // Runtime guard, as on the poll below: the dev-server host branch parses
+      // untyped JSON, so a reason no caller has copy for degrades to the
+      // host's own message rather than to no message at all.
+      rejection: isPublicBaseUrlRejection(result.rejection)
+        ? result.rejection
+        : undefined,
+    };
+  }
+  return result;
+}
+
+/**
+ * One exchange attempt for a live pairing session. On `imported` the lockfile
+ * is reloaded so subscribers (the resolved-assistants store) pick up the new
+ * entry, the write counterpart of {@link removePairedAssistantFromLockfile}.
+ * `accessOnly` is true when the exchange yielded no refresh credential, so the
+ * pairing's access expires and cannot renew itself.
+ */
+export async function pollAssistantPairing(
+  handle: string,
+  name?: string,
+): Promise<LocalPairingPollResult> {
+  const result = await pairingPollHost(handle, name);
+  if (!result.ok) {
+    return { ...result, error: result.error || PAIRING_FALLBACK_ERROR };
+  }
+  if (result.status === "pending") {
+    return result;
   }
   // Runtime guard: the dev-server host branch parses untyped JSON, so a
   // malformed success degrades to a structured failure.
   if (!result.assistantId) {
-    return { ok: false, error: fallbackError };
+    return { ok: false, error: PAIRING_FALLBACK_ERROR };
   }
   await loadLockfile();
-  return {
-    ok: true,
-    assistantId: result.assistantId,
-    accessOnly: result.accessOnly === true,
-  };
+  return { ...result, accessOnly: result.accessOnly === true };
+}
+
+/**
+ * Forget a pending pairing session, so its code cannot be exchanged later.
+ * Callers cancel on the way out (a dismissed dialog, a dead transport) and
+ * have nothing to do about a failure, and a handle the host no longer knows
+ * is already the outcome they wanted, so a rejecting host resolves quietly.
+ */
+export async function cancelAssistantPairing(handle: string): Promise<void> {
+  try {
+    await pairingCancelHost(handle);
+  } catch {
+    // Unreachable session: cancelled, spent, or the host itself is gone.
+  }
 }
 
 // ---------------------------------------------------------------------------

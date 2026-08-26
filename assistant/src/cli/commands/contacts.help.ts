@@ -75,9 +75,10 @@ Examples:
 Arguments:
   id   UUID of the contact to retrieve. Run 'assistant contacts list' to find IDs.
 
-Returns the full contact record including role, display name, and all
-channel memberships (phone numbers, Telegram IDs, email addresses, etc.).
-For assistant-type contacts, additional assistant metadata is included.
+Returns the full contact record including role, display name, assistant
+access ceiling, and all channel memberships (phone numbers, Telegram
+IDs, email addresses, etc.). For assistant-type contacts, additional
+assistant metadata is included.
 
 Examples:
   $ assistant contacts get 7a3b1c2d-4e5f-6789-abcd-ef0123456789

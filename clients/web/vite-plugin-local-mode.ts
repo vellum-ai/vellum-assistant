@@ -11,7 +11,6 @@ import {
   headerHostIsLoopback,
   originIsAllowed,
   hasSameOriginCredentialProof,
-  connectImport,
   getLockfileData,
   getLocalAssistantStatus,
   readLockfileAssistantAvatar,
@@ -28,6 +27,9 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  pairingCancel,
+  pairingPoll,
+  pairingStart,
   unpairAssistant,
   getGuardianAccessToken,
   getPairedGuardianAccessToken,
@@ -104,7 +106,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
         unpairMiddleware(config.lockfilePaths, config.configDir),
       );
       server.middlewares.use(
-        connectImportMiddleware(config.lockfilePaths, config.configDir),
+        pairingMiddleware(config.lockfilePaths, config.configDir),
       );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
@@ -565,15 +567,31 @@ function unpairMiddleware(
   };
 }
 
-function connectImportMiddleware(
+/** The three pairing routes, each matched with and without the SPA prefix. */
+const PAIRING_ROUTES = ["pairing-start", "pairing-poll", "pairing-cancel"];
+
+function pairingRoute(url: string | undefined): string | null {
+  for (const route of PAIRING_ROUTES) {
+    if (url === `/assistant/__local/${route}` || url === `/__local/${route}`) {
+      return route;
+    }
+  }
+  return null;
+}
+
+/**
+ * The device-code exchange that registers an assistant paired on another
+ * machine: start an attempt from a pasted address, poll it until the host
+ * approves, cancel it on the way out. It runs here rather than in the browser,
+ * so the device code and the credentials it buys never reach the renderer.
+ */
+function pairingMiddleware(
   lockfilePaths: string[],
   configDir: string,
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (
-      req.url !== "/assistant/__local/connect-import" &&
-      req.url !== "/__local/connect-import"
-    ) {
+    const route = pairingRoute(req.url);
+    if (route === null) {
       return next();
     }
 
@@ -587,26 +605,71 @@ function connectImportMiddleware(
       return;
     }
 
-    void readJsonBody(req).then((body) => {
+    void readJsonBody(req).then(async (body) => {
       if (!body) {
         respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
         return;
       }
 
-      const result = connectImport(lockfilePaths, configDir, {
-        bundle: body.bundle,
+      if (route === "pairing-cancel") {
+        respondJson(res, 200, { ok: pairingCancel(body.handle) });
+        return;
+      }
+
+      if (route === "pairing-start") {
+        const result = await pairingStart(body.address);
+        respondJson(
+          res,
+          result.ok ? 200 : result.status,
+          result.ok
+            ? {
+                ok: true,
+                handle: result.handle,
+                userCode: result.userCode,
+                expiresAt: result.expiresAt,
+                intervalSeconds: result.intervalSeconds,
+              }
+            : // `rejection` rides along so the renderer can show its own
+              // localized copy for a refused address instead of this host's
+              // English.
+              {
+                ok: false,
+                reason: result.reason,
+                error: result.error,
+                rejection: result.rejection,
+              },
+        );
+        return;
+      }
+
+      const result = await pairingPoll(lockfilePaths, configDir, {
+        handle: body.handle,
         name: body.name,
       });
+      if (!result.ok) {
+        respondJson(res, result.status, {
+          ok: false,
+          reason: result.reason,
+          error: result.error,
+        });
+        return;
+      }
       respondJson(
         res,
-        result.ok ? 200 : result.status,
-        result.ok
+        200,
+        result.status === "pending"
           ? {
               ok: true,
+              status: "pending",
+              expiresAt: result.expiresAt,
+              intervalSeconds: result.intervalSeconds,
+            }
+          : {
+              ok: true,
+              status: "imported",
               assistantId: result.assistantId,
               accessOnly: result.accessOnly,
-            }
-          : { ok: false, error: result.error },
+            },
       );
     });
   };
