@@ -105,44 +105,62 @@ describe("useConversationListDeepLink", () => {
     expect(parkedAt()).toBeNull();
   });
 
-  test("holds the park on an unsettled landing and re-opens once the route names a conversation", () => {
+  test("waits out an unsettled landing, then opens once the route names a conversation", () => {
     park();
     const { getByTestId } = renderHost({ at: routes.assistant });
 
-    // The `/assistant` landing opens the drawer but keeps the request: the
-    // replace-navigation below is what would otherwise close it.
-    expect(openDrawer).toHaveBeenCalledTimes(1);
+    // Nothing opens on the index: the landing's own replace-navigation would
+    // shut it a beat later.
+    expect(openDrawer).not.toHaveBeenCalled();
     expect(parkedAt()).toEqual(expect.any(Number));
 
     act(() => {
       getByTestId("settle").click();
     });
 
-    expect(openDrawer).toHaveBeenCalledTimes(2);
+    expect(openDrawer).toHaveBeenCalledTimes(1);
     expect(parkedAt()).toBeNull();
   });
 
-  test("a landing that never settles buys one re-open, not a drawer that keeps coming back", () => {
+  test("opens once and does not come back on the next navigation", () => {
+    park();
+    const { getByTestId } = renderHost({ at: routes.conversation("conv-1") });
+    expect(openDrawer).toHaveBeenCalledTimes(1);
+
+    // Whatever the user does next, including picking another conversation from
+    // the drawer, must not be covered by the list again.
+    act(() => {
+      getByTestId("wander").click();
+    });
+    act(() => {
+      getByTestId("settle").click();
+    });
+
+    expect(openDrawer).toHaveBeenCalledTimes(1);
+  });
+
+  test("a landing that never settles drops the request rather than opening late", () => {
     park();
     const { getByTestId } = renderHost({ at: routes.assistant });
 
-    expect(openDrawer).toHaveBeenCalledTimes(1);
-    expect(parkedAt()).toEqual(expect.any(Number));
-
-    // Still not a conversation: the park is spent on this second open, so the
-    // navigation after it leaves the drawer alone.
     act(() => {
       getByTestId("wander").click();
     });
 
-    expect(openDrawer).toHaveBeenCalledTimes(2);
-    expect(parkedAt()).toBeNull();
+    expect(openDrawer).not.toHaveBeenCalled();
+    expect(parkedAt()).toEqual(expect.any(Number));
 
+    // Only the TTL spends it, and it opens nothing on the way out.
+    usePendingDeepLinkStore.setState({
+      pendingConversationListAt:
+        Date.now() - PENDING_CONVERSATION_LIST_TTL_MS - 1,
+    });
     act(() => {
-      getByTestId("settle").click();
+      getByTestId("wander").click();
     });
 
-    expect(openDrawer).toHaveBeenCalledTimes(2);
+    expect(openDrawer).not.toHaveBeenCalled();
+    expect(parkedAt()).toBeNull();
   });
 
   test("a wide window uncollapses the sidebar instead, and spends the park at once", () => {

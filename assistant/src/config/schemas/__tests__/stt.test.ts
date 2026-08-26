@@ -122,6 +122,100 @@ describe("managed provider", () => {
       provider: "vellum",
       language: "multi",
       providers: {},
+      roles: {},
     });
+  });
+});
+
+describe("services.stt.roles", () => {
+  test("defaults to empty so an untouched config is unchanged", () => {
+    expect(SttServiceSchema.parse({ provider: "deepgram" }).roles).toEqual({});
+  });
+
+  test("accepts a role whose selection covers what it needs", () => {
+    const parsed = SttServiceSchema.parse({
+      provider: "deepgram",
+      roles: { liveVoice: { provider: "deepgram", model: "flux" } },
+    });
+    expect(parsed.roles).toEqual({
+      liveVoice: { provider: "deepgram", model: "flux" },
+    });
+  });
+
+  test("a role can select a different family than the global default", () => {
+    // The point of the split: live voice on flux while everything else keeps
+    // the batch-capable family.
+    const parsed = SttServiceSchema.parse({
+      provider: "deepgram",
+      roles: { liveVoice: { provider: "deepgram", model: "flux" } },
+    });
+    expect(parsed.provider).toBe("deepgram");
+    expect(parsed.roles.liveVoice?.model).toBe("flux");
+  });
+
+  test("rejects a streaming-only family for a role that batches", () => {
+    // The whole point of the split: Flux has no batch endpoint, so it can
+    // serve live voice and cannot serve file transcription.
+    for (const role of ["batch", "dictation", "telephony"]) {
+      const result = SttServiceSchema.safeParse({
+        provider: "deepgram",
+        roles: { [role]: { provider: "deepgram", model: "flux" } },
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues[0]?.message).toContain(
+        `services.stt.roles.${role} cannot be "deepgram" running flux`,
+      );
+    }
+  });
+
+  test("names the first requirement a provider misses", () => {
+    // Telephony needs both boundaries AND call ingestion. Flux is missing a
+    // boundary, so that is what the message says: the reported reason is the
+    // one the user has to act on, not a generic incompatibility.
+    const result = SttServiceSchema.safeParse({
+      provider: "deepgram",
+      roles: { telephony: { provider: "deepgram", model: "flux" } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain(
+      "supports no daemon-batch transcription, which telephony needs",
+    );
+  });
+
+  test("rejects an unknown role key", () => {
+    expect(
+      SttServiceSchema.safeParse({
+        provider: "deepgram",
+        roles: { transcription: { provider: "deepgram" } },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("normalizes provider aliases inside a role", () => {
+    expect(
+      SttServiceSchema.parse({
+        provider: "deepgram",
+        roles: { batch: { provider: "whisper" } },
+      }).roles,
+    ).toEqual({ batch: { provider: "openai-whisper" } });
+  });
+});
+
+describe("services.stt.roles model validation", () => {
+  test("rejects a family the role's provider cannot serve", () => {
+    const result = SttServiceSchema.safeParse({
+      provider: "deepgram",
+      roles: { liveVoice: { provider: "openai-whisper", model: "flux" } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain("single model");
+  });
+
+  test("a role with no model runs the provider's default family", () => {
+    const parsed = SttServiceSchema.parse({
+      provider: "deepgram",
+      roles: { batch: { provider: "deepgram" } },
+    });
+    expect(parsed.roles.batch).toEqual({ provider: "deepgram" });
   });
 });

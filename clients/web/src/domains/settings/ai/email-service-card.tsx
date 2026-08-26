@@ -18,7 +18,8 @@ import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { Trans, useTranslation } from "@/i18n";
-import { ByoServiceCard, ServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/byo-service-card";
+import { ServiceCard } from "@/components/service-card";
 import { SaveButton } from "@/components/service-form-controls";
 import {
   LS_EMAIL_BYO_PROVIDER,

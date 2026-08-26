@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { ShareFeedbackModalLazy } from "@/components/share-feedback-modal-lazy";
@@ -130,6 +131,7 @@ export function RootLayout() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
@@ -444,7 +446,7 @@ export function RootLayout() {
       return;
     }
     setRemovePairedPending(true);
-    const outcome = await removePairedAssistant(removePairedId);
+    const outcome = await removePairedAssistant(queryClient, removePairedId);
     setRemovePairedPending(false);
     setRemovePairedId(null);
     if (!outcome.ok) {
@@ -461,7 +463,7 @@ export function RootLayout() {
       return;
     }
     setRetirePending(true);
-    const outcome = await retireAssistant(retireId);
+    const outcome = await retireAssistant(queryClient, retireId);
     if (outcome.ok) {
       setRetireId(null);
       setRetirePending(false);

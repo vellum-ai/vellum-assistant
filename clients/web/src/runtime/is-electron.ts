@@ -44,6 +44,7 @@ import type {
   LocalAssistantStatusResult,
   LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
@@ -257,6 +258,9 @@ declare global {
           options?: LocalUpgradeOptions,
         ): Promise<{ ok: boolean; version?: string; error?: string }>;
         status?(assistantId: string): Promise<LocalAssistantStatusResult>;
+        readAssistantAvatar?(
+          assistantId: string,
+        ): Promise<LocalReadAssistantAvatarResult>;
         guardianToken(
           assistantId: string,
         ): Promise<

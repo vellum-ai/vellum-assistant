@@ -27,6 +27,7 @@ mock.module("../calls/telephony-tts-capability.js", () => ({
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 
 const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
@@ -113,6 +114,69 @@ describe("maybeDefaultSpeechToManaged", () => {
         tts: { provider: "vellum" },
       },
     });
+  });
+
+  test("a narrowing stand-in is written to the live-voice role, not the global", async () => {
+    // BYOK Flux with no key: the stand-in preserves turn detection, so it is
+    // vellum-flux, which streams and nothing else. Writing that globally is
+    // how batch transcription and telephony disappear for a managed user.
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: {
+          provider: "deepgram",
+          providers: { deepgram: { model: "flux" } },
+        },
+        tts: { provider: "vellum" },
+      },
+    });
+
+    await maybeDefaultSpeechToManaged();
+
+    const stt = (readConfig().services as any).stt;
+    expect(stt.roles.liveVoice).toEqual({ provider: "vellum", model: "flux" });
+    // The other consumers land on the stand-in's base, which serves them all.
+    expect(stt.provider).toBe("vellum");
+    expect(stt.providers.vellum.model).toBe("nova-3");
+  });
+
+  test("the role write leaves batch and telephony on a provider that answers", async () => {
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: {
+          provider: "deepgram",
+          providers: { deepgram: { model: "flux" } },
+        },
+        tts: { provider: "vellum" },
+      },
+    });
+
+    await maybeDefaultSpeechToManaged();
+
+    invalidateConfigCache();
+    const stt = getConfig().services.stt;
+    expect(sttCatalogKeyForRole(stt, "liveVoice")).toBe("vellum-flux");
+    expect(sttCatalogKeyForRole(stt, "batch")).toBe("vellum");
+    expect(sttCatalogKeyForRole(stt, "telephony")).toBe("vellum");
+  });
+
+  test("a capability-preserving stand-in still writes the global provider", async () => {
+    // Plain deepgram has no turn detection, so the stand-in is plain vellum,
+    // which serves every role. That one belongs on the global, not a role.
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: { provider: "deepgram" },
+        tts: { provider: "vellum" },
+      },
+    });
+
+    await maybeDefaultSpeechToManaged();
+
+    const stt = (readConfig().services as any).stt;
+    expect(stt.provider).toBe("vellum");
+    expect(stt.roles).toBeUndefined();
   });
 
   test("never repoints an explicit BYOK provider with resolving credentials", async () => {

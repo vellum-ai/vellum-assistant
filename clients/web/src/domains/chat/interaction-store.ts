@@ -450,6 +450,15 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
 export const useInteractionStore = createSelectors(useInteractionStoreBase);
 
+/**
+ * Whether a question card is on screen. A boolean rather than the state
+ * itself, so a subscriber that only cares that one is up does not re-render
+ * every time its contents change.
+ */
+export function useHasPendingQuestion(): boolean {
+  return useInteractionStore((state) => state.pendingQuestion !== null);
+}
+
 /** Atomic per-kind subscription, so a card re-renders only for its own kind. */
 export function useSubmittingRequestId(kind: PromptKind): string | null {
   return useInteractionStore((state) => state.submittingByKind[kind]);

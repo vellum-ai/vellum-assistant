@@ -222,6 +222,7 @@ const {
 function applyConfig(overrides: {
   provider?: string;
   language?: string;
+  roles?: Record<string, { provider: string; model?: string }>;
 }): void {
   const provider = overrides.provider ?? "openai-whisper";
   // Seed a schema-valid base so the loader caches a fresh config object, then
@@ -245,6 +246,13 @@ function applyConfig(overrides: {
   if (overrides.language !== undefined) {
     (getConfig().services.stt as { language?: string }).language =
       overrides.language;
+  }
+  if (overrides.roles !== undefined) {
+    (
+      getConfig().services.stt as {
+        roles?: Record<string, { provider: string; model?: string }>;
+      }
+    ).roles = overrides.roles;
   }
 }
 
@@ -500,6 +508,58 @@ describe("resolveTelephonySttCapability", () => {
     if (result.status === "missing-credentials") {
       expect(result.providerId).toBe("google-gemini");
       expect(result.credentialProvider).toBe("gemini");
+    }
+  });
+
+  test("answers about the telephony role, not the global provider", async () => {
+    // The role's provider is the one a call dials, so preflight must judge
+    // that one: a credentialed role behind an uncredentialed global would
+    // otherwise be turned away from a call it can serve.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { telephony: { provider: "deepgram" } },
+    });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("deepgram");
+      expect(result.telephonyMode).toBe("realtime-ws");
+    }
+  });
+
+  test("reports the telephony role's missing credential, not the global's", async () => {
+    // The inverse: a credentialed global must not vouch for a role that
+    // cannot dial, which passes preflight and then fails at the dial.
+    mockProviderKeys = { openai: "oai-key" };
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { telephony: { provider: "deepgram" } },
+    });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("missing-credentials");
+    if (result.status === "missing-credentials") {
+      expect(result.providerId).toBe("deepgram");
+      expect(result.credentialProvider).toBe("deepgram");
+    }
+  });
+
+  test("an unset telephony role still reads the global provider", async () => {
+    mockProviderKeys = { openai: "oai-key" };
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { liveVoice: { provider: "deepgram" } },
+    });
+
+    const result = await resolveTelephonySttCapability();
+
+    expect(result.status).toBe("supported");
+    if (result.status === "supported") {
+      expect(result.providerId).toBe("openai-whisper");
     }
   });
 });
@@ -1797,5 +1857,142 @@ describe("the multilingual default reaches configs with no stt block", () => {
       stt: { provider: "deepgram", language: "ta", providers: {} },
     });
     expect(getConfig().services.stt.language).toBe("ta");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: per-consumer role selection
+// ---------------------------------------------------------------------------
+
+describe("services.stt.roles selection", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = { deepgram: "dg-key", openai: "oai-key" };
+    deepgramCtorCalls.length = 0;
+    whisperCtorCalls.length = 0;
+  });
+
+  test("a role override wins over the global provider", async () => {
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { dictation: { provider: "deepgram" } },
+    });
+
+    const transcriber = await resolveStreamingTranscriber({
+      role: "dictation",
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("deepgram");
+    expect(whisperCtorCalls).toHaveLength(0);
+  });
+
+  test("a role with no override falls back to the global provider", async () => {
+    // The invariant that keeps an install with no role set on one provider.
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { dictation: { provider: "deepgram" } },
+    });
+
+    const transcriber = await resolveStreamingTranscriber({
+      role: "liveVoice",
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("openai-whisper");
+  });
+
+  test("a roleless caller still reads the global provider", async () => {
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { dictation: { provider: "deepgram" } },
+    });
+
+    const transcriber = await resolveStreamingTranscriber({
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("openai-whisper");
+  });
+
+  test("an explicit providerId beats the role, since that caller already resolved", async () => {
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { liveVoice: { provider: "openai-whisper" } },
+    });
+
+    const transcriber = await resolveStreamingTranscriber({
+      role: "liveVoice",
+      providerId: "deepgram",
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("deepgram");
+  });
+
+  test("the batch resolver honours its own role", async () => {
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { batch: { provider: "deepgram" } },
+    });
+
+    const transcriber = await resolveBatchTranscriber({ role: "batch" });
+
+    expect(transcriber?.providerId).toBe("deepgram");
+  });
+
+  test("a role selects a model family the global default does not use", async () => {
+    // The case the split exists for: live voice on the streaming-only family
+    // while file transcription keeps the one that can batch.
+    applyConfig({
+      provider: "deepgram",
+      roles: { liveVoice: { provider: "deepgram", model: "flux" } },
+    });
+
+    const live = await resolveStreamingTranscriber({
+      role: "liveVoice",
+      sampleRate: 16000,
+    });
+    const batch = await resolveBatchTranscriber({ role: "batch" });
+
+    expect(live?.providerId).toBe("deepgram-flux");
+    expect(batch?.providerId).toBe("deepgram");
+  });
+
+  test("the watch session resolves its own role", async () => {
+    applyConfig({
+      provider: "openai-whisper",
+      roles: { watch: { provider: "deepgram" } },
+    });
+
+    const transcriber = await resolveStreamingTranscriber({
+      role: "watch",
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("deepgram");
+    expect(whisperCtorCalls).toHaveLength(0);
+  });
+
+  test("roles route two consumers to different providers at once", async () => {
+    // The failure this whole change exists to prevent: one global forcing
+    // every consumer onto a provider that only suits one of them.
+    applyConfig({
+      provider: "openai-whisper",
+      roles: {
+        dictation: { provider: "deepgram" },
+        batch: { provider: "openai-whisper" },
+      },
+    });
+
+    const dictation = await resolveStreamingTranscriber({
+      role: "dictation",
+      sampleRate: 16000,
+    });
+    const batch = await resolveBatchTranscriber({ role: "batch" });
+
+    expect(dictation?.providerId).toBe("deepgram");
+    expect(batch?.providerId).toBe("openai-whisper");
   });
 });

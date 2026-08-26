@@ -29,7 +29,7 @@ This ensures the exhaustive switch in `daemon-batch-transcriber.ts` produces a c
 
 - Append the new provider ID string to the `VALID_STT_PROVIDERS` tuple.
 
-The `services.stt.providers` map uses a sparse `z.record(z.string(), ...)` schema, so adding a new provider does **not** require a workspace migration to seed a `services.stt.providers.<id>` entry. Users only need to set `services.stt.provider` to the new ID and supply credentials.
+The `services.stt.providers` map uses a sparse `z.record(z.string(), ...)` schema, so adding a new provider does **not** require a workspace migration to seed a `services.stt.providers.<id>` entry. Users only need to set `services.stt.provider` (or a single consumer's `services.stt.roles.<role>`, see step 7) to the new ID and supply credentials.
 
 **Language handling.** `services.stt.language` is resolved centrally in `resolveStreamingTranscriber()` (and in `resolveBatchTranscriber()` for the daemon-batch boundary), so a new adapter inherits it for free: accept a `language` option in the adapter's constructor and forward it to the provider. If the provider auto-detects natively and has no language parameter (as Gemini and Whisper do), accept nothing and let the resolver's value be ignored; document that choice in the adapter, because "no language param" means auto-detect for some providers and _English_ for others (Deepgram), and that difference is an easy source of silent wrong-language transcription. A provider that supports both batch and streaming must forward the language on **both** paths, not just the streaming one.
 
@@ -84,12 +84,16 @@ Clients derive shared-vs-exclusive key behavior from the catalog automatically: 
 
 ## 7. Verify unified STT architecture
 
-`services.stt.provider` is the single source of truth for all STT routing, including telephony. There is no separate telephony STT config path.
+The `services.stt` block is the single source of truth for all STT routing, including telephony. There is no separate telephony STT config path.
+
+Routing has two levels. `services.stt.provider`, plus that provider's `services.stt.providers.<id>.model` family, is the global selection every consumer falls back to. `services.stt.roles.<role>` overrides it for one consumer, naming a `{provider, model?}` pair. The roles are `liveVoice`, `telephony`, `dictation`, `watch` and `batch`; `src/stt/roles.ts` maps each to the boundaries its call sites resolve on, and `ARCHITECTURE.md` lists the consumers per role. A new provider needs no per-role registration: a role may name any provider in the catalog whose row covers the boundaries that role requires.
 
 Before submitting the PR, verify that:
 
-1. **No stale config references** — grep for any references to a separate telephony transcription config. Telephony transcription runs daemon-side over the Twilio media-stream transport (`src/calls/media-stream-stt-session.ts`), which reads `services.stt.provider` like every other boundary.
+1. **No stale config references**: grep for any references to a separate telephony transcription config. Telephony transcription runs daemon-side over the Twilio media-stream transport (`src/calls/media-stream-stt-session.ts`), which resolves through `resolveStreamingTranscriber()`/`resolveBatchTranscriber()` under the `telephony` role like every other boundary resolves under its own.
 
 2. **Provider catalog telephony metadata** — the new provider's catalog entry (step 1) declares `telephonyMode` and `supportedBoundaries`; these are the single source of truth for the telephony capability check (`resolveTelephonySttCapability()`) and for streaming-vs-batch mode selection in the media-stream STT session. No per-provider routing maps exist.
 
-3. **No duplicate wiring** — a provider should appear only once in `services.stt`. The telephony layer consumes the same provider ID; there is no second registration step for telephony.
+3. **Role capability follows the catalog row**: `sttRoleCapabilityGap()` reads `supportedBoundaries` and `telephonyMode` from the row the pair resolves to (`sttCatalogKeyFor(provider, model)`), so a model family that drops a boundary must be its own catalog row. Get the row right and config validation rejects incapable role pairs on its own; nothing per-role needs writing.
+
+4. **No duplicate wiring**: a provider should appear only once in `services.stt`. The telephony layer consumes the same catalog, and a role selects from it; there is no second registration step for telephony or for any role.

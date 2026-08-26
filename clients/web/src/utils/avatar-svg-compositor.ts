@@ -122,6 +122,21 @@ export function resolveDefinitions(
   return { bodyShape, eyeStyle, color };
 }
 
+/** True when every trait id resolves against `components`. */
+export function canResolveDefinitions(
+  components: CharacterComponents,
+  bodyShapeId: string,
+  eyeStyleId: string | null | undefined,
+  colorId: string,
+): boolean {
+  try {
+    resolveDefinitions(components, bodyShapeId, eyeStyleId, colorId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function escapeAttr(s: string): string {
   return s
     .replace(/&/g, "&amp;")

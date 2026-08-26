@@ -35,5 +35,5 @@ import type { StreamingTranscriber } from "../stt/types.js";
 export async function openTranscriptionSession(): Promise<StreamingTranscriber | null> {
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
-  return resolveStreamingTranscriber();
+  return resolveStreamingTranscriber({ role: "dictation" });
 }

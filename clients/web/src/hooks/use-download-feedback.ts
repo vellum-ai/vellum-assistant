@@ -16,12 +16,15 @@ import { detectElectronHostOS } from "@/runtime/platform-detection";
  *
  * - `download.started`: plain browser only. Acknowledge the handoff and point
  *   at the browser's own downloads UI, the only honest claim that host allows.
- * - `download.done`: Electron only, pushed by main after the file actually
- *   finished (or failed) saving, and by `saveFile` when a URL source failed
- *   to fetch before a download could start. A completed report carries the
- *   reveal id for a "Show in Finder" / "Show in File Explorer" action.
- * - Capacitor iOS/Android publish nothing: the share sheet is the platform's
- *   own feedback and dismissing it must not claim a file was saved.
+ * - `download.done`: pushed by Electron main after the file actually
+ *   finished (or failed) saving, and by `saveFile` when the source could not
+ *   be fetched or staged before any host handoff (a failed URL fetch on
+ *   Electron; a failed fetch or cache write on the Capacitor save path). A
+ *   completed report carries the reveal id for a "Show in Finder" /
+ *   "Show in File Explorer" action.
+ * - Capacitor iOS/Android otherwise publish nothing: a presented share
+ *   sheet is the platform's own feedback and dismissing it must not claim a
+ *   file was saved.
  *
  * Mounted once by `RootLayout`, alongside the bus init that wires the
  * underlying event sources.

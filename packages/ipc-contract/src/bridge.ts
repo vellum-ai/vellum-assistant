@@ -112,6 +112,22 @@ export type LocalListDevicesResult =
 export type LocalRevokeDeviceResult =
   { ok: true } | { ok: false; error: string };
 
+/**
+ * A local assistant's avatar as read off its workspace by the host. `null`
+ * is a conclusive absence (no entry, no workspace, no avatar); malformed
+ * arguments and files the host cannot serve produce `ok: false`.
+ */
+export type LocalAssistantAvatar =
+  | {
+      kind: "character";
+      traits: { bodyShape: string; eyeStyle: string; color: string };
+    }
+  | { kind: "image"; imageBase64: string };
+
+export type LocalReadAssistantAvatarResult =
+  | { ok: true; avatar: LocalAssistantAvatar | null }
+  | { ok: false; error: string };
+
 export interface VellumBridge {
   platform: "electron";
   hostOS?: ElectronHostOS;
@@ -303,6 +319,13 @@ export interface VellumBridge {
       | { ok: true; accessToken: string }
       | { ok: false; status: number; error: string }
     >;
+    /**
+     * Read a local assistant's avatar straight off its workspace, so the
+     * chooser can render it even while that assistant is asleep.
+     */
+    readAssistantAvatar(
+      assistantId: string,
+    ): Promise<LocalReadAssistantAvatarResult>;
   };
   menu: {
     setPlatformSession(has: boolean): Promise<void>;

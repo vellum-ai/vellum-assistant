@@ -606,6 +606,7 @@
     "wordCount": "{count, plural, one {# word} other {# words}}"
   },
   "documentViewerPage": {
+    "exportFailed": "Failed to export PDF",
     "notFound": "Document not found."
   },
   "dynamicPageSurface": {
@@ -1115,7 +1116,6 @@
     "exhausted": "Add credits to continue.",
     "extraCredits": "Now using extra usage credits",
     "pctUsed": "{pct}% used",
-    "resets": "Resets {date}",
     "settingsAriaLabel": "Usage and billing settings",
     "title": "Usage"
   },
@@ -1161,7 +1161,6 @@
   },
   "questionPromptCard": {
     "closeQuestionAria": "Close question",
-    "expandAria": "Reopen question",
     "minimizeAria": "Minimize question",
     "minimizedSummary": "{count, plural, one {# option} other {# options}} · Tap to reopen",
     "nextQuestionAria": "Next question",

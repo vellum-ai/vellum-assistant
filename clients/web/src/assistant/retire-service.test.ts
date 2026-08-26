@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
 
 // --- mutable mock state (set per test) --- //
 
@@ -48,6 +49,11 @@ mock.module("@/lib/local-mode", () => ({
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
 }));
+const forgetAssistantAvatarMock = mock((_qc: QueryClient, _id: string) => {});
+mock.module("@/hooks/use-chooser-row-avatar", () => ({
+  forgetAssistantAvatar: forgetAssistantAvatarMock,
+}));
+const queryClient = new QueryClient();
 mock.module("@/stores/organization-store", () => ({
   useOrganizationStore: {
     getState: () => ({ currentOrganizationId: "org-test" }),
@@ -128,6 +134,7 @@ beforeEach(() => {
   retireAssistantByIdMock.mockClear();
   listAssistantsMock.mockClear();
   retireLocalAssistantMock.mockClear();
+  forgetAssistantAvatarMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   removeMock.mockClear();
   clearResearchSnapshotMock.mockClear();
@@ -144,11 +151,12 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "p1" }];
 
     // WHEN retiring it
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant(queryClient, "p1");
 
     // THEN the platform delete ran with that id and the local path did not
     expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
+    expect(forgetAssistantAvatarMock).toHaveBeenCalledWith(queryClient, "p1");
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
       expect(outcome.nextRoute).toBe("/assistant/onboarding/privacy");
@@ -161,7 +169,7 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "p1" }];
 
     // WHEN retiring it
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant(queryClient, "p1");
 
     // THEN the saved onboarding journey is discarded — a later onboarding must
     // start at the form, not resume the retired assistant's run deep in the
@@ -177,7 +185,7 @@ describe("retireAssistant", () => {
     retireByIdResult = { ok: false, status: 500, error: { detail: "boom" } };
 
     // WHEN retiring it
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant(queryClient, "p1");
 
     // THEN the journey survives — the assistant still exists.
     expect(outcome.ok).toBe(false);
@@ -191,7 +199,7 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "l1" }];
 
     // WHEN retiring it
-    const outcome = await retireAssistant("l1");
+    const outcome = await retireAssistant(queryClient, "l1");
 
     // THEN the local retire ran and the platform path did not
     expect(retireLocalAssistantMock).toHaveBeenCalledWith("l1");
@@ -206,7 +214,7 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "pr1" }];
 
     // WHEN retiring it
-    const outcome = await retireAssistant("pr1");
+    const outcome = await retireAssistant(queryClient, "pr1");
 
     // THEN the guard fails fast: neither retire path ran and nothing was
     // cleaned up (the assistant still exists on its host machine).
@@ -229,7 +237,7 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "p1" }];
 
     // WHEN retiring the platform target
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant(queryClient, "p1");
 
     // THEN it uses the platform delete (not local) and re-syncs the lockfile
     expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
@@ -246,7 +254,7 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "p1" }];
     retireByIdResult = { ok: false, status: 404, error: {} };
 
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant(queryClient, "p1");
 
     expect(outcome.ok).toBe(true);
   });
@@ -256,7 +264,7 @@ describe("retireAssistant", () => {
     storeAssistants = [{ id: "p1" }];
     retireByIdResult = { ok: false, status: 500, error: { detail: "boom" } };
 
-    const outcome = await retireAssistant("p1");
+    const outcome = await retireAssistant(queryClient, "p1");
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
@@ -272,7 +280,7 @@ describe("retireAssistant", () => {
     ];
     storeAssistants = [{ id: "l1" }, { id: "p1" }];
 
-    const outcome = await retireAssistant("l1");
+    const outcome = await retireAssistant(queryClient, "l1");
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
@@ -285,7 +293,7 @@ describe("retireAssistant", () => {
     lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
     storeAssistants = [{ id: "l1" }];
 
-    const outcome = await retireAssistant("l1");
+    const outcome = await retireAssistant(queryClient, "l1");
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {

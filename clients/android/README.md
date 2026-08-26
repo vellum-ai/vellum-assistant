@@ -262,7 +262,9 @@ clients/
     │   └── src/main/
     │       ├── AndroidManifest.xml
     │       ├── java/ai/vellum/assistant/
+    │       │   ├── Attribution.java
     │       │   ├── ConnectDeepLink.java
+    │       │   ├── InstallReferrerPlugin.java
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
     │       │   ├── NativeBiometricPlugin.java

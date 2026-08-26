@@ -147,6 +147,28 @@ export function parseTunnelRecord(value: unknown): TunnelRecord | null {
   return { provider, publicBaseUrl: normalized };
 }
 
+/**
+ * The tunnel a reader should offer to restart, given an `ingress` section, or
+ * null when it records none.
+ *
+ * A pairing-only record wins: it is written by a tunnel that deliberately left
+ * `publicBaseUrl` (and the `lastTunnel` beside it) pointing at an older public
+ * provider, so naming that older one would send the user to rebuild an ingress
+ * they are not using instead of the tunnel actually in front of them.
+ */
+export function selectRestartTunnelRecord(
+  ingress: unknown,
+): TunnelRecord | null {
+  if (typeof ingress !== "object" || ingress === null) {
+    return null;
+  }
+  const section = ingress as Record<string, unknown>;
+  return (
+    parseTunnelRecord(section[INGRESS_PAIRING_TUNNEL_KEY]) ??
+    parseTunnelRecord(section[INGRESS_LAST_TUNNEL_KEY])
+  );
+}
+
 /** Parse an `ingress.assistantId` value, or null when it is absent or blank. */
 export function parseRecordedAssistantId(value: unknown): string | null {
   return trimmedNonEmptyString(value) ?? null;

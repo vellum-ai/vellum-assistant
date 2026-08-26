@@ -156,7 +156,7 @@ export const CurrentFreeObscuredCredits: Story = {
   args: {
     ...CurrentFree.args,
     specsWrap: true,
-    footer: <UsageBalancePanel ratio={0.68} resetsAt={null} />,
+    footer: <UsageBalancePanel ratio={0.68} />,
   },
 };
 
@@ -196,7 +196,7 @@ export const CurrentObscuredCredits: Story = {
       obscuredUsageLabel: `${MIGHTY.name} usage, reset monthly`,
     }),
     specsWrap: true,
-    footer: <UsageBalancePanel ratio={0.42} resetsAt="2026-09-01T00:00:00Z" />,
+    footer: <UsageBalancePanel ratio={0.42} />,
   },
 };
 
@@ -209,14 +209,7 @@ export const CurrentObscuredCredits: Story = {
 export const CurrentObscuredCreditsExhausted: Story = {
   args: {
     ...CurrentObscuredCredits.args,
-    footer: (
-      <UsageBalancePanel
-        ratio={1}
-        resetsAt="2026-09-01T00:00:00Z"
-        exhausted
-        onAddCredits={() => {}}
-      />
-    ),
+    footer: <UsageBalancePanel ratio={1} exhausted onAddCredits={() => {}} />,
   },
 };
 

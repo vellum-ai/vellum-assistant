@@ -137,6 +137,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AndroidNotificationChannelsPlugin.class);
         registerPlugin(AndroidNotificationSettingsPlugin.class);
         registerPlugin(AndroidPushRegistrationPlugin.class);
+        registerPlugin(InstallReferrerPlugin.class);
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         registerPlugin(SelfHostedServersPlugin.class);

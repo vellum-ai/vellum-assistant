@@ -1170,7 +1170,9 @@
     "benefitPush": "Notificaciones push",
     "download": "Descargar",
     "subtitle": "La app de Vellum para {appName} te ofrece una experiencia nativa.",
-    "title": "Obtén la app de {appName}"
+    "subtitleGeneric": "La app móvil de Vellum te ofrece una experiencia nativa.",
+    "title": "Obtén la app de {appName}",
+    "titleGeneric": "Obtén la app móvil de Vellum"
   },
   "notificationsPage": {
     "description": "Administra cómo Vellum te notifica en este dispositivo Android.",
@@ -1224,7 +1226,7 @@
     "title": "Vincular un dispositivo"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel`) y de que la URL pública apunte a él; después genera un nuevo código.",
+    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel --help` lista los proveedores) y de que la URL pública apunte a él; después genera un nuevo código.",
     "httpError": "La vinculación falló (HTTP {status}).",
     "networkError": "No se pudo conectar con el asistente. Asegúrate de que esté en ejecución e inténtalo de nuevo.",
     "unexpectedResponse": "El asistente devolvió una respuesta inesperada."
@@ -1242,7 +1244,7 @@
     "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
     "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
     "serviceFallbackName": "el proveedor del túnel",
-    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Ejecuta `vellum tunnel` en el host para obtener una.",
+    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Inicia un túnel en el host para obtener una; `vellum tunnel --help` lista los proveedores.",
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
@@ -1296,7 +1298,6 @@
     "usageBalanceAddCredits": "Añadir",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
-    "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes",
     "usageIncludedChip": "{label} incluido",
@@ -1802,21 +1803,6 @@
     "warningDescription": "Envía un mensaje de nivel warning.",
     "warningLabel": "Evento de advertencia",
     "warningSentToast": "Evento de advertencia de Sentry enviado."
-  },
-  "sharedUi": {
-    "checkingDomain": "Comprobando dominio…",
-    "domainVerified": "Dominio verificado",
-    "failedTitle": "La verificación del dominio falló. Es posible que los registros DNS no se hayan propagado correctamente. Puedes intentar liberar y volver a registrar el dominio.",
-    "managedLabel": "Administrado",
-    "managedServicesBanner": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>",
-    "modeToggleAriaLabel": "Modo de servicio",
-    "unknownStatus": "Estado desconocido",
-    "unknownStatusTitle": "No se pudo obtener el estado de verificación del dominio.",
-    "verificationFailed": "Verificación fallida",
-    "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
-    "verifyingDomain": "Verificando dominio…",
-    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
-    "yourOwnLabel": "Propio"
   },
   "shortcutsSections": {
     "alreadyUsedBy": "Ya está en uso por {label}",

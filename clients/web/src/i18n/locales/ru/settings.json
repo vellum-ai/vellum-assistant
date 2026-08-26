@@ -1170,7 +1170,9 @@
     "benefitPush": "Push-уведомления",
     "download": "Скачать",
     "subtitle": "Приложение Vellum для {appName} даёт нативный опыт.",
-    "title": "Скачать приложение {appName}"
+    "subtitleGeneric": "Мобильное приложение Vellum даёт нативный опыт.",
+    "title": "Скачать приложение {appName}",
+    "titleGeneric": "Скачать мобильное приложение Vellum"
   },
   "notificationsPage": {
     "description": "Настройка уведомлений Vellum на этом устройстве Android.",
@@ -1223,7 +1225,7 @@
     "title": "Привязать устройство"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Если сканирование не подключается: на хосте должен быть запущен туннель (`vellum tunnel`), публичный URL должен указывать на него, затем создание нового кода.",
+    "connectivityHint": "Если сканирование не подключается: на хосте должен быть запущен туннель (список провайдеров: `vellum tunnel --help`), публичный URL должен указывать на него, затем создание нового кода.",
     "httpError": "Привязка не удалась (HTTP {status}).",
     "networkError": "Не удалось достучаться до ассистента. Проверьте, что он запущен, и повторите попытку.",
     "unexpectedResponse": "Ассистент вернул неожиданный ответ."
@@ -1241,7 +1243,7 @@
     "loopback": "Это loopback-адрес, до которого другие устройства не достучатся. Нужен публичный https URL ассистента.",
     "nonHttps": "URL должен использовать https, чтобы устройства подключались безопасно.",
     "serviceFallbackName": "провайдер туннеля",
-    "serviceWebsite": "Это сайт {service}, а не адрес ассистента. Команда `vellum tunnel` на хосте даёт адрес.",
+    "serviceWebsite": "Это сайт {service}, а не адрес ассистента. Запустите туннель на хосте, чтобы получить адрес; список провайдеров: `vellum tunnel --help`.",
     "unparseable": "Нужен корректный URL, например https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
@@ -1295,7 +1297,6 @@
     "usageBalanceAddCredits": "Добавить",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
-    "usageBalanceResets": "Сброс {date}",
     "usageBalanceTitle": "Баланс использования",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "usageIncludedChip": "Входит {label}",
@@ -1801,21 +1802,6 @@
     "warningDescription": "Отправить сообщение уровня warning.",
     "warningLabel": "Событие Warning",
     "warningSentToast": "Событие warning Sentry отправлено."
-  },
-  "sharedUi": {
-    "checkingDomain": "Проверка домена…",
-    "domainVerified": "Домен подтверждён",
-    "failedTitle": "Не удалось подтвердить домен. Записи DNS могли ещё не распространиться. Освободите домен и зарегистрируйте его снова.",
-    "managedLabel": "Управляемые",
-    "managedServicesBanner": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>",
-    "modeToggleAriaLabel": "Режим сервиса",
-    "unknownStatus": "Неизвестный статус",
-    "unknownStatusTitle": "Не удалось получить статус проверки домена.",
-    "verificationFailed": "Проверка не прошла",
-    "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
-    "verifyingDomain": "Проверка домена…",
-    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут.",
-    "yourOwnLabel": "Свои"
   },
   "shortcutsSections": {
     "alreadyUsedBy": "Уже занято: {label}",

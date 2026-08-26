@@ -239,7 +239,7 @@ export async function run(
   // the model verbatim rather than as the "nothing configured" copy below.
   let transcriber: BatchTranscriber | null;
   try {
-    transcriber = await resolveBatchTranscriber();
+    transcriber = await resolveBatchTranscriber({ role: "batch" });
   } catch (err) {
     return { content: (err as Error).message, isError: true };
   }
