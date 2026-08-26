@@ -105,7 +105,7 @@ After setup:
 2. Ask the user to test the selected shortcut and speak a short sentence.
 3. Offer to open the Voice settings tab for review with `navigate_settings_tab` and `tab: "Voice"`.
 
-On Windows, the native helper provides local dictation partials and final transcription. If the user sees recording start but gets no text, treat the shortcut and microphone as working and troubleshoot the helper or recognizer next.
+Desktop Talk starts a live voice session. Its audio is transcribed through the assistant's configured speech-to-text provider over the live voice connection. The Windows native helper provides partials only for one-shot dictation from the microphone button. Ask which surface the user tested before troubleshooting missing text.
 
 ## Troubleshooting Decision Trees
 
@@ -119,15 +119,23 @@ On Windows, the native helper provides local dictation partials and final transc
 4. If the user reports Speech Recognition permission as denied or not determined, call `open_system_settings` with `pane: "speech_recognition"` and the current `platform`.
 5. If the Windows shortcut fires but capture does not start, choose **Restart** from the Vellum tray menu and retry.
 
-### "Recording but no text" or "Transcription not working"
+### "Talk starts but no transcript"
+
+1. Confirm that the user started Desktop Talk and that its listening or recording indicator appears. If it does not, return to shortcut and microphone capture troubleshooting.
+2. Check the active provider with `assistant config get services.stt.provider`.
+3. If no usable provider is configured, help the user choose one with `voice_config_update setting="stt_provider"` and collect any required credential securely before retrying.
+4. If a provider is configured, check for an invalid credential, provider outage, or a live voice connection error. A session that never connects or disconnects before transcript events is a connection path problem, not a Windows recognizer problem.
+5. Confirm the configured speech-to-text language matches the speaker when the selected provider uses that setting. Do not send a Desktop Talk failure to Windows installed-language or native-helper troubleshooting.
+
+### "One-shot dictation records but produces no text"
+
+This path applies to the microphone button's one-shot dictation, not Desktop Talk.
 
 1. If the user reports Speech Recognition permission as denied or unknown, open the platform's privacy page with `open_system_settings`.
-2. Ask whether the recording indicator appears. If it does, microphone capture is active and the failure is downstream.
-3. Check the spoken language:
-   - **macOS:** Speech recognition works best when the system recognition language matches the speaker.
-   - **Windows:** The local helper uses an installed Windows speech recognizer, preferring the current Windows display language. If no matching recognizer is installed, add the language's speech feature in Windows language settings or select an installed language.
+2. Ask whether dictation partials appear. If capture starts without partials, troubleshoot the native helper and local recognizer.
+3. On Windows, the helper uses an installed Windows speech recognizer and prefers the current Windows display language. If no matching recognizer is installed, add that language's speech feature or select an installed language.
 4. Reduce background noise or move closer to the microphone.
-5. On Windows, choose **Restart** from the Vellum tray menu and retry. The restart relaunches Vellum and its on-device dictation helper together.
+5. On Windows, choose **Restart** from the Vellum tray menu and retry. This relaunches Vellum and its one-shot dictation helper.
 
 ### "Changed a setting but it didn't work"
 
@@ -156,7 +164,7 @@ $log = Get-ChildItem "$env:APPDATA\Vellum*\logs\vellum.log" |
 Get-Content $log.FullName -Wait
 ```
 
-Look for `[win-helper]`, `dictation`, permission, and global shortcut registration messages. Do not ask the user to share transcript contents from logs.
+For Desktop Talk, look for live voice, WebSocket, and speech-to-text provider errors. For one-shot dictation, look for `[win-helper]`, `dictation`, permission, and recognizer messages. Do not ask the user to share transcript contents from logs.
 
 ## Rules
 
