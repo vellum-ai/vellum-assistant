@@ -274,14 +274,27 @@ describe("handleAcpAuthRequired", () => {
     authRequired();
 
     // Anchored to the acp_spawn call, not the run: that is the transcript row
-    // the affordance renders under. The conversation rides along because the
-    // prompt outlives a conversation switch, and placement renders nothing in
-    // any conversation but its own.
+    // the affordance renders under. The conversation comes off the run entry
+    // the spawn recorded, not the chat on screen: this event is global, so it
+    // can land after the user has navigated away.
     expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
       toolUseId: "tool-1",
       reason: "auth_required",
-      conversationId: useConversationStore.getState().activeConversationId,
+      conversationId: "conv-1",
     });
+  });
+
+  it("keeps the run's own conversation when the event lands after a navigation", () => {
+    // `acp_auth_required` carries no conversation of its own, so reading the
+    // active one would file the prompt under whatever chat is open when a
+    // background run finally fails.
+    spawn();
+    useConversationStore.setState({ activeConversationId: "conv-elsewhere" });
+    authRequired();
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.conversationId,
+    ).toBe("conv-1");
   });
 
   it("marks the prompt auth_required so it cannot self-dismiss on a presence check", () => {

@@ -9,7 +9,6 @@ import type {
 
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
 
 export function handleAcpSessionSpawned(event: AcpSessionSpawnedEvent): void {
@@ -124,9 +123,9 @@ export function handleAcpAuthRequired(event: AcpAuthRequiredEvent): void {
   useInteractionStore.getState().showAcpConnect({
     toolUseId,
     reason: "auth_required",
-    // The prompt outlives a conversation switch, so it records which
-    // conversation it belongs to; placement renders nothing in any other.
-    conversationId:
-      useConversationStore.getState().activeConversationId ?? null,
+    // The run entry's parent, not whatever conversation is on screen:
+    // `acp_auth_required` is a global event, so it can land after the user has
+    // navigated away from the chat that started the run.
+    conversationId: entry?.parentConversationId ?? null,
   });
 }

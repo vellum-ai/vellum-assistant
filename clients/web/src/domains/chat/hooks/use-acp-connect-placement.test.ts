@@ -79,16 +79,23 @@ describe("decideAcpConnectPlacement", () => {
     ).toBeNull();
   });
 
-  test("treats an unowned prompt as this conversation's", () => {
-    // Raised before the field existed; there is still a live failure behind it.
+  test("an unowned prompt renders inline when its anchor is here", () => {
+    // Finding the anchor is the proof of ownership the missing field cannot give.
+    const messages = [user("u1"), assistantWithTools("a1", [ANCHOR])];
+    expect(decideAcpConnectPlacement(messages, ANCHOR, null, "conv-1")).toBe(
+      "inline",
+    );
+  });
+
+  test("an unowned prompt never docks, so it cannot follow the user", () => {
     const messages = [user("u9"), assistantWithTools("a9", ["unrelated"])];
     expect(
       decideAcpConnectPlacement(messages, ANCHOR, null, "conv-1"),
-    ).toBe("docked");
+    ).toBeNull();
   });
 
-  test("docks on an empty transcript", () => {
-    expect(decideAcpConnectPlacement([], ANCHOR)).toBe("docked");
+  test("renders nowhere on an empty transcript with no owner", () => {
+    expect(decideAcpConnectPlacement([], ANCHOR)).toBeNull();
   });
 
   test("matches the newest anchor when a run is respawned under one id", () => {

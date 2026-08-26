@@ -40,8 +40,11 @@ export type AcpConnectPlacement = "inline" | "docked" | null;
  * has no other way to reach the flow while the daemon still redirects the
  * fallback at this card.
  *
- * A prompt with no recorded owner is treated as this conversation's: prompts
- * raised before that field existed still have a live failure behind them.
+ * A prompt with no recorded owner (the pre-spawn `tool_result` path, which has
+ * no run entry to read one from) renders only inline. Finding the anchor in
+ * this transcript is then the proof of ownership, and without that proof it
+ * does not dock: an unowned prompt that docked would follow the user into
+ * whatever chat they opened next.
  */
 export function decideAcpConnectPlacement(
   messages: readonly DisplayMessage[],
@@ -63,7 +66,7 @@ export function decideAcpConnectPlacement(
     message.toolCalls?.some((toolCall) => toolCall.id === toolUseId),
   );
   if (anchorIndex === -1) {
-    return "docked";
+    return promptConversationId != null ? "docked" : null;
   }
   const supersededByNewTurn = messages
     .slice(anchorIndex + 1)
