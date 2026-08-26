@@ -56,20 +56,17 @@ describe("expandPluginChannelTwins", () => {
       },
     ]);
 
-    expect(expanded).toEqual([
-      {
-        id: "ch-imessage",
-        type: "imessage",
-        address: "+12025550142",
-        status: "unverified",
-      },
-      {
-        id: undefined,
-        type: "plugin",
-        address: "imessage:+12025550142",
-        status: "unverified",
-      },
-    ]);
+    expect(expanded).toHaveLength(2);
+    expect(expanded[0]).toEqual({
+      id: "ch-imessage",
+      type: "imessage",
+      address: "+12025550142",
+      status: "unverified",
+    });
+    expect(expanded[1]?.type).toBe("plugin");
+    expect(expanded[1]?.address).toBe("imessage:+12025550142");
+    expect(expanded[1]?.status).toBe("unverified");
+    expect(expanded[1]).not.toHaveProperty("id");
   });
 
   test("leaves built-in channels unchanged", () => {

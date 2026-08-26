@@ -57,7 +57,9 @@ export function expandPluginChannelTwins<
     if (!scoped) {
       continue;
     }
-    extras.push({ ...channel, id: undefined, type: "plugin", address: scoped });
+    const twin = { ...channel, type: "plugin" as const, address: scoped };
+    delete twin.id;
+    extras.push(twin);
   }
   if (extras.length === 0) {
     return channels;
