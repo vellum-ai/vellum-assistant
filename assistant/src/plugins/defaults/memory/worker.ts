@@ -15,6 +15,7 @@ import { writeFileSync } from "node:fs";
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
+import { startConversationEvictor } from "../../../daemon/conversation-evictor.js";
 import { resetDb } from "../../../persistence/db-connection.js";
 import {
   EMBEDDING_SHUTDOWN_BUDGET_MS,
@@ -83,6 +84,12 @@ async function main(): Promise<void> {
       "Failed to initialize tools in memory worker; continuing degraded",
     );
   }
+
+  // Sweep idle conversations out of the in-memory pool. The daemon starts
+  // this at startup; this process hosts conversations too (retrospective and
+  // consolidation passes), so without it every pass's conversation is
+  // retained for the process lifetime.
+  startConversationEvictor();
 
   let worker: ReturnType<typeof startMemoryJobsWorkerLoop> | null = null;
   let keepAlive: ReturnType<typeof setInterval> | null = null;

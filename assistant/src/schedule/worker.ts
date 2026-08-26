@@ -15,6 +15,7 @@ import { writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
+import { startConversationEvictor } from "../daemon/conversation-evictor.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { registerWorkerPluginSurface } from "../plugins/worker-plugin-surface.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
@@ -70,6 +71,11 @@ async function main(): Promise<void> {
       "Failed to initialize tools in schedule worker; continuing degraded",
     );
   }
+
+  // Sweep idle conversations out of the in-memory pool. The daemon starts
+  // this at startup; this process hosts conversations too, so without it
+  // every scheduled run's conversation is retained for the process lifetime.
+  startConversationEvictor();
 
   let stopped = false;
   let tickRunning = false;

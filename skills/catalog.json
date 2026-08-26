@@ -1234,12 +1234,13 @@
     {
       "id": "vellum-sounds",
       "name": "vellum-sounds",
-      "description": "Customize the macOS app's sound effects — add sound files to the workspace, enable sounds globally, set volume, and assign sounds to 9 app events (message sent, task complete, notifications, etc.)",
+      "description": "Customize the desktop app's sound effects by adding sound files to the workspace, enabling sounds, setting volume, and assigning sounds to app events",
       "metadata": {
         "emoji": "🔊",
         "vellum": {
           "platforms": [
-            "macos"
+            "macos",
+            "windows"
           ],
           "category": "content",
           "display-name": "Sounds"
