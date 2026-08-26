@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -75,7 +75,20 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 
 function getSharedAppsDir(): string {
-  return join(getUserAppDataDir(), "vellum-assistant", "shared-apps");
+  const dir = join(getUserAppDataDir(), "vellum-assistant", "shared-apps");
+  // Pre-existing Linux installs wrote under the macOS path; keep reading it
+  // until the platform root has data of its own.
+  const legacy = join(
+    homedir(),
+    "Library",
+    "Application Support",
+    "vellum-assistant",
+    "shared-apps",
+  );
+  if (legacy !== dir && !existsSync(dir) && existsSync(legacy)) {
+    return legacy;
+  }
+  return dir;
 }
 
 // ---------------------------------------------------------------------------

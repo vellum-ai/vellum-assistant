@@ -47,10 +47,10 @@ import {
 } from "../../plugins/plugin-tree-walk.js";
 import { ensureBun } from "../../util/bun-runtime.js";
 import {
+  addToPathEnv,
   getExtraToolPathDirs,
   getWorkspacePluginsDir,
   isWindows,
-  prependToPath,
 } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
@@ -1389,7 +1389,7 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
     }
   }
   env.GIT_TERMINAL_PROMPT = "0";
-  env.PATH = prependToPath(env.PATH, getExtraToolPathDirs(), "back");
+  addToPathEnv(env, getExtraToolPathDirs(), "back");
   return env;
 }
 

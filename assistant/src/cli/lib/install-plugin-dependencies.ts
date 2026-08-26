@@ -59,7 +59,7 @@ import { promisify } from "node:util";
 
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getLogger } from "../../util/logger.js";
-import { prependToPath } from "../../util/platform.js";
+import { addToPathEnv } from "../../util/platform.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -332,6 +332,6 @@ export const defaultDependencyInstaller: DependencyInstaller = async ({
  */
 function dependencyInstallEnv(bun: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  env.PATH = prependToPath(env.PATH, [dirname(bun)]);
+  addToPathEnv(env, [dirname(bun)]);
   return env;
 }

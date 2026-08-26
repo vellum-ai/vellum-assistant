@@ -87,17 +87,30 @@ export function getExtraToolPathDirs(): string[] {
   ];
 }
 
-/** Add missing `dirs` to a PATH string using the platform delimiter. */
-export function prependToPath(
-  current: string | undefined,
+/**
+ * Add missing `dirs` to the PATH entry of `env` in place, using the platform
+ * delimiter. Windows keys the variable as `Path`, so the existing key is
+ * matched case-insensitively rather than assuming `PATH`.
+ */
+export function addToPathEnv(
+  env: Record<string, string | undefined>,
   dirs: string[],
   position: "front" | "back" = "front",
-): string {
-  const entries = (current ?? "").split(delimiter).filter(Boolean);
+): void {
+  if (dirs.length === 0) {
+    return;
+  }
+  const key =
+    Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  const entries = (env[key] ?? "").split(delimiter).filter(Boolean);
   const missing = dirs.filter((d) => !entries.includes(d));
-  const merged =
-    position === "front" ? [...missing, ...entries] : [...entries, ...missing];
-  return merged.join(delimiter);
+  if (missing.length === 0) {
+    return;
+  }
+  env[key] =
+    position === "front"
+      ? [...missing, ...entries].join(delimiter)
+      : [...entries, ...missing].join(delimiter);
 }
 
 /**
