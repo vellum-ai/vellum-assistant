@@ -7,10 +7,11 @@
  * the trait color, every bundled eye style drawing something, and an id the
  * catalog does not carry degrading to the bare field instead of throwing.
  *
- * The geometry is read back off the DOM (the rendered `d` attributes through
- * the same bbox parser, under the rendered transform) rather than recomputed
- * from the fixture, so a component that framed the artwork some other way
- * cannot satisfy these assertions by agreeing with itself.
+ * The yardstick is {@link SAMPLED_EYE_BOUNDS}: fixed numbers, arrived at by a
+ * method the component shares no code with. The transform the component
+ * rendered is applied to those bounds, so the assertions describe where the
+ * artwork lands on the icon, and neither the component nor the bounding-box
+ * parser it frames with can satisfy them by agreeing with itself.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -18,12 +19,7 @@ import { cleanup, render } from "@testing-library/react";
 
 import { AppIconPreview } from "@/components/avatar/app-icon-preview";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-import {
-  pathBBox,
-  tightPathBBox,
-  unionBBox,
-  type BBox,
-} from "@/utils/eye-bbox";
+import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents } from "@/types/avatar";
 
 const SIZE = 128;
@@ -35,6 +31,36 @@ const GREEN_HEX = "#4C9B50";
 const WIDE_EYE_STYLE = "grumpy";
 const ROUND_EYE_STYLE = "gentle";
 
+/**
+ * Union bounds of each bundled eye style's artwork, in its own path units.
+ *
+ * Ground truth, measured by walking every curve at 40,000 points and keeping
+ * the extremes, which is a different method from the extrema solving the
+ * component's framing goes through and is close to what a rasterizer reports.
+ * Regenerate these numbers, do not adjust them to fit, if the bundled art
+ * changes: they are what says the framing is right rather than merely
+ * self-consistent.
+ */
+const SAMPLED_EYE_BOUNDS: Record<string, BBox> = {
+  grumpy: { x: 90.5841, y: 226.908, w: 417.6578, h: 91.859 },
+  angry: { x: 151, y: 267, w: 397.822, h: 130.949 },
+  curious: { x: 125.514, y: 334.425, w: 276.793, h: 160.893 },
+  goofy: { x: 182.018, y: 286.568, w: 285.06, h: 206.844 },
+  surprised: { x: 150.422, y: 84.8232, w: 340.96, h: 163.0838 },
+  bashful: { x: 276, y: 280, w: 241.001, h: 115.273 },
+  gentle: { x: 176.504, y: 247.329, w: 253.453, h: 221.736 },
+  quirky: { x: 218.6091, y: 266.3528, w: 231.3574, h: 171.1384 },
+  dazed: { x: 153.352, y: 224.744, w: 382.872, h: 160.174 },
+};
+
+/**
+ * Slack the assertions allow, in icon px. The sampled bounds above sit within
+ * 5e-5 path units of the curves' true extremes, so this is orders of magnitude
+ * more room than the measurement needs and still far too tight for a framing
+ * error to slip through.
+ */
+const PLACEMENT_TOLERANCE_PX = 0.01;
+
 afterEach(() => {
   cleanup();
 });
@@ -44,6 +70,20 @@ interface Placement {
   box: BBox;
   centerX: number;
   centerY: number;
+}
+
+function expectWithinTolerance(actual: number, expected: number) {
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(
+    PLACEMENT_TOLERANCE_PX,
+  );
+}
+
+function sampledBounds(eyeStyleId: string): BBox {
+  const bounds = SAMPLED_EYE_BOUNDS[eyeStyleId];
+  if (!bounds) {
+    throw new Error(`No sampled bounds for eye style "${eyeStyleId}"`);
+  }
+  return bounds;
 }
 
 /** Parse the `matrix(a,b,c,d,e,f)` the eye group is placed with. */
@@ -62,14 +102,29 @@ function readMatrix(group: Element): { scale: number; tx: number; ty: number } {
 }
 
 /**
- * Where the rendered artwork actually lands on the icon. `measure` is the box
- * the caller wants the placement expressed in, so a test can ask which of the
- * two boxes the component framed against.
+ * Where a box in path units lands on the icon, under the transform the
+ * component rendered. `bounds` is the caller's yardstick, normally the sampled
+ * ground truth for the style on screen.
  */
-function placement(
-  container: HTMLElement,
-  measure: (d: string) => BBox = tightPathBBox,
-): Placement {
+function placement(container: HTMLElement, bounds: BBox): Placement {
+  const group = container.querySelector(
+    '[data-testid="app-icon-preview-eyes"]',
+  );
+  if (!group) {
+    throw new Error("No eye group rendered");
+  }
+  const { scale, tx, ty } = readMatrix(group);
+  const box: BBox = {
+    x: bounds.x * scale + tx,
+    y: bounds.y * scale + ty,
+    w: bounds.w * scale,
+    h: bounds.h * scale,
+  };
+  return { box, centerX: box.x + box.w / 2, centerY: box.y + box.h / 2 };
+}
+
+/** The box the rendered paths' control polygon reaches, for contrast. */
+function controlPolygonBounds(container: HTMLElement): BBox {
   const group = container.querySelector(
     '[data-testid="app-icon-preview-eyes"]',
   );
@@ -78,17 +133,7 @@ function placement(
   }
   const paths = Array.from(group.querySelectorAll("path"));
   expect(paths.length).toBeGreaterThan(0);
-  const bbox = unionBBox(
-    paths.map((path) => measure(path.getAttribute("d") ?? "")),
-  );
-  const { scale, tx, ty } = readMatrix(group);
-  const box: BBox = {
-    x: bbox.x * scale + tx,
-    y: bbox.y * scale + ty,
-    w: bbox.w * scale,
-    h: bbox.h * scale,
-  };
-  return { box, centerX: box.x + box.w / 2, centerY: box.y + box.h / 2 };
+  return unionBBox(paths.map((path) => pathBBox(path.getAttribute("d") ?? "")));
 }
 
 function field(container: HTMLElement): Element {
@@ -112,12 +157,15 @@ describe("AppIconPreview", () => {
       />,
     );
 
-    const { box, centerX, centerY } = placement(container);
-    expect(centerX).toBeCloseTo(SIZE / 2, 6);
-    expect(centerY).toBeCloseTo(SIZE / 2, 6);
+    const { box, centerX, centerY } = placement(
+      container,
+      sampledBounds(WIDE_EYE_STYLE),
+    );
+    expectWithinTolerance(centerX, SIZE / 2);
+    expectWithinTolerance(centerY, SIZE / 2);
     // A pair wider than it is tall is fitted by its width.
-    expect(box.w).toBeCloseTo(SPAN, 6);
-    expect(box.h).toBeLessThanOrEqual(SPAN + 1e-6);
+    expectWithinTolerance(box.w, SPAN);
+    expect(box.h).toBeLessThanOrEqual(SPAN + PLACEMENT_TOLERANCE_PX);
   });
 
   test("fits a rounder pair by whichever axis is longer", () => {
@@ -130,10 +178,13 @@ describe("AppIconPreview", () => {
       />,
     );
 
-    const { box, centerX, centerY } = placement(container);
-    expect(centerX).toBeCloseTo(SIZE / 2, 6);
-    expect(centerY).toBeCloseTo(SIZE / 2, 6);
-    expect(Math.max(box.w, box.h)).toBeCloseTo(SPAN, 6);
+    const { box, centerX, centerY } = placement(
+      container,
+      sampledBounds(ROUND_EYE_STYLE),
+    );
+    expectWithinTolerance(centerX, SIZE / 2);
+    expectWithinTolerance(centerY, SIZE / 2);
+    expectWithinTolerance(Math.max(box.w, box.h), SPAN);
   });
 
   test("scales the framing with the requested size", () => {
@@ -146,10 +197,13 @@ describe("AppIconPreview", () => {
       />,
     );
 
-    const { box, centerX, centerY } = placement(container);
-    expect(centerX).toBeCloseTo(16, 6);
-    expect(centerY).toBeCloseTo(16, 6);
-    expect(box.w).toBeCloseTo(16, 6);
+    const { box, centerX, centerY } = placement(
+      container,
+      sampledBounds(WIDE_EYE_STYLE),
+    );
+    expectWithinTolerance(centerX, 16);
+    expectWithinTolerance(centerY, 16);
+    expectWithinTolerance(box.w, 16);
   });
 
   test("paints the field in the trait color, with an app icon's corners", () => {
@@ -183,9 +237,14 @@ describe("AppIconPreview", () => {
     }
   });
 
-  test("renders every bundled eye style inside the icon", () => {
+  test("has ground truth for exactly the styles the catalog ships", () => {
+    expect(Object.keys(SAMPLED_EYE_BOUNDS).sort()).toEqual(
+      BUNDLED_COMPONENTS.eyeStyles.map((eyeStyle) => eyeStyle.id).sort(),
+    );
     expect(BUNDLED_COMPONENTS.eyeStyles.length).toBe(9);
+  });
 
+  test("renders every bundled eye style inside the icon", () => {
     for (const eyeStyle of BUNDLED_COMPONENTS.eyeStyles) {
       const { container } = render(
         <AppIconPreview
@@ -196,14 +255,31 @@ describe("AppIconPreview", () => {
         />,
       );
 
-      const { box, centerX, centerY } = placement(container);
-      expect(centerX).toBeCloseTo(SIZE / 2, 6);
-      expect(centerY).toBeCloseTo(SIZE / 2, 6);
-      expect(Math.max(box.w, box.h)).toBeCloseTo(SPAN, 6);
-      expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.y).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.w).toBeLessThanOrEqual(SIZE);
-      expect(box.y + box.h).toBeLessThanOrEqual(SIZE);
+      // The artwork on screen is this style's, so the geometry below is being
+      // asserted about the paths the ground truth was measured from.
+      const rendered = Array.from(
+        container.querySelectorAll(
+          '[data-testid="app-icon-preview-eyes"] path',
+        ),
+      );
+      expect(rendered.map((path) => path.getAttribute("d"))).toEqual(
+        eyeStyle.paths.map((path) => path.svgPath),
+      );
+      expect(rendered.map((path) => path.getAttribute("fill"))).toEqual(
+        eyeStyle.paths.map((path) => path.color),
+      );
+
+      const { box, centerX, centerY } = placement(
+        container,
+        sampledBounds(eyeStyle.id),
+      );
+      expectWithinTolerance(centerX, SIZE / 2);
+      expectWithinTolerance(centerY, SIZE / 2);
+      expectWithinTolerance(Math.max(box.w, box.h), SPAN);
+      expect(box.x).toBeGreaterThanOrEqual(-PLACEMENT_TOLERANCE_PX);
+      expect(box.y).toBeGreaterThanOrEqual(-PLACEMENT_TOLERANCE_PX);
+      expect(box.x + box.w).toBeLessThanOrEqual(SIZE + PLACEMENT_TOLERANCE_PX);
+      expect(box.y + box.h).toBeLessThanOrEqual(SIZE + PLACEMENT_TOLERANCE_PX);
       cleanup();
     }
   });
@@ -221,13 +297,16 @@ describe("AppIconPreview", () => {
       />,
     );
 
-    const drawn = placement(container);
-    expect(drawn.centerX).toBeCloseTo(SIZE / 2, 6);
-    expect(drawn.centerY).toBeCloseTo(SIZE / 2, 6);
+    const drawn = placement(container, sampledBounds("angry"));
+    expectWithinTolerance(drawn.centerX, SIZE / 2);
+    expectWithinTolerance(drawn.centerY, SIZE / 2);
 
     // The two boxes really do disagree here, so the assertion above is a
     // choice between them rather than a tautology.
-    const controlPolygon = placement(container, pathBBox);
+    const controlPolygon = placement(
+      container,
+      controlPolygonBounds(container),
+    );
     expect(Math.abs(controlPolygon.centerY - SIZE / 2)).toBeGreaterThan(1);
   });
 
@@ -259,7 +338,10 @@ describe("AppIconPreview", () => {
 
     expect(field(container).getAttribute("fill")).toBe("var(--surface-sunken)");
     // The eyes still draw: one unknown id does not take the other down.
-    expect(placement(container).box.w).toBeCloseTo(SPAN, 6);
+    expectWithinTolerance(
+      placement(container, sampledBounds(WIDE_EYE_STYLE)).box.w,
+      SPAN,
+    );
   });
 
   test("renders the field alone before the catalog loads", () => {

@@ -22,8 +22,12 @@ import { tightPathBBox, unionBBox } from "@/utils/eye-bbox";
 import type { CharacterComponents, EyePathDefinition } from "@/types/avatar";
 
 /**
- * Fraction of the icon the eye pair spans. Mirrors `EYE_CANVAS_FRACTION` in
- * the icon generator, and moves only with it.
+ * Fraction of the icon the eye pair spans, which states the invariant this
+ * preview shares with the artwork it stands in for: the eye group spans half
+ * the icon width, centered. The iOS icon generator holds the shipped PNGs to
+ * that same invariant, and each side pins it in its own tests, since a web
+ * bundle cannot import a build script that rasterizes SVG. Move this only when
+ * the generator's `EYE_CANVAS_FRACTION` moves.
  */
 const EYE_CANVAS_FRACTION = 0.5;
 

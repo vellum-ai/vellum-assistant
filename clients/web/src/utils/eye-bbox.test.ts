@@ -7,15 +7,50 @@
  * voice-room eyes have always framed against, pinned here so it cannot drift),
  * and `tightPathBBox` reports the box the ink reaches (what has to agree with
  * an independently rasterized copy of the same artwork).
+ *
+ * The bundled-art cases check `tightPathBBox` against {@link SAMPLED_BOUNDS},
+ * numbers produced by a different method, so the parser is measured rather
+ * than merely held to its own output. The synthetic cases use paths whose
+ * answer is known analytically.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-import { pathBBox, tightPathBBox, unionBBox } from "@/utils/eye-bbox";
+import {
+  pathBBox,
+  tightPathBBox,
+  unionBBox,
+  type BBox,
+} from "@/utils/eye-bbox";
 
 /** A symmetric hump: control points at y=100, the curve peaks at y=75. */
 const HUMP = "M0 0C0 100 100 100 100 0Z";
+
+/**
+ * Ground truth for two bundled eye styles, in path units, measured by walking
+ * every curve at 40,000 points and keeping the extremes. `angry` is the style
+ * whose control points sit furthest from its ink and `grumpy` the one style
+ * that uses `H`, so between them they cover both things this parser has to get
+ * right. Regenerate rather than adjust if the bundled art changes.
+ */
+const SAMPLED_BOUNDS = {
+  angry: { x: 151, y: 267, w: 397.822, h: 130.949 },
+  grumpy: { x: 90.5841, y: 226.908, w: 417.6578, h: 91.859 },
+} as const;
+
+/** Slack for the sampled numbers above, in path units. */
+const SAMPLING_TOLERANCE = 1e-3;
+
+function unionOf(eyeStyleId: string, measure: (d: string) => BBox): BBox {
+  const eyeStyle = BUNDLED_COMPONENTS.eyeStyles.find(
+    (candidate) => candidate.id === eyeStyleId,
+  );
+  if (!eyeStyle) {
+    throw new Error(`The bundled catalog lost the ${eyeStyleId} eye style`);
+  }
+  return unionBBox(eyeStyle.paths.map((path) => measure(path.svgPath)));
+}
 
 describe("pathBBox", () => {
   test("extends by control points", () => {
@@ -64,21 +99,31 @@ describe("tightPathBBox", () => {
     }
   });
 
-  test("drops the control-point overshoot the `angry` style carries", () => {
-    const angry = BUNDLED_COMPONENTS.eyeStyles.find(
-      (eyeStyle) => eyeStyle.id === "angry",
-    );
-    if (!angry) {
-      throw new Error("The bundled catalog lost the angry eye style");
+  test("matches densely sampled ground truth for bundled eye art", () => {
+    for (const [eyeStyleId, expected] of Object.entries(SAMPLED_BOUNDS)) {
+      const tight = unionOf(eyeStyleId, tightPathBBox);
+      expect(Math.abs(tight.x - expected.x)).toBeLessThanOrEqual(
+        SAMPLING_TOLERANCE,
+      );
+      expect(Math.abs(tight.y - expected.y)).toBeLessThanOrEqual(
+        SAMPLING_TOLERANCE,
+      );
+      expect(Math.abs(tight.w - expected.w)).toBeLessThanOrEqual(
+        SAMPLING_TOLERANCE,
+      );
+      expect(Math.abs(tight.h - expected.h)).toBeLessThanOrEqual(
+        SAMPLING_TOLERANCE,
+      );
     }
-    const tight = unionBBox(
-      angry.paths.map((path) => tightPathBBox(path.svgPath)),
-    );
-    const control = unionBBox(
-      angry.paths.map((path) => pathBBox(path.svgPath)),
-    );
+  });
+
+  test("drops the control-point overshoot the `angry` style carries", () => {
+    const tight = unionOf("angry", tightPathBBox);
+    const control = unionOf("angry", pathBBox);
     expect(tight.w).toBeCloseTo(control.w, 6);
-    // Its sclera curve is drawn with control points well below the ink.
+    // Its sclera curve is drawn with control points well below the ink, so the
+    // control-point box is the one that disagrees with the sampled truth.
     expect(control.h / tight.h).toBeGreaterThan(1.5);
+    expect(Math.abs(control.h - SAMPLED_BOUNDS.angry.h)).toBeGreaterThan(1);
   });
 });

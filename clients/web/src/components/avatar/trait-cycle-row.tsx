@@ -12,11 +12,9 @@ export interface TraitCycleRowProps {
 
 /**
  * Boxed row that steps one avatar trait back and forth, with the current value
- * (and, for colors, its swatch) centered between the two chevrons.
- *
- * Extracted from the avatar builder so the app icon picker cycles its eyes and
- * color through the same control the character builder uses. The prev/next
- * labels stay on the `avatarManagementModal.*` keys the builder already ships.
+ * (and, for colors, its swatch) centered between the two chevrons. The
+ * chevrons are labelled from the `avatarManagementModal.previous` and `.next`
+ * keys, which take the row's own label, lowercased, as their argument.
  */
 export function TraitCycleRow({
   label,
