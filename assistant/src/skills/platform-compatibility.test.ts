@@ -214,6 +214,71 @@ describe("skill platform compatibility", () => {
     }
   });
 
+  test("accepts capable hosts without desktop platform identities", () => {
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "platform-compatibility-browser-host",
+      interfaceId: "chrome-extension",
+      capabilities: ["host_browser"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    try {
+      expect(
+        isSkillCompatibleWithContext(
+          { requiredHostCapabilities: ["host_browser"] },
+          {
+            clientOs: "web",
+            isInteractive: true,
+            sourceActorPrincipalId: "actor-a",
+          },
+        ),
+      ).toBe(true);
+      expect(
+        isSkillCompatibleWithContext(
+          {
+            platforms: ["windows"],
+            requiredHostCapabilities: ["host_browser"],
+          },
+          {
+            clientOs: "web",
+            isInteractive: true,
+            sourceActorPrincipalId: "actor-a",
+          },
+        ),
+      ).toBe(false);
+    } finally {
+      hostClient.dispose();
+    }
+  });
+
+  test("accepts explicit capability proof without a desktop platform", () => {
+    const context = {
+      clientOs: "web",
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+      hostPlatforms: [
+        { platform: "chrome-extension", capabilities: ["host_browser"] },
+      ],
+    };
+
+    expect(
+      isSkillCompatibleWithContext(
+        { requiredHostCapabilities: ["host_browser"] },
+        context,
+      ),
+    ).toBe(true);
+    expect(
+      isSkillCompatibleWithContext(
+        {
+          platforms: ["windows"],
+          requiredHostCapabilities: ["host_browser"],
+        },
+        context,
+      ),
+    ).toBe(false);
+  });
+
   test("filters client-routed surfaces by the capable host platform", () => {
     const skills = [
       { id: "linux-only", platforms: ["linux"] as const },

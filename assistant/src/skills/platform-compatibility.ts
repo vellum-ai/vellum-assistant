@@ -125,51 +125,70 @@ export function skillPlatformForClientOs(value: unknown): SkillPlatform | null {
     : null;
 }
 
-function connectedHostPlatforms(
+interface CapableHostInventory {
+  hasCapableHost: boolean;
+  platforms: SkillPlatform[];
+}
+
+function connectedHostInventory(
   sourceActorPrincipalId: string | undefined,
   requiredCapabilities: readonly HostProxyCapability[],
-): SkillPlatform[] {
+): CapableHostInventory {
   if (sourceActorPrincipalId == null) {
-    return [];
+    return { hasCapableHost: false, platforms: [] };
   }
-  const platforms = assistantEventHub
+  const capableClients = assistantEventHub
     .listClients()
     .filter((client) => client.actorPrincipalId === sourceActorPrincipalId)
     .filter((client) =>
       requiredCapabilities.every((capability) =>
         client.capabilities.includes(capability),
       ),
-    )
+    );
+  const platforms = capableClients
     .map((client) => skillPlatformForClientOs(client.interfaceId))
     .filter((platform): platform is SkillPlatform => platform !== null);
-  return [...new Set(platforms)];
+  return {
+    hasCapableHost: capableClients.length > 0,
+    platforms: [...new Set(platforms)],
+  };
 }
 
-function provenHostPlatforms(
+function provenHostInventory(
   values: readonly unknown[],
   requiredCapabilities: readonly HostProxyCapability[],
-): SkillPlatform[] {
-  return values
-    .map((value): SkillPlatform | null => {
-      if (typeof value === "string") {
-        return skillPlatformForClientOs(value);
+): CapableHostInventory {
+  const platforms: SkillPlatform[] = [];
+  let hasCapableHost = false;
+  for (const value of values) {
+    if (typeof value === "string") {
+      const platform = skillPlatformForClientOs(value);
+      if (platform) {
+        hasCapableHost = true;
+        platforms.push(platform);
       }
-      if (value == null || typeof value !== "object") {
-        return null;
-      }
-      const proof = value as Partial<HostPlatformCapabilityProof>;
-      const capabilities = proof.capabilities;
-      if (
-        !Array.isArray(capabilities) ||
-        !requiredCapabilities.every((capability) =>
-          capabilities.includes(capability),
-        )
-      ) {
-        return null;
-      }
-      return skillPlatformForClientOs(proof.platform);
-    })
-    .filter((platform): platform is SkillPlatform => platform !== null);
+      continue;
+    }
+    if (value == null || typeof value !== "object") {
+      continue;
+    }
+    const proof = value as Partial<HostPlatformCapabilityProof>;
+    const capabilities = proof.capabilities;
+    if (
+      !Array.isArray(capabilities) ||
+      !requiredCapabilities.every((capability) =>
+        capabilities.includes(capability),
+      )
+    ) {
+      continue;
+    }
+    hasCapableHost = true;
+    const platform = skillPlatformForClientOs(proof.platform);
+    if (platform) {
+      platforms.push(platform);
+    }
+  }
+  return { hasCapableHost, platforms: [...new Set(platforms)] };
 }
 
 export function isSkillCompatibleWithContext(
@@ -201,17 +220,21 @@ function skillCompatibilityIssue(
     if (context.sourceActorPrincipalId == null) {
       return "actor-required";
     }
-    const capableHostPlatforms = context.hostPlatforms
-      ? provenHostPlatforms(context.hostPlatforms, requiredCapabilities)
-      : connectedHostPlatforms(
+    const capableHosts = context.hostPlatforms
+      ? provenHostInventory(context.hostPlatforms, requiredCapabilities)
+      : connectedHostInventory(
           context.sourceActorPrincipalId,
           requiredCapabilities,
         );
-    if (capableHostPlatforms.length === 0) {
+    if (!capableHosts.hasCapableHost) {
       return "host-capabilities-required";
     }
-    return capableHostPlatforms.some(
-      (platform) => !skill.platforms || skill.platforms.includes(platform),
+    const skillPlatforms = skill.platforms;
+    if (!skillPlatforms || skillPlatforms.length === 0) {
+      return null;
+    }
+    return capableHosts.platforms.some((platform) =>
+      skillPlatforms.includes(platform),
     )
       ? null
       : "platform";
