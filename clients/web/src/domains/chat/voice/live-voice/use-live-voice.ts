@@ -178,6 +178,21 @@ export interface LiveVoiceStartOptions {
    * socket. Defaults to the legacy per-turn push-to-talk flow.
    */
   handsFree?: boolean;
+  /**
+   * A first turn to take on the session's behalf, sent the moment the server
+   * says `ready`, so the assistant speaks before the user has to (JARVIS-1649).
+   *
+   * It travels the ordinary typed-turn path, which means it becomes a real
+   * user message in the conversation exactly as a spoken one would. That is
+   * the whole cost of the feature and the reason callers gate on an empty
+   * conversation: a seed sent into a thread already underway reads as a line
+   * the user never wrote.
+   *
+   * Sent at most once per `start()`. Reconnects (and the pre-`ready`
+   * initial-connect retries) never re-send it, so a socket blip mid-session
+   * cannot make the assistant greet twice.
+   */
+  seedText?: string;
 }
 
 /** Injectable factories so tests can supply mock primitives. */
@@ -397,6 +412,16 @@ export function useLiveVoice(
   // on a fresh `start()`, on `ready`, and on teardown/stop.
   const hasReadyRef = useRef(false);
   const initialConnectAttemptRef = useRef(0);
+  // The seed turn a caller asked for (see `LiveVoiceStartOptions.seedText`),
+  // held from `start()` until the first `ready` consumes it.
+  //
+  // Hook-scoped rather than session-scoped, and consumed rather than flagged,
+  // because every connect attempt builds a *fresh* `SessionContext`: a flag
+  // living there would reset on the reconnect path and greet a second time on
+  // a socket blip. Consuming also gets the pre-`ready` retry right for free:
+  // those attempts never reached a `ready`, so the seed is still armed for
+  // whichever attempt finally lands.
+  const pendingSeedTextRef = useRef<string | null>(null);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -812,6 +837,29 @@ export function useLiveVoice(
           // start-time value — session ownership for a draft-started session
           // hinges on it (see `isLiveVoiceSessionOwnedBy`).
           useLiveVoiceStore.getState().setConversationId(frame.conversationId);
+          // Speak first (JARVIS-1649). Consumed, so only the first `ready` of
+          // a `start()` can spend it.
+          //
+          // Gated on the echo, never on hope: an assistant that predates typed
+          // turns answers a `text` frame with `unknown_type`, which is
+          // byte-identical to the `update_config` rejection and so cannot be
+          // told apart after the fact. `sendText` refuses on the same echo, so
+          // the seed is simply dropped there and the session opens silent,
+          // the pre-JARVIS-1649 behaviour, which is the right thing to
+          // degrade to.
+          //
+          // Before `finishCaptureStartup`, deliberately: the turn is dispatched
+          // while mic acquisition is still settling, which is both the earliest
+          // the assistant can start talking and the one moment the daemon's
+          // turn floor cannot be blocked by a speech onset. Nothing here sets
+          // `thinking`. The daemon's own `thinking` frame does, and
+          // `finishCaptureStartup` only claims `listening` out of `connecting`,
+          // so the two cannot fight whichever order they land in.
+          const seedText = pendingSeedTextRef.current;
+          pendingSeedTextRef.current = null;
+          if (seedText !== null) {
+            sendTextTurn(session, seedText);
+          }
           void finishCaptureStartup(session, teardown);
         }),
         client.on("speechStarted", () => {
@@ -1314,6 +1362,10 @@ export function useLiveVoice(
       reconnectAttemptRef.current = 0;
       initialConnectAttemptRef.current = 0;
       hasReadyRef.current = false;
+      // Armed here rather than inside `connectSession`, which the reconnect
+      // path also enters (carrying the same `startOptions`): a session that
+      // already greeted must not greet again when its socket comes back.
+      pendingSeedTextRef.current = startOptions?.seedText?.trim() || null;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],

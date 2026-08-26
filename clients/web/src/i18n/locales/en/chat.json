@@ -1534,6 +1534,9 @@
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
+  "voiceEntryGreeting": {
+    "seed": "Greet me in one short sentence, then ask what I'd like to work on."
+  },
   "voiceErrors": {
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
