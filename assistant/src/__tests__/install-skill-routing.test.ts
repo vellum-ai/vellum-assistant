@@ -407,6 +407,34 @@ Body.
     expect(mockEnsureSkillEntry).not.toHaveBeenCalled();
   });
 
+  test("allows a bundled skill supported by the requesting desktop client", async () => {
+    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
+    mockCatalogSkills.mockReturnValue([
+      {
+        id: "client-platform-skill",
+        displayName: "Client Platform Skill",
+        description: "Uses the requesting desktop host",
+        source: "bundled",
+        directoryPath: "/tmp/test-bundled-skills/client-platform-skill",
+        platforms: [clientPlatform],
+      },
+    ]);
+
+    const result = await installSkill({
+      slug: "client-platform-skill",
+      clientOs: clientPlatform,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      skillId: "client-platform-skill",
+    });
+    expect(mockEnsureSkillEntry).toHaveBeenCalledWith(
+      expect.anything(),
+      "client-platform-skill",
+    );
+  });
+
   test("skills.sh install failure propagates error", async () => {
     mockInstallExternalSkill.mockRejectedValue(
       new Error("Skill not found in repo"),

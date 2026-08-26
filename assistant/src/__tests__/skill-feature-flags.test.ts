@@ -227,6 +227,23 @@ describe("resolveSkillStates with feature flags", () => {
     expect(ids).toContain("no-flag-skill");
   });
 
+  test("includes a skill supported by the requesting desktop client", () => {
+    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
+    const skill = {
+      ...makeSkill("client-platform-skill"),
+      platforms: [clientPlatform],
+    } as SkillSummary;
+    const config = makeConfig();
+
+    expect(resolveSkillStates([skill], config)).toEqual([]);
+    expect(resolveSkillStates([skill], config, clientPlatform)).toEqual([
+      expect.objectContaining({
+        summary: expect.objectContaining({ id: "client-platform-skill" }),
+        state: "enabled",
+      }),
+    ]);
+  });
+
   test("feature flag OFF takes precedence over user-enabled config entry", () => {
     setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
     const catalog = [makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID)];
