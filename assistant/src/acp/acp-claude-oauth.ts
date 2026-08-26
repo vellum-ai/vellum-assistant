@@ -133,9 +133,7 @@ export function parseManualClaudeCode(input: string): {
  * leaves; the token itself never does.
  */
 export async function storedClaudeTokenDigest(): Promise<string | undefined> {
-  const token = await getSecureKeyAsync(
-    credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
-  );
+  const token = await usableStoredClaudeToken();
   return token ? claudeTokenDigest(token) : undefined;
 }
 
@@ -185,14 +183,28 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
  * knows nothing about Anthropic token formats.
  */
 export async function hasAcpClaudeToken(): Promise<boolean> {
+  return (await usableStoredClaudeToken()) !== undefined;
+}
+
+/**
+ * The stored Claude token, but only when a spawn would actually get it.
+ *
+ * One definition of usable for both callers. "Is the account connected" and
+ * "which credential would a spawn resolve" are the same question asked for
+ * different reasons, and answering them separately is how they drift: a value
+ * this rejects still has a digest, so a marker judged against that digest is
+ * withheld while the next spawn cannot authenticate, leaving the user with no
+ * card and no working token.
+ */
+async function usableStoredClaudeToken(): Promise<string | undefined> {
   const token = await getSecureKeyAsync(
     credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
   );
   if (token == null || token.length === 0) {
-    return false;
+    return undefined;
   }
   if (classifyAnthropicToken(token) === "api_key") {
-    return false;
+    return undefined;
   }
   const denialReason = acpSpawnCredentialDenialReason(ACP_OAUTH_TOKEN_FIELD);
   if (denialReason !== undefined) {
@@ -200,7 +212,7 @@ export async function hasAcpClaudeToken(): Promise<boolean> {
       { field: ACP_OAUTH_TOKEN_FIELD, reason: denialReason },
       "Connect Claude status: token present but spawn read would be denied",
     );
-    return false;
+    return undefined;
   }
-  return true;
+  return token;
 }

@@ -1062,3 +1062,92 @@ describe("GET /v1/acp/sessions: markers resolve against configured tokens too", 
     expect(body.sessions[0]).not.toHaveProperty("authErrorCredential");
   });
 });
+
+describe("GET /v1/acp/sessions: retired markers do not accumulate past the page", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const REPLACEMENT = realMarkerStore.claudeTokenDigest("sk-ant-oat-new");
+
+  test("stale marked rows outside the page are dropped, not carried along", async () => {
+    // Marker columns are retained rather than cleared, so every failure a
+    // conversation has ever had still carries one. Letting them escape the
+    // page before the comparison strikes the repaired ones grows the response
+    // without limit, and a client that reads a full page as truncated then
+    // stops retiring runs missing from it.
+    for (let i = 0; i < 6; i++) {
+      insertHistoryRow({
+        id: `hist-old-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-old-${i}`,
+        parentConversationId: "conv-many",
+        startedAt: 1000 + i,
+        completedAt: 2000 + i,
+        status: "failed",
+        eventLogJson: "[]",
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: REFUSED,
+      });
+    }
+    // Newer unmarked runs fill the page.
+    for (let i = 0; i < 3; i++) {
+      insertHistoryRow({
+        id: `hist-new-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-new-${i}`,
+        parentConversationId: "conv-many",
+        startedAt: 9000 + i,
+        completedAt: 9500 + i,
+        status: "completed",
+        eventLogJson: "[]",
+      });
+    }
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-many", limit: "3" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(3);
+    expect(body.sessions.map((s) => s.id)).toEqual([
+      "hist-new-2",
+      "hist-new-1",
+      "hist-new-0",
+    ]);
+  });
+
+  test("a marker that is still current does escape the page", async () => {
+    insertHistoryRow({
+      id: "hist-live-marker",
+      agentId: "claude",
+      acpSessionId: "proto-live-marker",
+      parentConversationId: "conv-many",
+      startedAt: 1000,
+      completedAt: 2000,
+      status: "failed",
+      eventLogJson: "[]",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    for (let i = 0; i < 3; i++) {
+      insertHistoryRow({
+        id: `hist-fill-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-fill-${i}`,
+        parentConversationId: "conv-many",
+        startedAt: 9000 + i,
+        completedAt: 9500 + i,
+        status: "completed",
+        eventLogJson: "[]",
+      });
+    }
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-many", limit: "3" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(4);
+    expect(body.sessions.map((s) => s.id)).toContain("hist-live-marker");
+  });
+});

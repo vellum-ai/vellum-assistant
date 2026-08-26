@@ -444,8 +444,12 @@ function closeSession({ pathParams }: RouteHandlerArgs) {
 async function listSessions({ queryParams }: RouteHandlerArgs) {
   const limit = parseLimit(queryParams?.limit);
   const conversationId = queryParams?.conversationId;
-  const sessions = listMergedSessions({ limit, conversationId });
-  return { sessions: await withCurrentMarkersOnly(sessions) };
+  const merged = listMergedSessions({ limit, conversationId });
+  // Judged before paging, never after. A stale marker that escaped the page
+  // first would stay in the response as an ordinary row once its code was
+  // struck, so the retained markers would pile up past the limit.
+  const judged = await withCurrentMarkersOnly(merged);
+  return { sessions: pageWithMarkedRows(judged, limit) };
 }
 
 /**
@@ -887,17 +891,29 @@ function listMergedSessions(opts: {
     });
   }
 
-  const ordered = Array.from(merged.values()).sort(
-    (a, b) => b.startedAt - a.startedAt,
-  );
-  const page: MergedSession[] = ordered.slice(0, opts.limit);
-  // Marked rows survive the truncation that the page itself is subject to.
-  // Reaching them is the whole point of including them: a conversation with
-  // more recent runs than the page holds would otherwise drop the one row a
-  // client restores the Connect card from, and the reload would find no way
-  // back to auth. Only rows whose marker survived the credential comparison
-  // above still carry `authErrorCode`, so a repaired failure neither renders
-  // nor escapes the page limit.
+  return Array.from(merged.values()).sort((a, b) => b.startedAt - a.startedAt);
+}
+
+/**
+ * Take the page, then let rows still carrying a marker past its edge.
+ *
+ * Reaching them is the whole point of including them: a conversation with more
+ * recent runs than the page holds would otherwise drop the one row a client
+ * restores the Connect card from, and the reload would find no way back to
+ * auth.
+ *
+ * Runs strictly after the markers have been judged, which is what bounds it.
+ * Marker columns are retained rather than cleared, so every credential failure
+ * a conversation has ever had still carries one; letting those escape before
+ * the comparison had struck the repaired ones would grow the response without
+ * limit, and a client that treats a full page as truncated would stop retiring
+ * runs missing from it.
+ */
+function pageWithMarkedRows(
+  ordered: SessionEntry[],
+  limit: number,
+): SessionEntry[] {
+  const page = ordered.slice(0, limit);
   const paged = new Set(page.map((s) => s.id));
   for (const session of ordered) {
     if (session.authErrorCode !== undefined && !paged.has(session.id)) {
