@@ -35,27 +35,53 @@ function isBeneath(dir: string, filePath: string): boolean {
 /**
  * Serve only a regular file that truly lives under the workspace: a symlinked
  * PNG (or a symlinked ancestor) would let the workspace hand the renderer an
- * arbitrary host file.
+ * arbitrary host file. Validation and the read share one descriptor so a
+ * concurrent swap of the path cannot slip a different file past the checks.
  */
 function readAvatarImage(
   workspaceDir: string,
   imagePath: string,
 ): LockfileAssistantAvatarResult {
+  let fd: number | undefined;
   try {
-    const stats = fs.lstatSync(imagePath);
-    if (!stats.isFile()) {
+    const realDir = fs.realpathSync(path.dirname(imagePath));
+    if (!isBeneath(fs.realpathSync(workspaceDir), realDir)) {
+      return { ok: false, error: "avatar image unreadable" };
+    }
+    const realPath = path.join(realDir, path.basename(imagePath));
+    const linkStats = fs.lstatSync(realPath);
+    if (!linkStats.isFile()) {
+      return { ok: false, error: "avatar image unreadable" };
+    }
+    fd = fs.openSync(
+      realPath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const stats = fs.fstatSync(fd);
+    if (
+      !stats.isFile() ||
+      stats.dev !== linkStats.dev ||
+      stats.ino !== linkStats.ino
+    ) {
       return { ok: false, error: "avatar image unreadable" };
     }
     if (stats.size > AVATAR_IMAGE_MAX_BYTES) {
       return { ok: false, error: "avatar image too large" };
     }
-    if (!isBeneath(fs.realpathSync(workspaceDir), fs.realpathSync(imagePath))) {
-      return { ok: false, error: "avatar image unreadable" };
+    const image = fs.readFileSync(fd);
+    if (image.length > AVATAR_IMAGE_MAX_BYTES) {
+      return { ok: false, error: "avatar image too large" };
     }
-    const imageBase64 = fs.readFileSync(imagePath).toString("base64");
-    return { ok: true, avatar: { kind: "image", imageBase64 } };
+    return {
+      ok: true,
+      avatar: { kind: "image", imageBase64: image.toString("base64") },
+    };
   } catch {
     return { ok: false, error: "avatar image unreadable" };
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
   }
 }
 

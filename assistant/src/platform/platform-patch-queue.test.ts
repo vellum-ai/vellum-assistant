@@ -50,6 +50,7 @@ function makeQueue(
     loadSyncedKey?: () => SyncedKey | null;
     saveSyncedKey?: (synced: SyncedKey) => void;
     maxAgeMs?: number;
+    retryDelaysMs?: number[];
   } = {},
 ) {
   const queue = createPlatformPatchQueue<string | undefined>({
@@ -267,6 +268,88 @@ describe("createPlatformPatchQueue", () => {
 
     await new Promise((r) => setTimeout(r, 300));
     await settle();
+    expect(patches).toHaveLength(1);
+  });
+
+  test("a failed PATCH retries on backoff and dedups after the retry succeeds", async () => {
+    const queue = makeQueue({ retryDelaysMs: [100, 100, 100] });
+    respond = () => new Response("nope", { status: 500 });
+    queue.enqueue("a");
+    await settle();
+    expect(patches).toHaveLength(1);
+
+    respond = () => new Response("{}", { status: 200 });
+    await new Promise((r) => setTimeout(r, 100));
+    await settle();
+    expect(patches).toHaveLength(2);
+
+    await new Promise((r) => setTimeout(r, 100));
+    await settle();
+    queue.enqueue("a");
+    await settle();
+    expect(patches).toHaveLength(2);
+  });
+
+  test("a thrown fetch retries on backoff", async () => {
+    const queue = makeQueue({ retryDelaysMs: [100] });
+    mockClient = {
+      ...makeClient(),
+      fetch: async () => {
+        throw new Error("boom");
+      },
+    };
+    queue.enqueue("a");
+    await settle();
+    mockClient = makeClient();
+    await new Promise((r) => setTimeout(r, 100));
+    await settle();
+
+    expect(patches).toHaveLength(1);
+  });
+
+  test("retries stop once the backoff schedule is exhausted", async () => {
+    const queue = makeQueue({ retryDelaysMs: [50, 50] });
+    respond = () => new Response("nope", { status: 500 });
+    queue.enqueue("a");
+    await settle();
+    await new Promise((r) => setTimeout(r, 50));
+    await settle();
+    await new Promise((r) => setTimeout(r, 50));
+    await settle();
+    expect(patches).toHaveLength(3);
+
+    await new Promise((r) => setTimeout(r, 100));
+    await settle();
+    expect(patches).toHaveLength(3);
+  });
+
+  test("a new enqueue during backoff supersedes the retry and resets the bound", async () => {
+    const queue = makeQueue({ retryDelaysMs: [100] });
+    respond = () => new Response("nope", { status: 500 });
+    queue.enqueue("a");
+    await settle();
+    queue.enqueue("b");
+    await settle();
+    expect(patches.map((p) => p.body.value)).toEqual(["a", "b"]);
+
+    await new Promise((r) => setTimeout(r, 100));
+    await settle();
+    expect(patches.map((p) => p.body.value)).toEqual(["a", "b", "b"]);
+
+    await new Promise((r) => setTimeout(r, 100));
+    await settle();
+    expect(patches).toHaveLength(3);
+  });
+
+  test("dispose cancels a pending retry", async () => {
+    const queue = makeQueue({ retryDelaysMs: [300] });
+    respond = () => new Response("nope", { status: 500 });
+    queue.enqueue("a");
+    await settle();
+    queue.dispose();
+    await new Promise((r) => setTimeout(r, 300));
+    await settle();
+
     expect(patches).toHaveLength(1);
   });
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -243,6 +243,26 @@ describe("readLockfileAssistantAvatar", () => {
     fs.symlinkSync(outside, avatarDir);
 
     expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+  });
+
+  test("a symlink swapped in after the lstat check is still rejected at open", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+    const secret = path.join(tempDir, "secret.txt");
+    fs.writeFileSync(secret, "host-only");
+    writeAvatarFile("real.png", png);
+    fs.symlinkSync(secret, path.join(avatarDir, "avatar-image.png"));
+    const realLstat = fs.lstatSync;
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((
+      _path: fs.PathLike,
+    ) => realLstat(path.join(avatarDir, "real.png"))) as typeof fs.lstatSync);
+    try {
+      expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+    } finally {
+      lstat.mockRestore();
+    }
   });
 
   test("manifest image whose PNG is missing is a failure", () => {

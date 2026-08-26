@@ -9,7 +9,8 @@
  * key only dedups while its last success is younger than that, and an unref'd
  * timer re-enqueues the last input at expiry so an idle long-lived process
  * re-sends without any caller. Best-effort: failures are logged, never
- * thrown, and leave the dedup key untouched so the next enqueue retries.
+ * thrown, and leave the dedup key untouched; a failed request re-enqueues
+ * itself on a bounded backoff (superseded by any new enqueue).
  */
 
 import type { getLogger } from "../util/logger.js";
@@ -47,23 +48,35 @@ export interface PlatformPatchQueueOptions<T> {
   saveSyncedKey?: (synced: SyncedKey) => void;
   /** A matching key older than this re-sends, via a timer; omit to never expire. */
   maxAgeMs?: number;
+  /** Backoff after each failed attempt; retries stop once exhausted. */
+  retryDelaysMs?: number[];
 }
+
+const DEFAULT_RETRY_DELAYS_MS = [30_000, 120_000, 600_000];
 
 export interface PlatformPatchQueue<T> {
   enqueue: (input: T) => void;
-  /** Cancels the expiry timer; queued requests still run. */
+  /** Cancels the expiry and retry timers; queued requests still run. */
   dispose: () => void;
 }
 
 export function createPlatformPatchQueue<T = void>(
   options: PlatformPatchQueueOptions<T>,
 ): PlatformPatchQueue<T> {
-  const { log, label, buildPayload, loadSyncedKey, saveSyncedKey, maxAgeMs } =
-    options;
+  const {
+    log,
+    label,
+    buildPayload,
+    loadSyncedKey,
+    saveSyncedKey,
+    maxAgeMs,
+    retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+  } = options;
   let lastSynced: SyncedKey | null | undefined;
   let seq = 0;
   let pending: Promise<void> = Promise.resolve();
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   function armExpiry(input: T): void {
     if (maxAgeMs === undefined || !lastSynced) {
@@ -75,7 +88,21 @@ export function createPlatformPatchQueue<T = void>(
     expiryTimer.unref?.();
   }
 
-  async function run(input: T, requestSeq: number): Promise<void> {
+  function armRetry(input: T, requestSeq: number, attempt: number): void {
+    const delay = retryDelaysMs[attempt];
+    if (requestSeq !== seq || delay === undefined) {
+      return;
+    }
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => schedule(input, attempt + 1), delay);
+    retryTimer.unref?.();
+  }
+
+  async function run(
+    input: T,
+    requestSeq: number,
+    attempt: number,
+  ): Promise<void> {
     try {
       if (requestSeq !== seq) {
         return;
@@ -127,24 +154,37 @@ export function createPlatformPatchQueue<T = void>(
         );
       } else {
         log.warn(
-          { status: resp.status, body: await resp.text(), assistantId },
+          {
+            status: resp.status,
+            body: await resp.text(),
+            assistantId,
+            attempt,
+          },
           `Failed to sync ${label} to platform`,
         );
+        armRetry(input, requestSeq, attempt);
       }
     } catch (err) {
-      log.warn({ err }, `Error syncing ${label} to platform`);
+      log.warn({ err, attempt }, `Error syncing ${label} to platform`);
+      armRetry(input, requestSeq, attempt);
     }
   }
 
-  function enqueue(input: T): void {
+  function schedule(input: T, attempt: number): void {
     const mySeq = ++seq;
-    pending = pending.then(() => run(input, mySeq)).catch(() => {});
+    pending = pending.then(() => run(input, mySeq, attempt)).catch(() => {});
+  }
+
+  function enqueue(input: T): void {
+    clearTimeout(retryTimer);
+    schedule(input, 0);
   }
 
   return {
     enqueue,
     dispose(): void {
       clearTimeout(expiryTimer);
+      clearTimeout(retryTimer);
     },
   };
 }
