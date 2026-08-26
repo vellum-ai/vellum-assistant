@@ -132,17 +132,6 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
   });
 
-  test("preserves an emptied device: key", () => {
-    // A spent install referrer is recorded as an empty value under its
-    // `device:` key. Logout must leave the key in place: were it swept, the
-    // next signup on this device would re-read the shell's referrer.
-    localStorage.setItem("device:install_referrer", "");
-
-    clearUserScopedStorage();
-
-    expect(localStorage.getItem("device:install_referrer")).toBe("");
-  });
-
   test("automatically clears future vellum: keys without needing explicit registration", () => {
     localStorage.setItem("vellum:some-future-feature:asst-1", "data");
     localStorage.setItem("vellum:another-feature", "value");

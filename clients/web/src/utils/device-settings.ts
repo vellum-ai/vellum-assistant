@@ -57,8 +57,7 @@ const DEVICE_SETTINGS = {
   lastUserId: { key: "device:last_user_id" },
   // Allowlisted attribution parsed out of the Android Play install referrer,
   // stored as a query string. Describes the install, so it outlives any
-  // account that signs in on this device. An empty value records that a native
-  // auth flow has spent it.
+  // account that signs in on this device.
   installReferrer: { key: "device:install_referrer" },
 } as const satisfies Record<string, DeviceSettingEntry>;
 

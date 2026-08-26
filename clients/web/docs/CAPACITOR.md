@@ -364,9 +364,11 @@ is no iOS counterpart.
   when Play answers with a referrer, and `{}` for every other outcome: no Play
   Store on the device, a Play Store that declines the bind, or a Play install
   with no campaign. A bind that connects but never calls back is answered empty
-  by a timeout on each side (five seconds in the plugin, two in the web layer),
-  because the auth path that spends this value awaits the call. A rejection or
-  a hang here would surface as an error or a stuck sign-in button.
+  by the plugin's own `BIND_TIMEOUT_MS`, the only bound on this read: the auth
+  path that spends the value awaits the call, and a shorter bound in the web
+  layer would abandon a referrer the shell goes on to cache forever. A
+  rejection or a hang here would surface as an error or a stuck sign-in
+  button.
 - **The empty result is the answer.** There is no availability probe, for the
   same reason the voice bridge has none (§ "The skew rule"): a probe can itself
   be absent on an older shell, and `{}` is the only answer a caller could act
@@ -378,12 +380,9 @@ is no iOS counterpart.
   bind. A transient failure, a timed-out bind included, is left uncached, so a
   later launch retries.
 - **Consumption state belongs to the web layer.** The shell keeps answering
-  `read()` with the same value forever, so the spend has to be recorded where
-  the value is spent. The web layer captures the referrer into
-  `device:install_referrer` and empties that key once an auth flow has spent
-  it, keeping the key itself as the record: its presence, an empty value
-  included, is what stops a later signup on this device from re-reading the
-  bridge and inheriting the first user's campaign. Do not add a "mark consumed"
+  `read()` with the same value forever, so the spend is recorded where the
+  value is spent, under `device:install_referrer`; `markInstallReferrerSpent`
+  in `install-referrer.ts` carries the rules. Do not add a "mark consumed"
   method to the bridge.
 - **Failures are logged, not reported.** The plugin logs through
   `com.getcapacitor.Logger`, not `NativeFailureGuard`, whose reports the web
