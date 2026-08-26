@@ -480,8 +480,9 @@ export function PricingContent() {
               Included usage resets each billing cycle: whatever is left when
               the period ends expires and does not roll over. Purchased
               pay-as-you-go credits last much longer: they expire twelve
-              months after purchase. Your assistant always draws down the
-              allowance closest to expiring first.
+              months after purchase. Your assistant always spends included
+              usage before touching credits; credits are only drawn once the
+              month&apos;s usage is fully consumed.
             </p>
 
             {/* Changing your plan */}
@@ -569,6 +570,11 @@ export function PricingContent() {
               Twitter). No alternative direct-payment method is available for
               Credit-Eligible Features.
             </p>
+            <p className="mb-6 text-zinc-600">
+              If your plan includes monthly usage, that usage is consumed
+              first. Vellum Credits are only spent after your included usage
+              is fully consumed.
+            </p>
 
             <div className="mt-8">
               <SectionHeading
@@ -600,6 +606,11 @@ export function PricingContent() {
               top-up, through the payment methods made available in the
               Services, or at such other amounts as determined by Vellum from
               time to time.
+            </p>
+            <p className="mb-6 text-zinc-600">
+              Purchased credits sit behind your plan&apos;s included usage:
+              your assistant only starts spending them once the month&apos;s
+              included usage is fully consumed.
             </p>
 
             <div className="mt-8">
@@ -710,7 +721,10 @@ export function PricingContent() {
               <strong>LLM inference</strong> (the biggest line item by far),{" "}
               <strong>web search</strong>, <strong>image generation</strong>,
               and <strong>paid third-party APIs</strong> you reach through
-              Vellum&apos;s managed OAuth (for example, Twitter).
+              Vellum&apos;s managed OAuth (for example, Twitter). On plans
+              with monthly included usage, this work draws on that usage
+              first; credits are only spent after the included usage is fully
+              consumed.
             </p>
             <p className="mb-4 text-zinc-600">
               Inference is itself broken into a set of <strong>Actions</strong>{" "}
