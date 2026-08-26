@@ -49,6 +49,7 @@ import {
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
+import { resolveSkillTurnIsInteractive } from "../../../../skills/platform-compatibility.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
@@ -324,9 +325,10 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   );
   const skillPlatformContext = {
     clientOs: conversation?.currentTurnClientOs,
-    isInteractive: conversation
-      ? !conversation.hasNoClient
-      : ctx.isNonInteractive === false,
+    isInteractive: resolveSkillTurnIsInteractive({
+      isNonInteractive: ctx.isNonInteractive,
+      hasNoClient: conversation?.hasNoClient,
+    }),
     sourceActorPrincipalId: conversation?.getTurnActorPrincipalId?.(),
   };
   stripIncompatibleSkillCardsFromMessages(

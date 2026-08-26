@@ -45,6 +45,7 @@ import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
 import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
+import { resolveSkillTurnIsInteractive } from "../../../../../skills/platform-compatibility.js";
 import { wrapMemoryBlock } from "../../memory-marker.js";
 import { stripIncompatibleSkillCardsFromMessages } from "../../substrate/skill-card-compatibility.js";
 
@@ -1105,7 +1106,7 @@ describe("injectMemoryV2Block", () => {
     }
   });
 
-  test("does not inject a Windows skill on a clientless turn", async () => {
+  test("strips and does not reinject a Windows skill on a scheduled turn with a connected client", async () => {
     stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
     stageSkills([
       {
@@ -1124,6 +1125,35 @@ describe("injectMemoryV2Block", () => {
       callback: () => {},
     });
     try {
+      const scheduledSkillContext = {
+        clientOs: "windows",
+        isInteractive: resolveSkillTurnIsInteractive({
+          isNonInteractive: true,
+          hasNoClient: false,
+        }),
+        sourceActorPrincipalId: "actor-a",
+      };
+      const carriedMessages = [
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text" as const,
+              text: wrapMemoryBlock(
+                "### Skills You Can Use\n- Automates native Windows applications. → use skill_load to activate",
+              ),
+            },
+          ],
+        },
+      ];
+      stripIncompatibleSkillCardsFromMessages(
+        carriedMessages,
+        scheduledSkillContext,
+      );
+      expect(JSON.stringify(carriedMessages)).not.toContain(
+        "Automates native Windows applications.",
+      );
+
       const result = await injectMemoryV2Block({
         conversationId: "conv-clientless-windows",
         currentTurn: 1,
@@ -1133,15 +1163,34 @@ describe("injectMemoryV2Block", () => {
         nowText: "Now",
         messageId: "msg-clientless-windows",
         config: makeConfig(),
-        skillPlatformContext: {
-          clientOs: "windows",
-          isInteractive: false,
-          sourceActorPrincipalId: "actor-a",
-        },
+        skillPlatformContext: scheduledSkillContext,
       });
 
       expect(result.toInject).toEqual([]);
       expect(result.block).toBeNull();
+
+      stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
+      const interactive = await injectMemoryV2Block({
+        conversationId: "conv-interactive-windows",
+        currentTurn: 1,
+        recentTurnPairs: [
+          { assistantMessage: "", userMessage: "Open Windows Settings" },
+        ],
+        nowText: "Now",
+        messageId: "msg-interactive-windows",
+        config: makeConfig(),
+        skillPlatformContext: {
+          ...scheduledSkillContext,
+          isInteractive: resolveSkillTurnIsInteractive({
+            isNonInteractive: false,
+            hasNoClient: false,
+          }),
+        },
+      });
+      expect(interactive.toInject).toEqual(["skills/windows-automation"]);
+      expect(interactive.block).toContain(
+        "Automates native Windows applications.",
+      );
     } finally {
       hostClient.dispose();
     }

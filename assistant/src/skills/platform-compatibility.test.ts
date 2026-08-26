@@ -6,11 +6,29 @@ import {
   isSkillCompatibleWithContext,
   normalizeRequiredHostCapabilities,
   normalizeSkillPlatforms,
+  resolveSkillTurnIsInteractive,
   skillPlatformForClientOs,
   skillPlatformForNodePlatform,
 } from "./platform-compatibility.js";
 
 describe("skill platform compatibility", () => {
+  test("uses frozen turn presence before live connection state", () => {
+    expect(
+      resolveSkillTurnIsInteractive({
+        isNonInteractive: true,
+        hasNoClient: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveSkillTurnIsInteractive({
+        isNonInteractive: false,
+        hasNoClient: false,
+      }),
+    ).toBe(true);
+    expect(resolveSkillTurnIsInteractive({ hasNoClient: false })).toBe(true);
+    expect(resolveSkillTurnIsInteractive({ hasNoClient: true })).toBe(false);
+  });
+
   test("maps desktop client operating systems to skill platforms", () => {
     expect(skillPlatformForClientOs("macos")).toBe("macos");
     expect(skillPlatformForClientOs("windows")).toBe("windows");

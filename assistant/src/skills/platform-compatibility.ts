@@ -23,6 +23,16 @@ export interface SkillPlatformContext {
   hostPlatforms?: readonly unknown[];
 }
 
+export function resolveSkillTurnIsInteractive(params: {
+  isNonInteractive?: boolean;
+  hasNoClient?: boolean;
+}): boolean {
+  if (params.isNonInteractive !== undefined) {
+    return !params.isNonInteractive;
+  }
+  return params.hasNoClient === false;
+}
+
 export function normalizeSkillPlatforms(
   value: unknown,
 ): SkillPlatform[] | undefined {

@@ -33,6 +33,7 @@ import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migra
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
+import { resolveSkillTurnIsInteractive } from "../../../../../skills/platform-compatibility.js";
 import type { InjectionBlock, TurnContext } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
 import { stripIncompatibleSkillCardsFromMessages } from "../../substrate/skill-card-compatibility.js";
@@ -686,6 +687,91 @@ describe("memoryV3Injector — frozen net-new cards", () => {
       );
       expect(getActiveSlugs("conv-windows-host")).toContain(
         "skills/windows-automation",
+      );
+    } finally {
+      hostClient.dispose();
+    }
+  });
+
+  test("strips and does not reinject a Windows skill on a scheduled turn with a connected client", async () => {
+    liveEnabled = true;
+    windowsSkillEnabled = true;
+    turnResults.set(0, result(["skills/windows-automation", "page-a"]));
+    turnResults.set(1, result(["skills/windows-automation", "page-a"]));
+    turnResults.set(2, result(["skills/windows-automation", "page-a"]));
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "memory-v3-scheduled-windows-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    const baseContext = {
+      clientOs: "windows" as const,
+      sourceActorPrincipalId: "actor-a",
+    };
+
+    try {
+      const interactiveContext = {
+        ...baseContext,
+        isInteractive: resolveSkillTurnIsInteractive({
+          isNonInteractive: false,
+          hasNoClient: false,
+        }),
+      };
+      const connected = await produceCardsWithoutCommit(
+        "conv-scheduled-windows",
+        0,
+        GUARDIAN_TRUST,
+        interactiveContext,
+      );
+      commitCardsBlock(connected);
+      expect(connected?.text).toContain(
+        "Automates native Windows applications.",
+      );
+
+      const scheduledContext = {
+        ...baseContext,
+        isInteractive: resolveSkillTurnIsInteractive({
+          isNonInteractive: true,
+          hasNoClient: false,
+        }),
+      };
+      const messages = [
+        {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: connected!.text }],
+        },
+      ];
+      stripIncompatibleSkillCardsFromMessages(messages, scheduledContext);
+      expect(JSON.stringify(messages)).not.toContain(
+        "Automates native Windows applications.",
+      );
+
+      const scheduled = await produceCardsWithoutCommit(
+        "conv-scheduled-windows",
+        1,
+        GUARDIAN_TRUST,
+        scheduledContext,
+      );
+      commitCardsBlock(scheduled);
+      expect(scheduled?.text ?? "").not.toContain(
+        "Automates native Windows applications.",
+      );
+      expect(getActiveSlugs("conv-scheduled-windows")).not.toContain(
+        "skills/windows-automation",
+      );
+
+      const restored = await produceCardsWithoutCommit(
+        "conv-scheduled-windows",
+        2,
+        GUARDIAN_TRUST,
+        interactiveContext,
+      );
+      commitCardsBlock(restored);
+      expect(restored?.text).toContain(
+        "Automates native Windows applications.",
       );
     } finally {
       hostClient.dispose();
