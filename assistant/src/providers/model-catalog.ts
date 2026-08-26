@@ -2048,7 +2048,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       "Enter your OpenCode API key. Leave the base URL empty for Zen, or set it to the Go endpoint.",
     envVar: "OPENCODE_API_KEY",
     credentialsGuide: {
-      description: "Create an OpenCode API key, then choose Zen or Go as the endpoint.",
+      description:
+        "Create an OpenCode API key, then choose Zen or Go as the endpoint.",
       url: "https://opencode.ai",
       linkLabel: "OpenCode",
     },
