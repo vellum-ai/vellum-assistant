@@ -98,6 +98,7 @@
         "vellum": "./src/index.ts",
       },
       "dependencies": {
+        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/environments": "workspace:*",
         "@vellumai/ipc-server-utils": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
@@ -227,7 +228,6 @@
         "@tiptap/react": "3.23.5",
         "@tiptap/starter-kit": "3.23.5",
         "@vellumai/assistant-api": "workspace:*",
-        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/design-library": "workspace:*",
         "@vellumai/environments": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
@@ -287,6 +287,7 @@
         "@types/js-yaml": "4.0.9",
         "@types/react": "19.2.14",
         "@types/react-dom": "19.2.3",
+        "@vellumai/avatar-manifest": "workspace:*",
         "@vitejs/plugin-react": "6.0.1",
         "eslint": "10.2.0",
         "eslint-plugin-react-hooks": "7.1.1",
@@ -515,7 +516,6 @@
       "name": "@vellumai/electron-desktop",
       "version": "0.0.1",
       "dependencies": {
-        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/electron-utils": "workspace:*",
         "@vellumai/ipc-contract": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
@@ -594,7 +594,7 @@
       "name": "@vellumai/local-mode",
       "version": "0.0.1",
       "dependencies": {
-        "@vellumai/avatar-manifest": "workspace:*",
+        "@vellumai/avatar-manifest": "file:../avatar-manifest",
         "@vellumai/environments": "file:../environments",
         "nanoid": "5.1.7",
         "zod": "4.3.6",
