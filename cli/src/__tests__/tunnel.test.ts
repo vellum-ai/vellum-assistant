@@ -216,7 +216,7 @@ async function runTunnelCapturingLogs(): Promise<string> {
 
 describe("tunnel edge targeting", () => {
   beforeEach(() => {
-    process.argv = ["bun", "vellum", "tunnel"];
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "tailscale"];
     writeLockfile(makeLocalEntry());
     globalThis.fetch = (async () => {
       throw new Error("gateway unavailable");
@@ -649,42 +649,36 @@ describe("tunnel edge targeting", () => {
     expect(logs).toContain("serves webhooks only");
   });
 
-  test("a bare invocation defaults to the tailscale provider", async () => {
-    const entry = makeLocalEntry();
-    writeLockfile(entry);
-    process.argv = ["bun", "vellum", "tunnel"];
-
-    await runTunnelCapturingLogs();
-
-    expect(runTailscaleTunnelMock).toHaveBeenCalledWith({
-      port: EDGE_PORT,
-      assistantId: "assistant-1",
-      workspaceDir: join(entry.resources!.instanceDir, ".vellum", "workspace"),
-    });
-    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
-    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
-  });
-
-  test("a bare invocation refuses tailscale when webhook integrations are configured", async () => {
-    const entry = makeLocalEntry();
-    writeLockfile(entry);
-    writeEntryWorkspaceConfig(entry, {
-      telegram: { botUsername: "example_bot" },
-    });
+  test("a bare invocation exits listing the providers to choose from", async () => {
+    writeLockfile(makeLocalEntry());
     process.argv = ["bun", "vellum", "tunnel"];
 
     const { exited, errors } = await runTunnelExpectingExit1();
 
     expect(exited).toBe(true);
-    expect(errors).toContain("reachable only from your own tailnet");
+    expect(errors).toContain("--provider is required");
     expect(errors).toContain("vellum tunnel --provider ngrok");
+    expect(errors).toContain("vellum tunnel --provider cloudflare");
     expect(errors).toContain("vellum tunnel --provider tailscale");
     // Nothing is started and nothing is recorded until the user has chosen.
     expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
     expect(runTailscaleTunnelMock).not.toHaveBeenCalled();
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });
 
-  test("an explicit --provider tailscale keeps the webhook callback base and says so", async () => {
+  test("a named assistant without --provider exits before resolving it", async () => {
+    writeLockfile(makeLocalEntry());
+    process.argv = ["bun", "vellum", "tunnel", "Ada"];
+
+    const { exited, errors } = await runTunnelExpectingExit1();
+
+    expect(exited).toBe(true);
+    expect(errors).toContain("--provider is required");
+    expect(ensureTunnelEdgeMock).not.toHaveBeenCalled();
+  });
+
+  test("--provider tailscale keeps the webhook callback base and says so", async () => {
     const entry = makeLocalEntry();
     writeLockfile(entry);
     const workspaceDir = writeEntryWorkspaceConfig(entry, {
@@ -1554,7 +1548,7 @@ describe("tunnel --detach", () => {
   });
 
   test("-d is equivalent to --detach", async () => {
-    process.argv = ["bun", "vellum", "tunnel", "-d"];
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "tailscale", "-d"];
     spawnMock.mockImplementationOnce(() => {
       appendFileSync(
         detachedLogPath(),

@@ -123,7 +123,7 @@ export async function restoreTunnelEdge(
           ? "Webhooks still work, but the web app is not being served."
           : "The web app and webhook delivery are unavailable until it is rebuilt.";
     console.warn(
-      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`vellum tunnel\` to rebuild the edge.`,
+      `   Could not restore the tunnel edge: ${detail} ${impact} Run \`vellum tunnel --provider <provider>\` to rebuild the edge.`,
     );
     return survivingPort;
   }
@@ -226,7 +226,7 @@ export async function restoreContainerTunnelEdge(
     !(await waitForDaemonReady(gatewayPort, gatewayReadyTimeoutMs))
   ) {
     console.warn(
-      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`vellum tunnel\` once it is running.`,
+      `   Gateway on 127.0.0.1:${gatewayPort} did not come up, so the tunnel edge was not restored. Run \`vellum tunnel --provider <provider>\` once it is running.`,
     );
     return;
   }
