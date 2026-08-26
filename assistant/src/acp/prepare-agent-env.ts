@@ -245,6 +245,16 @@ async function injectOptionalCredential(
 }
 
 /**
+ * How many times the vault read is retried when a token write races it.
+ *
+ * Each retry costs one broker read and only happens when a write actually
+ * landed mid-read, which is rare. Three is a ceiling rather than an
+ * expectation: a run of consecutive races means writes are arriving faster
+ * than reads complete, and the unversioned fallback is the right answer there.
+ */
+const CREDENTIAL_READ_ATTEMPTS = 3;
+
+/**
  * Returns a NEW config with any required credentials merged into `env`.
  * Does NOT mutate the input. Throws `FailedDependencyError` if a required
  * credential is missing from both the user-supplied env override and the
@@ -312,26 +322,34 @@ export async function prepareAgentEnv(
     // token has been written since, which is the user completing Connect.
     // Config otherwise wins over the vault, so honouring it here would resolve
     // the same revoked value and raise the card again on every retry.
-    if (env.CLAUDE_CODE_OAUTH_TOKEN && configClaudeTokenSuperseded()) {
+    if (
+      env.CLAUDE_CODE_OAUTH_TOKEN &&
+      configClaudeTokenSuperseded(env.CLAUDE_CODE_OAUTH_TOKEN)
+    ) {
       delete env.CLAUDE_CODE_OAUTH_TOKEN;
     }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      // Read the generation on both sides of the vault read and keep it only
-      // when it did not move. A replacement landing inside that await leaves
-      // no way to tell which token came back, and labelling the old one with
-      // the new generation would let a rejection of it pass for current.
-      // Unversioned is the safe answer: the failure path treats an absent
-      // generation as "not proven superseded" and still raises recovery.
-      const before = currentClaudeCredentialGeneration();
-      missReason = await injectCredential(
-        env,
-        ACP_OAUTH_TOKEN_FIELD,
-        "CLAUDE_CODE_OAUTH_TOKEN",
-        ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
-      );
-      if (before === currentClaudeCredentialGeneration()) {
-        credentialGeneration = before;
+      // Read the generation on both sides of the vault read, and read again
+      // when it moved. A replacement landing inside that await leaves no way
+      // to tell which token came back, and neither answer is safe to assume:
+      // labelling the old one with the new generation lets a rejection of it
+      // pass for current, while leaving it unversioned lets that same
+      // rejection raise a card the replacement just cleared. Re-reading is
+      // what resolves it, rather than picking a side.
+      for (let attempt = 0; attempt < CREDENTIAL_READ_ATTEMPTS; attempt++) {
+        const before = currentClaudeCredentialGeneration();
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+        missReason = await injectCredential(
+          env,
+          ACP_OAUTH_TOKEN_FIELD,
+          "CLAUDE_CODE_OAUTH_TOKEN",
+          ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
+        );
+        if (before === currentClaudeCredentialGeneration()) {
+          credentialGeneration = before;
+          break;
+        }
       }
     } else {
       credentialFromConfig = true;

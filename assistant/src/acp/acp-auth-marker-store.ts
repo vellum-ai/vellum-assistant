@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { isNotNull } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -79,38 +81,53 @@ export function retireAcpAuthRecovery(): void {
 }
 
 /**
- * Generation current when a config-supplied Claude token was last rejected, or
- * `undefined` if that has not happened.
+ * Generation current when each rejected config-supplied Claude token was
+ * refused, keyed by a digest of the token itself.
  *
  * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` takes precedence over the
  * vault, so a revoked value there is not something Connect can fix by writing
  * secure storage: the next spawn resolves the same configured token and raises
- * the card again. Remembering when it was rejected lets the next read tell a
- * config token that has since been superseded by a real write from one that is
- * simply the configured credential.
+ * the card again. Remembering which token was rejected, and when, lets a later
+ * read stand down exactly that value.
+ *
+ * Keyed by token rather than held as one process-global flag: several agent
+ * aliases can each carry their own configured token, and a global one-shot is
+ * consumed by whichever alias prepares first, which both discards that alias's
+ * perfectly good token and leaves the rejected one trusted again.
+ *
+ * A digest, not the token: this outlives the spawn that produced it, and a
+ * rejected credential is still a credential.
  */
-let configTokenRejectedGeneration: number | undefined;
+const rejectedConfigTokens = new Map<string, number>();
 
-/** Record that the configured Claude token was the one Claude rejected. */
-export function noteConfigClaudeTokenRejected(): void {
-  configTokenRejectedGeneration = claudeCredentialGeneration;
+function configTokenDigest(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 32);
+}
+
+/** Record that this configured Claude token was the one Claude rejected. */
+export function noteConfigClaudeTokenRejected(token: string): void {
+  rejectedConfigTokens.set(
+    configTokenDigest(token),
+    claudeCredentialGeneration,
+  );
 }
 
 /**
- * Whether a configured Claude token should stand down in favour of the vault.
+ * Whether this configured Claude token should stand down in favour of the
+ * vault.
  *
- * True once a token has been written after the configured one was rejected:
- * that write is the user completing Connect, and honouring the config value
- * over it would loop the card forever. Reset when it fires, so a config value
- * the user later fixes is trusted again.
+ * True once a token has been written after this one was rejected: that write
+ * is the user completing Connect, and honouring the config value over it would
+ * loop the card forever. The entry is dropped when it fires, so a config value
+ * the user later fixes is trusted again, and a different alias's token is
+ * unaffected either way.
  */
-export function configClaudeTokenSuperseded(): boolean {
-  if (
-    configTokenRejectedGeneration === undefined ||
-    claudeCredentialGeneration <= configTokenRejectedGeneration
-  ) {
+export function configClaudeTokenSuperseded(token: string): boolean {
+  const key = configTokenDigest(token);
+  const rejectedAt = rejectedConfigTokens.get(key);
+  if (rejectedAt === undefined || claudeCredentialGeneration <= rejectedAt) {
     return false;
   }
-  configTokenRejectedGeneration = undefined;
+  rejectedConfigTokens.delete(key);
   return true;
 }

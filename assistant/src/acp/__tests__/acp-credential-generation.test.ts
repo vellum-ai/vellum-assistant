@@ -40,32 +40,43 @@ describe("currentClaudeCredentialGeneration", () => {
 });
 
 describe("config token supersession", () => {
+  const TOKEN_A = "sk-ant-oat-alias-a";
+  const TOKEN_B = "sk-ant-oat-alias-b";
+
   test("a configured token stands down only after a later write", () => {
     // Config wins over the vault, so a revoked configured token would resolve
     // again on every retry and loop the Connect card. The rejection records
     // itself; the next real write is what stands the config value down.
-    noteConfigClaudeTokenRejected();
+    noteConfigClaudeTokenRejected(TOKEN_A);
 
-    // No write since the rejection: the configured value is still the one the
-    // user means, so it stays.
-    expect(configClaudeTokenSuperseded()).toBe(false);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(false);
 
     retireAcpAuthRecovery();
 
-    expect(configClaudeTokenSuperseded()).toBe(true);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
   });
 
   test("supersession fires once, so a later fixed config value is trusted", () => {
-    noteConfigClaudeTokenRejected();
+    noteConfigClaudeTokenRejected(TOKEN_A);
     retireAcpAuthRecovery();
 
-    expect(configClaudeTokenSuperseded()).toBe(true);
-    expect(configClaudeTokenSuperseded()).toBe(false);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(false);
   });
 
-  test("reports no supersession when no configured token was ever rejected", () => {
+  test("one alias's rejected token does not stand down another's", () => {
+    // A process-global one-shot was consumed by whichever alias prepared
+    // first, discarding its good token and leaving the rejected one trusted.
+    noteConfigClaudeTokenRejected(TOKEN_A);
     retireAcpAuthRecovery();
 
-    expect(configClaudeTokenSuperseded()).toBe(false);
+    expect(configClaudeTokenSuperseded(TOKEN_B)).toBe(false);
+    expect(configClaudeTokenSuperseded(TOKEN_A)).toBe(true);
+  });
+
+  test("reports no supersession for a token never rejected", () => {
+    retireAcpAuthRecovery();
+
+    expect(configClaudeTokenSuperseded("sk-ant-oat-never-seen")).toBe(false);
   });
 });

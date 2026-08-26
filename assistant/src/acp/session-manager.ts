@@ -121,6 +121,10 @@ interface SessionEntry {
    *  the vault. A rejection of a configured token cannot be repaired by
    *  writing secure storage, so it marks that source superseded instead. */
   credentialFromConfig?: boolean;
+  /** The configured Claude token this session ran with, when it came from
+   *  config. A rejection marks exactly this value superseded, so one alias's
+   *  bad token cannot stand down another alias's good one. */
+  configClaudeToken?: string;
   /** Claude credential generation this session read its token under, from the
    *  config `prepareAgentEnv` returned. A rejection reported after a newer
    *  token landed describes a credential that has already been replaced, so it
@@ -390,6 +394,10 @@ export class AcpSessionManager {
       command: basename(opts.agentConfig.command),
       credentialGeneration: opts.agentConfig.credentialGeneration,
       credentialFromConfig: opts.agentConfig.credentialFromConfig === true,
+      configClaudeToken:
+        opts.agentConfig.credentialFromConfig === true
+          ? opts.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN
+          : undefined,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -1191,11 +1199,12 @@ export class AcpSessionManager {
           // next read stands it down in favour of whatever Connect writes.
           // Without this the retry resolves the same revoked config value and
           // raises the card again, forever.
-          if (
-            errorCode !== undefined &&
+          const rejectedConfigToken =
             current.credentialFromConfig === true
-          ) {
-            noteConfigClaudeTokenRejected();
+              ? current.configClaudeToken
+              : undefined;
+          if (errorCode !== undefined && rejectedConfigToken !== undefined) {
+            noteConfigClaudeTokenRejected(rejectedConfigToken);
           }
           const credentialStillCurrent =
             typeof current.credentialGeneration !== "number" ||
