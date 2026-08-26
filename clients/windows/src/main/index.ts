@@ -40,7 +40,10 @@ import {
   usesAppProtocolRenderer,
 } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin.client";
-import { provisionCliForCurrentUser } from "./cli-path-flow";
+import {
+  provisionCliForCurrentUser,
+  resolveCliPathFlowOptions,
+} from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
@@ -264,15 +267,7 @@ app
     installCsp();
     if (app.isPackaged && process.platform === "win32") {
       try {
-        const result = provisionCliForCurrentUser({
-          userDataDir: app.getPath("userData"),
-          resourcesDir: process.resourcesPath,
-          localAppData:
-            process.env.LOCALAPPDATA ??
-            path.join(app.getPath("home"), "AppData", "Local"),
-          releaseChannel,
-          version: app.getVersion(),
-        });
+        const result = provisionCliForCurrentUser(resolveCliPathFlowOptions());
         if (["foreign", "shadowed"].includes(result.launcherState)) {
           log.warn(`[cli] Windows launcher is ${result.launcherState}`);
         }
