@@ -829,6 +829,56 @@ test("retries an idempotent started status after a lost response", async () => {
   expect(track.stopped).toBeFalse();
 });
 
+test("lets stop finish while the started acknowledgement is pending", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const statuses: string[] = [];
+  let signalStarted!: () => void;
+  let rejectStarted!: (error: Error) => void;
+  const started = new Promise<void>((resolve) => {
+    signalStarted = resolve;
+  });
+  const startedAcknowledgement = new Promise<void>((_resolve, reject) => {
+    rejectStarted = reject;
+  });
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+      if (status === "started") {
+        signalStarted();
+        await startedAcknowledgement;
+      }
+    },
+  });
+
+  const starting = controller.handle(startEvent, "assistant-1");
+  await started;
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  rejectStarted(new Error("started acknowledgement failed"));
+  await starting;
+
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+  expect(window.vellum!.screenRecording!.abort).not.toHaveBeenCalled();
+  expect(window.vellum!.screenRecording!.release).toHaveBeenCalledTimes(1);
+  expect(statuses).toContain("stopped");
+  expect(statuses).not.toContain("failed");
+});
+
 test("retries an idempotent transfer begin after a lost response", async () => {
   const recorder = new FakeRecorder();
   const track = new FakeTrack();

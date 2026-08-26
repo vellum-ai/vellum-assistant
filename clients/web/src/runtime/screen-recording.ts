@@ -528,6 +528,7 @@ export class ScreenRecordingController {
       : () => undefined;
     let capture: CapturedMedia | null = null;
     let recorder: MediaRecorder | null = null;
+    let activeRecording: ActiveRecording | null = null;
     let fileStarted = false;
     let transferStarted = false;
     try {
@@ -611,6 +612,7 @@ export class ScreenRecordingController {
         closeCapture: capture.close,
         stopClaimMaintenance,
       };
+      activeRecording = active;
       recorder.ondataavailable = (dataEvent) => {
         if (dataEvent.data.size === 0) {
           return;
@@ -751,6 +753,10 @@ export class ScreenRecordingController {
       recorder.start(1_000);
       await this.reportStatusWithRetry(assistantId, event, "started");
     } catch (error) {
+      if (activeRecording?.stopping) {
+        await activeRecording.stopped;
+        return;
+      }
       const ownershipLost =
         pending.ownershipLost ||
         (this.active?.event.recordingId === event.recordingId &&

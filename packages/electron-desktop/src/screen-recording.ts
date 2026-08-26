@@ -53,6 +53,7 @@ interface CompletedRecording {
 export interface InstallScreenRecordingOptions {
   appDataDir: string;
   handle: IpcHandle;
+  openRecordingFile?: (filePath: string) => Promise<FileHandle>;
 }
 
 export const resolveScreenRecordingDirectory = (appDataDir: string): string =>
@@ -98,6 +99,7 @@ const chooseCaptureSource = async (
 export const installScreenRecording = ({
   appDataDir,
   handle,
+  openRecordingFile = (filePath) => open(filePath, "w"),
 }: InstallScreenRecordingOptions): void => {
   const sessions = new Map<string, RecordingFileSession>();
   const completed = new Map<string, CompletedRecording>();
@@ -185,7 +187,7 @@ export const installScreenRecording = ({
         recordingsDir,
         `screen-recording-${recordingId}.webm`,
       );
-      const file = await open(filePath, "w");
+      const file = await openRecordingFile(filePath);
       const onOwnerDestroyed = (): void => {
         void abortSession(recordingId).catch(() => undefined);
       };
@@ -218,13 +220,19 @@ export const installScreenRecording = ({
     async ([recordingId], event) => {
       const recording = getOwnedSession(recordingId, event.sender);
       releaseSession(recordingId, recording);
-      await recording.write;
-      await recording.file.close();
-      completed.set(recordingId, {
-        filePath: recording.filePath,
-        owner: event.sender,
-      });
-      return { filePath: recording.filePath };
+      try {
+        await recording.write;
+        await recording.file.close();
+        completed.set(recordingId, {
+          filePath: recording.filePath,
+          owner: event.sender,
+        });
+        return { filePath: recording.filePath };
+      } catch (error) {
+        await recording.file.close().catch(() => undefined);
+        await rm(recording.filePath, { force: true });
+        throw error;
+      }
     },
   );
 

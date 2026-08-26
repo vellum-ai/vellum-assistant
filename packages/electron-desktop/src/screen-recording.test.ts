@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { open as openFile, type FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -73,7 +74,9 @@ afterEach(() => {
   beforeQuit = null;
 });
 
-const installHarness = () => {
+const installHarness = (
+  openRecordingFile?: (filePath: string) => Promise<FileHandle>,
+) => {
   const appDataDir = mkdtempSync(path.join(os.tmpdir(), "screen-recording-"));
   tempDirs.push(appDataDir);
   const handlers = new Map<
@@ -85,7 +88,7 @@ const installHarness = () => {
       fn(args as never, { sender: owner } as never),
     );
   }) as IpcHandle;
-  installScreenRecording({ appDataDir, handle });
+  installScreenRecording({ appDataDir, handle, openRecordingFile });
   const owner = new EventEmitter();
   const invokeAs = <T>(
     sender: EventEmitter,
@@ -159,6 +162,40 @@ test("aborts partial files and releases the single-recording guard", async () =>
 
   expect(existsSync(firstPath)).toBeFalse();
   expect(existsSync(second.filePath)).toBeTrue();
+});
+
+test("cleans a partial file when a queued write fails during finish", async () => {
+  const openFailingFile = async (filePath: string): Promise<FileHandle> => {
+    const file = await openFile(filePath, "w");
+    return {
+      write: async () => {
+        throw new Error("disk write failed");
+      },
+      close: () => file.close(),
+    } as unknown as FileHandle;
+  };
+  const { appDataDir, invoke } = installHarness(openFailingFile);
+  const firstId = "00000000-0000-4000-8000-000000000001";
+  const secondId = "00000000-0000-4000-8000-000000000002";
+  const firstPath = path.join(
+    resolveScreenRecordingDirectory(appDataDir),
+    `screen-recording-${firstId}.webm`,
+  );
+  await invoke("vellum:screenRecording:begin", firstId);
+  const append = invoke(
+    "vellum:screenRecording:append",
+    firstId,
+    new Uint8Array([99]),
+  );
+  await expect(append).rejects.toThrow("disk write failed");
+  await expect(
+    invoke("vellum:screenRecording:finish", firstId),
+  ).rejects.toThrow("disk write failed");
+  await invoke("vellum:screenRecording:abort", firstId);
+
+  expect(existsSync(firstPath)).toBeFalse();
+  await invoke("vellum:screenRecording:begin", secondId);
+  await invoke("vellum:screenRecording:abort", secondId);
 });
 
 test("resolves requested display and window sources", async () => {
