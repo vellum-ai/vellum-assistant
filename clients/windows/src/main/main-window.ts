@@ -170,7 +170,9 @@ export const onOnboardingChange = (
 };
 
 export const setOnboarding = (active: boolean): void => {
-  if (readOnboardingActive() === active) return;
+  if (readOnboardingActive() === active) {
+    return;
+  }
   writeOnboardingActive(active);
   for (const listener of onboardingListeners) {
     listener(active);
