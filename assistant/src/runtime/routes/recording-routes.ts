@@ -91,12 +91,15 @@ function requireClientId(headers?: Record<string, string>): string {
   return clientId;
 }
 
-function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
+async function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
   const recordingId = body?.recordingId;
   if (typeof recordingId !== "string") {
     throw new BadRequestError("recordingId is required");
   }
-  const clientId = requireClientId(headers);
+  const rendererClientId = requireClientId(headers);
+  const clientId = headers?.["vellum-device-id"]?.trim()
+    ? await requireDesktopClient(headers)
+    : rendererClientId;
   const outcome = claimRecordingOutcome(recordingId, clientId, {
     isClientConnected: (clientId) =>
       Boolean(assistantEventHub.getClientById(clientId)),

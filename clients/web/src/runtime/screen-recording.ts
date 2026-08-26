@@ -415,6 +415,14 @@ export class ScreenRecordingController {
     this.pending = pending;
     await this.dependencies.waitForAssistantVersion(assistantId);
     if (this.pending !== pending) {
+      if (pending.cancelled) {
+        await this.acknowledgePendingCancellation(
+          assistantId,
+          event,
+          pending,
+          this.dependencies.supportsOwnership(assistantId) ?? false,
+        );
+      }
       return;
     }
     const ownershipSupport = this.dependencies.supportsOwnership(assistantId);
@@ -510,12 +518,8 @@ export class ScreenRecordingController {
         return;
       }
       if (requiresTransfer) {
-        await this.dependencies.transferRecording(
-          assistantId,
-          event.recordingId,
-          "begin",
-        );
         transferStarted = true;
+        await this.transferWithRetry(assistantId, event.recordingId, "begin");
       }
       await bridge.begin(event.recordingId);
       fileStarted = true;
@@ -701,7 +705,7 @@ export class ScreenRecordingController {
         });
       }
       recorder.start(1_000);
-      await this.dependencies.reportStatus(assistantId, event, "started");
+      await this.reportStatusWithRetry(assistantId, event, "started");
     } catch (error) {
       const ownershipLost =
         pending.ownershipLost ||

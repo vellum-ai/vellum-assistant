@@ -37,6 +37,7 @@ test("streams ordered chunks into a file-backed recording attachment", async () 
   const recordingId = "00000000-0000-4000-8000-000000000001";
 
   await store.begin(recordingId, "client-1");
+  await store.begin(recordingId, "client-1");
   await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
   await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
   await store.append(recordingId, "client-1", 1, new Uint8Array([3, 4]));

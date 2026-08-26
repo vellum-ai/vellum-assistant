@@ -213,6 +213,16 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     getClientById: (clientId: string) => mockClients.get(clientId),
     getActorPrincipalIdForClient: (clientId: string) =>
       mockClients.get(clientId)?.actorPrincipalId,
+    subscribe: (client: {
+      clientId: string;
+      interfaceId: "macos" | "windows" | "web";
+      actorPrincipalId: string;
+    }) => {
+      mockClients.set(client.clientId, client);
+      return {
+        dispose: () => mockClients.delete(client.clientId),
+      };
+    },
   },
 }));
 

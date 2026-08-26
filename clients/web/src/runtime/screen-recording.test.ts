@@ -701,6 +701,76 @@ test("retries an idempotent stopped status after a lost response", async () => {
   expect(track.stopped).toBeTrue();
 });
 
+test("retries an idempotent started status after a lost response", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const statuses: string[] = [];
+  let startedAttempts = 0;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+      if (status === "started" && startedAttempts++ === 0) {
+        throw new Error("response lost after processing");
+      }
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+
+  expect(statuses).toEqual(["started", "started"]);
+  expect(recorder.state).toBe("recording");
+  expect(track.stopped).toBeFalse();
+});
+
+test("retries an idempotent transfer begin after a lost response", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const operations: string[] = [];
+  let beginAttempts = 0;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async () => undefined,
+    requiresTransfer: () => true,
+    transferRecording: async (_assistantId, _recordingId, operation) => {
+      operations.push(operation);
+      if (operation === "begin" && beginAttempts++ === 0) {
+        throw new Error("response lost after processing");
+      }
+      return {};
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-remote");
+
+  expect(operations).toEqual(["begin", "begin"]);
+  expect(window.vellum!.screenRecording!.begin).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
+  expect(track.stopped).toBeFalse();
+});
+
 test("only the client that wins the claim starts capture", async () => {
   const election: { owner: string | null } = { owner: null };
   const capture = mock(async () => {
@@ -1133,6 +1203,11 @@ test("cancels an obsolete start while its version is resolving", async () => {
   const recorder = new FakeRecorder();
   const track = new FakeTrack();
   const claimRecordingMock = mock(async () => "claimed" as const);
+  const statuses: Array<{
+    assistantId: string;
+    recordingId: string;
+    status: string;
+  }> = [];
   const versionResolvers = new Map<string, () => void>();
   const controller = new ScreenRecordingController({
     ...localTransferDependencies,
@@ -1148,7 +1223,9 @@ test("cancels an obsolete start while its version is resolving", async () => {
     ownsLifecycle: () => true,
     now: () => 0,
     claimRecording: claimRecordingMock,
-    reportStatus: async () => undefined,
+    reportStatus: async (assistantId, event, status) => {
+      statuses.push({ assistantId, recordingId: event.recordingId, status });
+    },
     supportsOwnership: () => true,
     waitForAssistantVersion: (assistantId) =>
       new Promise<void>((resolve) => {
@@ -1169,7 +1246,12 @@ test("cancels an obsolete start while its version is resolving", async () => {
   versionResolvers.get("assistant-old")!();
   await obsoleteStart;
 
-  expect(claimRecordingMock).toHaveBeenCalledTimes(1);
+  expect(claimRecordingMock).toHaveBeenCalledTimes(2);
+  expect(statuses).toContainEqual({
+    assistantId: "assistant-old",
+    recordingId,
+    status: "restart_cancelled",
+  });
   expect(recorder.state).toBe("recording");
 });
 
