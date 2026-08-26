@@ -127,62 +127,57 @@ function queuePrunes(
   }
 }
 
-function persistPendingReinjections(
-  mdb: MemoryDb,
-  conversationId: string,
-): void {
-  const pending = pendingReinjections.get(conversationId);
-  if (!pending) {
+function persistPendingAccounting(mdb: MemoryDb, conversationId: string): void {
+  const reinjections = [...(pendingReinjections.get(conversationId) ?? [])];
+  const prunes = [...(pendingPrunes.get(conversationId) ?? [])];
+  if (reinjections.length === 0 && prunes.length === 0) {
     return;
   }
-  for (const [slug, entry] of pending) {
-    mdb
-      .insert(memoryV3EverInjected)
-      .values({
-        conversationId,
-        slug,
-        injectedAt: entry.injectedAt,
-        bytes: entry.bytes,
-        prunedAt: null,
-      })
-      .onConflictDoUpdate({
-        target: [
-          memoryV3EverInjected.conversationId,
-          memoryV3EverInjected.slug,
-        ],
-        set: {
+  mdb.transaction((tx) => {
+    for (const [slug, entry] of reinjections) {
+      tx.insert(memoryV3EverInjected)
+        .values({
+          conversationId,
+          slug,
           injectedAt: entry.injectedAt,
           bytes: entry.bytes,
           prunedAt: null,
-        },
-      })
-      .run();
-    pending.delete(slug);
+        })
+        .onConflictDoUpdate({
+          target: [
+            memoryV3EverInjected.conversationId,
+            memoryV3EverInjected.slug,
+          ],
+          set: {
+            injectedAt: entry.injectedAt,
+            bytes: entry.bytes,
+            prunedAt: null,
+          },
+        })
+        .run();
+    }
+    for (const [slug, prunedAt] of prunes) {
+      tx.update(memoryV3EverInjected)
+        .set({ prunedAt })
+        .where(
+          and(
+            eq(memoryV3EverInjected.conversationId, conversationId),
+            eq(memoryV3EverInjected.slug, slug),
+          ),
+        )
+        .run();
+    }
+  });
+  for (const [slug] of reinjections) {
+    pendingReinjections.get(conversationId)?.delete(slug);
   }
-  if (pending.size === 0) {
+  for (const [slug] of prunes) {
+    pendingPrunes.get(conversationId)?.delete(slug);
+  }
+  if (pendingReinjections.get(conversationId)?.size === 0) {
     pendingReinjections.delete(conversationId);
   }
-}
-
-function persistPendingPrunes(mdb: MemoryDb, conversationId: string): void {
-  const pending = pendingPrunes.get(conversationId);
-  if (!pending) {
-    return;
-  }
-  for (const [slug, prunedAt] of pending) {
-    mdb
-      .update(memoryV3EverInjected)
-      .set({ prunedAt })
-      .where(
-        and(
-          eq(memoryV3EverInjected.conversationId, conversationId),
-          eq(memoryV3EverInjected.slug, slug),
-        ),
-      )
-      .run();
-    pending.delete(slug);
-  }
-  if (pending.size === 0) {
+  if (pendingPrunes.get(conversationId)?.size === 0) {
     pendingPrunes.delete(conversationId);
   }
 }
@@ -190,8 +185,7 @@ function persistPendingPrunes(mdb: MemoryDb, conversationId: string): void {
 function retryPendingAccounting(mdb: MemoryDb, conversationId: string): void {
   try {
     reconcilePendingPersistedInjections(mdb, conversationId);
-    persistPendingReinjections(mdb, conversationId);
-    persistPendingPrunes(mdb, conversationId);
+    persistPendingAccounting(mdb, conversationId);
   } catch (err) {
     log.warn({ err }, "failed to retry pending card accounting; continuing");
   }

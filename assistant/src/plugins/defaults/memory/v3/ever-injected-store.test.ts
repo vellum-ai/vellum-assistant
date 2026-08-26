@@ -447,6 +447,42 @@ describe("fail-soft without a memory database", () => {
     });
   });
 
+  test("rolls back recovered injection when its queued prune fails", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    memoryDbAvailable = false;
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
+    ]);
+    markPruned("conv-1", ["topics/page-a"], 4_000);
+    memorySqlite.run(`
+      CREATE TRIGGER fail_recovered_prune
+      BEFORE UPDATE ON memory_v3_ever_injected
+      WHEN NEW.pruned_at = 4000
+      BEGIN
+        SELECT RAISE(ABORT, 'failed recovered prune');
+      END
+    `);
+
+    memoryDbAvailable = true;
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(residentBytes("conv-1")).toBe(0);
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 100,
+      prunedAt: 2_000,
+    });
+
+    memorySqlite.run("DROP TRIGGER fail_recovered_prune");
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 140,
+      prunedAt: 4_000,
+    });
+  });
+
   test("lets queued durable reconciliation supersede an older prune", () => {
     recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
     markPruned("conv-1", ["topics/page-a"], 2_000);
