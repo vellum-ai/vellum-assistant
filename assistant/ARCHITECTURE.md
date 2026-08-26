@@ -644,7 +644,7 @@ To add a new daemon batch STT provider, follow the full checklist in `docs/stt-p
 
 **Conversation streaming boundary:**
 
-Real-time conversation chat message capture on macOS uses a WebSocket-based streaming STT path. When the configured `services.stt` provider supports conversation streaming (determined by the `conversationStreamingMode` field in the provider catalog), native clients open a WebSocket session through the gateway to the daemon's `/v1/stt/stream` endpoint. The daemon resolves a `StreamingTranscriber` for the configured provider and streams partial/final transcript events back to the client in real time.
+Real-time conversation chat message capture on macOS uses a WebSocket-based streaming STT path. When the provider the `dictation` role resolves to supports conversation streaming (determined by the `conversationStreamingMode` field in the provider catalog), native clients open a WebSocket session through the gateway to the daemon's `/v1/stt/stream` endpoint. The daemon resolves a `StreamingTranscriber` for that provider and streams partial/final transcript events back to the client in real time.
 
 Each provider that advertises a conversation streaming mode in the catalog ships an adapter implementing the `StreamingTranscriber` interface from `src/stt/types.ts`. The catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the source of truth for which providers are streaming-capable; `resolveStreamingTranscriber()` maps each to its adapter:
 
@@ -665,8 +665,8 @@ Each provider that advertises a conversation streaming mode in the catalog ships
 
 **Session lifecycle (daemon side):**
 
-1. Client opens a WebSocket to `/v1/stt/stream` with required query parameter `mimeType` and optional `provider` and `sampleRate`. The `provider` parameter is optional compatibility metadata — the runtime is config-authoritative and always resolves the streaming transcriber from `services.stt.provider`. When a requested provider disagrees with the configured provider, the runtime logs a mismatch warning.
-2. `SttStreamSession` (in `src/stt/stt-stream-session.ts`) resolves a `StreamingTranscriber` via `resolveStreamingTranscriber()` from `src/providers/speech-to-text/resolve.ts`, using the configured provider (not the requested one).
+1. Client opens a WebSocket to `/v1/stt/stream` with required query parameter `mimeType` and optional `provider` and `sampleRate`. The `provider` parameter is optional compatibility metadata: the runtime is config-authoritative and always resolves the streaming transcriber from the `dictation` role (`services.stt.roles.dictation`, else `services.stt.provider`). When a requested provider disagrees with the one that role resolves to, the runtime logs a mismatch warning.
+2. `SttStreamSession` (in `src/stt/stt-stream-session.ts`) resolves a `StreamingTranscriber` via `resolveStreamingTranscriber()` from `src/providers/speech-to-text/resolve.ts`, using the dictation role's provider (not the requested one).
 3. The transcriber's `start()` method opens the provider session.
 4. A `ready` event (with `provider` field) is sent to the client, signaling that audio frames are accepted.
 5. Client sends `audio` frames (binary WebSocket frames or base64-encoded JSON) and a `stop` event when recording ends.
@@ -737,7 +737,7 @@ V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region 
 
 **Client service-first boundary:**
 
-All product-facing dictation and voice-streaming paths use a service-first STT strategy. Clients record audio, encode it to WAV, and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint. The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
+All product-facing dictation and voice-streaming paths use a service-first STT strategy. Clients record audio, encode it to WAV, and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint. The daemon resolves the `dictation` role's provider through `resolveBatchTranscriber()` and returns the transcribed text. `POST /v1/stt/transcribe-file` resolves the `batch` role the same way.
 
 - The client receives a typed result distinguishing success from `notConfigured`, `serviceUnavailable`, and `error`, so callers can deterministically trigger their fallback path.
 - The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
