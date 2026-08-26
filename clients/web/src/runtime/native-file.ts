@@ -62,7 +62,14 @@ export async function saveFile(
   filename: string,
 ): Promise<void> {
   if (Capacitor.isNativePlatform()) {
-    await shareFileNative(source, filename);
+    try {
+      await shareFileNative(source, filename);
+    } catch {
+      // The fetch or cache write failed before the sheet could present, so
+      // the host never got a chance to give its own feedback. Report the
+      // terminal outcome; a presented sheet remains its own feedback.
+      publish("download.done", { filename, state: "interrupted" });
+    }
     return;
   }
   // Electron: resolve a URL source to a blob before the anchor click. Chromium
@@ -144,10 +151,16 @@ async function shareFileNative(
   const { Filesystem, Directory } = await import("@capacitor/filesystem");
   const { Share } = await import("@capacitor/share");
 
+  // `Filesystem.writeFile` reads the filename as a cache-relative path, so a
+  // separator in a title-derived name ("Q3/Q4 plan.pdf") would point into a
+  // directory that does not exist. Flatten separators rather than basenaming
+  // so the visible name keeps the whole title.
+  const safeFilename = filename.replace(/[/\\]/g, "-");
+
   const base64 = await blobToBase64(await toBlob(source));
 
   const result = await Filesystem.writeFile({
-    path: filename,
+    path: safeFilename,
     data: base64,
     directory: Directory.Cache,
   });

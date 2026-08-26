@@ -163,6 +163,28 @@ describe("saveFile, the Download intent", () => {
     expect(share).toHaveBeenCalledTimes(1);
     expect(clicks).toHaveLength(0);
   });
+
+  test("flattens path separators in a title-derived filename on native", async () => {
+    // Filesystem.writeFile reads the name as a cache-relative path; a
+    // separator would point into a directory that does not exist.
+    isNative = true;
+
+    await saveFile(blob, "Q3/Q4 plan.pdf");
+
+    const written = writeFile.mock.calls[0]?.[0] as { path: string };
+    expect(written.path).toBe("Q3-Q4 plan.pdf");
+  });
+
+  test("reports a native fetch failure instead of dying before the sheet", async () => {
+    isNative = true;
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+
+    await saveFile("https://cdn.example.com/report.pdf", "report.pdf");
+
+    expect(share).not.toHaveBeenCalled();
+    expect(done).toEqual([{ filename: "report.pdf", state: "interrupted" }]);
+    expect(started).toEqual([]);
+  });
 });
 
 describe("shareFile, the Share intent", () => {
