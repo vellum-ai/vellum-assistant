@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { DomainField } from "@/domains/settings/components/domain-field";
+import { DomainField } from "@/domains/channels/components/domain-field";
 import {
   assistantsDomainsCreateMutation,
   assistantsDomainsDestroyMutation,
@@ -30,7 +30,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { Trans, useTranslation } from "@/i18n";
 
-import { DomainVerificationChip } from "@/domains/settings/ai/shared-ui";
+import { DomainVerificationChip } from "@/components/service-card-ui";
 
 const CONFIRM_CODE_CLASS =
   "rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]";
@@ -46,7 +46,7 @@ export function EmailManagedContent({
   assistantHandle,
   emailRootDomain,
 }: EmailManagedContentProps) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation("channels");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -359,7 +359,9 @@ export function EmailManagedContent({
             }
           }}
           domainSuffix={emailRootDomain}
-          subdomainPlaceholder={t("emailManagedContent.subdomainExamplePlaceholder")}
+          subdomainPlaceholder={t(
+            "emailManagedContent.subdomainExamplePlaceholder",
+          )}
           error={subdomainError}
         />
         <p className="text-body-small-default text-[var(--content-tertiary)]">
@@ -379,7 +381,7 @@ export function EmailManagedContent({
           message={
             <Trans
               i18nKey="emailManagedContent.setSubdomainConfirmMessage"
-              ns="settings"
+              ns="channels"
               values={{
                 subdomain:
                   subdomainDraft.trim().toLowerCase() ||
@@ -430,7 +432,7 @@ export function EmailManagedContent({
             message={
               <Trans
                 i18nKey="emailManagedContent.releaseDomainConfirmMessage"
-                ns="settings"
+                ns="channels"
                 values={{
                   domain: `${domain.subdomain}.${emailRootDomain}`,
                 }}
@@ -521,7 +523,7 @@ export function EmailManagedContent({
           message={
             <Trans
               i18nKey="emailManagedContent.removeEmailConfirmMessage"
-              ns="settings"
+              ns="channels"
               values={{ address: address.address }}
               components={{
                 code: <code className={CONFIRM_CODE_CLASS} />,

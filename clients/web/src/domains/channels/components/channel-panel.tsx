@@ -13,6 +13,7 @@ import {
   type ChannelCredentialForm,
 } from "@/domains/channels/channel-meta";
 import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
+import { EmailChannelSection } from "@/domains/channels/components/email-channel-section";
 import { ConnectedChannelHeader } from "@/domains/channels/components/connected-channel-header";
 import { SlackChannelCard } from "@/domains/channels/components/slack-channel-card";
 import { SlackChannelSection } from "@/domains/channels/components/slack-channel-section";
@@ -126,6 +127,28 @@ export function ChannelPanel({
   // their card chrome, so it returns bare (the parent skips the DetailCard). The
   // cards stack at natural height and the parent section owns the vertical
   // scroll, so no min-h-0/flex-1 fill here.
+  // Email's setup is address and domain management on the platform plus a
+  // bring-your-own provider key, not a credential wizard, so its section owns
+  // the whole surface across connected and unconfigured states. The trust
+  // floor is the one generic control it shares with the other channels.
+  if (channel.key === "email") {
+    return (
+      <div className="flex flex-col gap-4">
+        <EmailChannelSection />
+        {onPolicyChange ? (
+          <ChannelTrustFloorSection
+            assistantDisplayName={assistantDisplayName}
+            policy={policy}
+            saving={policySaving}
+            loading={policyLoading}
+            error={policyError}
+            onChange={onPolicyChange}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
   if (channel.key === "slack") {
     return (
       <div className="flex flex-col gap-4">

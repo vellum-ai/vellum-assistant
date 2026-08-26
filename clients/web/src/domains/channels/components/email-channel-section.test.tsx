@@ -1,5 +1,5 @@
 /**
- * Gate tests for `EmailServiceCard`'s managed-email subscription gate.
+ * Gate tests for `EmailChannelSection`'s managed-email subscription gate.
  *
  * The gate keys off the `managed_email` entitlement, NOT `plan_id`, so an
  * admin `EntitlementOverride` that grants managed email to a Base org is
@@ -51,7 +51,7 @@ mock.module("@/runtime/platform-detection", () => ({
 const ASSISTANT_ID = "asst-1";
 
 // Seed the selection store so useActiveAssistantId() (called by
-// EmailServiceCard) finds a non-null id without a route-level gate.
+// EmailChannelSection) finds a non-null id without a route-level gate.
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
@@ -67,8 +67,8 @@ mock.module("@/hooks/use-platform-assistant-id", () => ({
   }),
 }));
 
-const { EmailServiceCard } =
-  await import("@/domains/settings/ai/email-service-card");
+const { EmailChannelSection } =
+  await import("@/domains/channels/components/email-channel-section");
 
 const ASSISTANT_HANDLE = "my-assistant";
 
@@ -105,13 +105,13 @@ function renderCard(subscription: SubscriptionResponse): string {
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <EmailServiceCard />
+        <EmailChannelSection />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe("EmailServiceCard managed-email gate", () => {
+describe("EmailChannelSection managed-email gate", () => {
   test("Base org without the managed_email entitlement sees the upgrade notice", () => {
     const html = renderCard(makeSubscription(false, "base"));
     expect(html).toContain("Upgrade");

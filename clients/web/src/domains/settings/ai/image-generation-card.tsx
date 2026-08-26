@@ -24,7 +24,7 @@ import {
   providerForImageGenModel,
 } from "@/lib/provider-catalogs";
 
-import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/service-card-ui";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
@@ -77,7 +77,8 @@ export function ImageGenerationCard() {
       return getLocalSetting(LS_IMAGE_GEN_PROVIDER, "gemini");
     }
     const svc = daemonConfig.services?.["image-generation"] as
-      { provider?: string; mode?: string } | undefined;
+      | { provider?: string; mode?: string }
+      | undefined;
     // A config written by the legacy mode toggle marks managed via `mode` —
     // the daemon routes it to Vellum, so the card renders it as Vellum too.
     if (svc?.mode === "managed") {

@@ -18,7 +18,7 @@ import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { Trans, useTranslation } from "@/i18n";
-import { ByoServiceCard, ServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard, ServiceCard } from "@/components/service-card-ui";
 import { SaveButton } from "@/components/service-form-controls";
 import {
   LS_EMAIL_BYO_PROVIDER,
@@ -26,12 +26,12 @@ import {
 } from "@/utils/local-settings-keys";
 import type { EmailByoProvider } from "@/lib/provider-catalogs";
 import { EMAIL_BYO_PROVIDERS } from "@/lib/provider-catalogs";
-import { parseServiceMode } from "@/domains/settings/ai/utils";
+import { parseServiceMode } from "@/utils/service-mode";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
-import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
+import { EmailManagedContent } from "@/domains/channels/components/email-managed-content";
 
-export function EmailServiceCard() {
-  const { t } = useTranslation("settings");
+export function EmailChannelSection() {
+  const { t } = useTranslation("channels");
   const assistantId = useActiveAssistantId();
 
   // assistantHandle is platform-only; used to pre-fill the email subdomain.
@@ -129,7 +129,7 @@ export function EmailServiceCard() {
         <span>
           <Trans
             i18nKey="emailServiceCard.setupInstructions"
-            ns="settings"
+            ns="channels"
             values={{
               providerName: selectedByoProvider.displayName,
               setupSkill: selectedByoProvider.setupSkill,
@@ -183,7 +183,7 @@ export function EmailServiceCard() {
             <span>
               <Trans
                 i18nKey="emailServiceCard.apiKeyConfigured"
-                ns="settings"
+                ns="channels"
                 values={{
                   providerName: selectedByoProvider.displayName,
                   setupSkill: selectedByoProvider.setupSkill,

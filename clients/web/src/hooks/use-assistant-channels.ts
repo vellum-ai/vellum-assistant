@@ -53,6 +53,7 @@ export const DISCONNECT_ROUTES: Record<
   slack: integrationsSlackChannelConfigDelete,
   telegram: integrationsTelegramConfigDelete,
   discord: integrationsDiscordConfigDelete,
+  email: undefined,
   phone: integrationsTwilioCredentialsDelete,
 };
 
@@ -60,6 +61,7 @@ const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
   slack: "I want to reach you on Slack. Let's set it up.",
   telegram: "I want to reach you on Telegram. Let's set it up.",
   discord: "I want to reach you on Discord. Let's set it up.",
+  email: "I want to email you. Let's set up your email address.",
   phone: "I want to be able to call you. Let's set you up with a phone number.",
 };
 
@@ -72,6 +74,7 @@ const ASSISTANT_FINISH_PROMPTS: Record<SetupChannelId, string> = {
   slack: "Slack is set up but not working. Can you finish it off?",
   telegram: "Telegram is set up but not working. Can you finish it off?",
   discord: "Discord is set up but not working. Can you finish it off?",
+  email: "My email address is set up but not working. Can you finish it off?",
   phone: "My phone number is set up but not working. Can you finish it off?",
 };
 

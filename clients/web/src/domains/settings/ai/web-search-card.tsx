@@ -23,7 +23,7 @@ import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/service-card-ui";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { LS_WEB_SEARCH_PROVIDER } from "@/utils/local-settings-keys";
 import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/utils";
@@ -240,11 +240,7 @@ export function WebSearchCard() {
     setDraftWebSearchApiBase("");
     setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
-  }, [
-    webSearchProvider,
-    setDraftWebSearchProvider,
-    setDraftWebSearchApiBase,
-  ]);
+  }, [webSearchProvider, setDraftWebSearchProvider, setDraftWebSearchApiBase]);
 
   return (
     <ByoServiceCard
