@@ -2,23 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
-  filterSkillsByClientPlatform,
-  filterSkillsByPlatform,
-  isSkillCompatibleWithClientPlatform,
-  isSkillCompatibleWithPlatform,
+  filterSkillsByContext,
+  isSkillCompatibleWithContext,
   normalizeSkillPlatforms,
   skillPlatformForClientOs,
-  skillPlatformForNodePlatform,
 } from "./platform-compatibility.js";
 
 describe("skill platform compatibility", () => {
-  test("maps Node platforms to skill platform names", () => {
-    expect(skillPlatformForNodePlatform("darwin")).toBe("macos");
-    expect(skillPlatformForNodePlatform("win32")).toBe("windows");
-    expect(skillPlatformForNodePlatform("linux")).toBe("linux");
-    expect(skillPlatformForNodePlatform("freebsd")).toBeNull();
-  });
-
   test("maps desktop client operating systems to skill platforms", () => {
     expect(skillPlatformForClientOs("macos")).toBe("macos");
     expect(skillPlatformForClientOs("windows")).toBe("windows");
@@ -26,36 +16,58 @@ describe("skill platform compatibility", () => {
   });
 
   test("treats missing platform metadata as portable", () => {
-    expect(isSkillCompatibleWithPlatform({}, "win32")).toBe(true);
-    expect(isSkillCompatibleWithPlatform({}, "linux")).toBe(true);
-  });
-
-  test("matches declared host platforms", () => {
-    const skill = { platforms: ["macos", "linux"] as const };
-    expect(isSkillCompatibleWithPlatform(skill, "darwin")).toBe(true);
-    expect(isSkillCompatibleWithPlatform(skill, "linux")).toBe(true);
-    expect(isSkillCompatibleWithPlatform(skill, "win32")).toBe(false);
+    expect(isSkillCompatibleWithContext({}, {})).toBe(true);
   });
 
   test("matches a capable connected host when the assistant host differs", () => {
     const skill = { platforms: ["windows"] as const };
     expect(
-      isSkillCompatibleWithClientPlatform(skill, "windows", "linux", [
-        "windows",
-      ]),
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: ["windows"],
+      }),
     ).toBe(true);
     expect(
-      isSkillCompatibleWithClientPlatform(skill, "windows", "linux", []),
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: [],
+      }),
     ).toBe(false);
     expect(
-      isSkillCompatibleWithClientPlatform(skill, "macos", "linux", ["windows"]),
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "macos",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: ["windows"],
+      }),
     ).toBe(false);
   });
 
   test("rejects a Windows browser without a capable host on Windows", () => {
     const skill = { platforms: ["windows"] as const };
     expect(
-      isSkillCompatibleWithClientPlatform(skill, "windows", "win32", []),
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: [],
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects clientless turns even when a capable host is connected", () => {
+    const skill = { platforms: ["windows"] as const };
+    expect(
+      isSkillCompatibleWithContext(skill, {
+        clientOs: "windows",
+        isInteractive: false,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: ["windows"],
+      }),
     ).toBe(false);
   });
 
@@ -71,38 +83,22 @@ describe("skill platform compatibility", () => {
     try {
       const skill = { platforms: ["windows"] as const };
       expect(
-        isSkillCompatibleWithClientPlatform(
-          skill,
-          "windows",
-          "linux",
-          undefined,
-          "actor-a",
-        ),
+        isSkillCompatibleWithContext(skill, {
+          clientOs: "windows",
+          isInteractive: true,
+          sourceActorPrincipalId: "actor-a",
+        }),
       ).toBe(false);
       expect(
-        isSkillCompatibleWithClientPlatform(
-          skill,
-          "windows",
-          "linux",
-          undefined,
-          "actor-b",
-        ),
+        isSkillCompatibleWithContext(skill, {
+          clientOs: "windows",
+          isInteractive: true,
+          sourceActorPrincipalId: "actor-b",
+        }),
       ).toBe(true);
     } finally {
       hostClient.dispose();
     }
-  });
-
-  test("filters incompatible skills from offer surfaces", () => {
-    const skills = [
-      { id: "portable" },
-      { id: "mac-only", platforms: ["macos"] as const },
-      { id: "windows-only", platforms: ["windows"] as const },
-    ];
-
-    expect(
-      filterSkillsByPlatform(skills, "win32").map((skill) => skill.id),
-    ).toEqual(["portable", "windows-only"]);
   });
 
   test("filters client-routed surfaces by the capable host platform", () => {
@@ -113,9 +109,12 @@ describe("skill platform compatibility", () => {
     ];
 
     expect(
-      filterSkillsByClientPlatform(skills, "windows", "linux", ["windows"]).map(
-        (skill) => skill.id,
-      ),
+      filterSkillsByContext(skills, {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+        hostPlatforms: ["windows"],
+      }).map((skill) => skill.id),
     ).toEqual(["windows-only"]);
   });
 

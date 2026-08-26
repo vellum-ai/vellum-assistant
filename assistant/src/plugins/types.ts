@@ -153,6 +153,10 @@ export interface TurnContext {
    * transport interface.
    */
   readonly clientOs?: string;
+  /** True when a person is present for the current turn. */
+  readonly isInteractive?: boolean;
+  /** Authenticated actor that owns host capabilities for the current turn. */
+  readonly sourceActorPrincipalId?: string;
   /**
    * The app the client has open on screen, resolved from the id the client
    * reports with each message. Rendered as the `visible_app:` line so the

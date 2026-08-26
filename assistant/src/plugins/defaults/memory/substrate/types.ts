@@ -16,6 +16,8 @@
 
 import { z } from "zod";
 
+import type { SkillPlatform } from "../../../../skills/platform-compatibility.js";
+
 // ---------------------------------------------------------------------------
 // Concept pages
 // ---------------------------------------------------------------------------
@@ -166,6 +168,7 @@ export type ActivationState = z.infer<typeof ActivationStateSchema>;
 export interface SkillEntry {
   id: string;
   content: string;
+  platforms?: SkillPlatform[];
 }
 
 // ---------------------------------------------------------------------------

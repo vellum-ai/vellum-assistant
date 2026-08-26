@@ -359,6 +359,11 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
             ctx.isHiddenPrompt === true &&
               ctx.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
           ),
+          {
+            clientOs: conversation.currentTurnClientOs,
+            isInteractive: !conversation.hasNoClient,
+            sourceActorPrincipalId: conversation.getTurnActorPrincipalId(),
+          },
         ),
     );
 

@@ -4,7 +4,7 @@ import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidat
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import {
-  filterSkillsByClientPlatform,
+  filterSkillsByContext,
   type SkillPlatform,
 } from "../../skills/platform-compatibility.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
@@ -97,14 +97,15 @@ export async function executeFindSimilarSkills(
   // slices only those. Filtering after the limit would let out-of-scope
   // high-rank matches consume slots and starve usable in-scope skills out of
   // the result. `null` set = pass the catalog through unchanged.
-  const scopedCatalog = filterSkillsByClientPlatform(
+  const scopedCatalog = filterSkillsByContext(
     enabledPluginSet === null
       ? catalog
       : catalog.filter((skill) => !outOfScope(skill)),
-    context.clientOs,
-    process.platform,
-    undefined,
-    context.sourceActorPrincipalId,
+    {
+      clientOs: context.clientOs,
+      isInteractive: context.isInteractive,
+      sourceActorPrincipalId: context.sourceActorPrincipalId,
+    },
   );
 
   const hits = await findNearest(goal, {

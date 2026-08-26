@@ -236,7 +236,12 @@ describe("resolveSkillStates with feature flags", () => {
     } as SkillSummary;
     const config = makeConfig();
 
-    expect(resolveSkillStates([skill], config)).toEqual([]);
+    expect(resolveSkillStates([skill], config)).toEqual([
+      expect.objectContaining({
+        summary: expect.objectContaining({ id: "client-platform-skill" }),
+        state: "enabled",
+      }),
+    ]);
 
     const hostClient = assistantEventHub.subscribe({
       type: "client",
@@ -248,7 +253,11 @@ describe("resolveSkillStates with feature flags", () => {
     });
     try {
       expect(
-        resolveSkillStates([skill], config, clientPlatform, "actor-a"),
+        resolveSkillStates([skill], config, {
+          clientOs: clientPlatform,
+          isInteractive: true,
+          sourceActorPrincipalId: "actor-a",
+        }),
       ).toEqual([
         expect.objectContaining({
           summary: expect.objectContaining({ id: "client-platform-skill" }),

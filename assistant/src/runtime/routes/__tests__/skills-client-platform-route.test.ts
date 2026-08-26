@@ -77,7 +77,7 @@ describe("skill management client platform routing", () => {
   test("passes the requesting client OS to skill listings", async () => {
     await listHandler({ headers: WINDOWS_HEADERS });
 
-    expect(listSkillsMock).toHaveBeenCalledWith("windows", "actor-a");
+    expect(listSkillsMock).toHaveBeenCalledWith("windows", "actor-a", true);
   });
 
   test("passes the requesting client OS to catalog search", async () => {
@@ -91,6 +91,7 @@ describe("skill management client platform routing", () => {
       25,
       "windows",
       "actor-a",
+      true,
     );
   });
 
@@ -104,6 +105,7 @@ describe("skill management client platform routing", () => {
       expect.objectContaining({
         slug: "windows-automation",
         clientOs: "windows",
+        isInteractive: true,
         sourceActorPrincipalId: "actor-a",
       }),
     );

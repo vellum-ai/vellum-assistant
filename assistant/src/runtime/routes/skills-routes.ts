@@ -250,6 +250,7 @@ export const ROUTES: RouteDefinition[] = [
           },
           clientOs,
           requestActorPrincipalId(headers),
+          true,
         );
         return {
           skills: result.skills,
@@ -258,7 +259,11 @@ export const ROUTES: RouteDefinition[] = [
         };
       }
 
-      const skills = listSkills(clientOs, requestActorPrincipalId(headers));
+      const skills = listSkills(
+        clientOs,
+        requestActorPrincipalId(headers),
+        true,
+      );
       return { skills };
     },
   },
@@ -331,6 +336,7 @@ export const ROUTES: RouteDefinition[] = [
         path,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
+        true,
       );
       if ("error" in result) {
         if (result.status === 400) {
@@ -375,6 +381,7 @@ export const ROUTES: RouteDefinition[] = [
         pathParams!.id,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
+        true,
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -446,6 +453,7 @@ export const ROUTES: RouteDefinition[] = [
             pathParams!.id,
             requestClientOs(headers),
             requestActorPrincipalId(headers),
+            true,
           )
         ) {
           throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
@@ -601,6 +609,7 @@ export const ROUTES: RouteDefinition[] = [
         limit,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
+        true,
       );
       if (!result.success) {
         throw new InternalError(result.error);
@@ -702,6 +711,7 @@ export const ROUTES: RouteDefinition[] = [
         pathParams!.id,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
+        true,
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -794,6 +804,7 @@ export const ROUTES: RouteDefinition[] = [
         overwrite: body.overwrite as boolean | undefined,
         clientOs: requestClientOs(headers),
         sourceActorPrincipalId: requestActorPrincipalId(headers),
+        isInteractive: true,
       });
       if (!result.success) {
         throw new InternalError(result.error);
@@ -859,6 +870,7 @@ export const ROUTES: RouteDefinition[] = [
         pathParams!.id,
         requestClientOs(headers),
         requestActorPrincipalId(headers),
+        true,
       );
       if (!result.ok) {
         if (result.status === 404) {

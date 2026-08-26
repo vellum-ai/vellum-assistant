@@ -8,6 +8,14 @@ export interface PlatformScopedSkill {
   platforms?: readonly SkillPlatform[];
 }
 
+export interface SkillPlatformContext {
+  clientOs?: unknown;
+  isInteractive?: boolean;
+  sourceActorPrincipalId?: string;
+  /** Test seam for the actor-scoped connected host inventory. */
+  hostPlatforms?: readonly unknown[];
+}
+
 export function normalizeSkillPlatforms(
   value: unknown,
 ): SkillPlatform[] | undefined {
@@ -22,21 +30,6 @@ export function normalizeSkillPlatforms(
     ),
   ];
   return platforms.length > 0 ? platforms : undefined;
-}
-
-export function skillPlatformForNodePlatform(
-  platform: NodeJS.Platform,
-): SkillPlatform | null {
-  if (platform === "darwin") {
-    return "macos";
-  }
-  if (platform === "win32") {
-    return "windows";
-  }
-  if (platform === "linux") {
-    return "linux";
-  }
-  return null;
 }
 
 export function skillPlatformForClientOs(value: unknown): SkillPlatform | null {
@@ -60,33 +53,23 @@ function connectedHostPlatforms(
   return [...new Set(platforms)];
 }
 
-export function isSkillCompatibleWithPlatform(
+export function isSkillCompatibleWithContext(
   skill: PlatformScopedSkill,
-  platform: NodeJS.Platform = process.platform,
+  context: SkillPlatformContext,
 ): boolean {
   if (!skill.platforms || skill.platforms.length === 0) {
     return true;
   }
-  const skillPlatform = skillPlatformForNodePlatform(platform);
-  return skillPlatform !== null && skill.platforms.includes(skillPlatform);
-}
-
-export function isSkillCompatibleWithClientPlatform(
-  skill: PlatformScopedSkill,
-  clientOs: unknown,
-  platform: NodeJS.Platform = process.platform,
-  hostPlatforms?: readonly unknown[],
-  sourceActorPrincipalId?: string,
-): boolean {
-  if (!skill.platforms || skill.platforms.length === 0) {
-    return true;
+  if (
+    context.isInteractive !== true ||
+    context.sourceActorPrincipalId == null
+  ) {
+    return false;
   }
-  if (clientOs == null) {
-    return isSkillCompatibleWithPlatform(skill, platform);
-  }
-  const clientPlatform = skillPlatformForClientOs(clientOs);
+  const clientPlatform = skillPlatformForClientOs(context.clientOs);
   const capableHostPlatforms =
-    hostPlatforms ?? connectedHostPlatforms(sourceActorPrincipalId);
+    context.hostPlatforms ??
+    connectedHostPlatforms(context.sourceActorPrincipalId);
   return (
     clientPlatform !== null &&
     capableHostPlatforms.includes(clientPlatform) &&
@@ -94,32 +77,18 @@ export function isSkillCompatibleWithClientPlatform(
   );
 }
 
-export function filterSkillsByPlatform<T extends PlatformScopedSkill>(
+export function filterSkillsByContext<T extends PlatformScopedSkill>(
   skills: readonly T[],
-  platform: NodeJS.Platform = process.platform,
-): T[] {
-  return skills.filter((skill) =>
-    isSkillCompatibleWithPlatform(skill, platform),
-  );
-}
-
-export function filterSkillsByClientPlatform<T extends PlatformScopedSkill>(
-  skills: readonly T[],
-  clientOs: unknown,
-  platform: NodeJS.Platform = process.platform,
-  hostPlatforms?: readonly unknown[],
-  sourceActorPrincipalId?: string,
+  context: SkillPlatformContext,
 ): T[] {
   const capableHostPlatforms =
-    hostPlatforms ?? connectedHostPlatforms(sourceActorPrincipalId);
+    context.hostPlatforms ??
+    connectedHostPlatforms(context.sourceActorPrincipalId);
   return skills.filter((skill) =>
-    isSkillCompatibleWithClientPlatform(
-      skill,
-      clientOs,
-      platform,
-      capableHostPlatforms,
-      sourceActorPrincipalId,
-    ),
+    isSkillCompatibleWithContext(skill, {
+      ...context,
+      hostPlatforms: capableHostPlatforms,
+    }),
   );
 }
 

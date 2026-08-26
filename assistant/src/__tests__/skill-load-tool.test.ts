@@ -90,6 +90,7 @@ async function executeSkillLoad(
   input: Record<string, unknown>,
   clientOs?: string,
   sourceActorPrincipalId?: string,
+  isInteractive: boolean = false,
 ): Promise<{ content: string; isError: boolean }> {
   const tool = skillLoadTool;
 
@@ -97,6 +98,7 @@ async function executeSkillLoad(
     workingDir: "/tmp",
     conversationId: "conversation-1",
     clientOs,
+    isInteractive,
     sourceActorPrincipalId,
     trustClass: "guardian",
   });
@@ -174,6 +176,7 @@ describe("skill_load tool", () => {
         { skill: "client-platform-skill" },
         clientPlatform,
         "actor-a",
+        true,
       );
       expect(withClient.isError).toBe(false);
       expect(withClient.content).toContain("Body.");

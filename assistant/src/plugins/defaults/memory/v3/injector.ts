@@ -68,6 +68,7 @@ import {
   queueConversationNotice,
 } from "../../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../../daemon/trust-context.js";
+import { isSkillCompatibleWithContext } from "../../../../skills/platform-compatibility.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -75,6 +76,7 @@ import {
 } from "../../../types.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock, wrapMemorySpotlightBlock } from "../memory-marker.js";
+import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
 import { isCapabilitySlug } from "./capabilities.js";
 import { cardBytes } from "./card.js";
 import { getActiveSlugs, recordInjected } from "./ever-injected-store.js";
@@ -324,7 +326,21 @@ export const memoryV3Injector: Injector = {
       const active = getActiveSlugs(ctx.conversationId);
       const netNew = result.selections
         .map((s) => s.slug)
-        .filter((slug) => !active.has(slug));
+        .filter((slug) => !active.has(slug))
+        .filter((slug) => {
+          if (!isSkillSlug(slug)) {
+            return true;
+          }
+          const skill = getSkillCapability(slug);
+          return (
+            skill !== null &&
+            isSkillCompatibleWithContext(skill, {
+              clientOs: ctx.clientOs,
+              isInteractive: ctx.isInteractive,
+              sourceActorPrincipalId: ctx.sourceActorPrincipalId,
+            })
+          );
+        });
 
       // Render net-new cards, skipping slugs that resolve to no content
       // (deleted pages, unresolvable capabilities) — nothing is attached for

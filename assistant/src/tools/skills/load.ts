@@ -22,7 +22,7 @@ import {
 } from "../../skills/include-graph.js";
 import { renderInlineCommands } from "../../skills/inline-command-render.js";
 import {
-  isSkillCompatibleWithClientPlatform,
+  isSkillCompatibleWithContext,
   skillPlatformUnavailableMessage,
 } from "../../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
@@ -193,6 +193,7 @@ export const skillLoadTool = {
           undefined,
           context.clientOs,
           context.sourceActorPrincipalId,
+          context.isInteractive,
         );
         if (installed) {
           log.info({ skillId: selector }, "Auto-installed skill from catalog");
@@ -221,13 +222,11 @@ export const skillLoadTool = {
     const skill = loaded.skill;
 
     if (
-      !isSkillCompatibleWithClientPlatform(
-        skill,
-        context.clientOs,
-        process.platform,
-        undefined,
-        context.sourceActorPrincipalId,
-      )
+      !isSkillCompatibleWithContext(skill, {
+        clientOs: context.clientOs,
+        isInteractive: context.isInteractive,
+        sourceActorPrincipalId: context.sourceActorPrincipalId,
+      })
     ) {
       return {
         content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
@@ -320,6 +319,7 @@ export const skillLoadTool = {
               remoteCatalog,
               context.clientOs,
               context.sourceActorPrincipalId,
+              context.isInteractive,
             );
             if (installed) {
               log.info(
@@ -449,13 +449,11 @@ export const skillLoadTool = {
           continue;
         }
         if (
-          !isSkillCompatibleWithClientPlatform(
-            child,
-            context.clientOs,
-            process.platform,
-            undefined,
-            context.sourceActorPrincipalId,
-          )
+          !isSkillCompatibleWithContext(child, {
+            clientOs: context.clientOs,
+            isInteractive: context.isInteractive,
+            sourceActorPrincipalId: context.sourceActorPrincipalId,
+          })
         ) {
           continue;
         }

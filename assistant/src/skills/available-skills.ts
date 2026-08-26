@@ -1,10 +1,7 @@
 import { getConfig } from "../config/loader.js";
 import type { SkillSource } from "../config/skills.js";
 import type { SkillInstallMeta } from "./install-meta.js";
-import {
-  isSkillCompatibleWithPlatform,
-  type SkillPlatform,
-} from "./platform-compatibility.js";
+import type { SkillPlatform } from "./platform-compatibility.js";
 
 /**
  * Plugin-facing read API over the skill surface: the locally installed
@@ -128,7 +125,6 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       typeof flagKey === "string" &&
       flagKey.length > 0 &&
       !isAssistantFeatureFlagEnabled(flagKey, config);
-    const incompatible = !isSkillCompatibleWithPlatform(entry);
     return {
       id: entry.id,
       displayName: entry.metadata?.vellum?.["display-name"] ?? entry.name,
@@ -137,7 +133,7 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       avoidWhen: entry.metadata?.vellum?.["avoid-when"],
       platforms: entry.platforms,
       installed: false,
-      state: gated || incompatible ? "unavailable" : "available",
+      state: gated ? "unavailable" : "available",
     };
   });
 }

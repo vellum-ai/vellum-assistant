@@ -44,6 +44,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
+import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks
@@ -993,6 +994,88 @@ describe("injectMemoryV2Block", () => {
     );
     expect(headerIdx).toBeGreaterThan(-1);
     expect(skillIdx).toBeGreaterThan(headerIdx);
+  });
+
+  test("injects a retrieved Windows skill for the actor with a paired Windows host", async () => {
+    stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
+    stageSkills([
+      {
+        id: "windows-automation",
+        content: "Automates native Windows applications.",
+        platforms: ["windows"],
+      },
+    ]);
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "memory-injection-windows-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    try {
+      const result = await injectMemoryV2Block({
+        conversationId: "conv-windows-host",
+        currentTurn: 1,
+        recentTurnPairs: [
+          { assistantMessage: "", userMessage: "Open Windows Settings" },
+        ],
+        nowText: "Now",
+        messageId: "msg-windows-host",
+        config: makeConfig(),
+        skillPlatformContext: {
+          clientOs: "windows",
+          isInteractive: true,
+          sourceActorPrincipalId: "actor-a",
+        },
+      });
+
+      expect(result.toInject).toEqual(["skills/windows-automation"]);
+      expect(result.block).toContain("Automates native Windows applications.");
+    } finally {
+      hostClient.dispose();
+    }
+  });
+
+  test("does not inject a Windows skill on a clientless turn", async () => {
+    stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
+    stageSkills([
+      {
+        id: "windows-automation",
+        content: "Automates native Windows applications.",
+        platforms: ["windows"],
+      },
+    ]);
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "memory-injection-clientless-windows-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    try {
+      const result = await injectMemoryV2Block({
+        conversationId: "conv-clientless-windows",
+        currentTurn: 1,
+        recentTurnPairs: [
+          { assistantMessage: "", userMessage: "Run scheduled maintenance" },
+        ],
+        nowText: "Now",
+        messageId: "msg-clientless-windows",
+        config: makeConfig(),
+        skillPlatformContext: {
+          clientOs: "windows",
+          isInteractive: false,
+          sourceActorPrincipalId: "actor-a",
+        },
+      });
+
+      expect(result.toInject).toEqual([]);
+      expect(result.block).toBeNull();
+    } finally {
+      hostClient.dispose();
+    }
   });
 
   // ---------------------------------------------------------------------------

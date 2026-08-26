@@ -8,10 +8,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
 import type { SkillInstallMeta } from "../skills/install-meta.js";
-import {
-  SKILL_PLATFORM_VALUES,
-  skillPlatformForNodePlatform,
-} from "../skills/platform-compatibility.js";
 import { setConfig } from "./helpers/set-config.js";
 
 function makeSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
@@ -124,14 +120,10 @@ describe("listInstalledSkills", () => {
     ]);
   });
 
-  test("reports host-incompatible skills as unavailable", async () => {
-    const currentPlatform = skillPlatformForNodePlatform(process.platform)!;
-    const incompatiblePlatform = SKILL_PLATFORM_VALUES.find(
-      (platform) => platform !== currentPlatform,
-    )!;
+  test("preserves installed platform skills in the retrieval catalog", async () => {
     catalogFixture = [
-      makeSummary({ id: "compatible", platforms: [currentPlatform] }),
-      makeSummary({ id: "incompatible", platforms: [incompatiblePlatform] }),
+      makeSummary({ id: "windows", platforms: ["windows"] }),
+      makeSummary({ id: "macos", platforms: ["macos"] }),
     ];
 
     const { listInstalledSkills } =
@@ -139,8 +131,8 @@ describe("listInstalledSkills", () => {
     const entries = await listInstalledSkills();
 
     expect(entries.map((entry) => [entry.id, entry.state])).toEqual([
-      ["compatible", "enabled"],
-      ["incompatible", "unavailable"],
+      ["windows", "enabled"],
+      ["macos", "enabled"],
     ]);
   });
 
@@ -274,32 +266,28 @@ describe("listCatalogSkills", () => {
     expect(await listCatalogSkills()).toEqual([]);
   });
 
-  test("reports host-incompatible catalog skills as unavailable", async () => {
-    const currentPlatform = skillPlatformForNodePlatform(process.platform)!;
-    const incompatiblePlatform = SKILL_PLATFORM_VALUES.find(
-      (platform) => platform !== currentPlatform,
-    )!;
+  test("preserves platform-scoped skills in the retrieval catalog", async () => {
     remoteFixture = [
       {
-        id: "incompatible",
-        name: "incompatible",
-        description: "Only works elsewhere",
-        platforms: [incompatiblePlatform],
-        metadata: { vellum: { platforms: [incompatiblePlatform] } },
+        id: "windows-automation",
+        name: "windows-automation",
+        description: "Automates native Windows applications",
+        platforms: ["windows"],
+        metadata: { vellum: { platforms: ["windows"] } },
       },
     ];
 
     const { listCatalogSkills } = await import("../skills/available-skills.js");
     expect(await listCatalogSkills()).toEqual([
       {
-        id: "incompatible",
-        displayName: "incompatible",
-        description: "Only works elsewhere",
+        id: "windows-automation",
+        displayName: "windows-automation",
+        description: "Automates native Windows applications",
         activationHints: undefined,
         avoidWhen: undefined,
-        platforms: [incompatiblePlatform],
+        platforms: ["windows"],
         installed: false,
-        state: "unavailable",
+        state: "available",
       },
     ]);
   });

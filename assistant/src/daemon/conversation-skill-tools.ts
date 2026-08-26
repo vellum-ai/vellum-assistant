@@ -24,7 +24,7 @@ import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
 import { getCachedCatalogSync } from "../skills/catalog-cache.js";
 import { readInstallMeta, touchSkillLastUsed } from "../skills/install-meta.js";
-import { isSkillCompatibleWithClientPlatform } from "../skills/platform-compatibility.js";
+import { isSkillCompatibleWithContext } from "../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
@@ -105,6 +105,8 @@ export interface ProjectSkillToolsOptions {
   preactivatedSkillIds?: string[];
   /** Operating system reported by the client driving the current turn. */
   clientOs?: string;
+  /** Whether a person is present for the current turn. */
+  isInteractive?: boolean;
   /** Authenticated actor driving the current turn. */
   sourceActorPrincipalId?: string;
   /**
@@ -388,13 +390,11 @@ export function projectSkillTools(
     const flagKey = skill ? skillFlagKey(skill) : undefined;
     if (
       (!skill ||
-        isSkillCompatibleWithClientPlatform(
-          skill,
-          options?.clientOs,
-          process.platform,
-          undefined,
-          options?.sourceActorPrincipalId,
-        )) &&
+        isSkillCompatibleWithContext(skill, {
+          clientOs: options?.clientOs,
+          isInteractive: options?.isInteractive,
+          sourceActorPrincipalId: options?.sourceActorPrincipalId,
+        })) &&
       (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config))
     ) {
       activeIds.add(id);

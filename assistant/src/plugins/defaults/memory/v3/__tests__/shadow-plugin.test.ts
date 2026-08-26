@@ -33,6 +33,7 @@ import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
@@ -123,6 +124,7 @@ const GATE_DEFAULTS = MemoryV3GateSchema.parse({});
 // the section index `initLanes` feeds, ranks it. Generic placeholder only.
 const CAPABILITY_SLUG = "skills/example";
 const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
+let capabilityPlatforms: ["windows"] | undefined;
 
 // The orchestrate result the spy returns. `lanes` records where each pooled
 // slug lived: page-core in the core lane, page-hot in the hot lane, page-fresh
@@ -382,7 +384,11 @@ mock.module("../../substrate/skill-store.js", () => ({
   getSkillCapability: (idOrSlug: string) =>
     shadowMockActive
       ? idOrSlug === CAPABILITY_SLUG
-        ? { id: "example", content: CAPABILITY_CONTENT }
+        ? {
+            id: "example",
+            content: CAPABILITY_CONTENT,
+            platforms: capabilityPlatforms,
+          }
         : null
       : realSkillStore.getSkillCapability(idOrSlug),
 }));
@@ -552,6 +558,7 @@ beforeEach(() => {
   ensureCollectionCalls = 0;
   ensureCollectionThrows = false;
   capturedPageBody = null;
+  capabilityPlatforms = undefined;
   coreSetSlugs = [];
   hotSetResult = [];
   hotSetOpts = null;
@@ -569,7 +576,15 @@ beforeEach(() => {
  *  is produced, invoke its attachment-commit callback — simulating runtime
  *  assembly's user-tail commit point, where the everInjected-store write now
  *  happens. */
-async function produce(conversationId: string, turnIndex: number) {
+async function produce(
+  conversationId: string,
+  turnIndex: number,
+  platformContext: {
+    clientOs?: string;
+    isInteractive?: boolean;
+    sourceActorPrincipalId?: string;
+  } = {},
+) {
   seedMemoryConfig();
   const block = await memoryV3Injector.produce({
     requestId: "r1",
@@ -578,6 +593,7 @@ async function produce(conversationId: string, turnIndex: number) {
     // v3 cards are personal memory, so the injector only produces for an actor
     // allowed to see them. These cases are about the commit hook, not the gate.
     trust: { trustClass: "guardian", sourceChannel: "vellum" } as never,
+    ...platformContext,
   });
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
   if (typeof commit === "function") {
@@ -922,6 +938,44 @@ describe("memory-v3 engine", () => {
     }
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);
+  });
+
+  test("live on injects a Windows capability only for its interactive host actor", async () => {
+    liveEnabled = true;
+    capabilityPlatforms = ["windows"];
+    const capabilityResult = async (): Promise<OrchestrateResult> => ({
+      selections: [{ slug: CAPABILITY_SLUG, pinned: false }],
+      matchedSections: new Map(),
+      lanes: { core: [], hot: [], fresh: [], finder: [] },
+    });
+    orchestrateSpy
+      .mockImplementationOnce(capabilityResult)
+      .mockImplementationOnce(capabilityResult);
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "memory-v3-windows-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    try {
+      const interactive = await produce("conv-windows-v3", 0, {
+        clientOs: "windows",
+        isInteractive: true,
+        sourceActorPrincipalId: "actor-a",
+      });
+      expect(interactive?.text).toContain(CAPABILITY_CONTENT);
+
+      const clientless = await produce("conv-clientless-windows-v3", 0, {
+        clientOs: "windows",
+        isInteractive: false,
+        sourceActorPrincipalId: "actor-a",
+      });
+      expect(clientless?.text).toBe("");
+    } finally {
+      hostClient.dispose();
+    }
   });
 
   test("live on → a later turn re-selecting the same pages renders an EMPTY block (net-new dedup)", async () => {

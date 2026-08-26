@@ -1042,6 +1042,10 @@ export function createResolveToolsCallback(
     const projection = projectSkillTools(history, {
       preactivatedSkillIds: effectivePreactivated,
       clientOs: ctx.currentTurnClientOs,
+      isInteractive:
+        ctx.currentTurnIsNonInteractive !== undefined
+          ? !ctx.currentTurnIsNonInteractive
+          : !ctx.hasNoClient && !ctx.headlessLock,
       sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,

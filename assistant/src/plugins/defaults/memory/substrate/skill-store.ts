@@ -174,7 +174,7 @@ async function buildInstalledSkillCards(): Promise<InstalledSkillCards> {
     if (skill.alwaysCandidate) {
       alwaysCandidateIds.add(skill.id);
     }
-    cards.push({ id: skill.id, content });
+    cards.push({ id: skill.id, content, platforms: skill.platforms });
   }
   return { installedIds, cards, alwaysCandidateIds };
 }
@@ -323,7 +323,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
           continue;
         }
         const content = buildSkillContent(entry);
-        seeds.push({ id: entry.id, content });
+        seeds.push({ id: entry.id, content, platforms: entry.platforms });
       }
     } catch (err) {
       log.warn(
