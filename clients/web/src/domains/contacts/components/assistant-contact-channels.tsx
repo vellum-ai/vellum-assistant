@@ -136,23 +136,24 @@ function ChannelRow({
               <Icon className="h-3 w-3" />
               {label}
             </span>
-            <Button
-              variant="danger"
-              onClick={onDisconnect}
-              disabled={!onDisconnect || pending}
-            >
-              {pending ? t("actions.disconnecting") : t("actions.disconnect")}
-            </Button>
+            {/* No handler means no action exists for this row (email has no
+                disconnect route at all), so the button disappears rather than
+                sitting permanently disabled. */}
+            {onDisconnect ? (
+              <Button
+                variant="danger"
+                onClick={onDisconnect}
+                disabled={pending}
+              >
+                {pending ? t("actions.disconnecting") : t("actions.disconnect")}
+              </Button>
+            ) : null}
           </>
-        ) : (
-          <Button
-            variant="outlined"
-            onClick={onConnect}
-            disabled={!onConnect || pending}
-          >
+        ) : onConnect ? (
+          <Button variant="outlined" onClick={onConnect} disabled={pending}>
             {t("actions.connect")}
           </Button>
-        )}
+        ) : null}
       </div>
     </div>
   );
