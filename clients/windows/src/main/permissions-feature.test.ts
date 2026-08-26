@@ -93,8 +93,8 @@ test("reports Windows-only applicability and opens screen capture settings", asy
     {
       accessibility: { status: "not-applicable" },
       screen: {
-        status: "granted",
-        canOpenSettings: false,
+        status: "unknown",
+        canOpenSettings: true,
       },
       inputMonitoring: { status: "not-applicable" },
       automation: { status: "not-applicable" },
@@ -103,16 +103,14 @@ test("reports Windows-only applicability and opens screen capture settings", asy
 
   await handlers.get(PERMISSIONS_OPEN_SETTINGS)!(["screen"]);
 
-  expect(mediaStatus).toHaveBeenCalledWith("screen");
+  expect(mediaStatus).not.toHaveBeenCalledWith("screen");
   expect(openExternal).toHaveBeenCalledWith(
     "ms-settings:privacy-graphicscaptureprogrammatic",
   );
 });
 
-test("reports denied screen capture with a settings link", async () => {
-  mediaStatus.mockImplementation((kind) =>
-    kind === "screen" ? "denied" : "granted",
-  );
+test("reports helper screen capture consent with a settings link", async () => {
+  helperCall.mockImplementation(async () => ({ screen: "denied" }));
   await expect(handlers.get(PERMISSIONS_GET_STATE)!([])).resolves.toMatchObject(
     { screen: { status: "denied", canRequest: false, canOpenSettings: true } },
   );

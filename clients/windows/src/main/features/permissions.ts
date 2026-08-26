@@ -55,6 +55,7 @@ export const configureWindowsPermissionsNative = (
 
 const nativeStatusSchema = z.object({
   microphone: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+  screen: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
   speechRecognition: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
   notifications: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
 });
@@ -98,12 +99,6 @@ const NOT_APPLICABLE_KINDS = new Set<SystemPermissionKind>([
   "inputMonitoring",
   "automation",
 ]);
-
-// Kinds Electron can read straight from the OS on Windows.
-type MediaStatusKind = Extract<SystemPermissionKind, "microphone" | "screen">;
-const isMediaStatusKind = (
-  kind: SystemPermissionKind,
-): kind is MediaStatusKind => kind === "microphone" || kind === "screen";
 
 const mapMediaStatus = (status: string): SystemPermissionStatus =>
   SYSTEM_PERMISSION_STATUSES.includes(status as SystemPermissionStatus)
@@ -218,7 +213,9 @@ class WindowsPermissionsService {
     if (native[kind]) {
       return native[kind];
     }
-    if (isMediaStatusKind(kind)) {
+    // Screen is deliberately absent: Electron reports it as always granted
+    // on Windows, so only the helper's consent-store read is trusted.
+    if (kind === "microphone") {
       return mapMediaStatus(systemPreferences.getMediaAccessStatus(kind));
     }
     return "unknown";
