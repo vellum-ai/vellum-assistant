@@ -2,13 +2,19 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 let electron = false;
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
+
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electron,
 }));
 
-const { newChatAccelerator, newChatShortcutHint } = await import(
-  "@/domains/chat/new-chat-shortcut"
-);
+const { newChatAccelerator, newChatShortcutHint } =
+  await import("@/domains/chat/new-chat-shortcut");
 
 describe("newChatShortcutHint", () => {
   afterEach(() => {
