@@ -52,6 +52,9 @@ const mockAttachments: Array<{
   sizeBytes: number;
 }> = [];
 let mockAttachmentIdCounter = 0;
+const mockLinkAttachmentToMessage = mock(
+  (_messageId: string, attachmentId: string) => attachmentId,
+);
 
 mock.module("../persistence/attachments-store.js", () => ({
   attachFileBackedAttachmentToMessage: (
@@ -86,7 +89,10 @@ mock.module("../persistence/attachments-store.js", () => ({
     mockAttachments.push(att);
     return att;
   },
-  linkAttachmentToMessage: noop,
+  getAttachmentById: (attachmentId: string) =>
+    mockAttachments.find((attachment) => attachment.id === attachmentId) ??
+    null,
+  linkAttachmentToMessage: mockLinkAttachmentToMessage,
   setAttachmentThumbnail: noop,
 }));
 
@@ -172,6 +178,7 @@ describe("handleRecordingStart", () => {
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
     mockAttachmentIdCounter = 0;
+    mockLinkAttachmentToMessage.mockClear();
     mockFileExists = true;
     mockFileSize = 1024;
   });
@@ -243,6 +250,7 @@ describe("handleRecordingStop", () => {
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
     mockAttachmentIdCounter = 0;
+    mockLinkAttachmentToMessage.mockClear();
     mockFileExists = true;
     mockFileSize = 1024;
   });
@@ -382,6 +390,46 @@ describe("handleRecordingStatusCore", () => {
       (m) => m.id !== "existing-msg" && m.role === "assistant",
     );
     expect(createdMsg).toBeTruthy();
+  });
+
+  test("links a client-uploaded remote recording", async () => {
+    const sent = createSent();
+    const conversationId = "conv-status-remote";
+    const uploadedAttachment = {
+      id: "attachment-remote",
+      originalFilename: "screen-recording.webm",
+      mimeType: "video/webm",
+      sizeBytes: 2048,
+    };
+    mockAttachments.push(uploadedAttachment);
+    const recordingId = handleRecordingStart(conversationId, undefined);
+    expect(recordingId).not.toBeNull();
+    sent.length = 0;
+
+    await handleRecordingStatusCore({
+      type: "recording_status",
+      conversationId: recordingId!,
+      status: "stopped",
+      attachmentId: uploadedAttachment.id,
+      durationMs: 5000,
+    });
+
+    expect(mockLinkAttachmentToMessage).toHaveBeenCalledWith(
+      expect.stringMatching(/^msg-/),
+      uploadedAttachment.id,
+      0,
+    );
+    const complete = sent.find(
+      (message) => message.type === "message_complete",
+    );
+    expect(complete?.attachments).toEqual([
+      expect.objectContaining({
+        id: uploadedAttachment.id,
+        filename: uploadedAttachment.originalFilename,
+        mimeType: uploadedAttachment.mimeType,
+        sizeBytes: uploadedAttachment.sizeBytes,
+      }),
+    ]);
   });
 
   test("handles stopped status and creates assistant message when none exists", async () => {

@@ -20,9 +20,14 @@ export const createScreenRecordingPreloadBridge = (
       recordingId,
       chunk,
     ) as Promise<void>,
-  finish: (recordingId) =>
-    ipcRenderer.invoke(SCREEN_RECORDING_FINISH, recordingId) as Promise<{
+  finish: (recordingId, options) =>
+    ipcRenderer.invoke(
+      SCREEN_RECORDING_FINISH,
+      recordingId,
+      options?.includeBytes ?? false,
+    ) as Promise<{
       filePath: string;
+      bytes?: Uint8Array;
     }>,
   abort: (recordingId) =>
     ipcRenderer.invoke(SCREEN_RECORDING_ABORT, recordingId) as Promise<void>,

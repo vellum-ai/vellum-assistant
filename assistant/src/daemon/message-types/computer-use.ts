@@ -33,6 +33,7 @@ export interface RecordingStatus {
     | "paused"
     | "resumed";
   filePath?: string; // on stop
+  attachmentId?: string; // on stop when the client uploads the recording
   durationMs?: number; // on stop
   error?: string; // on failure
   attachToConversationId?: string;

@@ -17,10 +17,16 @@ const displayHandler = mock((handler: DisplayMediaHandler) => {
   installedDisplayHandler = handler;
 });
 const showMessageBox = mock(async () => ({ response: 0 }));
-const getSources = mock(async () => [
+const availableSources = [
   { id: "screen:1:0", display_id: "display-1", name: "Display 1" },
   { id: "window:42:0", display_id: "", name: "Example window" },
-]);
+];
+const getSources = mock(
+  async ({ types }: { types: Array<"screen" | "window"> }) =>
+    availableSources.filter((source) =>
+      types.includes(source.id.startsWith("screen:") ? "screen" : "window"),
+    ),
+);
 mock.module("@vellumai/ipc-contract", () => ({
   SCREEN_RECORDING_ABORT: "vellum:screenRecording:abort",
   SCREEN_RECORDING_APPEND: "vellum:screenRecording:append",
@@ -118,15 +124,17 @@ test("writes ordered chunks and returns a file in the shared recordings director
       new Uint8Array([3, 4]),
     ),
   ]);
-  const result = await invoke<{ filePath: string }>(
+  const result = await invoke<{ filePath: string; bytes?: Uint8Array }>(
     "vellum:screenRecording:finish",
     recordingId,
+    true,
   );
 
   expect(
     result.filePath.startsWith(resolveScreenRecordingDirectory(appDataDir)),
   ).toBeTrue();
   expect([...readFileSync(result.filePath)]).toEqual([1, 2, 3, 4]);
+  expect([...(result.bytes ?? [])]).toEqual([1, 2, 3, 4]);
 });
 
 test("aborts partial files and releases the single-recording guard", async () => {
@@ -147,6 +155,7 @@ test("aborts partial files and releases the single-recording guard", async () =>
   const second = await invoke<{ filePath: string }>(
     "vellum:screenRecording:finish",
     secondId,
+    false,
   );
 
   expect(existsSync(firstPath)).toBeFalse();
@@ -187,6 +196,40 @@ test("uses the source selected in the fallback chooser", async () => {
       video: expect.objectContaining({ id: "window:42:0" }),
     }),
   );
+});
+
+test("limits prompted display selection to displays", async () => {
+  const { invoke } = installHarness();
+
+  await expect(
+    invoke("vellum:screenRecording:resolveSource", {
+      captureScope: "display",
+      promptForSource: true,
+    }),
+  ).resolves.toBe("screen:1:0");
+
+  expect(getSources).toHaveBeenLastCalledWith({
+    types: ["screen"],
+    fetchWindowIcons: false,
+    thumbnailSize: { width: 0, height: 0 },
+  });
+});
+
+test("limits prompted window selection to windows", async () => {
+  const { invoke } = installHarness();
+
+  await expect(
+    invoke("vellum:screenRecording:resolveSource", {
+      captureScope: "window",
+      promptForSource: true,
+    }),
+  ).resolves.toBe("window:42:0");
+
+  expect(getSources).toHaveBeenLastCalledWith({
+    types: ["window"],
+    fetchWindowIcons: false,
+    thumbnailSize: { width: 0, height: 0 },
+  });
 });
 
 test("releases a partial recording when its renderer is destroyed", async () => {

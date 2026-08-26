@@ -76,6 +76,11 @@ export interface ScreenRecordingSourceOptions {
   captureScope?: "display" | "window";
   displayId?: string;
   windowId?: number;
+  promptForSource?: boolean;
+}
+
+export interface ScreenRecordingFinishOptions {
+  includeBytes?: boolean;
 }
 
 /**
@@ -229,7 +234,10 @@ export interface VellumBridge {
   screenRecording: {
     begin(recordingId: string): Promise<void>;
     append(recordingId: string, chunk: Uint8Array): Promise<void>;
-    finish(recordingId: string): Promise<{ filePath: string }>;
+    finish(
+      recordingId: string,
+      options?: ScreenRecordingFinishOptions,
+    ): Promise<{ filePath: string; bytes?: Uint8Array }>;
     abort(recordingId: string): Promise<void>;
     resolveSource(
       options: ScreenRecordingSourceOptions,

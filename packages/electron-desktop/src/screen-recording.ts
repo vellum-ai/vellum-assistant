@@ -1,4 +1,4 @@
-import { mkdir, open, rm, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readFile, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -26,6 +26,7 @@ const RecordingSourceOptionsSchema = z.object({
   captureScope: z.enum(["display", "window"]).optional(),
   displayId: z.string().optional(),
   windowId: z.number().int().nonnegative().optional(),
+  promptForSource: z.boolean().optional(),
 });
 
 interface RecordingFileSession {
@@ -44,9 +45,17 @@ export interface InstallScreenRecordingOptions {
 export const resolveScreenRecordingDirectory = (appDataDir: string): string =>
   path.join(appDataDir, "vellum-assistant", "recordings");
 
-const chooseCaptureSource = async (): Promise<DesktopCapturerSource | null> => {
+const chooseCaptureSource = async (
+  captureScope?: "display" | "window",
+): Promise<DesktopCapturerSource | null> => {
+  const types: Array<"screen" | "window"> =
+    captureScope === "display"
+      ? ["screen"]
+      : captureScope === "window"
+        ? ["window"]
+        : ["screen", "window"];
   const sources = await desktopCapturer.getSources({
-    types: ["screen", "window"],
+    types,
     fetchWindowIcons: false,
     thumbnailSize: { width: 0, height: 0 },
   });
@@ -177,13 +186,18 @@ export const installScreenRecording = ({
 
   handle(
     SCREEN_RECORDING_FINISH,
-    z.tuple([RecordingIdSchema]),
-    async ([recordingId], event) => {
+    z.tuple([RecordingIdSchema, z.boolean()]),
+    async ([recordingId, includeBytes], event) => {
       const recording = getOwnedSession(recordingId, event.sender);
       releaseSession(recordingId, recording);
       await recording.write;
       await recording.file.close();
-      return { filePath: recording.filePath };
+      return {
+        filePath: recording.filePath,
+        ...(includeBytes
+          ? { bytes: new Uint8Array(await readFile(recording.filePath)) }
+          : {}),
+      };
     },
   );
 
@@ -204,6 +218,9 @@ export const installScreenRecording = ({
     SCREEN_RECORDING_RESOLVE_SOURCE,
     z.tuple([RecordingSourceOptionsSchema]),
     async ([options]) => {
+      if (options.promptForSource) {
+        return (await chooseCaptureSource(options.captureScope))?.id ?? null;
+      }
       const types: Array<"screen" | "window"> =
         options.captureScope === "window" ? ["window"] : ["screen"];
       const sources = await desktopCapturer.getSources({

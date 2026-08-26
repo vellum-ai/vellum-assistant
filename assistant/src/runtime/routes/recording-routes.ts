@@ -325,6 +325,7 @@ export const ROUTES: RouteDefinition[] = [
           "started, stopped, failed, restart_cancelled, paused, resumed",
         ),
       filePath: z.string().optional(),
+      attachmentId: z.string().optional(),
       durationMs: z.number().optional(),
       error: z.string().optional(),
       attachToConversationId: z.string().optional(),

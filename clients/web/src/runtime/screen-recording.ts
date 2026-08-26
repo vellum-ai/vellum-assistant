@@ -6,8 +6,10 @@ import type {
 } from "@vellumai/assistant-api";
 
 import { client } from "@/generated/daemon/client.gen";
+import { uploadChatAttachment } from "@/domains/chat/api/messages";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 type RecordingLifecycleEvent =
   | RecordingStartEvent
@@ -26,6 +28,7 @@ interface ActiveRecording {
   startedAt: number;
   stopped: Promise<void>;
   stopping: boolean;
+  released: boolean;
   closeCapture: () => void;
 }
 
@@ -45,7 +48,12 @@ const postStatus = async (
   assistantId: string,
   event: RecordingStartEvent,
   status: RecordingStatus,
-  details: { filePath?: string; durationMs?: number; error?: string } = {},
+  details: {
+    filePath?: string;
+    attachmentId?: string;
+    durationMs?: number;
+    error?: string;
+  } = {},
 ): Promise<void> => {
   const { response } = await client.post({
     url: "/v1/assistants/{assistant_id}/recordings/status" as KnownDaemonUrl,
@@ -86,7 +94,7 @@ const captureSelectedSource = async (
     options.displayId !== undefined || options.windowId !== undefined;
   const promptForSource = options.promptForSource ?? !hasSelectedSource;
 
-  if (promptForSource) {
+  if (promptForSource && window.vellum?.hostOS !== "windows") {
     return navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: options.includeAudio ?? false,
@@ -97,8 +105,12 @@ const captureSelectedSource = async (
     captureScope: options.captureScope,
     displayId: options.displayId,
     windowId: options.windowId,
+    promptForSource,
   });
   if (!sourceId) {
+    if (promptForSource) {
+      throw new DOMException("Source selection cancelled", "NotAllowedError");
+    }
     throw new Error("The requested recording source is unavailable");
   }
   const desktopConstraint = {
@@ -167,6 +179,13 @@ const isPickerCancellation = (error: unknown): boolean =>
   error instanceof DOMException &&
   ["AbortError", "NotAllowedError"].includes(error.name);
 
+export const requiresRecordingUpload = (assistantId: string): boolean => {
+  const assistant = useResolvedAssistantsStore
+    .getState()
+    .assistants.find((entry) => entry.id === assistantId);
+  return !assistant || assistant.isPaired || !assistant.isLocal;
+};
+
 export class ScreenRecordingController {
   private active: ActiveRecording | null = null;
   private pending: PendingRecording | null = null;
@@ -179,6 +198,8 @@ export class ScreenRecordingController {
       ownsLifecycle: () => boolean;
       now: () => number;
       reportStatus: typeof postStatus;
+      requiresUpload: typeof requiresRecordingUpload;
+      uploadAttachment: typeof uploadChatAttachment;
     } = {
       capture: captureStream,
       chooseMimeType: recorderMimeType,
@@ -187,6 +208,8 @@ export class ScreenRecordingController {
       ownsLifecycle: () => !isPopoutWindowLifetime(),
       now: Date.now,
       reportStatus: postStatus,
+      requiresUpload: requiresRecordingUpload,
+      uploadAttachment: uploadChatAttachment,
     },
   ) {}
 
@@ -286,25 +309,52 @@ export class ScreenRecordingController {
         startedAt: this.dependencies.now(),
         stopped,
         stopping: false,
+        released: false,
         closeCapture: capture.close,
       };
       recorder.onstop = () => {
         void (async () => {
           try {
             await writes;
-            const { filePath } = await bridge.finish(event.recordingId);
+            const requiresUpload =
+              this.dependencies.requiresUpload(assistantId);
+            const { filePath, bytes } = await bridge.finish(event.recordingId, {
+              includeBytes: requiresUpload,
+            });
+            let attachmentId: string | undefined;
+            if (requiresUpload) {
+              if (!bytes) {
+                throw new Error("Recording bytes are unavailable for upload");
+              }
+              const uploaded = await this.dependencies.uploadAttachment(
+                assistantId,
+                new File(
+                  [bytes as Uint8Array<ArrayBuffer>],
+                  `screen-recording-${event.recordingId}.webm`,
+                  { type: "video/webm" },
+                ),
+              );
+              if (!uploaded.ok) {
+                throw new Error(
+                  uploaded.error.detail ?? "Recording upload failed",
+                );
+              }
+              attachmentId = uploaded.id;
+            }
+            this.release(active);
             await this.dependencies.reportStatus(
               assistantId,
               event,
               "stopped",
               {
-                filePath,
+                ...(attachmentId ? { attachmentId } : { filePath }),
                 durationMs: this.dependencies.now() - active.startedAt,
               },
             );
             resolveStopped();
           } catch (error) {
             await bridge.abort(event.recordingId);
+            this.release(active);
             await this.dependencies
               .reportStatus(assistantId, event, "failed", {
                 error: error instanceof Error ? error.message : String(error),
@@ -312,10 +362,7 @@ export class ScreenRecordingController {
               .catch(() => undefined);
             rejectStopped(error);
           } finally {
-            active.closeCapture();
-            if (this.active === active) {
-              this.active = null;
-            }
+            this.release(active);
           }
         })();
       };
@@ -381,6 +428,17 @@ export class ScreenRecordingController {
       active.recorder.stop();
     }
     await active.stopped;
+  }
+
+  private release(active: ActiveRecording): void {
+    if (active.released) {
+      return;
+    }
+    active.released = true;
+    active.closeCapture();
+    if (this.active === active) {
+      this.active = null;
+    }
   }
 
   private async pause(recordingId: string): Promise<void> {

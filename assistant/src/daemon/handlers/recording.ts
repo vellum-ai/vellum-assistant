@@ -3,7 +3,11 @@ import * as path from "node:path";
 
 import { v4 as uuid } from "uuid";
 
-import { attachFileBackedAttachmentToMessage } from "../../persistence/attachments-store.js";
+import {
+  attachFileBackedAttachmentToMessage,
+  getAttachmentById,
+  linkAttachmentToMessage,
+} from "../../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,
@@ -339,9 +343,10 @@ async function finalizeAndPublishRecording(params: {
   recordingId: string;
   conversationId: string;
   filePath?: string;
+  attachmentId?: string;
   durationMs?: number;
 }): Promise<{ success: boolean; messageId?: string }> {
-  const { recordingId, conversationId, filePath } = params;
+  const { recordingId, conversationId, filePath, attachmentId } = params;
 
   // Idempotency guard: prevent double-finalization.
   // Mark as finalized eagerly (before any async work) so concurrent calls
@@ -356,7 +361,7 @@ async function finalizeAndPublishRecording(params: {
   finalizedRecordingIds.add(recordingId);
   setTimeout(() => finalizedRecordingIds.delete(recordingId), 60_000);
 
-  if (!filePath) {
+  if (!filePath && !attachmentId) {
     // No file path — recording stopped without producing a file
     log.warn(
       { recordingId, conversationId },
@@ -387,49 +392,54 @@ async function finalizeAndPublishRecording(params: {
     return { success: false };
   }
 
-  // Restrict accepted file paths to the app's recordings directory to
-  // prevent attachment of arbitrary files via crafted messages.
-  let resolvedPath: string;
-  try {
-    resolvedPath = realpathSync(filePath);
-  } catch {
-    // File doesn't exist (broken symlink or missing) — use path.resolve
-    // as fallback; the existsSync check below will handle the missing file.
-    resolvedPath = path.resolve(filePath);
-  }
-  const allowedDirs = getCanonicalRecordingDirectories();
-  if (!allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))) {
-    log.warn(
-      { recordingId, filePath, allowedDirs },
-      "Recording file path outside allowed directory — rejecting",
-    );
-    const errorText = "Recording file is unavailable or expired.";
+  let resolvedPath: string | undefined;
+  if (filePath) {
     try {
-      await addMessage(
-        conversationId,
-        "assistant",
-        JSON.stringify([{ type: "text", text: errorText }]),
-      );
-    } catch (persistErr) {
-      log.warn(
-        { err: persistErr, recordingId, conversationId },
-        "Failed to persist recording error message",
-      );
+      resolvedPath = realpathSync(filePath);
+    } catch {
+      resolvedPath = path.resolve(filePath);
     }
-    broadcastMessage({
-      type: "assistant_text_delta",
-      text: errorText,
-      conversationId: conversationId,
-    });
-    broadcastMessage({
-      type: "message_complete",
-      conversationId: conversationId,
-    });
-    return { success: false };
+    const allowedDirs = getCanonicalRecordingDirectories();
+    if (!allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath!, dir))) {
+      log.warn(
+        { recordingId, filePath, allowedDirs },
+        "Recording file path outside allowed directory — rejecting",
+      );
+      const errorText = "Recording file is unavailable or expired.";
+      try {
+        await addMessage(
+          conversationId,
+          "assistant",
+          JSON.stringify([{ type: "text", text: errorText }]),
+        );
+      } catch (persistErr) {
+        log.warn(
+          { err: persistErr, recordingId, conversationId },
+          "Failed to persist recording error message",
+        );
+      }
+      broadcastMessage({
+        type: "assistant_text_delta",
+        text: errorText,
+        conversationId: conversationId,
+      });
+      broadcastMessage({
+        type: "message_complete",
+        conversationId: conversationId,
+      });
+      return { success: false };
+    }
   }
 
   try {
-    if (!existsSync(resolvedPath)) {
+    const uploadedAttachment = attachmentId
+      ? getAttachmentById(attachmentId, { hydrateFileData: false })
+      : null;
+    if (attachmentId && !uploadedAttachment?.mimeType.startsWith("video/")) {
+      throw new Error("Uploaded recording attachment is missing or not video");
+    }
+
+    if (resolvedPath && !existsSync(resolvedPath)) {
       log.error({ recordingId, filePath }, "Recording file does not exist");
       const errorText = "Recording failed to save.";
       try {
@@ -456,8 +466,22 @@ async function finalizeAndPublishRecording(params: {
       return { success: false };
     }
 
-    const stat = statSync(resolvedPath);
-    const sizeBytes = stat.size;
+    let filename: string;
+    let mimeType: string;
+    let sizeBytes: number;
+    if (resolvedPath) {
+      filename = path.basename(resolvedPath);
+      sizeBytes = statSync(resolvedPath).size;
+      const ext = filename.split(".").pop()?.toLowerCase();
+      mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || "video/mp4";
+    } else {
+      if (!uploadedAttachment) {
+        throw new Error("Uploaded recording attachment is unavailable");
+      }
+      filename = uploadedAttachment.originalFilename;
+      mimeType = uploadedAttachment.mimeType;
+      sizeBytes = uploadedAttachment.sizeBytes;
+    }
 
     if (sizeBytes === 0) {
       log.error(
@@ -489,12 +513,6 @@ async function finalizeAndPublishRecording(params: {
       return { success: false };
     }
 
-    const filename = path.basename(resolvedPath);
-
-    // Infer MIME type from extension
-    const ext = filename.split(".").pop()?.toLowerCase();
-    const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || "video/mp4";
-
     // Always create a new assistant message for the recording attachment.
     // Reusing the last assistant message would attach the recording to an
     // unrelated older message after reload.
@@ -510,14 +528,32 @@ async function finalizeAndPublishRecording(params: {
       "Created assistant message for recording attachment",
     );
 
-    const attachment = attachFileBackedAttachmentToMessage(
-      messageId,
-      0,
-      filename,
-      mimeType,
-      resolvedPath,
-      sizeBytes,
-    );
+    let attachment;
+    if (attachmentId) {
+      const linkedAttachmentId = linkAttachmentToMessage(
+        messageId,
+        attachmentId,
+        0,
+      );
+      attachment = getAttachmentById(linkedAttachmentId, {
+        hydrateFileData: false,
+      });
+      if (!attachment) {
+        throw new Error("Linked recording attachment is unavailable");
+      }
+    } else {
+      if (!resolvedPath) {
+        throw new Error("Recording file path is unavailable");
+      }
+      attachment = attachFileBackedAttachmentToMessage(
+        messageId,
+        0,
+        filename,
+        mimeType,
+        resolvedPath,
+        sizeBytes,
+      );
+    }
     log.info(
       {
         recordingId,
@@ -560,7 +596,7 @@ async function finalizeAndPublishRecording(params: {
           data: "", // empty for file-backed; client uses content endpoint
           sizeBytes: attachment.sizeBytes,
           thumbnailData,
-          filePath: resolvedPath,
+          ...(resolvedPath ? { filePath: resolvedPath } : {}),
         },
       ],
     });
@@ -831,6 +867,7 @@ export async function handleRecordingStatusCore(
           recordingId,
           conversationId,
           filePath: msg.filePath,
+          attachmentId: msg.attachmentId,
           durationMs: msg.durationMs,
         });
 
@@ -859,6 +896,7 @@ export async function handleRecordingStatusCore(
         recordingId,
         conversationId,
         filePath: msg.filePath,
+        attachmentId: msg.attachmentId,
         durationMs: msg.durationMs,
       });
 

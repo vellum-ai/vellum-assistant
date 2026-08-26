@@ -20,6 +20,7 @@ export {
   type LocalUpgradeOptions,
   type LocalWakeOptions,
   type ScreenRecordingSourceOptions,
+  type ScreenRecordingFinishOptions,
   type VellumBridge,
   VELLUM_BRIDGE_KEYS,
 } from "./bridge";

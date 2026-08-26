@@ -1,10 +1,12 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 mock.module("@/generated/daemon/client.gen", () => ({
   client: { post: mock(async () => ({ response: { ok: true } })) },
 }));
 
-const { ScreenRecordingController } = await import("./screen-recording");
+const { ScreenRecordingController, requiresRecordingUpload } =
+  await import("./screen-recording");
 
 class FakeTrack {
   stopped = false;
@@ -56,6 +58,11 @@ const startEvent = {
   attachToConversationId: "conv-1",
 };
 
+const localTransferDependencies = {
+  requiresUpload: () => false,
+  uploadAttachment: async () => ({ ok: true as const, id: "attachment-1" }),
+};
+
 beforeEach(() => {
   Object.assign(window, {
     vellum: {
@@ -82,6 +89,7 @@ test("reports the full lifecycle to the initiating assistant", async () => {
   const track = new FakeTrack();
   let now = 1_000;
   const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
     capture: async () => ({
       stream: {
         getTracks: () => [track],
@@ -151,6 +159,7 @@ test("reports the full lifecycle to the initiating assistant", async () => {
 test("reports restart cancellation when the source picker is denied", async () => {
   const statuses: string[] = [];
   const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
     capture: async () => {
       throw new DOMException("Picker closed", "NotAllowedError");
     },
@@ -178,6 +187,7 @@ test("ignores lifecycle events in a popout renderer", async () => {
   });
   const reportStatus = mock(async () => undefined);
   const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
     capture,
     chooseMimeType: () => "video/webm",
     createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
@@ -200,6 +210,7 @@ test("handles a failed share-bar auto-stop without an unhandled rejection", asyn
     throw new Error("write failed");
   });
   const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
     capture: async () => ({
       stream: {
         getTracks: () => [track],
@@ -241,6 +252,7 @@ test("honors stop while source selection is pending", async () => {
   );
   const recorder = new FakeRecorder();
   const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
     capture,
     chooseMimeType: () => "video/webm",
     createRecorder: () => recorder as unknown as MediaRecorder,
@@ -270,4 +282,140 @@ test("honors stop while source selection is pending", async () => {
   expect(track.stopped).toBeTrue();
   expect(recorder.state).toBe("inactive");
   expect(window.vellum!.screenRecording!.begin).not.toHaveBeenCalled();
+});
+
+test("releases the prior recorder before a synchronous restart start", async () => {
+  const statuses: Array<{ recordingId: string; status: string }> = [];
+  const recorders = [new FakeRecorder(), new FakeRecorder()];
+  const tracks = [new FakeTrack(), new FakeTrack()];
+  let captureIndex = 0;
+  let recorderIndex = 0;
+  const replacementId = "00000000-0000-4000-8000-000000000002";
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => {
+      const track = tracks[captureIndex++];
+      return {
+        stream: {
+          getTracks: () => [track],
+          getVideoTracks: () => [track],
+        } as unknown as MediaStream,
+        close: () => track.stop(),
+      };
+    },
+    chooseMimeType: () => "video/webm",
+    createRecorder: () =>
+      recorders[recorderIndex++] as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (assistantId, event, status) => {
+      statuses.push({ recordingId: event.recordingId, status });
+      if (event.recordingId === recordingId && status === "stopped") {
+        await controller.handle(
+          {
+            ...startEvent,
+            recordingId: replacementId,
+            operationToken: "restart-1",
+          },
+          assistantId,
+        );
+      }
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+
+  expect(statuses).toEqual([
+    { recordingId, status: "started" },
+    { recordingId, status: "stopped" },
+    { recordingId: replacementId, status: "started" },
+  ]);
+  expect(tracks[0].stopped).toBeTrue();
+  expect(recorders[1].state).toBe("recording");
+});
+
+test("uploads remote recordings before reporting stopped", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const uploadAttachment = mock(async (_assistantId: string, _file: File) => ({
+    ok: true as const,
+    id: "attachment-remote",
+  }));
+  const stoppedDetails: Array<{
+    attachmentId?: string;
+    filePath?: string;
+    durationMs?: number;
+  }> = [];
+  window.vellum!.screenRecording!.finish = mock(async () => ({
+    filePath: "/recordings/capture.webm",
+    bytes: new Uint8Array([1, 2, 3]),
+  }));
+  const controller = new ScreenRecordingController({
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status, details) => {
+      if (status === "stopped") {
+        stoppedDetails.push(details ?? {});
+      }
+    },
+    requiresUpload: () => true,
+    uploadAttachment,
+  });
+
+  await controller.handle(startEvent, "assistant-remote");
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-remote",
+  );
+
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledWith(
+    recordingId,
+    { includeBytes: true },
+  );
+  expect(uploadAttachment).toHaveBeenCalledTimes(1);
+  expect(uploadAttachment.mock.calls[0]?.[0]).toBe("assistant-remote");
+  expect(uploadAttachment.mock.calls[0]?.[1].name).toBe(
+    `screen-recording-${recordingId}.webm`,
+  );
+  expect([
+    ...new Uint8Array(await uploadAttachment.mock.calls[0]![1].arrayBuffer()),
+  ]).toEqual([1, 2, 3]);
+  expect(stoppedDetails).toEqual([
+    { attachmentId: "attachment-remote", durationMs: 0 },
+  ]);
+});
+
+test("requires transfer for paired assistants but not local assistants", () => {
+  useResolvedAssistantsStore.setState({
+    assistants: [
+      {
+        id: "assistant-paired",
+        isLocal: false,
+        isPlatformHosted: false,
+        isPaired: true,
+      },
+      {
+        id: "assistant-local",
+        isLocal: true,
+        isPlatformHosted: false,
+        isPaired: false,
+      },
+    ],
+  });
+
+  expect(requiresRecordingUpload("assistant-paired")).toBeTrue();
+  expect(requiresRecordingUpload("assistant-local")).toBeFalse();
 });

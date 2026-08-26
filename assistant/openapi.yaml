@@ -25679,6 +25679,8 @@ paths:
                   description: started, stopped, failed, restart_cancelled, paused, resumed
                 filePath:
                   type: string
+                attachmentId:
+                  type: string
                 durationMs:
                   type: number
                 error:
