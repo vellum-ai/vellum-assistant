@@ -36,6 +36,11 @@ const SetConversationThresholdSchema = z.object({
   threshold: z.enum(["none", "low", "medium", "high"]),
 });
 
+const SetContactThresholdSchema = z.object({
+  contactId: z.string().min(1),
+  threshold: z.enum(["none", "low", "medium", "high"]).nullable(),
+});
+
 export const thresholdRoutes: IpcRoute[] = [
   {
     method: "get_global_thresholds",
@@ -119,6 +124,34 @@ export const thresholdRoutes: IpcRoute[] = [
         .run();
       return {
         conversationId: parsed.conversationId,
+        threshold: parsed.threshold,
+      };
+    },
+  },
+  {
+    method: "set_contact_threshold",
+    schema: SetContactThresholdSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = SetContactThresholdSchema.parse(params ?? {});
+      const db = getGatewayDb();
+      const existing = db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.id, parsed.contactId))
+        .get();
+      if (!existing) {
+        return { ok: false, error: "not_found" };
+      }
+      db.update(contacts)
+        .set({
+          autoApproveThreshold: parsed.threshold,
+          updatedAt: Date.now(),
+        })
+        .where(eq(contacts.id, parsed.contactId))
+        .run();
+      return {
+        ok: true,
+        contactId: parsed.contactId,
         threshold: parsed.threshold,
       };
     },

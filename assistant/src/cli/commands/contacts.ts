@@ -35,6 +35,7 @@ interface ContactWithChannels {
   createdAt: string | number;
   updatedAt: string | number;
   interactionCount: number | null;
+  autoApproveThreshold?: string | null;
   channels: ContactChannel[];
 }
 
@@ -131,6 +132,7 @@ function formatContactDetail(
     lines.push(`Role:         ${c.role}`);
   }
   lines.push(`Type:         ${c.contactType}`);
+  lines.push(`Access:       ${c.autoApproveThreshold ?? "inherit"}`);
   if (c.notes) {
     lines.push(`Notes:        ${c.notes}`);
   }
@@ -243,6 +245,47 @@ export function registerContactsCommand(program: Command): void {
             process.stdout.write(
               formatContactDetail(contact, assistantMetadata ?? undefined) +
                 "\n",
+            );
+          }
+        },
+      );
+
+      // -----------------------------------------------------------------------
+      // set-threshold
+      // -----------------------------------------------------------------------
+
+      subcommand(contacts, "set-threshold").action(
+        async (
+          contactId: string,
+          opts: { threshold: string },
+          cmd: Command,
+        ) => {
+          const threshold =
+            opts.threshold === "inherit" ? null : opts.threshold;
+          const r = await cliIpcCall<{
+            ok: boolean;
+            contactId: string;
+            threshold: string | null;
+          }>("set_contact_threshold", {
+            body: {
+              contactId,
+              threshold,
+            },
+          });
+
+          if (!r.ok) {
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+              cmd,
+            );
+          }
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, r.result);
+          } else {
+            const ceiling = r.result?.threshold ?? "inherit";
+            process.stdout.write(
+              `Set assistant access for ${contactId} to ${ceiling}\n`,
             );
           }
         },

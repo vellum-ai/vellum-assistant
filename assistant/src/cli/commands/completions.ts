@@ -19,7 +19,7 @@ export function registerCompletionsCommand(program: Command): void {
           keys: ["list", "set", "delete"],
           trust: ["list"],
           memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
-          contacts: ["list", "invites", "get", "merge"],
+          contacts: ["list", "invites", "get", "merge", "set-threshold"],
         };
         const topLevel = [
           "conversations",

@@ -1,7 +1,7 @@
 /**
- * Tests for the gateway `get_contact_threshold` IPC route.
+ * Tests for the gateway contact-threshold IPC routes.
  *
- * The handler is driven directly against a real gateway DB. Contacts are
+ * The handlers are driven directly against a real gateway DB. Contacts are
  * seeded on the `contacts` table so the test does not depend on the
  * assistant-DB mirror that ContactStore.upsertContact performs.
  */
@@ -59,6 +59,16 @@ function getContactThresholdHandler() {
   return route.handler;
 }
 
+function setContactThresholdHandler() {
+  const route = thresholdRoutes.find(
+    (entry) => entry.method === "set_contact_threshold",
+  );
+  if (!route) {
+    throw new Error("set_contact_threshold route is not registered");
+  }
+  return route.handler;
+}
+
 describe("get_contact_threshold IPC", () => {
   test("returns the contact ceiling when one is set", async () => {
     seedContact({ id: "contact-1", autoApproveThreshold: "high" });
@@ -96,5 +106,63 @@ describe("get_contact_threshold IPC", () => {
     });
 
     expect(result).toBeNull();
+  });
+});
+
+describe("set_contact_threshold IPC", () => {
+  test("sets a contact ceiling", async () => {
+    seedContact({ id: "contact-1" });
+
+    const result = await setContactThresholdHandler()({
+      contactId: "contact-1",
+      threshold: "high",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      contactId: "contact-1",
+      threshold: "high",
+    });
+    expect(
+      await getContactThresholdHandler()({ contactId: "contact-1" }),
+    ).toEqual({ threshold: "high" });
+  });
+
+  test("clears a contact ceiling when threshold is null", async () => {
+    seedContact({ id: "contact-1", autoApproveThreshold: "high" });
+
+    const result = await setContactThresholdHandler()({
+      contactId: "contact-1",
+      threshold: null,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      contactId: "contact-1",
+      threshold: null,
+    });
+    expect(
+      await getContactThresholdHandler()({ contactId: "contact-1" }),
+    ).toBeNull();
+  });
+
+  test("returns not_found for an unknown contact", async () => {
+    const result = await setContactThresholdHandler()({
+      contactId: "contact-missing",
+      threshold: "high",
+    });
+
+    expect(result).toEqual({ ok: false, error: "not_found" });
+  });
+
+  test("rejects an invalid threshold", async () => {
+    seedContact({ id: "contact-1" });
+
+    expect(() =>
+      setContactThresholdHandler()({
+        contactId: "contact-1",
+        threshold: "full",
+      }),
+    ).toThrow();
   });
 });

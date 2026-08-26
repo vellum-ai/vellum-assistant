@@ -204,6 +204,15 @@ export function _clearGlobalCacheForTesting(): void {
   channelPermissionCellCache.clear();
 }
 
+/**
+ * Drop the cached ceiling for one contact. The contact write path calls
+ * this after a successful set so the next approval sees the new value
+ * without waiting out the 5s TTL.
+ */
+export function invalidateContactThresholdCache(contactId: string): void {
+  contactThresholdCache.delete(contactId);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapExecutionContextToField(
@@ -571,13 +580,15 @@ async function fetchGlobalThresholds(options?: {
  * Used by the permission checker immediately before surfacing an
  * interactive prompt: the cached snapshot (5s conversation TTL with
  * negative caching, 30s global TTL) may predate a threshold change the
- * user just made — e.g. switching to Full access — because no threshold
- * write path invalidates these in-process caches (the web picker writes
- * through the gateway HTTP route, the desktop picker through the
- * `set_conversation_threshold` IPC). Prompting from a stale threshold
- * directly contradicts the user's visible setting. A prompt is already a
- * rare, user-visible interruption, so the extra IPC round-trip is cheap
- * relative to a wrong prompt.
+ * user just made (for example switching to Full access) because no
+ * conversation or global write path invalidates those caches (the web
+ * picker writes through the gateway HTTP route, the desktop picker
+ * through the `set_conversation_threshold` IPC). The contact-ceiling
+ * write path deletes that contact's cache entry after a successful set.
+ * Prompting from a stale threshold directly contradicts the user's
+ * visible setting. A prompt is already a rare, user-visible
+ * interruption, so the extra IPC round-trip is cheap relative to a
+ * wrong prompt.
  *
  * Returns the freshly-resolved threshold, or `null` when the gateway
  * could not be reached. Callers must keep their original decision on

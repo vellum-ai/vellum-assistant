@@ -15,9 +15,15 @@ can be linked to external identifiers — phone numbers,
 Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
+This namespace lists and inspects contacts, updates a contact's
+assistant-access ceiling (set-threshold), and manages channels and
+invites. Creating, renaming, and deleting contacts is not available
+here. Use the Contacts page or POST /v1/contacts.
+
 Examples:
   $ assistant contacts list
   $ assistant contacts get abc-123
+  $ assistant contacts set-threshold abc-123 --threshold high
   $ assistant contacts invites list`,
   subcommands: [
     {
@@ -75,13 +81,40 @@ Examples:
 Arguments:
   id   UUID of the contact to retrieve. Run 'assistant contacts list' to find IDs.
 
-Returns the full contact record including role, display name, and all
-channel memberships (phone numbers, Telegram IDs, email addresses, etc.).
-For assistant-type contacts, additional assistant metadata is included.
+Returns the full contact record including role, display name, assistant
+access ceiling, and all channel memberships (phone numbers, Telegram
+IDs, email addresses, etc.). For assistant-type contacts, additional
+assistant metadata is included.
 
 Examples:
   $ assistant contacts get 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant contacts get abc-123 --json`,
+    },
+    {
+      name: "set-threshold",
+      args: "<contactId>",
+      description: "Set a contact's assistant-access ceiling",
+      options: [
+        {
+          flags: "--threshold <threshold>",
+          description:
+            "none, low, medium, high, or inherit (clear the ceiling)",
+          required: true,
+          choices: ["none", "low", "medium", "high", "inherit"],
+        },
+      ],
+      helpText: `
+Sets the highest risk this contact can take without asking the owner.
+The stored vocabulary is none, low, medium, or high. inherit clears the
+ceiling so the contact follows room and trust-class settings.
+
+This is a dedicated write for the ceiling. There is no general
+contacts create/update/delete verb here.
+
+Examples:
+  $ assistant contacts set-threshold abc-123 --threshold high
+  $ assistant contacts set-threshold abc-123 --threshold inherit
+  $ assistant contacts set-threshold abc-123 --threshold none --json`,
     },
     {
       name: "prompt",
